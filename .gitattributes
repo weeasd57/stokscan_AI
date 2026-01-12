@@ -1,0 +1,7 @@
+symbols_data/*.json filter=lfs diff=lfs merge=lfs -text
+*.png filter=lfs diff=lfs merge=lfs -text
+*.jpg filter=lfs diff=lfs merge=lfs -text
+*.ico filter=lfs diff=lfs merge=lfs -text
+*.pkl filter=lfs diff=lfs merge=lfs -text
+api/models/*.pkl !text !filter !merge !diff
+api/symbols_data/*.json !text !filter !merge !diff
