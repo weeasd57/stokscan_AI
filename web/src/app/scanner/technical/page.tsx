@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { Sliders, Search, Loader2, Globe, Database, TrendingUp, X, Filter, Bookmark, BookmarkCheck, ArrowLeftRight, ChevronLeft, ChevronRight, BarChart3, PieChart, Landmark, Coins, Scale, Percent, Minus, Plus, Info, LayoutTemplate, Settings2 } from "lucide-react";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useWatchlist } from "@/contexts/WatchlistContext";
@@ -142,7 +142,7 @@ export default function TechnicalScannerPage() {
             <button
                 onClick={onClick}
                 className={`
-                    h-10 px-4 rounded-xl border flex items-center gap-2 text-xs font-bold transition-all shrink-0
+                    h-8 sm:h-10 px-2.5 sm:px-4 rounded-lg sm:rounded-xl border flex items-center gap-1.5 sm:gap-2 text-[10px] sm:text-xs font-bold transition-all shrink-0 active:scale-95
                     ${active
                         ? "bg-blue-600/10 border-blue-500/30 text-blue-400"
                         : "bg-zinc-900/50 border-white/10 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200 hover:border-white/20"}
@@ -155,14 +155,14 @@ export default function TechnicalScannerPage() {
     }
 
     return (
-        <div className="flex flex-col gap-0 relative min-h-[calc(100vh-100px)] bg-black/20 rounded-3xl overflow-hidden border border-white/5">
+        <div className="flex flex-col gap-0 relative min-h-[calc(100vh-100px)] bg-black/20 rounded-2xl sm:rounded-3xl overflow-hidden border border-white/5">
             {/* --- TradingView-Style Header --- */}
-            <div className="flex flex-col gap-1 p-6 pb-4 border-b border-white/5 bg-zinc-950/40 backdrop-blur-xl">
+            <div className="flex flex-col gap-1 px-4 py-3 sm:p-6 sm:pb-4 border-b border-white/5 bg-zinc-950/40 backdrop-blur-xl">
                 <div className="flex items-center gap-3">
-                    <h1 className="text-2xl font-black text-white tracking-tight">Stock Screener</h1>
-                    {loading && <Loader2 className="h-5 w-5 animate-spin text-blue-500" />}
+                    <h1 className="text-lg sm:text-2xl font-black text-white tracking-tight">Stock Screener</h1>
+                    {loading && <Loader2 className="h-4 w-4 sm:h-5 sm:w-5 animate-spin text-blue-500" />}
                 </div>
-                <div className="flex items-center gap-2 text-sm">
+                <div className="flex items-center gap-2 text-xs sm:text-sm">
                     <span className="text-zinc-600 font-bold">All stocks</span>
                     {scannedCount > 0 && (
                         <span className="text-zinc-500 text-xs">
@@ -172,18 +172,18 @@ export default function TechnicalScannerPage() {
                 </div>
             </div>
 
-            <div className="px-6 pt-6">
+            <div className="px-4 pt-4 sm:px-6 sm:pt-6">
                 <ScannerTemplates onSelect={applyTemplate} />
             </div>
 
             {/* --- Inline Filter Bar --- */}
-            <div className="flex items-center gap-3 px-6 py-4 border-b border-white/5 bg-zinc-950/20 overflow-x-auto no-scrollbar">
+            <div className="flex items-center gap-2 sm:gap-3 px-3 sm:px-6 py-3 sm:py-4 border-b border-white/5 bg-zinc-950/20 overflow-x-auto no-scrollbar">
                 {/* Country Selector */}
                 <button
                     onClick={() => setShowCountryDialog(true)}
-                    className="h-10 flex items-center gap-2 rounded-xl border border-white/10 bg-zinc-900/50 px-4 text-sm font-bold text-zinc-200 hover:bg-zinc-800 hover:border-white/20 transition-all shrink-0"
+                    className="h-8 sm:h-10 flex items-center gap-1.5 sm:gap-2 rounded-lg sm:rounded-xl border border-white/10 bg-zinc-900/50 px-3 sm:px-4 text-xs sm:text-sm font-bold text-zinc-200 hover:bg-zinc-800 hover:border-white/20 transition-all shrink-0"
                 >
-                    <Globe className="h-4 w-4 text-blue-500" />
+                    <Globe className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-blue-500" />
                     <span className="tracking-wide">{country}</span>
                 </button>
 
@@ -248,27 +248,27 @@ export default function TechnicalScannerPage() {
                 />
 
                 {/* Add More Filter Button */}
-                <button className="h-10 w-10 flex items-center justify-center rounded-xl border border-white/10 bg-zinc-900/50 text-zinc-400 hover:bg-zinc-800 hover:text-white hover:border-white/20 transition-all shrink-0">
-                    <Plus className="h-4 w-4" />
+                <button className="h-8 sm:h-10 w-8 sm:w-10 flex items-center justify-center rounded-lg sm:rounded-xl border border-white/10 bg-zinc-900/50 text-zinc-400 hover:bg-zinc-800 hover:text-white hover:border-white/20 transition-all shrink-0">
+                    <Plus className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
                 </button>
             </div>
 
             {/* --- Tab Navigation --- */}
-            <div className="flex items-center gap-2 px-6 py-3 border-b border-white/5 bg-zinc-950/10 overflow-x-auto no-scrollbar">
-                <div className="flex items-center gap-1.5 p-1 rounded-xl bg-zinc-900/40 border border-white/5 shrink-0">
+            <div className="flex items-center gap-2 px-3 sm:px-6 py-2 sm:py-3 border-b border-white/5 bg-zinc-950/10 overflow-x-auto no-scrollbar">
+                <div className="flex items-center gap-0.5 sm:gap-1.5 p-0.5 sm:p-1 rounded-xl bg-zinc-900/40 border border-white/5 w-full sm:w-auto">
                     {TABS.map((tab) => (
                         <button
                             key={tab.id}
                             onClick={() => setTechScanner(prev => ({ ...prev, currentTab: tab.id as any }))}
                             className={`
-                                h-9 px-4 flex items-center gap-2 rounded-lg text-xs font-black uppercase tracking-widest transition-all
+                                relative h-8 sm:h-9 px-2.5 sm:px-4 flex-1 sm:flex-initial flex items-center justify-center sm:justify-start gap-1.5 sm:gap-2 rounded-lg text-[10px] sm:text-xs font-black uppercase tracking-wider sm:tracking-widest transition-all duration-200
                                 ${currentTab === tab.id
                                     ? "bg-blue-600 text-white shadow-lg shadow-blue-600/20"
-                                    : "text-zinc-500 hover:text-white hover:bg-white/5"}
+                                    : "text-zinc-500 hover:text-white hover:bg-white/5 active:scale-95"}
                             `}
                         >
-                            <tab.icon className="w-3.5 h-3.5" />
-                            {tab.label}
+                            <tab.icon className="w-3.5 h-3.5 sm:w-3.5 sm:h-3.5 shrink-0" />
+                            <span className="hidden xs:inline sm:inline">{tab.label}</span>
                         </button>
                     ))}
                 </div>
@@ -453,22 +453,22 @@ export default function TechnicalScannerPage() {
 
                 {/* --- Pagination Footer --- */}
                 {totalPages > 1 && (
-                    <div className="px-8 py-4 border-t border-white/5 bg-zinc-950/80 backdrop-blur-md flex items-center justify-between z-30">
+                    <div className="px-4 sm:px-8 py-3 sm:py-4 border-t border-white/5 bg-zinc-950/80 backdrop-blur-md flex flex-col sm:flex-row items-center justify-between gap-3 sm:gap-0 z-30">
                         <div className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500">
                             Page <span className="text-white">{currentPage}</span> / <span className="text-white">{totalPages}</span>
                         </div>
-                        <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-2 sm:gap-3 w-full sm:w-auto">
                             <button
                                 disabled={currentPage === 1}
                                 onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                                className="h-10 px-6 rounded-xl border border-white/5 flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-zinc-500 hover:text-white hover:bg-zinc-800 transition-all disabled:opacity-20"
+                                className="flex-1 sm:flex-initial h-9 sm:h-10 px-4 sm:px-6 rounded-xl border border-white/5 flex items-center justify-center gap-2 text-[10px] font-black uppercase tracking-widest text-zinc-500 hover:text-white hover:bg-zinc-800 transition-all disabled:opacity-20 active:scale-95"
                             >
                                 <ChevronLeft className="w-4 h-4" /> Prev
                             </button>
                             <button
                                 disabled={currentPage === totalPages}
                                 onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                                className="h-10 px-6 rounded-xl border border-white/5 flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-zinc-500 hover:text-white hover:bg-zinc-800 transition-all disabled:opacity-20"
+                                className="flex-1 sm:flex-initial h-9 sm:h-10 px-4 sm:px-6 rounded-xl border border-white/5 flex items-center justify-center gap-2 text-[10px] font-black uppercase tracking-widest text-zinc-500 hover:text-white hover:bg-zinc-800 transition-all disabled:opacity-20 active:scale-95"
                             >
                                 Next <ChevronRight className="w-4 h-4" />
                             </button>
@@ -480,24 +480,24 @@ export default function TechnicalScannerPage() {
                 {selectedStock && (
                     <>
                         <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[200] animate-in fade-in duration-300" onClick={() => setTechScanner(prev => ({ ...prev, selectedStock: null }))} />
-                        <div className="fixed inset-y-0 right-0 w-[450px] bg-zinc-950 border-l border-white/10 z-[201] animate-in slide-in-from-right duration-500 flex flex-col shadow-[0_0_100px_rgba(0,0,0,0.8)]">
-                            <div className="p-8 pb-4 flex items-center justify-between border-b border-white/5 bg-white/[0.02]">
-                                <div className="flex items-center gap-5">
+                        <div className="fixed inset-y-0 right-0 w-full sm:w-[420px] md:w-[450px] bg-zinc-950 border-l border-white/10 z-[201] animate-in slide-in-from-right duration-500 flex flex-col shadow-[0_0_100px_rgba(0,0,0,0.8)]">
+                            <div className="p-4 sm:p-8 pb-3 sm:pb-4 flex items-center justify-between border-b border-white/5 bg-white/[0.02]">
+                                <div className="flex items-center gap-3 sm:gap-5">
                                     <StockLogo symbol={selectedStock.symbol} logoUrl={selectedStock.logo_url} size="xl" />
-                                    <div className="flex flex-col gap-1">
-                                        <h2 className="text-4xl font-black text-white font-mono tracking-tighter leading-none">{selectedStock.symbol}</h2>
-                                        <p className="text-[10px] font-black uppercase tracking-[0.3em] text-zinc-500">{selectedStock.name}</p>
+                                    <div className="flex flex-col gap-0.5 sm:gap-1">
+                                        <h2 className="text-2xl sm:text-4xl font-black text-white font-mono tracking-tighter leading-none">{selectedStock.symbol}</h2>
+                                        <p className="text-[9px] sm:text-[10px] font-black uppercase tracking-[0.2em] sm:tracking-[0.3em] text-zinc-500 max-w-[180px] sm:max-w-none truncate">{selectedStock.name}</p>
                                     </div>
                                 </div>
                                 <button
                                     onClick={() => setTechScanner(prev => ({ ...prev, selectedStock: null }))}
-                                    className="p-3 rounded-2xl bg-zinc-900/50 text-zinc-500 hover:text-white hover:bg-zinc-800 transition-all border border-white/5"
+                                    className="p-2.5 sm:p-3 rounded-xl sm:rounded-2xl bg-zinc-900/50 text-zinc-500 hover:text-white hover:bg-zinc-800 transition-all border border-white/5 active:scale-95"
                                 >
                                     <X className="h-5 w-5" />
                                 </button>
                             </div>
 
-                            <div className="flex-1 overflow-y-auto custom-scrollbar p-8 space-y-10">
+                            <div className="flex-1 overflow-y-auto custom-scrollbar p-4 sm:p-8 space-y-6 sm:space-y-10">
                                 {/* Key Stats Grid */}
                                 <div className="grid grid-cols-2 gap-4">
                                     <div className="p-6 bg-zinc-900/40 rounded-3xl border border-white/5 space-y-1 relative overflow-hidden group">
@@ -574,10 +574,10 @@ export default function TechnicalScannerPage() {
                                 </div>
                             </div>
 
-                            <div className="p-8 border-t border-white/5 bg-white/[0.02] flex gap-4">
+                            <div className="p-4 sm:p-8 border-t border-white/5 bg-white/[0.02] flex gap-3 sm:gap-4">
                                 <button
                                     onClick={() => addSymbolToCompare(selectedStock.symbol)}
-                                    className="flex-1 h-14 flex items-center justify-center gap-3 rounded-2xl bg-blue-600 hover:bg-blue-500 text-white font-black text-[11px] uppercase tracking-[0.2em] shadow-2xl shadow-blue-500/20 transition-all group"
+                                    className="flex-1 h-12 sm:h-14 flex items-center justify-center gap-2 sm:gap-3 rounded-xl sm:rounded-2xl bg-blue-600 hover:bg-blue-500 text-white font-black text-[10px] sm:text-[11px] uppercase tracking-[0.15em] sm:tracking-[0.2em] shadow-2xl shadow-blue-500/20 transition-all group active:scale-[0.98]"
                                 >
                                     <ArrowLeftRight className="h-4 w-4 group-hover:rotate-12 transition-transform" />
                                     Compare
@@ -587,7 +587,7 @@ export default function TechnicalScannerPage() {
                                         if (isSaved(selectedStock.symbol)) removeSymbolBySymbol(selectedStock.symbol);
                                         else saveSymbol({ symbol: selectedStock.symbol, name: selectedStock.name, source: "tech_scanner", metadata: {} });
                                     }}
-                                    className="w-14 h-14 flex items-center justify-center rounded-2xl border border-white/10 bg-zinc-900 group"
+                                    className="w-12 h-12 sm:w-14 sm:h-14 flex items-center justify-center rounded-xl sm:rounded-2xl border border-white/10 bg-zinc-900 group active:scale-95"
                                 >
                                     {isSaved(selectedStock.symbol) ? (
                                         <BookmarkCheck className="h-5 w-5 text-blue-400" />

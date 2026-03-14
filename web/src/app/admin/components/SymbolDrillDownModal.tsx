@@ -1,6 +1,7 @@
 "use client";
 
-import { TrendingUp, FileText, Download, X, Loader2, Database, Info, Zap } from "lucide-react";
+import { toast } from "sonner";
+import { TrendingUp, FileText, Download, X, Loader2, Database, Info, Zap, Trash2 } from "lucide-react";
 import { useState, useMemo } from "react";
 
 interface SymbolDrillDownModalProps {
@@ -46,6 +47,34 @@ export default function SymbolDrillDownModal({
     const [lastSyncEnd, setLastSyncEnd] = useState<string>("");
     const [lastPriceStart, setLastPriceStart] = useState<string>("");
     const [lastPriceEnd, setLastPriceEnd] = useState<string>("");
+    const [isDeleting, setIsDeleting] = useState(false);
+
+    const handleDeleteSelected = async () => {
+        if (!selectedDbEx || selectedDrillSymbols.size === 0) return;
+        if (!confirm(`Delete price data for ${selectedDrillSymbols.size} symbol(s) from ${selectedDbEx}?\nThis cannot be undone.`)) return;
+        setIsDeleting(true);
+        try {
+            const res = await fetch(`/api/admin/delete-prices`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    exchange: selectedDbEx,
+                    symbols: Array.from(selectedDrillSymbols),
+                    mode: drillDownMode
+                })
+            });
+            if (!res.ok) throw new Error(await res.text());
+            const data = await res.json();
+            toast.success(`Deleted ${selectedDrillSymbols.size} symbol(s) — ${data.deleted_rows ?? 0} rows removed`);
+            // Remove deleted symbols from local table state
+            setDbSymbols(dbSymbols.filter(s => !selectedDrillSymbols.has(s.symbol)));
+            setSelectedDrillSymbols(new Set());
+        } catch (e: any) {
+            toast.error("Delete failed: " + (e.message || "Unknown error"));
+        } finally {
+            setIsDeleting(false);
+        }
+    };
 
     const filteredDbSymbols = useMemo(() => {
         return dbSymbols.filter(s => {
@@ -281,6 +310,14 @@ export default function SymbolDrillDownModal({
                     {selectedDrillSymbols.size > 0 && (
                         <>
                             <button
+                                onClick={handleDeleteSelected}
+                                disabled={isDeleting}
+                                className="px-4 py-2 rounded-xl bg-red-500/10 border border-red-500/30 text-[10px] font-bold text-red-400 hover:bg-red-600 hover:text-white transition-all flex items-center gap-2 disabled:opacity-50"
+                            >
+                                {isDeleting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                                DELETE SELECTED
+                            </button>
+                            <button
                                 onClick={() => {
                                     if (!selectedDbEx) return;
                                     handleRecalculateIndicators(selectedDbEx, Array.from(selectedDrillSymbols));
@@ -301,7 +338,6 @@ export default function SymbolDrillDownModal({
                                     setSelectedSymbols(newSelection);
                                     setActiveMainTab("data");
                                     setSelectedDbEx(null);
-                                    // toast.success(`Added ${selectedDrillSymbols.size} symbols to Data Manager queue`);
                                 }}
                                 className="px-4 py-2 rounded-xl bg-indigo-600 text-white text-[10px] font-bold hover:bg-indigo-500 transition-all flex items-center gap-2"
                             >

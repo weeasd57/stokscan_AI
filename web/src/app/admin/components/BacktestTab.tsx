@@ -40,6 +40,14 @@ interface BacktestTrade {
 
 
 
+const formatPct = (val: any, precision = 1) => {
+  if (val === undefined || val === null || val === "" || Number.isNaN(Number(val))) return "—";
+  const n = Number(val);
+  if (n === 0) return "0.0%";
+  if (Math.abs(n) < 0.05) return `${n.toFixed(4)}%`;
+  return `${n.toFixed(precision)}%`;
+};
+
 const CouncilAuditPanel = ({ bt }: { bt: any }) => {
   const rejectedProfitable = bt.rejected_profitable_trades || 0;
 
@@ -155,8 +163,10 @@ const BacktestAnalysisModal = ({ isOpen, onClose, bt, trades, loading }: { isOpe
   const filteredTrades = React.useMemo(() => {
     if (!showFilteredOnly) return trades;
     return (trades || []).filter(t => {
-      const status = t.features?.backtest_status || t.Status || t.status || 'Accepted';
-      return status === 'Accepted';
+      // If no backtest_status set, default to treating as accepted
+      const status = t.features?.backtest_status || t.features?.Status || t.Status || t.status;
+      if (!status) return true; // No status = accept all
+      return String(status).toLowerCase() === 'accepted';
     });
   }, [trades, showFilteredOnly]);
 
@@ -177,9 +187,15 @@ const BacktestAnalysisModal = ({ isOpen, onClose, bt, trades, loading }: { isOpe
                   {bt.model_name?.replace(".pkl", "")}
                 </h3>
                 <span className="text-zinc-500 text-[9px] font-black px-1.5 py-0.5 rounded bg-white/5 border border-white/5 flex-shrink-0 uppercase tracking-wider">{bt.exchange}</span>
+                {actualRange && actualRange.days < 2 && (
+                  <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-red-500/20 border border-red-500/20 text-red-400 text-[8px] font-black uppercase whitespace-nowrap">
+                    <AlertTriangle className="h-2.5 w-2.5" />
+                    Short Window
+                  </div>
+                )}
               </div>
               <p className="text-[9px] text-zinc-500 mt-1 uppercase tracking-[0.2em] font-black truncate opacity-60">
-                Interactive Analysis Layer
+                Simulation Radar
               </p>
             </div>
           </div>
@@ -251,12 +267,12 @@ const BacktestAnalysisModal = ({ isOpen, onClose, bt, trades, loading }: { isOpe
                     </div>
                     <div className="space-y-1">
                       <span className="text-[9px] text-zinc-500 font-bold uppercase">Win Rate</span>
-                      <div className="text-lg font-mono font-black text-white">{bt.pre_council_win_rate ? `${bt.pre_council_win_rate.toFixed(1)}%` : (bt.win_rate ? `${Number(bt.win_rate).toFixed(1)}%` : '—')}</div>
+                      <div className="text-lg font-mono font-black text-white">{formatPct(bt.pre_council_win_rate)}</div>
                     </div>
                     <div className="space-y-1">
                       <span className="text-[9px] text-zinc-500 font-bold uppercase">Profit</span>
                       <div className={`text-lg font-mono font-black ${(Number(bt.pre_council_profit_pct) || Number(bt.profit_pct) || 0) >= 0 ? "text-emerald-400" : "text-red-400"}`}>
-                        {bt.pre_council_profit_pct ? `${Number(bt.pre_council_profit_pct).toFixed(1)}%` : (bt.profit_pct ? `${Number(bt.profit_pct).toFixed(1)}%` : '—')}
+                        {formatPct(bt.pre_council_profit_pct || bt.profit_pct)}
                       </div>
                     </div>
                   </div>
@@ -275,12 +291,12 @@ const BacktestAnalysisModal = ({ isOpen, onClose, bt, trades, loading }: { isOpe
                     </div>
                     <div className="space-y-1">
                       <span className="text-[9px] text-indigo-400/60 font-bold uppercase">Win Rate</span>
-                      <div className="text-lg font-mono font-black text-emerald-400">{bt.post_council_win_rate ? `${bt.post_council_win_rate.toFixed(1)}%` : (bt.win_rate ? `${Number(bt.win_rate).toFixed(1)}%` : '—')}</div>
+                      <div className="text-lg font-mono font-black text-emerald-400">{formatPct(bt.post_council_win_rate || bt.win_rate)}</div>
                     </div>
                     <div className="space-y-1">
                       <span className="text-[9px] text-indigo-400/60 font-bold uppercase">Profit</span>
                       <div className={`text-lg font-mono font-black ${(Number(bt.post_council_profit_pct) || Number(bt.profit_pct) || 0) >= 0 ? "text-emerald-400" : "text-red-400"}`}>
-                        {bt.post_council_profit_pct ? `${Number(bt.post_council_profit_pct).toFixed(1)}%` : (bt.profit_pct ? `${Number(bt.profit_pct).toFixed(1)}%` : '—')}
+                        {formatPct(bt.post_council_profit_pct || bt.profit_pct)}
                       </div>
                     </div>
                   </div>
@@ -2347,10 +2363,8 @@ export default function BacktestTab() {
                                 className="flex flex-col items-center group/trades hover:bg-white/5 p-2 rounded-xl transition-all"
                                 title="Click to view full analysis and trades"
                               >
-                                <span className="text-zinc-500 text-[8px] font-bold uppercase mb-0.5 group-hover/trades:text-indigo-400 transition-colors">Pre/Post</span>
+                                <span className="text-zinc-500 text-[8px] font-bold uppercase mb-0.5 group-hover/trades:text-indigo-400 transition-colors">Trades</span>
                                 <span className="font-bold text-zinc-300">
-                                  {bt.pre_council_trades || bt.total_trades}
-                                  <span className="mx-1 opacity-20">/</span>
                                   <span className="text-indigo-400 group-hover/trades:text-indigo-300 transition-colors">{bt.post_council_trades || bt.total_trades}</span>
                                 </span>
                               </button>

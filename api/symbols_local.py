@@ -106,8 +106,6 @@ def search_symbols(
     else:
         haystack = load_all_symbols()
 
-    from api.stock_ai import batch_check_local_cache
-    
     # 1. First pass: filter by query and exchange
     candidates = []
     ex_low = exchange.lower() if exchange else None
@@ -120,25 +118,26 @@ def search_symbols(
         
         if not query or query in sym.lower() or query in name.lower():
             candidates.append((sym, ex, name, row.get("Country", row.get("country", ""))))
-            # Since we sort by hasLocal later, we might need more than 'limit' 
-            # to find the ones that ARE local. 
-            # But normally we don't want to process 100k if limit is 50.
-            # However, if limit is 100k, we process all.
             if len(candidates) >= limit * 2 and limit < 1000:
                 break
 
-    # 2. Batch check local status
-    symbol_ex_list = [(c[0], c[1]) for c in candidates]
-    sync_status = batch_check_local_cache(symbol_ex_list)
+    # 2. Try to check local cache status; fall back gracefully if unavailable
+    try:
+        from api.stock_ai import batch_check_local_cache
+        symbol_ex_list = [(c[0], c[1]) for c in candidates]
+        sync_status = batch_check_local_cache(symbol_ex_list)
+    except Exception:
+        # batch_check_local_cache may not exist in all deployments — default False
+        sync_status = {}
 
     # 3. Build final output
     out = []
-    for sym, ex, name, country in candidates:
+    for sym, ex, name, country_val in candidates:
         out.append({
             "symbol": sym,
             "exchange": ex,
             "name": name,
-            "country": country,
+            "country": country_val,
             "hasLocal": sync_status.get((sym, ex), False)
         })
 

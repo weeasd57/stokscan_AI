@@ -131,7 +131,7 @@ class BotConfig:
     trading_mode: str = "aggressive"  # "defensive" | "aggressive" | "hybrid"
 
     # Model Paths
-    king_model_path: str = "api/models/KING_CRYPTO 👑.pkl"
+    king_model_path: str = "api/models/KING_CRYPTO.pkl"
     council_model_path: str = "api/models/COUNCIL_CRYPTO.pkl"
 
     # Cornix Direct Integration
@@ -1243,7 +1243,13 @@ class LiveBot:
         ts = datetime.now().strftime("%H:%M:%S")
         line = f"[{self.config.name}] [{ts}] {msg}"
         with self._lock:
-            print(line) # Keep printing to stdout for convenience
+            try:
+                print(line) # Keep printing to stdout for convenience
+            except UnicodeEncodeError:
+                # Windows console might fail to print emojis or special characters if codepage is not utf-8
+                print(line.encode("ascii", "replace").decode("ascii"))
+            except Exception:
+                pass
             self._logs.append(line)
             
         # NEW: Persist to Supabase
@@ -1600,7 +1606,7 @@ class LiveBot:
 
             trading_mode=str(_read_env("TRADING_MODE", "hybrid") or "hybrid").strip().lower(),
 
-            king_model_path=str(_read_env("LIVE_KING_MODEL_PATH", "api/models/KING_CRYPTO 👑.pkl")),
+            king_model_path=str(_read_env("LIVE_KING_MODEL_PATH", "api/models/KING_CRYPTO.pkl")),
             council_model_path=str(_read_env("LIVE_COUNCIL_MODEL_PATH", "api/models/COUNCIL_CRYPTO.pkl")),
             max_open_positions=int(float(_read_env("LIVE_MAX_OPEN_POSITIONS", "5") or 5)),
             cornix_webhook_url=_read_env("CORNIX_WEBHOOK_URL"),
@@ -1736,19 +1742,24 @@ class LiveBot:
         from api.backtest_radar import load_model, reconstruct_meta_model
         from api.council_validator import load_council_validator_from_path
 
-        self._log(f"Loading KING model from {self.config.king_model_path}...")
-        king_art = load_model(self.config.king_model_path)
+        king_path = str(self.config.king_model_path).strip().strip('"').strip("'").replace("👑", "").replace("💎", "").replace("🌋", "").replace(" ", "").replace(".pkl", "") + ".pkl"
+        # Wait, removing all spaces is dangerous if the path legitimately has spaces.
+        # Just remove the emojis.
+        king_path = str(self.config.king_model_path).strip().strip('"').strip("'").replace("👑", "").replace("💎", "").replace("🌋", "").replace(" .pkl", ".pkl").replace("  .pkl", ".pkl")
+        self._log(f"Loading KING model from {repr(king_path)}...")
+        king_art = load_model(king_path)
         if king_art is None:
-            raise ValueError(f"Failed to load KING model from {self.config.king_model_path}")
-        
+            raise ValueError(f"Failed to load KING model from {king_path}")
+
         king_clf = reconstruct_meta_model(king_art)
         if king_clf is None:
              # Fallback if it's already a classifier
              king_clf = king_art
 
-        self._log(f"Loading COUNCIL model from {self.config.council_model_path}...")
+        council_path = str(self.config.council_model_path).strip().strip('"').strip("'").replace("👑", "").replace("💎", "").replace("🌋", "").replace(" .pkl", ".pkl").replace("  .pkl", ".pkl")
+        self._log(f"Loading COUNCIL model from {repr(council_path)}...")
         # Note: load_council_validator_from_path handles its own loading internal to the pkl
-        validator = load_council_validator_from_path(self.config.council_model_path)
+        validator = load_council_validator_from_path(council_path)
         if validator is None:
             # We don't raise here because COUNCIL might be optional if use_council is False,
             # but usually it's better to have it if configured.

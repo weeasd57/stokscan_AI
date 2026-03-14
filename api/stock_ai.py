@@ -551,8 +551,8 @@ def _infer_symbol_exchange(ticker: str, exchange_hint: Optional[str] = None) -> 
     """
     t = ticker.strip().upper()
     
-    # Mapping table for country names to exchange codes
-    country_to_ex = {
+    # Mapping table for country/market names to exchange codes
+    market_to_ex = {
         "egypt": "EGX",
         "egx": "EGX",
         "ca": "EGX",
@@ -561,7 +561,11 @@ def _infer_symbol_exchange(ticker: str, exchange_hint: Optional[str] = None) -> 
         "usa": "US",
         "us": "US",
         "argentina": "BA",
-        "brazil": "SA",
+        "brazil": "SA",      # Brazil (B3 Sao Paulo)
+        "sa": "SA",          # Default SA to Brazil (B3) for legacy
+        "saudi": "SR",       # Saudi Arabia (Tadawul)
+        "saudi arabia": "SR",
+        "sr": "SR",
         "south korea": "KQ",
         "canada": "TO",
         "uk": "LSE",
@@ -569,15 +573,15 @@ def _infer_symbol_exchange(ticker: str, exchange_hint: Optional[str] = None) -> 
         "germany": "F"
     }
 
-    # 1. Split by dot if present
+    # 1. Split by dot if present (e.g. AAPL.US)
     if "." in t:
         parts = t.split(".")
         s = parts[0]
         e = parts[1]
         # Map known variations
-        if e.lower() in country_to_ex:
-            e = country_to_ex[e.lower()]
-        return s, e
+        if e.lower() in market_to_ex:
+            e = market_to_ex[e.lower()]
+        return s, e.upper()
         
     # 2. Use hint if provided
     if exchange_hint:
@@ -774,17 +778,15 @@ def _get_exchange_bulk_data(
     if not exchange:
         return {}
 
-    MIN_BULK_ROWS = 100000
+    MIN_BULK_ROWS = 5000 
     now = time.time()
     cache_key = f"{exchange.upper()}_{from_date or 'ALL'}_{to_date or 'NOW'}_{bypass_min_limit}"
 
     # 1. Simple cache check
     cached = _EXCHANGE_BULK_CACHE.get(cache_key)
     if cached and (now - cached.get("ts", 0) < _EXCHANGE_BULK_TTL_SECONDS):
-        # Suppressed redundant logs to keep terminal clean
         return cached.get("data", {})
 
-    # 2. Get or create a lock for this specific cache key to prevent "loop refetch"
     with _GLOBAL_LOAD_LOCK:
         if cache_key not in _BULK_LOAD_LOCKS:
             _BULK_LOAD_LOCKS[cache_key] = Lock()
@@ -794,63 +796,52 @@ def _get_exchange_bulk_data(
         # Re-check cache after acquiring lock
         cached = _EXCHANGE_BULK_CACHE.get(cache_key)
         if cached and (time.time() - cached.get("ts", 0) < _EXCHANGE_BULK_TTL_SECONDS):
-            # Suppressed redundant logs (locked)
             return cached.get("data", {})
 
         max_attempts = 3
-        page_size = 5000
-        max_workers = 10
+        page_size = 10000 
+        max_workers = 5   
         last_err = None
 
         for attempt in range(1, max_attempts + 1):
             _init_supabase()
-            if not supabase:
-                return {}
+            if not supabase: return {}
 
-            print(f"DEBUG: Starting bulk load for {cache_key} (from_date={from_date})")
             start_time = time.time()
-
             try:
-                # 1. Build base query with exact count request in select
+                # 1. Build base query
                 effective_from_date = from_date
 
                 def _build_query(fd: Optional[str]):
                     q = supabase.table("stock_prices") \
                         .select("symbol,exchange,date,open,high,low,close,volume", count="exact") \
                         .eq("exchange", exchange.upper())
-                    if fd:
-                        q = q.gte("date", fd)
-                    if to_date:
-                        q = q.lte("date", to_date)
+                    if fd: q = q.gte("date", fd)
+                    if to_date: q = q.lte("date", to_date)
                     return q.order("symbol", desc=False).order("date", desc=False)
 
                 # 2. Fetch first page + total count
-                fetch_start = time.time()
                 res0 = _build_query(effective_from_date).range(0, page_size - 1).execute()
                 all_rows = res0.data or []
                 total_count = res0.count or len(all_rows)
 
-                # If the window is too small, expand to full history (unless bypassed)
+                # Expand to full history if window is too small (e.g. for SMA50/200)
                 if not bypass_min_limit and from_date and total_count < MIN_BULK_ROWS:
-                    print(
-                        f"DEBUG: Bulk rows {total_count} < {MIN_BULK_ROWS} for {cache_key}. "
-                        f"Expanding to full history.",
-                        flush=True
-                    )
                     effective_from_date = None
                     res0 = _build_query(effective_from_date).range(0, page_size - 1).execute()
                     all_rows = res0.data or []
                     total_count = res0.count or len(all_rows)
                 
-                print(f"DEBUG: Starting Parallel Bulk Load for {exchange.upper()} ({total_count} total rows)")
+                print(f"DEBUG: Starting Parallel Bulk Load for {exchange.upper()} ({total_count} rows total)")
 
                 if total_count > page_size:
                     offsets = range(page_size, total_count, page_size)
                     
-                    def _fetch_page(off, retries=5): # Increased retries
+                    def _fetch_page(off, retries=5):
                         for r_attempt in range(retries):
                             try:
-                                # Re-build query to avoid any shared state issues
+                                # Throttle to protect IO Budget
+                                time.sleep(0.1)
                                 r = supabase.table("stock_prices") \
                                     .select("symbol,exchange,date,open,high,low,close,volume") \
                                     .eq("exchange", exchange.upper())
@@ -862,28 +853,17 @@ def _get_exchange_bulk_data(
                                 return res.data or []
                             except Exception as e:
                                 wait = (r_attempt + 1) * 3
-                                if r_attempt > 1: # Only log after first failure to reduce noise
-                                    print(f"DEBUG: Retry {r_attempt+1}/{retries} for offset {off} due to: {e}. Waiting {wait}s...")
                                 time.sleep(wait)
-                        print(f"ERROR: Failed to fetch page at offset {off} after {retries} attempts.")
-                        return []
+                        raise Exception(f"Failed to fetch page at offset {off} after {retries} retries")
 
-                    # Fetch remaining pages in parallel
                     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                        futures = [executor.submit(_fetch_page, o) for o in offsets]
+                        futures = {executor.submit(_fetch_page, o): o for o in offsets}
                         for f in as_completed(futures):
-                            all_rows.extend(f.result())
+                            p_data = f.result()
+                            if p_data: all_rows.extend(p_data)
 
-                fetch_duration = time.time() - fetch_start
-                print(f"DEBUG: Supabase Parallel Fetch complete. Took {fetch_duration:.2f}s for {len(all_rows)} rows across {len(set(r['symbol'] for r in all_rows))} symbols")
-
-                if not all_rows:
-                    return {}
-
-                process_start = time.time()
                 df_all = pd.DataFrame(all_rows)
-                if df_all.empty:
-                    return {}
+                if df_all.empty: return {}
 
                 df_all["date"] = pd.to_datetime(df_all["date"], errors="coerce")
                 df_all = df_all.dropna(subset=["date"]).sort_values(["symbol", "date"])
@@ -895,18 +875,13 @@ def _get_exchange_bulk_data(
                     data_by_symbol[str(sym).upper()] = g
 
                 _EXCHANGE_BULK_CACHE[cache_key] = {"ts": now, "data": data_by_symbol, "rows": len(df_all)}
-                total_duration = time.time() - start_time
-                print(f"DEBUG: Bulk cached {len(df_all)} rows for {cache_key} ({len(data_by_symbol)} symbols) in {total_duration:.2f}s (Processing: {time.time()-process_start:.2f}s)")
+                print(f"DEBUG: Bulk Load Complete: {len(all_rows)} rows, {len(data_by_symbol)} symbols.")
                 return data_by_symbol
             except Exception as e:
                 last_err = e
-                print(f"DEBUG: Bulk load failed for exchange {cache_key} (attempt {attempt}/{max_attempts}): {e}", flush=True)
-                # Backoff + reduce concurrency on retry
-                time.sleep(3 * attempt)
-                page_size = 500
-                max_workers = 1
+                print(f"DEBUG: Bulk load attempt {attempt} failed: {e}")
+                time.sleep(5 * attempt)
 
-        print(f"DEBUG: Bulk load failed for exchange {cache_key}: {last_err}")
         return {}
 
 
@@ -1004,33 +979,29 @@ def _get_exchange_bulk_intraday_data(
                     def _fetch_page(off, retries=5):
                         for r_attempt in range(retries):
                             try:
+                                # Throttle to protect IO Budget
+                                time.sleep(0.1)
                                 r = (
                                     supabase.table("stock_bars_intraday")
                                     .select("symbol,exchange,ts,open,high,low,close,volume")
                                     .eq("exchange", exchange.upper())
                                     .eq("timeframe", tf)
                                 )
-                                if fd:
-                                    r = r.gte("ts", fd)
-                                if td:
-                                    r = r.lte("ts", td)
+                                if fd: r = r.gte("ts", fd)
+                                if td: r = r.lte("ts", td)
                                 r = r.order("symbol", desc=False).order("ts", desc=False)
                                 res = r.range(off, off + page_size - 1).execute()
                                 return res.data or []
                             except Exception as e:
                                 wait = (r_attempt + 1) * 3
-                                if r_attempt > 1:
-                                    print(
-                                        f"DEBUG: Retry {r_attempt+1}/{retries} for intraday offset {off} due to: {e}. Waiting {wait}s..."
-                                    )
                                 time.sleep(wait)
-                        print(f"ERROR: Failed to fetch intraday page at offset {off} after {retries} attempts.")
-                        return []
+                        raise Exception(f"Failed to fetch intraday page at offset {off} after {retries} retries")
 
                     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                        futures = [executor.submit(_fetch_page, o) for o in offsets]
+                        futures = {executor.submit(_fetch_page, o): o for o in offsets}
                         for f in as_completed(futures):
-                            all_rows.extend(f.result())
+                            p_data = f.result()
+                            if p_data: all_rows.extend(p_data)
 
                 if not all_rows:
                     return {}
@@ -1104,6 +1075,9 @@ def get_supabase_inventory() -> List[Dict[str, Any]]:
     except Exception as e:
         print(f"Warning: Primary inventory stats RPC failed: {e}. Falling back to Fundamentals + Local stats.")
 
+    # 2. Get exchange-to-country mapping from fundamentals if possible (Shared)
+    mapping = {}
+    
     # 1b. Check CRYPTO exchange in stock_bars_intraday specifically (User has 200+ symbols)
     try:
         crypto_exists = any(s.get('exchange') == 'CRYPTO' and s.get('price_count', 0) > 0 for s in stats)
@@ -1121,8 +1095,6 @@ def get_supabase_inventory() -> List[Dict[str, Any]]:
     except Exception as e:
         print(f"Warning: CRYPTO intraday inventory check failed: {e}")
 
-    # 2. Get exchange-to-country mapping from fundamentals if possible (Shared)
-    mapping = {}
     meta_res = None
     try:
         def _fetch_meta(sb):
@@ -1171,6 +1143,27 @@ def get_supabase_inventory() -> List[Dict[str, Any]]:
         except Exception as e:
             print(f"Warning: Fallback stats generation failed: {e}")
 
+    # 3b. ADDITIONAL FALLBACK: query stock_prices directly for exchanges missing from stats
+    # This catches exchanges like EGX, SA, BA that have prices but no fundamentals
+    try:
+        price_exchanges_in_stats = {s.get("exchange") for s in stats if s.get("price_count", 0) > 0}
+        
+        # We check each exchange present in our local expected_map that isn't in stats yet
+        missing_exchanges = [ex for ex in expected_map.keys() if ex not in price_exchanges_in_stats]
+        
+        for ex in missing_exchanges:
+            # Efficient check: does this exchange exist in stock_prices?
+            check_res = supabase.table("stock_prices").select("symbol", count="exact").eq("exchange", ex).limit(1).execute()
+            if (check_res.count and check_res.count > 0) or (check_res.data):
+                stats.append({
+                    "exchange": ex,
+                    "price_count": check_res.count or 0,
+                    "fund_count": 0,
+                    "last_update": None
+                })
+    except Exception as e:
+        print(f"Warning: stock_prices direct fallback failed: {e}")
+
     try:
         # 4. Join and group (Shared Logic)
         out = []
@@ -1179,8 +1172,13 @@ def get_supabase_inventory() -> List[Dict[str, Any]]:
         for row in stats:
             ex = row.get('exchange', 'Unknown')
             expected = expected_map.get(ex, {})
-            # Enrich row
-            row['country'] = mapping.get(ex) or expected.get("country", "Unknown")
+            # Enrich row with readable country or market name
+            if ex == "SA":
+                row['country'] = "Brazil (B3)"
+            elif ex == "SR":
+                row['country'] = "Saudi Arabia"
+            else:
+                row['country'] = mapping.get(ex) or expected.get("country", "Unknown")
             
             # Dynamic expected count correction
             country_name = row['country']
@@ -1196,7 +1194,7 @@ def get_supabase_inventory() -> List[Dict[str, Any]]:
                     pass
 
             row['expected_count'] = expected.get("count", 0)
-            # Add camelCase aliases for the UI if needed
+            # Add camelCase aliases for the UI
             row['priceCount'] = row.get('price_count', 0)
             row['fundCount'] = row.get('fund_count', 0)
             row['expectedCount'] = row['expected_count']
@@ -1205,19 +1203,15 @@ def get_supabase_inventory() -> List[Dict[str, Any]]:
             out.append(row)
             mapped_exchanges.add(ex)
 
-        # 5. Add missing exchanges from local summary
+        # 5. Add missing exchanges from local summary (with 0 counts)
         for ex, expected in expected_map.items():
             if ex not in mapped_exchanges:
                 out.append({
                     "exchange": ex,
                     "country": expected["country"],
-                    "price_count": 0,
-                    "fund_count": 0,
-                    "expected_count": expected["count"],
                     "priceCount": 0,
                     "fundCount": 0,
                     "expectedCount": expected["count"],
-                    "last_update": None,
                     "lastUpdate": None
                 })
             
