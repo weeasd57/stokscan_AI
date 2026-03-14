@@ -11,13 +11,13 @@ import CountrySelectDialog from "@/components/CountrySelectDialog";
 import AdminHeader from "./components/AdminHeader";
 import DataManagerTab from "./components/DataManagerTab";
 import AIAutomationTab from "./components/AIAutomationTab";
-import TestModelTab from "./components/TestModelTab";
 import FastScannerTab from "./components/FastScannerTab";
 import BacktestTab from "./components/BacktestTab";
 import SymbolDrillDownModal from "./components/SymbolDrillDownModal";
 import RecalculateDialog from "./components/RecalculateDialog";
 import LiveBotTab from "./components/LiveBotTab";
 import PPOTrainingTab from "./components/PPOTrainingTab";
+import PPOBacktestTab from "./components/PPOBacktestTab";
 
 export default function AdminPage() {
     const { t } = useLanguage();
@@ -44,7 +44,7 @@ export default function AdminPage() {
     const [currentPage, setCurrentPage] = useState(1);
     const [pageSize, setPageSize] = useState(100);
 
-    const [activeMainTab, setActiveMainTab] = useState<"data" | "ai" | "test" | "scan" | "backtest" | "bot" | "ppo">("data");
+    const [activeMainTab, setActiveMainTab] = useState<"data" | "ai" | "scan" | "backtest" | "bot" | "ppo" | "ppo_backtest">("data");
     const [dataSourcesTab, setDataSourcesTab] = useState<"prices" | "funds">("prices");
 
     // State restoration
@@ -679,6 +679,8 @@ export default function AdminPage() {
                         isTraining={isTraining}
                         setIsTraining={setIsTraining}
                     />
+                ) : activeMainTab === "ppo_backtest" ? (
+                    <PPOBacktestTab dbInventory={dbInventory} />
                 ) : activeMainTab === "scan" ? (
                     <FastScannerTab />
                 ) : activeMainTab === "backtest" ? (
@@ -686,7 +688,9 @@ export default function AdminPage() {
                 ) : activeMainTab === "bot" ? (
                     <LiveBotTab />
                 ) : (
-                    <TestModelTab />
+                    <div className="flex items-center justify-center h-full text-zinc-500">
+                        Select a tab to view content
+                    </div>
                 )}
             </main>
 

@@ -503,11 +503,15 @@ def symbols_inventory():
 @app.get("/symbols/countries")
 def symbols_countries(source: str = Query(default="supabase")):
     try:
+        # Debugging logging
+        # with open("/tmp/country_debug.log", "a") as f:
+        #    f.write(f"DEBUG: Country fetch start. Source={source}\n")
+
         if source == "local":
             return {"countries": list_countries()}
         
-        from api.stock_ai import get_supabase_countries
         try:
+            from api.stock_ai import get_supabase_countries
             sb_countries = get_supabase_countries()
             if sb_countries:
                 return {"countries": sb_countries}
@@ -519,12 +523,18 @@ def symbols_countries(source: str = Query(default="supabase")):
             return {"countries": list_countries()}
         except Exception as loc_err:
             print(f"DEBUG ERROR: list_countries failed: {loc_err}")
-            # Absolute minimum fallback to prevent 500
             return {"countries": ["Egypt", "USA", "UK"]}
             
     except Exception as e:
         import traceback
-        traceback.print_exc()
+        err_msg = traceback.format_exc()
+        # Try to write to a place we can definitely read on Windows if /tmp fails
+        try:
+            with open("country_error.log", "w") as f:
+                f.write(err_msg)
+        except:
+            pass
+        print(f"CRITICAL ERROR in symbols_countries: {e}")
         raise HTTPException(status_code=500, detail=f"Countries fetch failed: {str(e)}")
 
 
@@ -1220,7 +1230,7 @@ def run_backtest_task(req: BacktestRequest, backtest_id: str = None):
                     if len(parts) > 1:
                         # Extract number, handle commas and currency suffix
                         clean_val = parts[1].strip().split(" ")[0].replace(",", "")
-                        net_profit = int(float(clean_val))
+                        net_profit = float(clean_val)
                 except: pass
             elif "Avg Return" in line:
                 try: avg_return = float(line.split(":")[1].strip().replace("%", ""))
@@ -1252,7 +1262,9 @@ def run_backtest_task(req: BacktestRequest, backtest_id: str = None):
             val_start = stdout.find("--- JSON TRADES LOG START ---")
             val_end = stdout.find("--- JSON TRADES LOG END ---")
             if val_start != -1 and val_end != -1:
-                json_str = stdout[val_start + len("--- JSON TRADES LOG START ---"):val_end].strip()
+                json_str = stdout[val_start + len("--- JSON TRADES LOG START ---"):val_end].strip();
+                # Remove any trailing newlines from the suppression filter
+                json_str = json_str.lstrip(" \t\n")
                 parsed_trades = json.loads(json_str)
                 for row in parsed_trades:
                     trades.append({
@@ -1328,12 +1340,6 @@ def run_backtest_task(req: BacktestRequest, backtest_id: str = None):
                         update_payload["profit_pct"] = profit_pct
                     if bench_pct is not None:
                         update_payload["benchmark_return_pct"] = bench_pct
-                    if bench_win_rate is not None:
-                         # Store index win rate (replacing alpha_pct or as new field?)
-                         # Reusing alpha_pct field might be confusing, assuming user will handle schema. 
-                         # But user said "replace", so in UI it will replace.
-                         # In DB, let's try to save as "benchmark_win_rate" if column exists
-                         update_payload["benchmark_win_rate"] = bench_win_rate
                          
                     if bench_name:
                         update_payload["benchmark_name"] = bench_name
@@ -1581,11 +1587,55 @@ async def get_backtest_trades(id: str):
                 log = json.loads(log)
             except Exception:
                 return []
-                
-        mapped = []
-        if not log or not isinstance(log, list):
+
+        if not log:
             return []
-            
+
+        # ── PPO format: {"metrics": {...}, "all_trades": [...]} ──
+        if isinstance(log, dict):
+            all_trades = log.get("all_trades") or log.get("trades") or []
+            metrics = log.get("metrics") or {}
+            if not isinstance(all_trades, list):
+                return []
+            mapped = []
+            # Pair BUY and SELL steps to form completed round-trips
+            open_trade = None
+            for t in all_trades:
+                if not isinstance(t, dict):
+                    continue
+                action = (t.get("action") or "").upper()
+                price = float(t.get("price") or 0)
+                symbol = t.get("symbol") or "—"
+                step = t.get("step", 0)
+
+                if action == "BUY":
+                    open_trade = {"symbol": symbol, "entry_price": price, "entry_step": step}
+                elif action == "SELL" and open_trade:
+                    entry_price = open_trade["entry_price"]
+                    pnl = float(t.get("pnl") or 0)
+                    if pnl == 0 and entry_price > 0:
+                        pnl = (price - entry_price) / entry_price
+                    mapped.append({
+                        "symbol": open_trade["symbol"],
+                        "entry_price": entry_price,
+                        "exit_price": price,
+                        "profit_loss_pct": round(pnl * 100, 4),
+                        "status": "win" if pnl > 0 else "loss",
+                        "features": {
+                            "backtest_status": "Accepted",
+                            "entry_step": open_trade["entry_step"],
+                            "exit_step": step,
+                            "trade_type": "PPO",
+                        },
+                        "created_at": None,
+                    })
+                    open_trade = None
+            return mapped
+
+        # ── Radar format: flat list of trade dicts ──
+        mapped = []
+        if not isinstance(log, list):
+            return []
         for t in log:
             if not isinstance(t, dict): continue
             pnl = float(t.get("pnl_pct") or 0)
@@ -1593,11 +1643,11 @@ async def get_backtest_trades(id: str):
                 "symbol": t.get("symbol"),
                 "entry_price": float(t.get("entry") or 0),
                 "exit_price": float(t.get("exit") or 0),
-                "profit_loss_pct": pnl * 100.0 if pnl < 1.0 and pnl > -1.0 else pnl, # Handle both 0.05 and 5.0
+                "profit_loss_pct": pnl,
                 "status": "win" if pnl > 0 else "loss",
                 "features": {
                     "trade_date": t.get("date"),
-                    "backtest_status": t.get("status") or t.get("Status") or "Accepted", 
+                    "backtest_status": t.get("status") or t.get("Status") or "Accepted",
                     "votes": "{}",
                     "entry_date": t.get("Entry_Date"),
                     "exit_date": t.get("Exit_Date"),
@@ -1607,7 +1657,7 @@ async def get_backtest_trades(id: str):
                     "cumulative_profit": t.get("Cumulative_Profit") or t.get("features", {}).get("cumulative_profit"),
                     "ai_score": t.get("Score") or t.get("score") or t.get("features", {}).get("ai_score"),
                     "radar_score": t.get("Radar_Score") or t.get("radar_score") or t.get("features", {}).get("radar_score"),
-                    "fund_score": t.get("Fund_Score") or t.get("fund_score") or t.get("features", {}).get("fund_score")
+                    "fund_score": t.get("Fund_Score") or t.get("fund_score") or t.get("features", {}).get("fund_score"),
                 },
                 "created_at": t.get("date")
             })

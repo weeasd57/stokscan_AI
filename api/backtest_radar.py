@@ -33,7 +33,10 @@ warnings.filterwarnings("ignore")
 
 # Force UTF-8 stdout for Windows terminals to handle emojis
 if sys.platform == "win32":
-    sys.stdout.reconfigure(encoding='utf-8')
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+    except Exception:
+        pass
 
 # Global cache for index data to avoid repeated file reads
 _INDEX_CACHE = {}
@@ -159,7 +162,11 @@ def load_model(model_path):
             return obj
         return obj
     except Exception as e:
-        print(f"Error loading model {model_path}: {e}", flush=True)
+        msg = f"Error loading model {model_path}: {e}"
+        try:
+            print(msg, flush=True)
+        except UnicodeEncodeError:
+            print(msg.encode("ascii", "replace").decode("ascii"), flush=True)
         return None
 
 def reconstruct_meta_model(artifact):
@@ -734,18 +741,18 @@ def run_radar_simulation(
 
             # Track pre-council (all radar signals)
             balance_pre += trade_pnl_cash
-            pre_council_trades.append({**trade_data, "Balance": int(balance_pre)})
+            pre_council_trades.append({**trade_data, "Balance": float(balance_pre)})
             
             # Only track post-council if passes both filters
             if passes_council:
                 balance_post += trade_pnl_cash
-                post_council_trades.append({**trade_data, "Balance": int(balance_post)})
-                trade_log.append({**trade_data, "Balance": int(balance_post)})
+                post_council_trades.append({**trade_data, "Balance": float(balance_post)})
+                trade_log.append({**trade_data, "Balance": float(balance_post)})
             else:
                 # Still add it to a "global log" if we want to show rejected trades in dialog
                 # Let's decide if trade_log should contain ALL trades with a status field
                 # High complexity UI: yes, all trades.
-                trade_log.append({**trade_data, "Balance": int(balance_post)})
+                trade_log.append({**trade_data, "Balance": float(balance_post)})
 
     # Calculate metrics for both phases
     def calc_metrics(trades_list, ignore_status=False):
@@ -1132,6 +1139,14 @@ def main():
             if df_sim.empty:
                 continue
 
+            # Diagnostic: Warning for very short backtests
+            try:
+                days_span = (df_sim.index[-1] - df_sim.index[0]).days
+                if days_span < 2:
+                    print(f"⚠️ Warning: Backtest duration for {symbol} is very short ({days_span} days). Results may be unreliable.", flush=True)
+            except Exception:
+                pass
+
             res = run_radar_simulation(
                 df_sim,
                 model_obj,
@@ -1262,8 +1277,8 @@ def main():
     print(f"Trades Filtered:       {total_pre_trades - total_post_trades} ({((total_pre_trades - total_post_trades)/total_pre_trades)*100:.1f}% reduction)" if total_pre_trades > 0 else "N/A", flush=True)
     print(f"Pre-Council Win Rate:  {avg_pre_win_rate:.1f}%", flush=True)
     print(f"Post-Council Win Rate: {avg_post_win_rate:.1f}%", flush=True)
-    print(f"Pre-Council Profit:    {total_pre_profit_pct:.2f}%", flush=True)
-    print(f"Post-Council Profit:   {total_post_profit_pct:.2f}%", flush=True)
+    print(f"Pre-Council Profit:    {total_pre_profit_pct:.4f}%", flush=True)
+    print(f"Post-Council Profit:   {total_post_profit_pct:.4f}%", flush=True)
     print(f"Win Rate Boost:        {avg_post_win_rate - avg_pre_win_rate:+.1f} percentage points", flush=True)
     print(f"Rejected Profitable:   {rejected_profitable}", flush=True)
     print("="*40, flush=True)

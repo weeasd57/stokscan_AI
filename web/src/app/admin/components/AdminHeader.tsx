@@ -1,8 +1,8 @@
 "use client";
 
 interface AdminHeaderProps {
-    activeMainTab: "data" | "ai" | "test" | "scan" | "backtest" | "bot" | "ppo";
-    setActiveMainTab: (tab: "data" | "ai" | "test" | "scan" | "backtest" | "bot" | "ppo") => void;
+    activeMainTab: "data" | "ai" | "scan" | "backtest" | "bot" | "ppo" | "ppo_backtest";
+    setActiveMainTab: (tab: "data" | "ai" | "scan" | "backtest" | "bot" | "ppo" | "ppo_backtest") => void;
 }
 
 export default function AdminHeader({ activeMainTab, setActiveMainTab }: AdminHeaderProps) {
@@ -10,7 +10,7 @@ export default function AdminHeader({ activeMainTab, setActiveMainTab }: AdminHe
         { id: "data", label: "DATA MANAGER" },
         { id: "ai", label: "AI & AUTOMATION" },
         { id: "ppo", label: "PPO RL" },
-        { id: "test", label: "TEST MODEL" },
+        { id: "ppo_backtest", label: "PPO BACKTEST" },
         { id: "scan", label: "FAST SCAN" },
         { id: "bot", label: "LIVE BOT" },
         { id: "backtest", label: "BACKTEST" },
