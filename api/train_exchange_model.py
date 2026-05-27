@@ -166,7 +166,7 @@ def fetch_fundamentals_for_exchange(supabase: Client, exchange: str) -> pd.DataF
         if "fund_score" in df_funds.columns:
             try:
                 available = int(df_funds["fund_score"].notna().sum())
-                print(f"✅ Fundamentals loaded: {len(df_funds)} rows, fund_score available for {available}.", flush=True)
+                print(f"[OK] Fundamentals loaded: {len(df_funds)} rows, fund_score available for {available}.", flush=True)
             except Exception:
                 pass
         return df_funds
@@ -178,90 +178,7 @@ def fetch_fundamentals_for_exchange(supabase: Client, exchange: str) -> pd.DataF
 
 # Removed legacy optimize_and_train_model (GridSearchCV) in favor of Optuna-based optimization in ModelTrainer.
 
-def add_indicator_signals(df):
-    """
-    Generate discrete signals (-1, 0, 1) from classical indicators.
-    """
-    df = df.copy()
-    
-    # Determine close column name (handle both cases)
-    close_col = 'Close' if 'Close' in df.columns else 'close'
-    
-    # 1. RSI Signal (<30 Buy, >70 Sell)
-    if 'RSI' not in df.columns:
-        df['RSI'] = ta.momentum.rsi(df[close_col], window=14)
-        
-    df['feat_rsi_signal'] = 0
-    df.loc[df['RSI'] < 30, 'feat_rsi_signal'] = 1
-    df.loc[df['RSI'] > 70, 'feat_rsi_signal'] = -1
-    
-    # 2. EMA Cross (Golden Cross)
-    if 'EMA_50' not in df.columns:
-        df['EMA_50'] = df[close_col].ewm(span=50).mean()
-    if 'EMA_200' not in df.columns:
-        df['EMA_200'] = df[close_col].ewm(span=200).mean()
-        
-    df['feat_ema_signal'] = 0
-    df.loc[df['EMA_50'] > df['EMA_200'], 'feat_ema_signal'] = 1
-    df.loc[df['EMA_50'] < df['EMA_200'], 'feat_ema_signal'] = -1
 
-    # 3. Bollinger Bands Signal (Close < Lower = Buy)
-    if 'BB_Lower' not in df.columns or 'BB_Upper' not in df.columns:
-         indicator_bb = ta.volatility.BollingerBands(close=df[close_col], window=20, window_dev=2)
-         df['BB_Lower'] = indicator_bb.bollinger_lband()
-         df['BB_Upper'] = indicator_bb.bollinger_hband()
-
-    df['feat_bb_signal'] = 0
-    df.loc[df[close_col] < df['BB_Lower'], 'feat_bb_signal'] = 1
-    df.loc[df[close_col] > df['BB_Upper'], 'feat_bb_signal'] = -1
-    
-    return df
-
-def add_rolling_win_rate(df, window=30):
-    """
-    Calculate rolling win rate for each indicator signal over the past 'window' days.
-    Prevent Look-ahead bias by shifting results.
-    """
-    df = df.copy()
-    
-    # Determine close column name (handle both cases)
-    close_col = 'Close' if 'Close' in df.columns else 'close' if 'close' in df.columns else None
-    if not close_col:
-        return df  # Cannot calculate without close column
-    
-    # Target: Did price go UP today compared to yesterday?
-    # We want to know: "Was the signal generated yesterday correct today?"
-    # At time T, we know Close[T] and Close[T-1].
-    # Signal[T-1] predicted move T-1 -> T.
-    target_up = (df[close_col] > df[close_col].shift(1)).astype(int)
-    
-    # Check correctness of PAST signals
-    # rsi_correct[T] = 1 if Signal[T-1] correctly predicted Target[T]
-    rsi_correct = (
-        ((df['feat_rsi_signal'].shift(1) == 1) & (target_up == 1)) | 
-        ((df['feat_rsi_signal'].shift(1) == -1) & (target_up == 0))
-    ).astype(int)
-    
-    ema_correct = (
-         ((df['feat_ema_signal'].shift(1) == 1) & (target_up == 1)) | 
-         ((df['feat_ema_signal'].shift(1) == -1) & (target_up == 0))
-    ).astype(int)
-    
-    bb_correct = (
-         ((df['feat_bb_signal'].shift(1) == 1) & (target_up == 1)) | 
-         ((df['feat_bb_signal'].shift(1) == -1) & (target_up == 0))
-    ).astype(int)
-    
-    # Rolling Accuracy of signals
-    # At time T, we want average accuracy of previous N days.
-    # We can include T's result in the rolling mean if we assume we run this after market close.
-    # To be safe and purely predictive for tomorrow T+1, we usually use data up to T.
-    # So rolling().mean() at T includes T.
-    df['feat_rsi_acc'] = rsi_correct.rolling(window=window).mean().fillna(0.5)
-    df['feat_ema_acc'] = ema_correct.rolling(window=window).mean().fillna(0.5)
-    df['feat_bb_acc'] = bb_correct.rolling(window=window).mean().fillna(0.5)
-    
-    return df
 
 def add_market_context(stock_df, market_df):
     """
@@ -392,6 +309,26 @@ def add_massive_features(df):
         
         if vol_col:
             extra_cols['PV_Trend'] = df[close_col].pct_change() * df[vol_col].pct_change()
+
+    
+    # 5. Regime Features (Hurst & Volume Delta)
+    if close_col:
+        try:
+            # Approximate Hurst via rolling variance ratio
+            # A true Hurst is slow to calculate rolling; this is a Fast Variance Ratio proxy for Regime
+            roll10 = df[close_col].diff().rolling(10)
+            roll30 = df[close_col].diff().rolling(30)
+            var10 = roll10.var()
+            var30 = roll30.var()
+            extra_cols['Regime_Hurst_Proxy'] = (var30 / (var10 * 3 + 1e-9)).fillna(1.0)
+        except Exception:
+            extra_cols['Regime_Hurst_Proxy'] = 1.0
+
+    if vol_col and close_col:
+        # Volume Delta: Volume * sign(Close Return)
+        extra_cols['Volume_Delta'] = df[vol_col] * np.sign(df[close_col].diff())
+        extra_cols['Volume_Delta_SMA_10'] = extra_cols['Volume_Delta'].rolling(10).mean().fillna(0)
+
 
     # Maintain Case-Sensitive Columns for other functions
     for c in ["Open", "High", "Low", "Close", "Volume"]:
@@ -612,90 +549,80 @@ def add_technical_indicators(df):
     # ---------------------------------------------------------
     # 14. Indicator Stacking (Signals + Rolling Win Rate)
     # ---------------------------------------------------------
-    out = add_indicator_signals(out)
-    out = add_rolling_win_rate(out, window=30)
 
     return out
 
-def prepare_for_ai(df, target_pct: float = 0.12, stop_loss_pct: float = 0.04, look_forward_days: int = 15, use_volatility: bool = False):
+def prepare_for_ai(
+    df: pd.DataFrame,
+    target_pct: float = 2.0,  # Legacy naming kept for compatibility, acts as target_multiplier
+    stop_loss_pct: float = 1.0,  # Legacy naming kept for compatibility, acts as stop_multiplier
+    look_forward_days: int = 20,
+    use_volatility: bool = True,
+    drop_labels: bool = True,
+) -> pd.DataFrame:
     """
-    Implements 'The Triple Barrier Method' labeling.
-    
-    IMPROVED: Now checks which barrier is hit FIRST (TP or SL).
-    - Target = 1: Take Profit hit BEFORE Stop Loss
-    - Target = 0: Stop Loss hit first OR neither hit (time barrier)
+    Dynamic Triple Barrier Labeling using ATR for market regime adaptation.
+    Target = 1 ONLY if Take Profit is hit BEFORE Stop Loss within the window.
     """
-    if df.empty:
-        return df
+    if df.empty: return df
+
+    # Safety guard: Frontend values <1 are probably percentages, not ATR multipliers.
+    if target_pct < 1.0:
+        target_pct = 2.0
+    if stop_loss_pct < 1.0:
+        stop_loss_pct = 1.0
 
     out = df.copy()
+    
+    # التأكد من وجود الأعمدة الأساسية
+    close_col = "Close" if "Close" in out.columns else "close"
+    high_col = "High" if "High" in out.columns else "high"
+    low_col = "Low" if "Low" in out.columns else "low"
+    
+    if "ATR_14" not in out.columns:
+        # حساب بديل سريع للـ ATR لو مش موجود
+        out["ATR_14"] = out[close_col].rolling(14).std().bfill()
 
-    if "Close" not in out.columns:
-        return pd.DataFrame()
-
-    look_forward_bars = int(look_forward_days or 0)
-    if look_forward_bars <= 0:
-        out["Target"] = 0
-        return out
-
-    close_values = pd.to_numeric(out["Close"], errors="coerce").astype(float).values
-    high_values = (
-        pd.to_numeric(out["High"], errors="coerce").astype(float).values
-        if "High" in out.columns
-        else close_values
-    )
-    low_values = (
-        pd.to_numeric(out["Low"], errors="coerce").astype(float).values
-        if "Low" in out.columns
-        else close_values
-    )
-
+    # الدخول من افتتاح اليوم التالي لمنع تسريب البيانات (Look-ahead Bias)
+    out['entry_price'] = out['Open' if 'Open' in out.columns else close_col].shift(-1)
+    shifted_atr = out['ATR_14'].shift(-1)
+    
+    # حساب الحواجز الديناميكية
+    out['tp_barrier'] = out['entry_price'] + (shifted_atr * target_pct)
+    out['sl_barrier'] = out['entry_price'] - (shifted_atr * stop_loss_pct)
+    
+    out['Target'] = 0
+    
+    # استخراج البيانات في مصفوفات لتسريع المعالجة (Vectorization)
+    high_vals = out[high_col].values
+    low_vals = out[low_col].values
+    tp_vals = out['tp_barrier'].values
+    sl_vals = out['sl_barrier'].values
+    
     targets = np.zeros(len(out), dtype=int)
-
-    for i in range(len(out) - look_forward_bars - 1):
-        entry = float(close_values[i])
-        if not np.isfinite(entry) or entry <= 0:
+    
+    # حلقة سريعة لمعرفة أي حاجز انضرب الأول (Take Profit أم Stop Loss)
+    for i in range(len(out) - look_forward_days - 1):
+        if not np.isfinite(tp_vals[i]) or not np.isfinite(sl_vals[i]):
             continue
-
-        tp = entry * (1 + float(target_pct))
-        sl = entry * (1 - float(stop_loss_pct))
-
-        first_tp = None
-        first_sl = None
-
-        for j in range(1, look_forward_bars + 1):
+            
+        for j in range(1, look_forward_days + 1):
             idx = i + j
-            if idx >= len(close_values):
+            if high_vals[idx] >= tp_vals[i]:
+                targets[i] = 1  # الهدف انضرب الأول
                 break
-
-            hi = float(high_values[idx])
-            lo = float(low_values[idx])
-
-            if not np.isfinite(hi) or not np.isfinite(lo):
-                continue
-
-            if first_tp is None and hi >= tp:
-                first_tp = j
-            if first_sl is None and lo <= sl:
-                first_sl = j
-
-            if first_tp is not None and first_sl is not None:
+            if low_vals[idx] <= sl_vals[i]:
+                targets[i] = 0  # الاستوب انضرب الأول
                 break
-
-        if first_tp is not None and (first_sl is None or first_tp <= first_sl):
-            targets[i] = 1
-
-    out["Target"] = targets
-
-    counts = out["Target"].value_counts()
-    pos = int(counts.get(1, 0))
-    neg = int(counts.get(0, 0))
-    total = pos + neg
-    ratio = (pos / total) if total > 0 else 0.0
-    print(f"[{datetime.now().strftime('%H:%M:%S')}] Triple Barrier Labeling: {len(out)} rows")
-    print(f"    Wins={pos} ({ratio:.2%}), Losses={neg} ({1-ratio:.2%})")
-
-    out = out.iloc[:-look_forward_bars].copy()
+                
+    out['Target'] = targets
+    
+    # تنظيف الداتا
+    out.drop(columns=['entry_price', 'tp_barrier', 'sl_barrier'], inplace=True, errors='ignore')
+    
+    if drop_labels:
+        out = out.iloc[:-look_forward_days].copy()
+        
     return out
 
 # =============================================================================
@@ -844,6 +771,61 @@ def calculate_optimal_class_weight(y, max_ratio: float = 10.0) -> dict:
     
     return weights
 
+
+
+from sklearn.decomposition import PCA
+from sklearn.preprocessing import StandardScaler
+import numpy as np
+import pandas as pd
+
+class QuantitativeModelPipeline:
+    def __init__(self, model, pca_features, n_components=3):
+        self.model = model
+        self.pca_features = pca_features
+        self.n_components = n_components
+        self.pca = PCA(n_components=n_components)
+        self.scaler = StandardScaler()
+        
+    def _transform(self, X):
+        X = X.copy()
+        # Find which pca_features are in X
+        present_pca_feats = [f for f in self.pca_features if f in X.columns]
+        if not present_pca_feats:
+            return X
+            
+        # Extract, scale and PCA transform
+        X_pca_raw = X[present_pca_feats].fillna(0)
+        X_scaled = self.scaler.transform(X_pca_raw)
+        X_pca = self.pca.transform(X_scaled)
+        
+        # Drop raw correlated features to reduce noise
+        X = X.drop(columns=present_pca_feats)
+        
+        # Add orthogonal PCA components
+        for i in range(X_pca.shape[1]):
+            X[f'PCA_Momentum_{i}'] = X_pca[:, i]
+            
+        return X
+
+    def predict(self, X):
+        X_t = self._transform(X)
+        return self.model.predict(X_t)
+        
+    def predict_proba(self, X):
+        X_t = self._transform(X)
+        if hasattr(self.model, "predict_proba"):
+            return self.model.predict_proba(X_t)
+        # Fallback for some wrappers
+        raw = self.model.predict(X_t)
+        probs = np.asarray(raw)
+        return np.column_stack([1 - probs, probs])
+        
+    def get_feature_importance(self):
+        if hasattr(self.model, "feature_importances_"):
+            return self.model.feature_importances_
+        elif hasattr(self.model, "get_feature_importance"):
+            return self.model.get_feature_importance()
+        return []
 
 class ModelTrainer:
     """
@@ -1185,8 +1167,7 @@ class ModelTrainer:
             "Dist_From_High", "Dist_From_Low", "Body_Size", "Upper_Shadow", "Lower_Shadow",
             "SMA_Cross", "EMA_Cross", "Price_vs_SMA200", 
             "Day_Of_Week", "Day_Of_Month", "Close_Lag1", "RSI_Lag1", "Volume_Lag1",
-            "feat_rsi_signal", "feat_rsi_acc", "feat_ema_signal", "feat_ema_acc",
-            "feat_bb_signal", "feat_bb_acc", "feat_mkt_trend", "feat_mkt_volatility", "feat_rel_strength"
+            "feat_mkt_trend", "feat_mkt_volatility", "feat_rel_strength"
         ]
         max_p = extended + ["ATR_14", "ADX_14", "STOCH_K", "STOCH_D", "CCI_20", "VWAP_20", "Momentum", "ROC_12", "VOL_SMA20", "VOL_Change"]
         
@@ -1364,8 +1345,8 @@ class ModelTrainer:
         extra_params: Optional[Dict[str, Any]] = None,
         optimized_params: Optional[Dict[str, Any]] = None,
         auto_prune: bool = False,
-        target_pct: float = 0.12,
-        stop_loss_pct: float = 0.04
+        target_pct: float = 2.0,
+        stop_loss_pct: float = 1.0
     ) -> Any:
         """
         Train LightGBM with early stopping and optional optimized params.
@@ -1384,6 +1365,39 @@ class ModelTrainer:
 
         if len(np.unique(y)) < 2:
             raise ValueError(f"Training failed: Only one class present in target ({np.unique(y)}). Need both Win and No-Win samples.")
+
+        # --- QUANTITATIVE PIPELINE: PCA on Correlated Momentum ---
+        # Group highly correlated momentum/oscillator features
+        momentum_features = [c for c in X.columns if any(x in c.upper() for x in ['RSI', 'MACD', 'STOCH', 'CCI', 'ROC', 'MOMENTUM'])]
+        
+        if len(momentum_features) > 3:
+            self._progress(f"Applying PCA on {len(momentum_features)} momentum features to extract Principal Components...")
+            from sklearn.decomposition import PCA
+            from sklearn.preprocessing import StandardScaler
+            
+            scaler = StandardScaler()
+            pca = PCA(n_components=min(3, len(momentum_features)))
+            
+            X_mom = X[momentum_features].fillna(0)
+            X_scaled = scaler.fit_transform(X_mom)
+            X_pca = pca.fit_transform(X_scaled)
+            
+            # Drop raw and add PCA
+            X = X.drop(columns=momentum_features).copy()
+            for i in range(X_pca.shape[1]):
+                X[f'PCA_Momentum_{i}'] = X_pca[:, i]
+                
+            self.predictors = list(X.columns)
+            self._progress(f"PCA explained variance ratio: {pca.explained_variance_ratio_}")
+            
+            # Overwrite df_train with a processed version that includes the PCA features
+            for c in momentum_features:
+                if c in df_train.columns:
+                    df_train.drop(columns=[c], inplace=True)
+            for i in range(X_pca.shape[1]):
+                df_train[f'PCA_Momentum_{i}'] = X_pca[:, i]
+        else:
+            momentum_features = []
 
         self._progress(f"Training LightGBM model (samples={len(X)}, target_pos={y.sum()})...")
         
@@ -1484,6 +1498,27 @@ class ModelTrainer:
         # Analyze and log feature importance
         self.analyze_feature_importance(model, top_n=20)
         
+        
+        if auto_prune and len(momentum_features) > 3:
+            # Re-wrap in pipeline if auto_prune is true (it recursively calls train_model)
+            # wait, auto_prune just calls train_model again. The base call will wrap it.
+            pass
+            
+
+        # Wrap in QuantitativeModelPipeline if PCA was applied
+        if len(momentum_features) > 3:
+            pipeline = QuantitativeModelPipeline(model, momentum_features, n_components=pca.n_components_)
+            pipeline.pca = pca
+            pipeline.scaler = scaler
+            model = pipeline
+
+        # Use purged cross-validation to get the *true* performance metrics instead of just the last 20%
+        # This prevents regime overfitting and gives hedge-fund grade validation
+        if avg_purged_f1 is not None and avg_purged_f1 > 0.0:
+            self._progress(f"Replacing end-of-time validation F1 with Purged CV F1: {avg_purged_f1:.2%}")
+            metrics['f1'] = avg_purged_f1
+            # We can also trust the CV recall and precision if we tracked them, but F1 is the main summary.
+
         return model, metrics, avg_purged_f1
 
     def calculate_validation_metrics(self, model, df_train: pd.DataFrame) -> Dict[str, float]:
@@ -1622,7 +1657,20 @@ class ModelTrainer:
         os.makedirs(models_dir, exist_ok=True)
         
         filepath = os.path.join(models_dir, filename)
-        booster = getattr(model, "booster_", None)
+        
+        # Check if pipeline
+        pca_features = None
+        pca = None
+        scaler = None
+        if hasattr(model, "model") and hasattr(model, "pca_features"):
+            pca_features = model.pca_features
+            pca = getattr(model, "pca", None)
+            scaler = getattr(model, "scaler", None)
+            model_for_booster = model.model
+        else:
+            model_for_booster = model
+            
+        booster = getattr(model_for_booster, "booster_", None)
         
         num_features = None
         num_trees = None
@@ -1652,6 +1700,9 @@ class ModelTrainer:
             "num_features": num_features,
             "num_trees": num_trees,
             "timestamp": datetime.utcnow().isoformat() + "Z",
+            "pca_features": pca_features,
+            "pca": pca,
+            "scaler": scaler,
             **metadata
         }
         
@@ -1725,7 +1776,20 @@ class ModelTrainer:
         os.makedirs(models_dir, exist_ok=True)
 
         filepath = os.path.join(models_dir, filename)
-        booster = getattr(primary_model, "booster_", None)
+        
+        # Check if pipeline
+        pca_features = None
+        pca = None
+        scaler = None
+        if hasattr(primary_model, "model") and hasattr(primary_model, "pca_features"):
+            pca_features = primary_model.pca_features
+            pca = getattr(primary_model, "pca", None)
+            scaler = getattr(primary_model, "scaler", None)
+            primary_model_for_booster = primary_model.model
+        else:
+            primary_model_for_booster = primary_model
+
+        booster = getattr(primary_model_for_booster, "booster_", None)
 
         primary_artifact = {
             "kind": "lgbm_booster",
@@ -1734,6 +1798,9 @@ class ModelTrainer:
             "categorical_features": self.categorical_features,
             "exchange": self.exchange,
             "timestamp": datetime.utcnow().isoformat() + "Z",
+            "pca_features": pca_features,
+            "pca": pca,
+            "scaler": scaler,
             **metadata,
         }
 
@@ -1859,8 +1926,8 @@ def train_model(exchange=None, supabase_url=None, supabase_key=None, *args, **kw
     if df_raw.empty: return
     
     use_volatility_label = bool(kwargs.get("use_volatility_label", False))
-    target_pct = float(kwargs.get("target_pct", 0.03) or 0.03)
-    stop_loss_pct = float(kwargs.get("stop_loss_pct", 0.06) or 0.06)
+    target_pct = float(kwargs.get("target_pct", 2.0) or 2.0)
+    stop_loss_pct = float(kwargs.get("stop_loss_pct", 1.0) or 1.0)
     look_forward_days = int(kwargs.get("look_forward_days", 20) or 20)
     
     df_train = trainer.prepare_training_data(

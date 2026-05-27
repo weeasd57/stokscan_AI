@@ -259,8 +259,8 @@ class PredictRequest(BaseModel):
     rf_params: Optional[Dict[str, Any]] = Field(default=None)
     model_name: Optional[str] = Field(default=None)
     force_local: bool = Field(default=False)
-    target_pct: float = Field(default=0.15)
-    stop_loss_pct: float = Field(default=0.05)
+    target_pct: float = Field(default=2.0)
+    stop_loss_pct: float = Field(default=1.0)
     look_forward_days: int = Field(default=20)
     buy_threshold: float = Field(default=0.45)
     use_volatility_label: bool = Field(default=False)
@@ -1048,9 +1048,34 @@ async def backtest_endpoint(req: BacktestRequest, background_tasks: BackgroundTa
         backtest_id = res.data[0]["id"] if res.data else None
     except Exception as e:
         print(f"Error creating backtest record: {e}")
-        backtest_id = None
+        # If this is a Supabase RLS error (42501), warn and continue so the
+        # backtest can still run in the background even though we couldn't
+        # persist the record. For other errors, return a 502 to the client.
+        try:
+            err_str = str(e)
+        except Exception:
+            err_str = ""
+
+        if "42501" in err_str or "row-level security" in err_str.lower():
+            print("WARNING: Supabase RLS prevented creating backtest record; continuing without DB record.", flush=True)
+            backtest_id = None
+        else:
+            raise HTTPException(status_code=502, detail={
+                "error": "supabase_insert_failed",
+                "message": "Failed to create backtest record in Supabase.",
+                "cause": str(e),
+            })
 
     # Use the sanitized model name end-to-end (subprocess + model card lookup).
+    # Safety: If the frontend accidentally sent percentages (e.g. 0.1) instead
+    # of ATR multipliers (expected >= 1.0), coerce to safe defaults and log.
+    if req.target_pct is not None and req.target_pct < 1.0:
+        print(f"WARNING: target_pct looks like a percentage ({req.target_pct}); forcing to 2.0 for safety.", flush=True)
+        req.target_pct = 2.0
+    if req.stop_loss_pct is not None and req.stop_loss_pct < 1.0:
+        print(f"WARNING: stop_loss_pct looks like a percentage ({req.stop_loss_pct}); forcing to 1.0 for safety.", flush=True)
+        req.stop_loss_pct = 1.0
+
     req_sanitized = BacktestRequest(
         exchange=req.exchange,
         model=requested_model,
@@ -1371,6 +1396,15 @@ def run_backtest_task(req: BacktestRequest, backtest_id: str = None):
                     print(f"Background Backtest Updated & Saved: {model_name} (ID: {backtest_id})")
                 except Exception as e:
                     print(f"Error updating backtest result: {e}")
+                    # Save a local fallback copy so results are not lost when Supabase RLS/connection blocks.
+                    try:
+                        os.makedirs(os.path.join(project_root, "backtests_local"), exist_ok=True)
+                        fname = os.path.join(project_root, "backtests_local", f"backtest_{model_name.replace(' ', '_')}_{dt.datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')}.json")
+                        with open(fname, "w", encoding="utf-8") as fh:
+                            json.dump({"id": backtest_id, "model": model_name, "result": update_payload, "saved_at": dt.datetime.utcnow().isoformat()}, fh, ensure_ascii=False, indent=2)
+                        print(f"Saved fallback backtest result to {fname}")
+                    except Exception as e2:
+                        print(f"Failed to save fallback backtest result locally: {e2}")
             else:
                 # Fallback to old behavior if no ID (shouldn't happen now)
                 try:
@@ -1402,6 +1436,26 @@ def run_backtest_task(req: BacktestRequest, backtest_id: str = None):
                     print(f"Background Backtest Saved (Fallback): {model_name}")
                 except Exception as e:
                     print(f"Error saving backtest result: {e}")
+                    try:
+                        os.makedirs(os.path.join(project_root, "backtests_local"), exist_ok=True)
+                        fname = os.path.join(project_root, "backtests_local", f"backtest_{model_name.replace(' ', '_')}_{dt.datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')}.json")
+                        with open(fname, "w", encoding="utf-8") as fh:
+                            json.dump({
+                                "model": model_name,
+                                "exchange": exchange,
+                                "start_date": req.start_date,
+                                "end_date": final_end_date,
+                                "total_trades": total_trades,
+                                "win_rate": win_rate,
+                                "net_profit": net_profit,
+                                "avg_return_per_trade": avg_return,
+                                "trades_log": trades,
+                                "status": "completed",
+                                "saved_at": dt.datetime.utcnow().isoformat()
+                            }, fh, ensure_ascii=False, indent=2)
+                        print(f"Saved fallback backtest (fallback insert) to {fname}")
+                    except Exception as e2:
+                        print(f"Failed to save fallback backtest locally: {e2}")
 
     except Exception as e:
         print(f"Backtest Task Failed: {e}")
@@ -1554,6 +1608,55 @@ async def get_backtests(model: Optional[str] = None):
         try:
             res = _build_query().execute()
             data = res.data or []
+            # Also include any locally saved fallback backtests (if Supabase missed them)
+            try:
+                local_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "backtests_local")
+                if os.path.isdir(local_dir):
+                    for fn in sorted(os.listdir(local_dir), reverse=True):
+                        if not fn.lower().endswith('.json'):
+                            continue
+                        p = os.path.join(local_dir, fn)
+                        try:
+                            with open(p, 'r', encoding='utf-8') as fh:
+                                j = json.load(fh)
+                                # Avoid duplicates by simple key matching (model + start_date + end_date)
+                                local_model = j.get('model') or j.get('model_name') or (j.get('result') or {}).get('model_name')
+                                local_start = j.get('start_date') or (j.get('result') or {}).get('start_date')
+                                local_end = j.get('end_date') or (j.get('result') or {}).get('end_date')
+                                key = (str(local_model), str(local_start), str(local_end))
+                                exists = False
+                                for r in data:
+                                    if (str(r.get('model_name') or r.get('model')), str(r.get('start_date')), str(r.get('end_date'))) == key:
+                                        exists = True
+                                        break
+                                if not exists:
+                                    result_payload = j.get('result') or j
+                                    created_at = j.get('saved_at') or j.get('created_at') or result_payload.get('created_at')
+                                    if not created_at:
+                                        created_at = dt.datetime.utcfromtimestamp(os.path.getmtime(p)).isoformat() + "Z"
+                                    local_id = j.get('id') or f"local-{os.path.basename(p)}"
+                                    rec = {
+                                        'id': local_id,
+                                        'model_name': local_model,
+                                        'exchange': result_payload.get('exchange'),
+                                        'start_date': result_payload.get('start_date'),
+                                        'end_date': result_payload.get('end_date'),
+                                        'total_trades': result_payload.get('total_trades'),
+                                        'win_rate': result_payload.get('win_rate'),
+                                        'net_profit': result_payload.get('net_profit'),
+                                        'avg_return_per_trade': result_payload.get('avg_return_per_trade'),
+                                        'trades_log': result_payload.get('trades_log') or result_payload.get('trades') or [],
+                                        'status': result_payload.get('status') or 'completed',
+                                        'status_msg': result_payload.get('status_msg') or j.get('status_msg'),
+                                        'meta_threshold': result_payload.get('meta_threshold') or result_payload.get('wave_confluence') or result_payload.get('king_threshold'),
+                                        'created_at': created_at,
+                                        'saved_local_path': p,
+                                    }
+                                    data.insert(0, rec)
+                        except Exception:
+                            continue
+            except Exception:
+                pass
             _BACKTESTS_SOFT_CACHE = {"ts": _time.time(), "data": data}
             return data
         except Exception as e:
@@ -1643,7 +1746,7 @@ async def get_backtest_trades(id: str):
                 "symbol": t.get("symbol"),
                 "entry_price": float(t.get("entry") or 0),
                 "exit_price": float(t.get("exit") or 0),
-                "profit_loss_pct": pnl,
+                "profit_loss_pct": round(pnl * 100, 4),
                 "status": "win" if pnl > 0 else "loss",
                 "features": {
                     "trade_date": t.get("date"),

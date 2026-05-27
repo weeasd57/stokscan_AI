@@ -117,13 +117,48 @@ class TelegramBot:
 
     def send_notification(self, message: str):
         """Queue a message for delivery.  Returns immediately."""
+        # 1. Global chat_id (admin channel)
+        targets = set()
         if self.bot_instance and getattr(self.bot_instance.config, "telegram_chat_id", None):
             self.chat_id = self.bot_instance.config.telegram_chat_id
-        if not self.chat_id or not self.token:
-            self._log("Cannot send: no chat_id or token.")
+        if self.chat_id:
+            targets.add(str(self.chat_id).strip())
+            
+        # 2. Subscribers chat IDs
+        if self.bot_instance and hasattr(self.bot_instance, "bot_id"):
+            bot_id = self.bot_instance.bot_id
+            try:
+                from api.stock_ai import supabase, _init_supabase
+                _init_supabase()
+                if supabase:
+                    # Query bot_subscriptions where notifications_enabled is true
+                    subs_res = supabase.table("bot_subscriptions").select("user_id, telegram_chat_id").eq("bot_id", bot_id).eq("notifications_enabled", True).execute()
+                    if subs_res.data:
+                        user_ids = [sub["user_id"] for sub in subs_res.data]
+                        
+                        # Query profiles to get default telegram_chat_id for these users
+                        profiles_res = supabase.table("profiles").select("id, telegram_chat_id").in_("id", user_ids).execute()
+                        profiles_map = {p["id"]: p.get("telegram_chat_id") for p in (profiles_res.data or []) if p.get("telegram_chat_id")}
+                        
+                        for sub in subs_res.data:
+                            # Use custom sub telegram_chat_id if present, else fallback to profile telegram_chat_id
+                            chat_id_val = sub.get("telegram_chat_id") or profiles_map.get(sub["user_id"])
+                            if chat_id_val:
+                                targets.add(str(chat_id_val).strip())
+            except Exception as e:
+                self._log(f"Error querying subscriber chat IDs for notification: {e}")
+                
+        # Send to all unique target chat IDs
+        if not targets or not self.token:
+            self._log("Cannot send: no targets or token.")
             return
-        self._queue.append({"chat_id": self.chat_id, "text": message, "parse_mode": "Markdown"})
-        self._log(f"Queued notification ({len(self._queue)} in queue)")
+            
+        for target in targets:
+            try:
+                self._queue.append({"chat_id": int(target), "text": message, "parse_mode": "Markdown"})
+            except ValueError:
+                self._log(f"Invalid target chat ID: {target}")
+        self._log(f"Queued notification to {len(targets)} targets ({len(self._queue)} in queue)")
 
     def _sender_loop(self):
         """Background loop: drain the queue whenever the network is up."""
@@ -180,19 +215,30 @@ class TelegramBot:
     def _reply(self, chat_id, text):
         self._queue.appendleft({"chat_id": chat_id, "text": text, "parse_mode": "Markdown"})
 
+    def _is_admin(self, chat_id):
+        admin_chat_id = None
+        if self.bot_instance and getattr(self.bot_instance.config, "telegram_chat_id", None):
+            admin_chat_id = self.bot_instance.config.telegram_chat_id
+        if not admin_chat_id:
+            admin_chat_id = self.chat_id
+        return admin_chat_id and str(chat_id) == str(admin_chat_id)
+
     def _handle_start(self, chat_id):
-        self._save_chat_id(chat_id)
         self._reply(chat_id,
             "🚀 *Artoro Trading Bot connected!*\n\n"
-            "I will send you notifications for every trade.\n\n"
+            f"Your Telegram Chat ID is: `{chat_id}`\n\n"
+            "Please copy this ID and paste it in your settings on the website to receive trade notifications.\n\n"
             "*Commands:*\n"
-            "/status - Bot status & balance\n"
-            "/positions - Open positions\n"
-            "/trades - Last 5 trades\n"
+            "/status - Bot status & balance (Admin only)\n"
+            "/positions - Open positions (Admin only)\n"
+            "/trades - Last 5 trades (Admin only)\n"
             "/help - Show this message"
         )
 
     def _handle_status(self, chat_id):
+        if not self._is_admin(chat_id):
+            self._reply(chat_id, "❌ Unauthorized: This command is only available for the bot administrator.")
+            return
         if not self.bot_instance:
             self._reply(chat_id, "Bot not available."); return
         st = self.bot_instance.get_status()
@@ -209,6 +255,9 @@ class TelegramBot:
         )
 
     def _handle_positions(self, chat_id):
+        if not self._is_admin(chat_id):
+            self._reply(chat_id, "❌ Unauthorized: This command is only available for the bot administrator.")
+            return
         if not self.bot_instance or not self.bot_instance.api:
             self._reply(chat_id, "Bot API not available."); return
         try:
@@ -225,6 +274,9 @@ class TelegramBot:
             self._reply(chat_id, f"Error: {e}")
 
     def _handle_trades(self, chat_id):
+        if not self._is_admin(chat_id):
+            self._reply(chat_id, "❌ Unauthorized: This command is only available for the bot administrator.")
+            return
         if not self.bot_instance:
             self._reply(chat_id, "Bot not available."); return
         trades = list(self.bot_instance._trades)[-5:]

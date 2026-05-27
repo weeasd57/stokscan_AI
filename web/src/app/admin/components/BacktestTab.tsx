@@ -2509,9 +2509,19 @@ export default function BacktestTab() {
                             </span>
                           </td>
                           <td className="px-6 py-4 text-center">
-                            <button onClick={() => handleToggleVisibility(bt.id, bt.is_public)} className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border transition-all ${bt.is_public ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400" : "bg-zinc-900/60 border-white/5 text-zinc-600"}`}>
-                              {bt.is_public ? <Eye className="h-3 w-3" /> : <EyeOff className="h-3 w-3" />}
-                              <span className="text-[9px] font-black uppercase tracking-widest">{bt.is_public ? "Visible" : "Hidden"}</span>
+                            <button 
+                              onClick={() => handleToggleVisibility(bt.id, bt.is_public)} 
+                              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border transition-all ${
+                                bt.is_public 
+                                  ? "bg-indigo-600/10 border-indigo-500/25 text-indigo-400 hover:bg-indigo-500/20" 
+                                  : "bg-zinc-900/60 border-white/5 text-zinc-500 hover:text-white hover:bg-zinc-800"
+                              }`}
+                              title={bt.is_public ? "Click to hide from users" : "Click to show to users"}
+                            >
+                              {bt.is_public ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
+                              <span className="text-[9px] font-black uppercase tracking-widest">
+                                {bt.is_public ? "Public" : "Private"}
+                              </span>
                             </button>
                           </td>
                           <td className="px-6 py-4 text-right">

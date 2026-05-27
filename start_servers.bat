@@ -10,8 +10,9 @@ echo Waiting 5 seconds for the backend to initialize...
 timeout /t 5 /nobreak >nul
 
 echo [2/2] Starting Next.js Frontend on port 3000...
-start "Next.js Frontend" cmd /k "cd web && npm run dev"
-
+start "Next.js Frontend" cmd /k "cd web && npm run dev" 
+        or 
+        "node node_modules/next/dist/bin/next dev"
 echo Waiting 5 seconds for the frontend to initialize...
 timeout /t 5 /nobreak >nul
 

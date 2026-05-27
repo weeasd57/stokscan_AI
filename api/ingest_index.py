@@ -53,9 +53,9 @@ def ingest_local_index(file_path, symbol="EGX30.INDX"):
         success, msg = sync_df_to_supabase(symbol, df)
         
         if success:
-            print(f"✅ Successfully ingested {symbol}: {msg}")
+            print(f"[OK] Successfully ingested {symbol}: {msg}")
         else:
-            print(f"❌ Failed to ingest {symbol}: {msg}")
+            print(f"[ERROR] Failed to ingest {symbol}: {msg}")
             
     except Exception as e:
         print(f"Exception: {e}")

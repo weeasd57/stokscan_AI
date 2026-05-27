@@ -45,7 +45,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # Import from existing modules
 from api.train_exchange_model import (
     add_technical_indicators,
-    add_indicator_signals,
     add_massive_features,
     add_market_context,
     ModelTrainer,
@@ -292,7 +291,6 @@ def main():
             if df_feat.empty:
                 continue
             
-            df_feat = add_indicator_signals(df_feat)
             df_feat = add_massive_features(df_feat)
             df_feat = add_market_context(df_feat, trainer.market_df)
             

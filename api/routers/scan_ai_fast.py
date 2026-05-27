@@ -24,8 +24,11 @@ from api.stock_ai import (
     get_top_reasons,
     LGBM_PREDICTORS,
     RF_PREDICTORS,
+    _PcaTransformer,
+    _LgbmBoosterClassifier,
+    _MetaLabelingClassifier,
 )
-from api.train_exchange_model import add_massive_features, add_market_context, add_indicator_signals, add_rolling_win_rate
+from api.train_exchange_model import add_massive_features, add_market_context
 from api.council import TheCouncil
 from api.council_validator import CouncilValidator, load_council_validator_from_path
 
@@ -135,6 +138,9 @@ class FastScanResult(Dict[str, Any]):
 
 
 def _load_model(model_name: str):
+    """Load a model artifact, supporting meta_labeling_system, lgbm_booster, and legacy formats.
+    Uses the same loading logic as stock_ai.py to ensure PCA support.
+    """
     models_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "models"))
     model_path = model_name if os.path.isabs(model_name) else os.path.join(models_dir, model_name)
 
@@ -149,38 +155,111 @@ def _load_model(model_name: str):
 
     predictors: Optional[List[str]] = None
     is_lgbm = False
-    
-    # Handle Meta Labeling System or complex artifact dicts
-    if isinstance(artifact, dict) and "primary_model" in artifact:
-        # Extract the underlying model and use its metrics if available
+    model = artifact
+
+    try:
+        import lightgbm as lgb
+        import xgboost as xgb_mod
+    except Exception:
+        lgb = None
+        xgb_mod = None
+
+    # ── meta_labeling_system artifact (NEW format) ──────────────────────────
+    if isinstance(artifact, dict) and artifact.get("kind") == "meta_labeling_system":
+        if lgb is None:
+            raise ValueError("lightgbm is required to load meta_labeling_system artifacts")
+
+        primary_art = artifact.get("primary_model")
+        if not isinstance(primary_art, dict) or primary_art.get("kind") != "lgbm_booster":
+            raise ValueError("Invalid meta_labeling_system artifact: missing primary_model")
+
+        model_str = primary_art.get("model_str")
+        if not isinstance(model_str, str) or not model_str.strip():
+            raise ValueError("Invalid meta_labeling_system artifact: missing primary model_str")
+
+        booster = lgb.Booster(model_str=model_str)
+
+        # PCA extraction
+        pca = primary_art.get("pca")
+        scaler = primary_art.get("scaler")
+        pca_features = primary_art.get("pca_features")
+        pca_transformer = None
+        if pca is not None and scaler is not None and pca_features:
+            pca_transformer = _PcaTransformer(pca, scaler, pca_features)
+
+        primary_clf = _LgbmBoosterClassifier(booster, 0.5, pca_transformer=pca_transformer)
+
+        f_names = primary_art.get("feature_names")
+        if isinstance(f_names, list) and f_names:
+            if pca_features:
+                predictors = [c for c in f_names if not c.startswith("PCA_Momentum_")] + list(pca_features)
+            else:
+                predictors = f_names
+        else:
+            try:
+                predictors = list(booster.feature_name())
+            except Exception:
+                predictors = LGBM_PREDICTORS
+
+        meta_model = artifact.get("meta_model")
+        meta_feature_names = artifact.get("meta_feature_names") or []
+        meta_threshold = artifact.get("meta_threshold", 0.7)
+
+        model = _MetaLabelingClassifier(primary_clf, meta_model, meta_feature_names, meta_threshold)
+        is_lgbm = True
+
+    # ── lgbm_booster artifact ────────────────────────────────────────────────
+    elif isinstance(artifact, dict) and artifact.get("kind") == "lgbm_booster":
+        if lgb is None:
+            raise ValueError("lightgbm is required to load lgbm_booster artifacts")
+
+        model_str = artifact.get("model_str")
+        if not isinstance(model_str, str) or not model_str.strip():
+            raise ValueError("Invalid lgbm_booster artifact: missing model_str")
+
+        booster = lgb.Booster(model_str=model_str)
+
+        # PCA extraction
+        pca = artifact.get("pca")
+        scaler = artifact.get("scaler")
+        pca_features = artifact.get("pca_features")
+        pca_transformer = None
+        if pca is not None and scaler is not None and pca_features:
+            pca_transformer = _PcaTransformer(pca, scaler, pca_features)
+
+        threshold = artifact.get("threshold", 0.5)
+        model = _LgbmBoosterClassifier(
+            booster,
+            threshold if isinstance(threshold, (int, float)) else 0.5,
+            pca_transformer=pca_transformer
+        )
+        is_lgbm = True
+
+        f_names = artifact.get("feature_names")
+        if isinstance(f_names, list) and f_names:
+            if pca_features:
+                predictors = [c for c in f_names if not c.startswith("PCA_Momentum_")] + list(pca_features)
+            else:
+                predictors = f_names
+        else:
+            try:
+                predictors = list(booster.feature_name())
+            except Exception:
+                predictors = LGBM_PREDICTORS
+
+    # ── legacy dict with primary_model key ──────────────────────────────────
+    elif isinstance(artifact, dict) and "primary_model" in artifact:
         predictors = artifact.get("predictors")
         is_lgbm = artifact.get("is_lgbm", False)
-        # If the outer dict has predictors, we use them, otherwise we fall through to the primary_model
         artifact = artifact["primary_model"]
+        model = artifact
 
-    model = artifact  # Default: artifact is the model itself
-
-    # Handle dict artifact format (LightGBM booster saved as dict)
-    if isinstance(artifact, dict) and artifact.get("kind") == "lgbm_booster":
-        is_lgbm = True
-        if predictors is None:
-            predictors = artifact.get("feature_names", [])
-        model_str = artifact.get("model_str")
-        if model_str:
-            try:
-                import lightgbm as lgb
-                booster = lgb.Booster(model_str=model_str)
-                # Wrap booster in a simple predict interface
-                model = _BoosterWrapper(booster)
-            except Exception as e:
-                raise ValueError(f"Failed to load LightGBM booster: {e}")
-        else:
-            raise ValueError("Model artifact missing model_str")
+    # ── standard sklearn-like object ────────────────────────────────────────
     else:
-        # Standard model object (sklearn-like)
         try:
-            import lightgbm as lgb
-            is_lgbm = isinstance(artifact, lgb.Booster) or "lightgbm" in type(artifact).__module__
+            is_lgbm = lgb is not None and (
+                isinstance(artifact, lgb.Booster) or "lightgbm" in type(artifact).__module__
+            )
         except Exception:
             is_lgbm = False
 
@@ -238,8 +317,8 @@ def _process_symbol(
     model,
     predictors: List[str],
     min_precision: float,
-    target_pct: float = 0.10,
-    stop_loss_pct: float = 0.05,
+    target_pct: float = 2.0,
+    stop_loss_pct: float = 1.0,
     look_forward_days: int = 20,
     buy_threshold: float = 0.45,
     fundamentals_map: Optional[Dict[str, Dict[str, Any]]] = None,
@@ -255,7 +334,6 @@ def _process_symbol(
         
         # 1. Technical Indicators (Fast + Massive) - Using Cached Versions
         feat = _get_data_with_indicators_cached(sym, ex or "EGX", raw, add_technical_indicators)
-        feat = add_indicator_signals(feat)
         feat = _get_massive_features_cached(sym, ex or "EGX", feat)
 
         # 2. Market Context
@@ -360,8 +438,14 @@ def _process_symbol(
                 except Exception:
                     pass
             last_close = float(candidate.iloc[-1]["Close"])
-            tp = last_close * (1 + target_pct)
-            sl = last_close * (1 - stop_loss_pct)
+            # Use ATR-based TP/SL if available
+            atr_val = float(candidate.iloc[-1].get("ATR_14", 0)) if "ATR_14" in candidate.columns else 0
+            if atr_val > 0:
+                tp = last_close + (atr_val * target_pct)
+                sl = last_close - (atr_val * stop_loss_pct)
+            else:
+                tp = last_close * (1 + 0.02)  # Fallback 2%
+                sl = last_close * (1 - 0.01)  # Fallback 1%
             
             # Convert numpy types to native Python types for JSON serialization
             features_list = candidate[available_predictors].iloc[0].tolist()
@@ -519,8 +603,8 @@ async def fast_scan(
     model_name: str = Query(..., description="Model file name in api/models"),
     from_date: str = Query(default=None, description="Start date (YYYY-MM-DD). Defaults to 300 days ago."),
     to_date: str = Query(default=None, description="End date (YYYY-MM-DD)."),
-    target_pct: float = Query(default=0.10),
-    stop_loss_pct: float = Query(default=0.05),
+    target_pct: float = Query(default=2.0),
+    stop_loss_pct: float = Query(default=1.0),
     look_forward_days: int = Query(default=20),
     buy_threshold: float = Query(default=0.60),
     council_model: Optional[str] = Query(default=None),

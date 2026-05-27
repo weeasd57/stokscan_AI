@@ -25,7 +25,7 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import precision_score
 from supabase import create_client, Client
 from supabase.lib.client_options import ClientOptions
-from api.train_exchange_model import add_massive_features, add_market_context
+from api.train_exchange_model import add_massive_features, add_market_context, QuantitativeModelPipeline
 
 # Conditional import for LGBM to avoid failure if not installed (though it should be)
 try:
@@ -45,20 +45,58 @@ except Exception:
     xgb = None
 
 
+class _PcaTransformer:
+    def __init__(self, pca, scaler, pca_features):
+        self.pca = pca
+        self.scaler = scaler
+        self.pca_features = pca_features
+
+    def __call__(self, X: pd.DataFrame) -> pd.DataFrame:
+        X = X.copy()
+        present_pca_feats = [f for f in self.pca_features if f in X.columns]
+        if not present_pca_feats:
+            return X
+            
+        X_pca_raw = X[present_pca_feats].fillna(0)
+        X_scaled = self.scaler.transform(X_pca_raw)
+        X_pca = self.pca.transform(X_scaled)
+        
+        X = X.drop(columns=present_pca_feats)
+        for i in range(X_pca.shape[1]):
+            X[f'PCA_Momentum_{i}'] = X_pca[:, i]
+            
+        return X
+
+
 class _LgbmBoosterClassifier:
-    def __init__(self, booster, threshold: float = 0.45): # Tuned strictness (was 0.40)
+    def __init__(self, booster, threshold: float = 0.45, pca_transformer=None): # Tuned strictness (was 0.40)
         self.booster = booster
+        self.pca_transformer = pca_transformer
         try:
             self.threshold = float(threshold)
         except Exception:
             self.threshold = 0.45
 
     def predict(self, X):
-        raw = self.booster.predict(X)
+        X_t = X
+        if self.pca_transformer is not None:
+            X_t = self.pca_transformer(X)
+        if hasattr(self.booster, "feature_name"):
+            expected_feats = self.booster.feature_name()
+            if expected_feats:
+                X_t = X_t.reindex(columns=expected_feats, fill_value=0.0)
+        raw = self.booster.predict(X_t)
         return (np.asarray(raw) >= self.threshold).astype(int)
 
     def predict_proba(self, X):
-        raw = self.booster.predict(X)
+        X_t = X
+        if self.pca_transformer is not None:
+            X_t = self.pca_transformer(X)
+        if hasattr(self.booster, "feature_name"):
+            expected_feats = self.booster.feature_name()
+            if expected_feats:
+                X_t = X_t.reindex(columns=expected_feats, fill_value=0.0)
+        raw = self.booster.predict(X_t)
         probs = np.asarray(raw)
         # Return 2-column format: [prob_class_0, prob_class_1]
         return np.column_stack([1 - probs, probs])
@@ -91,9 +129,16 @@ class _MetaLabelingClassifier:
             primary_pred = np.asarray(self.primary_model.predict(X)).astype(float)
             primary_prob = primary_pred
 
+        # Apply PCA transformation if present on primary_model for meta features
+        pca_transformer = getattr(self.primary_model, "pca_transformer", None)
+        if pca_transformer is not None:
+            X_trans = pca_transformer(X)
+        else:
+            X_trans = X
+
         # Meta features: meta_feature_names typically includes "primary_prob".
         mf = [c for c in self.meta_feature_names if c != "primary_prob"]
-        X_meta = X[mf].copy() if mf else pd.DataFrame(index=X.index)
+        X_meta = X_trans[mf].copy() if mf else pd.DataFrame(index=X.index)
         X_meta = X_meta.replace([np.inf, -np.inf], np.nan).fillna(0)
         X_meta["primary_prob"] = np.asarray(primary_prob)
 
@@ -250,10 +295,6 @@ LGBM_PREDICTORS = [
     "OBV_Lag1", "OBV_Diff",
 
     # Smart Indicators (Stacking)
-    "feat_rsi_signal", "feat_rsi_acc",
-    "feat_ema_signal", "feat_ema_acc",
-    "feat_bb_signal", "feat_bb_acc",
-
     # Market Context
     "feat_mkt_trend", "feat_mkt_volatility", "feat_rel_strength",
 
@@ -325,9 +366,9 @@ def get_top_reasons(model: Any, predictors: List[str], limit: int = 3) -> List[s
 # Standard predictors for default RandomForest (Legacy)
 RF_PREDICTORS = ["Close", "Volume", "SMA_50", "SMA_200", "RSI", "Momentum"]
 
-def _init_supabase():
+def _init_supabase(force=False):
     global supabase
-    if supabase is None:
+    if supabase is None or force:
         url = os.getenv("NEXT_PUBLIC_SUPABASE_URL")
         key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
         if not key:
@@ -354,7 +395,8 @@ def _init_supabase():
                     postgrest_client_timeout=httpx.Timeout(postgrest_timeout_s, connect=connect_timeout_s),
                     storage_client_timeout=httpx.Timeout(storage_timeout_s, connect=connect_timeout_s),
                 )
-                supabase = create_client(url, key, options)
+                new_client = create_client(url, key, options)
+                supabase = new_client
                 print("DEBUG: Supabase client initialized successfully")
             except Exception as e:
                 print(f"Failed to init Supabase: {e}")
@@ -455,8 +497,8 @@ def _supabase_read_with_retry(
                 _raise_transient_supabase_unavailable(e, table=table_name or "unknown")
                 raise
             
-            supabase = None
             time.sleep(sleep_base_s * attempt)
+            _init_supabase(force=True)
             
     if last_err is not None:
         raise last_err
@@ -497,8 +539,8 @@ def _supabase_upsert_with_retry(
                 )
             if not _is_transient_supabase_error(e) or attempt >= max_attempts:
                 raise
-            supabase = None
             time.sleep(sleep_base_s * attempt)
+            _init_supabase(force=True)
     if last_err is not None:
         raise last_err
 
@@ -586,8 +628,8 @@ def _infer_symbol_exchange(ticker: str, exchange_hint: Optional[str] = None) -> 
     # 2. Use hint if provided
     if exchange_hint:
         e = exchange_hint.strip().lower()
-        if e in country_to_ex:
-            e = country_to_ex[e]
+        if e in market_to_ex:
+            e = market_to_ex[e]
         else:
             e = e.upper()
         return t, e
@@ -609,15 +651,21 @@ def check_local_cache(symbol: str, exchange: Optional[str] = None) -> bool:
     except Exception:
         pass
 
-    # 1. Check Supabase First
     _init_supabase()
-    if supabase:
-        try:
-            s, e = _infer_symbol_exchange(symbol, exchange)
-            res = supabase.table("stock_prices").select("count", count="exact").eq("symbol", s).eq("exchange", e).limit(1).execute()
-            if res.count and res.count > 0:
-                return True
-        except Exception as ex:
+    if not supabase:
+        return False
+
+    try:
+        s, e = _infer_symbol_exchange(symbol, exchange)
+
+        def query_count(sb):
+            return sb.table("stock_prices").select("count", count="exact").eq("symbol", s).eq("exchange", e).limit(1).execute()
+
+        res = _supabase_read_with_retry(query_count, table_name="stock_prices")
+        if getattr(res, "count", None) and res.count > 0:
+            return True
+    except Exception as ex:
+        if os.getenv("DEBUG_SUPABASE_ERRORS") == "1":
             print(f"DEBUG: Supabase count check failed: {ex}")
 
     return False
@@ -800,7 +848,7 @@ def _get_exchange_bulk_data(
 
         max_attempts = 3
         page_size = 10000 
-        max_workers = 5   
+        max_workers = 2   
         last_err = None
 
         for attempt in range(1, max_attempts + 1):
@@ -941,7 +989,7 @@ def _get_exchange_bulk_intraday_data(
 
         max_attempts = 3
         page_size = 1000
-        max_workers = 3
+        max_workers = 1
         last_err = None
 
         for attempt in range(1, max_attempts + 1):
@@ -1503,6 +1551,50 @@ def get_stock_data_eodhd(
             print(f"Supabase read error for {ticker}: {e}")
 
     if force_local:
+        try:
+            from api.tradingview_integration import fetch_tradingview_prices
+            s, e = _infer_symbol_exchange(ticker, exchange)
+            full_ticker = f"{s}.{e}"
+            print(f"DEBUG: Ticker {full_ticker} not found in Supabase. Attempting on-the-fly TradingView sync...")
+            ok, msg = fetch_tradingview_prices(full_ticker, max_days=365)
+            if ok:
+                print(f"DEBUG: On-the-fly TV sync succeeded for {full_ticker}. Re-querying Supabase...")
+                # Re-query Supabase
+                all_data = []
+                page_size = 1000
+                offset = 0
+                while True:
+                    res = (
+                        supabase.table("stock_prices")
+                        .select("date,open,high,low,close,volume")
+                        .eq("symbol", s)
+                        .eq("exchange", e)
+                        .order("date", desc=False)
+                        .range(offset, offset + page_size - 1)
+                        .execute()
+                    )
+                    if not res.data:
+                        break
+                    all_data.extend(res.data)
+                    if len(res.data) < page_size:
+                        break
+                    offset += page_size
+                
+                if all_data:
+                    df = pd.DataFrame(all_data)
+                    df['date'] = pd.to_datetime(df['date'])
+                    df = df.set_index('date')
+                    df = df[~df.index.duplicated(keep='last')]
+                    df = df.sort_index()
+                    if from_date:
+                        df = df[df.index >= pd.to_datetime(from_date)]
+                    if to_date:
+                        df = df[df.index <= pd.to_datetime(to_date)]
+                    if not df.empty:
+                        print(f"DEBUG: On-the-fly TV synced data returned successfully ({len(df)} rows)")
+                        return df
+        except Exception as tv_ex:
+            print(f"DEBUG: On-the-fly TradingView sync failed for {ticker}: {tv_ex}")
         return pd.DataFrame() # Return empty instead of raising error if cloud-only
 
     # No cloud data, try API
@@ -2397,20 +2489,26 @@ def add_trade_levels(df: pd.DataFrame, risk_reward_ratio: float = 2.0) -> Tuple[
 
 def prepare_for_ai(
     df: pd.DataFrame,
-    target_pct: float = 0.15,
-    stop_loss_pct: float = 0.05,
+    target_pct: float = 2.0,
+    stop_loss_pct: float = 1.0,
     look_forward_days: int = 20,
     drop_labels: bool = True,
-    use_volatility_label: bool = False,
+    use_volatility_label: bool = True,
 ) -> pd.DataFrame:
     """
-    Sniper Strategy Labeling with configurable parameters.
-    Aligns with training pipeline (next-day entry, TP-before-SL).
+    Dynamic ATR Triple Barrier Labeling - matches training pipeline.
+    target_pct and stop_loss_pct are ATR multipliers (not percentages).
     """
     if df.empty: return df
+
+    # Safety guard: frontend may still send percentages like 0.1/0.05
+    # while this pipeline expects ATR multipliers.
+    if target_pct < 1.0:
+        target_pct = 2.0
+    if stop_loss_pct < 1.0:
+        stop_loss_pct = 1.0
+
     out = df.copy()
-    
-    indexer = pd.api.indexers.FixedForwardWindowIndexer(window_size=look_forward_days)
     
     # Use lowercase columns if needed or standardizing to capitalized
     close_col = "Close" if "Close" in out.columns else "close"
@@ -2418,35 +2516,47 @@ def prepare_for_ai(
     high_col = "High" if "High" in out.columns else "high"
     low_col = "Low" if "Low" in out.columns else "low"
     
+    # Ensure ATR_14 exists
+    if "ATR_14" not in out.columns:
+        out["ATR_14"] = out[close_col].rolling(14).std().bfill()
+
     # Entry is next-day open to avoid signal-entry leakage
     out['entry_price'] = out[open_col].shift(-1)
+    shifted_atr = out['ATR_14'].shift(-1)
     
-    # Future High/Low: Start checking from next day (shift -1)
-    # This aligns the window [t+1, t+1+look_forward] to row t
-    out['future_high'] = out[high_col].shift(-1).rolling(window=indexer).max()
-    out['future_low'] = out[low_col].shift(-1).rolling(window=indexer).min()
-    
+    # Dynamic barriers based on ATR
+    out['tp_barrier'] = out['entry_price'] + (shifted_atr * target_pct)
+    out['sl_barrier'] = out['entry_price'] - (shifted_atr * stop_loss_pct)
+
     out['Target'] = 0
-
-    if use_volatility_label and "ATR_14" in out.columns:
-        vol = (out["ATR_14"] / out[close_col]).rolling(100, min_periods=1).mean()
-        dynamic_target = vol * 2.0
-        dynamic_stop = vol * 1.0
-        out['tp_barrier'] = out['entry_price'] * (1 + np.maximum(target_pct, dynamic_target))
-        out['sl_barrier'] = out['entry_price'] * (1 - np.maximum(stop_loss_pct, dynamic_stop))
-    else:
-        out['tp_barrier'] = out['entry_price'] * (1 + target_pct)
-        out['sl_barrier'] = out['entry_price'] * (1 - stop_loss_pct)
-
-    hit_tp = out['future_high'] >= out['tp_barrier']
-    hit_sl = out['future_low'] <= out['sl_barrier']
-    out.loc[hit_tp & ~hit_sl, 'Target'] = 1
     
-    # Cleanup and dropna
-    out.drop(columns=['future_high', 'future_low', 'entry_price', 'tp_barrier', 'sl_barrier'], inplace=True, errors='ignore')
+    # Vectorized barrier check using loop (needed for first-hit logic)
+    high_vals = out[high_col].values
+    low_vals = out[low_col].values
+    tp_vals = out['tp_barrier'].values
+    sl_vals = out['sl_barrier'].values
+    targets = np.zeros(len(out), dtype=int)
+    
+    for i in range(len(out) - look_forward_days - 1):
+        if not np.isfinite(tp_vals[i]) or not np.isfinite(sl_vals[i]):
+            continue
+        for j in range(1, look_forward_days + 1):
+            idx = i + j
+            if idx >= len(out):
+                break
+            if high_vals[idx] >= tp_vals[i]:
+                targets[i] = 1
+                break
+            if low_vals[idx] <= sl_vals[i]:
+                targets[i] = 0
+                break
+    
+    out['Target'] = targets
+
+    # Cleanup
+    out.drop(columns=['entry_price', 'tp_barrier', 'sl_barrier'], inplace=True, errors='ignore')
     
     # Keep more rows by filling numeric gaps
-    # Force common fundamental columns to numeric if they exist to prevent LightGBM dtype errors
     for c in ["marketCap", "peRatio", "eps", "dividendYield"]:
         if c in out.columns:
             out[c] = pd.to_numeric(out[c], errors='coerce')
@@ -2454,7 +2564,6 @@ def prepare_for_ai(
     # Handle categorical fundamental indicators if present
     for c in ["sector", "industry"]:
         if c in out.columns:
-            # Force to string then category to handle varied input types gracefully
             out[c] = out[c].astype(str).replace(['nan', 'None', ''], "Unknown").astype("category")
 
     numeric_cols = out.select_dtypes(include=["number"]).columns
@@ -2785,11 +2894,23 @@ def train_and_predict(
                         raise ValueError("Invalid meta_labeling_system artifact: missing primary model_str")
 
                     booster = lgb.Booster(model_str=model_str)
-                    primary_clf = _LgbmBoosterClassifier(booster, 0.5)
+                    
+                    # PCA extraction
+                    pca = primary_art.get("pca")
+                    scaler = primary_art.get("scaler")
+                    pca_features = primary_art.get("pca_features")
+                    pca_transformer = None
+                    if pca is not None and scaler is not None and pca_features:
+                        pca_transformer = _PcaTransformer(pca, scaler, pca_features)
+
+                    primary_clf = _LgbmBoosterClassifier(booster, 0.5, pca_transformer=pca_transformer)
 
                     f_names = primary_art.get("feature_names")
                     if isinstance(f_names, list) and f_names:
-                        predictors = f_names
+                        if pca_features:
+                            predictors = [c for c in f_names if not c.startswith("PCA_Momentum_")] + list(pca_features)
+                        else:
+                            predictors = f_names
                     else:
                         try:
                             predictors = list(booster.feature_name())
@@ -2826,13 +2947,29 @@ def train_and_predict(
                         raise ValueError("Invalid lgbm_booster artifact: missing model_str")
 
                     booster = lgb.Booster(model_str=model_str)
+                    
+                    # PCA extraction
+                    pca = artifact.get("pca")
+                    scaler = artifact.get("scaler")
+                    pca_features = artifact.get("pca_features")
+                    pca_transformer = None
+                    if pca is not None and scaler is not None and pca_features:
+                        pca_transformer = _PcaTransformer(pca, scaler, pca_features)
+
                     threshold = artifact.get("threshold")
-                    loaded_model = _LgbmBoosterClassifier(booster, threshold if isinstance(threshold, (int, float)) else 0.5)
+                    loaded_model = _LgbmBoosterClassifier(
+                        booster, 
+                        threshold if isinstance(threshold, (int, float)) else 0.5,
+                        pca_transformer=pca_transformer
+                    )
                     lgbm_artifact_loaded = True
 
                     f_names = artifact.get("feature_names")
                     if isinstance(f_names, list) and f_names:
-                        predictors = f_names
+                        if pca_features:
+                            predictors = [c for c in f_names if not c.startswith("PCA_Momentum_")] + list(pca_features)
+                        else:
+                            predictors = f_names
                     else:
                         try:
                             predictors = list(booster.feature_name())

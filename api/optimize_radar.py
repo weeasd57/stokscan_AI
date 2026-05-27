@@ -5,7 +5,7 @@ import sys
 import pickle
 from backtest_radar import run_radar_simulation, load_model, reconstruct_meta_model
 from api.stock_ai import _get_exchange_bulk_data
-from api.train_exchange_model import add_technical_indicators, add_indicator_signals, add_massive_features, add_market_context, fetch_fundamentals_for_exchange
+from api.train_exchange_model import add_technical_indicators, add_massive_features, add_market_context, fetch_fundamentals_for_exchange
 from api.stock_ai import _init_supabase, supabase
 from dotenv import load_dotenv
 
@@ -69,7 +69,6 @@ def load_models_and_data(exchange="EGX", model_name="KING 👑.pkl", start_date=
             if len(df_feat) == len(df):
                 df_feat.index = original_index
             
-            df_feat = add_indicator_signals(df_feat)
             df_feat = add_massive_features(df_feat)
             
             if market_df is not None:

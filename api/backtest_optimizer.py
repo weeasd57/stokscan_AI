@@ -83,18 +83,18 @@ class BacktestOptimizer:
             # Parse output
             parsed = self._parse_backtest_output(result.stdout, result.stderr)
             if parsed is None:
-                print(f"❌ Failed to parse backtest output for params: {params}")
+                print(f"[ERROR] Failed to parse backtest output for params: {params}")
                 if result.stderr:
-                    print(f"❌ STDERR:\n{result.stderr}")
+                    print(f"[ERROR] STDERR:\n{result.stderr}")
                 else:
-                    print(f"❌ STDOUT (first 500 chars):\n{result.stdout[:500]}...")
+                    print(f"[ERROR] STDOUT (first 500 chars):\n{result.stdout[:500]}...")
             return parsed
             
         except subprocess.TimeoutExpired:
-            print(f"⚠️ Backtest timeout for params: {params}")
+            print(f"[WARNING] Backtest timeout for params: {params}")
             return None
         except Exception as e:
-            print(f"❌ Error running backtest: {e}")
+            print(f"[ERROR] Error running backtest: {e}")
             return None
     
     def _parse_backtest_output(self, stdout: str, stderr: str) -> Optional[Dict]:
@@ -205,7 +205,7 @@ class BacktestOptimizer:
             }
             
         except Exception as e:
-            print(f"❌ Critical error parsing backtest output: {e}")
+            print(f"[ERROR] Critical error parsing backtest output: {e}")
             import traceback
             traceback.print_exc()
             return None
@@ -237,7 +237,7 @@ class BacktestOptimizer:
         combinations = list(product(wave_values, target_values, stoploss_values, validator_values))
         total_tests = len(combinations)
         
-        print(f"🚀 Starting {total_tests} backtest combinations (KING x Validator grid)...")
+        print(f"[START] Starting {total_tests} backtest combinations (KING x Validator grid)...")
         print("=" * 70)
         
         self.results = []
@@ -279,17 +279,17 @@ class BacktestOptimizer:
                     'timestamp': datetime.now().isoformat()
                 })
                 
-                print(f"✅ Profit: {result.get('profit_cash', 0):,.2f} ({result.get('profit_percent', 0):.2f}%)")
-                print(f"✅ Win Rate: {result.get('win_rate', 0):.1f}%")
+                print(f"[OK] Profit: {result.get('profit_cash', 0):,.2f} ({result.get('profit_percent', 0):.2f}%)")
+                print(f"[OK] Win Rate: {result.get('win_rate', 0):.1f}%")
             else:
-                print("⚠️ Test failed")
+                print(f"[WARNING] Test failed")
             
             # Call progress callback if provided
             if progress_callback:
                 progress_callback(idx, total_tests, result)
         
         print("\n" + "=" * 70)
-        print("✅ All tests completed!")
+        print(f"[OK] All tests completed!")
         
         return pd.DataFrame(self.results)
     
@@ -312,7 +312,7 @@ class BacktestOptimizer:
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
         
         df.to_csv(output_path, index=False, encoding='utf-8-sig')
-        print(f"\n💾 Results saved to: {output_path}")
+        print(f"\n Results saved to: {output_path}")
         
         return output_path
     

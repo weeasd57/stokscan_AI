@@ -38,6 +38,29 @@ if sys.platform == "win32":
     except Exception:
         pass
 
+# Safe print wrapper that removes non-ASCII characters to prevent encoding errors
+_orig_print = print
+def safe_print(*args, **kwargs):
+    """Print with automatic removal of non-ASCII characters for Windows compatibility."""
+    try:
+        # Convert all args to strings and remove non-ASCII
+        safe_args = []
+        for arg in args:
+            s = str(arg)
+            # Remove emoji/unicode characters, keep only ASCII
+            s = s.encode('ascii', 'replace').decode('ascii')
+            safe_args.append(s)
+        _orig_print(*safe_args, **kwargs)
+    except Exception:
+        # Fallback: just try to print anyway
+        try:
+            _orig_print(*args, **kwargs)
+        except Exception:
+            pass
+
+# Override print for this module
+print = safe_print
+
 # Global cache for index data to avoid repeated file reads
 _INDEX_CACHE = {}
 
@@ -66,7 +89,7 @@ def _parse_cli_date(value: str) -> pd.Timestamp:
         return pd.to_datetime(v, errors="raise")
 
     if _DATE_DMY_SLASH_RE.match(v):
-        return pd.to_datetime(v, dayfirst=True, errors="raise")
+        return pd.to_datetime(v, dayfirst=False, errors="raise")
 
     # Fallback: prefer month-first parsing, then day-first.
     try:
@@ -385,6 +408,8 @@ def run_radar_simulation(
         classifier = reconstruct_meta_model(model)
         if not classifier:
             return {}
+        if hasattr(classifier, "meta_threshold"):
+            classifier.meta_threshold = threshold
     
     def _align_for_king(X_src: pd.DataFrame, king_artifact: dict) -> pd.DataFrame:
         try:
@@ -479,8 +504,11 @@ def run_radar_simulation(
         try:
             probs = classifier.predict_proba(X_pred)
             confidences = probs[:, 1]
+            max_conf = float(np.max(confidences)) if len(confidences) > 0 else 0.0
+            min_conf = float(np.min(confidences)) if len(confidences) > 0 else 0.0
+            print(f"[BT-LIVE] DEBUG: predictions OK, shape={probs.shape}, max={max_conf:.4f}, min={min_conf:.4f}", flush=True)
         except Exception as e:
-            print(f"[BT-LIVE] ERROR: run_radar_simulation prediction failed: {e}", flush=True)
+            print(f"[BT-LIVE] ERROR: prediction failed: {str(e)}", flush=True)
             # Try converting all data to float to bypass categorical issues
             try:
                 X_numeric = X_pred.copy()
@@ -493,9 +521,9 @@ def run_radar_simulation(
                 _reset_nested_boosters(classifier)
                 probs = classifier.predict_proba(X_numeric)
                 confidences = probs[:, 1]
-                print(f"[BT-LIVE] Recovered from prediction error by converting to numeric", flush=True)
+                print(f"[BT-LIVE] Recovered from prediction error, max={float(np.max(confidences)):.4f}", flush=True)
             except Exception as e2:
-                print(f"[BT-LIVE] ERROR: Failed to recover from prediction error: {e2}", flush=True)
+                print(f"[BT-LIVE] ERROR: Failed to recover: {str(e2)}", flush=True)
                 return {}
         
         # Phase 2: Council Filtering (use full feature frame so each model can align its own features)
@@ -554,17 +582,10 @@ def run_radar_simulation(
                     print(f"Warning: Council validator failed: {e}", flush=True)
                     validator_probs = None
 
-        # Deep Debug (Disabled for clean terminal)
-        # max_score = float(np.max(confidences)) if len(confidences) > 0 else 0.0
-        # max_consensus = float(np.max(consensus_scores)) if consensus_scores is not None else 0.0
-        # max_validator = float(np.max(validator_probs)) if validator_probs is not None and len(validator_probs) > 0 else 0.0
-        
-        # print(
-        #     f"DEBUG: Symbol {df['symbol'].iloc[0] if 'symbol' in df.columns else '??'} "
-        #     f"Max Radar: {max_score:.4f} | Max Council: {max_consensus:.4f} | Max Validator: {max_validator:.4f}",
-        #     flush=True
-        # )
-        pass
+        # Calculate max scores for reporting
+        max_score = float(np.max(confidences)) if len(confidences) > 0 else 0.0
+        max_consensus = float(np.max(consensus_scores)) if consensus_scores is not None else 0.0
+        max_validator = float(np.max(validator_probs)) if validator_probs is not None and len(validator_probs) > 0 else 0.0
         
     except Exception as e:
         print(f"ERROR: run_radar_simulation prediction failed: {e}", flush=True)
@@ -602,7 +623,7 @@ def run_radar_simulation(
     in_trade = False
     exit_idx = -1
 
-    for i in range(len(df) - hold_max):
+    for i in range(len(df)):
         # Skip if we are currently in a trade
         if in_trade:
             if i <= exit_idx:
@@ -649,9 +670,9 @@ def run_radar_simulation(
             
             outcome = "HOLD"
             pnl_pct = 0.0
-            exit_date = dates[i+hold_max]
-            exit_price = closes[i+hold_max]
-            exit_idx = i + hold_max
+            exit_idx = min(len(df) - 1, i + hold_max)
+            exit_date = dates[exit_idx]
+            exit_price = closes[exit_idx]
             
             for days_fwd in range(1, hold_max + 1):
                 idx = i + days_fwd
@@ -665,7 +686,7 @@ def run_radar_simulation(
                 # - If target hits, we exit at target.
                 # - Trailing-stop updates are applied AFTER this bar (effective next bar).
                 if lo <= current_stop:
-                    outcome = "STOP LOSS ❌" if trail_mode == "NONE" else f"TRAIL STOP ({trail_mode}) 🛡️"
+                    outcome = "STOP LOSS [X]" if trail_mode == "NONE" else f"TRAIL STOP ({trail_mode}) [OK]"
                     pnl_pct = (current_stop - entry_price) / entry_price
                     exit_date = dates[idx]
                     exit_price = current_stop
@@ -857,10 +878,10 @@ def main():
         if os.path.exists(args.model):
             model_path = args.model
         else:
-            print(f"❌ Model not found: {model_path}", flush=True)
+            print(f"[ERROR] Model not found: {model_path}", flush=True)
             return
 
-    print(f"🧠 Loading model: {args.model}...", flush=True)
+    print(f"[AI] Loading model: {args.model}...", flush=True)
     model_obj = load_model(model_path)
     if not model_obj:
         return
@@ -881,15 +902,15 @@ def main():
     if args.meta_threshold is not None:
         try:
             sim_threshold = float(args.meta_threshold)
-            print(f"🎯 Using Meta Threshold: {sim_threshold} (UI override)", flush=True)
+            print(f"[TARGET] Using Meta Threshold: {sim_threshold} (UI override)", flush=True)
         except Exception:
             sim_threshold = 0.40
-            print(f"⚠️ Invalid meta-threshold provided. Using default {sim_threshold}.", flush=True)
+            print(f"[WARNING] Invalid meta-threshold provided. Using default {sim_threshold}.", flush=True)
     elif isinstance(model_obj, dict):
         sim_threshold = float(_meta_get(model_obj, "meta_threshold", sim_threshold))
-        print(f"🎯 Using Meta Threshold: {sim_threshold}", flush=True)
+        print(f"[TARGET] Using Meta Threshold: {sim_threshold}", flush=True)
     else:
-        print(f"🎯 Using Meta Threshold: {sim_threshold}", flush=True)
+        print(f"[TARGET] Using Meta Threshold: {sim_threshold}", flush=True)
 
     # Decide data source based on model metadata (fallback: CRYPTO => 1h intraday)
     use_intraday = False
@@ -910,23 +931,21 @@ def main():
         timeframe = str(args.timeframe).strip().lower()
         if timeframe != "1d":
             use_intraday = True
-        print(f"⏱️ Forcing timeframe: {timeframe} (CLI override)", flush=True)
+        print(f"[TIME] Forcing timeframe: {timeframe} (CLI override)", flush=True)
 
     if use_intraday:
-        print(
-            f"📥 Fetching intraday bulk data for {args.exchange} ({timeframe}) (Buffer Start: {buffer_start}, Sim Start: {args.start})...",
+        print(f"[INPUT] Fetching intraday bulk data for {args.exchange} ({timeframe}) (Buffer Start: {buffer_start}, Sim Start: {args.start})...",
             flush=True,
         )
         data_map = _get_exchange_bulk_intraday_data(args.exchange, timeframe=timeframe, from_ts=buffer_start)
     else:
-        print(
-            f"📥 Fetching bulk data for {args.exchange} (Buffer Start: {buffer_start}, Sim Start: {args.start})...",
+        print(f"[INPUT] Fetching bulk data for {args.exchange} (Buffer Start: {buffer_start}, Sim Start: {args.start})...",
             flush=True,
         )
         data_map = _get_exchange_bulk_data(args.exchange, from_date=buffer_start)
 
     if not data_map:
-        print("❌ No data found.", flush=True)
+        print("[ERROR] No data found.", flush=True)
         return
 
     # Context & Fundamentals
@@ -945,13 +964,13 @@ def main():
                 market_df = pd.DataFrame(idx_data)
                 market_df['date'] = pd.to_datetime(market_df['date'])
                 market_df.set_index('date', inplace=True)
-                print("✅ Market context (EGX30) loaded from local JSON.", flush=True)
+                print(f"[OK] Market context (EGX30) loaded from local JSON.", flush=True)
         except Exception:
             pass
 
     df_funds = pd.DataFrame()
     if supabase and args.exchange != "CRYPTO":
-        print(f"📥 Fetching fundamentals for {args.exchange}...", flush=True)
+        print(f"[INPUT] Fetching fundamentals for {args.exchange}...", flush=True)
         df_funds = fetch_fundamentals_for_exchange(supabase, args.exchange)
 
     # Prepare TheCouncil (Phase 2) ONLY when explicitly requested.
@@ -973,33 +992,33 @@ def main():
 
         actual_council_path = os.path.join(models_dir, council_arg)
         if os.path.exists(actual_council_path):
-            print(f"🏛️ Loading Council Model: {council_arg}...", flush=True)
+            print(f"[COUNCIL] Loading Council Model: {council_arg}...", flush=True)
             loaded = load_model(actual_council_path)
             # Guard: user may accidentally pick a Council Validator model in the council dropdown.
             if isinstance(loaded, dict) and (loaded.get("kind") or "").strip().lower() == "council_validator":
-                print("⚠️ Selected model is a Council Validator, not a Council member. Using it as --validator instead.", flush=True)
+                print(f"[WARNING] Selected model is a Council Validator, not a Council member. Using it as --validator instead.", flush=True)
                 if not args.validator:
                     args.validator = council_arg
                 loaded = None
             council_models["king"] = loaded
         elif os.path.exists(council_arg):
-            print(f"🏛️ Loading Council Model (abs): {council_arg}...", flush=True)
+            print(f"[COUNCIL] Loading Council Model (abs): {council_arg}...", flush=True)
             loaded = load_model(council_arg)
             if isinstance(loaded, dict) and (loaded.get("kind") or "").strip().lower() == "council_validator":
-                print("⚠️ Selected model is a Council Validator, not a Council member. Using it as --validator instead.", flush=True)
+                print(f"[WARNING] Selected model is a Council Validator, not a Council member. Using it as --validator instead.", flush=True)
                 if not args.validator:
                     args.validator = council_arg
                 loaded = None
             council_models["king"] = loaded
         else:
-            print(f"⚠️ Council model not found at {actual_council_path}. Council will be disabled.", flush=True)
+            print(f"[WARNING] Council model not found at {actual_council_path}. Council will be disabled.", flush=True)
 
         if council_models.get("king") is not None:
             council = TheCouncil(models_dict=council_models)
         else:
             council = None
     else:
-        print("🏛️ Council disabled (No Filter).", flush=True)
+        print(f"[COUNCIL] Council disabled (No Filter).", flush=True)
 
     # Optional validator (gates Council-approved trades based on KING confidence)
     if args.validator:
@@ -1011,7 +1030,7 @@ def main():
         if validator:
             # Attach to function for minimal signature changes
             setattr(run_radar_simulation, "_validator", validator)
-            print(f"🛡️ Loaded Council Validator: {os.path.basename(v_path)}", flush=True)
+            print(f"[INFO] Loaded Council Validator: {os.path.basename(v_path)}", flush=True)
 
             # If Council is disabled, still support validator-only filtering by loading KING for confidence.
             if council is None:
@@ -1019,13 +1038,13 @@ def main():
                 if os.path.exists(king_path):
                     king_art = load_model(king_path)
                     setattr(run_radar_simulation, "_king_validator_artifact", king_art)
-                    print("👑 Loaded KING for validator-only mode.", flush=True)
+                    print(f"[KING] Loaded KING for validator-only mode.", flush=True)
         else:
-            print(f"⚠️ Failed to load Council Validator from {v_path}", flush=True)
+            print(f"[WARNING] Failed to load Council Validator from {v_path}", flush=True)
 
     # Threshold Summary
     print("\n" + "="*40, flush=True)
-    print("🎯 THRESHOLD CONFIGURATION:", flush=True)
+    print(f"[TARGET] THRESHOLD CONFIGURATION:", flush=True)
     print(f"   - Primary Model (KING): {sim_threshold:.2f}", flush=True)
     if council or args.validator:
         v_thresh = args.validator_threshold
@@ -1038,7 +1057,7 @@ def main():
     print("="*40 + "\n", flush=True)
 
     # Running Simulation
-    from api.train_exchange_model import add_technical_indicators, add_indicator_signals
+    from api.train_exchange_model import add_technical_indicators
     
     all_trades = []
     all_res_metadata = []
@@ -1067,9 +1086,9 @@ def main():
                 cnt = sum(1 for s in symbols_list if s.upper().endswith(f"/{qf}") or s.upper().endswith(qf))
                 breakdown[qf] = cnt
             breakdown_str = ", ".join(f"{k}: {v}" for k, v in breakdown.items())
-            print(f"🔍 Crypto filter applied: {quote_filters} → {before_count} → {len(symbols_list)} symbols ({breakdown_str})", flush=True)
+            print(f" Crypto filter applied: {quote_filters}  {before_count}  {len(symbols_list)} symbols ({breakdown_str})", flush=True)
     
-    print(f"🚀 Processing {len(symbols_list)} symbols sequentially...", flush=True)
+    print(f"[BT-LIVE] Processing {len(symbols_list)} symbols sequentially...", flush=True)
     
     for symbol in symbols_list:
         df = data_map[symbol]
@@ -1093,7 +1112,6 @@ def main():
             if len(df_feat) == len(df):
                 df_feat.index = original_index
             
-            df_feat = add_indicator_signals(df_feat)
             df_feat = add_massive_features(df_feat)
             
             if market_df is not None:
@@ -1143,7 +1161,7 @@ def main():
             try:
                 days_span = (df_sim.index[-1] - df_sim.index[0]).days
                 if days_span < 2:
-                    print(f"⚠️ Warning: Backtest duration for {symbol} is very short ({days_span} days). Results may be unreliable.", flush=True)
+                    print(f"[WARNING] Warning: Backtest duration for {symbol} is very short ({days_span} days). Results may be unreliable.", flush=True)
             except Exception:
                 pass
 
@@ -1186,13 +1204,13 @@ def main():
 
         if threshold_used is not None:
             print(
-                f"❌ No trades found matching criteria. (Processed {len(symbols_list)} symbols) "
+                f"[WARNING] No trades found matching criteria. (Processed {len(symbols_list)} symbols) "
                 f"| Max Radar={max_radar:.4f} | Threshold={threshold_used:.4f}",
                 flush=True,
             )
         else:
             print(
-                f"❌ No trades found matching criteria. (Processed {len(symbols_list)} symbols) "
+                f"[WARNING] No trades found matching criteria. (Processed {len(symbols_list)} symbols) "
                 f"| Max Radar={max_radar:.4f}",
                 flush=True,
             )
@@ -1252,7 +1270,7 @@ def main():
     #     print(f"Warning: Failed to write CSV {out_file}: {e}", flush=True)
     
     print("\n" + "="*40, flush=True)
-    print(" 🚀 FINAL RADAR BACKTEST REPORT ", flush=True)
+    print(" === FINAL RADAR BACKTEST REPORT === ", flush=True)
     print("="*40, flush=True)
     print(f"Model: {args.model}", flush=True)
     print(f"Exchange: {args.exchange}", flush=True)

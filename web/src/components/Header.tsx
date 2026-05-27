@@ -21,10 +21,8 @@ export default function Header() {
     }, [pathname]);
 
     const navItems = [
-        { href: "/", label: t("nav.home"), icon: <BarChart2 className="w-4 h-4" /> },
         { href: "/scanner/ai", label: t("nav.scanner.ai"), icon: <Brain className="w-4 h-4" /> },
         { href: "/scanner/technical", label: t("nav.scanner.tech"), icon: <Activity className="w-4 h-4" /> },
-        { href: "/scanner/comparison", label: t("nav.scanner.compare"), icon: <ArrowLeftRight className="w-4 h-4" /> },
         { href: "/pro", label: "Pro", icon: <Crown className="w-4 h-4" /> },
     ];
 
