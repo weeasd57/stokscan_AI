@@ -155,7 +155,7 @@ class ManualRetrainer:
             _log(f"Retraining failed: {e}", self.log_cb)
             return None
 
-def update_actuals(exchange="EGX", look_forward_days=20, target_pct=0.15, stop_loss_pct=0.05, log_cb=None):
+def update_actuals(exchange="EGX", look_forward_days=20, target_pct=2.0, stop_loss_pct=1.0, log_cb=None):
     """
     Verifies past predictions with Stop-Loss awareness.
     A prediction is a 'win' only if target is hit BEFORE stop-loss is hit.
@@ -224,14 +224,36 @@ def update_actuals(exchange="EGX", look_forward_days=20, target_pct=0.15, stop_l
                 if window.empty: continue
                 
                 # Logic: Find first day where high/low hits target or stop
+                # Use ATR-based barriers if ATR_14 is available
+                import ta
+                atr_series = None
+                try:
+                    full_high = df['high'].astype(float)
+                    full_low = df['low'].astype(float)
+                    full_close = df['close'].astype(float)
+                    atr_series = ta.volatility.average_true_range(full_high, full_low, full_close, window=14)
+                except Exception:
+                    pass
+                
                 is_win = 0
+                entry_idx = loc + 1
+                atr_at_entry = float(atr_series.iloc[entry_idx]) if atr_series is not None and entry_idx < len(atr_series) and np.isfinite(atr_series.iloc[entry_idx]) else 0
+                
+                if atr_at_entry > 0:
+                    tp_price = entry_price + (atr_at_entry * target_pct)
+                    sl_price = entry_price - (atr_at_entry * stop_loss_pct)
+                else:
+                    # Fallback to 2% / 1%
+                    tp_price = entry_price * 1.02
+                    sl_price = entry_price * 0.99
+                
                 for _, row in window.iterrows():
                     # Stop loss hit?
-                    if row['low'] <= entry_price * (1 - stop_loss_pct):
+                    if row['low'] <= sl_price:
                         is_win = 0
                         break
                     # Target hit?
-                    if row['high'] >= entry_price * (1 + target_pct):
+                    if row['high'] >= tp_price:
                         is_win = 1
                         break
                 

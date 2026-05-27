@@ -48,53 +48,279 @@ class BotConfigUpdate(BaseModel):
     execution_mode: Optional[str] = None
     trading_mode: Optional[str] = None
     use_auto_tune: Optional[bool] = None
+    status: Optional[str] = None
     cornix_webhook_url: Optional[str] = None
     cornix_uuid: Optional[str] = None
     cornix_secret: Optional[str] = None
     telegram_chat_id: Optional[int] = None
     telegram_token: Optional[str] = None
+    virtual_cash: Optional[float] = None
+
+def get_bot_or_404(bot_id: str):
+    """Retrieve an existing bot or raise 404. Never auto-creates."""
+    bot = bot_manager.get_bot(bot_id)
+    if not bot:
+        raise HTTPException(status_code=404, detail=f"Bot {bot_id} not found")
+    return bot
+
+def get_or_create_bot(bot_id: str, user_id: str = None):
+    bot = bot_manager.get_bot(bot_id)
+    if not bot:
+        # Prevent blind auto-creation on polling endpoints unless it's an explicit action or primary
+        if bot_id != "primary" and len(bot_id) >= 10:
+            print(f"Auto-creating bot: {bot_id}")
+            bot = bot_manager.create_bot(bot_id, name=f"Bot {bot_id[:6]}", user_id=user_id)
+            # User defaults
+            bot.config.execution_mode = "VIRTUAL"
+            bot.config.save_to_supabase = False
+            bot.config.save_trades_to_supabase = True
+            bot_manager.save_bots()
+        else:
+            raise HTTPException(status_code=404, detail=f"Bot {bot_id} not found")
+    return bot
+
+@router.get("/list")
+def list_bots(user_id: Optional[str] = None, subscribed_only: bool = False):
+    import json
+    from pathlib import Path
+    bots = []
+    logs_dir = Path("logs")
+    
+    # Fetch subscriptions if user_id is provided
+    subscriptions = {}
+    if user_id:
+        try:
+            _init_supabase()
+            if supabase:
+                res = supabase.table("bot_subscriptions").select("*").eq("user_id", user_id).execute()
+                subscriptions = {r["bot_id"]: r for r in (res.data or [])}
+        except Exception as e:
+            print(f"Error fetching bot subscriptions for user {user_id}: {e}")
+            
+    for bid, bot in bot_manager._bots.items():
+        # Check subscription info
+        is_subscribed = bid in subscriptions
+        sub_chat_id = subscriptions[bid].get("telegram_chat_id") if is_subscribed else None
+        sub_notifications = subscriptions[bid].get("notifications_enabled", True) if is_subscribed else True
+        
+        # Filter if requested
+        if subscribed_only and not is_subscribed:
+            continue
+            
+        # Gather basic stats
+        total_pnl = 0.0
+        win_rate = 0.0
+        trades_count = 0
+        active_positions_count = len(bot._pos_state) if hasattr(bot, "_pos_state") else 0
+        
+        perf_file = logs_dir / f"{bid}_performance.json"
+        if perf_file.exists():
+            try:
+                with open(perf_file, "r") as f:
+                    perf_data = json.load(f)
+                    total_pnl = perf_data.get("total_pnl", 0.0)
+                    win_rate = perf_data.get("win_rate", 0.0)
+                    trades_count = perf_data.get("trades_count", 0)
+            except Exception:
+                pass
+
+        bots.append({
+            "bot_id": bid,
+            "name": bot.config.name,
+            "status": "running" if bot.is_running else "stopped",
+            "user_id": bot.config.user_id,
+            "poll_seconds": bot.config.poll_seconds,
+            "max_open_positions": bot.config.max_open_positions,
+            "active_positions_count": active_positions_count,
+            "total_pnl": total_pnl,
+            "win_rate": win_rate,
+            "trades_count": trades_count,
+            "is_subscribed": is_subscribed,
+            "subscription_telegram_chat_id": sub_chat_id,
+            "subscription_notifications_enabled": sub_notifications,
+            "timeframe": getattr(bot.config, "timeframe", "1Hour"),
+            "target_pct": getattr(bot.config, "target_pct", 0.06),
+            "stop_loss_pct": getattr(bot.config, "stop_loss_pct", 0.02),
+            "use_council": getattr(bot.config, "use_council", True),
+            "council_threshold": getattr(bot.config, "council_threshold", 0.25),
+            "king_threshold": getattr(bot.config, "king_threshold", 0.85),
+            "king_model_path": getattr(bot.config, "king_model_path", "api/models/KING_CRYPTO.pkl"),
+            "council_model_path": getattr(bot.config, "council_model_path", "api/models/COUNCIL_CRYPTO.pkl"),
+            "trading_mode": getattr(bot.config, "trading_mode", "aggressive")
+        })
+    return {"bots": bots}
+
+class SubscribeRequest(BaseModel):
+    bot_id: str
+    user_id: str
+    telegram_chat_id: Optional[str] = None
+
+class UnsubscribeRequest(BaseModel):
+    bot_id: str
+    user_id: str
+
+class SubscriptionUpdateRequest(BaseModel):
+    bot_id: str
+    user_id: str
+    telegram_chat_id: Optional[str] = None
+    notifications_enabled: Optional[bool] = None
+
+@router.post("/subscribe")
+def subscribe_to_bot(req: SubscribeRequest):
+    try:
+        _init_supabase()
+        if not supabase:
+            raise HTTPException(status_code=500, detail="Supabase client not initialized")
+            
+        # 1. Enforce max 2 active subscriptions per user
+        subs_res = supabase.table("bot_subscriptions").select("id").eq("user_id", req.user_id).execute()
+        if len(subs_res.data or []) >= 2:
+            raise HTTPException(
+                status_code=400,
+                detail="لقد وصلت للحد الأقصى للاشتراك في البوتات (2 بوت بحد أقصى في الخطة المجانية)."
+            )
+            
+        # 2. Insert subscription
+        payload = {
+            "user_id": req.user_id,
+            "bot_id": req.bot_id,
+            "notifications_enabled": True
+        }
+        if req.telegram_chat_id:
+            payload["telegram_chat_id"] = req.telegram_chat_id
+            
+        res = supabase.table("bot_subscriptions").insert(payload).execute()
+        return {"status": "subscribed", "data": res.data[0] if res.data else {}}
+    except HTTPException:
+        raise
+    except Exception as e:
+        err_msg = str(e)
+        if "duplicate key" in err_msg.lower():
+            raise HTTPException(status_code=400, detail="أنت مشترك بالفعل في هذا البوت.")
+        raise HTTPException(status_code=400, detail=err_msg)
+
+@router.post("/unsubscribe")
+def unsubscribe_from_bot(req: UnsubscribeRequest):
+    try:
+        _init_supabase()
+        if not supabase:
+            raise HTTPException(status_code=500, detail="Supabase client not initialized")
+            
+        res = supabase.table("bot_subscriptions").delete().eq("user_id", req.user_id).eq("bot_id", req.bot_id).execute()
+        return {"status": "unsubscribed"}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.post("/subscription/update")
+def update_subscription(req: SubscriptionUpdateRequest):
+    try:
+        _init_supabase()
+        if not supabase:
+            raise HTTPException(status_code=500, detail="Supabase client not initialized")
+            
+        updates = {}
+        if req.telegram_chat_id is not None:
+            updates["telegram_chat_id"] = req.telegram_chat_id
+        if req.notifications_enabled is not None:
+            updates["notifications_enabled"] = req.notifications_enabled
+            
+        if not updates:
+            return {"status": "no_change"}
+            
+        res = supabase.table("bot_subscriptions").update(updates).eq("user_id", req.user_id).eq("bot_id", req.bot_id).execute()
+        return {"status": "updated", "data": res.data[0] if res.data else {}}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+class BotCreateRequest(BaseModel):
+    bot_id: str
+    name: str
+    user_id: str
+
+@router.post("/create")
+def create_new_bot(req: BotCreateRequest):
+    # Check limits
+    max_bots = 4
+    try:
+        admin_config_path = Path("admin_config.json")
+        if admin_config_path.exists():
+            with open(admin_config_path, "r") as f:
+                admin_config = json.load(f)
+                max_bots = admin_config.get("maxBotsPerUser", 4)
+    except Exception as e:
+        print(f"Error reading admin_config.json: {e}")
+            
+    # Count user bots
+    user_bots_count = sum(1 for b in bot_manager._bots.values() if getattr(b.config, "user_id", None) == req.user_id)
+    if user_bots_count >= max_bots:
+        raise HTTPException(status_code=400, detail=f"لقد وصلت للحد الأقصى لعدد البوتات المسموح به ({max_bots})")
+        
+    try:
+        bot = bot_manager.create_bot(bot_id=req.bot_id, name=req.name, user_id=req.user_id)
+        bot.config.execution_mode = "VIRTUAL"
+        bot.config.save_to_supabase = False
+        bot.config.save_trades_to_supabase = True
+        bot_manager.save_bots()
+        return {"status": "created", "bot_id": req.bot_id}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 @router.post("/start")
-def start_bot(bot_id: str = "primary"):
+def start_bot(bot_id: str = "primary", user_id: str = None):
     try:
-        bot = bot_manager.get_bot(bot_id)
-        if not bot:
-            raise HTTPException(status_code=404, detail=f"Bot {bot_id} not found")
+        bot = get_or_create_bot(bot_id, user_id=user_id)
         bot.start()
+        bot.config.status = "running"
+        bot_manager.save_bots()
         return {"status": "started", "bot_id": bot_id}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.post("/stop")
 def stop_bot(bot_id: str = "primary"):
     try:
-        bot = bot_manager.get_bot(bot_id)
-        if not bot:
-            raise HTTPException(status_code=404, detail=f"Bot {bot_id} not found")
+        bot = get_bot_or_404(bot_id)
         bot.stop()
+        bot.config.status = "stopped"
+        bot_manager.save_bots()
         return {"status": "stopping", "bot_id": bot_id}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.post("/clear_logs")
 def clear_bot_logs(bot_id: str = "primary"):
     try:
-        bot = bot_manager.get_bot(bot_id)
-        if not bot:
-            raise HTTPException(status_code=404, detail=f"Bot {bot_id} not found")
+        bot = get_bot_or_404(bot_id)
         bot.clear_logs()
         return {"status": "cleared", "bot_id": bot_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.post("/reset_data")
+def reset_bot_data(bot_id: str = "primary"):
+    try:
+        bot = get_bot_or_404(bot_id)
+        bot.reset_all_data()
+        return {"status": "success", "message": "All bot results and history cleared", "bot_id": bot_id}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.post("/clean_dust")
 def clean_bot_dust(bot_id: str = "primary"):
     try:
-        bot = bot_manager.get_bot(bot_id)
-        if not bot:
-            raise HTTPException(status_code=404, detail=f"Bot {bot_id} not found")
+        bot = get_bot_or_404(bot_id)
         count = bot.clean_dust()
         return {"status": "success", "cleaned_count": count}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -102,9 +328,7 @@ def clean_bot_dust(bot_id: str = "primary"):
 def send_test_notification(notify_type: str, bot_id: str = "primary"):
     """Trigger a mock notification for testing purposes."""
     try:
-        bot = bot_manager.get_bot(bot_id)
-        if not bot:
-            raise HTTPException(status_code=404, detail=f"Bot {bot_id} not found")
+        bot = get_bot_or_404(bot_id)
         
         ok, msg = bot.send_test_notification(notify_type)
         if not ok:
@@ -119,22 +343,31 @@ def send_test_notification(notify_type: str, bot_id: str = "primary"):
 @router.get("/status")
 def get_bot_status(bot_id: str = "primary"):
     try:
-        bot = bot_manager.get_bot(bot_id)
-        if not bot:
-            raise HTTPException(status_code=404, detail=f"Bot {bot_id} not found")
+        bot = get_bot_or_404(bot_id)
         return bot.get_status()
+    except HTTPException:
+        raise
     except Exception as e:
         import traceback
         print(f"Error in get_bot_status: {e}")
         print(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.get("/config")
+def get_bot_config(bot_id: str = "primary"):
+    try:
+        bot = get_or_create_bot(bot_id)
+        from dataclasses import asdict
+        return asdict(bot.config)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.post("/config")
 def update_bot_config(config: BotConfigUpdate, bot_id: str = "primary"):
     try:
-        bot = bot_manager.get_bot(bot_id)
-        if not bot:
-            raise HTTPException(status_code=404, detail=f"Bot {bot_id} not found")
+        bot = get_or_create_bot(bot_id)
         
         updates = config.dict(exclude_unset=True)
         # Avoid charmap encoding errors on Windows when printing emojis
@@ -146,6 +379,8 @@ def update_bot_config(config: BotConfigUpdate, bot_id: str = "primary"):
         bot_manager.save_bots()
         status = bot.get_status()
         return {"status": "updated", "config": status["config"]}
+    except HTTPException:
+        raise
     except Exception as e:
         import traceback
         print(f"Error in update_bot_config: {e}")
@@ -230,11 +465,19 @@ def get_available_models():
         if not models_dir.exists():
             return []
             
-        # Find all .pkl files
+        # Find all .pkl files and model cards
         model_files = list(models_dir.glob("*.pkl"))
-        # Return paths relative to base_dir (parent of api) for the bot to use
+        card_files = list(models_dir.glob("*.pkl.model_card.json"))
+        
         base_dir = api_dir.parent
-        return sorted([str(f.relative_to(base_dir)).replace("\\", "/") for f in model_files])
+        res = set()
+        for f in model_files:
+            res.add(str(f.relative_to(base_dir)).replace("\\", "/"))
+        for f in card_files:
+            name = str(f.relative_to(base_dir)).replace("\\", "/").replace(".model_card.json", "")
+            res.add(name)
+            
+        return sorted(list(res))
     except Exception as e:
         print(f"Error fetching models: {e}")
         return []
@@ -386,7 +629,7 @@ def get_bot_performance(bot_id: str = "primary"):
                 
                 # Normalize trade values using broker snapshots so legacy rows with
                 # missing fill price/PnL don't appear as +0.00/$0.00 in analytics.
-                bot = bot_manager.get_bot(bot_id)
+                bot = get_bot_or_404(bot_id)
                 closed_order_by_id: Dict[str, Dict[str, Any]] = {}
                 if bot and getattr(bot, "api", None):
                     try:
@@ -616,6 +859,8 @@ def get_bot_performance(bot_id: str = "primary"):
                 print(f"[Performance] Returning: total_trades={result['total_trades']}, win_rate={result['win_rate']}%, profit_loss=${result['profit_loss']}")
                 
                 return result
+            except HTTPException:
+                raise
             except Exception as e:
                 print(f"Supabase performance fetch error: {e}")
                 import traceback
@@ -743,9 +988,7 @@ def get_bot_performance(bot_id: str = "primary"):
 def get_bot_logs(bot_id: str = "primary", lines: int = 100):
     """Returns the last N lines of logs from the running bot."""
     try:
-        bot = bot_manager.get_bot(bot_id)
-        if not bot:
-            raise HTTPException(status_code=404, detail=f"Bot {bot_id} not found")
+        bot = get_bot_or_404(bot_id)
         
         # Get logs from deque (last N)
         requested_logs = bot.get_safe_logs(lines)
@@ -779,12 +1022,7 @@ def get_candles(symbol: str, bot_id: str = "primary", limit: int = 150):
         if not supabase:
             raise HTTPException(status_code=503, detail="Supabase not available")
 
-        # Get the bot instance early to avoid UnboundLocalErrors
-        bot = None
-        try:
-            bot = bot_manager.get_bot(bot_id)
-        except Exception:
-            pass
+        bot = get_bot_or_404(bot_id)
 
         # Try to resolve normalized symbol (e.g. BATUSD -> BAT/USD) using bot config
         if bot and hasattr(bot.config, "coins") and bot.config.coins:

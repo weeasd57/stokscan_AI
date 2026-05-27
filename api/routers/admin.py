@@ -104,38 +104,9 @@ _local_training_lock = threading.RLock()
 # ----------------------
 # PPO State Tracking
 # ----------------------
-PPO_TRAINING_STATE = {
-    "running": False,
-    "exchange": "",
-    "started_at": None,
-    "completed_at": None,
-    "error": None,
-    "last_message": "Idle",
-    "phase": "idle",
-    "stats": {},
-    "logs": [],
-    "version": 0,
-    "last_update": None,
-}
-_ppo_training_lock = threading.RLock()
 
-PPO_BACKTEST_STATE = {
-    "running": False,
-    "progress": 0,
-    "total": 0,
-    "current_symbol": "",
-    "results": None,
-    "error": None,
-    "last_update": None
-}
 
-@router.get("/ppo/status")
-async def get_ppo_training_status():
-    return PPO_TRAINING_STATE
 
-@router.get("/ppo/backtest/status")
-async def get_ppo_backtest_status():
-    return PPO_BACKTEST_STATE
 
 def list_local_models() -> List[str]:
     base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -690,6 +661,7 @@ def sync_index(req: IndexSyncRequest, background_tasks: BackgroundTasks):
             # the EODHD symbol (which usually has .INDX) correctly.
             
             _init_supabase()
+            from api.stock_ai import sync_df_to_supabase
             success, msg = sync_df_to_supabase(target_symbol, df)
             
             if success:
@@ -1363,502 +1335,12 @@ async def trigger_local_training(req: TrainTriggerRequest, background_tasks: Bac
     )
     return {"status": "success", "message": f"Local training started for {req.exchange}. Check server logs for progress."}
 
-@router.post("/ppo/train")
-async def trigger_ppo_training(req: PPOTrainRequest, background_tasks: BackgroundTasks):
-    try:
-        from api.ppo_training import train_ppo
-        from api.stock_ai import get_stock_data_eodhd, add_technical_indicators
-    except ImportError as e:
-        raise HTTPException(status_code=500, detail=f"Failed to import PPO modules: {e}")
 
-    _init_supabase()
-    api_key = os.getenv("EODHD_API_KEY")
-    client = APIClient(api_key) if api_key else None
 
-    with _ppo_training_lock:
-        if PPO_TRAINING_STATE["running"]:
-             raise HTTPException(status_code=400, detail="A PPO training task is already running")
-        
-        PPO_TRAINING_STATE.update({
-            "running": True,
-            "exchange": req.exchange,
-            "started_at": datetime.utcnow().isoformat(),
-            "completed_at": None,
-            "error": None,
-            "last_message": f"Initializing PPO training for {req.exchange}",
-            "phase": "initializing",
-            "stats": {},
-            "logs": [],
-            "version": PPO_TRAINING_STATE["version"] + 1,
-            "last_update": datetime.utcnow().isoformat(),
-        })
 
-    def _ppo_worker():
-        try:
-            _init_supabase()
-            from api.stock_ai import _get_exchange_bulk_data, _get_exchange_bulk_intraday_data
-            
-            exchange = req.exchange.upper()
-            
-            # Auto-generate model name if not provided
-            import time as _time
-            effective_model_name = req.model_name or f"PPO_{exchange}_{int(_time.time())}"
-            
-            with _ppo_training_lock:
-                PPO_TRAINING_STATE["last_message"] = f"Fetching all {exchange} symbols..."
-                PPO_TRAINING_STATE["logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] Fetching bulk data for {exchange}")
-                PPO_TRAINING_STATE["version"] += 1
 
-            # 1. Fetch ALL symbols using bulk data (like backtest_radar.py)
-            if exchange == "CRYPTO":
-                data_map = _get_exchange_bulk_intraday_data(exchange, timeframe="1h", from_ts="2020-01-01")
-            else:
-                # bypass_min_limit=True: don't expand to full history just because row count < 100k
-                # This ensures all available symbols are included, not just the dense ones
-                data_map = _get_exchange_bulk_data(exchange, from_date="2020-01-01", bypass_min_limit=True)
-            
-            if not data_map:
-                raise ValueError(f"No data found for exchange {exchange}")
-            
-            symbols_list = list(data_map.keys())
-            
-            with _ppo_training_lock:
-                PPO_TRAINING_STATE["last_message"] = f"Processing {len(symbols_list)} symbols for training..."
-                PPO_TRAINING_STATE["logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] Found {len(symbols_list)} symbols")
-                PPO_TRAINING_STATE["version"] += 1
 
-            # 2. Process each symbol: add indicators, then concatenate all into one big DataFrame
-            all_dfs = []
-            processed = 0
-            
-            for sym in symbols_list:
-                df = data_map[sym]
-                if df is None or df.empty or len(df) < 60:
-                    continue
-                
-                try:
-                    df.columns = [c.lower() for c in df.columns]
-                    df_full = add_technical_indicators(df)
-                    if df_full is None or df_full.empty:
-                        continue
-                    
-                    drop_cols = [c for c in ['open', 'high', 'low', 'volume'] if c in df_full.columns]
-                    df_feat = df_full.drop(columns=drop_cols, errors='ignore').fillna(0).astype(float)
-                    df_feat.columns = [c.lower() for c in df_feat.columns]
-                    
-                    if len(df_feat) >= 30:
-                        all_dfs.append(df_feat)
-                        processed += 1
-                except Exception:
-                    continue
-                
-                if processed % 50 == 0 and processed > 0:
-                    with _ppo_training_lock:
-                        PPO_TRAINING_STATE["last_message"] = f"Processed {processed}/{len(symbols_list)} symbols..."
-                        PPO_TRAINING_STATE["version"] += 1
-            
-            if not all_dfs:
-                raise ValueError(f"No valid data after processing {len(symbols_list)} symbols")
-            
-            # 3. Concatenate all symbol DataFrames into one large training set
-            df_train = pd.concat(all_dfs, ignore_index=True)
-            
-            with _ppo_training_lock:
-                PPO_TRAINING_STATE["last_message"] = f"Training on {len(df_train)} rows from {processed} symbols, {len(df_train.columns)} features"
-                PPO_TRAINING_STATE["logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] Combined: {len(df_train)} rows from {processed} symbols")
-                PPO_TRAINING_STATE["logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] Features: {len(df_train.columns)} columns")
-                PPO_TRAINING_STATE["version"] += 1
 
-            def _progress_cb(data):
-                with _ppo_training_lock:
-                    PPO_TRAINING_STATE["phase"] = data.get("phase", "training")
-                    PPO_TRAINING_STATE["last_message"] = data.get("message", "")
-                    if "stats" in data:
-                        PPO_TRAINING_STATE["stats"] = data["stats"]
-                    if data.get("phase") == "completed":
-                        PPO_TRAINING_STATE["running"] = False
-                        PPO_TRAINING_STATE["completed_at"] = datetime.utcnow().isoformat()
-                    
-                    log_entry = f"[{datetime.now().strftime('%H:%M:%S')}] {data.get('message', '')}"
-                    PPO_TRAINING_STATE["logs"].append(log_entry)
-                    if len(PPO_TRAINING_STATE["logs"]) > 100:
-                        PPO_TRAINING_STATE["logs"].pop(0)
-
-                    PPO_TRAINING_STATE["version"] += 1
-                    PPO_TRAINING_STATE["last_update"] = datetime.utcnow().isoformat()
-
-            train_ppo(
-                req.exchange,
-                df_train,
-                {**req.dict(), "model_name": effective_model_name},  # Ensure model_name is never None
-                progress_cb=_progress_cb
-            )
-
-        except Exception as e:
-            with _ppo_training_lock:
-                PPO_TRAINING_STATE["running"] = False
-                PPO_TRAINING_STATE["error"] = str(e)
-                PPO_TRAINING_STATE["last_message"] = f"Error: {str(e)}"
-                PPO_TRAINING_STATE["logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] ERROR: {str(e)}")
-                PPO_TRAINING_STATE["version"] += 1
-
-    background_tasks.add_task(_ppo_worker)
-    return {"status": "success", "message": f"PPO training started for {req.exchange}"}
-
-@router.post("/ppo/backtest")
-async def run_ppo_backtest(req: PPOBacktestRequest, background_tasks: BackgroundTasks):
-    """Run a backtest for a saved PPO model efficiently."""
-    from api.ppo_training import backtest_ppo
-    from api.stock_ai import get_stock_data_eodhd, add_technical_indicators, _init_supabase
-    import stable_baselines3 as sb3
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-
-    # 1. Setup Model Path
-    _init_supabase()
-    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    ppo_dir = os.path.join(base_dir, "models", "ppo")
-    model_path = os.path.join(ppo_dir, req.model_name)
-    if not model_path.endswith(".zip"):
-        model_path += ".zip"
-    
-    if not os.path.exists(model_path):
-        raise HTTPException(status_code=404, detail=f"Model {req.model_name} not found")
-
-    # 2. Reset Status
-    global PPO_BACKTEST_STATE
-    with _ppo_training_lock: # Reuse training lock for simplicity or use a separate one
-        if PPO_BACKTEST_STATE["running"]:
-            raise HTTPException(status_code=400, detail="A backtest is already running")
-        
-        PPO_BACKTEST_STATE.update({
-            "running": True,
-            "progress": 0,
-            "total": 0,
-            "current_symbol": "Initializing...",
-            "results": None,
-            "error": None,
-            "last_update": datetime.now().isoformat()
-        })
-
-    def _backtest_worker():
-        try:
-            # A. Load Model ONCE
-            print(f"PPO Backtest Worker: Pre-loading model from {model_path}")
-            model = sb3.PPO.load(model_path)
-            meta_path = model_path.replace(".zip", "_meta.json")
-            meta = {}
-            if os.path.exists(meta_path):
-                with open(meta_path, "r") as mf:
-                    meta = json.load(mf)
-            
-            # B. Determine Exchange
-            exchange = (req.exchange or meta.get("exchange") or "EGX").upper()
-            start_date = req.start_date or "2024-01-01"
-            
-            # C. Fetch Data
-            from api.stock_ai import _get_exchange_bulk_data, _get_exchange_bulk_intraday_data
-            if exchange == "CRYPTO":
-                data_map = _get_exchange_bulk_intraday_data(exchange, timeframe="1h", from_ts=start_date)
-            else:
-                # Explicitly bypass_min_limit to avoid exhausting IO budget with full history expand
-                data_map = _get_exchange_bulk_data(exchange, from_date=start_date, bypass_min_limit=True)
-            
-            if not data_map:
-                raise ValueError(f"No data found for exchange {exchange}")
-            
-            symbols_list = list(data_map.keys())
-            total_syms = len(symbols_list)
-            
-            with _ppo_training_lock:
-                PPO_BACKTEST_STATE["total"] = total_syms
-                PPO_BACKTEST_STATE["last_update"] = datetime.now().isoformat()
-
-            # D. Parallel Simulation
-            all_history = []
-            all_trades = []
-            total_pnl_sum = 0.0
-            total_sharpe_sum = 0.0
-            total_sortino_sum = 0.0
-            total_win_rate_sum = 0.0
-            global_max_dd = 0.0
-            symbols_processed = 0
-            symbols_with_trades = 0
-            
-            def _process_single_symbol(sym):
-                df = data_map[sym]
-                if df is None or df.empty or len(df) < 40: # Relaxed min length
-                    return None
-                
-                try:
-                    df.columns = [c.lower() for c in df.columns]
-                    df_full = add_technical_indicators(df)
-                    if df_full is None or df_full.empty:
-                        return None
-                    
-                    drop_cols = [c for c in ['open', 'high', 'low', 'volume'] if c in df_full.columns]
-                    df_backtest = df_full.drop(columns=drop_cols, errors='ignore').fillna(0).astype(float)
-                    df_backtest.columns = [c.lower() for c in df_backtest.columns]
-                    
-                    if len(df_backtest) < 5:
-                        return None
-                    
-                    # Run backtest with PRE-LOADED model
-                    res = backtest_ppo(None, df_backtest, req.initial_balance, model=model, meta=meta)
-                    if res.get("status") == "success":
-                        res["symbol"] = sym
-                        return res
-                except Exception as e:
-                    print(f"Error processing {sym}: {e}")
-                return None
-
-            # Use ThreadPoolExecutor for parallel processing
-            # High concurrency since model inference is fast and GIL is often released by numpy
-            with ThreadPoolExecutor(max_workers=10) as executor:
-                futures = {executor.submit(_process_single_symbol, s): s for s in symbols_list}
-                
-                for i, future in enumerate(as_completed(futures)):
-                    sym = futures[future]
-                    sym_res = future.result()
-                    
-                    with _ppo_training_lock:
-                        symbols_processed += 1
-                        PPO_BACKTEST_STATE["progress"] = symbols_processed
-                        PPO_BACKTEST_STATE["current_symbol"] = sym
-                        PPO_BACKTEST_STATE["last_update"] = datetime.now().isoformat()
-                    
-                    if sym_res:
-                        sym_pnl = sym_res.get("total_pnl_pct", 0)
-                        sym_sharpe = sym_res.get("sharpe_ratio", 0)
-                        sym_sortino = sym_res.get("sortino_ratio", 0)
-                        sym_win_rate = sym_res.get("win_rate", 0)
-                        sym_max_dd = sym_res.get("max_drawdown_pct", 0)
-                        
-                        # Add symbol to history
-                        for entry in sym_res.get("history", []):
-                            entry["symbol"] = sym
-                        all_history.extend(sym_res.get("history", []))
-                        
-                        # Add symbol to trades
-                        for trade in sym_res.get("trades_log", []):
-                            trade["symbol"] = sym
-                            all_trades.append(trade)
-                            
-                        if abs(sym_pnl) > 0.01 or len(sym_res.get("trades_log", [])) > 0:
-                            symbols_with_trades += 1
-                            total_pnl_sum += sym_pnl
-                            total_sharpe_sum += sym_sharpe
-                            total_sortino_sum += sym_sortino
-                            total_win_rate_sum += sym_win_rate
-                            if sym_max_dd > global_max_dd:
-                                global_max_dd = sym_max_dd
-
-            # E. Aggregate & Sanitize
-            avg_pnl = total_pnl_sum / symbols_with_trades if symbols_with_trades > 0 else 0.0
-            avg_sharpe = total_sharpe_sum / symbols_with_trades if symbols_with_trades > 0 else 0.0
-            avg_sortino = total_sortino_sum / symbols_with_trades if symbols_with_trades > 0 else 0.0
-            avg_win_rate = total_win_rate_sum / symbols_with_trades if symbols_with_trades > 0 else 0.0
-            final_net_worth = req.initial_balance * (1 + avg_pnl / 100)
-            
-            import math
-            def _s(v):
-                if isinstance(v, float) and not math.isfinite(v): return 0.0
-                return v
-
-            # Frontend needs everything for the active session chart
-            clean_history = [{k: _s(v) for k, v in e.items()} for e in all_history]
-            clean_trades = [{k: _s(v) for k, v in t.items()} for t in all_trades]
-
-            result_payload = {
-                "status": "success",
-                "model_name": req.model_name,
-                "exchange": exchange,
-                "initial_balance": req.initial_balance,
-                "final_net_worth": _s(final_net_worth),
-                "total_pnl_pct": _s(avg_pnl),
-                "max_drawdown_pct": _s(global_max_dd),
-                "sharpe_ratio": _s(avg_sharpe),
-                "sortino_ratio": _s(avg_sortino),
-                "win_rate": _s(avg_win_rate),
-                "total_trades": len(clean_trades) // 2,  # Completed round-trips (BUY+SELL pairs)
-                "history": clean_history,
-                "all_trades": clean_trades,
-                "symbols_processed": symbols_processed,
-                "symbols_with_trades": symbols_with_trades,
-            }
-
-            # F. Save to DB
-            if req.save_result:
-                try:
-                    from api.stock_ai import supabase
-                    supabase.table("backtests").insert({
-                        "model_name": req.model_name,
-                        "exchange": exchange,
-                        "start_date": start_date,
-                        "end_date": req.end_date or datetime.now().strftime("%Y-%m-%d"),
-                        "status": "completed",
-                        "total_trades": len(clean_trades) // 2,  # Round-trips (BUY+SELL pairs)
-                        "win_rate": _s(round(avg_win_rate, 4)),
-                        "avg_return_per_trade": _s(round(avg_pnl / max(len(clean_trades) // 2, 1), 4)),
-                        "net_profit": _s(avg_pnl),
-                        "profit_pct": _s(round(avg_pnl, 4)),
-                        "trades_log": json.dumps({
-                            "metrics": {
-                                "sharpe": _s(avg_sharpe),
-                                "sortino": _s(avg_sortino),
-                                "win_rate": _s(avg_win_rate),
-                                "max_dd": _s(global_max_dd),
-                            },
-                            "all_trades": clean_trades[:2000]  # Store up to 2000 trades (round-trips = half this)
-                            # history excluded from persistent storage to save space
-                        }),
-                        "capital": req.initial_balance
-                    }).execute()
-                except Exception as db_err:
-                    print(f"DB Error: {db_err}")
-
-            with _ppo_training_lock:
-                PPO_BACKTEST_STATE["running"] = False
-                PPO_BACKTEST_STATE["results"] = result_payload
-                PPO_BACKTEST_STATE["last_update"] = datetime.now().isoformat()
-
-        except Exception as err:
-            print(f"PPO Backtest Error: {err}")
-            with _ppo_training_lock:
-                PPO_BACKTEST_STATE["running"] = False
-                PPO_BACKTEST_STATE["error"] = str(err)
-                PPO_BACKTEST_STATE["last_update"] = datetime.now().isoformat()
-
-    background_tasks.add_task(_backtest_worker)
-    return {"status": "started", "message": "PPO backtest initialized in background"}
-
-@router.get("/ppo/status")
-async def get_ppo_training_status():
-    import math
-    
-    def _sanitize(obj):
-        """Recursively replace NaN/Inf floats with None for JSON compliance."""
-        if isinstance(obj, dict):
-            return {k: _sanitize(v) for k, v in obj.items()}
-        elif isinstance(obj, list):
-            return [_sanitize(v) for v in obj]
-        elif isinstance(obj, float):
-            if math.isnan(obj) or math.isinf(obj):
-                return None
-            return obj
-        else:
-            # Also handle numpy floats
-            try:
-                if hasattr(obj, 'item'):  # numpy scalar
-                    val = float(obj.item())
-                    if math.isnan(val) or math.isinf(val):
-                        return None
-                    return val
-            except (ValueError, TypeError):
-                pass
-            return obj
-    
-    with _ppo_training_lock:
-        state = dict(PPO_TRAINING_STATE)
-    return _sanitize(state)
-
-@router.post("/ppo/stop")
-async def stop_ppo_training():
-    with _ppo_training_lock:
-        if not PPO_TRAINING_STATE["running"]:
-            return {"status": "success", "message": "No PPO training is running"}
-        
-        # In a real SB3 scenario, stopping mid-learn requires a callback to return False
-        # For simplicity, we just mark it as stopped in state. 
-        # The thread will still finish but won't update UI further or we can use a flag.
-        PPO_TRAINING_STATE["running"] = False
-        PPO_TRAINING_STATE["last_message"] = "Training stopped by user"
-        PPO_TRAINING_STATE["logs"].append(f"[{datetime.now().strftime('%H:%M:%S')}] STOPPED BY USER")
-        PPO_TRAINING_STATE["version"] += 1
-        return {"status": "success", "message": "PPO training stop signal sent"}
-
-@router.get("/ppo/models")
-async def get_ppo_models():
-    """List all saved PPO models in api/models/ppo."""
-    try:
-        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        ppo_dir = os.path.join(base_dir, "models", "ppo")
-        if not os.path.exists(ppo_dir):
-            return {"models": []}
-            
-        models = []
-        for f in os.listdir(ppo_dir):
-            if f.endswith(".zip"):
-                path = os.path.join(ppo_dir, f)
-                stat = os.stat(path)
-                model_info = {
-                    "name": f,
-                    "size_mb": round(stat.st_size / (1024 * 1024), 2),
-                    "created_at": datetime.fromtimestamp(stat.st_ctime).isoformat()
-                }
-                
-                # Try to load metadata
-                meta_path = path.replace('.zip', '_meta.json')
-                if os.path.exists(meta_path):
-                    try:
-                        with open(meta_path) as mf:
-                            meta = json.load(mf)
-                        model_info["exchange"] = meta.get("exchange")
-                        model_info["n_features"] = meta.get("n_features")
-                        model_info["reward_mode"] = meta.get("reward_mode")
-                        model_info["net_arch"] = meta.get("net_arch")
-                        model_info["total_timesteps"] = meta.get("total_timesteps")
-                        model_info["learning_rate"] = meta.get("learning_rate")
-                        model_info["commission"] = meta.get("commission")
-                        model_info["initial_balance"] = meta.get("initial_balance")
-                        model_info["training_rows"] = meta.get("training_rows")
-                        model_info["trained_at"] = meta.get("trained_at")
-                    except Exception:
-                        pass
-                
-                models.append(model_info)
-        
-        # Sort by creation time descending
-        models.sort(key=lambda x: x["created_at"], reverse=True)
-        return {"models": models}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@router.delete("/ppo/delete/{filename}")
-async def delete_ppo_model(filename: str):
-    """Delete a saved PPO model."""
-    try:
-        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        ppo_dir = os.path.join(base_dir, "models", "ppo")
-        # Sanitize filename to prevent directory traversal
-        filename = os.path.basename(filename)
-        path = os.path.join(ppo_dir, filename)
-        
-        if not filename.endswith(".zip"):
-            raise HTTPException(status_code=400, detail="Invalid filename")
-            
-        if os.path.exists(path):
-            os.remove(path)
-            return {"status": "success", "message": f"Deleted {filename}"}
-        else:
-            raise HTTPException(status_code=404, detail="Model not found")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@router.get("/ppo/download/{filename}")
-async def download_ppo_model(filename: str):
-    """Download a saved PPO model."""
-    try:
-        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        ppo_dir = os.path.join(base_dir, "models", "ppo")
-        filename = os.path.basename(filename)
-        path = os.path.join(ppo_dir, filename)
-        
-        if not os.path.exists(path):
-            raise HTTPException(status_code=404, detail="Model not found")
-            
-        return FileResponse(path, filename=filename, media_type='application/zip')
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/train/summary")
@@ -2090,6 +1572,7 @@ def list_local_models():
 
     try:
         import pickle
+        from api.train_exchange_model import QuantitativeModelPipeline
     except Exception:
         pickle = None
 
@@ -2109,17 +1592,35 @@ def list_local_models():
             return {"models": [], "error": "Models directory not found on server"}
 
         models = []
+        seen_pkls = set()
         for filename in os.listdir(models_dir):
-            if not filename.endswith(".pkl"):
+            if filename.endswith(".pkl"):
+                seen_pkls.add(filename)
+
+        for filename in os.listdir(models_dir):
+            is_pkl = filename.endswith(".pkl")
+            is_card = filename.endswith(".pkl.model_card.json")
+
+            if not is_pkl and not is_card:
                 continue
 
             filepath = os.path.join(models_dir, filename)
             if not os.path.isfile(filepath):
                 continue
 
-            stat = os.stat(filepath)
-            size_bytes = stat.st_size
-            size_mb = round(size_bytes / 1024 / 1024, 2)
+            if is_card:
+                pkl_name = filename.replace(".model_card.json", "")
+                if pkl_name in seen_pkls:
+                    continue
+                # Pretend we are the pkl
+                filename = pkl_name
+                size_bytes = 0
+                size_mb = 0.0
+                stat = os.stat(filepath)
+            else:
+                stat = os.stat(filepath)
+                size_bytes = stat.st_size
+                size_mb = round(size_bytes / 1024 / 1024, 2)
 
             info = {
                 "name": filename,
@@ -2131,10 +1632,40 @@ def list_local_models():
             }
 
             # Best-effort metadata extraction
-            if pickle is not None and (not is_training):
+            model = None
+            if is_pkl and pickle is not None and (not is_training):
                 try:
                     with open(filepath, "rb") as f:
                         model = pickle.load(f)
+                except Exception:
+                    pass
+            elif is_card:
+                try:
+                    with open(filepath, "r", encoding="utf-8") as f:
+                        card_data = json.load(f)
+                        # Build a mock model dict to feed the rest of the parsing logic
+                        if card_data.get("artifact_kind") == "meta_labeling_system":
+                            model = {
+                                "primary_model": {
+                                    "exchange": card_data.get("exchange"),
+                                    "featurePreset": card_data.get("feature_preset"),
+                                    "trainingSamples": card_data.get("training", {}).get("training_samples"),
+                                    "learning_rate": card_data.get("training", {}).get("learning_rate"),
+                                    "target_pct": card_data.get("training", {}).get("target_pct"),
+                                    "stop_loss_pct": card_data.get("training", {}).get("stop_loss_pct"),
+                                    "look_forward_days": card_data.get("training", {}).get("look_forward_days"),
+                                },
+                                "meta_model": True,
+                                "meta_threshold": card_data.get("capabilities", {}).get("meta_threshold"),
+                                "training_stats": card_data.get("training", {}).get("metrics", {})
+                            }
+                        else:
+                            model = card_data # Best effort
+                except Exception:
+                    pass
+            
+            if model is not None:
+                try:
 
                     is_meta_labeling_artifact = False
 
@@ -2409,6 +1940,7 @@ def get_model_info(model_name: str):
             raise HTTPException(status_code=404, detail="Model not found")
         
         import pickle
+        from api.train_exchange_model import QuantitativeModelPipeline
         
         with open(filepath, 'rb') as f:
             model = pickle.load(f)

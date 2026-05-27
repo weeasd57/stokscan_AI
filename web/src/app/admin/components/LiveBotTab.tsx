@@ -51,13 +51,18 @@ interface BotConfig {
 }
 
 interface BotListItem {
-    id: string;
+    id?: string;
+    bot_id?: string;
     name: string;
     status: string;
-    mode: string;
+    mode?: string;
     uptime?: string;
     current_activity?: string;
+    user_id?: string;
     active_positions_count?: number;
+    total_pnl?: number;
+    win_rate?: number;
+    trades_count?: number;
 }
 
 interface PerformanceData {
@@ -177,6 +182,7 @@ export default function LiveBotTab() {
     const [logsCollapsed, setLogsCollapsed] = useState(false);
     const [marketDataCollapsed, setMarketDataCollapsed] = useState(false);
     const [copyingLogs, setCopyingLogs] = useState(false);
+    const [assetsCollapsed, setAssetsCollapsed] = useState(false);
 
     const handleCopyLogs = () => {
         if (!status?.logs) return;
@@ -201,7 +207,21 @@ export default function LiveBotTab() {
             toast.success("Logs cleared");
         } catch (error) {
             console.error(error);
-            toast.error("Failed to clear logs");
+        }
+    };
+
+    const handleResetBotData = async () => {
+        if (!confirm("⚠️ WARNING: This will permanently delete all trades, logs, positions, and reset virtual cash for this bot. Are you sure?")) return;
+        try {
+            const res = await fetch(`/api/ai_bot/reset_data?bot_id=${selectedBotId}`, { method: "POST" });
+            if (!res.ok) throw new Error("Failed to reset bot data");
+            
+            await fetchStatus(false);
+            await fetchPerformance(false);
+            toast.success("All bot results and history cleared successfully!");
+        } catch (error) {
+            console.error(error);
+            toast.error("Failed to reset bot data");
         }
     };
 
@@ -353,12 +373,37 @@ export default function LiveBotTab() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [coinSource, coinLimit, assetTab, selectedCountry, cryptoFilter]);
 
+    useEffect(() => {
+        if (assetTab === "GLOBAL" && selectedCountry === "Egypt") {
+            setConfigForm(prev => ({
+                ...prev,
+                timeframe: "1Day",
+                exit_mode: "hybrid",
+                target_pct: 0.10,
+                stop_loss_pct: 0.035,
+                use_trailing: true,
+                trail_be_pct: 0.05,
+                trail_lock_trigger_pct: 0.06,
+                trail_lock_pct: 0.04,
+                hold_max_bars: 30,
+                max_open_positions: 5,
+                max_notional_usd: 500,
+                pct_cash_per_trade: 10,
+                poll_seconds: 300,
+                bars_limit: 200,
+                data_source: "tvdata",
+                use_smart_exit: true
+            }));
+            toast.success("Egypt (EGX) optimized defaults applied! 🇪🇬");
+        }
+    }, [selectedCountry, assetTab]);
+
     const fetchBotList = async () => {
         try {
             const res = await fetch("/api/ai_bot/list");
             if (res.ok) {
                 const data = await res.json();
-                setBotList(data.bots || []);
+                setBotList(data.bots.map((b: any) => ({ ...b, id: b.bot_id })) || []);
             }
         } catch (e) {
             console.error("Failed to fetch bot list", e);
@@ -450,6 +495,24 @@ export default function LiveBotTab() {
         }
     };
 
+    const handleBotAction = async (botId: string, action: "start" | "stop") => {
+        try {
+            const res = await fetch(`/api/ai_bot/${action}?bot_id=${botId}`, { method: "POST" });
+            if (res.ok) {
+                toast.success(`Bot ${action} command sent`);
+                fetchBotList();
+                if (selectedBotId === botId) {
+                    fetchStatus();
+                }
+            } else {
+                const err = await res.json();
+                toast.error(err.detail || `Failed to ${action} bot`);
+            }
+        } catch (error) {
+            toast.error(`Failed to ${action} bot`);
+        }
+    };
+
     // Auto-save configuration with debounce
     useEffect(() => {
         if (!configForm || status?.status === 'running' || status?.status === 'starting') return;
@@ -526,6 +589,15 @@ export default function LiveBotTab() {
         if (!silent) setRefreshing(true);
         try {
             const res = await fetch(`/api/ai_bot/status?bot_id=${selectedBotId}`);
+            if (res.status === 404) {
+                // Bot was deleted — switch back to primary
+                if (selectedBotId !== "primary") {
+                    console.warn(`Bot ${selectedBotId} not found (deleted). Switching to primary.`);
+                    setSelectedBotId("primary");
+                    fetchBotList();
+                }
+                return;
+            }
             if (res.ok) {
                 const data = await res.json();
 
@@ -792,64 +864,6 @@ export default function LiveBotTab() {
                             </button>
                         </div>
 
-                        {/* Test Notification Section */}
-                        <div className="flex bg-black/60 p-1 rounded-2xl border border-white/5 shadow-inner ml-2">
-                            <button
-                                onClick={() => handleTestNotification("buy")}
-                                className="px-3 py-2 rounded-xl text-[10px] font-black text-emerald-500 hover:bg-emerald-500/10 transition-all"
-                                title="Test Buy Notification"
-                            >
-                                <ArrowUpRight className="w-3.5 h-3.5" />
-                            </button>
-                            <button
-                                onClick={() => handleTestNotification("sell")}
-                                className="px-3 py-2 rounded-xl text-[10px] font-black text-rose-500 hover:bg-rose-500/10 transition-all"
-                                title="Test Sell Notification"
-                            >
-                                <ArrowDownRight className="w-3.5 h-3.5" />
-                            </button>
-                            <button
-                                onClick={() => handleTestNotification("signal")}
-                                className="px-3 py-2 rounded-xl text-[10px] font-black text-indigo-500 hover:bg-indigo-500/10 transition-all"
-                                title="Test Signal Notification"
-                            >
-                                <Zap className="w-3.5 h-3.5" />
-                            </button>
-                            <button
-                                onClick={() => handleTestNotification("signal")}
-                                className="px-3 py-2 rounded-xl text-[10px] font-black text-orange-500 hover:bg-orange-500/10 transition-all border-l border-white/5"
-                                title="Test Cornix Webhook"
-                            >
-                                <Globe className="w-3.5 h-3.5" />
-                            </button>
-                        </div>
-                    </div>
-
-                    <div className="mt-4 pt-4 border-t border-white/5 space-y-2">
-                        <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest block mb-2">Notification Testing (Legacy)</span>
-                        <div className="flex bg-black/60 p-1 rounded-2xl border border-white/5 shadow-inner">
-                            <button
-                                onClick={() => handleTestNotification("buy")}
-                                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-[10px] font-black text-emerald-500 hover:bg-emerald-500/10 hover:text-emerald-400 transition-all group/test"
-                            >
-                                <ArrowUpRight className="w-3.5 h-3.5 group-hover/test:scale-110 transition-transform" />
-                                BUY
-                            </button>
-                            <button
-                                onClick={() => handleTestNotification("sell")}
-                                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-[10px] font-black text-rose-500 hover:bg-rose-500/10 hover:text-rose-400 transition-all group/test"
-                            >
-                                <ArrowDownRight className="w-3.5 h-3.5 group-hover/test:scale-110 transition-transform" />
-                                SELL
-                            </button>
-                            <button
-                                onClick={() => handleTestNotification("signal")}
-                                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-[10px] font-black text-orange-400 hover:bg-orange-500/10 hover:text-orange-300 transition-all group/test"
-                            >
-                                <Globe className="w-3.5 h-3.5 group-hover/test:scale-110 transition-transform" />
-                                CORNIX
-                            </button>
-                        </div>
                     </div>
                 </div>
 
@@ -944,74 +958,160 @@ export default function LiveBotTab() {
                 </div>
             </div>
 
-            {/* BOT SELECTOR TABS */}
-            <div className="flex items-center gap-2 p-1 bg-black/40 border border-white/5 rounded-3xl w-full backdrop-blur-sm overflow-x-auto no-scrollbar">
-                {botList.map(bot => {
-                    const isActive = selectedBotId === bot.id;
-                    return (
-                        <button
-                            key={bot.id}
-                            onClick={() => setSelectedBotId(bot.id)}
-                            className={`flex-none px-6 py-2.5 rounded-[22px] text-xs font-black transition-all flex items-center gap-2 border ${isActive
-                                ? "bg-white text-black border-white shadow-xl shadow-white/5"
-                                : "text-zinc-500 border-transparent hover:text-zinc-300 hover:bg-white/5"
-                                }`}
-                        >
-                            <LayoutGrid className={`w-3.5 h-3.5 ${isActive ? "text-indigo-600 font-black" : "text-zinc-600"}`} />
-                            {bot.name.toUpperCase()}
-                            {isActive && (
-                                <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse ml-1" />
-                            )}
-                        </button>
-                    )
-                })}
-                {selectedBotId !== "primary" && (
-                    <button
-                        onClick={() => handleDeleteBot(selectedBotId, (configForm.name || status?.config?.name || "Bot"))}
-                        className="flex-none p-2.5 rounded-[22px] bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20 transition-all"
-                        title="Delete bot"
-                    >
-                        <Trash2 className="w-4 h-4" />
-                    </button>
-                )}
-                <Dialog.Root open={createBotDialogOpen} onOpenChange={setCreateBotDialogOpen}>
-                    <Dialog.Trigger asChild>
-                        <button className="flex-none p-2.5 rounded-[22px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20 transition-all ml-auto mr-1">
-                            <Plus className="w-4 h-4" />
-                        </button>
-                    </Dialog.Trigger>
-                    <Dialog.Portal>
-                        <Dialog.Overlay className="fixed inset-0 bg-black/80 backdrop-blur-sm animate-in fade-in duration-300 z-50" />
-                        <Dialog.Content className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md bg-zinc-950 border border-zinc-800 p-8 rounded-3xl shadow-2xl animate-in zoom-in-95 duration-300 z-50">
-                            <div className="space-y-6">
-                                <div className="space-y-2">
-                                    <h2 className="text-xl font-black text-white">Create New Bot</h2>
-                                    <p className="text-sm text-zinc-500 font-medium">Add a new specialized trading instance.</p>
-                                </div>
-                                <div className="space-y-4">
+            {/* ADMIN BOT OVERVIEW TABLE */}
+            <div className="bg-zinc-900/40 border border-white/5 rounded-3xl backdrop-blur-xl overflow-hidden mb-8 shadow-2xl relative">
+                <div className="p-6 border-b border-white/5 flex items-center justify-between bg-zinc-950/50 relative z-10">
+                    <div className="flex items-center gap-4">
+                        <div className="p-3 bg-indigo-500/10 border border-indigo-500/20 rounded-xl">
+                            <LayoutGrid className="w-5 h-5 text-indigo-400" />
+                        </div>
+                        <div>
+                            <h2 className="text-xl font-black text-white uppercase tracking-wider">All User Bots Overview</h2>
+                            <p className="text-sm text-zinc-500 font-medium mt-1">Manage and monitor all active trading instances across users</p>
+                        </div>
+                    </div>
+                    
+                    <Dialog.Root open={createBotDialogOpen} onOpenChange={setCreateBotDialogOpen}>
+                        <Dialog.Trigger asChild>
+                            <button className="flex items-center gap-2 px-6 py-3 rounded-2xl bg-emerald-500 text-white text-xs font-black uppercase tracking-widest hover:bg-emerald-600 transition-all shadow-xl shadow-emerald-500/20">
+                                <Plus className="w-4 h-4" />
+                                Create Admin Bot
+                            </button>
+                        </Dialog.Trigger>
+                        <Dialog.Portal>
+                            <Dialog.Overlay className="fixed inset-0 bg-black/80 backdrop-blur-sm animate-in fade-in duration-300 z-50" />
+                            <Dialog.Content className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md bg-zinc-950 border border-zinc-800 p-8 rounded-3xl shadow-2xl animate-in zoom-in-95 duration-300 z-50">
+                                <div className="space-y-6">
                                     <div className="space-y-2">
-                                        <label className="text-xs font-bold text-zinc-500 uppercase">Bot Name</label>
-                                        <input
-                                            type="text"
-                                            value={newBotName}
-                                            onChange={(e) => setNewBotName(e.target.value)}
-                                            placeholder="Trade ID (Optional)"
-                                            className="w-full bg-black/40 border border-white/5 rounded-xl px-4 py-3 text-sm font-bold focus:outline-none focus:border-indigo-500 transition-all"
-                                            onKeyDown={(e) => e.key === 'Enter' && handleCreateBot()}
-                                        />
+                                        <h2 className="text-xl font-black text-white">Create New Bot</h2>
+                                        <p className="text-sm text-zinc-500 font-medium">Add a new specialized trading instance.</p>
                                     </div>
-                                    <button
-                                        onClick={handleCreateBot}
-                                        disabled={isCreatingBot || !newBotName.trim()}
-                                        className="w-full bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-black py-4 rounded-xl shadow-lg shadow-emerald-500/20 transition-all"
-                                    >
-                                        {isCreatingBot ? <RefreshCw className="w-5 h-5 animate-spin mx-auto" /> : "INITIALIZE BOT"}
-                                    </button>
+                                    <div className="space-y-4">
+                                        <div className="space-y-2">
+                                            <label className="text-xs font-bold text-zinc-500 uppercase">Bot Name</label>
+                                            <input
+                                                type="text"
+                                                value={newBotName}
+                                                onChange={(e) => setNewBotName(e.target.value)}
+                                                placeholder="Trade ID (Optional)"
+                                                className="w-full bg-black/40 border border-white/5 rounded-xl px-4 py-3 text-sm font-bold focus:outline-none focus:border-indigo-500 transition-all"
+                                                onKeyDown={(e) => e.key === 'Enter' && handleCreateBot()}
+                                            />
+                                        </div>
+                                        <button
+                                            onClick={handleCreateBot}
+                                            disabled={isCreatingBot || !newBotName.trim()}
+                                            className="w-full bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-black py-4 rounded-xl shadow-lg shadow-emerald-500/20 transition-all"
+                                        >
+                                            {isCreatingBot ? <RefreshCw className="w-5 h-5 animate-spin mx-auto" /> : "INITIALIZE BOT"}
+                                        </button>
+                                    </div>
                                 </div>
-                            </div>
-                        </Dialog.Content>
-                    </Dialog.Portal>
-                </Dialog.Root>
+                            </Dialog.Content>
+                        </Dialog.Portal>
+                    </Dialog.Root>
+                </div>
+                
+                <div className="overflow-x-auto w-full relative z-10 custom-scrollbar">
+                    <table className="w-full text-left whitespace-nowrap">
+                        <thead className="bg-zinc-950/80 border-b border-white/5 text-[10px] font-black text-zinc-500 uppercase tracking-widest">
+                            <tr>
+                                <th className="px-6 py-5">Bot Identity</th>
+                                <th className="px-6 py-5">User</th>
+                                <th className="px-6 py-5 text-center">Status</th>
+                                <th className="px-6 py-5 text-center">Trades</th>
+                                <th className="px-6 py-5 text-center">Win Rate</th>
+                                <th className="px-6 py-5 text-right">Total P/L</th>
+                                <th className="px-6 py-5 text-right">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-white/5">
+                            {botList.map((bot) => {
+                                const isSelected = selectedBotId === bot.id;
+                                const isRunning = bot.status === "running";
+                                const pnl = bot.total_pnl || 0;
+                                const isProfitable = pnl >= 0;
+
+                                return (
+                                    <tr 
+                                        key={bot.id} 
+                                        onClick={() => setSelectedBotId(bot.id || "")}
+                                        className={`transition-colors cursor-pointer group ${isSelected ? "bg-indigo-500/10 hover:bg-indigo-500/20" : "hover:bg-white/5"}`}
+                                    >
+                                        <td className="px-6 py-5">
+                                            <div className="flex flex-col gap-1">
+                                                <div className="flex items-center gap-2">
+                                                    <span className={`text-sm font-black tracking-tight ${isSelected ? "text-indigo-400" : "text-zinc-200"}`}>
+                                                        {bot.name.toUpperCase()}
+                                                    </span>
+                                                    {bot.id === "primary" && (
+                                                        <span className="text-[9px] px-1.5 py-0.5 rounded-md bg-indigo-500/20 text-indigo-400 font-bold uppercase tracking-widest border border-indigo-500/20">
+                                                            SYSTEM
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                <span className="text-[10px] font-mono text-zinc-600 truncate max-w-[150px]">{bot.id}</span>
+                                            </div>
+                                        </td>
+                                        <td className="px-6 py-5">
+                                            {bot.user_id ? (
+                                                <span className="text-xs font-mono font-bold text-zinc-400 bg-zinc-900 px-2 py-1 rounded-md border border-white/5">
+                                                    {bot.user_id.substring(0, 8)}...
+                                                </span>
+                                            ) : (
+                                                <span className="text-xs font-bold text-zinc-600 uppercase">Admin</span>
+                                            )}
+                                        </td>
+                                        <td className="px-6 py-5 text-center">
+                                            <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border ${isRunning ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" : "bg-zinc-800 text-zinc-400 border-white/5"}`}>
+                                                {isRunning ? <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> : <Square className="w-2.5 h-2.5" />}
+                                                {isRunning ? "Running" : "Stopped"}
+                                            </span>
+                                        </td>
+                                        <td className="px-6 py-5 text-center">
+                                            <div className="flex flex-col items-center">
+                                                <span className="text-sm font-black text-white">{bot.trades_count || 0}</span>
+                                                <span className="text-[10px] font-bold text-zinc-500">{(bot.active_positions_count || 0)} Open</span>
+                                            </div>
+                                        </td>
+                                        <td className="px-6 py-5 text-center">
+                                            <span className="text-sm font-black font-mono text-zinc-300">
+                                                {(bot.win_rate || 0).toFixed(1)}%
+                                            </span>
+                                        </td>
+                                        <td className="px-6 py-5 text-right">
+                                            <span className={`text-sm font-black font-mono ${pnl === 0 ? "text-zinc-500" : isProfitable ? "text-emerald-400" : "text-red-400"}`}>
+                                                {isProfitable ? "+" : ""}${Math.abs(pnl).toFixed(2)}
+                                            </span>
+                                        </td>
+                                        <td className="px-6 py-5 text-right">
+                                            <div className="flex items-center justify-end gap-2" onClick={(e) => e.stopPropagation()}>
+                                                <button
+                                                    onClick={() => handleBotAction(bot.id || "", isRunning ? "stop" : "start")}
+                                                    className={`p-2.5 rounded-xl border transition-all ${isRunning 
+                                                        ? "bg-red-500/10 border-red-500/20 text-red-400 hover:bg-red-500/20" 
+                                                        : "bg-emerald-500/10 border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/20"}`}
+                                                    title={isRunning ? "Stop Bot" : "Start Bot"}
+                                                >
+                                                    {isRunning ? <Square className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+                                                </button>
+                                                {bot.id !== "primary" && (
+                                                    <button
+                                                        onClick={() => handleDeleteBot(bot.id || "", bot.name)}
+                                                        className="p-2.5 rounded-xl bg-zinc-900 border border-white/5 text-zinc-500 hover:text-red-400 hover:border-red-500/20 hover:bg-red-500/10 transition-all"
+                                                        title="Delete Bot"
+                                                    >
+                                                        <Trash2 className="w-4 h-4" />
+                                                    </button>
+                                                )}
+                                            </div>
+                                        </td>
+                                    </tr>
+                                );
+                            })}
+                        </tbody>
+                    </table>
+                </div>
             </div>
 
             {/* Tabs Navigation */}
@@ -1113,157 +1213,156 @@ export default function LiveBotTab() {
 
                                 <div className="space-y-4">
                                     <div className="flex items-center justify-between">
-                                        <label className="text-xs font-bold text-zinc-500 uppercase flex items-center gap-2">
-                                            <Target className="w-3.5 h-3.5" /> Target Assets
-                                        </label>
-                                        <div className="flex bg-black/40 rounded-lg p-0.5 border border-white/5">
-                                            <button
-                                                onClick={() => setAssetTab("CRYPTO")}
-                                                className={`px-3 py-1 rounded-md text-[10px] font-bold transition-all ${assetTab === "CRYPTO" ? "bg-indigo-500 text-white shadow-lg" : "text-zinc-500 hover:text-zinc-300"}`}
-                                            >
-                                                CRYPTO
-                                            </button>
-                                            <button
-                                                onClick={() => setAssetTab("STOCKS")}
-                                                className={`px-3 py-1 rounded-md text-[10px] font-bold transition-all ${assetTab === "STOCKS" ? "bg-indigo-500 text-white shadow-lg" : "text-zinc-500 hover:text-zinc-300"}`}
-                                            >
-                                                US STOCKS
-                                            </button>
-                                            <button
-                                                onClick={() => setAssetTab("GLOBAL")}
-                                                className={`px-3 py-1 rounded-md text-[10px] font-bold transition-all ${assetTab === "GLOBAL" ? "bg-indigo-500 text-white shadow-lg" : "text-zinc-500 hover:text-zinc-300"}`}
-                                            >
-                                                GLOBAL
-                                            </button>
-                                        </div>
-                                    </div>
-
-                                    {/* Asset Filters */}
-
-
-                                    {assetTab === "STOCKS" && (
-                                        <div className="p-3 bg-yellow-500/10 border border-yellow-500/20 rounded-xl text-xs text-yellow-200 flex items-center gap-2">
-                                            <Globe className="w-4 h-4" />
-                                            <span>US Stock Market (virtual)</span>
-                                        </div>
-                                    )}
-
-                                    <div className="flex items-center gap-2">
-                                        <button
-                                            onClick={() => setConfigForm({ ...configForm, coins: [] })}
-                                            disabled={isRunning || (configForm.coins || []).length === 0}
-                                            className="text-[10px] font-bold text-red-400 hover:text-red-300 disabled:opacity-30 transition-colors"
+                                        <label 
+                                            onClick={() => setAssetsCollapsed(!assetsCollapsed)}
+                                            className="text-xs font-bold text-zinc-500 uppercase flex items-center gap-2 cursor-pointer hover:text-white transition-colors"
                                         >
-                                            CLEAR ALL
-                                        </button>
-                                        {assetTab === "GLOBAL" && (
-                                            <button
-                                                onClick={() => {
-                                                    if (availableCoins.length > 0) {
-                                                        setConfigForm({ ...configForm, coins: availableCoins });
-                                                        toast.success(`Added all ${availableCoins.length} symbols for ${selectedCountry}`);
-                                                    }
-                                                }}
-                                                disabled={isRunning || availableCoins.length === 0}
-                                                className="text-[10px] font-black bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-1 rounded hover:bg-emerald-500/20 transition-all disabled:opacity-50"
-                                            >
-                                                SYNC ALL {selectedCountry}
-                                            </button>
-                                        )}
+                                            <Target className="w-3.5 h-3.5" /> Target Assets ({(configForm.coins || []).length})
+                                            {assetsCollapsed ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronUp className="w-3.5 h-3.5" />}
+                                        </label>
                                     </div>
-                                </div>
 
-                                {/* Smart Add Interface */}
-                                <div className="bg-black/40 border border-white/5 rounded-xl p-3 space-y-3">
-                                    {/* Source & Filter Controls */}
-                                    <div className="flex flex-wrap items-center gap-2">
-                                        {assetTab === "CRYPTO" ? (
+                                    {!assetsCollapsed && (
+                                        <>
                                             <div className="flex bg-black/40 rounded-lg p-0.5 border border-white/5">
                                                 <button
-                                                    onClick={() => setCoinSource("database")}
-                                                    className={`px-3 py-1 text-[10px] font-bold rounded-md transition-all ${coinSource === "database" ? "bg-indigo-600 text-white" : "text-zinc-500 hover:text-zinc-300"}`}
+                                                    type="button"
+                                                    onClick={() => setAssetTab("CRYPTO")}
+                                                    className={`flex-1 py-1 text-[10px] font-black rounded-md transition-all ${
+                                                        assetTab === "CRYPTO"
+                                                            ? "bg-indigo-500 text-white shadow-lg"
+                                                            : "text-zinc-400 hover:text-white"
+                                                    }`}
                                                 >
-                                                    MY ASSETS
+                                                    CRYPTO
                                                 </button>
                                                 <button
-                                                    onClick={() => setCoinSource("virtual")}
-                                                    className={`px-3 py-1 text-[10px] font-bold rounded-md transition-all ${coinSource === "virtual" ? "bg-indigo-600 text-white" : "text-zinc-500 hover:text-zinc-300"}`}
+                                                    type="button"
+                                                    onClick={() => setAssetTab("STOCKS")}
+                                                    className={`flex-1 py-1 text-[10px] font-black rounded-md transition-all ${
+                                                        assetTab === "STOCKS"
+                                                            ? "bg-indigo-500 text-white shadow-lg"
+                                                            : "text-zinc-400 hover:text-white"
+                                                    }`}
                                                 >
-                                                    virtual
+                                                    STOCKS
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setAssetTab("GLOBAL")}
+                                                    className={`flex-1 py-1 text-[10px] font-black rounded-md transition-all ${
+                                                        assetTab === "GLOBAL"
+                                                            ? "bg-indigo-500 text-white shadow-lg"
+                                                            : "text-zinc-400 hover:text-white"
+                                                    }`}
+                                                >
+                                                    GLOBAL
                                                 </button>
                                             </div>
-                                        ) : null}
 
-                                        {assetTab === "CRYPTO" && (
-                                            <select
-                                                value={cryptoFilter}
-                                                onChange={(e) => setCryptoFilter(e.target.value as any)}
-                                                className="bg-zinc-900 border border-zinc-800 rounded-lg px-2 py-1 text-[10px] font-bold text-zinc-400 focus:outline-none focus:border-indigo-500 transition-colors"
-                                            >
-                                                <option value="ALL">All Pairs</option>
-                                                <option value="USD">USD Pairs</option>
-                                                <option value="USDT">USDT Pairs</option>
-                                            </select>
-                                        )}
+                                            <div className="flex items-center justify-between gap-2">
+                                                {assetTab === "CRYPTO" && (
+                                                    <select
+                                                        value={cryptoFilter}
+                                                        onChange={(e) => setCryptoFilter(e.target.value as any)}
+                                                        className="bg-zinc-900 border border-zinc-800 rounded-lg px-2 py-1 text-[10px] font-bold text-zinc-400 focus:outline-none focus:border-indigo-500 transition-colors"
+                                                    >
+                                                        <option value="ALL">All Pairs</option>
+                                                        <option value="USD">USD Pairs</option>
+                                                        <option value="USDT">USDT Pairs</option>
+                                                    </select>
+                                                )}
 
-                                        {assetTab === "GLOBAL" && (
-                                            <select
-                                                value={selectedCountry}
-                                                onChange={(e) => setSelectedCountry(e.target.value)}
-                                                className="bg-zinc-900 border border-zinc-800 rounded-lg px-2 py-1 text-[10px] font-bold text-zinc-400 focus:outline-none focus:border-indigo-500 transition-colors"
-                                            >
-                                                {countries.map(c => (
-                                                    <option key={c.name} value={c.name}>{c.name} ({c.count})</option>
-                                                ))}
-                                            </select>
-                                        )}
+                                                {assetTab === "GLOBAL" && (
+                                                    <select
+                                                        value={selectedCountry}
+                                                        onChange={(e) => setSelectedCountry(e.target.value)}
+                                                        className="bg-zinc-900 border border-zinc-800 rounded-lg px-2 py-1 text-[10px] font-bold text-zinc-400 focus:outline-none focus:border-indigo-500 transition-colors"
+                                                    >
+                                                        {countries.map(c => (
+                                                            <option key={c.name} value={c.name}>{c.name} ({c.count})</option>
+                                                        ))}
+                                                    </select>
+                                                )}
 
-                                        {coinSource === "virtual" && (
-                                            <div className="flex items-center gap-1 overflow-x-auto custom-scrollbar pb-1 max-w-full">
-                                                {[10, 50, 100, 0].map(lim => {
-                                                    const countryObj = countries.find(c => c.name === selectedCountry);
-                                                    const totalCount = countryObj?.count || 0;
-                                                    const isHuge = assetTab === "GLOBAL" && lim === 0 && totalCount > 1000;
+                                                {coinSource === "virtual" && (
+                                                    <div className="flex items-center gap-1 overflow-x-auto custom-scrollbar pb-1 max-w-full">
+                                                        {[10, 50, 100, 0].map(lim => {
+                                                            const countryObj = countries.find(c => c.name === selectedCountry);
+                                                            const totalCount = countryObj?.count || 0;
+                                                            const isHuge = assetTab === "GLOBAL" && lim === 0 && totalCount > 1000;
 
-                                                    return (
+                                                            return (
+                                                                <button
+                                                                    key={lim}
+                                                                    type="button"
+                                                                    onClick={() => {
+                                                                        if (isHuge) {
+                                                                            toast.error(`Too many symbols (${totalCount}). Please use search or Top limits.`);
+                                                                            return;
+                                                                        }
+                                                                        autoSelectRef.current = true;
+                                                                        setCoinLimit(lim);
+                                                                    }}
+                                                                    className={`px-2 py-1 text-[9px] font-bold rounded-md border whitespace-nowrap transition-all ${coinLimit === lim
+                                                                        ? "bg-emerald-500/20 border-emerald-500 text-emerald-400"
+                                                                        : "bg-zinc-800 border-zinc-800 text-zinc-500 hover:border-zinc-600"
+                                                                        }`}
+                                                                >
+                                                                    {lim === 0 ? "ALL" : `TOP ${lim}`}
+                                                                </button>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                )}
+                                            </div>
+
+                                            {/* Search & Bulk Add */}
+                                            <div className="relative group">
+                                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500 group-focus-within:text-indigo-400 transition-colors" />
+                                                <input
+                                                    type="text"
+                                                    placeholder={`Search to add from ${availableCoins.length} available...`}
+                                                    value={coinSearch}
+                                                    onChange={(e) => setCoinSearch(e.target.value)}
+                                                    className="w-full bg-black/40 border border-zinc-800 rounded-lg pl-9 pr-32 py-2.5 text-xs font-mono focus:outline-none focus:border-indigo-500 transition-all text-white placeholder:text-zinc-600"
+                                                />
+                                                <div className="absolute right-1 top-1/2 -translate-y-1/2">
+                                                    {coinSearch && (
                                                         <button
-                                                            key={lim}
+                                                            type="button"
                                                             onClick={() => {
-                                                                if (isHuge) {
-                                                                    toast.error(`Too many symbols (${totalCount}). Please use search or Top limits.`);
-                                                                    return;
+                                                                const filtered = availableCoins.filter(c => {
+                                                                    const matchesSearch = c.toLowerCase().includes(coinSearch.toLowerCase());
+                                                                    if (assetTab === "CRYPTO") {
+                                                                        if (!c.includes("/")) return false;
+                                                                        if (cryptoFilter === "USD" && !c.endsWith("/USD")) return false;
+                                                                        if (cryptoFilter === "USDT" && !c.endsWith("/USDT")) return false;
+                                                                    } else if (assetTab === "STOCKS") {
+                                                                        if (c.includes("/")) return false;
+                                                                    } else if (assetTab === "GLOBAL") {
+                                                                        if (c.includes("/")) return false;
+                                                                    }
+                                                                    return matchesSearch;
+                                                                });
+                                                                const current = new Set(configForm.coins || []);
+                                                                const toAdd = filtered.filter(c => !current.has(c));
+                                                                if (toAdd.length > 0) {
+                                                                    setConfigForm(prev => ({ ...prev, coins: [...(prev.coins || []), ...toAdd] }));
+                                                                    setCoinSearch(""); // Clear on add
                                                                 }
-                                                                autoSelectRef.current = true;
-                                                                setCoinLimit(lim);
                                                             }}
-                                                            className={`px-2 py-1 text-[9px] font-bold rounded-md border whitespace-nowrap transition-all ${coinLimit === lim
-                                                                ? "bg-emerald-500/20 border-emerald-500 text-emerald-400"
-                                                                : "bg-zinc-800 border-zinc-800 text-zinc-500 hover:border-zinc-600"
-                                                                }`}
+                                                            className="px-2 py-1 text-[9px] font-bold bg-indigo-500/20 text-indigo-300 rounded border border-indigo-500/20 hover:bg-indigo-500 hover:text-white transition-all"
                                                         >
-                                                            {lim === 0 ? "ALL" : `TOP ${lim}`}
+                                                            ADD FILTERED
                                                         </button>
-                                                    );
-                                                })}
-                                            </div>
-                                        )}
-                                    </div>
+                                                    )}
+                                                </div>
 
-                                    {/* Search & Bulk Add */}
-                                    <div className="relative group">
-                                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500 group-focus-within:text-indigo-400 transition-colors" />
-                                        <input
-                                            type="text"
-                                            placeholder={`Search to add from ${availableCoins.length} available...`}
-                                            value={coinSearch}
-                                            onChange={(e) => setCoinSearch(e.target.value)}
-                                            className="w-full bg-black/40 border border-zinc-800 rounded-lg pl-9 pr-32 py-2.5 text-xs font-mono focus:outline-none focus:border-indigo-500 transition-all text-white placeholder:text-zinc-600"
-                                        />
-                                        <div className="absolute right-1 top-1/2 -translate-y-1/2">
-                                            {coinSearch && (
-                                                <button
-                                                    onClick={() => {
-                                                        const filtered = availableCoins.filter(c => {
+                                                {/* Autocomplete Dropdown */}
+                                                {coinSearch && (
+                                                    <div className="absolute top-full left-0 right-0 mt-2 bg-zinc-900 border border-zinc-800 rounded-lg shadow-2xl z-50 max-h-48 overflow-y-auto custom-scrollbar">
+                                                        {availableCoins.filter(c => {
                                                             const matchesSearch = c.toLowerCase().includes(coinSearch.toLowerCase());
                                                             if (assetTab === "CRYPTO") {
                                                                 if (!c.includes("/")) return false;
@@ -1272,101 +1371,71 @@ export default function LiveBotTab() {
                                                             } else if (assetTab === "STOCKS") {
                                                                 if (c.includes("/")) return false;
                                                             } else if (assetTab === "GLOBAL") {
-                                                                // Assuming global assets might have a country prefix or suffix, or are just symbols
-                                                                // For now, no specific filtering logic beyond search for global, as `availableCoins` should already be filtered by country
+                                                                if (c.includes("/")) return false;
                                                             }
                                                             return matchesSearch;
-                                                        });
-                                                        const current = new Set(configForm.coins || []);
-                                                        const toAdd = filtered.filter(c => !current.has(c));
-                                                        if (toAdd.length > 0) {
-                                                            setConfigForm(prev => ({ ...prev, coins: [...(prev.coins || []), ...toAdd] }));
-                                                            setCoinSearch(""); // Clear on add
-                                                        }
-                                                    }}
-                                                    className="px-2 py-1 text-[9px] font-bold bg-indigo-500/20 text-indigo-300 rounded border border-indigo-500/20 hover:bg-indigo-500 hover:text-white transition-all"
-                                                >
-                                                    ADD FILTERED
-                                                </button>
-                                            )}
-                                        </div>
-
-                                        {/* Autocomplete Dropdown */}
-                                        {coinSearch && (
-                                            <div className="absolute top-full left-0 right-0 mt-2 bg-zinc-900 border border-zinc-800 rounded-lg shadow-2xl z-50 max-h-48 overflow-y-auto custom-scrollbar">
-                                                {availableCoins.filter(c => {
-                                                    const matchesSearch = c.toLowerCase().includes(coinSearch.toLowerCase());
-                                                    if (assetTab === "CRYPTO") {
-                                                        if (!c.includes("/")) return false;
-                                                        if (cryptoFilter === "USD" && !c.endsWith("/USD")) return false;
-                                                        if (cryptoFilter === "USDT" && !c.endsWith("/USDT")) return false;
-                                                    } else if (assetTab === "STOCKS") {
-                                                        if (c.includes("/")) return false;
-                                                    } else if (assetTab === "GLOBAL") {
-                                                        // For global, we assume any symbol returned by the backend is fine
-                                                        // Usually global symbols don't have a slash
-                                                        if (c.includes("/")) return false;
-                                                    }
-                                                    return matchesSearch;
-                                                }).slice(0, 50).map(coin => {
-                                                    const isSelected = (configForm.coins || []).includes(coin);
-                                                    return (
-                                                        <button
-                                                            key={coin}
-                                                            disabled={isSelected}
-                                                            onClick={() => {
-                                                                if (!isSelected) {
-                                                                    setConfigForm(prev => ({ ...prev, coins: [...(prev.coins || []), coin] }));
-                                                                    setCoinSearch("");
-                                                                }
-                                                            }}
-                                                            className={`w-full text-left px-4 py-2 text-xs font-mono flex items-center justify-between hover:bg-white/5 transition-colors ${isSelected ? "opacity-50 cursor-default" : ""}`}
-                                                        >
-                                                            <span className={isSelected ? "text-indigo-400" : "text-white"}>{coin}</span>
-                                                            {isSelected && <Check className="w-3 h-3 text-indigo-500" />}
-                                                        </button>
-                                                    )
-                                                })}
+                                                        }).slice(0, 50).map(coin => {
+                                                            const isSelected = (configForm.coins || []).includes(coin);
+                                                            return (
+                                                                <button
+                                                                    key={coin}
+                                                                    type="button"
+                                                                    disabled={isSelected}
+                                                                    onClick={() => {
+                                                                        if (!isSelected) {
+                                                                            setConfigForm(prev => ({ ...prev, coins: [...(prev.coins || []), coin] }));
+                                                                            setCoinSearch("");
+                                                                        }
+                                                                    }}
+                                                                    className={`w-full text-left px-4 py-2 text-xs font-mono flex items-center justify-between hover:bg-white/5 transition-colors ${isSelected ? "opacity-50 cursor-default" : ""}`}
+                                                                >
+                                                                    <span className={isSelected ? "text-indigo-400" : "text-white"}>{coin}</span>
+                                                                    {isSelected && <Check className="w-3.5 h-3.5 text-indigo-500" />}
+                                                                </button>
+                                                            )
+                                                        })}
+                                                    </div>
+                                                )}
                                             </div>
-                                        )}
-                                    </div>
-                                </div>
 
-                                {/* Active Assets Grid */}
-                                <div className="bg-black/20 rounded-xl p-3 border border-white/5 min-h-[80px]">
-                                    {(configForm.coins || []).length === 0 ? (
-                                        <div className="h-full flex flex-col items-center justify-center text-zinc-600 gap-2 py-4">
-                                            <Target className="w-8 h-8 opacity-20" />
-                                            <span className="text-xs font-bold opacity-50">NO ASSETS TARGETED</span>
-                                            <span className="text-[10px] opacity-40">Search and add symbols above</span>
-                                        </div>
-                                    ) : (
-                                        <div className="flex flex-wrap gap-2">
-                                            {(configForm.coins || [])
-                                                .filter(coin => {
-                                                    if (assetTab === "CRYPTO") {
-                                                        if (cryptoFilter === "USD" && !coin.endsWith("/USD")) return false;
-                                                        if (cryptoFilter === "USDT" && !coin.endsWith("/USDT")) return false;
-                                                    } else if (assetTab === "STOCKS") {
-                                                        if (coin.includes("/")) return false;
-                                                    } else if (assetTab === "GLOBAL") {
-                                                        if (coin.includes("/")) return false;
-                                                        // ideally we'd check if it's in the global list, but this is a good first pass
-                                                    }
-                                                    return true;
-                                                })
-                                                .slice().reverse().map(coin => (
-                                                    <span key={coin} className="group px-2.5 py-1.5 rounded-lg bg-indigo-500/10 text-indigo-300 text-xs font-bold border border-indigo-500/10 flex items-center gap-2 hover:bg-indigo-500/20 transition-all select-none">
-                                                        {coin}
-                                                        <button
-                                                            onClick={() => toggleCoin(coin)}
-                                                            className="text-indigo-400/50 hover:text-white transition-colors p-0.5 rounded-md hover:bg-white/10"
-                                                        >
-                                                            <X className="w-3 h-3" />
-                                                        </button>
-                                                    </span>
-                                                ))}
-                                        </div>
+                                            {/* Active Assets Grid */}
+                                            <div className="bg-black/20 rounded-xl p-3 border border-white/5 min-h-[80px]">
+                                                {(configForm.coins || []).length === 0 ? (
+                                                    <div className="h-full flex flex-col items-center justify-center text-zinc-600 gap-2 py-4">
+                                                        <Target className="w-8 h-8 opacity-20" />
+                                                        <span className="text-xs font-bold opacity-50">NO ASSETS TARGETED</span>
+                                                        <span className="text-[10px] opacity-40">Search and add symbols above</span>
+                                                    </div>
+                                                ) : (
+                                                    <div className="flex flex-wrap gap-2">
+                                                        {(configForm.coins || [])
+                                                            .filter(coin => {
+                                                                if (assetTab === "CRYPTO") {
+                                                                    if (cryptoFilter === "USD" && !coin.endsWith("/USD")) return false;
+                                                                    if (cryptoFilter === "USDT" && !coin.endsWith("/USDT")) return false;
+                                                                } else if (assetTab === "STOCKS") {
+                                                                    if (coin.includes("/")) return false;
+                                                                } else if (assetTab === "GLOBAL") {
+                                                                    if (coin.includes("/")) return false;
+                                                                }
+                                                                return true;
+                                                            })
+                                                            .slice().reverse().map(coin => (
+                                                                <span key={coin} className="group px-2.5 py-1.5 rounded-lg bg-indigo-500/10 text-indigo-300 text-xs font-bold border border-indigo-500/10 flex items-center gap-2 hover:bg-indigo-500/20 transition-all select-none">
+                                                                    {coin}
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => toggleCoin(coin)}
+                                                                        className="text-indigo-400/50 hover:text-white transition-colors p-0.5 rounded-md hover:bg-white/10"
+                                                                    >
+                                                                        <X className="w-3.5 h-3.5" />
+                                                                    </button>
+                                                                </span>
+                                                            ))}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </>
                                     )}
                                 </div>
                             </div>
@@ -1885,6 +1954,14 @@ export default function LiveBotTab() {
                                                 title="Clear logs"
                                             >
                                                 <Trash2 className="w-4 h-4" />
+                                            </button>
+
+                                            <button
+                                                onClick={handleResetBotData}
+                                                className="p-1.5 rounded-lg transition-all hover:bg-rose-600/20 text-rose-500 hover:text-rose-400 border border-rose-500/10 hover:border-rose-500/30"
+                                                title="Reset bot data"
+                                            >
+                                                <RefreshCw className="w-4 h-4" />
                                             </button>
 
                                             <div className="w-[1px] h-4 bg-zinc-800 mx-1" />

@@ -31,6 +31,7 @@ warnings.filterwarnings("ignore")
 @dataclass
 class BotConfig:
     name: str = "Primary Bot"
+    user_id: Optional[str] = None
     execution_mode: str = "TELEGRAM"  # "VIRTUAL" | "TELEGRAM" | "BOTH"
     telegram_chat_id: Optional[int] = -1003699330518
     telegram_token: Optional[str] = None
@@ -138,6 +139,12 @@ class BotConfig:
     cornix_webhook_url: Optional[str] = None
     cornix_uuid: Optional[str] = None
     cornix_secret: Optional[str] = None
+
+    # Virtual Trading Cash
+    virtual_cash: float = 10000.0
+    
+    # Status
+    status: str = "stopped"  # "running" | "stopped"
 
 def _read_env(name: str, default: Optional[str] = None, required: bool = False) -> Optional[str]:
     v = os.getenv(name, default)
@@ -422,6 +429,14 @@ class LiveBot:
                     "cornix_status":    s.get("cornix_status", "ACTIVE"),
                     "last_updated":     datetime.now(timezone.utc).isoformat(),
                 }
+            
+            # Save the current virtual cash balance if broker exists
+            cash_val = self.config.virtual_cash
+            if self.api and hasattr(self.api, "_cash"):
+                cash_val = float(self.api._cash)
+            elif hasattr(self, "_virtual_cash"):
+                cash_val = self._virtual_cash
+
             state = {
                 "pos_state":            active_trades_snapshot,
                 "daily_loss":           self._daily_loss,
@@ -430,6 +445,7 @@ class LiveBot:
                 "saved_at":             datetime.now(timezone.utc).isoformat(),
                 "bot_version":          "2.1",
                 "total_open_positions": len(active_trades_snapshot),
+                "virtual_cash":         cash_val,
             }
             record = {
                 "bot_id":     self.bot_id,
@@ -437,7 +453,7 @@ class LiveBot:
                 "updated_at": datetime.now(timezone.utc).isoformat()
             }
             _supabase_upsert_with_retry("bot_states", [record], on_conflict="bot_id")
-            self._log(f"✅ State saved: {len(active_trades_snapshot)} active positions")
+            self._log(f"✅ State saved: {len(active_trades_snapshot)} active positions, cash={cash_val:.2f}")
         except Exception as e:
             self._log(f"Error saving bot state: {e}")
 
@@ -453,9 +469,10 @@ class LiveBot:
                 self._pos_state = state.get("pos_state", {})
                 self._daily_loss = float(state.get("daily_loss", 0.0))
                 self._consecutive_losses = int(state.get("consecutive_losses", 0))
+                self._virtual_cash = float(state.get("virtual_cash", self.config.virtual_cash))
                 saved_at = state.get("saved_at", "unknown")
                 positions_count = len(self._pos_state)
-                self._log(f"✅ State restored from {saved_at} — {positions_count} open positions")
+                self._log(f"✅ State restored from {saved_at} — {positions_count} open positions, cash={self._virtual_cash:.2f}")
                 for sym, pos_data in self._pos_state.items():
                     entry = pos_data.get('entry_price', 0) or 0
                     entry_time = pos_data.get('entry_time', '?')
@@ -465,8 +482,10 @@ class LiveBot:
                         f"time={entry_time} bars={bars}"
                     )
             else:
-                self._log(f"No saved state found for bot_id={self.bot_id}")
+                self._virtual_cash = self.config.virtual_cash
+                self._log(f"No saved state found for bot_id={self.bot_id}, using config cash={self._virtual_cash:.2f}")
         except Exception as e:
+            self._virtual_cash = self.config.virtual_cash
             self._log(f"Error loading bot state: {e}")
 
     def _save_trade_persistent(self, trade_info: Dict[str, Any]):
@@ -805,9 +824,20 @@ class LiveBot:
             elif tf_str.endswith("h"): tf_seconds = int(tf_str[:-1]) * 3600
             elif tf_str.endswith("d"): tf_seconds = int(tf_str[:-1]) * 86400
             
-            # Allow up to 2.5 intervals of lag (e.g. 2.5h for 1h timeframe)
-            # This accounts for the closed bar being -1 from current, plus some polling lag.
-            max_age = tf_seconds * 2.5
+            # Check if this bot runs any stocks (symbols without a slash)
+            has_stocks = any("/" not in c for c in (self.config.coins or []))
+            
+            # Allow up to 2.5 intervals of lag for crypto (default),
+            # but allow a much larger lag for daily/weekly timeframes and stocks
+            # to account for weekends, holidays, and exchange closures.
+            if tf_str == "1d" or tf_str.endswith("d") or tf_str.endswith("w"):
+                multiplier = 10.0  # Allow up to 10 days of lag for daily/weekly
+            elif has_stocks:
+                multiplier = 72.0  # Allow up to 72 hours of lag for stock intraday (covers weekends)
+            else:
+                multiplier = 2.5   # Default for crypto intraday
+            
+            max_age = tf_seconds * multiplier
             if diff_seconds > max_age:
                 self._log(f"STALE DATA DETECTED: Bar at {dt_ts} is {diff_seconds/3600:.1f}h old (max allowed {max_age/3600:.1f}h).")
                 return True
@@ -1239,6 +1269,33 @@ class LiveBot:
             print(f"Error clearing Supabase logs: {e}")
         self._log("Logs cleared by user (local + database).")
 
+    def reset_all_data(self):
+        """Clears all data associated with this bot including trades, logs, open positions and resets cash."""
+        with self._lock:
+            self._logs.clear()
+            self._trades.clear()
+            self._pos_state.clear()
+            self._daily_loss = 0.0
+            self._consecutive_losses = 0
+            self._virtual_cash = float(self.config.virtual_cash)
+            if self.api and hasattr(self.api, "_cash"):
+                self.api._cash = self._virtual_cash
+            
+        # Clear from Supabase
+        try:
+            from api.stock_ai import supabase, _init_supabase
+            _init_supabase()
+            if supabase:
+                supabase.table("bot_logs").delete().eq("bot_id", self.bot_id).execute()
+                supabase.table("bot_trades").delete().eq("bot_id", self.bot_id).execute()
+                supabase.table("bot_states").delete().eq("bot_id", self.bot_id).execute()
+        except Exception as e:
+            print(f"Error resetting Supabase data for {self.bot_id}: {e}")
+            
+        # Re-save empty state
+        self._save_bot_state()
+        self._log("All bot results and history cleared by user.")
+
     def _log(self, msg: str):
         ts = datetime.now().strftime("%H:%M:%S")
         line = f"[{self.config.name}] [{ts}] {msg}"
@@ -1263,7 +1320,7 @@ class LiveBot:
             _msg_lower = msg.lower()
             is_sell_msg = any(kw in _msg_lower for kw in ["sell", "stop", "target", "time exit"])
             if not is_sell_msg and (("order" in _msg_lower or "CRITICAL" in msg) and "VIRTUAL ORDER filled" not in msg):
-                 self.telegram_bridge.send_notification(f"ℹ️ *{self.config.name}*\n`{msg}`")
+                 self.telegram_bridge.send_notification(f"[INFO] *{self.config.name}*\n`{msg}`")
 
     def set_telegram_bridge(self, bridge):
         self.telegram_bridge = bridge
@@ -1654,7 +1711,7 @@ class LiveBot:
                         current[k] = _parse_bool(v, current[k])
 
                     elif k in ["trading_mode", "execution_mode", "name", "data_source",
-                               "king_model_path", "council_model_path", "timeframe", "exit_mode"]:
+                               "king_model_path", "council_model_path", "timeframe", "exit_mode", "status"]:
                         current[k] = str(v).strip()
                     elif k == "telegram_token":
                         if v:
@@ -1685,6 +1742,10 @@ class LiveBot:
             self._thread.start()
             self._status = "running"
             self._log("Bot started in background thread.")
+
+    @property
+    def is_running(self) -> bool:
+        return self._status == "running"
 
     def stop(self):
         with self._lock:
@@ -1844,7 +1905,7 @@ class LiveBot:
         return Xk
 
     def _prepare_features(self, bars: pd.DataFrame) -> pd.DataFrame:
-        from api.train_exchange_model import add_technical_indicators, add_indicator_signals, add_massive_features
+        from api.train_exchange_model import add_technical_indicators, add_massive_features
 
         df = bars.copy()
         # Original script logic
@@ -1867,7 +1928,6 @@ class LiveBot:
             feat = add_technical_indicators(df)
             if feat is None or feat.empty:
                 return pd.DataFrame()
-            feat = add_indicator_signals(feat)
             feat = add_massive_features(feat)
         except Exception as e:
             self._log(f"Feature generation error: {e}")
@@ -1891,12 +1951,9 @@ class LiveBot:
         
         # EGX Heuristic: 4 uppercase letters and no slash
         if not is_crypto and len(symbol) <= 5 and symbol.isupper() and "/" not in symbol:
-            # Likely EGX or US Stock
-            if source == "Virtual":
-                 # Fallback to yfinance for EGX symbols as Virtual doesn't support them
-                 # and user report shows Virtual Crypto API is being wrongly triggered.
-                 self._log(f"Routing {symbol} to yfinance (Stock Detection)")
-                 return self._get_yfinance_bars(symbol, limit)
+            # Since yfinance is broken for EGX symbols, route them to tvdata first
+            self._log(f"Routing stock {symbol} to tvdata (Stock Detection)")
+            return self._get_tvdata_bars(symbol, limit)
 
         if symbol in self._data_stream and self._data_stream[symbol]["status"] == "ERROR" and "yfinance" not in self._data_stream[symbol].get("message", ""):
             # If already failed on primary, might already be routed or need routing
@@ -1928,6 +1985,14 @@ class LiveBot:
 
     def _get_stock_bars(self, symbol: str, limit: int) -> pd.DataFrame:
         """Fetch stock bars."""
+        # Try tvdata first to ensure EGX or other stock coverage
+        try:
+            bars = self._get_tvdata_bars(symbol, limit)
+            if not bars.empty:
+                return bars
+        except Exception:
+            pass
+            
         try:
             return self._get_yfinance_bars(symbol, limit)
         except Exception as e:
@@ -1978,8 +2043,24 @@ class LiveBot:
                 yf_sym = symbol.replace("/", "-")
             
             # Map timeframe
-            tf_map = {"1Hour": "1h", "1min": "1m", "5min": "5m", "15min": "15m", "1Day": "1d", "1Day": "1d"}
-            period_map = {"1h": "10d", "1m": "1d", "5m": "5d", "15m": "10d", "1d": "1mo"}
+            tf_map = {
+                "1Hour": "1h",
+                "1min": "1m",
+                "5min": "5m",
+                "15min": "15m",
+                "30Min": "30m",
+                "4Hour": "4h",
+                "1Day": "1d"
+            }
+            period_map = {
+                "1h": "10d",
+                "1m": "1d",
+                "5m": "5d",
+                "15m": "10d",
+                "30m": "15d",
+                "4h": "30d",
+                "1d": "1y"
+            }
             
             tf = tf_map.get(self.config.timeframe, "1h")
             period = period_map.get(tf, "10d")
@@ -2020,6 +2101,8 @@ class LiveBot:
         try:
             from api.tradingview_integration import get_tradingview_exchange
             tv_exchange = get_tradingview_exchange(symbol)
+            if not tv_exchange and symbol.isupper() and len(symbol) <= 5 and "/" not in symbol:
+                tv_exchange = "EGX"
             base_sym = symbol.split(".")[0] if "." in symbol else symbol
             
             # Map timeframe
@@ -2217,7 +2300,7 @@ class LiveBot:
             self._log(f"Buy failed for {symbol}: {e}")
             return False
 
-    def _sell_market(self, symbol: str, qty: float) -> bool:
+    def _sell_market(self, symbol: str, qty: float, stop_price: Optional[float] = None) -> bool:
         try:
             # Apply safety factor for crypto/floating point precision issues
             # Reduce by 0.01% to ensure available balance is sufficient, but don't drop below 1e-9
@@ -2242,7 +2325,7 @@ class LiveBot:
                 pos = self._get_open_position(symbol)
                 if pos and abs(float(getattr(pos, 'qty', 0)) - safe_qty) / safe_qty < 0.001:
                     self._log(f"Using close_position for {symbol} to ensure clean exit.")
-                    order = self.api.close_position(symbol)
+                    order = self.api.close_position(symbol, stop_price=stop_price)
                     order_id = str(getattr(order, "id", f"unknown_close_{datetime.now().strftime('%Y%m%d_%H%M%S')}"))
                 else:
                     order = self.api.submit_order(
@@ -2251,6 +2334,7 @@ class LiveBot:
                         side="sell",
                         type="market",
                         time_in_force="gtc",
+                        stop_price=stop_price,
                     )
                     order_id = str(getattr(order, "id", f"unknown_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{symbol.replace('/', '')}"))
             except Exception as e:
@@ -2262,6 +2346,7 @@ class LiveBot:
                     side="sell",
                     type="market",
                     time_in_force="gtc",
+                    stop_price=stop_price,
                 )
                 order_id = str(getattr(order, "id", f"unknown_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{symbol.replace('/', '')}"))
             self._log(f"Sell order submitted: {symbol} ({qty}) - ID: {order_id}")
@@ -2410,7 +2495,7 @@ class LiveBot:
                 self._save_bot_state()
                 self._log(f"SKIPPING Virtual Sell (Telegram-Only Mode)")
                 return True
-            return self._sell_market(symbol, qty=qty)
+            return self._sell_market(symbol, qty=qty, stop_price=current_stop)
 
         # Target check
         if hi >= float(take_profit):
@@ -2476,6 +2561,10 @@ class LiveBot:
 
             self._log("DEBUG: Creating Virtual Market client...")
             self.api = create_virtual_market_client(logger=self._log)
+            if hasattr(self, "_virtual_cash"):
+                self.api._cash = self._virtual_cash
+            else:
+                self.api._cash = self.config.virtual_cash
             
             # Set up price provider for the virtual broker to use our fetched bars
             def v_price_provider(sym):
@@ -2875,14 +2964,26 @@ class BotManager:
                                 config_dict[config_key] = _read_env(env_key)
 
                         cfg = BotConfig(**config_dict)
-                        self._bots[bot_id] = LiveBot(bot_id=bot_id, config=cfg)
+                        # Ensure user_id from row overrides if it exists
+                        if "user_id" in row and row["user_id"]:
+                            cfg.user_id = row["user_id"]
+                        bot = LiveBot(bot_id=bot_id, config=cfg)
+                        self._bots[bot_id] = bot
                         loaded_ids.add(bot_id)
+                        
+                        # Auto-start bot if it was saved as running!
+                        if cfg.status == "running":
+                            try:
+                                print(f"[BotManager] Auto-starting bot '{bot_id}' because status is 'running'")
+                                bot.start()
+                            except Exception as e:
+                                print(f"[BotManager] Error auto-starting bot '{bot_id}': {e}")
                         
                         # Debug log for webhook detection
                         if cfg.cornix_webhook_url:
-                            print(f"[BotManager] ✅ Bot '{bot_id}' config using Webhook: {cfg.cornix_webhook_url[:20]}...")
+                            print(f"[BotManager]  Bot '{bot_id}' config using Webhook: {cfg.cornix_webhook_url[:20]}...")
                         else:
-                            print(f"[BotManager] ❌ Bot '{bot_id}' config has NO Webhook URL")
+                            print(f"[BotManager]  Bot '{bot_id}' config has NO Webhook URL")
                 if loaded_ids:
                     print(f"Loaded {len(loaded_ids)} bot(s) from Supabase.")
         except Exception as e:
@@ -2900,6 +3001,7 @@ class BotManager:
             for bid, bot in self._bots.items():
                 records.append({
                     "bot_id": bid,
+                    "user_id": bot.config.user_id,
                     "config": asdict(bot.config),
                     "updated_at": datetime.now(timezone.utc).isoformat()
                 })
@@ -2910,13 +3012,14 @@ class BotManager:
         except Exception as e:
             print(f"Error saving bots: {e}")
 
-    def create_bot(self, bot_id: str, name: str, Virtual_key_id: str = None, Virtual_secret_key: str = None) -> LiveBot:
+    def create_bot(self, bot_id: str, name: str, Virtual_key_id: str = None, Virtual_secret_key: str = None, user_id: str = None) -> LiveBot:
         if bot_id in self._bots:
             raise ValueError(f"Bot ID {bot_id} already exists.")
         
         # Start with default config
         bot = LiveBot(bot_id=bot_id)
         bot.config.name = name
+        bot.config.user_id = user_id
         
         # Apply custom keys if provided
         if Virtual_key_id:
@@ -2935,8 +3038,25 @@ class BotManager:
         if bot_id == "primary":
             raise ValueError("Cannot delete primary bot.")
         if bot_id in self._bots:
-            self._bots[bot_id].stop()
+            try:
+                self._bots[bot_id].stop()
+            except Exception as e:
+                print(f"Error stopping bot on delete: {e}")
             del self._bots[bot_id]
+            
+            # Delete configuration, state, logs, and trades from Supabase so they don't reload
+            try:
+                from api.stock_ai import supabase, _init_supabase
+                _init_supabase()
+                if supabase:
+                    supabase.table("bot_configs").delete().eq("bot_id", bot_id).execute()
+                    supabase.table("bot_states").delete().eq("bot_id", bot_id).execute()
+                    supabase.table("bot_logs").delete().eq("bot_id", bot_id).execute()
+                    supabase.table("bot_trades").delete().eq("bot_id", bot_id).execute()
+                    print(f"Successfully deleted bot {bot_id} data from Supabase.")
+            except Exception as e:
+                print(f"Error deleting bot {bot_id} from Supabase: {e}")
+                
             self.save_bots()
 
     def get_bot(self, bot_id: str) -> Optional[LiveBot]:

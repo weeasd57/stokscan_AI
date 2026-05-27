@@ -294,47 +294,80 @@ class VirtualMarketAdapter:
         if px is None or px <= 0:
             raise ValueError(f"Cannot fill order for {symbol}: no market price available")
 
+        # Gap Handling: If a stop price is specified on a sell, fill price is the worst of market price and stop price.
+        stop_price_val = kwargs.get("stop_price")
+        if stop_price_val is not None:
+            try:
+                stop_price_f = float(stop_price_val)
+                if stop_price_f > 0 and side == "sell":
+                    original_px = px
+                    px = min(px, stop_price_f)
+                    if px < original_px:
+                        self._log(f"GAP DETECTED for {symbol}: Market Price {original_px:.6f} vs Stop Price {stop_price_f:.6f}. Execution at {px:.6f}")
+            except Exception:
+                pass
+
         if qty is None and notional is None:
             raise ValueError("Either qty or notional must be provided")
 
+        spread_buffer = 0.001  # 0.1% spread
+        commission_rate = 0.001 # 0.1% commission
+
         if qty is None:
             n = float(notional)
-            qty_f = (n / px) if px > 0 else 0.0
+            if side == "buy":
+                # To ensure total cost including fees/slippage does not exceed notional:
+                effective_px = px * (1 + spread_buffer)
+                qty_f = n / (effective_px * (1 + commission_rate)) if px > 0 else 0.0
+            else:
+                effective_px = px * (1 - spread_buffer)
+                qty_f = n / (effective_px * (1 - commission_rate)) if px > 0 else 0.0
         else:
             qty_f = float(qty)
 
         if qty_f <= 0:
             raise ValueError("qty must be > 0")
 
-        # Apply fill immediately
+        # Apply fill immediately with slippage and commission
         if side == "buy":
-            cost = qty_f * px
+            effective_price = px * (1 + spread_buffer)
+            cost = (qty_f * effective_price) * (1 + commission_rate)
             self._cash -= cost
             pos = self._positions.get(symbol)
+            fill_avg_price = effective_price * (1 + commission_rate)
             if pos:
                 old_qty = float(pos["qty"])
                 old_avg = float(pos["avg_entry"])
                 new_qty = old_qty + qty_f
-                new_avg = ((old_qty * old_avg) + cost) / new_qty if new_qty > 0 else px
+                new_avg = ((old_qty * old_avg) + cost) / new_qty if new_qty > 0 else fill_avg_price
                 self._positions[symbol] = {"qty": new_qty, "avg_entry": new_avg}
             else:
-                self._positions[symbol] = {"qty": qty_f, "avg_entry": px}
+                self._positions[symbol] = {"qty": qty_f, "avg_entry": fill_avg_price}
+            exec_price = effective_price
         else:
             pos = self._positions.get(symbol)
             if not pos:
                 raise ValueError(f"No position to sell for {symbol}")
             old_qty = float(pos["qty"])
             sell_qty = min(old_qty, qty_f)
-            proceeds = sell_qty * px
+            
+            effective_price = px * (1 - spread_buffer)
+            proceeds = (sell_qty * effective_price) * (1 - commission_rate)
             self._cash += proceeds
+            
             remaining = old_qty - sell_qty
-            if remaining <= 1e-12:
+            # Dust handling: if remaining position value is less than $1.0, pop the position entirely
+            if remaining <= 1e-12 or (remaining * px < 1.0):
+                if remaining > 1e-12:
+                    self._log(f"DUST CLEANUP: Removing dust position for {symbol} ({remaining} units, approx. ${remaining * px:.4f})")
                 self._positions.pop(symbol, None)
             else:
                 self._positions[symbol]["qty"] = remaining
+            exec_price = effective_price
 
         oid = str(kwargs.get("id") or f"virt_oid_{uuid.uuid4().hex[:10]}")
         now = self._now()
+        stop_price_str = str(stop_price_val) if stop_price_val is not None else None
         order = VirtualOrder(
             id=oid,
             client_order_id=client_order_id,
@@ -346,18 +379,18 @@ class VirtualMarketAdapter:
             side=side,
             time_in_force=tif,
             limit_price=None,
-            stop_price=None,
-            filled_avg_price=str(px),
+            stop_price=stop_price_str,
+            filled_avg_price=str(exec_price),
             status="filled",
             symbol=symbol,
             qty=str(qty_f),
             filled_qty=str(qty_f),
         )
         self._orders.append(order)
-        self._log(f"VIRTUAL ORDER filled: {side.upper()} {qty_f} {symbol} @ {px}")
+        self._log(f"VIRTUAL ORDER filled: {side.upper()} {qty_f} {symbol} @ {exec_price} (Market: {px}, Cash: {self._cash:.2f})")
         return order
 
-    def close_position(self, symbol: str) -> Any:
+    def close_position(self, symbol: str, **kwargs) -> Any:
         sym = str(symbol or "").strip().upper()
         pos = self._positions.get(sym)
         if not pos:
@@ -369,7 +402,7 @@ class VirtualMarketAdapter:
             return None
 
         # Full close via a market sell.
-        return self.submit_order(symbol=sym, qty=qty_f, side="sell", type="market", time_in_force="gtc")
+        return self.submit_order(symbol=sym, qty=qty_f, side="sell", type="market", time_in_force="gtc", **kwargs)
 
 
 def create_virtual_market_client(*, logger: Optional[Callable[[str], Any]] = None) -> VirtualMarketAdapter:
