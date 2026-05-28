@@ -101,6 +101,19 @@ async def shutdown_event():
         except Exception as e:
             print(f"Error during Telegram bridge shutdown: {e}")
 
+    # Save running bots' trade history to backtests
+    try:
+        print("Saving running bots trade history to backtests on server shutdown...")
+        from api.live_bot import bot_manager
+        from api.routers.bot import save_live_bot_history_to_backtest
+        for bot_id, bot in list(bot_manager._bots.items()):
+            if bot.is_running:
+                print(f"Saving trade history for running bot: {bot_id}")
+                save_live_bot_history_to_backtest(bot)
+                bot.stop()
+    except Exception as e:
+        print(f"Error saving bots history during shutdown: {e}")
+
 
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception):

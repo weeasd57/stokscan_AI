@@ -32,7 +32,7 @@ export default function Header() {
                 <div className="flex items-center justify-between rounded-[2rem] border border-white/10 bg-zinc-950/40 backdrop-blur-3xl px-6 py-3.5 shadow-[0_20px_50px_rgba(0,0,0,0.5)] ring-1 ring-white/5 transition-all duration-500 hover:border-white/20">
                     {/* Brand / Logo */}
                     <div className="flex items-center gap-6">
-                        <Link href="/" className="group flex items-center gap-3">
+                        <Link href="/scanner/ai" className="group flex items-center gap-3">
                             <div className="relative flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-tr from-blue-600 via-indigo-600 to-violet-600 shadow-xl shadow-blue-500/20 transition-all duration-500 group-hover:rotate-12 group-hover:scale-110">
                                 <Image
                                     src="/favicon_io/apple-touch-icon.png"
