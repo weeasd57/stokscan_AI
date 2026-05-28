@@ -1,3 +1,5 @@
+import { getProductionApiUrl } from "./api";
+
 interface IndexData {
   date: string;
   symbol: string;
@@ -51,7 +53,7 @@ export function calculateIndexWinRate(startDate: string, endDate: string): numbe
 
 export async function getIndexWinRateFromAPI(startDate: string, endDate: string): Promise<number> {
   try {
-    const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "";
+    const baseUrl = getProductionApiUrl() || "";
     const response = await fetch(`${baseUrl}/index-winrate`, {
       method: 'POST',
       headers: {

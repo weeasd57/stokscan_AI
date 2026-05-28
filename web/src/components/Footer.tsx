@@ -22,9 +22,8 @@ export default function Footer() {
                     <div className="space-y-4">
                         <h4 className="text-[10px] font-black text-white uppercase tracking-[0.3em]">Platform</h4>
                         <ul className="space-y-2">
-                            <li><Link href="/scanner/ai" className="text-sm text-zinc-500 hover:text-indigo-400 transition-colors">{t("nav.scanner.ai")}</Link></li>
-                            <li><Link href="/scanner/technical" className="text-sm text-zinc-500 hover:text-indigo-400 transition-colors">{t("nav.scanner.tech")}</Link></li>
-                            <li><Link href="/pro" className="text-sm text-zinc-500 hover:text-indigo-400 transition-colors font-bold text-indigo-400/80">Pro Dashboard</Link></li>
+                            <li><Link href="/scanner/technical" className="text-sm text-zinc-500 hover:text-indigo-400 transition-colors">Technical Scanner</Link></li>
+                            <li><Link href="/scanner/backtests" className="text-sm text-zinc-500 hover:text-indigo-400 transition-colors font-bold text-indigo-400/80">Backtests</Link></li>
                         </ul>
                     </div>
 

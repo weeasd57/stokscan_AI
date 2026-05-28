@@ -10,7 +10,7 @@ function withTimeout(ms: number) {
 }
 
 export async function GET() {
-  const base = process.env.PYTHON_BACKEND_URL || "http://127.0.0.1:8000";
+  const base = process.env.PYTHON_BACKEND_URL || process.env.NEXT_PUBLIC_API_BASE_URL || (process.env.VERCEL ? "https://weeasdwee-ai-bot.hf.space" : "http://127.0.0.1:8000");
   const targetUrl = `${base.replace(/\/$/, "")}/admin/models/list`;
 
   const { controller, id } = withTimeout(15_000);
