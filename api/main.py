@@ -91,6 +91,15 @@ async def startup_event():
             import traceback
             traceback.print_exc()
 
+    # Start Technical Alerts Scheduler
+    try:
+        from api.tech_alerts_scheduler import start_alerts_scheduler
+        start_alerts_scheduler()
+        print("DEBUG: Technical Alerts Scheduler started successfully.")
+    except Exception as e:
+        print(f"DEBUG ERROR: Failed to start Technical Alerts Scheduler: {e}")
+
+
 @app.on_event("shutdown")
 async def shutdown_event():
     # Cleanup Telegram Bot

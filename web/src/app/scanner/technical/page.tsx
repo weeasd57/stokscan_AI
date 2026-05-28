@@ -1,19 +1,23 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef } from "react";
-import { Sliders, Search, Loader2, Globe, Database, TrendingUp, X, Filter, Bookmark, BookmarkCheck, ArrowLeftRight, ChevronLeft, ChevronRight, BarChart3, PieChart, Landmark, Coins, Scale, Percent, Minus, Plus, Info, LayoutTemplate, Settings2 } from "lucide-react";
+import { useState, useEffect, useMemo } from "react";
+import { Sliders, Search, Loader2, Globe, Database, TrendingUp, X, Filter, Bookmark, BookmarkCheck, ArrowLeftRight, ChevronLeft, ChevronRight, BarChart3, PieChart, Landmark, Coins, Scale, Percent, Minus, Plus, Info, LayoutTemplate, Settings2, Bell, BellRing, Trash, Check, AlertCircle } from "lucide-react";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useWatchlist } from "@/contexts/WatchlistContext";
 import { useAppState } from "@/contexts/AppStateContext";
+import { useAuth } from "@/contexts/AuthContext";
+import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
+import { getTechnicalAlerts, createTechnicalAlert, deleteTechnicalAlert, toggleTechnicalAlert, type TechnicalAlert, type TechFilter } from "@/lib/api";
 import type { TechResult } from "@/lib/api";
-import CountrySelectDialog from "@/components/CountrySelectDialog";
 import StockLogo from "@/components/StockLogo";
 import ScannerTemplates, { type ScannerTemplateId } from "@/components/ScannerTemplates";
 
 export default function TechnicalScannerPage() {
     const { t } = useLanguage();
+    const { user } = useAuth();
+    const supabase = useMemo(() => createSupabaseBrowserClient(), []);
     const { saveSymbol, removeSymbolBySymbol, isSaved } = useWatchlist();
-    const { state, countries, setTechScanner, runTechScan, stopTechScan, techScanLoading: loading, techScanError: error, clearTechScannerView, restoreLastTechScan, addSymbolToCompare } = useAppState();
+    const { state, setTechScanner, runTechScan, stopTechScan, techScanLoading: loading, techScanError: error, addSymbolToCompare } = useAppState();
 
     const {
         country,
@@ -42,12 +46,27 @@ export default function TechnicalScannerPage() {
         marketCapMax,
         sector,
         industry,
+        minPrice,
+        useAiFilter,
+        minAiPrecision,
     } = state.techScanner;
 
     // Pagination State
     const [currentPage, setCurrentPage] = useState(1);
-    const [showCountryDialog, setShowCountryDialog] = useState(false);
     const pageSize = 15;
+
+    // Active filter popover state
+    const [activeFilterPopover, setActiveFilterPopover] = useState<string | null>(null);
+
+    // Alerts state
+    const [alerts, setAlerts] = useState<TechnicalAlert[]>([]);
+    const [alertsLoading, setAlertsLoading] = useState(false);
+    const [showManageAlertsDialog, setShowManageAlertsDialog] = useState(false);
+    const [showCreateAlertDialog, setShowCreateAlertDialog] = useState(false);
+    const [newAlertName, setNewAlertName] = useState("");
+    const [telegramChatId, setTelegramChatId] = useState("");
+    const [savingAlert, setSavingAlert] = useState(false);
+    const [fetchingTelegramChatId, setFetchingTelegramChatId] = useState(false);
 
     // Filtered Results memo
     const filteredResults = useMemo(() => {
@@ -78,20 +97,33 @@ export default function TechnicalScannerPage() {
         { id: 'financials', label: 'Financials', icon: Scale },
     ] as const;
 
-    // Auto-fetch data on mount and country change
+    // Auto-fetch data on mount
     useEffect(() => {
-        runScan();
+        // Enforce country to be Egypt on mount if it's not
+        if (country !== "Egypt") {
+            setTechScanner(prev => ({ ...prev, country: "Egypt" }));
+        } else {
+            runScan();
+        }
     }, [country]);
 
     async function runScan() {
         await runTechScan();
     }
 
-    function applyTemplate(id: ScannerTemplateId) {
-        const baseUpdate = {
-            searchTerm: "",
+    // Apply filters and re-run scan
+    const applyFilter = () => {
+        setActiveFilterPopover(null);
+        void runTechScan({ force: true });
+    };
+
+    // Reset all scanner filters
+    const handleResetFilters = () => {
+        setTechScanner(prev => ({
+            ...prev,
             rsiMin: "",
             rsiMax: "",
+            minPrice: "",
             aboveEma50: false,
             aboveEma200: false,
             adxMin: "",
@@ -109,10 +141,133 @@ export default function TechnicalScannerPage() {
             marketCapMax: "",
             sector: "",
             industry: "",
+            useAiFilter: false,
+            minAiPrecision: "0.6",
+        }));
+        setActiveFilterPopover(null);
+        setTimeout(() => void runTechScan({ force: true }), 0);
+    };
+
+    // Fetch alerts for user
+    const fetchAlerts = async () => {
+        if (!user) return;
+        setAlertsLoading(true);
+        try {
+            const data = await getTechnicalAlerts(user.id);
+            setAlerts(data);
+        } catch (err) {
+            console.error("Failed to load alerts:", err);
+        } finally {
+            setAlertsLoading(false);
+        }
+    };
+
+    // Fetch telegram chat ID from user profile
+    const fetchTelegramChatId = async () => {
+        if (!user) return;
+        setFetchingTelegramChatId(true);
+        try {
+            const { data } = await supabase.from("profiles").select("telegram_chat_id").eq("id", user.id).maybeSingle();
+            setTelegramChatId(data?.telegram_chat_id || "");
+        } catch (err) {
+            console.error("Failed to fetch telegram chat id:", err);
+        } finally {
+            setFetchingTelegramChatId(false);
+        }
+    };
+
+    // Save alert config
+    const handleCreateAlert = async () => {
+        if (!user || !newAlertName.trim()) return;
+        setSavingAlert(true);
+        try {
+            const currentFilters: TechFilter = {
+                country,
+                rsi_min: rsiMin ? parseFloat(rsiMin) : undefined,
+                rsi_max: rsiMax ? parseFloat(rsiMax) : undefined,
+                min_price: minPrice ? parseFloat(minPrice) : undefined,
+                above_ema50: aboveEma50,
+                above_ema200: aboveEma200,
+                adx_min: adxMin ? parseFloat(adxMin) : undefined,
+                adx_max: adxMax ? parseFloat(adxMax) : undefined,
+                atr_min: atrMin ? parseFloat(atrMin) : undefined,
+                atr_max: atrMax ? parseFloat(atrMax) : undefined,
+                stoch_k_min: stochKMin ? parseFloat(stochKMin) : undefined,
+                stoch_k_max: stochKMax ? parseFloat(stochKMax) : undefined,
+                roc_min: rocMin ? parseFloat(rocMin) : undefined,
+                roc_max: rocMax ? parseFloat(rocMax) : undefined,
+                above_vwap20: aboveVwap20,
+                volume_above_sma20: volumeAboveSma20,
+                market_cap_min: marketCapMin ? parseFloat(marketCapMin) : undefined,
+                market_cap_max: marketCapMax ? parseFloat(marketCapMax) : undefined,
+                sector: sector || undefined,
+                industry: industry || undefined,
+                golden_cross: goldenCross,
+                use_ai_filter: useAiFilter,
+                min_ai_precision: minAiPrecision ? parseFloat(minAiPrecision) : undefined,
+            };
+            await createTechnicalAlert({
+                user_id: user.id,
+                name: newAlertName.trim(),
+                filters: currentFilters
+            });
+            setNewAlertName("");
+            setShowCreateAlertDialog(false);
+            await fetchAlerts();
+        } catch (err) {
+            console.error("Failed to create alert:", err);
+        } finally {
+            setSavingAlert(false);
+        }
+    };
+
+    const handleDeleteAlert = async (id: string) => {
+        try {
+            await deleteTechnicalAlert(id);
+            await fetchAlerts();
+        } catch (err) {
+            console.error("Failed to delete alert:", err);
+        }
+    };
+
+    const handleToggleAlert = async (id: string, active: boolean) => {
+        try {
+            await toggleTechnicalAlert(id, active);
+            await fetchAlerts();
+        } catch (err) {
+            console.error("Failed to toggle alert:", err);
+        }
+    };
+
+    function applyTemplate(id: ScannerTemplateId) {
+        const baseUpdate = {
+            searchTerm: "",
+            rsiMin: "",
+            rsiMax: "",
+            minPrice: "",
+            aboveEma50: false,
+            aboveEma200: false,
+            adxMin: "",
+            adxMax: "",
+            atrMin: "",
+            atrMax: "",
+            stochKMin: "",
+            stochKMax: "",
+            rocMin: "",
+            rocMax: "",
+            aboveVwap20: false,
+            volumeAboveSma20: false,
+            goldenCross: false,
+            marketCapMin: "",
+            marketCapMax: "",
+            sector: "",
+            industry: "",
+            useAiFilter: false,
+            minAiPrecision: "0.6",
         };
 
         const presets: Record<ScannerTemplateId, Partial<typeof baseUpdate>> = {
-            ai_growth: { aboveEma50: true, rsiMin: "45", rsiMax: "70" },
+            ai_growth: { useAiFilter: true, minAiPrecision: "0.65", aboveEma50: true },
             macd_cross: { goldenCross: true, aboveEma50: true },
             rsi_oversold: { rsiMax: "30" },
             volume_breakout: { volumeAboveSma20: true },
@@ -159,14 +314,14 @@ export default function TechnicalScannerPage() {
             {/* --- TradingView-Style Header --- */}
             <div className="flex flex-col gap-1 px-4 py-3 sm:p-6 sm:pb-4 border-b border-white/5 bg-zinc-950/40 backdrop-blur-xl">
                 <div className="flex items-center gap-3">
-                    <h1 className="text-lg sm:text-2xl font-black text-white tracking-tight">Stock Screener</h1>
+                    <h1 className="text-lg sm:text-2xl font-black text-white tracking-tight">Technical Stock Screener</h1>
                     {loading && <Loader2 className="h-4 w-4 sm:h-5 sm:w-5 animate-spin text-blue-500" />}
                 </div>
                 <div className="flex items-center gap-2 text-xs sm:text-sm">
-                    <span className="text-zinc-600 font-bold">All stocks</span>
+                    <span className="text-zinc-600 font-bold">Egyptian Stock Exchange (EGX)</span>
                     {scannedCount > 0 && (
                         <span className="text-zinc-500 text-xs">
-                            · {filteredResults.length} of {scannedCount} scanned
+                             · {filteredResults.length} of {scannedCount} scanned
                         </span>
                     )}
                 </div>
@@ -177,80 +332,324 @@ export default function TechnicalScannerPage() {
             </div>
 
             {/* --- Inline Filter Bar --- */}
-            <div className="flex items-center gap-2 sm:gap-3 px-3 sm:px-6 py-3 sm:py-4 border-b border-white/5 bg-zinc-950/20 overflow-x-auto no-scrollbar">
-                {/* Country Selector */}
-                <button
-                    onClick={() => setShowCountryDialog(true)}
-                    className="h-8 sm:h-10 flex items-center gap-1.5 sm:gap-2 rounded-lg sm:rounded-xl border border-white/10 bg-zinc-900/50 px-3 sm:px-4 text-xs sm:text-sm font-bold text-zinc-200 hover:bg-zinc-800 hover:border-white/20 transition-all shrink-0"
-                >
+            <div className="flex items-center gap-2 sm:gap-3 px-3 sm:px-6 py-3 sm:py-4 border-b border-white/5 bg-zinc-950/20 overflow-x-auto no-scrollbar relative">
+                {/* Market (Locked) */}
+                <div className="h-8 sm:h-10 flex items-center gap-1.5 sm:gap-2 rounded-lg sm:rounded-xl border border-white/10 bg-zinc-900/50 px-3 sm:px-4 text-xs sm:text-sm font-bold text-zinc-200 select-none shrink-0">
                     <Globe className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-blue-500" />
-                    <span className="tracking-wide">{country}</span>
+                    <span className="tracking-wide">Egypt (EGX)</span>
+                </div>
+
+                {/* Price Filter */}
+                <div className="relative">
+                    <FilterDropdown
+                        label="Min Price"
+                        value={minPrice ? `>= ${minPrice} EGP` : "Any"}
+                        active={!!minPrice}
+                        onClick={() => setActiveFilterPopover(activeFilterPopover === 'price' ? null : 'price')}
+                    />
+                    {activeFilterPopover === 'price' && (
+                        <div className="absolute top-full left-0 mt-2 p-4 bg-zinc-950 border border-white/10 rounded-2xl shadow-2xl z-[150] w-64 space-y-3">
+                            <h4 className="text-xs font-black uppercase text-zinc-400">Minimum Stock Price</h4>
+                            <input
+                                type="number"
+                                placeholder="Min Price (EGP)"
+                                value={minPrice}
+                                onChange={(e) => setTechScanner(prev => ({ ...prev, minPrice: e.target.value }))}
+                                className="w-full h-9 px-3 rounded-lg bg-zinc-900 border border-white/10 text-white text-xs focus:outline-none focus:border-blue-500 font-mono"
+                            />
+                            <div className="flex gap-2 pt-1">
+                                <button
+                                    onClick={() => setTechScanner(prev => ({ ...prev, minPrice: "" }))}
+                                    className="flex-1 h-8 text-[10px] font-black uppercase tracking-wider text-zinc-500 hover:text-white rounded bg-zinc-900 transition-colors"
+                                >
+                                    Reset
+                                </button>
+                                <button
+                                    onClick={applyFilter}
+                                    className="flex-1 h-8 text-[10px] font-black uppercase tracking-wider bg-blue-600 hover:bg-blue-500 text-white rounded transition-colors"
+                                >
+                                    Apply
+                                </button>
+                            </div>
+                        </div>
+                    )}
+                </div>
+
+                {/* RSI Filter */}
+                <div className="relative">
+                    <FilterDropdown
+                        label="RSI"
+                        value={rsiMin || rsiMax ? `${rsiMin || 0}-${rsiMax || 100}` : "Any"}
+                        active={!!(rsiMin || rsiMax)}
+                        onClick={() => setActiveFilterPopover(activeFilterPopover === 'rsi' ? null : 'rsi')}
+                    />
+                    {activeFilterPopover === 'rsi' && (
+                        <div className="absolute top-full left-0 mt-2 p-4 bg-zinc-950 border border-white/10 rounded-2xl shadow-2xl z-[150] w-64 space-y-3">
+                            <h4 className="text-xs font-black uppercase text-zinc-400">RSI Range (14)</h4>
+                            <div className="flex gap-2">
+                                <input
+                                    type="number"
+                                    placeholder="Min"
+                                    value={rsiMin}
+                                    onChange={(e) => setTechScanner(prev => ({ ...prev, rsiMin: e.target.value }))}
+                                    className="w-full h-9 px-3 rounded-lg bg-zinc-900 border border-white/10 text-white text-xs focus:outline-none focus:border-blue-500 font-mono"
+                                />
+                                <input
+                                    type="number"
+                                    placeholder="Max"
+                                    value={rsiMax}
+                                    onChange={(e) => setTechScanner(prev => ({ ...prev, rsiMax: e.target.value }))}
+                                    className="w-full h-9 px-3 rounded-lg bg-zinc-900 border border-white/10 text-white text-xs focus:outline-none focus:border-blue-500 font-mono"
+                                />
+                            </div>
+                            <div className="flex gap-2 pt-1">
+                                <button
+                                    onClick={() => setTechScanner(prev => ({ ...prev, rsiMin: "", rsiMax: "" }))}
+                                    className="flex-1 h-8 text-[10px] font-black uppercase tracking-wider text-zinc-500 hover:text-white rounded bg-zinc-900 transition-colors"
+                                >
+                                    Reset
+                                </button>
+                                <button
+                                    onClick={applyFilter}
+                                    className="flex-1 h-8 text-[10px] font-black uppercase tracking-wider bg-blue-600 hover:bg-blue-500 text-white rounded transition-colors"
+                                >
+                                    Apply
+                                </button>
+                            </div>
+                        </div>
+                    )}
+                </div>
+
+                {/* Market Cap Filter */}
+                <div className="relative">
+                    <FilterDropdown
+                        label="Mkt Cap"
+                        value={marketCapMin || marketCapMax ? `${marketCapMin ? formatCompact(Number(marketCapMin)) : '0'}-${marketCapMax ? formatCompact(Number(marketCapMax)) : '∞'}` : "Any"}
+                        active={!!(marketCapMin || marketCapMax)}
+                        onClick={() => setActiveFilterPopover(activeFilterPopover === 'marketcap' ? null : 'marketcap')}
+                    />
+                    {activeFilterPopover === 'marketcap' && (
+                        <div className="absolute top-full left-0 mt-2 p-4 bg-zinc-950 border border-white/10 rounded-2xl shadow-2xl z-[150] w-64 space-y-3">
+                            <h4 className="text-xs font-black uppercase text-zinc-400">Market Cap (EGP)</h4>
+                            <div className="flex flex-col gap-2">
+                                <input
+                                    type="number"
+                                    placeholder="Min Cap (e.g. 10000000)"
+                                    value={marketCapMin}
+                                    onChange={(e) => setTechScanner(prev => ({ ...prev, marketCapMin: e.target.value }))}
+                                    className="w-full h-9 px-3 rounded-lg bg-zinc-900 border border-white/10 text-white text-xs focus:outline-none focus:border-blue-500 font-mono"
+                                />
+                                <input
+                                    type="number"
+                                    placeholder="Max Cap (e.g. 500000000)"
+                                    value={marketCapMax}
+                                    onChange={(e) => setTechScanner(prev => ({ ...prev, marketCapMax: e.target.value }))}
+                                    className="w-full h-9 px-3 rounded-lg bg-zinc-900 border border-white/10 text-white text-xs focus:outline-none focus:border-blue-500 font-mono"
+                                />
+                            </div>
+                            <div className="flex gap-2 pt-1">
+                                <button
+                                    onClick={() => setTechScanner(prev => ({ ...prev, marketCapMin: "", marketCapMax: "" }))}
+                                    className="flex-1 h-8 text-[10px] font-black uppercase tracking-wider text-zinc-500 hover:text-white rounded bg-zinc-900 transition-colors"
+                                >
+                                    Reset
+                                </button>
+                                <button
+                                    onClick={applyFilter}
+                                    className="flex-1 h-8 text-[10px] font-black uppercase tracking-wider bg-blue-600 hover:bg-blue-500 text-white rounded transition-colors"
+                                >
+                                    Apply
+                                </button>
+                            </div>
+                        </div>
+                    )}
+                </div>
+
+                {/* Sector Filter */}
+                <div className="relative">
+                    <FilterDropdown
+                        label="Sector"
+                        value={sector || "All"}
+                        active={!!sector}
+                        onClick={() => setActiveFilterPopover(activeFilterPopover === 'sector' ? null : 'sector')}
+                    />
+                    {activeFilterPopover === 'sector' && (
+                        <div className="absolute top-full left-0 mt-2 p-4 bg-zinc-950 border border-white/10 rounded-2xl shadow-2xl z-[150] w-64 space-y-3">
+                            <h4 className="text-xs font-black uppercase text-zinc-400">EGX Sectors</h4>
+                            <select
+                                value={sector}
+                                onChange={(e) => setTechScanner(prev => ({ ...prev, sector: e.target.value }))}
+                                className="w-full h-9 px-2 rounded-lg bg-zinc-900 border border-white/10 text-white text-xs focus:outline-none focus:border-blue-500"
+                            >
+                                <option value="">All Sectors</option>
+                                <option value="Real Estate">Real Estate</option>
+                                <option value="Materials">Materials & Resources</option>
+                                <option value="Financial Services">Financial Services</option>
+                                <option value="Banks">Banks</option>
+                                <option value="Telecom">Telecom & IT</option>
+                                <option value="Food">Food & Beverage</option>
+                                <option value="Health">Health Care & Pharma</option>
+                                <option value="Industrials">Industrials</option>
+                                <option value="Shipping">Shipping & Transport</option>
+                            </select>
+                            <div className="flex gap-2 pt-1">
+                                <button
+                                    onClick={() => setTechScanner(prev => ({ ...prev, sector: "" }))}
+                                    className="flex-1 h-8 text-[10px] font-black uppercase tracking-wider text-zinc-500 hover:text-white rounded bg-zinc-900 transition-colors"
+                                >
+                                    Reset
+                                </button>
+                                <button
+                                    onClick={applyFilter}
+                                    className="flex-1 h-8 text-[10px] font-black uppercase tracking-wider bg-blue-600 hover:bg-blue-500 text-white rounded transition-colors"
+                                >
+                                    Apply
+                                </button>
+                            </div>
+                        </div>
+                    )}
+                </div>
+
+                {/* Technical Indicators & AI Filter */}
+                <div className="relative">
+                    <FilterDropdown
+                        label="Indicators & AI"
+                        value={
+                            (aboveEma50 ? "EMA50 " : "") +
+                            (aboveEma200 ? "EMA200 " : "") +
+                            (goldenCross ? "GoldenCross " : "") +
+                            (volumeAboveSma20 ? "VolSpike " : "") +
+                            (aboveVwap20 ? "VWAP " : "") +
+                            (useAiFilter ? "AI " : "") || "None"
+                        }
+                        active={aboveEma50 || aboveEma200 || goldenCross || volumeAboveSma20 || aboveVwap20 || useAiFilter}
+                        onClick={() => setActiveFilterPopover(activeFilterPopover === 'indicators' ? null : 'indicators')}
+                    />
+                    {activeFilterPopover === 'indicators' && (
+                        <div className="absolute top-full left-0 mt-2 p-5 bg-zinc-950 border border-white/10 rounded-2xl shadow-2xl z-[150] w-72 space-y-4">
+                            <h4 className="text-xs font-black uppercase text-zinc-400">Technical & AI Filters</h4>
+                            <div className="space-y-2.5 max-h-60 overflow-y-auto no-scrollbar pr-1">
+                                <label className="flex items-center gap-3 text-xs font-medium text-zinc-300 cursor-pointer select-none">
+                                    <input
+                                        type="checkbox"
+                                        checked={aboveEma50}
+                                        onChange={(e) => setTechScanner(prev => ({ ...prev, aboveEma50: e.target.checked }))}
+                                        className="rounded border-white/10 bg-zinc-900 text-blue-600 focus:ring-0 focus:ring-offset-0 h-4 w-4"
+                                    />
+                                    Price &gt; EMA 50
+                                </label>
+                                <label className="flex items-center gap-3 text-xs font-medium text-zinc-300 cursor-pointer select-none">
+                                    <input
+                                        type="checkbox"
+                                        checked={aboveEma200}
+                                        onChange={(e) => setTechScanner(prev => ({ ...prev, aboveEma200: e.target.checked }))}
+                                        className="rounded border-white/10 bg-zinc-900 text-blue-600 focus:ring-0 focus:ring-offset-0 h-4 w-4"
+                                    />
+                                    Price &gt; EMA 200
+                                </label>
+                                <label className="flex items-center gap-3 text-xs font-medium text-zinc-300 cursor-pointer select-none">
+                                    <input
+                                        type="checkbox"
+                                        checked={goldenCross}
+                                        onChange={(e) => setTechScanner(prev => ({ ...prev, goldenCross: e.target.checked }))}
+                                        className="rounded border-white/10 bg-zinc-900 text-blue-600 focus:ring-0 focus:ring-offset-0 h-4 w-4"
+                                    />
+                                    Golden Cross (50 &gt; 200)
+                                </label>
+                                <label className="flex items-center gap-3 text-xs font-medium text-zinc-300 cursor-pointer select-none">
+                                    <input
+                                        type="checkbox"
+                                        checked={volumeAboveSma20}
+                                        onChange={(e) => setTechScanner(prev => ({ ...prev, volumeAboveSma20: e.target.checked }))}
+                                        className="rounded border-white/10 bg-zinc-900 text-blue-600 focus:ring-0 focus:ring-offset-0 h-4 w-4"
+                                    />
+                                    Volume &gt; SMA 20
+                                </label>
+                                <label className="flex items-center gap-3 text-xs font-medium text-zinc-300 cursor-pointer select-none">
+                                    <input
+                                        type="checkbox"
+                                        checked={aboveVwap20}
+                                        onChange={(e) => setTechScanner(prev => ({ ...prev, aboveVwap20: e.target.checked }))}
+                                        className="rounded border-white/10 bg-zinc-900 text-blue-600 focus:ring-0 focus:ring-offset-0 h-4 w-4"
+                                    />
+                                    Price &gt; VWAP 20
+                                </label>
+                                <div className="border-t border-white/5 my-2 pt-2" />
+                                <label className="flex items-center gap-3 text-xs font-medium text-zinc-300 cursor-pointer select-none">
+                                    <input
+                                        type="checkbox"
+                                        checked={useAiFilter}
+                                        onChange={(e) => setTechScanner(prev => ({ ...prev, useAiFilter: e.target.checked }))}
+                                        className="rounded border-white/10 bg-zinc-900 text-blue-600 focus:ring-0 focus:ring-offset-0 h-4 w-4"
+                                    />
+                                    Use AI Predictions (Random Forest)
+                                </label>
+                                {useAiFilter && (
+                                    <div className="pl-7 space-y-1">
+                                        <span className="text-[10px] text-zinc-500 font-bold uppercase">Min AI Precision</span>
+                                        <input
+                                            type="number"
+                                            step="0.05"
+                                            min="0"
+                                            max="1"
+                                            value={minAiPrecision}
+                                            onChange={(e) => setTechScanner(prev => ({ ...prev, minAiPrecision: e.target.value }))}
+                                            className="w-full h-8 px-2 rounded-lg bg-zinc-900 border border-white/10 text-white text-xs focus:outline-none focus:border-blue-500 font-mono"
+                                        />
+                                    </div>
+                                )}
+                            </div>
+                            <div className="flex gap-2 pt-1">
+                                <button
+                                    onClick={() => setTechScanner(prev => ({
+                                        ...prev,
+                                        aboveEma50: false,
+                                        aboveEma200: false,
+                                        goldenCross: false,
+                                        volumeAboveSma20: false,
+                                        aboveVwap20: false,
+                                        useAiFilter: false,
+                                        minAiPrecision: "0.6",
+                                    }))}
+                                    className="flex-1 h-8 text-[10px] font-black uppercase tracking-wider text-zinc-500 hover:text-white rounded bg-zinc-900 transition-colors"
+                                >
+                                    Reset
+                                </button>
+                                <button
+                                    onClick={applyFilter}
+                                    className="flex-1 h-8 text-[10px] font-black uppercase tracking-wider bg-blue-600 hover:bg-blue-500 text-white rounded transition-colors"
+                                >
+                                    Apply
+                                </button>
+                            </div>
+                        </div>
+                    )}
+                </div>
+
+                {/* Reset Filters Icon Button */}
+                <button
+                    onClick={handleResetFilters}
+                    className="h-8 sm:h-10 w-8 sm:w-10 flex items-center justify-center rounded-lg sm:rounded-xl border border-white/10 bg-zinc-900/50 text-zinc-400 hover:bg-zinc-800 hover:text-white hover:border-white/20 transition-all shrink-0 active:scale-95"
+                    title="Reset All Filters"
+                >
+                    <X className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
                 </button>
 
-                {/* Inline Filter Dropdowns */}
-                <FilterDropdown
-                    label="Index"
-                    value="All"
-                    onClick={() => { }}
-                />
-                <FilterDropdown
-                    label="Price"
-                    value="Any"
-                    onClick={() => { }}
-                />
-                <FilterDropdown
-                    label="Change %"
-                    value="Any"
-                    onClick={() => { }}
-                />
-                <FilterDropdown
-                    label="RSI"
-                    value={rsiMin || rsiMax ? `${rsiMin || 0}-${rsiMax || 100}` : "Any"}
-                    active={!!(rsiMin || rsiMax)}
-                    onClick={() => { }}
-                />
-                <FilterDropdown
-                    label="Market cap"
-                    value={marketCapMin || marketCapMax ? `${marketCapMin ? formatCompact(Number(marketCapMin)) : '0'}-${marketCapMax ? formatCompact(Number(marketCapMax)) : '∞'}` : "Any"}
-                    active={!!(marketCapMin || marketCapMax)}
-                    onClick={() => { }}
-                />
-                <FilterDropdown
-                    label="Sector"
-                    value={sector || "All"}
-                    active={!!sector}
-                    onClick={() => { }}
-                />
-                <FilterDropdown
-                    label="P/E"
-                    value="Any"
-                    onClick={() => { }}
-                />
-                <FilterDropdown
-                    label="EPS dil growth"
-                    value="Any"
-                    onClick={() => { }}
-                />
-                <FilterDropdown
-                    label="Div yield %"
-                    value="Any"
-                    onClick={() => { }}
-                />
-                <FilterDropdown
-                    label="ROE"
-                    value="Any"
-                    onClick={() => { }}
-                />
-                <FilterDropdown
-                    label="Beta"
-                    value="Any"
-                    onClick={() => { }}
-                />
-
-                {/* Add More Filter Button */}
-                <button className="h-8 sm:h-10 w-8 sm:w-10 flex items-center justify-center rounded-lg sm:rounded-xl border border-white/10 bg-zinc-900/50 text-zinc-400 hover:bg-zinc-800 hover:text-white hover:border-white/20 transition-all shrink-0">
-                    <Plus className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-                </button>
+                {/* Alerts Button */}
+                {user && (
+                    <button
+                        onClick={() => {
+                            setShowManageAlertsDialog(true);
+                            void fetchAlerts();
+                            void fetchTelegramChatId();
+                        }}
+                        className="h-8 sm:h-10 px-3 flex items-center gap-1.5 sm:gap-2 rounded-lg sm:rounded-xl border border-white/10 bg-zinc-900/50 text-zinc-400 hover:bg-zinc-800 hover:text-white hover:border-white/20 transition-all shrink-0 active:scale-95 ml-auto"
+                        title="Telegram Scan Notifications"
+                    >
+                        <Bell className="h-4 w-4 text-amber-500" />
+                        <span className="hidden xs:inline text-xs font-bold uppercase tracking-wider">Telegram Alerts</span>
+                    </button>
+                )}
             </div>
 
             {/* --- Tab Navigation --- */}
@@ -284,7 +683,7 @@ export default function TechnicalScannerPage() {
                                 <Loader2 className="h-12 w-12 animate-spin text-blue-500 relative z-10" />
                             </div>
                             <div className="flex flex-col items-center gap-1">
-                                <p className="text-sm font-black text-white uppercase tracking-[0.3em] animate-pulse">Scanning {country} Market</p>
+                                <p className="text-sm font-black text-white uppercase tracking-[0.3em] animate-pulse">Scanning Egyptian Market</p>
                                 <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Applying technical & fundamental filters...</p>
                             </div>
                         </div>
@@ -293,7 +692,7 @@ export default function TechnicalScannerPage() {
                             <Database className="h-16 w-16 opacity-10" />
                             <div className="text-center space-y-2">
                                 <p className="text-lg font-black text-white uppercase tracking-widest opacity-20">No Stocks Found</p>
-                                <p className="text-xs font-bold text-zinc-600 uppercase tracking-widest">Try adjusting your filters or changing market</p>
+                                <p className="text-xs font-bold text-zinc-600 uppercase tracking-widest">Try adjusting your filters</p>
                             </div>
                         </div>
                     ) : (
@@ -476,7 +875,7 @@ export default function TechnicalScannerPage() {
                     </div>
                 )}
 
-                {/* --- Detail Slide-over (Unchanged but styled higher) --- */}
+                {/* --- Detail Slide-over --- */}
                 {selectedStock && (
                     <>
                         <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[200] animate-in fade-in duration-300" onClick={() => setTechScanner(prev => ({ ...prev, selectedStock: null }))} />
@@ -601,13 +1000,170 @@ export default function TechnicalScannerPage() {
                 )}
             </div>
 
-            <CountrySelectDialog
-                open={showCountryDialog}
-                onClose={() => setShowCountryDialog(false)}
-                countries={countries}
-                selectedCountry={country}
-                onSelect={(c) => setTechScanner(prev => ({ ...prev, country: c }))}
-            />
+            {/* --- Manage Technical Scan Telegram Alerts Dialog --- */}
+            {showManageAlertsDialog && (
+                <>
+                    <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[210] animate-in fade-in duration-300" onClick={() => setShowManageAlertsDialog(false)} />
+                    <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-lg p-6 bg-zinc-950 border border-white/10 rounded-3xl z-[211] animate-in zoom-in-95 duration-300 shadow-[0_0_100px_rgba(0,0,0,0.8)] space-y-6">
+                        <div className="flex justify-between items-center pb-3 border-b border-white/5">
+                            <div className="flex items-center gap-2">
+                                <BellRing className="w-5 h-5 text-amber-500" />
+                                <h3 className="text-lg font-black text-white uppercase tracking-wider">Telegram Alerts</h3>
+                            </div>
+                            <button
+                                onClick={() => setShowManageAlertsDialog(false)}
+                                className="p-1 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-zinc-500 hover:text-white transition-colors"
+                            >
+                                <X className="w-4.5 h-4.5" />
+                            </button>
+                        </div>
+
+                        {/* Telegram chat ID warning */}
+                        {!fetchingTelegramChatId && !telegramChatId && (
+                            <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-2xl flex items-start gap-3">
+                                <AlertCircle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+                                <div className="space-y-1 text-xs text-amber-200">
+                                    <p className="font-bold">معرف تيليجرام غير مفعّل!</p>
+                                    <p className="opacity-80">
+                                        لتلقي التنبيهات الفنية، يرجى التوجه لصفحة الملف الشخصي وتعيين معرف تيليجرام الخاص بك، ثم تفعيل البوت.
+                                    </p>
+                                </div>
+                            </div>
+                        )}
+
+                        <div className="space-y-3">
+                            <div className="flex justify-between items-center">
+                                <span className="text-xs font-bold text-zinc-400 uppercase tracking-widest">Active Alerts</span>
+                                <button
+                                    disabled={!telegramChatId}
+                                    onClick={() => setShowCreateAlertDialog(true)}
+                                    className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-20 text-[10px] font-black uppercase tracking-wider text-white transition-all flex items-center gap-1 active:scale-95"
+                                >
+                                    <Plus className="w-3.5 h-3.5" /> Create Alert
+                                </button>
+                            </div>
+
+                            <div className="max-h-60 overflow-y-auto space-y-2 pr-1 custom-scrollbar">
+                                {alertsLoading ? (
+                                    <div className="flex justify-center py-8">
+                                        <Loader2 className="w-6 h-6 animate-spin text-zinc-600" />
+                                    </div>
+                                ) : alerts.length === 0 ? (
+                                    <div className="text-center py-8 text-zinc-600 text-xs font-bold uppercase tracking-widest">
+                                        No Technical Alerts Set
+                                    </div>
+                                ) : (
+                                    alerts.map((a) => (
+                                        <div key={a.id} className="p-4 rounded-2xl bg-zinc-900/50 border border-white/5 hover:border-white/10 transition-colors flex justify-between items-center">
+                                            <div className="space-y-1.5 min-w-0 pr-4">
+                                                <h4 className="font-black text-sm text-white font-mono truncate">{a.name}</h4>
+                                                <div className="flex flex-wrap gap-1">
+                                                    <span className="px-1.5 py-0.5 rounded bg-blue-600/10 border border-blue-500/20 text-[9px] font-mono text-blue-400 uppercase font-black">
+                                                        {a.filters.country || "Egypt"}
+                                                    </span>
+                                                    {Object.entries(a.filters).map(([k, v]) => {
+                                                        if (k === "country" || k === "limit" || v === undefined || v === null || v === false) return null;
+                                                        return (
+                                                            <span key={k} className="px-1.5 py-0.5 rounded bg-zinc-800 border border-white/5 text-[9px] font-mono text-zinc-500 uppercase font-bold">
+                                                                {k}: {String(v)}
+                                                            </span>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </div>
+                                            <div className="flex items-center gap-3 shrink-0">
+                                                {/* Active Toggle Switch */}
+                                                <button
+                                                    onClick={() => handleToggleAlert(a.id, !a.is_active)}
+                                                    className={`
+                                                        w-9 h-5 rounded-full p-0.5 transition-all
+                                                        ${a.is_active ? "bg-blue-600 flex justify-end" : "bg-zinc-800 flex justify-start"}
+                                                    `}
+                                                >
+                                                    <span className="w-4 h-4 rounded-full bg-white block shadow-md" />
+                                                </button>
+                                                {/* Delete Alert */}
+                                                <button
+                                                    onClick={() => handleDeleteAlert(a.id)}
+                                                    className="p-2 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-500 transition-colors"
+                                                    title="Delete alert"
+                                                >
+                                                    <Trash className="w-3.5 h-3.5" />
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ))
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                </>
+            )}
+
+            {/* --- Create Technical Scan Telegram Alert Dialog --- */}
+            {showCreateAlertDialog && (
+                <>
+                    <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-[220] animate-in fade-in duration-300" onClick={() => setShowCreateAlertDialog(false)} />
+                    <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md p-6 bg-zinc-950 border border-white/10 rounded-3xl z-[221] animate-in zoom-in-95 duration-300 shadow-[0_0_100px_rgba(0,0,0,0.8)] space-y-6">
+                        <div className="flex justify-between items-center pb-3 border-b border-white/5">
+                            <h3 className="text-sm font-black text-white uppercase tracking-wider">Create Telegram Alert</h3>
+                            <button
+                                onClick={() => setShowCreateAlertDialog(false)}
+                                className="p-1 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-zinc-500 hover:text-white transition-colors"
+                            >
+                                <X className="w-4 h-4" />
+                            </button>
+                        </div>
+
+                        <div className="space-y-4">
+                            <div className="space-y-1.5">
+                                <label className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest">Alert Name</label>
+                                <input
+                                    type="text"
+                                    placeholder="e.g. RSI Oversold Egyptian Stocks"
+                                    value={newAlertName}
+                                    onChange={(e) => setNewAlertName(e.target.value)}
+                                    className="w-full h-10 px-3 rounded-xl bg-zinc-900 border border-white/10 text-white text-xs focus:outline-none focus:border-blue-500"
+                                />
+                            </div>
+
+                            <div className="p-4 bg-zinc-900/50 border border-white/5 rounded-2xl space-y-2">
+                                <h4 className="text-[10px] font-black uppercase text-zinc-500 tracking-wider">Active Filters Included:</h4>
+                                <div className="space-y-1.5 text-xs text-zinc-400 font-mono">
+                                    <div>• Market: <span className="text-white">Egypt (EGX)</span></div>
+                                    {minPrice && <div>• Min Price: <span className="text-white">&gt;= {minPrice} EGP</span></div>}
+                                    {(rsiMin || rsiMax) && <div>• RSI: <span className="text-white">{rsiMin || 0} - {rsiMax || 100}</span></div>}
+                                    {marketCapMin && <div>• Min Market Cap: <span className="text-white">{formatCompact(Number(marketCapMin))} EGP</span></div>}
+                                    {marketCapMax && <div>• Max Market Cap: <span className="text-white">{formatCompact(Number(marketCapMax))} EGP</span></div>}
+                                    {sector && <div>• Sector: <span className="text-white">{sector}</span></div>}
+                                    {aboveEma50 && <div>• Price &gt; EMA 50: <span className="text-white">Yes</span></div>}
+                                    {aboveEma200 && <div>• Price &gt; EMA 200: <span className="text-white">Yes</span></div>}
+                                    {goldenCross && <div>• Golden Cross (50 &gt; 200): <span className="text-white">Yes</span></div>}
+                                    {volumeAboveSma20 && <div>• Vol &gt; SMA 20: <span className="text-white">Yes</span></div>}
+                                    {aboveVwap20 && <div>• Price &gt; VWAP 20: <span className="text-white">Yes</span></div>}
+                                    {useAiFilter && <div>• AI Predictions: <span className="text-white">Precision &gt;= {minAiPrecision}</span></div>}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="flex gap-3">
+                            <button
+                                onClick={() => setShowCreateAlertDialog(false)}
+                                className="flex-1 h-11 rounded-xl border border-white/5 text-xs font-black uppercase tracking-wider text-zinc-500 hover:text-white hover:bg-zinc-900 transition-colors"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={handleCreateAlert}
+                                disabled={savingAlert || !newAlertName.trim()}
+                                className="flex-1 h-11 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-20 text-xs font-black uppercase tracking-wider text-white transition-all flex items-center justify-center gap-2 active:scale-95"
+                            >
+                                {savingAlert ? <Loader2 className="w-4 h-4 animate-spin" /> : "Save Alert"}
+                            </button>
+                        </div>
+                    </div>
+                </>
+            )}
         </div>
     );
 }

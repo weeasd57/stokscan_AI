@@ -904,3 +904,60 @@ export async function getAvailableCoins(
   if (!res.ok) throw new Error("Failed to fetch available coins");
   return res.json();
 }
+
+export interface TechnicalAlert {
+  id: string;
+  user_id: string;
+  name: string;
+  filters: TechFilter;
+  is_active: boolean;
+  created_at: string;
+  last_triggered_at?: string;
+  last_triggered_matches?: string[];
+}
+
+export async function getTechnicalAlerts(userId: string): Promise<TechnicalAlert[]> {
+  const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "";
+  const endpoint = baseUrl ? `${baseUrl}/scan/alerts?user_id=${encodeURIComponent(userId)}` : `/api/scan/alerts?user_id=${encodeURIComponent(userId)}`;
+  const response = await fetch(endpoint, { cache: "no-store" });
+  if (!response.ok) throw new Error("Failed to fetch technical alerts");
+  const data = await response.json();
+  return data.alerts ?? [];
+}
+
+export async function createTechnicalAlert(params: { user_id: string; name: string; filters: TechFilter }): Promise<TechnicalAlert> {
+  const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "";
+  const endpoint = baseUrl ? `${baseUrl}/scan/alerts` : `/api/scan/alerts`;
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(params)
+  });
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(data.detail || "Failed to create technical alert");
+  }
+  return response.json();
+}
+
+export async function deleteTechnicalAlert(id: string): Promise<void> {
+  const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "";
+  const endpoint = baseUrl ? `${baseUrl}/scan/alerts/${id}` : `/api/scan/alerts/${id}`;
+  const response = await fetch(endpoint, {
+    method: "DELETE"
+  });
+  if (!response.ok) throw new Error("Failed to delete technical alert");
+}
+
+export async function toggleTechnicalAlert(id: string, isActive: boolean): Promise<TechnicalAlert> {
+  const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "";
+  const endpoint = baseUrl ? `${baseUrl}/scan/alerts/${id}` : `/api/scan/alerts/${id}`;
+  const response = await fetch(endpoint, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ is_active: isActive })
+  });
+  if (!response.ok) throw new Error("Failed to toggle alert status");
+  return response.json();
+}
+
