@@ -1,5 +1,18 @@
 import type { PredictResponse } from "@/lib/types";
 
+
+export const getProductionApiUrl = (): string => {
+  if (typeof window !== "undefined") {
+    const host = window.location.hostname;
+    if (host.endsWith(".vercel.app") || host === "stokscan-ai-web.vercel.app") {
+      return "https://weeasdwee-ai-bot.hf.space";
+    }
+  }
+  return process.env.NEXT_PUBLIC_API_BASE_URL || "";
+};
+
+const GLOBAL_BASE_URL = getProductionApiUrl();
+
 export type PredictParams = {
   ticker: string;
   exchange?: string;
@@ -17,7 +30,7 @@ export type PredictParams = {
 };
 
 export async function predictStock(params: PredictParams, signal?: AbortSignal): Promise<PredictResponse> {
-  const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL;
+  const baseUrl = GLOBAL_BASE_URL;
 
   let ticker = params.ticker.trim().toUpperCase();
   let exchange = params.exchange?.toUpperCase();
@@ -124,7 +137,7 @@ export type LocalModelsResponse = {
 };
 
 export async function getLocalModels(): Promise<(string | LocalModelMeta)[]> {
-  const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL;
+  const baseUrl = GLOBAL_BASE_URL;
   const endpoint = "/models/local";
 
   async function doFetch(url: string) {
@@ -164,7 +177,7 @@ export async function getSymbolsByDate(params: {
   limit?: number;
   searchTerm?: string;
 }): Promise<DateSymbolResult[]> {
-  const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL;
+  const baseUrl = GLOBAL_BASE_URL;
   const query = new URLSearchParams({ start: params.start, end: params.end });
   if (params.exchange) query.set("exchange", params.exchange);
   if (params.limit) query.set("limit", String(params.limit));
@@ -214,7 +227,7 @@ export async function getSymbolsForExchange(exchange: string): Promise<DateSymbo
 }
 
 export async function getInventory(): Promise<any[]> {
-  const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL;
+  const baseUrl = GLOBAL_BASE_URL;
   const endpoint = "/symbols/inventory";
 
   async function doFetch(url: string) {
@@ -241,7 +254,7 @@ export async function getInventory(): Promise<any[]> {
 }
 
 export async function getCountries(source?: "supabase" | "local"): Promise<string[]> {
-  const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL;
+  const baseUrl = GLOBAL_BASE_URL;
   const params = new URLSearchParams();
   if (source) params.set("source", source);
 
@@ -277,7 +290,7 @@ export async function searchSymbols(
   signal?: AbortSignal,
   source?: "supabase" | "local"
 ): Promise<SymbolResult[]> {
-  const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL;
+  const baseUrl = GLOBAL_BASE_URL;
 
   const params = new URLSearchParams({ q: query, limit: String(limit) });
   if (country) params.set("country", country);
@@ -308,7 +321,7 @@ export async function searchSymbols(
 }
 
 export async function getSyncedSymbols(country?: string, source?: "supabase" | "local"): Promise<SymbolResult[]> {
-  const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL;
+  const baseUrl = GLOBAL_BASE_URL;
   const params = new URLSearchParams();
   if (country) params.set("country", country);
   if (source) params.set("source", source);
@@ -387,7 +400,7 @@ export type ScanAiParams = {
 };
 
 export async function scanAiFastWithParams(params: ScanAiParams, signal?: AbortSignal): Promise<ScanResponse> {
-  const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL;
+  const baseUrl = GLOBAL_BASE_URL;
 
   const query = new URLSearchParams({
     country: params.country,
@@ -445,7 +458,7 @@ export async function scanAiFastWithParams(params: ScanAiParams, signal?: AbortS
 }
 
 export async function scanAiWithParams(params: ScanAiParams, signal?: AbortSignal): Promise<ScanResponse> {
-  const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL;
+  const baseUrl = GLOBAL_BASE_URL;
 
   async function doFetch(url: string) {
     return await fetch(url, {
@@ -497,7 +510,7 @@ export async function scanAiWithParams(params: ScanAiParams, signal?: AbortSigna
 }
 
 export async function scanAi(country: string = "Egypt", signal?: AbortSignal): Promise<ScanResponse> {
-  const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL;
+  const baseUrl = GLOBAL_BASE_URL;
 
   async function doFetch(url: string) {
     return await fetch(url, {
@@ -602,7 +615,7 @@ export type TechResponse = {
 };
 
 export async function scanTech(filter: TechFilter, signal?: AbortSignal): Promise<TechResponse> {
-  const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL;
+  const baseUrl = GLOBAL_BASE_URL;
 
   async function doFetch(url: string) {
     return await fetch(url, {
@@ -745,7 +758,7 @@ export async function fetchStockNews(query: string, limit: number = 3): Promise<
 }
 
 export async function evaluateScan(scanId: string): Promise<{ count: number; message: string }> {
-  const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL;
+  const baseUrl = GLOBAL_BASE_URL;
   const url = baseUrl ? `${baseUrl}/scan/fast/evaluate/${scanId}` : `/api/scan/fast/evaluate/${scanId}`;
   const response = await fetch(url);
   if (!response.ok) throw new Error("Failed to evaluate scan performance");
@@ -754,7 +767,7 @@ export async function evaluateScan(scanId: string): Promise<{ count: number; mes
 
 export async function getBacktests(model?: string): Promise<any[]> {
   // Prefer same-origin `/api` proxy on Vercel. If NEXT_PUBLIC_API_BASE_URL is set, use it as-is.
-  const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "/api";
+  const baseUrl = GLOBAL_BASE_URL || "/api";
   const url = model ? `${baseUrl}/backtests?model=${encodeURIComponent(model)}` : `${baseUrl}/backtests`;
   const response = await fetch(url);
   if (!response.ok) throw new Error("Failed to fetch backtests");
@@ -762,14 +775,14 @@ export async function getBacktests(model?: string): Promise<any[]> {
 }
 
 export async function getBacktestTrades(backtestId: string): Promise<any[]> {
-  const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "/api";
+  const baseUrl = GLOBAL_BASE_URL || "/api";
   const response = await fetch(`${baseUrl}/backtests/${backtestId}/trades`);
   if (!response.ok) throw new Error("Failed to fetch backtest trades");
   return await response.json();
 }
 
 export async function deleteBacktest(id: string): Promise<void> {
-  const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "/api";
+  const baseUrl = GLOBAL_BASE_URL || "/api";
   const response = await fetch(`${baseUrl}/backtests/${id}`, {
     method: "DELETE"
   });
@@ -777,7 +790,7 @@ export async function deleteBacktest(id: string): Promise<void> {
 }
 
 export async function updateBacktestVisibility(id: string, isPublic: boolean): Promise<void> {
-  const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "/api";
+  const baseUrl = GLOBAL_BASE_URL || "/api";
   const response = await fetch(`${baseUrl}/backtests/${id}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
@@ -917,7 +930,7 @@ export interface TechnicalAlert {
 }
 
 export async function getTechnicalAlerts(userId: string): Promise<TechnicalAlert[]> {
-  const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "";
+  const baseUrl = GLOBAL_BASE_URL || "";
   const endpoint = baseUrl ? `${baseUrl}/scan/alerts?user_id=${encodeURIComponent(userId)}` : `/api/scan/alerts?user_id=${encodeURIComponent(userId)}`;
   const response = await fetch(endpoint, { cache: "no-store" });
   if (!response.ok) throw new Error("Failed to fetch technical alerts");
@@ -926,7 +939,7 @@ export async function getTechnicalAlerts(userId: string): Promise<TechnicalAlert
 }
 
 export async function createTechnicalAlert(params: { user_id: string; name: string; filters: TechFilter }): Promise<TechnicalAlert> {
-  const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "";
+  const baseUrl = GLOBAL_BASE_URL || "";
   const endpoint = baseUrl ? `${baseUrl}/scan/alerts` : `/api/scan/alerts`;
   const response = await fetch(endpoint, {
     method: "POST",
@@ -941,7 +954,7 @@ export async function createTechnicalAlert(params: { user_id: string; name: stri
 }
 
 export async function deleteTechnicalAlert(id: string): Promise<void> {
-  const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "";
+  const baseUrl = GLOBAL_BASE_URL || "";
   const endpoint = baseUrl ? `${baseUrl}/scan/alerts/${id}` : `/api/scan/alerts/${id}`;
   const response = await fetch(endpoint, {
     method: "DELETE"
@@ -950,7 +963,7 @@ export async function deleteTechnicalAlert(id: string): Promise<void> {
 }
 
 export async function toggleTechnicalAlert(id: string, isActive: boolean): Promise<TechnicalAlert> {
-  const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "";
+  const baseUrl = GLOBAL_BASE_URL || "";
   const endpoint = baseUrl ? `${baseUrl}/scan/alerts/${id}` : `/api/scan/alerts/${id}`;
   const response = await fetch(endpoint, {
     method: "PATCH",

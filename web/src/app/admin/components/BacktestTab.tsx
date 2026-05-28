@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { Activity, Calendar, Play, TrendingUp, Target, AlertTriangle, CheckCircle2, FileText, Globe, Trash2, Eye, Wallet, EyeOff, History as HistoryIcon, ChevronDown, LineChart, Database, Users, Cpu, ShieldCheck, Zap, Info } from "lucide-react";
-import { getLocalModels, type LocalModelMeta, getBacktests, getBacktestTrades, deleteBacktest, updateBacktestVisibility } from "@/lib/api";
+import { getLocalModels, type LocalModelMeta, getBacktests, getBacktestTrades, deleteBacktest, updateBacktestVisibility, getProductionApiUrl } from "@/lib/api";
 import { useAppState } from "@/contexts/AppStateContext";
 import { toast } from "sonner";
 import ConfirmDialog from "@/components/ConfirmDialog";
@@ -1002,7 +1002,7 @@ export default function BacktestTab() {
     let cancelled = false;
     (async () => {
       try {
-        const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "/api";
+        const baseUrl = getProductionApiUrl() || "/api";
         const res = await fetch(`${baseUrl}/symbols/synced?country=CRYPTO`, { cache: "no-store" });
         if (!res.ok || cancelled) return;
         const data = await res.json();
@@ -1079,7 +1079,7 @@ export default function BacktestTab() {
       const targetId = activeMainTab === "automation" ? currentOptId : currentBacktestId;
       interval = setInterval(async () => {
         try {
-          const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "/api";
+          const baseUrl = getProductionApiUrl() || "/api";
           const res = await fetch(`${baseUrl}/backtests`); // Refresh full history
           if (!res.ok) return;
           const data = await res.json();
@@ -1212,7 +1212,7 @@ export default function BacktestTab() {
     setResult(null);
 
     try {
-      const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "/api";
+      const baseUrl = getProductionApiUrl() || "/api";
       const payload = {
         exchange: selectedExchange,
         model: selectedModel,
@@ -1281,7 +1281,7 @@ export default function BacktestTab() {
     setIsOptimizing(true);
     setError(null);
     try {
-      const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "/api";
+      const baseUrl = getProductionApiUrl() || "/api";
       const res = await fetch(`${baseUrl}/backtest/optimize`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },

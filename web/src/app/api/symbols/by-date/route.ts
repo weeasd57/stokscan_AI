@@ -13,7 +13,7 @@ export async function GET(req: Request) {
   const incomingUrl = new URL(req.url);
   const search = incomingUrl.searchParams.toString();
 
-  const base = process.env.PYTHON_BACKEND_URL || "http://127.0.0.1:8000";
+  const base = process.env.PYTHON_BACKEND_URL || process.env.NEXT_PUBLIC_API_BASE_URL || (process.env.VERCEL ? "https://weeasdwee-ai-bot.hf.space" : "http://127.0.0.1:8000");
   const targetUrl = `${base.replace(/\/$/, "")}/symbols/by-date${search ? `?${search}` : ""}`;
 
   const { controller, id } = withTimeout(15_000);
