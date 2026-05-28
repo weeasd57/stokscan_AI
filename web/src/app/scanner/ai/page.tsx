@@ -1,12 +1,43 @@
 "use client";
 
 import React, { useState, useEffect, useMemo } from "react";
-import { Brain, TrendingUp, AlertTriangle, Check, Loader2, Sparkles, RefreshCw, BarChart2, Calendar, Percent, ShieldCheck, HelpCircle, ArrowRightLeft, Lock, Volume2, VolumeX, Edit, Layers, Clipboard, ExternalLink, UserPlus, UserMinus, LineChart, Eye, EyeOff, Activity, Cpu } from "lucide-react";
+import { Brain, TrendingUp, AlertTriangle, Check, Loader2, Sparkles, RefreshCw, BarChart2, Calendar, Percent, ShieldCheck, HelpCircle, ArrowRightLeft, Lock, Volume2, VolumeX, Edit, Layers, Clipboard, ExternalLink, UserPlus, UserMinus, LineChart, Eye, EyeOff, Activity, Cpu, Database } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { getBacktests } from "@/lib/api";
 import StockLogo from "@/components/StockLogo";
 import Link from "next/link";
 import { TradeTimeline } from "@/app/admin/components/TradeTimeline";
+
+interface LocalModel {
+    name: string;
+    size_bytes: number;
+    size_mb: number;
+    created_at: string;
+    modified_at: string;
+    type: string;
+    num_features?: number;
+    num_parameters?: number;
+    trainingSamples?: number;
+    n_estimators?: number;
+    num_trees?: number;
+    exchange?: string;
+    featurePreset?: string;
+    bestIteration?: number;
+    target_pct?: number;
+    stop_loss_pct?: number;
+    look_forward_days?: number;
+    learning_rate?: number;
+    uses_exchange_index_json?: boolean;
+    exchange_index_json_path?: string;
+    uses_fundamentals?: boolean;
+    fundamentals_loaded?: boolean;
+    has_meta_labeling?: boolean;
+    precision?: number;
+    recall?: number;
+    f1?: number;
+    auc?: number;
+}
+
 
 interface Bot {
     bot_id: string;
@@ -177,6 +208,11 @@ export default function AIScannerPage() {
 
     const [selectedModelFilter, setSelectedModelFilter] = useState<string>("all");
 
+    // States for Model Cards
+    const [modelCards, setModelCards] = useState<LocalModel[]>([]);
+    const [modelsLoading, setModelsLoading] = useState(true);
+    const [modelsError, setModelsError] = useState<string | null>(null);
+
     // Subscriptions count helper
     const activeSubCount = useMemo(() => {
         return bots.filter(b => b.is_subscribed).length;
@@ -208,6 +244,22 @@ export default function AIScannerPage() {
         }
     };
 
+    // Fetch Model Cards
+    const fetchModelCards = async () => {
+        setModelsLoading(true);
+        setModelsError(null);
+        try {
+            const res = await fetch("/api/ai_bot/model_cards");
+            if (!res.ok) throw new Error("Failed to fetch model cards");
+            const data = await res.json();
+            setModelCards(data || []);
+        } catch (err: any) {
+            setModelsError(err.message || "An error occurred while loading model cards.");
+        } finally {
+            setModelsLoading(false);
+        }
+    };
+
     // Fetch Backtests
     const fetchBacktestsList = async () => {
         setBacktestsLoading(true);
@@ -224,8 +276,10 @@ export default function AIScannerPage() {
 
     useEffect(() => {
         fetchBotsList();
+        fetchModelCards();
         fetchBacktestsList();
     }, [user?.id]);
+
 
     // Handle Subscribe
     const handleSubscribe = async (botId: string) => {
@@ -385,52 +439,179 @@ export default function AIScannerPage() {
                         </div>
                     ) : (
                         <>
-                            {/* Egyptian Models Filter */}
-                            <div className="p-6 rounded-3xl border border-white/5 bg-zinc-900/10 backdrop-blur-3xl space-y-4">
-                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                                    <div className="flex items-center gap-2">
-                                        <Cpu className="w-5 h-5 text-indigo-400" />
-                                        <h4 className="text-xs font-black text-white uppercase tracking-[0.2em]">
-                                            Egyptian AI Models
-                                        </h4>
+                            {/* Model Artifacts Section */}
+                            <div className="p-8 rounded-3xl bg-zinc-900 border border-zinc-800 flex flex-col h-full space-y-6">
+                                <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-4">
+                                        <div className="p-3 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-400">
+                                            <Database className="w-6 h-6" />
+                                        </div>
+                                        <div>
+                                            <h2 className="text-xl font-black text-white">Model Artifacts</h2>
+                                            <p className="text-xs text-zinc-500 font-bold uppercase tracking-widest mt-1">Available .pkl Modules</p>
+                                        </div>
                                     </div>
-                                    <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">
-                                        Click a model to filter active bots
-                                    </span>
+                                    {selectedModelFilter !== "all" && (
+                                        <button
+                                            onClick={() => setSelectedModelFilter("all")}
+                                            className="px-3 py-1.5 rounded-xl bg-zinc-950 border border-zinc-800 text-zinc-400 hover:text-white text-[10px] font-black uppercase tracking-widest transition-all"
+                                        >
+                                            Clear Filter
+                                        </button>
+                                    )}
                                 </div>
-                                <div className="flex flex-wrap gap-3">
-                                    <button
-                                        onClick={() => setSelectedModelFilter("all")}
-                                        className={`px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all duration-300 border ${
-                                            selectedModelFilter === "all"
-                                                ? "bg-indigo-600 border-indigo-500 text-white shadow-lg shadow-indigo-600/20"
-                                                : "bg-white/5 border-white/5 text-zinc-400 hover:text-white hover:bg-white/10"
-                                        }`}
-                                    >
-                                        All Models
-                                    </button>
-                                    <button
-                                        onClick={() => setSelectedModelFilter("KING")}
-                                        className={`px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all duration-300 border flex items-center gap-2 ${
-                                            selectedModelFilter === "KING"
-                                                ? "bg-indigo-600 border-indigo-500 text-white shadow-lg shadow-indigo-600/20"
-                                                : "bg-white/5 border-white/5 text-zinc-400 hover:text-white hover:bg-white/10"
-                                        }`}
-                                    >
-                                        👑 KING Model
-                                    </button>
-                                    <button
-                                        onClick={() => setSelectedModelFilter("NEW_MODEL")}
-                                        className={`px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all duration-300 border flex items-center gap-2 ${
-                                            selectedModelFilter === "NEW_MODEL"
-                                                ? "bg-indigo-600 border-indigo-500 text-white shadow-lg shadow-indigo-600/20"
-                                                : "bg-white/5 border-white/5 text-zinc-400 hover:text-white hover:bg-white/10"
-                                        }`}
-                                    >
-                                        🌋 NEW_MODEL
-                                    </button>
+
+                                <div className="flex-1 min-h-[300px]">
+                                    {modelsLoading && modelCards.length === 0 ? (
+                                        <div className="flex flex-col items-center justify-center py-10 gap-4 text-zinc-600 grayscale">
+                                            <Loader2 className="w-8 h-8 animate-spin" />
+                                            <p className="text-xs font-bold uppercase tracking-widest">Fetching models...</p>
+                                        </div>
+                                    ) : modelCards.length === 0 ? (
+                                        <div className="text-center py-10 text-zinc-500 text-xs font-bold uppercase tracking-wider">
+                                            No local models found on server.
+                                        </div>
+                                    ) : (
+                                        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 pr-2 custom-scrollbar">
+                                            {modelCards.map((model) => {
+                                                const modelKey = model.name.replace(".pkl", "");
+                                                const isSelected = selectedModelFilter === modelKey;
+                                                return (
+                                                    <div
+                                                        key={model.name}
+                                                        onClick={() => {
+                                                            setSelectedModelFilter(prev => prev === modelKey ? "all" : modelKey);
+                                                        }}
+                                                        className={`p-6 rounded-3xl bg-black border hover:border-zinc-700 transition-all flex flex-col justify-between group h-full space-y-6 cursor-pointer ${
+                                                            isSelected ? "border-indigo-500 shadow-lg shadow-indigo-500/10" : "border-zinc-800/50"
+                                                        }`}
+                                                    >
+                                                        <div className="space-y-4">
+                                                            <div className="flex items-center justify-between">
+                                                                <div className={`p-3 rounded-2xl bg-zinc-900 text-zinc-500 transition-all ${
+                                                                    isSelected ? "bg-indigo-500/10 text-indigo-400" : "group-hover:bg-indigo-500/10 group-hover:text-indigo-400"
+                                                                }`}>
+                                                                    <Database className="w-6 h-6" />
+                                                                </div>
+                                                                {isSelected && (
+                                                                    <span className="text-[8px] px-1.5 py-0.5 rounded-md bg-indigo-500/20 text-indigo-400 font-bold uppercase tracking-widest border border-indigo-500/20">
+                                                                        Active Filter
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                            <div className="min-w-0">
+                                                                <div className="text-base font-black text-zinc-100 truncate">{model.name}</div>
+                                                                {model.exchange && (
+                                                                    <div className="text-[10px] text-indigo-400 uppercase font-black tracking-widest mt-1">{model.exchange}</div>
+                                                                )}
+                                                            </div>
+                                                            <div className="grid grid-cols-2 gap-2">
+                                                                <div className="p-2.5 rounded-xl bg-zinc-900/50 border border-zinc-800/50">
+                                                                    <div className="text-[10px] text-zinc-600 uppercase font-bold">Size</div>
+                                                                    <div className="text-xs font-mono text-zinc-400">{model.size_mb} MB</div>
+                                                                </div>
+                                                                <div className="p-2.5 rounded-xl bg-zinc-900/50 border border-zinc-800/50">
+                                                                    <div className="text-[10px] text-zinc-600 uppercase font-bold">Modified</div>
+                                                                    <div className="text-xs text-zinc-400">{new Date(model.modified_at).toLocaleDateString()}</div>
+                                                                </div>
+                                                            </div>
+                                                            <div className="flex flex-wrap gap-2">
+                                                                {model.num_features !== undefined && (
+                                                                    <span className="text-[10px] bg-indigo-600/20 text-indigo-300 px-2 py-1 rounded-lg font-bold">
+                                                                        {model.num_features} Features
+                                                                    </span>
+                                                                )}
+                                                                {model.num_parameters !== undefined && model.num_parameters > 0 && (
+                                                                    <span className="text-[10px] bg-amber-600/20 text-amber-300 px-2 py-1 rounded-lg font-bold">
+                                                                        {model.bestIteration ? `${model.bestIteration} Trees` : `${model.num_parameters} Trees`}
+                                                                    </span>
+                                                                )}
+                                                                {typeof model.trainingSamples === "number" && model.trainingSamples > 0 && (
+                                                                    <span className="text-[10px] bg-emerald-600/20 text-emerald-300 px-2 py-1 rounded-lg font-bold">
+                                                                        {model.trainingSamples} Samples
+                                                                    </span>
+                                                                )}
+                                                                {model.learning_rate !== undefined && (
+                                                                    <span className="text-[10px] bg-sky-600/20 text-sky-300 px-2 py-1 rounded-lg font-bold">
+                                                                        LR: {model.learning_rate}
+                                                                    </span>
+                                                                )}
+
+                                                                {model.uses_exchange_index_json && (
+                                                                    <span className="text-[10px] bg-purple-600/20 text-purple-300 px-2 py-1 rounded-lg font-bold">
+                                                                        Index JSON
+                                                                    </span>
+                                                                )}
+                                                                {model.uses_fundamentals && (
+                                                                    <span className="text-[10px] bg-emerald-600/20 text-emerald-300 px-2 py-1 rounded-lg font-bold">
+                                                                        Fundamentals
+                                                                    </span>
+                                                                )}
+                                                                {model.has_meta_labeling && (
+                                                                    <span className="text-[10px] bg-amber-600/20 text-amber-300 px-2 py-1 rounded-lg font-bold">
+                                                                        Meta-Labeling
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                        </div>
+
+                                                        {(model.precision !== undefined || model.recall !== undefined || model.auc !== undefined) && (
+                                                            <div className="px-4 py-2.5 rounded-2xl bg-zinc-900/10 border border-zinc-800/30 grid grid-cols-4 gap-1">
+                                                                <div className="flex flex-col items-center justify-center">
+                                                                    <span className="text-[8px] text-zinc-600 uppercase font-black">P</span>
+                                                                    <span className={`text-[10px] font-black ${model.precision && model.precision > 0.6 ? 'text-emerald-400' : 'text-zinc-400'}`}>
+                                                                        {model.precision ? (model.precision * 100).toFixed(1) : "0"}%
+                                                                    </span>
+                                                                </div>
+                                                                <div className="flex flex-col items-center justify-center border-l border-zinc-800/50">
+                                                                    <span className="text-[8px] text-zinc-600 uppercase font-black">R</span>
+                                                                    <span className={`text-[10px] font-black ${model.recall && model.recall > 0.6 ? 'text-emerald-400' : 'text-zinc-400'}`}>
+                                                                        {model.recall ? (model.recall * 100).toFixed(1) : "0"}%
+                                                                    </span>
+                                                                </div>
+                                                                <div className="flex flex-col items-center justify-center border-l border-zinc-800/50">
+                                                                    <span className="text-[8px] text-zinc-600 uppercase font-black">F1</span>
+                                                                    <span className="text-[10px] text-zinc-400 font-black">
+                                                                        {model.f1 ? (model.f1 * 100).toFixed(1) : "0"}%
+                                                                    </span>
+                                                                </div>
+                                                                <div className="flex flex-col items-center justify-center border-l border-zinc-800/50">
+                                                                    <span className="text-[8px] text-zinc-600 uppercase font-black">AUC</span>
+                                                                    <span className={`text-[10px] font-black ${model.auc && model.auc > 0.65 ? 'text-indigo-400' : 'text-zinc-400'}`}>
+                                                                        {model.auc ? model.auc.toFixed(2) : "0.5"}
+                                                                    </span>
+                                                                </div>
+                                                            </div>
+                                                        )}
+
+                                                        <div className="pt-4 border-t border-zinc-800/50 grid grid-cols-3 gap-2">
+                                                            {model.target_pct !== undefined && (
+                                                                <div className="text-center">
+                                                                    <div className="text-[9px] text-zinc-600 uppercase font-bold">Target</div>
+                                                                    <div className="text-[11px] text-emerald-400 font-black">{(model.target_pct * 100).toFixed(0)}%</div>
+                                                                </div>
+                                                            )}
+                                                            {model.stop_loss_pct !== undefined && (
+                                                                <div className="text-center">
+                                                                    <div className="text-[9px] text-zinc-600 uppercase font-bold">Stop</div>
+                                                                    <div className="text-[11px] text-rose-400 font-black">{(model.stop_loss_pct * 100).toFixed(0)}%</div>
+                                                                </div>
+                                                            )}
+                                                            {model.look_forward_days !== undefined && (
+                                                                <div className="text-center">
+                                                                    <div className="text-[9px] text-zinc-600 uppercase font-bold">Days</div>
+                                                                    <div className="text-[11px] text-sky-400 font-black">{model.look_forward_days}d</div>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
                                 </div>
                             </div>
+
 
                             {/* Free limit info alert */}
                             {user && (
