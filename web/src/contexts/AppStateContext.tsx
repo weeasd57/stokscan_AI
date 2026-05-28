@@ -55,6 +55,9 @@ type TechScannerState = {
   marketCapMax: string;
   sector: string;
   industry: string;
+  minPrice: string;
+  useAiFilter: boolean;
+  minAiPrecision: string;
 };
 
 type ComparisonScannerState = {
@@ -171,6 +174,9 @@ const DEFAULT_STATE: AppState = {
     marketCapMax: "",
     sector: "",
     industry: "",
+    minPrice: "",
+    useAiFilter: false,
+    minAiPrecision: "0.6",
   },
   comparisonScanner: {
     symbols: [],
@@ -224,6 +230,9 @@ type PersistedAppState = {
     | "marketCapMax"
     | "sector"
     | "industry"
+    | "minPrice"
+    | "useAiFilter"
+    | "minAiPrecision"
   >;
   comparisonScanner: Pick<ComparisonScannerState, "symbols" | "results">;
   aiScanner: Pick<
@@ -371,6 +380,9 @@ function toPersistedState(full: AppState): PersistedAppState {
       marketCapMax: full.techScanner.marketCapMax,
       sector: full.techScanner.sector,
       industry: full.techScanner.industry,
+      minPrice: full.techScanner.minPrice,
+      useAiFilter: full.techScanner.useAiFilter,
+      minAiPrecision: full.techScanner.minAiPrecision,
     },
     comparisonScanner: {
       symbols: full.comparisonScanner.symbols,
@@ -826,6 +838,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         limit: 100,
         rsi_min: s.rsiMin ? parseFloat(s.rsiMin) : undefined,
         rsi_max: s.rsiMax ? parseFloat(s.rsiMax) : undefined,
+        min_price: s.minPrice ? parseFloat(s.minPrice) : undefined,
         above_ema50: s.aboveEma50,
         above_ema200: s.aboveEma200,
         adx_min: s.adxMin ? parseFloat(s.adxMin) : undefined,
@@ -843,6 +856,8 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         sector: s.sector || undefined,
         industry: s.industry || undefined,
         golden_cross: s.goldenCross,
+        use_ai_filter: s.useAiFilter,
+        min_ai_precision: s.minAiPrecision ? parseFloat(s.minAiPrecision) : undefined,
       };
 
       const now = Date.now();
@@ -852,6 +867,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         limit: filter.limit,
         rsi_min: filter.rsi_min,
         rsi_max: filter.rsi_max,
+        min_price: filter.min_price,
         market_cap_min: filter.market_cap_min,
         market_cap_max: filter.market_cap_max,
         sector: filter.sector,
@@ -869,6 +885,8 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         roc_max: filter.roc_max,
         above_vwap20: filter.above_vwap20,
         volume_above_sma20: filter.volume_above_sma20,
+        use_ai_filter: filter.use_ai_filter,
+        min_ai_precision: filter.min_ai_precision,
       });
 
       const cached = stateRef.current.techScanner.scanHistory?.find((h) => h.key === key && now - h.createdAt < cacheTtlMs);

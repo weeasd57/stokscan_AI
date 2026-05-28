@@ -642,11 +642,11 @@ def _infer_symbol_exchange(ticker: str, exchange_hint: Optional[str] = None) -> 
 
 def check_local_cache(symbol: str, exchange: Optional[str] = None) -> bool:
     """Checks if data exists in Supabase."""
-    # Fast path: bulk cache
+    # Fast path: set membership check using get_cached_tickers RPC
     try:
         s, e = _infer_symbol_exchange(symbol, exchange)
-        bulk = _get_exchange_bulk_data(e)
-        if s.upper() in bulk:
+        cached = get_cached_tickers()
+        if (s.upper(), e.upper()) in cached:
             return True
     except Exception:
         pass

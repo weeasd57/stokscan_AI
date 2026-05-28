@@ -350,3 +350,74 @@ async def get_scan_dashboard(request: Request, country: str = "Egypt", limit: in
         bb=build_dashboard("bb"),
         scanned_count=scanned
     )
+
+class CreateAlertRequest(BaseModel):
+    user_id: str
+    name: str
+    filters: TechFilter
+
+class AlertToggleRequest(BaseModel):
+    is_active: bool
+
+@router.post("/alerts")
+async def create_alert(req: CreateAlertRequest):
+    try:
+        from api.stock_ai import supabase, _init_supabase
+        _init_supabase()
+        if not supabase:
+            raise HTTPException(status_code=500, detail="Supabase not initialized")
+            
+        payload = {
+            "user_id": req.user_id,
+            "name": req.name,
+            "filters": req.filters.dict(exclude_none=True),
+            "is_active": True
+        }
+        res = supabase.table("technical_alerts").insert(payload).execute()
+        if not res.data:
+            raise HTTPException(status_code=400, detail="Failed to save alert")
+        return res.data[0]
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.get("/alerts")
+async def list_alerts(user_id: str):
+    try:
+        from api.stock_ai import supabase, _init_supabase
+        _init_supabase()
+        if not supabase:
+            raise HTTPException(status_code=500, detail="Supabase not initialized")
+            
+        res = supabase.table("technical_alerts").select("*").eq("user_id", user_id).execute()
+        return {"alerts": res.data or []}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.delete("/alerts/{alert_id}")
+async def delete_alert(alert_id: str):
+    try:
+        from api.stock_ai import supabase, _init_supabase
+        _init_supabase()
+        if not supabase:
+            raise HTTPException(status_code=500, detail="Supabase not initialized")
+            
+        res = supabase.table("technical_alerts").delete().eq("id", alert_id).execute()
+        return {"status": "deleted"}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.patch("/alerts/{alert_id}")
+async def toggle_alert(alert_id: str, req: AlertToggleRequest):
+    try:
+        from api.stock_ai import supabase, _init_supabase
+        _init_supabase()
+        if not supabase:
+            raise HTTPException(status_code=500, detail="Supabase not initialized")
+            
+        res = supabase.table("technical_alerts").update({"is_active": req.is_active}).eq("id", alert_id).execute()
+        if not res.data:
+            raise HTTPException(status_code=404, detail="Alert not found")
+        return res.data[0]
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
