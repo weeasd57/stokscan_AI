@@ -419,7 +419,12 @@ def get_available_countries():
         # Use absolute path relative to this file to work in all environments (HF, Vercel, Local)
         api_dir = Path(__file__).parent.parent
         base_dir = api_dir.parent
-        symbols_dir = base_dir / "symbols_data"
+        
+        # Check api/symbols_data first (HuggingFace), then project root
+        if (api_dir / "symbols_data").exists():
+            symbols_dir = api_dir / "symbols_data"
+        else:
+            symbols_dir = base_dir / "symbols_data"
         
         print(f"DEBUG: Checking countries in {symbols_dir}")
         
@@ -482,6 +487,17 @@ def get_available_models():
         print(f"Error fetching models: {e}")
         return []
 
+@router.get("/model_cards")
+def get_model_cards():
+    """Returns detailed model information including model card metadata for each .pkl model."""
+    try:
+        from api.routers.admin import list_local_models
+        res = list_local_models()
+        return res.get("models", [])
+    except Exception as e:
+        print(f"Error fetching model cards: {e}")
+        return []
+
 @router.get("/available_coins")
 def get_available_coins(
     source: Optional[str] = None, 
@@ -497,7 +513,11 @@ def get_available_coins(
 
 
         if source == "global" and country:
-            symbols_dir = base_dir / "symbols_data"
+            # Check api/symbols_data first (HuggingFace), then project root
+            if (api_dir / "symbols_data").exists():
+                symbols_dir = api_dir / "symbols_data"
+            else:
+                symbols_dir = base_dir / "symbols_data"
             
             # Find the file for this country - be case-insensitive
             country_files = list(symbols_dir.glob(f"{country}_all_symbols_*.json"))

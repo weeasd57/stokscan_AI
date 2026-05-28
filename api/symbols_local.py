@@ -7,16 +7,20 @@ def _project_root() -> str:
     # 1. Start with the directory containing this file (api/)
     current_dir = os.path.dirname(os.path.abspath(__file__))
     
-    # 2. Check if symbols_data exists in the parent (typical local/Vercel structure)
+    # 2. Check if symbols_data exists inside api/ (HuggingFace deployment)
+    if os.path.exists(os.path.join(current_dir, "symbols_data")):
+        return current_dir
+    
+    # 3. Check if symbols_data exists in the parent (typical local/Vercel structure)
     parent_dir = os.path.dirname(current_dir)
     if os.path.exists(os.path.join(parent_dir, "symbols_data")):
         return parent_dir
         
-    # 3. Check /app (typical Hugging Face structure)
+    # 4. Check /app (typical Hugging Face structure)
     if os.path.exists("/app/symbols_data"):
         return "/app"
         
-    # 4. Fallback to current dir's parent
+    # 5. Fallback to current dir's parent
     return parent_dir
 
 def _default_symbols_dir() -> str:
