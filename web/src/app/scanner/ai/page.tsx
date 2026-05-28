@@ -220,12 +220,8 @@ export default function AIScannerPage() {
 
     // Filtered bots list based on model filter
     const filteredBots = useMemo(() => {
-        if (selectedModelFilter === "all") return bots;
-        return bots.filter(bot => {
-            const path = (bot.king_model_path || "").toUpperCase();
-            return path.includes(selectedModelFilter.toUpperCase());
-        });
-    }, [bots, selectedModelFilter]);
+        return bots;
+    }, [bots]);
 
     // Fetch Bots
     const fetchBotsList = async () => {
@@ -252,7 +248,16 @@ export default function AIScannerPage() {
             const res = await fetch("/api/ai_bot/model_cards");
             if (!res.ok) throw new Error("Failed to fetch model cards");
             const data = await res.json();
-            setModelCards(data || []);
+            // Filter out crypto & validator models
+            const filtered = (data || []).filter((m: any) => {
+                const name = (m.name || m.model_name || "").toUpperCase();
+                const ex = (m.exchange || "").toUpperCase();
+                if (name.includes("CRYPTO") || ex === "CRYPTO") return false;
+                if (name.includes("COUNCIL") || name.includes("VALIDATOR") || name.includes("ADVISOR")) return false;
+                if (m.model_type === "council_validator") return false;
+                return true;
+            });
+            setModelCards(filtered);
         } catch (err: any) {
             setModelsError(err.message || "An error occurred while loading model cards.");
         } finally {
@@ -451,14 +456,6 @@ export default function AIScannerPage() {
                                             <p className="text-xs text-zinc-500 font-bold uppercase tracking-widest mt-1">Available .pkl Modules</p>
                                         </div>
                                     </div>
-                                    {selectedModelFilter !== "all" && (
-                                        <button
-                                            onClick={() => setSelectedModelFilter("all")}
-                                            className="px-3 py-1.5 rounded-xl bg-zinc-950 border border-zinc-800 text-zinc-400 hover:text-white text-[10px] font-black uppercase tracking-widest transition-all"
-                                        >
-                                            Clear Filter
-                                        </button>
-                                    )}
                                 </div>
 
                                 <div className="flex-1 min-h-[300px]">
@@ -474,30 +471,16 @@ export default function AIScannerPage() {
                                     ) : (
                                         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 pr-2 custom-scrollbar">
                                             {modelCards.map((model) => {
-                                                const modelKey = model.name.replace(".pkl", "");
-                                                const isSelected = selectedModelFilter === modelKey;
                                                 return (
                                                     <div
                                                         key={model.name}
-                                                        onClick={() => {
-                                                            setSelectedModelFilter(prev => prev === modelKey ? "all" : modelKey);
-                                                        }}
-                                                        className={`p-6 rounded-3xl bg-black border hover:border-zinc-700 transition-all flex flex-col justify-between group h-full space-y-6 cursor-pointer ${
-                                                            isSelected ? "border-indigo-500 shadow-lg shadow-indigo-500/10" : "border-zinc-800/50"
-                                                        }`}
+                                                        className="p-6 rounded-3xl bg-black border border-zinc-800/50 hover:border-zinc-700/80 transition-all flex flex-col justify-between group h-full space-y-6"
                                                     >
                                                         <div className="space-y-4">
                                                             <div className="flex items-center justify-between">
-                                                                <div className={`p-3 rounded-2xl bg-zinc-900 text-zinc-500 transition-all ${
-                                                                    isSelected ? "bg-indigo-500/10 text-indigo-400" : "group-hover:bg-indigo-500/10 group-hover:text-indigo-400"
-                                                                }`}>
+                                                                <div className="p-3 rounded-2xl bg-zinc-900 text-zinc-500 transition-all group-hover:bg-indigo-500/10 group-hover:text-indigo-400">
                                                                     <Database className="w-6 h-6" />
                                                                 </div>
-                                                                {isSelected && (
-                                                                    <span className="text-[8px] px-1.5 py-0.5 rounded-md bg-indigo-500/20 text-indigo-400 font-bold uppercase tracking-widest border border-indigo-500/20">
-                                                                        Active Filter
-                                                                    </span>
-                                                                )}
                                                             </div>
                                                             <div className="min-w-0">
                                                                 <div className="text-base font-black text-zinc-100 truncate">{model.name}</div>
@@ -628,7 +611,7 @@ export default function AIScannerPage() {
 
                             {filteredBots.length === 0 ? (
                                 <div className="p-12 text-center rounded-[2.5rem] border border-white/5 bg-zinc-950/20 text-zinc-500 font-bold uppercase tracking-wider text-[11px] min-h-[150px] flex items-center justify-center">
-                                    No active trading bots are currently running with the {selectedModelFilter} model.
+                                    No active trading bots are currently running.
                                 </div>
                             ) : (
                                 /* Admin-style Bot Overview Table */
@@ -953,7 +936,11 @@ export default function AIScannerPage() {
                                                     <span className="text-lg font-black text-white uppercase tracking-tight">
                                                         {bt.model_name?.replace(".pkl", "")}
                                                     </span>
-                                                    {isOpt ? (
+                                                    {bt.status_msg === "Live Bot Run" ? (
+                                                        <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 text-[8px] font-black uppercase">
+                                                            Live Bot Execution
+                                                        </span>
+                                                    ) : isOpt ? (
                                                         <span className="px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-400 text-[8px] font-black uppercase">
                                                             Optimizer Run
                                                         </span>

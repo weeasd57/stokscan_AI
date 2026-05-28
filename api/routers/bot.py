@@ -278,10 +278,153 @@ def start_bot(bot_id: str = "primary", user_id: str = None):
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+def save_live_bot_history_to_backtest(bot):
+    """
+    Saves the live bot trade history to the backtests table.
+    """
+    try:
+        from api.stock_ai import _init_supabase, supabase
+        _init_supabase()
+        if not supabase:
+            print("Supabase client is not available. Cannot save bot history to backtests.")
+            return
+
+        # Fetch all trades for this bot from database
+        try:
+            res = supabase.table("bot_trades").select("*").eq("bot_id", bot.bot_id).order("timestamp", asc=True).execute()
+            db_trades = res.data if (res and res.data) else []
+        except Exception as e:
+            print(f"Error fetching trades from database: {e}")
+            db_trades = []
+
+        # Fallback to in-memory trades
+        if not db_trades:
+            # get_safe_trades returns a list
+            db_trades = list(bot.get_safe_trades(100))
+
+        if not db_trades:
+            print(f"No trade data found for bot {bot.bot_id}. Skipping backtest saving.")
+            return
+
+        # Sort trades chronologically
+        db_trades = sorted(db_trades, key=lambda x: x.get("timestamp", ""))
+
+        # Pair BUY and SELL signals
+        paired_trades = []
+        open_buys = {}
+        for t in db_trades:
+            sym = t.get("symbol")
+            action = t.get("action", "").upper()
+            price_val = t.get("price")
+            price = float(price_val) if price_val is not None else 0.0
+            timestamp = t.get("timestamp", "")
+            
+            if action == "BUY":
+                if sym not in open_buys:
+                    open_buys[sym] = []
+                open_buys[sym].append(t)
+            elif action == "SELL":
+                if sym in open_buys and open_buys[sym]:
+                    buy_t = open_buys[sym].pop(0)
+                    buy_price_val = buy_t.get("price")
+                    buy_price = float(buy_price_val) if buy_price_val is not None else price
+                    sell_price = price
+                    pnl_val = t.get("pnl")
+                    pnl = float(pnl_val) if pnl_val is not None else 0.0
+                    pnl_pct = 0.0
+                    if buy_price > 0:
+                        pnl_pct = (sell_price - buy_price) / buy_price
+                    
+                    result = "TIME EXIT"
+                    target_pct = float(getattr(bot.config, "target_pct", 0.06) or 0.06)
+                    stop_loss_pct = float(getattr(bot.config, "stop_loss_pct", 0.02) or 0.02)
+                    
+                    if pnl_pct >= target_pct - 0.005:
+                        result = "TARGET HIT 🎯"
+                    elif pnl_pct <= -stop_loss_pct + 0.005:
+                        result = "STOP LOSS ❌"
+                        
+                    paired = {
+                        "date": timestamp[:10] if timestamp else "",
+                        "Entry_Date": buy_t.get("timestamp", "")[:10],
+                        "Exit_Date": timestamp[:10] if timestamp else "",
+                        "entry": buy_price,
+                        "exit": sell_price,
+                        "pnl_pct": pnl_pct,
+                        "result": result,
+                        "status": "Accepted",
+                        "symbol": sym,
+                        "Profit_Cash": pnl,
+                        "Radar_Score": float(buy_t.get("king_conf") or 0.0),
+                        "Validator_Score": float(buy_t.get("council_conf") or 0.0),
+                    }
+                    paired_trades.append(paired)
+
+        if not paired_trades:
+            print(f"No completed paired trades for bot {bot.bot_id}. Skipping backtest saving.")
+            return
+
+        total_trades = len(paired_trades)
+        wins = sum(1 for t in paired_trades if t["pnl_pct"] > 0)
+        win_rate = (wins / total_trades) * 100.0 if total_trades > 0 else 0.0
+        net_profit = sum(t["pnl_pct"] for t in paired_trades) * 100.0
+        avg_return = sum(t["pnl_pct"] for t in paired_trades) / total_trades * 100.0 if total_trades > 0 else 0.0
+
+        model_name = getattr(bot.config, "king_model_path", "KING.pkl").split("/")[-1]
+        exchange = "CRYPTO" if "CRYPTO" in model_name.upper() else "EGX"
+
+        start_date = db_trades[0].get("timestamp", "")[:10]
+        end_date = db_trades[-1].get("timestamp", "")[:10]
+
+        insert_payload = {
+            "model_name": model_name,
+            "exchange": exchange,
+            "council_model": getattr(bot.config, "council_model_path", "").split("/")[-1] if getattr(bot.config, "council_model_path", None) else None,
+            "start_date": start_date,
+            "end_date": end_date,
+            "total_trades": total_trades,
+            "win_rate": win_rate,
+            "net_profit": net_profit,
+            "avg_return_per_trade": avg_return,
+            "trades_log": paired_trades,
+            "status": "completed",
+            "status_msg": "Live Bot Run",
+            "is_public": True,
+            "meta_threshold": getattr(bot.config, "king_threshold", 0.85),
+            "council_threshold": getattr(bot.config, "council_threshold", 0.25),
+            "target_pct": getattr(bot.config, "target_pct", 0.06),
+            "stop_loss_pct": getattr(bot.config, "stop_loss_pct", 0.02),
+            "capital": getattr(bot.config, "virtual_cash", 10000.0)
+        }
+
+        # Insert to database
+        supabase.table("backtests").insert(insert_payload).execute()
+        print(f"Successfully saved live bot run history to backtests for bot {bot.bot_id}", flush=True)
+
+        # Fallback local copy
+        try:
+            import datetime as pydt
+            from pathlib import Path
+            project_root = Path(__file__).parent.parent
+            local_dir = project_root / "backtests_local"
+            local_dir.mkdir(exist_ok=True)
+            fname = local_dir / f"live_bot_{bot.bot_id}_{pydt.datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')}.json"
+            import json
+            with open(fname, "w", encoding="utf-8") as fh:
+                json.dump({"bot_id": bot.bot_id, "result": insert_payload, "saved_at": pydt.datetime.utcnow().isoformat()}, fh, ensure_ascii=False, indent=2)
+        except Exception as e2:
+            print(f"Failed to save fallback backtest result locally: {e2}")
+
+    except Exception as e:
+        print(f"Error in save_live_bot_history_to_backtest: {e}", flush=True)
+
 @router.post("/stop")
 def stop_bot(bot_id: str = "primary"):
     try:
         bot = get_bot_or_404(bot_id)
+        # Gather trade history and save to backtests table
+        save_live_bot_history_to_backtest(bot)
+        
         bot.stop()
         bot.config.status = "stopped"
         bot_manager.save_bots()
@@ -461,7 +604,7 @@ def get_available_countries():
 
 @router.get("/models")
 def get_available_models():
-    """Returns a list of model files (.pkl) from the api/models directory."""
+    """Returns a list of model files (.pkl) from the api/models directory, filtering out crypto and validator models."""
     try:
         # Use absolute path relative to this file
         api_dir = Path(__file__).parent.parent
@@ -477,10 +620,18 @@ def get_available_models():
         base_dir = api_dir.parent
         res = set()
         for f in model_files:
-            res.add(str(f.relative_to(base_dir)).replace("\\", "/"))
+            path_str = str(f.relative_to(base_dir)).replace("\\", "/")
+            name_upper = f.name.upper()
+            if "CRYPTO" in name_upper or "COUNCIL" in name_upper or "VALIDATOR" in name_upper or "ADVISOR" in name_upper:
+                continue
+            res.add(path_str)
         for f in card_files:
-            name = str(f.relative_to(base_dir)).replace("\\", "/").replace(".model_card.json", "")
-            res.add(name)
+            pkl_name = f.name.replace(".model_card.json", "")
+            path_str = str(f.relative_to(base_dir)).replace("\\", "/").replace(".model_card.json", "")
+            name_upper = pkl_name.upper()
+            if "CRYPTO" in name_upper or "COUNCIL" in name_upper or "VALIDATOR" in name_upper or "ADVISOR" in name_upper:
+                continue
+            res.add(path_str)
             
         return sorted(list(res))
     except Exception as e:
@@ -489,11 +640,29 @@ def get_available_models():
 
 @router.get("/model_cards")
 def get_model_cards():
-    """Returns detailed model information including model card metadata for each .pkl model."""
+    """Returns detailed model information including model card metadata for each .pkl model, filtering out crypto/validator models."""
     try:
         from api.routers.admin import list_local_models
         res = list_local_models()
-        return res.get("models", [])
+        models = res.get("models", [])
+        
+        filtered = []
+        for m in models:
+            name_upper = m.get("name", "").upper()
+            exchange_upper = (m.get("exchange") or "").upper()
+            
+            # Skip crypto
+            if "CRYPTO" in name_upper or exchange_upper == "CRYPTO":
+                continue
+            # Skip validator / advisor / council
+            if "COUNCIL" in name_upper or "VALIDATOR" in name_upper or "ADVISOR" in name_upper:
+                continue
+            if m.get("model_type") == "council_validator":
+                continue
+                
+            filtered.append(m)
+            
+        return filtered
     except Exception as e:
         print(f"Error fetching model cards: {e}")
         return []
