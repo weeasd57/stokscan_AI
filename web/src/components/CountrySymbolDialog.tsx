@@ -58,6 +58,10 @@ export default function CountrySymbolDialog({
     // Initial load and reset
     useEffect(() => {
         if (isOpen) {
+            // Force selectedCountry to Egypt for non-admins
+            if (!isAdmin && selectedCountry !== "Egypt") {
+                setSelectedCountry("Egypt");
+            }
             // Only force refresh if empty
             if (countries.length === 0) {
                 void refreshCountries({ force: true });
@@ -69,7 +73,7 @@ export default function CountrySymbolDialog({
             setSelectedSymbols(new Set());
             setDisplayLimit(100);
         }
-    }, [isOpen, countries.length, refreshCountries, selectedCountry, refreshSyncedSymbols]);
+    }, [isOpen, countries.length, refreshCountries, selectedCountry, refreshSyncedSymbols, isAdmin]);
 
     // Local filtering
     useEffect(() => {
@@ -166,45 +170,52 @@ export default function CountrySymbolDialog({
                         {/* Custom Country Dropdown */}
                         <div className="relative">
                             <label className="block text-[10px] uppercase tracking-widest font-bold text-zinc-500 mb-1.5 ml-1">Market / Country</label>
-                            <button
-                                onClick={() => setIsCountryOpen(!isCountryOpen)}
-                                className="w-full h-11 px-4 flex items-center justify-between rounded-xl bg-zinc-900 border border-zinc-800 hover:border-zinc-700 transition-all group"
-                            >
-                                <div className="flex items-center gap-3">
-                                    <Globe className="w-4 h-4 text-blue-500" />
-                                    <span className="text-sm font-medium text-zinc-200">{selectedCountry || "Select Country"}</span>
-                                    {selectedCountry && (
-                                        <div className="flex items-center gap-2.5">
-                                            <span className="text-zinc-700 font-light">|</span>
-                                            {(() => {
-                                                const stats = inventory.filter(i => i.country === selectedCountry);
-                                                const totalLoaded = stats.reduce((acc, s) => acc + s.priceCount, 0);
-                                                const totalExpected = stats.reduce((acc, s) => acc + s.expectedCount, 0);
-                                                if (totalExpected === 0) return null;
-                                                const isFullySynced = totalLoaded >= totalExpected && totalExpected > 0;
-                                                return (
-                                                    <div className="flex items-center gap-2">
-                                                        <span className={`text-[11px] font-black font-mono tracking-tighter ${isFullySynced ? 'text-emerald-400' : totalLoaded > 0 ? 'text-zinc-300' : 'text-zinc-600'}`}>
-                                                            {totalLoaded} <span className="text-[10px] text-zinc-700">/</span> {totalExpected}
-                                                        </span>
-                                                        <div className="flex items-center gap-1 opacity-60">
-                                                            <div className="w-1.5 h-1.5 rounded-full bg-zinc-800 overflow-hidden relative">
-                                                                <div
-                                                                    className={`absolute inset-0 transition-all duration-1000 ${isFullySynced ? 'bg-emerald-500' : 'bg-blue-500'}`}
-                                                                    style={{ width: `${(totalLoaded / totalExpected) * 100}%` }}
-                                                                />
+                            {isAdmin ? (
+                                <button
+                                    onClick={() => setIsCountryOpen(!isCountryOpen)}
+                                    className="w-full h-11 px-4 flex items-center justify-between rounded-xl bg-zinc-900 border border-zinc-800 hover:border-zinc-700 transition-all group"
+                                >
+                                    <div className="flex items-center gap-3">
+                                        <Globe className="w-4 h-4 text-blue-500" />
+                                        <span className="text-sm font-medium text-zinc-200">{selectedCountry || "Select Country"}</span>
+                                        {selectedCountry && (
+                                            <div className="flex items-center gap-2.5">
+                                                <span className="text-zinc-700 font-light">|</span>
+                                                {(() => {
+                                                    const stats = inventory.filter(i => i.country === selectedCountry);
+                                                    const totalLoaded = stats.reduce((acc, s) => acc + s.priceCount, 0);
+                                                    const totalExpected = stats.reduce((acc, s) => acc + s.expectedCount, 0);
+                                                    if (totalExpected === 0) return null;
+                                                    const isFullySynced = totalLoaded >= totalExpected && totalExpected > 0;
+                                                    return (
+                                                        <div className="flex items-center gap-2">
+                                                            <span className={`text-[11px] font-black font-mono tracking-tighter ${isFullySynced ? 'text-emerald-400' : totalLoaded > 0 ? 'text-zinc-300' : 'text-zinc-600'}`}>
+                                                                {totalLoaded} <span className="text-[10px] text-zinc-700">/</span> {totalExpected}
+                                                            </span>
+                                                            <div className="flex items-center gap-1 opacity-60">
+                                                                <div className="w-1.5 h-1.5 rounded-full bg-zinc-800 overflow-hidden relative">
+                                                                    <div
+                                                                        className={`absolute inset-0 transition-all duration-1000 ${isFullySynced ? 'bg-emerald-500' : 'bg-blue-500'}`}
+                                                                        style={{ width: `${(totalLoaded / totalExpected) * 100}%` }}
+                                                                    />
+                                                                </div>
                                                             </div>
                                                         </div>
-                                                    </div>
-                                                );
-                                            })()}
-                                        </div>
-                                    )}
+                                                    );
+                                                })()}
+                                            </div>
+                                        )}
+                                    </div>
+                                    <Loader2 className={`w-3 h-3 animate-spin text-zinc-600 ${countriesLoading ? "block" : "hidden"}`} />
+                                </button>
+                            ) : (
+                                <div className="w-full h-11 px-4 flex items-center gap-3 rounded-xl bg-zinc-900/50 border border-zinc-800/40 text-zinc-400 select-none">
+                                    <Globe className="w-4 h-4 text-blue-500" />
+                                    <span className="text-sm font-medium text-zinc-300">Egypt</span>
                                 </div>
-                                <Loader2 className={`w-3 h-3 animate-spin text-zinc-600 ${countriesLoading ? "block" : "hidden"}`} />
-                            </button>
+                            )}
 
-                            {isCountryOpen && (
+                            {isAdmin && isCountryOpen && (
                                 <div className="absolute top-full left-0 right-0 mt-2 z-50 bg-zinc-900 border border-zinc-800 rounded-xl shadow-2xl overflow-hidden p-2 animate-in fade-in slide-in-from-top-2 duration-200">
                                     <input
                                         type="text"
