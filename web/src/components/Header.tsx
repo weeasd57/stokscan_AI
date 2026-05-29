@@ -21,8 +21,9 @@ export default function Header() {
     }, [pathname]);
 
     const navItems = [
-        { href: "/scanner/backtests", label: "AI Trading Scanner", icon: <Brain className="w-4 h-4" /> },
-        { href: "/scanner/technical", label: "Technical Scanner", icon: <Activity className="w-4 h-4" /> },
+        { href: "/scanner/backtests?tab=bots", label: "AI Trading Scanner", icon: <Brain className="w-4 h-4" />, activePath: "/scanner/backtests" },
+        { href: "/scanner/technical", label: "Technical Scanner", icon: <Activity className="w-4 h-4" />, activePath: "/scanner/technical" },
+        { href: "/scanner/backtests?tab=backtests", label: "Backtests", icon: <BarChart2 className="w-4 h-4" />, activePath: null },
     ];
 
     return (
@@ -56,7 +57,7 @@ export default function Header() {
                         {/* Desktop Navigation */}
                         <nav className="hidden lg:flex items-center gap-1 ml-4 py-1 px-1 rounded-xl bg-white/5 border border-white/5 flex-wrap max-w-full">
                             {navItems.map((item) => {
-                                const isActive = pathname === item.href;
+                                const isActive = item.activePath ? pathname === item.activePath : false;
                                 return (
                                     <Link
                                         key={item.href}
