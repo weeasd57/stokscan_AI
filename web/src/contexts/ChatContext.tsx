@@ -3,7 +3,7 @@
 import { createContext, useContext, useState, ReactNode, useEffect, useCallback } from "react";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { useAuth } from "@/contexts/AuthContext";
-import { useAppState } from "@/contexts/AppStateContext";
+import { useTechnicalScanner } from "@/contexts/TechnicalScannerContext";
 import { useRouter } from "next/navigation";
 
 // Simple message type
@@ -33,7 +33,7 @@ const ChatContext = createContext<ChatContextType | undefined>(undefined);
 
 export function ChatProvider({ children }: { children: ReactNode }) {
     const { user } = useAuth();
-    const { setTechScanner, setAiScanner } = useAppState(); // To control app state via AI
+    const { setTechScanner } = useTechnicalScanner();
     const router = useRouter();
     const supabase = createSupabaseBrowserClient();
 

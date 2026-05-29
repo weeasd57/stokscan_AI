@@ -984,6 +984,27 @@ class ModelTrainer:
 
     def fetch_stock_prices(self, page_size: int = 1000, *, use_intraday: bool = False, timeframe: str = "1d") -> pd.DataFrame:
         """Fetch all stock prices for the exchange using parallel paging."""
+        if use_intraday and self.exchange == "CRYPTO":
+            self._progress(f"Loading local intraday data for exchange CRYPTO ({timeframe})...")
+            from api.local_storage import load_all_crypto_bars_local_as_df
+            df = load_all_crypto_bars_local_as_df(timeframe)
+            if not df.empty:
+                if "ts" in df.columns:
+                    df = df.rename(columns={"ts": "date"})
+                # Filter out volume <= 0
+                if "volume" in df.columns:
+                    try:
+                        vol = pd.to_numeric(df["volume"], errors="coerce").fillna(0)
+                        before = len(df)
+                        df = df[vol > 0].copy()
+                        removed = before - len(df)
+                        if removed > 0:
+                            self._progress(f"Filtered {removed:,} rows with volume<=0 for CRYPTO intraday.")
+                    except Exception:
+                        pass
+                self._progress(f"Loaded {len(df):,} rows for {len(df['symbol'].unique()):,} symbols.")
+            return df
+
         if use_intraday:
             self._progress(f"Loading intraday data for exchange {self.exchange} ({timeframe})...")
         else:

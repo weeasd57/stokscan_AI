@@ -9,7 +9,7 @@ import { useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 
 export default function Header() {
-    const { t } = useLanguage();
+    const { language, setLanguage, t } = useLanguage();
     const { user, signOut } = useAuth();
     const pathname = usePathname();
     const searchParams = useSearchParams();
@@ -23,9 +23,9 @@ export default function Header() {
     }, [pathname]);
 
     const navItems = [
-        { href: "/scanner/backtests?tab=bots", label: "AI Trading Scanner", icon: <Brain className="w-4 h-4" />, activePath: "/scanner/backtests" },
-        { href: "/scanner/technical", label: "Technical Scanner", icon: <Activity className="w-4 h-4" />, activePath: "/scanner/technical" },
-        { href: "/scanner/backtests?tab=backtests", label: "Backtests", icon: <BarChart2 className="w-4 h-4" />, activePath: null },
+        { href: "/scanner/backtests?tab=bots", label: t("nav.scanner.ai_trading"), icon: <Brain className="w-4 h-4" />, activePath: "/scanner/backtests" },
+        { href: "/scanner/technical", label: t("nav.scanner.tech"), icon: <Activity className="w-4 h-4" />, activePath: "/scanner/technical" },
+        { href: "/scanner/backtests?tab=backtests", label: t("nav.scanner.backtests"), icon: <BarChart2 className="w-4 h-4" />, activePath: null },
     ];
 
     const checkActive = (href: string, activePath: string | null) => {
@@ -39,7 +39,7 @@ export default function Header() {
     };
 
     return (
-        <header className="fixed top-0 left-0 right-0 z-[100] px-6 py-6 md:px-8">
+        <header className="fixed top-0 left-0 right-0 z-[100] px-6 py-6 md:px-8 header-stable">
             <div className="mx-auto max-w-[1800px] w-full">
                 <div className="flex items-center justify-between rounded-[2rem] border border-white/10 bg-zinc-950/40 backdrop-blur-3xl px-6 py-3.5 shadow-[0_20px_50px_rgba(0,0,0,0.5)] ring-1 ring-white/5 transition-all duration-500 hover:border-white/20">
                     {/* Brand / Logo */}
@@ -56,7 +56,7 @@ export default function Header() {
                                 />
                                 <div className="absolute inset-0 rounded-xl bg-white/20 opacity-0 transition-opacity group-hover:opacity-100" />
                             </div>
-                            <div className="flex flex-col min-w-0 sm:flex">
+                            <div className="flex flex-col min-w-0 sm:flex header-title">
                                 <span className="text-base font-bold tracking-tight text-white leading-tight truncate">
                                     {t("app.title")}
                                 </span>
@@ -92,6 +92,16 @@ export default function Header() {
 
                     {/* Desktop Actions */}
                     <div className="flex items-center gap-2">
+                        {/* Language Switcher */}
+                        <button
+                            onClick={() => setLanguage(language === "ar" ? "en" : "ar")}
+                            className="flex items-center justify-center gap-1.5 h-9 px-3 rounded-xl border border-white/5 bg-white/5 text-zinc-400 hover:text-white transition-all text-xs font-bold w-20 language-switch"
+                            title={language === "ar" ? "Switch to English" : "تغيير إلى العربية"}
+                        >
+                            <Globe className="h-4 w-4" />
+                            <span>{language === "ar" ? "EN" : "العربية"}</span>
+                        </button>
+
                         {user ? (
                             <div className="relative">
                                 <button
@@ -169,6 +179,20 @@ export default function Header() {
                                     </Link>
                                 );
                             })}
+
+                            <div className="h-px bg-white/5 my-2 mx-4" />
+
+                            {/* Mobile Language Switcher */}
+                            <div className="flex items-center justify-between p-2 px-4">
+                                <span className="text-xs font-bold uppercase text-zinc-500">{language === "ar" ? "اللغة" : "Language"}</span>
+                                <button
+                                    onClick={() => setLanguage(language === "ar" ? "en" : "ar")}
+                                    className="flex items-center justify-center gap-1.5 h-9 px-3 rounded-xl border border-white/10 bg-white/5 text-zinc-300 hover:text-white transition-all text-xs font-bold"
+                                >
+                                    <Globe className="h-4 w-4" />
+                                    <span>{language === "ar" ? "English" : "العربية"}</span>
+                                </button>
+                            </div>
 
                             <div className="h-px bg-white/5 my-2 mx-4" />
 

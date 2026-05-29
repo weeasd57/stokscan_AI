@@ -553,7 +553,10 @@ def sync_index(req: IndexSyncRequest, background_tasks: BackgroundTasks):
                     return
 
                 # Construct URL as requested by user
-                url = f"https://eodhd.com/api/eod/{req.symbol}"
+                eodhd_symbol = req.symbol
+                if req.symbol.endswith(".EGX"):
+                    eodhd_symbol = req.symbol.replace(".EGX", ".EG")
+                url = f"https://eodhd.com/api/eod/{eodhd_symbol}"
                 params = {
                     "api_token": api_token,
                     "fmt": "json",
@@ -741,48 +744,39 @@ def get_supabase_stats():
 
 @router.get("/crypto-symbols-stats")
 def get_crypto_symbols_stats(timeframe: str = "1h"):
-    """Returns detailed stats for each crypto symbol in stock_bars_intraday."""
-    _init_supabase()
-    if not stock_ai.supabase:
-        raise HTTPException(status_code=503, detail="Supabase not configured")
-        
+    """Returns detailed stats for each crypto symbol in local storage."""
     try:
-        # We'll use a RPC if it exists, otherwise we'll try to aggregate.
-        # Check if RPC get_crypto_symbol_stats exists
-        res = stock_ai.supabase.rpc("get_crypto_symbol_stats", {"p_timeframe": timeframe}).execute()
-        if res.data:
-            # Explicitly filter results to ensure only CRYPTO assets are returned.
-            # The RPC doesn't return 'exchange', so we use symbol patterns.
-            filtered = []
-            for item in res.data:
-                sym = item.get("symbol", "").upper()
-                exch = item.get("exchange", "").upper()
-                if exch == "CRYPTO" or "/" in sym or ".BINANCE" in sym or sym.endswith("USD") or sym.endswith("USDT"):
-                    filtered.append(item)
-            return filtered
-    except Exception:
-        # If RPC fails or doesn't exist, we fall back to a manual approach if feasible,
-        # but for large data this is tricky without grouping.
-        pass
-    
-    return []
+        from api.local_storage import get_crypto_symbols_stats_local
+        return get_crypto_symbols_stats_local(timeframe)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.delete("/bulk_delete_bars")
 def bulk_delete_bars(symbols: List[str], timeframe: str):
     """Deletes intraday bars for specific symbols and timeframe."""
-    _init_supabase()
-    if not stock_ai.supabase:
-        raise HTTPException(status_code=503, detail="Supabase not configured")
-    
     if not symbols:
         return {"success": True, "count": 0}
         
     try:
-        # Delete in chunks to avoid URL length issues
+        from api.local_storage import delete_crypto_bars_local, is_crypto_symbol
         total_deleted = 0
-        for chunk in _chunks(symbols, 100):
-            stock_ai.supabase.table("stock_bars_intraday").delete().in_("symbol", chunk).eq("timeframe", timeframe).execute()
-        return {"success": True, "message": f"Deleted data for {len(symbols)} symbols"}
+        supabase_symbols = []
+        
+        for symbol in symbols:
+            if is_crypto_symbol(symbol):
+                if delete_crypto_bars_local(symbol, timeframe):
+                    total_deleted += 1
+            else:
+                supabase_symbols.append(symbol)
+                
+        if supabase_symbols:
+            _init_supabase()
+            if not stock_ai.supabase:
+                raise HTTPException(status_code=503, detail="Supabase not configured")
+            for chunk in _chunks(supabase_symbols, 100):
+                stock_ai.supabase.table("stock_bars_intraday").delete().in_("symbol", chunk).eq("timeframe", timeframe).execute()
+                total_deleted += len(chunk)
+        return {"success": True, "message": f"Deleted data for {total_deleted} symbols"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

@@ -240,7 +240,10 @@ def _fetch_price_yahoo(ticker: str) -> float:
 
 
 def _fetch_price_eodhd(ticker: str, api_key: str) -> float:
-    url = f"https://eodhd.com/api/real-time/{ticker}?api_token={api_key}&fmt=json"
+    eodhd_ticker = ticker
+    if ticker.endswith(".EGX"):
+        eodhd_ticker = ticker.replace(".EGX", ".EG")
+    url = f"https://eodhd.com/api/real-time/{eodhd_ticker}?api_token={api_key}&fmt=json"
     with urllib.request.urlopen(url, timeout=20) as resp:
         raw = resp.read().decode("utf-8")
     payload = json.loads(raw)
@@ -331,8 +334,11 @@ def _parse_iso_date(value: Optional[str]) -> Optional[str]:
 
 
 def _fetch_eod_history_eodhd(ticker: str, api_key: str, from_date: str, to_date: str) -> List[Dict[str, Any]]:
+    eodhd_ticker = ticker
+    if ticker.endswith(".EGX"):
+        eodhd_ticker = ticker.replace(".EGX", ".EG")
     url = (
-        f"https://eodhd.com/api/eod/{ticker}"
+        f"https://eodhd.com/api/eod/{eodhd_ticker}"
         f"?api_token={api_key}&fmt=json&period=d&order=a&from={from_date}&to={to_date}"
     )
     with urllib.request.urlopen(url, timeout=25) as resp:
@@ -1602,7 +1608,7 @@ async def optimize_endpoint(req: OptimizeRequest, background_tasks: BackgroundTa
     return {"id": opt_id, "message": f"Optimization for {req.model} started."}
 
 @app.get("/backtests")
-async def get_backtests(model: Optional[str] = None):
+async def get_backtests(model: Optional[str] = None, admin: Optional[bool] = False):
     """Fetch all backtest historical records."""
     import time as _time
     import api.stock_ai as stock_ai
@@ -1620,9 +1626,19 @@ async def get_backtests(model: Optional[str] = None):
         return _BACKTESTS_SOFT_CACHE.get("data", [])
 
     def _build_query():
-        q = stock_ai.supabase.table("backtests").select("*").order("created_at", desc=True)
+        # Select all columns except trades_log to optimize payload size and page speed
+        columns = (
+            "id,model_name,exchange,start_date,end_date,total_trades,win_rate,net_profit,"
+            "avg_return_per_trade,status,status_msg,meta_threshold,council_threshold,"
+            "target_pct,stop_loss_pct,capital,created_at,council_model,"
+            "pre_council_win_rate,pre_council_profit_pct,post_council_win_rate,post_council_profit_pct,is_public"
+        )
+        q = stock_ai.supabase.table("backtests").select(columns).order("created_at", desc=True)
         if model:
             q = q.eq("model_name", model)
+        # Only return public backtests for regular users
+        if not admin:
+            q = q.eq("is_public", True)
         return q
 
     last_err = None

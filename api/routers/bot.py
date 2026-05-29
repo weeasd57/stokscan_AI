@@ -1251,22 +1251,28 @@ def get_candles(symbol: str, bot_id: str = "primary", limit: int = 150):
             if "virtual" in ds and not is_crypto:
                 exchange = "US"
 
-        # Query OHLC data with centralized retry logic
-        def fetch_bars(sb):
-            return sb.table("stock_bars_intraday") \
-                .select("ts,open,high,low,close,volume") \
-                .eq("symbol", db_symbol) \
-                .eq("exchange", exchange) \
-                .eq("timeframe", timeframe) \
-                .order("ts", desc=True) \
-                .limit(limit) \
-                .execute()
+        raw_candles = []
+        if exchange == "CRYPTO":
+            from api.local_storage import load_crypto_bars_local
+            raw_candles = load_crypto_bars_local(db_symbol, timeframe, limit=limit)
+            # Already chronological
+        else:
+            # Query OHLC data with centralized retry logic
+            def fetch_bars(sb):
+                return sb.table("stock_bars_intraday") \
+                    .select("ts,open,high,low,close,volume") \
+                    .eq("symbol", db_symbol) \
+                    .eq("exchange", exchange) \
+                    .eq("timeframe", timeframe) \
+                    .order("ts", desc=True) \
+                    .limit(limit) \
+                    .execute()
 
-        candles_resp = _supabase_read_with_retry(fetch_bars, table_name="stock_bars_intraday")
-        
-        raw_candles = candles_resp.data or [] if candles_resp else []
-        # Reverse to chronological order
-        raw_candles.reverse()
+            candles_resp = _supabase_read_with_retry(fetch_bars, table_name="stock_bars_intraday")
+            
+            raw_candles = candles_resp.data or [] if candles_resp else []
+            # Reverse to chronological order
+            raw_candles.reverse()
 
         # ── Fallback to in-memory chart bars if Supabase has no data ──
         # This allows charts to work even when "Save to Supabase" is disabled.
@@ -1416,11 +1422,11 @@ def get_candles(symbol: str, bot_id: str = "primary", limit: int = 150):
                 if stop_price <= 0:
                     stop_price = safe_float(sl)
 
-        if entry_price <= 0:
+        if entry_price is None or entry_price <= 0:
             entry_price = None
-        if target_price <= 0:
+        if target_price is None or target_price <= 0:
             target_price = None
-        if stop_price <= 0:
+        if stop_price is None or stop_price <= 0:
             stop_price = None
 
         result = {
@@ -1488,28 +1494,12 @@ def get_supabase_stats():
 
 @router.get("/crypto_symbols_stats")
 def get_crypto_symbols_stats(timeframe: str = "1h"):
-    """Returns detailed stats for each crypto symbol in stock_bars_intraday."""
-    _init_supabase()
-    if not stock_ai.supabase:
-        raise HTTPException(status_code=503, detail="Supabase not configured")
-        
+    """Returns detailed stats for each crypto symbol in local storage."""
     try:
-        # We'll use a RPC if it exists, otherwise we'll try to aggregate.
-        res = stock_ai.supabase.rpc("get_crypto_symbol_stats", {"p_timeframe": timeframe}).execute()
-        if res.data:
-            # Explicitly filter results to ensure only CRYPTO assets are returned.
-            # The RPC doesn't return 'exchange', so we use symbol patterns.
-            filtered = []
-            for item in res.data:
-                sym = item.get("symbol", "").upper()
-                exch = item.get("exchange", "").upper()
-                if exch == "CRYPTO" or "/" in sym or ".BINANCE" in sym or sym.endswith("USD") or sym.endswith("USDT"):
-                    filtered.append(item)
-            return filtered
-    except Exception:
-        pass
-    
-    return []
+        from api.local_storage import get_crypto_symbols_stats_local
+        return get_crypto_symbols_stats_local(timeframe)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 class CryptoDeleteBarsRequest(BaseModel):
     symbols: list[str]
@@ -1517,26 +1507,16 @@ class CryptoDeleteBarsRequest(BaseModel):
 
 @router.post("/crypto_delete_bars")
 def crypto_delete_bars(req: CryptoDeleteBarsRequest):
-    """Deletes intraday bars for specific crypto symbols and timeframe."""
-    _init_supabase()
-    if not stock_ai.supabase:
-        raise HTTPException(status_code=503, detail="Supabase not configured")
-
+    """Deletes intraday bars for specific crypto symbols and timeframe locally."""
     if not req.symbols:
         return {"success": True, "deleted": 0, "symbols": 0, "timeframe": req.timeframe}
 
     try:
+        from api.local_storage import delete_crypto_bars_local
         total_deleted = 0
-        # Delete in chunks to avoid URL length issues
-        chunk_size = 100
-        for i in range(0, len(req.symbols), chunk_size):
-            chunk = req.symbols[i:i + chunk_size]
-            stock_ai.supabase.table("stock_bars_intraday") \
-                .delete() \
-                .in_("symbol", chunk) \
-                .eq("timeframe", req.timeframe) \
-                .execute()
-            total_deleted += len(chunk)
+        for symbol in req.symbols:
+            if delete_crypto_bars_local(symbol, req.timeframe):
+                total_deleted += 1
         return {
             "success": True,
             "deleted": total_deleted,
