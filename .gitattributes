@@ -1,3 +1,4 @@
+symbols_data/all_symbols_by_country_20250304_171206.json filter=lfs diff=lfs merge=lfs -text
 symbols_data/*.json filter=lfs diff=lfs merge=lfs -text
 *.png filter=lfs diff=lfs merge=lfs -text
 *.jpg filter=lfs diff=lfs merge=lfs -text
