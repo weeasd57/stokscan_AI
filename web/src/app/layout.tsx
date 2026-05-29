@@ -25,11 +25,11 @@ export default function RootLayout({
   children: ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" dir="ltr">
       <body className="bg-zinc-950 text-zinc-50 antialiased selection:bg-blue-500/30 pt-32">
         <Providers>
           <Header />
-          <main className="w-full pb-12">
+          <main className="w-full pb-12 px-6 md:px-8 mx-auto max-w-[1800px]">
             {children}
           </main>
           <Footer />

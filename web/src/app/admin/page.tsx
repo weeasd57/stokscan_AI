@@ -693,6 +693,8 @@ export default function AdminPage() {
                     selectedDbEx={selectedDbEx}
                     drillDownMode={drillDownMode}
                     dbSymbols={dbSymbols}
+                    localSymbols={symbols}
+                    loadingLocalSymbols={loadingSymbols}
                     loadingDbSymbols={loadingDbSymbols}
                     dbSymbolsSort={dbSymbolsSort}
                     setDbSymbolsSort={setDbSymbolsSort}

@@ -2202,9 +2202,14 @@ class LiveBot:
                     deduped[key] = r
                 rows = list(deduped.values())
 
-                _supabase_upsert_with_retry("stock_bars_intraday", rows, on_conflict="symbol,exchange,timeframe,ts")
-                self._last_save_bars_ts[symbol] = latest_ts
-                # self._log(f"Saved {len(rows)} bars for {symbol} to DB.")
+                if exchange == "CRYPTO":
+                    from api.local_storage import save_crypto_bars_local
+                    save_crypto_bars_local(symbol, timeframe, rows)
+                    self._last_save_bars_ts[symbol] = latest_ts
+                else:
+                    _supabase_upsert_with_retry("stock_bars_intraday", rows, on_conflict="symbol,exchange,timeframe,ts")
+                    self._last_save_bars_ts[symbol] = latest_ts
+                    # self._log(f"Saved {len(rows)} bars for {symbol} to DB.")
 
         except Exception as e:
             self._log(f"DB Save Error {symbol}: {e}")

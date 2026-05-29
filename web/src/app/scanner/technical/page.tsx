@@ -5,6 +5,7 @@ import { Sliders, Search, Loader2, Globe, Database, TrendingUp, X, Filter, Bookm
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useWatchlist } from "@/contexts/WatchlistContext";
 import { useAppState } from "@/contexts/AppStateContext";
+import { useTechnicalScanner } from "@/contexts/TechnicalScannerContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { getTechnicalAlerts, createTechnicalAlert, deleteTechnicalAlert, toggleTechnicalAlert, type TechnicalAlert, type TechFilter } from "@/lib/api";
@@ -13,43 +14,47 @@ import StockLogo from "@/components/StockLogo";
 import ScannerTemplates, { type ScannerTemplateId } from "@/components/ScannerTemplates";
 
 export default function TechnicalScannerPage() {
-    const { t } = useLanguage();
+    const { t, language } = useLanguage();
     const { user } = useAuth();
     const supabase = useMemo(() => createSupabaseBrowserClient(), []);
     const { saveSymbol, removeSymbolBySymbol, isSaved } = useWatchlist();
-    const { state, setTechScanner, runTechScan, stopTechScan, techScanLoading: loading, techScanError: error, addSymbolToCompare } = useAppState();
-
+    const { addSymbolToCompare } = useAppState();
     const {
-        country,
-        results,
-        hasScanned,
-        scannedCount,
-        searchTerm,
-        rsiMin,
-        rsiMax,
-        aboveEma50,
-        aboveEma200,
-        adxMin,
-        adxMax,
-        atrMin,
-        atrMax,
-        stochKMin,
-        stochKMax,
-        rocMin,
-        rocMax,
-        aboveVwap20,
-        volumeAboveSma20,
-        goldenCross,
-        selectedStock,
-        currentTab,
-        marketCapMin,
-        marketCapMax,
-        sector,
-        industry,
-        minPrice,
-        useAiFilter,
-        minAiPrecision,
-    } = state.techScanner;
+        state: {
+            country,
+            results,
+            scannedCount,
+            searchTerm,
+            rsiMin,
+            rsiMax,
+            aboveEma50,
+            aboveEma200,
+            adxMin,
+            adxMax,
+            atrMin,
+            atrMax,
+            stochKMin,
+            stochKMax,
+            rocMin,
+            rocMax,
+            aboveVwap20,
+            volumeAboveSma20,
+            goldenCross,
+            selectedStock,
+            currentTab,
+            marketCapMin,
+            marketCapMax,
+            sector,
+            industry,
+            minPrice,
+            useAiFilter,
+            minAiPrecision,
+        },
+        setTechScanner,
+        runTechScan,
+        loading,
+        error,
+    } = useTechnicalScanner();
 
     // Pagination State
     const [currentPage, setCurrentPage] = useState(1);
@@ -96,20 +101,6 @@ export default function TechnicalScannerPage() {
         { id: 'dividends', label: 'Dividends', icon: Coins },
         { id: 'financials', label: 'Financials', icon: Scale },
     ] as const;
-
-    // Auto-fetch data on mount
-    useEffect(() => {
-        // Enforce country to be Egypt on mount if it's not
-        if (country !== "Egypt") {
-            setTechScanner(prev => ({ ...prev, country: "Egypt" }));
-        } else {
-            runScan();
-        }
-    }, [country]);
-
-    async function runScan() {
-        await runTechScan();
-    }
 
     // Apply filters and re-run scan
     const applyFilter = () => {
@@ -332,7 +323,7 @@ export default function TechnicalScannerPage() {
             </div>
 
             {/* --- Inline Filter Bar --- */}
-            <div className="flex items-center gap-2 sm:gap-3 px-3 sm:px-6 py-3 sm:py-4 border-b border-white/5 bg-zinc-950/20 overflow-x-auto no-scrollbar relative">
+            <div className="flex flex-wrap items-center gap-2 sm:gap-3 px-3 sm:px-6 py-3 sm:py-4 border-b border-white/5 bg-zinc-950/20 relative z-30">
                 {/* Market (Locked) */}
                 <div className="h-8 sm:h-10 flex items-center gap-1.5 sm:gap-2 rounded-lg sm:rounded-xl border border-white/10 bg-zinc-900/50 px-3 sm:px-4 text-xs sm:text-sm font-bold text-zinc-200 select-none shrink-0">
                     <Globe className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-blue-500" />
@@ -481,16 +472,20 @@ export default function TechnicalScannerPage() {
                                 onChange={(e) => setTechScanner(prev => ({ ...prev, sector: e.target.value }))}
                                 className="w-full h-9 px-2 rounded-lg bg-zinc-900 border border-white/10 text-white text-xs focus:outline-none focus:border-blue-500"
                             >
-                                <option value="">All Sectors</option>
-                                <option value="Real Estate">Real Estate</option>
-                                <option value="Materials">Materials & Resources</option>
-                                <option value="Financial Services">Financial Services</option>
-                                <option value="Banks">Banks</option>
-                                <option value="Telecom">Telecom & IT</option>
-                                <option value="Food">Food & Beverage</option>
-                                <option value="Health">Health Care & Pharma</option>
-                                <option value="Industrials">Industrials</option>
-                                <option value="Shipping">Shipping & Transport</option>
+                                <option value="">{language === "ar" ? "كل القطاعات" : "All Sectors"}</option>
+                                <option value="Finance">{language === "ar" ? "الخدمات المالية والبنوك" : "Finance / Banking"}</option>
+                                <option value="Process Industries">{language === "ar" ? "الصناعات التحويلية" : "Process Industries"}</option>
+                                <option value="Consumer Non-Durables">{language === "ar" ? "الأغذية والسلع الاستهلاكية" : "Consumer Non-Durables"}</option>
+                                <option value="Health Technology">{language === "ar" ? "الرعاية الصحية والأدوية" : "Health Technology"}</option>
+                                <option value="Non-Energy Minerals">{language === "ar" ? "المعادن والتعدين" : "Non-Energy Minerals"}</option>
+                                <option value="Industrial Services">{language === "ar" ? "الخدمات الصناعية والإنشاءات" : "Industrial Services"}</option>
+                                <option value="Consumer Services">{language === "ar" ? "الخدمات الترفيهية والسياحة" : "Consumer Services"}</option>
+                                <option value="Producer Manufacturing">{language === "ar" ? "التصنيع والإنتاج" : "Producer Manufacturing"}</option>
+                                <option value="Distribution Services">{language === "ar" ? "التجارة والتوزيع" : "Distribution Services"}</option>
+                                <option value="Consumer Durables">{language === "ar" ? "السلع الاستهلاكية المعمرة" : "Consumer Durables"}</option>
+                                <option value="Transportation">{language === "ar" ? "الشحن والنقل" : "Transportation"}</option>
+                                <option value="Utilities">{language === "ar" ? "المرافق والخدمات العامة" : "Utilities"}</option>
+                                <option value="Communications">{language === "ar" ? "الاتصالات والتكنولوجيا" : "Communications"}</option>
                             </select>
                             <div className="flex gap-2 pt-1">
                                 <button

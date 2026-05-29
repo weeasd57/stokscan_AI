@@ -987,6 +987,40 @@ def _get_exchange_bulk_intraday_data(
             print(f"DEBUG: Bulk Cache Hit (locked) for {cache_key}")
             return cached.get("data", {})
 
+        if exchange.upper() == "CRYPTO":
+            try:
+                from api.local_storage import load_all_crypto_bars_local_as_df
+                df_all = load_all_crypto_bars_local_as_df(tf)
+                if df_all.empty:
+                    return {}
+                df_all["ts"] = pd.to_datetime(df_all["ts"], errors="coerce")
+                df_all = df_all.dropna(subset=["ts"]).sort_values(["symbol", "ts"])
+                if fd:
+                    df_all = df_all[df_all["ts"] >= pd.to_datetime(fd)]
+                if td:
+                    df_all = df_all[df_all["ts"] <= pd.to_datetime(td)]
+                
+                data_by_symbol: Dict[str, pd.DataFrame] = {}
+                for sym, grp in df_all.groupby("symbol"):
+                    g = grp.set_index("ts")["open high low close volume".split()]
+                    g = g.rename(
+                        columns={
+                            "close": "Close",
+                            "open": "Open",
+                            "high": "High",
+                            "low": "Low",
+                            "volume": "Volume",
+                        }
+                    )
+                    data_by_symbol[str(sym).upper()] = g
+                
+                _EXCHANGE_BULK_CACHE[cache_key] = {"ts": time.time(), "data": data_by_symbol, "rows": len(df_all)}
+                print(f"DEBUG: Local CRYPTO bulk loaded {len(df_all)} rows for {cache_key}")
+                return data_by_symbol
+            except Exception as e:
+                print(f"DEBUG: Local CRYPTO bulk load failed: {e}")
+                return {}
+
         max_attempts = 3
         page_size = 1000
         max_workers = 1
@@ -1262,7 +1296,33 @@ def get_supabase_inventory() -> List[Dict[str, Any]]:
                     "expectedCount": expected["count"],
                     "lastUpdate": None
                 })
-            
+        # Override CRYPTO stats with local data
+        from api.local_storage import get_local_crypto_symbols_count
+        local_crypto_count = get_local_crypto_symbols_count()
+        crypto_found = False
+        for row in out:
+            if row.get("exchange") == "CRYPTO":
+                row["price_count"] = local_crypto_count
+                row["priceCount"] = local_crypto_count
+                row["country"] = "Crypto"
+                row["expected_count"] = 400
+                row["expectedCount"] = 400
+                crypto_found = True
+                break
+        if not crypto_found:
+            out.append({
+                "exchange": "CRYPTO",
+                "country": "Crypto",
+                "price_count": local_crypto_count,
+                "priceCount": local_crypto_count,
+                "fund_count": 0,
+                "fundCount": 0,
+                "expected_count": 400,
+                "expectedCount": 400,
+                "last_update": None,
+                "lastUpdate": None
+            })
+
         return out
     except Exception as e:
         print(f"Error processing inventory stats: {e}")
@@ -1467,6 +1527,13 @@ def _normalize_eodhd_eod_result(raw: Union[pd.DataFrame, List[Dict[str, Any]], A
     return df
 
 
+def _normalize_eodhd_ticker(ticker: str) -> str:
+    t = ticker.strip().upper()
+    if t.endswith(".EGX"):
+        return t.replace(".EGX", ".EG")
+    return t
+
+
 def get_stock_data_eodhd(
     api: APIClient,
     ticker: str,
@@ -1599,8 +1666,9 @@ def get_stock_data_eodhd(
 
     # No cloud data, try API
     try:
+        eodhd_ticker = _normalize_eodhd_ticker(ticker)
         df = api.get_eod_historical_stock_market_data(
-            symbol=ticker,
+            symbol=eodhd_ticker,
             period="d",
             order="a",
             from_date=from_date,
@@ -1763,8 +1831,9 @@ def update_stock_data(
             print(f"BACKFILL/FULL SYNC MODE: {ticker} has {current_count} records, need {max_days}. Downloading full history.")
             # We fetch at least max_days, but ensure we also get recent data by fetching up to today
             start_date = today - dt.timedelta(days=max_days + 120)  # Safe buffer
+            eodhd_ticker = _normalize_eodhd_ticker(ticker)
             df = api.get_eod_historical_stock_market_data(
-                symbol=ticker, period="d", order="a", from_date=str(start_date)
+                symbol=eodhd_ticker, period="d", order="a", from_date=str(start_date)
             )
             df = _normalize_eodhd_eod_result(df)
             if df is None or df.empty:
@@ -1777,8 +1846,9 @@ def update_stock_data(
             # Just append new data
             start_date = (last_date + dt.timedelta(days=1)) if last_date else (today - dt.timedelta(days=max_days + 30))
             print(f"APPEND MODE: {ticker} syncing since {start_date} to today.")
+            eodhd_ticker = _normalize_eodhd_ticker(ticker)
             new_df = api.get_eod_historical_stock_market_data(
-                symbol=ticker, period="d", order="a", from_date=str(start_date)
+                symbol=eodhd_ticker, period="d", order="a", from_date=str(start_date)
             )
             new_df = _normalize_eodhd_eod_result(new_df)
             
@@ -1868,6 +1938,18 @@ def sync_df_to_supabase(ticker: str, df: pd.DataFrame, timeframe: str = "1d") ->
             rows.append(record)
         
         if rows:
+            # Check if this is crypto intraday, and redirect to local storage instead of Supabase
+            if sb_exchange == "CRYPTO" and is_intraday:
+                try:
+                    from api.local_storage import save_crypto_bars_local
+                    save_crypto_bars_local(sb_symbol, timeframe, rows)
+                    msg = f"Synced {len(rows)} rows locally for {sb_symbol} ({timeframe})."
+                    print(f"DEBUG: {msg}")
+                    return True, msg
+                except Exception as e:
+                    print(f"Local storage save error for {sb_symbol}: {e}")
+                    return False, f"Local save error: {e}"
+
             table_name = "stock_bars_intraday" if is_intraday else "stock_prices"
             on_conflict = "symbol,exchange,timeframe,ts" if is_intraday else "symbol,exchange,date"
             

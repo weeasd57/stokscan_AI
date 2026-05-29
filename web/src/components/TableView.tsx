@@ -221,7 +221,7 @@ export default function TableView({ rows, ticker }: { rows: TestPredictionRow[],
             {/* Scrollable Table Container */}
             <div className="w-full overflow-hidden rounded-xl border border-zinc-700 bg-zinc-900 shadow-xl">
                 <div className="overflow-x-auto pb-2">
-                    <table className="w-full min-w-[1200px] border-collapse text-xs">
+                    <table className="w-full min-w-[1200px] border-collapse text-xs table-fixed">
                         <thead>
                             {/* Grouped Headers */}
                             <tr className="bg-yellow-400 text-black font-bold border-b border-zinc-500">

@@ -6,6 +6,10 @@
   color-scheme: dark;
 }
 
+html {
+  direction: ltr;
+}
+
 html,
 body {
   @apply bg-zinc-950 text-zinc-50 antialiased;
@@ -15,7 +19,25 @@ body {
   width: 100%;
 }
 
-@layer utilities {
+  @layer utilities {
+  .header-title {
+    min-width: 200px; /* Prevent title width change on language switch */
+    flex-shrink: 0;
+  }
+
+  .header-stable {
+    min-height: 4rem; /* ensures consistent header height */
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .language-switch {
+    width: 80px; /* fixed width to prevent shift when language text changes */
+    text-align: center;
+  }
+
+
 
   @keyframes shimmer {
     0% {

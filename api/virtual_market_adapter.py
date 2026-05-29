@@ -11,8 +11,15 @@ PriceProvider = Callable[[str], Optional[float]]
 
 
 def _supabase_last_close(symbol: str) -> Optional[float]:
-    """Best-effort: fetch the latest close price from stock_bars_intraday."""
+    """Best-effort: fetch the latest close price from stock_bars_intraday or local storage."""
     try:
+        from api.local_storage import is_crypto_symbol, get_last_close_local
+        if is_crypto_symbol(symbol):
+            local_val = get_last_close_local(symbol)
+            if local_val is not None and local_val > 0:
+                return local_val
+            return None
+
         from api.stock_ai import supabase, _init_supabase
         _init_supabase()
         if not supabase:

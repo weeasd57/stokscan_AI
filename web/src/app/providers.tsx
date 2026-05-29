@@ -6,6 +6,7 @@ import { LanguageProvider } from "@/contexts/LanguageContext";
 import { WatchlistProvider } from "@/contexts/WatchlistContext";
 import { AppStateProvider } from "@/contexts/AppStateContext";
 import { AIScannerProvider } from "@/contexts/AIScannerContext";
+import { TechnicalScannerProvider } from "@/contexts/TechnicalScannerContext";
 
 export default function Providers({ children }: { children: ReactNode }) {
   return (
@@ -13,9 +14,11 @@ export default function Providers({ children }: { children: ReactNode }) {
       <LanguageProvider>
         <WatchlistProvider>
           <AppStateProvider>
-            <AIScannerProvider>
-              {children}
-            </AIScannerProvider>
+            <TechnicalScannerProvider>
+              <AIScannerProvider>
+                {children}
+              </AIScannerProvider>
+            </TechnicalScannerProvider>
           </AppStateProvider>
         </WatchlistProvider>
       </LanguageProvider>
