@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import Image from "next/image";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { Globe, BarChart2, Brain, Activity, Menu, X, User, ChevronDown, ArrowLeftRight, Crown } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -12,6 +12,8 @@ export default function Header() {
     const { t } = useLanguage();
     const { user, signOut } = useAuth();
     const pathname = usePathname();
+    const searchParams = useSearchParams();
+    const currentTab = searchParams.get("tab");
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
     const [accountMenuOpen, setAccountMenuOpen] = useState(false);
 
@@ -25,6 +27,16 @@ export default function Header() {
         { href: "/scanner/technical", label: "Technical Scanner", icon: <Activity className="w-4 h-4" />, activePath: "/scanner/technical" },
         { href: "/scanner/backtests?tab=backtests", label: "Backtests", icon: <BarChart2 className="w-4 h-4" />, activePath: null },
     ];
+
+    const checkActive = (href: string, activePath: string | null) => {
+        if (href.includes("?tab=backtests")) {
+            return pathname === "/scanner/backtests" && currentTab === "backtests";
+        }
+        if (href.includes("?tab=bots")) {
+            return pathname === "/scanner/backtests" && currentTab !== "backtests";
+        }
+        return activePath ? pathname === activePath : pathname === href;
+    };
 
     return (
         <header className="fixed top-0 left-0 right-0 z-[100] px-6 py-6 md:px-8">
@@ -57,7 +69,7 @@ export default function Header() {
                         {/* Desktop Navigation */}
                         <nav className="hidden lg:flex items-center gap-1 ml-4 py-1 px-1 rounded-xl bg-white/5 border border-white/5 flex-wrap max-w-full">
                             {navItems.map((item) => {
-                                const isActive = item.activePath ? pathname === item.activePath : false;
+                                const isActive = checkActive(item.href, item.activePath);
                                 return (
                                     <Link
                                         key={item.href}
@@ -141,19 +153,22 @@ export default function Header() {
                 {mobileMenuOpen && (
                     <div className="lg:hidden mt-3 rounded-2xl border border-white/5 bg-zinc-950/80 backdrop-blur-2xl p-2 shadow-2xl animate-in slide-in-from-top-4 duration-300 overflow-hidden">
                         <div className="grid grid-cols-1 gap-1">
-                            {navItems.map((item) => (
-                                <Link
-                                    key={item.href}
-                                    href={item.href}
-                                    className={`flex items-center gap-4 px-4 py-4 rounded-xl text-sm font-bold uppercase tracking-widest transition-all ${pathname === item.href
-                                        ? "bg-white text-zinc-950"
-                                        : "text-zinc-400 hover:text-white hover:bg-white/5"
-                                        }`}
-                                >
-                                    {item.icon}
-                                    {item.label}
-                                </Link>
-                            ))}
+                            {navItems.map((item) => {
+                                const isActive = checkActive(item.href, item.activePath);
+                                return (
+                                    <Link
+                                        key={item.href}
+                                        href={item.href}
+                                        className={`flex items-center gap-4 px-4 py-4 rounded-xl text-sm font-bold uppercase tracking-widest transition-all ${isActive
+                                            ? "bg-white text-zinc-950"
+                                            : "text-zinc-400 hover:text-white hover:bg-white/5"
+                                            }`}
+                                    >
+                                        {item.icon}
+                                        {item.label}
+                                    </Link>
+                                );
+                            })}
 
                             <div className="h-px bg-white/5 my-2 mx-4" />
 

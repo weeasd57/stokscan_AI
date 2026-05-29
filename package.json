@@ -1,7 +1,7 @@
 {
   "name": "ai-stocks-monorepo",
   "private": true,
-  "workspaces": [
+  "workspaces_disabled": [
     "web"
   ],
   "scripts": {
