@@ -6,6 +6,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { getBacktests } from "@/lib/api";
 import StockLogo from "@/components/StockLogo";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { TradeTimeline } from "@/app/admin/components/TradeTimeline";
 
 // Helper component to fetch and display EGX30 comparison
@@ -97,6 +98,7 @@ interface Bot {
     king_model_path?: string;
     council_model_path?: string;
     trading_mode?: string;
+    started_at?: string;
 }
 
 interface Backtest {
@@ -223,29 +225,8 @@ const getBacktestSettings = (bt: Backtest) => {
 
 export default function AIScannerPage() {
     const { user } = useAuth();
-    const [activeTab, setActiveTab] = useState<"bots" | "backtests">("bots");
-
-    // Sync tab from URL query params
-    useEffect(() => {
-        if (typeof window !== "undefined") {
-            const params = new URLSearchParams(window.location.search);
-            const tabParam = params.get("tab");
-            if (tabParam === "backtests") {
-                setActiveTab("backtests");
-            } else if (tabParam === "bots") {
-                setActiveTab("bots");
-            }
-        }
-    }, []);
-
-    const handleTabChange = (tab: "bots" | "backtests") => {
-        setActiveTab(tab);
-        if (typeof window !== "undefined") {
-            const url = new URL(window.location.href);
-            url.searchParams.set("tab", tab);
-            window.history.pushState({}, "", url.toString());
-        }
-    };
+    const searchParams = useSearchParams();
+    const activeTab = searchParams.get("tab") === "backtests" ? "backtests" : "bots";
     
     // States for Bots tab
     const [bots, setBots] = useState<Bot[]>([]);
@@ -422,46 +403,32 @@ export default function AIScannerPage() {
             {/* Header Banner */}
             <div className="relative overflow-hidden rounded-[2.5rem] border border-white/10 bg-gradient-to-tr from-zinc-950 via-zinc-900 to-zinc-950 p-8 md:p-12 mb-10 shadow-2xl shadow-indigo-500/5">
                 <div className="absolute top-0 right-0 p-8 opacity-10 pointer-events-none">
-                    <Brain className="w-48 h-48 text-indigo-500" />
+                    {activeTab === "backtests" ? (
+                        <BarChart2 className="w-48 h-48 text-indigo-500" />
+                    ) : (
+                        <Brain className="w-48 h-48 text-indigo-500" />
+                    )}
                 </div>
                 <div className="relative z-10 max-w-2xl space-y-4">
                     <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/25 text-indigo-400 text-xs font-black uppercase tracking-wider">
-                        <Sparkles className="w-3.5 h-3.5" /> Artificial Intelligence
+                        <Sparkles className="w-3.5 h-3.5" /> {activeTab === "backtests" ? "Model Evaluation" : "Artificial Intelligence"}
                     </div>
                     <h1 className="text-3xl md:text-5xl font-black text-white tracking-tight leading-none uppercase">
-                        AI Trading <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-indigo-500">Scanner</span>
+                        {activeTab === "backtests" ? (
+                            <>
+                                Backtest <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-indigo-500">Results</span>
+                            </>
+                        ) : (
+                            <>
+                                AI Trading <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-indigo-500">Scanner</span>
+                            </>
+                        )}
                     </h1>
                     <p className="text-zinc-400 font-medium text-sm md:text-base leading-relaxed">
-                        Centralized automated AI bots running under quantitative models. Get instant, high-probability buy signals delivered directly to your Telegram. Compare public backtest statistics below.
+                        {activeTab === "backtests"
+                            ? "Compare historical performance and simulation statistics of our quantitative AI trading models."
+                            : "Centralized automated AI bots running under quantitative models. Get instant, high-probability buy signals delivered directly to your Telegram."}
                     </p>
-                </div>
-            </div>
-
-            {/* Tab Controls */}
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 mb-8 pb-4 border-b border-white/5">
-                <div className="flex p-1 rounded-2xl bg-zinc-900/50 border border-white/5 w-full sm:w-auto">
-                    <button
-                        onClick={() => handleTabChange("bots")}
-                        className={`flex-1 sm:flex-initial flex items-center justify-center gap-2 px-6 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all duration-300 ${
-                            activeTab === "bots"
-                                ? "bg-indigo-600 text-white shadow-lg shadow-indigo-600/25"
-                                : "text-zinc-500 hover:text-white hover:bg-white/5"
-                        }`}
-                    >
-                        <Brain className="w-4.5 h-4.5" />
-                        Live Trading Bots
-                    </button>
-                    <button
-                        onClick={() => handleTabChange("backtests")}
-                        className={`flex-1 sm:flex-initial flex items-center justify-center gap-2 px-6 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all duration-300 ${
-                            activeTab === "backtests"
-                                ? "bg-indigo-600 text-white shadow-lg shadow-indigo-600/25"
-                                : "text-zinc-500 hover:text-white hover:bg-white/5"
-                        }`}
-                    >
-                        <BarChart2 className="w-4.5 h-4.5" />
-                        Backtest Results
-                    </button>
                 </div>
             </div>
 
@@ -516,9 +483,19 @@ export default function AIScannerPage() {
                                                 >
                                                     <div className="space-y-4">
                                                         <div className="flex items-center justify-between">
-                                                            <div className="p-3 rounded-2xl bg-zinc-900 text-zinc-500 transition-all group-hover:bg-indigo-500/10 group-hover:text-indigo-400">
-                                                                <Database className="w-6 h-6" />
-                                                            </div>
+                                                            {model.name.toUpperCase().includes("KING") ? (
+                                                                <div className="w-14 h-14 rounded-2xl overflow-hidden border border-zinc-800 group-hover:border-indigo-500/50 shadow-lg shadow-indigo-500/10 transition-all">
+                                                                    <img src="/king_logo.jpg" alt="KING Logo" className="w-full h-full object-cover" />
+                                                                </div>
+                                                            ) : model.name.toUpperCase().includes("NEW_MODEL") ? (
+                                                                <div className="w-14 h-14 rounded-2xl overflow-hidden border border-zinc-800 group-hover:border-purple-500/50 shadow-lg shadow-purple-500/10 transition-all">
+                                                                    <img src="/new_model_logo.jpg" alt="NEW_MODEL Logo" className="w-full h-full object-cover" />
+                                                                </div>
+                                                            ) : (
+                                                                <div className="p-3 rounded-2xl bg-zinc-900 text-zinc-500 transition-all group-hover:bg-indigo-500/10 group-hover:text-indigo-400">
+                                                                    <Database className="w-6 h-6" />
+                                                                </div>
+                                                            )}
                                                         </div>
                                                         <div className="min-w-0">
                                                             <div className="text-base font-black text-zinc-100 truncate">{model.name}</div>
@@ -760,12 +737,39 @@ export default function AIScannerPage() {
 
                                                             {/* Model */}
                                                             <td className="px-6 py-5 text-center">
-                                                                <span className="text-[10px] font-mono text-zinc-400 bg-zinc-900 px-2 py-1 rounded border border-white/5 truncate max-w-[120px] inline-block">{kingModelName}</span>
+                                                                <div className="flex items-center justify-center gap-2">
+                                                                    {kingModelName.toUpperCase().includes("KING") ? (
+                                                                        <div className="w-5 h-5 rounded-md overflow-hidden border border-white/10 shrink-0">
+                                                                            <img src="/king_logo.jpg" alt="KING" className="w-full h-full object-cover" />
+                                                                        </div>
+                                                                    ) : kingModelName.toUpperCase().includes("NEW_MODEL") ? (
+                                                                        <div className="w-5 h-5 rounded-md overflow-hidden border border-white/10 shrink-0">
+                                                                            <img src="/new_model_logo.jpg" alt="NEW_MODEL" className="w-full h-full object-cover" />
+                                                                        </div>
+                                                                    ) : null}
+                                                                    <span className="text-[10px] font-mono text-zinc-400 bg-zinc-900 px-2 py-1 rounded border border-white/5 truncate max-w-[120px] inline-block">{kingModelName}</span>
+                                                                </div>
                                                             </td>
 
                                                             {/* Trades */}
                                                             <td className="px-6 py-5 text-center">
-                                                                <span className="text-sm font-black text-white font-mono">{bot.trades_count}</span>
+                                                                <div className="flex flex-col items-center">
+                                                                    <span className="text-sm font-black text-white font-mono">{bot.trades_count}</span>
+                                                                    {bot.status === "running" && bot.started_at ? (
+                                                                        <span className="text-[9px] font-black text-indigo-400/80 uppercase tracking-widest mt-0.5">
+                                                                            {(() => {
+                                                                                const start = new Date(bot.started_at).getTime();
+                                                                                const diff = new Date().getTime() - start;
+                                                                                const days = Math.ceil(diff / (1000 * 60 * 60 * 24));
+                                                                                return `${days} Days Active`;
+                                                                            })()}
+                                                                        </span>
+                                                                    ) : (
+                                                                        <span className="text-[9px] font-black text-zinc-600 uppercase tracking-widest mt-0.5">
+                                                                            Inactive
+                                                                        </span>
+                                                                    )}
+                                                                </div>
                                                             </td>
 
                                                             {/* Win Rate */}
@@ -881,7 +885,18 @@ export default function AIScannerPage() {
                                                         {bot.use_council && (
                                                             <span className="text-[9px] text-zinc-500 font-bold bg-zinc-900 px-2.5 py-1 rounded-full border border-white/5">Council @ {bot.council_threshold ?? 0.25}</span>
                                                         )}
-                                                        <span className="text-[10px] font-mono text-zinc-500 bg-zinc-900 px-2 py-1 rounded border border-white/5 truncate max-w-[130px]">{kingModelName}</span>
+                                                         <div className="flex items-center gap-1.5 bg-zinc-900 px-2 py-1 rounded border border-white/5 w-fit">
+                                                             {kingModelName.toUpperCase().includes("KING") ? (
+                                                                 <div className="w-4 h-4 rounded overflow-hidden border border-white/10 shrink-0">
+                                                                     <img src="/king_logo.jpg" alt="KING" className="w-full h-full object-cover" />
+                                                                 </div>
+                                                             ) : kingModelName.toUpperCase().includes("NEW_MODEL") ? (
+                                                                 <div className="w-4 h-4 rounded overflow-hidden border border-white/10 shrink-0">
+                                                                     <img src="/new_model_logo.jpg" alt="NEW_MODEL" className="w-full h-full object-cover" />
+                                                                 </div>
+                                                             ) : null}
+                                                             <span className="text-[10px] font-mono text-zinc-400 truncate max-w-[110px]">{kingModelName}</span>
+                                                         </div>
                                                     </div>
 
                                                     {/* Stats Grid */}
@@ -899,6 +914,20 @@ export default function AIScannerPage() {
                                                         <div className="text-center">
                                                             <p className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider mb-1">Trades</p>
                                                             <p className="font-mono text-sm font-black text-zinc-100">{bot.trades_count}</p>
+                                                            {bot.status === "running" && bot.started_at ? (
+                                                                <p className="text-[8px] font-black text-indigo-400/80 uppercase tracking-widest mt-0.5">
+                                                                    {(() => {
+                                                                        const start = new Date(bot.started_at).getTime();
+                                                                        const diff = new Date().getTime() - start;
+                                                                        const days = Math.ceil(diff / (1000 * 60 * 60 * 24));
+                                                                        return `${days}d Active`;
+                                                                    })()}
+                                                                </p>
+                                                            ) : (
+                                                                <p className="text-[8px] font-black text-zinc-600 uppercase tracking-widest mt-0.5">
+                                                                    Inactive
+                                                                </p>
+                                                            )}
                                                         </div>
                                                     </div>
 
@@ -1059,6 +1088,11 @@ export default function AIScannerPage() {
                                                             {cashProfitValue >= 0 ? "+" : ""}{formatNum(cashProfitValue, 0)} EGP
                                                         </p>
                                                     )}
+                                                    {actualRange && (
+                                                        <div className="mt-1 flex justify-center">
+                                                            <Egx30Comparison start={actualRange.start} end={actualRange.end} botReturn={profitPctValue} />
+                                                        </div>
+                                                    )}
                                                 </div>
                                                 <div className="w-px h-8 bg-white/5 hidden sm:block" />
                                                 <div className="text-center min-w-[70px]">
@@ -1073,16 +1107,9 @@ export default function AIScannerPage() {
                                                 <div className="w-px h-8 bg-white/5 hidden sm:block" />
                                                 <div className="text-center min-w-[90px]">
                                                     <p className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest mb-1">Avg Return</p>
-                                                    <div className="flex flex-col items-center">
-                                                        <p className={`font-mono text-base font-black ${bt.avg_return_per_trade >= 0 ? "text-emerald-400" : "text-red-400"}`}>
-                                                            {bt.avg_return_per_trade >= 0 ? "+" : ""}{formatNum(bt.avg_return_per_trade, 2)}%
-                                                        </p>
-                                                        {actualRange && (
-                                                            <div className="mt-0.5">
-                                                                <Egx30Comparison start={actualRange.start} end={actualRange.end} botReturn={profitPctValue} />
-                                                            </div>
-                                                        )}
-                                                    </div>
+                                                    <p className={`font-mono text-base font-black ${bt.avg_return_per_trade >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                                                        {bt.avg_return_per_trade >= 0 ? "+" : ""}{formatNum(bt.avg_return_per_trade, 2)}%
+                                                    </p>
                                                 </div>
                                             </div>
 
@@ -1313,7 +1340,23 @@ export default function AIScannerPage() {
                                                                         const exitD = t.Exit_Date || t.exit_date || t.Exit_Time || t.exit_time || t.features?.exit_date || "-";
                                                                         const entryP = Number(t.Entry_Price || t.entry_price || t.entry || 0);
                                                                         const exitP = Number(t.Exit_Price || t.exit_price || t.exit || 0);
-                                                                        const profitPct = Number(t.Profit_Loss_Pct ?? t.profit_loss_pct ?? t.pnl ?? t.profit_percent ?? t.profit ?? 0);
+                                                                        
+                                                                        const profitPct = (() => {
+                                                                            if (t.profit_percent !== undefined && t.profit_percent !== null) {
+                                                                                return Number(t.profit_percent);
+                                                                            }
+                                                                            if (t.pnl_pct !== undefined && t.pnl_pct !== null) {
+                                                                                return Number(t.pnl_pct) * 100;
+                                                                            }
+                                                                            if (t.profit_loss_pct !== undefined && t.profit_loss_pct !== null) {
+                                                                                return Number(t.profit_loss_pct) * 100;
+                                                                            }
+                                                                            if (t.Profit_Loss_Pct !== undefined && t.Profit_Loss_Pct !== null) {
+                                                                                return Number(t.Profit_Loss_Pct) * 100;
+                                                                            }
+                                                                            return Number(t.pnl ?? t.profit ?? 0);
+                                                                        })();
+                                                                        
                                                                         const st = t.features?.backtest_status || t.features?.Status || t.Status || t.status || "-";
                                                                         const isRejected = st === "Rejected";
 
@@ -1331,7 +1374,7 @@ export default function AIScannerPage() {
                                                                         }
 
                                                                         // Radar Score calculation
-                                                                        let radarScore = (t.features as any)?.radar_score ?? (t.features as any)?.ai_score ?? (t.features as any)?.score ?? (t as any)?.score ?? (t as any)?.Score;
+                                                                        let radarScore = (t as any)?.Radar_Score ?? (t as any)?.radar_score ?? (t.features as any)?.radar_score ?? (t.features as any)?.ai_score ?? (t.features as any)?.score ?? (t as any)?.score ?? (t as any)?.Score;
                                                                         let radarStr = "—";
                                                                         if (radarScore !== null && radarScore !== undefined && !Number.isNaN(Number(radarScore))) {
                                                                             const n = Number(radarScore);
@@ -1339,7 +1382,7 @@ export default function AIScannerPage() {
                                                                         }
 
                                                                         // Fund Score calculation
-                                                                        let fundScore = (t.features as any)?.fund_score ?? (t.features as any)?.fundamental_score ?? (t as any)?.Fund_Score ?? (t as any)?.fund_score ?? (t as any)?.Validator_Score;
+                                                                        let fundScore = (t as any)?.Fund_Score ?? (t as any)?.fund_score ?? (t.features as any)?.fund_score ?? (t.features as any)?.fundamental_score ?? (t as any)?.Validator_Score;
                                                                         let fundStr = "—";
                                                                         if (fundScore !== null && fundScore !== undefined && !Number.isNaN(Number(fundScore))) {
                                                                             const n = Number(fundScore);

@@ -138,6 +138,7 @@ def list_bots(user_id: Optional[str] = None, subscribed_only: bool = False):
             "is_subscribed": is_subscribed,
             "subscription_telegram_chat_id": sub_chat_id,
             "subscription_notifications_enabled": sub_notifications,
+            "started_at": bot._started_at,
             "timeframe": getattr(bot.config, "timeframe", "1Hour"),
             "target_pct": getattr(bot.config, "target_pct", 0.06),
             "stop_loss_pct": getattr(bot.config, "stop_loss_pct", 0.02),
