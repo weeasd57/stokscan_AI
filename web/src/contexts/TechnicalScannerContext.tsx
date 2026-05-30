@@ -65,7 +65,7 @@ type TechnicalScannerContextType = {
   resetTechScanner: () => void;
 };
 
-const SESSION_KEY = "artoro_tech_scanner_v1";
+const SESSION_KEY = "egxbots_tech_scanner_v1";
 const CACHE_TTL_MS = 15 * 60 * 1000;
 
 const DEFAULT_STATE: TechScannerState = {

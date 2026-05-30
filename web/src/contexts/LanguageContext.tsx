@@ -14,7 +14,7 @@ interface LanguageContextType {
 const LanguageContext = createContext<LanguageContextType | undefined>(undefined);
 
 const translations: Record<string, Record<Language, string>> = {
-    "app.title": { en: "Artoro", ar: "Artoro" },
+    "app.title": { en: "EGX Bots", ar: "EGX Bots" },
     "app.subtitle": { 
         en: "AI-powered stock insights to help you spot opportunities with confidence", 
         ar: "رؤى الأسهم المدعومة بالذكاء الاصطناعي لمساعدتك على رصد الفرص الاستثمارية بثقة" 
