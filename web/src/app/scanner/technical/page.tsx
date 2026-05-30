@@ -258,7 +258,6 @@ export default function TechnicalScannerPage() {
         };
 
         const presets: Record<ScannerTemplateId, Partial<typeof baseUpdate>> = {
-            ai_growth: { useAiFilter: true, minAiPrecision: "0.65", aboveEma50: true },
             macd_cross: { goldenCross: true, aboveEma50: true },
             rsi_oversold: { rsiMax: "30" },
             volume_breakout: { volumeAboveSma20: true },
