@@ -17,6 +17,10 @@ export const metadata = {
     shortcut: "/favicon_io/favicon.ico?v=2",
     apple: "/favicon_io/apple-touch-icon.png?v=2",
   },
+  robots: {
+    index: true,
+    follow: true,
+  },
 };
 
 export default function RootLayout({
