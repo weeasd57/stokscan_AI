@@ -7,6 +7,7 @@ import { getBacktests, getBacktestTrades } from "@/lib/api";
 import { useLanguage } from "@/contexts/LanguageContext";
 import StockLogo from "@/components/StockLogo";
 import Link from "next/link";
+import Image from "next/image";
 import { useSearchParams } from "next/navigation";
 import { TradeTimeline } from "@/app/admin/components/TradeTimeline";
 
@@ -448,12 +449,14 @@ export default function AIScannerPage() {
         <div className="mx-auto max-w-[1400px] w-full px-4 py-8 md:px-6 md:py-12 mt-20 min-h-[calc(100vh-200px)]">
             {/* Header Banner */}
             <div className="relative overflow-hidden rounded-[2.5rem] border border-white/10 bg-gradient-to-tr from-zinc-950 via-zinc-900 to-zinc-950 p-8 md:p-12 mb-10 shadow-2xl shadow-indigo-500/5">
-                <div className="absolute top-0 right-0 p-8 opacity-10 pointer-events-none">
-                    {activeTab === "backtests" ? (
-                        <BarChart2 className="w-48 h-48 text-indigo-500" />
-                    ) : (
-                        <Brain className="w-48 h-48 text-indigo-500" />
-                    )}
+                <div className="absolute top-1/2 -translate-y-1/2 right-12 opacity-10 pointer-events-none hidden md:block">
+                    <Image
+                        src="/favicon_io/apple-touch-icon.png"
+                        alt="EGX Bots logo"
+                        width={200}
+                        height={200}
+                        className="object-contain"
+                    />
                 </div>
                 <div className="relative z-10 max-w-2xl space-y-4">
                     <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/25 text-indigo-400 text-xs font-black uppercase tracking-wider">
