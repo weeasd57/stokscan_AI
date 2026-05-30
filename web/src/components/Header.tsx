@@ -45,16 +45,15 @@ export default function Header() {
                     {/* Brand / Logo */}
                     <div className="flex items-center gap-6">
                         <Link href="/scanner/ai" className="group flex items-center gap-3">
-                            <div className="relative flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-tr from-blue-600 via-indigo-600 to-violet-600 shadow-xl shadow-blue-500/20 transition-all duration-500 group-hover:rotate-12 group-hover:scale-110">
+                            <div className="relative transition-all duration-500 group-hover:rotate-12 group-hover:scale-110">
                                 <Image
                                     src="/favicon_io/apple-touch-icon.png"
                                     alt="EGX Bots logo"
-                                    width={20}
-                                    height={20}
-                                    className="rounded-lg"
+                                    width={44}
+                                    height={44}
+                                    className="object-contain"
                                     priority
                                 />
-                                <div className="absolute inset-0 rounded-xl bg-white/20 opacity-0 transition-opacity group-hover:opacity-100" />
                             </div>
                             <div className="flex flex-col min-w-0 sm:flex header-title">
                                 <span className="text-base font-bold tracking-tight text-white leading-tight truncate">
