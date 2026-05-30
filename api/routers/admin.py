@@ -2129,7 +2129,7 @@ def _rename_local_model(model_name: str, req: RenameModelRequest):
             except Exception:
                 pass
 
-        # Update model name in Supabase scan_results best-effort
+        # Update model name in Supabase scan_results and backtests best-effort
         try:
             from api.stock_ai import _init_supabase, supabase
             _init_supabase()
@@ -2137,9 +2137,62 @@ def _rename_local_model(model_name: str, req: RenameModelRequest):
                 def _update_scan_results(sb):
                     return sb.table("scan_results").update({"model_name": new_name}).eq("model_name", model_name).execute()
                 _supabase_read_with_retry(_update_scan_results, table_name="scan_results")
+                
+                def _update_backtests(sb):
+                    return sb.table("backtests").update({"model_name": new_name}).eq("model_name", model_name).execute()
+                _supabase_read_with_retry(_update_backtests, table_name="backtests")
         except Exception as e:
-            print(f"Warning: failed to update scan_results model_name: {e}")
-            
+            print(f"Warning: failed to update Supabase records: {e}")
+
+        # Update local backtest JSON files in backtests_local
+        try:
+            project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+            backtests_local_dir = os.path.join(project_root, "backtests_local")
+            if os.path.exists(backtests_local_dir):
+                old_clean = model_name.replace(" ", "_")
+                new_clean = new_name.replace(" ", "_")
+                for filename in os.listdir(backtests_local_dir):
+                    if old_clean in filename or model_name in filename:
+                        filepath = os.path.join(backtests_local_dir, filename)
+                        updated_content = None
+                        try:
+                            with open(filepath, "r", encoding="utf-8") as f:
+                                data = json.load(f)
+                            if isinstance(data, dict):
+                                changed = False
+                                if data.get("model") == model_name:
+                                    data["model"] = new_name
+                                    changed = True
+                                if data.get("model_name") == model_name:
+                                    data["model_name"] = new_name
+                                    changed = True
+                                if "result" in data and isinstance(data["result"], dict):
+                                    if data["result"].get("model_name") == model_name:
+                                        data["result"]["model_name"] = new_name
+                                        changed = True
+                                if changed:
+                                    updated_content = data
+                        except Exception as json_err:
+                            print(f"Warning: failed to read/parse local backtest file {filename}: {json_err}")
+                        
+                        if updated_content is not None:
+                            try:
+                                with open(filepath, "w", encoding="utf-8") as f:
+                                    json.dump(updated_content, f, ensure_ascii=False, indent=2)
+                            except Exception as write_err:
+                                print(f"Warning: failed to write back local backtest file {filename}: {write_err}")
+                        
+                        # Rename the file itself
+                        new_filename = filename.replace(old_clean, new_clean).replace(model_name, new_name)
+                        new_filepath = os.path.join(backtests_local_dir, new_filename)
+                        if filepath != new_filepath and not os.path.exists(new_filepath):
+                            try:
+                                os.rename(filepath, new_filepath)
+                            except Exception as rename_err:
+                                print(f"Warning: failed to rename local backtest file {filename}: {rename_err}")
+        except Exception as e:
+            print(f"Warning: failed to update local backtest files: {e}")
+
         return {"status": "success", "message": f"Model renamed to {new_name}"}
         
     except HTTPException:

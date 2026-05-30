@@ -1,5 +1,5 @@
 {
-  "model": "NEW_MODEL.pkl",
+  "model": "NANO.pkl",
   "exchange": "EGX",
   "start_date": "2025-01-01",
   "end_date": "2025-11-01",
@@ -5530,5 +5530,5 @@
     }
   ],
   "status": "completed",
-  "saved_at": "2026-05-25T20:38:34.673102"
+  "saved_at": "2026-05-25T20:40:01.059463"
 }
