@@ -4,7 +4,6 @@ import { ArrowUpRight, Shield, Sparkles } from "lucide-react";
 import { useLanguage } from "@/contexts/LanguageContext";
 
 export type ScannerTemplateId =
-  | "ai_growth"
   | "macd_cross"
   | "rsi_oversold"
   | "volume_breakout"
@@ -18,14 +17,6 @@ const templates: Array<{
   gradient: string;
   accent: string;
 }> = [
-  {
-    id: "ai_growth",
-    titleKey: "scanner.templates.ai_growth.title",
-    descKey: "scanner.templates.ai_growth.desc",
-    riskKey: "scanner.templates.risk.medium",
-    gradient: "from-indigo-500/20 via-purple-500/10 to-transparent",
-    accent: "text-indigo-300",
-  },
   {
     id: "macd_cross",
     titleKey: "scanner.templates.macd_cross.title",
