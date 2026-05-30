@@ -47,7 +47,7 @@ export default function Header() {
                         <Link href="/scanner/ai" className="group flex items-center gap-3">
                             <div className="relative transition-all duration-500 group-hover:rotate-12 group-hover:scale-110">
                                 <Image
-                                    src="/favicon_io/apple-touch-icon.png"
+                                    src="/favicon_io/apple-touch-icon.png?v=2"
                                     alt="EGX Bots logo"
                                     width={44}
                                     height={44}
