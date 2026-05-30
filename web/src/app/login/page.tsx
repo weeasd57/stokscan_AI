@@ -28,14 +28,16 @@ export default function LoginPage() {
         setError(res.error);
         return;
       }
-      router.push("/admin");
+      const isAdmin = res.user?.app_metadata?.role === "admin" || res.user?.email === "weeeessd57@gmail.com";
+      router.push(isAdmin ? "/admin" : "/scanner/technical");
     } finally {
       setSubmitting(false);
     }
   }
 
   if (!loading && user) {
-    router.replace("/admin");
+    const isAdmin = user.app_metadata?.role === "admin" || user.email === "weeeessd57@gmail.com";
+    router.replace(isAdmin ? "/admin" : "/scanner/technical");
     return null;
   }
 
