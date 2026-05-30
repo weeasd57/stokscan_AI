@@ -2057,6 +2057,104 @@ def delete_local_model(model_name: str):
 def delete_local_model_from_train(model_name: str):
     return _delete_local_model(model_name)
 
+class RenameModelRequest(BaseModel):
+    new_name: str
+
+def _rename_local_model(model_name: str, req: RenameModelRequest):
+    """Rename a local model file and its corresponding model card."""
+    try:
+        # Validate filenames to prevent path traversal
+        if ".." in model_name or "/" in model_name or "\\" in model_name:
+            raise HTTPException(status_code=400, detail="Invalid model name")
+        
+        new_name = req.new_name
+        if ".." in new_name or "/" in new_name or "\\" in new_name:
+            raise HTTPException(status_code=400, detail="Invalid new model name")
+            
+        if not model_name.endswith(".pkl") or not new_name.endswith(".pkl"):
+            raise HTTPException(status_code=400, detail="Model names must end with .pkl")
+            
+        models_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "models"))
+        # Fallback to absolute cwd-based path if needed
+        if not os.path.exists(models_dir):
+            models_dir = os.path.join(os.getcwd(), "api", "models")
+            
+        old_filepath = os.path.join(models_dir, model_name)
+        new_filepath = os.path.join(models_dir, new_name)
+        
+        # Ensure the filepaths are within models_dir
+        if not os.path.abspath(old_filepath).startswith(models_dir) or not os.path.abspath(new_filepath).startswith(models_dir):
+            raise HTTPException(status_code=400, detail="Invalid model path")
+            
+        if not os.path.exists(old_filepath):
+            raise HTTPException(status_code=404, detail="Model not found")
+            
+        if os.path.exists(new_filepath):
+            raise HTTPException(status_code=409, detail="A model with the new name already exists")
+            
+        # Rename the main .pkl file
+        os.rename(old_filepath, new_filepath)
+        
+        # Rename corresponding model card if it exists
+        old_card_path = os.path.join(models_dir, f"{model_name}.model_card.json")
+        new_card_path = os.path.join(models_dir, f"{new_name}.model_card.json")
+        if os.path.exists(old_card_path):
+            try:
+                os.rename(old_card_path, new_card_path)
+                # Also edit the model name INSIDE the model card JSON
+                with open(new_card_path, "r", encoding="utf-8") as f:
+                    card_data = json.load(f)
+                if isinstance(card_data, dict):
+                    card_data["model_name"] = new_name
+                    with open(new_card_path, "w", encoding="utf-8") as f:
+                        json.dump(card_data, f, ensure_ascii=False, indent=2)
+            except Exception as e:
+                print(f"Warning: failed to update model name inside card JSON: {e}")
+                
+        # Rename meta.json file if it exists
+        old_meta_path = os.path.join(models_dir, f"{model_name}.meta.json")
+        new_meta_path = os.path.join(models_dir, f"{new_name}.meta.json")
+        if os.path.exists(old_meta_path):
+            try:
+                os.rename(old_meta_path, new_meta_path)
+            except Exception:
+                pass
+            
+        # Rename features.json file if it exists
+        old_features_path = os.path.join(models_dir, f"{model_name}.features.json")
+        new_features_path = os.path.join(models_dir, f"{new_name}.features.json")
+        if os.path.exists(old_features_path):
+            try:
+                os.rename(old_features_path, new_features_path)
+            except Exception:
+                pass
+
+        # Update model name in Supabase scan_results best-effort
+        try:
+            from api.stock_ai import _init_supabase, supabase
+            _init_supabase()
+            if supabase:
+                def _update_scan_results(sb):
+                    return sb.table("scan_results").update({"model_name": new_name}).eq("model_name", model_name).execute()
+                _supabase_read_with_retry(_update_scan_results, table_name="scan_results")
+        except Exception as e:
+            print(f"Warning: failed to update scan_results model_name: {e}")
+            
+        return {"status": "success", "message": f"Model renamed to {new_name}"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/models/{model_name}/rename")
+def rename_local_model(model_name: str, req: RenameModelRequest):
+    return _rename_local_model(model_name, req)
+
+@router.post("/train/models/{model_name}/rename")
+def rename_local_model_from_train(model_name: str, req: RenameModelRequest):
+    return _rename_local_model(model_name, req)
+
 @router.post("/ai-brain/simulate")
 def simulate_ai_decision(req: AISimulateRequest):
     try:

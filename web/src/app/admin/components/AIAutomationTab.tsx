@@ -1,6 +1,6 @@
 "use client";
 
-import { Zap, ChevronDown, Check, Loader2, Download, Database, Info, History, Trash2, TrendingUp, Clock, Sparkles } from "lucide-react";
+import { Zap, ChevronDown, Check, Loader2, Download, Database, Info, History, Trash2, TrendingUp, Clock, Sparkles, Edit, X } from "lucide-react";
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts";
 import { useState, useEffect, useMemo } from "react";
 import { type Asset, type CryptoSupabaseStats, getCryptoSupabaseStats } from "@/lib/api";
@@ -95,6 +95,45 @@ export default function AIAutomationTab({
     const [localModels, setLocalModels] = useState<LocalModel[]>([]);
     const [loadingLocalModels, setLoadingLocalModels] = useState<boolean>(false);
     const [deletingModels, setDeletingModels] = useState<Set<string>>(new Set());
+
+    // Model renaming states
+    const [renamingModelName, setRenamingModelName] = useState<string | null>(null);
+    const [newModelNameInput, setNewModelNameInput] = useState<string>("");
+    const [isRenaming, setIsRenaming] = useState<boolean>(false);
+
+    const handleRenameModel = async (oldName: string) => {
+        if (!newModelNameInput.trim() || newModelNameInput === oldName) return;
+        
+        let newName = newModelNameInput.trim();
+        if (!newName.endsWith(".pkl")) {
+            newName += ".pkl";
+        }
+
+        setIsRenaming(true);
+        try {
+            const res = await fetch(`/api/admin/models/${encodeURIComponent(oldName)}/rename`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ new_name: newName }),
+            });
+
+            if (res.ok) {
+                toast.success("Model renamed successfully", {
+                    description: `${oldName} -> ${newName}`
+                });
+                setRenamingModelName(null);
+                await fetchLocalModels();
+                fetchTrainedModels();
+            } else {
+                const errData = await res.json();
+                toast.error(errData.detail || "Failed to rename model");
+            }
+        } catch (err) {
+            toast.error("Connection error during rename");
+        } finally {
+            setIsRenaming(false);
+        }
+    };
 
     // Adaptive Learning State
     const [selectedAdaptiveModel, setSelectedAdaptiveModel] = useState<string | null>(null);
@@ -597,22 +636,68 @@ export default function AIAutomationTab({
                                                 <div className="p-3 rounded-2xl bg-zinc-900 text-zinc-500 group-hover:bg-indigo-500/10 group-hover:text-indigo-400 transition-all">
                                                     <Database className="w-6 h-6" />
                                                 </div>
-                                                <button
-                                                    onClick={() => deleteLocalModel(model.name)}
-                                                    disabled={deletingModels.has(model.name)}
-                                                    className="p-3 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-500 hover:bg-red-600/20 hover:text-red-400 hover:border-red-600/50 transition-all disabled:opacity-50"
-                                                >
-                                                    {deletingModels.has(model.name) ? (
-                                                        <Loader2 className="w-4 h-4 animate-spin" />
-                                                    ) : (
-                                                        <Trash2 className="w-4 h-4" />
-                                                    )}
-                                                </button>
+                                                <div className="flex items-center gap-2">
+                                                    <button
+                                                        onClick={() => {
+                                                            setRenamingModelName(model.name);
+                                                            setNewModelNameInput(model.name);
+                                                        }}
+                                                        disabled={isRenaming || deletingModels.has(model.name)}
+                                                        className="p-3 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-500 hover:bg-indigo-600/20 hover:text-indigo-400 hover:border-indigo-600/50 transition-all disabled:opacity-50"
+                                                        title="Rename Model"
+                                                    >
+                                                        <Edit className="w-4 h-4" />
+                                                    </button>
+                                                    <button
+                                                        onClick={() => deleteLocalModel(model.name)}
+                                                        disabled={deletingModels.has(model.name) || isRenaming}
+                                                        className="p-3 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-500 hover:bg-red-600/20 hover:text-red-400 hover:border-red-600/50 transition-all disabled:opacity-50"
+                                                    >
+                                                        {deletingModels.has(model.name) ? (
+                                                            <Loader2 className="w-4 h-4 animate-spin" />
+                                                        ) : (
+                                                            <Trash2 className="w-4 h-4" />
+                                                        )}
+                                                    </button>
+                                                </div>
                                             </div>
                                             <div className="min-w-0">
-                                                <div className="text-base font-black text-zinc-100 truncate">{model.name}</div>
-                                                {model.exchange && (
-                                                    <div className="text-[10px] text-indigo-400 uppercase font-black tracking-widest mt-1">{model.exchange}</div>
+                                                {renamingModelName === model.name ? (
+                                                    <div className="flex items-center gap-2 mt-1">
+                                                        <input
+                                                            type="text"
+                                                            value={newModelNameInput}
+                                                            onChange={(e) => setNewModelNameInput(e.target.value)}
+                                                            className="flex-1 h-9 px-2 rounded-lg bg-zinc-950 border border-zinc-800 text-sm text-zinc-100 focus:outline-none focus:border-indigo-500 font-mono"
+                                                            placeholder="New name..."
+                                                            disabled={isRenaming}
+                                                        />
+                                                        <button
+                                                            onClick={() => handleRenameModel(model.name)}
+                                                            disabled={isRenaming || !newModelNameInput.trim() || newModelNameInput === model.name}
+                                                            className="h-9 px-3 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition-all disabled:opacity-50 flex items-center justify-center shrink-0"
+                                                        >
+                                                            {isRenaming ? (
+                                                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                                            ) : (
+                                                                <Check className="w-3.5 h-3.5" />
+                                                            )}
+                                                        </button>
+                                                        <button
+                                                            onClick={() => setRenamingModelName(null)}
+                                                            disabled={isRenaming}
+                                                            className="h-9 w-9 flex items-center justify-center rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white transition-all shrink-0"
+                                                        >
+                                                            <X className="w-3.5 h-3.5" />
+                                                        </button>
+                                                    </div>
+                                                ) : (
+                                                    <>
+                                                        <div className="text-base font-black text-zinc-100 truncate">{model.name}</div>
+                                                        {model.exchange && (
+                                                            <div className="text-[10px] text-indigo-400 uppercase font-black tracking-widest mt-1">{model.exchange}</div>
+                                                        )}
+                                                    </>
                                                 )}
                                             </div>
                                             <div className="grid grid-cols-2 gap-2">
