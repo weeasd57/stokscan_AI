@@ -271,6 +271,12 @@ export default function AIScannerPage() {
     const [loadedTrades, setLoadedTrades] = useState<Record<string, any[]>>({});
     const [tradesLoadingMap, setTradesLoadingMap] = useState<Record<string, boolean>>({});
 
+    // Filters and Sorting states for Backtests tab
+    const [backtestSearchQuery, setBacktestSearchQuery] = useState("");
+    const [backtestModelFilter, setBacktestModelFilter] = useState("All");
+    const [backtestSortBy, setBacktestSortBy] = useState("date"); // "date" | "net_profit" | "win_rate" | "total_trades"
+    const [backtestSortOrder, setBacktestSortOrder] = useState<"asc" | "desc">("desc");
+
     const handleToggleExpand = async (btId: string) => {
         if (expandedBacktestId === btId) {
             setExpandedBacktestId(null);
@@ -414,13 +420,69 @@ export default function AIScannerPage() {
         }
     };
 
-    // Filtered Backtests - ONLY Egypt (EGX)
-    const egxBacktests = useMemo(() => {
-        return backtests.filter(b => {
+    // Unique model names in Egypt backtests for the filter dropdown
+    const uniqueBacktestModels = useMemo(() => {
+        const models = new Set<string>();
+        backtests.forEach(b => {
             const ex = b.exchange?.toUpperCase();
-            return (b.is_public === true) && (ex === "EGX" || ex === "EG" || ex === "CA");
+            const isEgypt = (b.is_public === true) && (ex === "EGX" || ex === "EG" || ex === "CA");
+            if (isEgypt && b.model_name) {
+                models.add(b.model_name.replace(".pkl", ""));
+            }
         });
+        return Array.from(models).sort();
     }, [backtests]);
+
+    // Filtered and Sorted Backtests - ONLY Egypt (EGX)
+    const egxBacktests = useMemo(() => {
+        let list = backtests.filter(b => {
+            const ex = b.exchange?.toUpperCase();
+            const isEgypt = (b.is_public === true) && (ex === "EGX" || ex === "EG" || ex === "CA");
+            if (!isEgypt) return false;
+
+            // Model Filter
+            if (backtestModelFilter !== "All") {
+                const name = b.model_name?.replace(".pkl", "") || "";
+                if (name !== backtestModelFilter) return false;
+            }
+
+            // Search Query
+            if (backtestSearchQuery) {
+                const q = backtestSearchQuery.toLowerCase();
+                const name = (b.model_name || "").toLowerCase();
+                const id = (b.id || "").toLowerCase();
+                if (!name.includes(q) && !id.includes(q)) return false;
+            }
+
+            return true;
+        });
+
+        // Sorting
+        list.sort((a, b) => {
+            let valA: any = 0;
+            let valB: any = 0;
+
+            if (backtestSortBy === "net_profit") {
+                valA = a.profit_pct ?? a.post_council_profit_pct ?? a.net_profit ?? 0;
+                valB = b.profit_pct ?? b.post_council_profit_pct ?? b.net_profit ?? 0;
+            } else if (backtestSortBy === "win_rate") {
+                valA = a.win_rate ?? 0;
+                valB = b.win_rate ?? 0;
+            } else if (backtestSortBy === "total_trades") {
+                valA = a.total_trades ?? 0;
+                valB = b.total_trades ?? 0;
+            } else if (backtestSortBy === "date") {
+                valA = new Date(a.created_at || 0).getTime();
+                valB = new Date(b.created_at || 0).getTime();
+            }
+
+            if (valA < valB) return backtestSortOrder === "desc" ? 1 : -1;
+            if (valA > valB) return backtestSortOrder === "desc" ? -1 : 1;
+            return 0;
+        });
+
+        return list;
+    }, [backtests, backtestModelFilter, backtestSearchQuery, backtestSortBy, backtestSortOrder]);
 
     const formatNum = (val: number | undefined | null, decimals = 2) => {
         if (val === undefined || val === null || isNaN(val)) return "0.00";
@@ -1052,6 +1114,58 @@ export default function AIScannerPage() {
             {/* TAB CONTENT: BACKTESTS */}
             {activeTab === "backtests" && (
                 <div className="space-y-6" dir="ltr" style={{ direction: 'ltr', unicodeBidi: 'isolate' }}>
+                    {/* Filters and Sorting Bar */}
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-4 rounded-[2rem] bg-zinc-900/30 border border-white/5 backdrop-blur-xl mb-6">
+                        <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
+                            {/* Search Query */}
+                            <div className="relative flex-1 sm:flex-initial min-w-[220px]">
+                                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
+                                <input
+                                    type="text"
+                                    placeholder={language === "ar" ? "ابحث باسم الموديل أو المعرّف..." : "Search by model name or run ID..."}
+                                    value={backtestSearchQuery}
+                                    onChange={(e) => setBacktestSearchQuery(e.target.value)}
+                                    className="w-full h-10 pl-10 pr-4 rounded-xl bg-zinc-950/60 border border-white/5 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-indigo-500/50 transition-colors"
+                                />
+                            </div>
+
+                            {/* Model Name Selector */}
+                            <select
+                                value={backtestModelFilter}
+                                onChange={(e) => setBacktestModelFilter(e.target.value)}
+                                className="h-10 px-3 rounded-xl bg-zinc-950/60 border border-white/5 text-xs text-zinc-300 focus:outline-none focus:border-indigo-500/50 cursor-pointer"
+                            >
+                                <option value="All">{language === "ar" ? "كل الموديلات" : "All Models"}</option>
+                                {uniqueBacktestModels.map(name => (
+                                    <option key={name} value={name}>{name}</option>
+                                ))}
+                            </select>
+                        </div>
+
+                        <div className="flex items-center gap-2 shrink-0 w-full md:w-auto justify-end">
+                            {/* Sort Param */}
+                            <select
+                                value={backtestSortBy}
+                                onChange={(e) => setBacktestSortBy(e.target.value)}
+                                className="h-10 px-3 rounded-xl bg-zinc-950/60 border border-white/5 text-xs text-zinc-300 focus:outline-none focus:border-indigo-500/50 cursor-pointer"
+                            >
+                                <option value="date">{language === "ar" ? "ترتيب بالتاريخ" : "Sort by Date"}</option>
+                                <option value="net_profit">{language === "ar" ? "ترتيب بصافي الأرباح" : "Sort by Net Profit"}</option>
+                                <option value="win_rate">{language === "ar" ? "ترتيب بنسبة النجاح" : "Sort by Win Rate"}</option>
+                                <option value="total_trades">{language === "ar" ? "ترتيب بعدد الصفقات" : "Sort by Total Trades"}</option>
+                            </select>
+
+                            {/* Sort Order Toggle */}
+                            <button
+                                onClick={() => setBacktestSortOrder(backtestSortOrder === "desc" ? "asc" : "desc")}
+                                className="h-10 w-10 flex items-center justify-center rounded-xl bg-zinc-950/60 border border-white/5 text-zinc-400 hover:text-white hover:border-white/20 transition-all active:scale-95 shrink-0"
+                                title={backtestSortOrder === "desc" ? (language === "ar" ? "تنازلي" : "Descending") : (language === "ar" ? "تصاعدي" : "Ascending")}
+                            >
+                                <ArrowRightLeft className={`w-4 h-4 transition-transform duration-300 ${backtestSortOrder === "desc" ? "rotate-90" : "-rotate-90"}`} />
+                            </button>
+                        </div>
+                    </div>
+
                     {backtestsLoading ? (
                         <div className="flex flex-col items-center justify-center py-20 gap-4">
                             <Loader2 className="w-10 h-10 animate-spin text-indigo-500" />
@@ -1062,9 +1176,29 @@ export default function AIScannerPage() {
                             {backtestsError}
                         </div>
                     ) : egxBacktests.length === 0 ? (
-                        <div className="p-12 text-center rounded-[2.5rem] border border-white/5 bg-zinc-950/20 text-zinc-600 font-bold uppercase tracking-wider">
-                            {t("backtest.no_results")}
-                        </div>
+                        backtestSearchQuery || backtestModelFilter !== "All" ? (
+                            <div className="p-12 text-center rounded-[2.5rem] border border-white/5 bg-zinc-950/20 text-zinc-500">
+                                <Database className="w-12 h-12 text-zinc-700 mx-auto mb-4" />
+                                <p className="font-bold uppercase tracking-wider text-xs mb-2">
+                                    {language === "ar" ? "لا توجد نتائج تطابق فلاتر البحث" : "No backtest results match filters"}
+                                </p>
+                                <button
+                                    onClick={() => {
+                                        setBacktestSearchQuery("");
+                                        setBacktestModelFilter("All");
+                                        setBacktestSortBy("date");
+                                        setBacktestSortOrder("desc");
+                                    }}
+                                    className="px-4 py-2 mt-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition-all active:scale-95"
+                                >
+                                    {language === "ar" ? "إعادة تعيين الفلاتر" : "Reset Filters"}
+                                </button>
+                            </div>
+                        ) : (
+                            <div className="p-12 text-center rounded-[2.5rem] border border-white/5 bg-zinc-950/20 text-zinc-600 font-bold uppercase tracking-wider">
+                                {t("backtest.no_results")}
+                            </div>
+                        )
                     ) : (
                         <div className="space-y-6">
                             {egxBacktests.map((bt) => {
