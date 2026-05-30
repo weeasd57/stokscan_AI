@@ -451,7 +451,7 @@ export default function AIScannerPage() {
             <div className="relative overflow-hidden rounded-[2.5rem] border border-white/10 bg-gradient-to-tr from-zinc-950 via-zinc-900 to-zinc-950 p-8 md:p-12 mb-10 shadow-2xl shadow-indigo-500/5">
                 <div className="absolute top-1/2 -translate-y-1/2 right-12 opacity-10 pointer-events-none hidden md:block">
                     <Image
-                        src="/favicon_io/apple-touch-icon.png"
+                        src="/favicon_io/apple-touch-icon.png?v=2"
                         alt="EGX Bots logo"
                         width={200}
                         height={200}
