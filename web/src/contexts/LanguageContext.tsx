@@ -332,7 +332,7 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
         document.documentElement.lang = lang;
     };
 
-    const dir = "ltr" as const;
+    const dir = "ltr";
 
     const t = (key: string) => {
         const entry = translations[key];
