@@ -51,6 +51,8 @@ export type TechScannerState = {
   minPrice: string;
   useAiFilter: boolean;
   minAiPrecision: string;
+  activeSymbol: string | null;
+  chartHeight: number;
 };
 
 type TechnicalScannerContextType = {
@@ -99,6 +101,8 @@ const DEFAULT_STATE: TechScannerState = {
   minPrice: "",
   useAiFilter: false,
   minAiPrecision: "0.6",
+  activeSymbol: null,
+  chartHeight: 450,
 };
 
 const TechnicalScannerContext = createContext<TechnicalScannerContextType | undefined>(undefined);

@@ -484,6 +484,71 @@ export default function AIScannerPage() {
         return list;
     }, [backtests, backtestModelFilter, backtestSearchQuery, backtestSortBy, backtestSortOrder]);
 
+    const modelStats = useMemo(() => {
+        const stats: Record<string, {
+            modelName: string;
+            totalRuns: number;
+            totalTrades: number;
+            totalWinRate: number;
+            totalProfitPct: number;
+            totalWeightedReturn: number;
+        }> = {};
+
+        backtests.forEach(b => {
+            const ex = b.exchange?.toUpperCase();
+            const isEgypt = (b.is_public === true) && (ex === "EGX" || ex === "EG" || ex === "CA");
+            if (!isEgypt) return;
+
+            const nameUpper = (b.model_name || "").toUpperCase();
+            let groupKey = "";
+            if (nameUpper.includes("KING")) {
+                groupKey = "KING";
+            } else if (nameUpper.includes("NANO") || nameUpper.includes("NEW_MODEL")) {
+                groupKey = "NANO";
+            } else {
+                return;
+            }
+
+            if (!stats[groupKey]) {
+                stats[groupKey] = {
+                    modelName: groupKey,
+                    totalRuns: 0,
+                    totalTrades: 0,
+                    totalWinRate: 0,
+                    totalProfitPct: 0,
+                    totalWeightedReturn: 0
+                };
+            }
+
+            const profitPctValue = b.profit_pct ?? b.post_council_profit_pct ?? b.net_profit ?? 0;
+            const winRate = b.win_rate ?? 0;
+            const trades = b.total_trades ?? 0;
+            const avgReturn = b.avg_return_per_trade ?? 0;
+
+            const entry = stats[groupKey];
+            entry.totalRuns += 1;
+            entry.totalTrades += trades;
+            entry.totalWinRate += winRate;
+            entry.totalProfitPct += profitPctValue;
+            entry.totalWeightedReturn += avgReturn * trades;
+        });
+
+        return Object.values(stats).map(s => {
+            const avgWinRate = s.totalRuns > 0 ? s.totalWinRate / s.totalRuns : 0;
+            const avgProfitPct = s.totalRuns > 0 ? s.totalProfitPct / s.totalRuns : 0;
+            const avgReturnPerTrade = s.totalTrades > 0 ? s.totalWeightedReturn / s.totalTrades : 0;
+
+            return {
+                modelName: s.modelName,
+                totalRuns: s.totalRuns,
+                totalTrades: s.totalTrades,
+                winRate: avgWinRate,
+                netProfit: avgProfitPct,
+                avgReturnPerTrade: avgReturnPerTrade,
+            };
+        }).sort((a, b) => b.modelName.localeCompare(a.modelName)); // Sort KING first
+    }, [backtests]);
+
     const formatNum = (val: number | undefined | null, decimals = 2) => {
         if (val === undefined || val === null || isNaN(val)) return "0.00";
         return val.toLocaleString(undefined, { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
@@ -1114,6 +1179,108 @@ export default function AIScannerPage() {
             {/* TAB CONTENT: BACKTESTS */}
             {activeTab === "backtests" && (
                 <div className="space-y-6" dir="ltr" style={{ direction: 'ltr', unicodeBidi: 'isolate' }}>
+                    {/* Model Global History Statistics */}
+                    {modelStats.length > 0 && (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+                            {modelStats.map((stat) => {
+                                const isKing = stat.modelName === "KING";
+                                const logoUrl = isKing ? "/king_logo.jpg" : "/new_model_logo.jpg";
+                                
+                                return (
+                                    <div 
+                                        key={stat.modelName}
+                                        className="relative overflow-hidden rounded-[2rem] border border-white/5 bg-gradient-to-br from-zinc-950 to-zinc-900/40 p-6 shadow-2xl flex flex-col justify-between group"
+                                    >
+                                        {/* Background Logo Layer */}
+                                        <div 
+                                            className="absolute inset-0 bg-cover bg-center opacity-[0.05] pointer-events-none transition-transform duration-700 group-hover:scale-105" 
+                                            style={{ backgroundImage: `url('${logoUrl}')` }} 
+                                        />
+                                        
+                                        {/* Header */}
+                                        <div className="relative z-10 flex items-center justify-between mb-6">
+                                            <div className="flex items-center gap-3">
+                                                <div className={`p-2.5 rounded-xl border flex items-center justify-center shrink-0 ${
+                                                    isKing 
+                                                        ? "bg-amber-500/10 border-amber-500/25 text-amber-400" 
+                                                        : "bg-indigo-500/10 border-indigo-500/25 text-indigo-400"
+                                                }`}>
+                                                    {isKing ? <Brain className="w-5 h-5" /> : <Cpu className="w-5 h-5" />}
+                                                </div>
+                                                <div>
+                                                    <h3 className="text-sm md:text-base font-black text-white uppercase tracking-tight flex items-center gap-2">
+                                                        {stat.modelName === "KING" ? (language === "ar" ? "موديل KING الملكي" : "KING Model") : (language === "ar" ? "موديل NANO الذكي" : "NANO Model")}
+                                                        <span className={`text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-wider ${
+                                                            isKing ? "bg-amber-500/20 text-amber-400 border border-amber-500/20" : "bg-indigo-500/20 text-indigo-400 border border-indigo-500/20"
+                                                        }`}>
+                                                            {isKing ? (language === "ar" ? "مميز" : "Premium") : (language === "ar" ? "افتراضي" : "Lite")}
+                                                        </span>
+                                                    </h3>
+                                                    <p className="text-[9px] text-zinc-500 font-bold uppercase tracking-widest mt-0.5">
+                                                        {language === "ar" ? "إحصائيات الأداء التاريخي التراكمي" : "Cumulative Historical Performance Overview"}
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* Stats Grid */}
+                                        <div className="relative z-10 grid grid-cols-2 sm:grid-cols-5 gap-3 mt-auto">
+                                            {/* Runs */}
+                                            <div className="p-3 rounded-2xl bg-zinc-900/40 border border-white/5 flex flex-col justify-between shadow-inner">
+                                                <span className="text-[8px] font-bold text-zinc-500 uppercase tracking-wider mb-1">
+                                                    {t("backtest.stats.total_runs")}
+                                                </span>
+                                                <span className="font-mono text-sm font-black text-zinc-200">
+                                                    {stat.totalRuns}
+                                                </span>
+                                            </div>
+
+                                            {/* Trades */}
+                                            <div className="p-3 rounded-2xl bg-zinc-900/40 border border-white/5 flex flex-col justify-between shadow-inner">
+                                                <span className="text-[8px] font-bold text-zinc-500 uppercase tracking-wider mb-1">
+                                                    {t("backtest.stats.total_trades")}
+                                                </span>
+                                                <span className="font-mono text-sm font-black text-zinc-200">
+                                                    {stat.totalTrades}
+                                                </span>
+                                            </div>
+
+                                            {/* Win Rate */}
+                                            <div className="p-3 rounded-2xl bg-zinc-900/40 border border-white/5 flex flex-col justify-between shadow-inner">
+                                                <span className="text-[8px] font-bold text-zinc-500 uppercase tracking-wider mb-1">
+                                                    {t("backtest.stats.win_rate")}
+                                                </span>
+                                                <span className="font-mono text-sm font-black text-emerald-400">
+                                                    {stat.winRate.toFixed(1)}%
+                                                </span>
+                                            </div>
+
+                                            {/* Net Profit */}
+                                            <div className="p-3 rounded-2xl bg-zinc-900/40 border border-white/5 flex flex-col justify-between shadow-inner col-span-1 sm:col-span-1">
+                                                <span className="text-[8px] font-bold text-zinc-500 uppercase tracking-wider mb-1">
+                                                    {t("backtest.stats.avg_profit")}
+                                                </span>
+                                                <span className={`font-mono text-sm font-black ${stat.netProfit >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                                                    {stat.netProfit >= 0 ? "+" : ""}{stat.netProfit.toFixed(2)}%
+                                                </span>
+                                            </div>
+
+                                            {/* Avg Return */}
+                                            <div className="p-3 rounded-2xl bg-zinc-900/40 border border-white/5 flex flex-col justify-between shadow-inner col-span-2 sm:col-span-1">
+                                                <span className="text-[8px] font-bold text-zinc-500 uppercase tracking-wider mb-1">
+                                                    {t("backtest.stats.avg_return")}
+                                                </span>
+                                                <span className={`font-mono text-sm font-black ${stat.avgReturnPerTrade >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                                                    {stat.avgReturnPerTrade >= 0 ? "+" : ""}{stat.avgReturnPerTrade.toFixed(2)}%
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
+
                     {/* Filters and Sorting Bar */}
                     <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-4 rounded-[2rem] bg-zinc-900/30 border border-white/5 backdrop-blur-xl mb-6">
                         <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">

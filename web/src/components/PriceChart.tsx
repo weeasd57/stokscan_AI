@@ -79,6 +79,7 @@ export default function PriceChart({
             crosshair: { mode: CrosshairMode.Magnet },
             rightPriceScale: {
                 borderColor: "#27272a",
+                minimumWidth: 80,
             },
         };
 
@@ -342,19 +343,45 @@ export default function PriceChart({
             histSeries.setData(histData);
         }
 
-        // Sync time scales
+        // Sync time scales without feedback loop and with boundary clamping
+        let isSyncing = false;
         const allCharts = [mainChart, rsiChart, macdChart].filter(Boolean) as IChartApi[];
-        allCharts.forEach((chart, idx) => {
-            chart.timeScale().subscribeVisibleLogicalRangeChange((range) => {
-                if (range) {
+        if (allCharts.length >= 1) {
+            const totalBars = sortedRows.length;
+            allCharts.forEach((chart, idx) => {
+                chart.timeScale().subscribeVisibleLogicalRangeChange((range) => {
+                    if (isSyncing || !range) return;
+                    
+                    let from = range.from;
+                    let to = range.to;
+                    const width = to - from;
+                    
+                    const maxFrom = totalBars - 5;
+                    const minTo = 5;
+                    
+                    let needsClamping = false;
+                    if (from > maxFrom) {
+                        from = maxFrom as any;
+                        to = (from + width) as any;
+                        needsClamping = true;
+                    }
+                    if (to < minTo) {
+                        to = minTo as any;
+                        from = (to - width) as any;
+                        needsClamping = true;
+                    }
+                    
+                    isSyncing = true;
+                    const targetRange = needsClamping ? { from, to } : range;
                     allCharts.forEach((other, otherIdx) => {
-                        if (idx !== otherIdx) {
-                            other.timeScale().setVisibleLogicalRange(range);
+                        if (needsClamping || idx !== otherIdx) {
+                            other.timeScale().setVisibleLogicalRange(targetRange);
                         }
                     });
-                }
+                    isSyncing = false;
+                });
             });
-        });
+        }
 
         mainChart.timeScale().fitContent();
 
