@@ -18,6 +18,7 @@ import { getTechnicalAlerts, createTechnicalAlert, deleteTechnicalAlert, toggleT
 import type { TechResult } from "@/lib/api";
 import StockLogo from "@/components/StockLogo";
 import ScannerTemplates, { type ScannerTemplateId } from "@/components/ScannerTemplates";
+import TradingViewChart from "@/components/TradingViewChart";
 
 const DEFAULT_PILLS = ["price", "rsi", "marketcap", "sector"];
 
@@ -65,6 +66,9 @@ export default function TechnicalScannerPage() {
         error,
     } = useTechnicalScanner();
 
+    // Chart Active Symbol State
+    const [activeSymbol, setActiveSymbol] = useState("COMI");
+
     // Client-side Sorting State
     const [sortBy, setSortBy] = useState<string>("");
     const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
@@ -79,6 +83,7 @@ export default function TechnicalScannerPage() {
 
     // Active filter popover state
     const [activeFilterPopover, setActiveFilterPopover] = useState<string | null>(null);
+    const [popoverPosition, setPopoverPosition] = useState<{ top: number; left: number } | null>(null);
 
     // Alerts state
     const [alerts, setAlerts] = useState<TechnicalAlert[]>([]);
@@ -109,6 +114,16 @@ export default function TechnicalScannerPage() {
             return Array.from(merged);
         });
     }, [aboveEma50, aboveEma200, goldenCross, volumeAboveSma20, aboveVwap20, useAiFilter, industry, adxMin, adxMax, atrMin, atrMax, rocMin, rocMax]);
+
+    // Synchronize activeSymbol with loaded results
+    useEffect(() => {
+        if (results.length > 0) {
+            const exists = results.some(r => r.symbol === activeSymbol);
+            if (!exists) {
+                setActiveSymbol(results[0].symbol);
+            }
+        }
+    }, [results, activeSymbol]);
 
     // Sorting & Filtering memo
     const filteredResults = useMemo(() => {
@@ -1277,25 +1292,38 @@ export default function TechnicalScannerPage() {
                 <ScannerTemplates onSelect={applyTemplate} />
             </div>
 
-            {/* --- Horizontal Filter Pills Bar --- */}
-            <div className="flex items-center gap-2 px-4 py-2 border-b border-[#2a2e39] bg-[#131722] overflow-x-auto no-scrollbar scroll-smooth relative z-40">
-                {/* Country indicator (Pinned) */}
-                <div className="flex items-center gap-1.5 h-8 px-3 rounded bg-[#1c2030] border border-[#2a2e39] text-[11px] font-bold text-white shrink-0 uppercase tracking-wider">
-                    <Globe className="w-3.5 h-3.5 text-[#2962ff]" />
-                    <span>Egypt (EGX)</span>
-                </div>
+            {/* --- Horizontal Filter Pills Bar Wrapper (Fixed z-index and clipping wrapper) --- */}
+            <div className="relative filter-wrapper z-50">
+                <div className="flex items-center gap-2 px-4 py-2 border-b border-[#2a2e39] bg-[#131722] overflow-x-auto no-scrollbar scroll-smooth relative z-40">
+                    {/* Country indicator (Pinned) */}
+                    <div className="flex items-center gap-1.5 h-8 px-3 rounded bg-[#1c2030] border border-[#2a2e39] text-[11px] font-bold text-white shrink-0 uppercase tracking-wider">
+                        <Globe className="w-3.5 h-3.5 text-[#2962ff]" />
+                        <span>Egypt (EGX)</span>
+                    </div>
 
-                {/* Dynamic Filter Pills */}
-                {visibleFilters.map((filterId) => {
-                    const config = getFilterConfig(filterId);
-                    if (!config) return null;
-                    const isFilterActive = config.isActive;
-                    return (
-                        <div key={filterId} className="relative shrink-0">
+                    {/* Dynamic Filter Pills */}
+                    {visibleFilters.map((filterId) => {
+                        const config = getFilterConfig(filterId);
+                        if (!config) return null;
+                        const isFilterActive = config.isActive;
+                        return (
                             <button
-                                onClick={() => setActiveFilterPopover(activeFilterPopover === filterId ? null : filterId)}
+                                key={filterId}
+                                onClick={(e) => {
+                                    const rect = e.currentTarget.getBoundingClientRect();
+                                    const wrapper = e.currentTarget.closest(".filter-wrapper");
+                                    const wrapperRect = wrapper?.getBoundingClientRect();
+                                    if (wrapperRect) {
+                                        setPopoverPosition({
+                                            top: rect.bottom - wrapperRect.top,
+                                            left: Math.max(16, Math.min(rect.left - wrapperRect.left, wrapperRect.width - 270))
+                                        });
+                                    }
+                                    setActiveFilterPopover(activeFilterPopover === filterId ? null : filterId);
+                                    setShowAddFilterMenu(false);
+                                }}
                                 className={`
-                                    h-8 px-3 rounded border flex items-center gap-1.5 text-xs font-medium transition-all active:scale-95
+                                    h-8 px-3 rounded border flex items-center gap-1.5 text-xs font-medium transition-all active:scale-95 shrink-0
                                     ${isFilterActive
                                         ? "bg-[#2962ff]/10 border-[#2962ff]/30 text-[#2962ff] font-semibold"
                                         : "bg-[#1c2030] border-[#2a2e39] text-[#b2b5be] hover:text-[#d1d4dc] hover:bg-[#2a2e39]"}
@@ -1317,403 +1345,398 @@ export default function TechnicalScannerPage() {
                                     </span>
                                 )}
                             </button>
-                            {activeFilterPopover === filterId && (
-                                <div className="absolute top-full left-0 mt-2 p-4 bg-[#131722] border border-[#2a2e39] rounded shadow-2xl z-[150] w-64 space-y-3 animate-in fade-in slide-in-from-top-2 duration-200 text-left">
-                                    {config.renderPopover()}
-                                </div>
-                            )}
-                        </div>
-                    );
-                })}
+                        );
+                    })}
 
-                {/* '+' Add Filter Button */}
-                <div className="relative shrink-0">
+                    {/* '+' Add Filter Button */}
                     <button
-                        onClick={() => setShowAddFilterMenu(!showAddFilterMenu)}
-                        className="w-8 h-8 flex items-center justify-center rounded bg-[#1c2030] border border-[#2a2e39] text-[#b2b5be] hover:text-white hover:bg-[#2a2e39] transition-all active:scale-95"
+                        onClick={(e) => {
+                            const rect = e.currentTarget.getBoundingClientRect();
+                            const wrapper = e.currentTarget.closest(".filter-wrapper");
+                            const wrapperRect = wrapper?.getBoundingClientRect();
+                            if (wrapperRect) {
+                                setPopoverPosition({
+                                    top: rect.bottom - wrapperRect.top,
+                                    left: Math.max(16, Math.min(rect.left - wrapperRect.left, wrapperRect.width - 410))
+                                });
+                            }
+                            setShowAddFilterMenu(!showAddFilterMenu);
+                            setActiveFilterPopover(null);
+                        }}
+                        className="w-8 h-8 flex items-center justify-center rounded bg-[#1c2030] border border-[#2a2e39] text-[#b2b5be] hover:text-white hover:bg-[#2a2e39] transition-all active:scale-95 shrink-0"
                         title="Add Filter"
                     >
                         <Plus className="w-4 h-4" />
                     </button>
-                    {showAddFilterMenu && (
-                        <AddFilterPopover onClose={() => setShowAddFilterMenu(false)} />
+                    
+                    {/* Reset All filter pill if any is active */}
+                    {hasAnyActiveFilter && (
+                        <button
+                            onClick={handleResetFilters}
+                            className="h-8 px-2 flex items-center justify-center text-xs text-[#ef5350] hover:text-white transition-colors shrink-0 font-bold"
+                        >
+                            Clear All ({activeFiltersCount})
+                        </button>
                     )}
                 </div>
-                
-                {/* Reset All filter pill if any is active */}
-                {hasAnyActiveFilter && (
-                    <button
-                        onClick={handleResetFilters}
-                        className="h-8 px-2 flex items-center justify-center text-xs text-[#ef5350] hover:text-white transition-colors shrink-0 font-bold"
+
+                {/* Popovers rendered OUTSIDE of the overflow scrolling container */}
+                {activeFilterPopover && popoverPosition && (
+                    <div 
+                        className="absolute z-[150] p-4 bg-[#131722] border border-[#2a2e39] rounded shadow-2xl w-64 space-y-3 text-left mt-1"
+                        style={{ top: `${popoverPosition.top}px`, left: `${popoverPosition.left}px` }}
                     >
-                        Clear All ({activeFiltersCount})
-                    </button>
+                        {getFilterConfig(activeFilterPopover)?.renderPopover()}
+                    </div>
+                )}
+
+                {showAddFilterMenu && popoverPosition && (
+                    <div 
+                        className="absolute z-[150] mt-1"
+                        style={{ top: `${popoverPosition.top}px`, left: `${popoverPosition.left}px` }}
+                    >
+                        <AddFilterPopover onClose={() => setShowAddFilterMenu(false)} />
+                    </div>
                 )}
             </div>
 
-            {/* --- View Toolbar (Tab Switcher) --- */}
-            <div className="flex items-center justify-between px-4 py-2 border-b border-[#2a2e39] bg-[#0c0d12]">
-                <div className="flex items-center gap-1 overflow-x-auto no-scrollbar">
-                    {TABS.map((tab) => (
-                        <button
-                            key={tab.id}
-                            onClick={() => setTechScanner({ currentTab: tab.id as any })}
-                            className={`
-                                h-7 px-3 rounded text-[11px] font-bold tracking-wider uppercase transition-colors shrink-0
-                                ${currentTab === tab.id
-                                    ? "bg-[#2962ff] text-white font-black"
-                                    : "text-[#787b86] hover:text-[#d1d4dc] hover:bg-[#131722]"}
-                            `}
-                        >
-                            {tab.label}
-                        </button>
-                    ))}
-                </div>
-
-                <div className="text-[10px] font-bold text-[#787b86] uppercase tracking-wider hidden xs:block">
-                    {scannedCount > 0 && (
-                        <span>{filteredResults.length} of {scannedCount} matched</span>
-                    )}
-                </div>
-            </div>
-
-            {/* --- Results Table --- */}
-            <div className="flex-1 flex flex-col min-h-0 relative bg-[#0c0d12]">
-                <div className="flex-1 overflow-auto custom-scrollbar">
-                    {loading && results.length === 0 ? (
-                        <div className="flex h-full min-h-[400px] flex-col items-center justify-center gap-4">
-                            <Loader2 className="h-8 w-8 animate-spin text-[#2962ff]" />
-                            <div className="flex flex-col items-center gap-0.5">
-                                <p className="text-xs font-bold text-white uppercase tracking-widest animate-pulse">Scanning Egyptian Market</p>
-                                <p className="text-[9px] text-[#787b86] uppercase tracking-wider">Applying technical filters...</p>
-                            </div>
-                        </div>
-                    ) : results.length === 0 ? (
-                        <div className="flex h-full min-h-[400px] flex-col items-center justify-center gap-4 text-[#787b86]">
-                            <Database className="h-12 w-12 opacity-20" />
-                            <div className="text-center">
-                                <p className="text-sm font-bold text-white uppercase tracking-wider opacity-30">No Stocks Found</p>
-                                <p className="text-[10px] text-[#787b86] uppercase tracking-widest">Adjust filters and try again</p>
-                            </div>
-                        </div>
-                    ) : (
-                        <table className="w-full text-left text-sm whitespace-nowrap table-fixed border-collapse">
-                            <thead className="sticky top-0 z-20 bg-[#131722] text-[#787b86] shadow-md border-b border-[#2a2e39]">
-                                <tr>
-                                    {/* Sortable Symbol */}
-                                    <th 
-                                        className="w-64 px-8 py-3 text-left border-r border-[#2a2e39] border-b border-[#2a2e39] font-bold uppercase tracking-wider text-[11px] text-[#787b86] cursor-pointer hover:bg-[#1e222d] transition-colors"
-                                        onClick={() => handleSort("symbol")}
-                                    >
-                                        <div className="flex items-center gap-1 justify-start">
-                                            <span>Symbol</span>
-                                            {sortBy === "symbol" ? (
-                                                sortOrder === "asc" ? <ChevronUp className="w-3.5 h-3.5 text-[#2962ff]" /> : <ChevronDown className="w-3.5 h-3.5 text-[#2962ff]" />
-                                            ) : (
-                                                <ChevronDown className="w-3.5 h-3.5 text-[#787b86]/20 opacity-0 group-hover:opacity-100 transition-opacity" />
-                                            )}
-                                        </div>
-                                    </th>
-                                    
-                                    {/* Sortable Price */}
-                                    <SortableHeader label="Price" field="last_close" widthClass="w-32" />
-                                    
-                                    {/* Sortable Change */}
-                                    <SortableHeader label="Chg %" field="change_p" widthClass="w-32" />
-
-                                    {currentTab === 'overview' && (
-                                        <>
-                                            <SortableHeader label="Volume" field="volume" widthClass="w-32" />
-                                            <SortableHeader label="Mkt Cap" field="market_cap" widthClass="w-32" />
-                                            <SortableHeader label="P/E" field="pe_ratio" widthClass="w-28" />
-                                            <SortableHeader label="EPS" field="eps" widthClass="w-32" />
-                                            <th className="w-48 px-6 py-3 text-left border-b border-[#2a2e39] font-bold uppercase tracking-wider text-[11px] text-[#787b86]">Sector</th>
-                                        </>
-                                    )}
-                                    {currentTab === 'performance' && (
-                                        <>
-                                            <SortableHeader label="RSI" field="rsi" widthClass="w-32" align="center" />
-                                            <SortableHeader label="EMA 50" field="ema50" widthClass="w-32" />
-                                            <SortableHeader label="EMA 200" field="ema200" widthClass="w-32" />
-                                            <SortableHeader label="Momentum" field="momentum" widthClass="w-32" />
-                                            <SortableHeader label="ADX" field="adx14" widthClass="w-32" />
-                                            <SortableHeader label="ROC (12)" field="roc12" widthClass="w-32" />
-                                        </>
-                                    )}
-                                    {currentTab === 'dividends' && (
-                                        <>
-                                            <SortableHeader label="Yield %" field="dividend_yield" widthClass="w-32" />
-                                            <th className="w-48 px-6 py-3 text-left border-b border-[#2a2e39] font-bold uppercase tracking-wider text-[11px] text-[#787b86]">Industry</th>
-                                        </>
-                                    )}
-                                    {currentTab === 'valuation' && (
-                                        <>
-                                            <SortableHeader label="Mkt Cap" field="market_cap" widthClass="w-32" />
-                                            <SortableHeader label="P/E" field="pe_ratio" widthClass="w-32" />
-                                            <SortableHeader label="EPS" field="eps" widthClass="w-32" />
-                                            <SortableHeader label="Yield %" field="dividend_yield" widthClass="w-32" />
-                                        </>
-                                    )}
-                                    {currentTab === 'financials' && (
-                                        <>
-                                            <th className="w-48 px-6 py-3 text-left border-b border-[#2a2e39] font-bold uppercase tracking-wider text-[11px] text-[#787b86]">Sector</th>
-                                            <th className="w-48 px-6 py-3 text-left border-b border-[#2a2e39] font-bold uppercase tracking-wider text-[11px] text-[#787b86]">Industry</th>
-                                            <SortableHeader label="Mkt Cap" field="market_cap" widthClass="w-32" />
-                                        </>
-                                    )}
-                                    <th className="w-20 px-8 py-3 text-right border-b border-[#2a2e39] font-bold uppercase tracking-wider text-[11px] text-[#787b86]">Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-[#2a2e39]">
-                                {pagedResults.map((r) => (
-                                    <tr
-                                        key={r.symbol}
-                                        onClick={() => setTechScanner({ selectedStock: r })}
-                                        className={`
-                                            group transition-all duration-150 cursor-pointer
-                                            ${selectedStock?.symbol === r.symbol ? "bg-[#2962ff]/10" : "hover:bg-[#1e222d] bg-transparent"}
-                                        `}
-                                    >
-                                        <td className="px-8 py-4 border-r border-[#2a2e39]">
-                                            <div className="flex items-center gap-4">
-                                                <StockLogo symbol={r.symbol} logoUrl={r.logo_url} size="md" />
-                                                <div className="flex flex-col min-w-0">
-                                                    <span className="font-bold text-white text-sm group-hover:text-[#2962ff] transition-colors uppercase tracking-tight">{r.symbol}</span>
-                                                    <span className="text-[10px] text-[#787b86] font-semibold uppercase tracking-wider truncate">{r.name || 'Unknown'}</span>
+            {/* --- Main Workspace (TradingView Split Screen Layout) --- */}
+            <div className="flex-1 min-h-0 flex flex-col lg:flex-row">
+                
+                {/* --- Left Pane: TradingView Advanced Chart & Dynamic Info Panel --- */}
+                <div className="w-full lg:w-[60%] border-r border-[#2a2e39] flex flex-col min-h-[500px] lg:min-h-0 bg-[#131722]">
+                    {/* Active Stock details header */}
+                    {activeSymbol ? (
+                        (() => {
+                            const currentStock = results.find(r => r.symbol === activeSymbol) || results[0];
+                            return (
+                                <>
+                                    <div className="p-3 border-b border-[#2a2e39] bg-[#0c0d12] flex items-center justify-between">
+                                        {currentStock ? (
+                                            <div className="flex items-center gap-3">
+                                                <StockLogo symbol={currentStock.symbol} logoUrl={currentStock.logo_url} size="md" />
+                                                <div className="flex flex-col">
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="font-bold text-white text-sm uppercase">{currentStock.symbol}</span>
+                                                        <span className="text-[10px] text-[#787b86] font-semibold truncate max-w-[120px] sm:max-w-none">{currentStock.name}</span>
+                                                    </div>
+                                                    <div className="flex items-center gap-2 text-xs">
+                                                        <span className="font-mono text-white font-bold">{formatNum(currentStock.last_close)}</span>
+                                                        <span className={`font-mono font-bold ${currentStock.change_p >= 0 ? "text-[#26a69a]" : "text-[#ef5350]"}`}>
+                                                            {currentStock.change_p >= 0 ? "+" : ""}{currentStock.change_p.toFixed(2)}%
+                                                        </span>
+                                                    </div>
                                                 </div>
                                             </div>
-                                        </td>
-                                        <td className="px-6 py-4 text-right">
-                                            <span className="font-mono font-bold text-[#d1d4dc]">{formatNum(r.last_close)}</span>
-                                        </td>
-                                        <td className="px-6 py-4 text-right">
-                                            <span className={`font-mono font-bold ${r.change_p >= 0 ? "text-[#26a69a]" : "text-[#ef5350]"}`}>
-                                                {r.change_p >= 0 ? "+" : ""}{r.change_p.toFixed(2)}%
-                                            </span>
-                                        </td>
+                                        ) : (
+                                            <span className="text-xs font-bold text-white uppercase tracking-wider">{activeSymbol}</span>
+                                        )}
+
+                                        {currentStock && (
+                                            <div className="flex items-center gap-2">
+                                                <button
+                                                    onClick={() => addSymbolToCompare(currentStock.symbol)}
+                                                    className="h-8 px-3 rounded bg-[#2962ff] hover:bg-[#1a4eff] text-white font-bold text-[10px] uppercase tracking-wider flex items-center gap-1.5 transition-colors active:scale-95"
+                                                >
+                                                    <ArrowLeftRight className="w-3.5 h-3.5" />
+                                                    <span>Compare</span>
+                                                </button>
+                                                <button
+                                                    onClick={() => {
+                                                        if (isSaved(currentStock.symbol)) removeSymbolBySymbol(currentStock.symbol);
+                                                        else saveSymbol({ symbol: currentStock.symbol, name: currentStock.name, source: "tech_scanner", metadata: {} });
+                                                    }}
+                                                    className="w-8 h-8 rounded border border-[#2a2e39] bg-[#1c2030] text-[#787b86] hover:text-white hover:bg-[#2a2e39] flex items-center justify-center transition-colors active:scale-95"
+                                                >
+                                                    {isSaved(currentStock.symbol) ? (
+                                                        <BookmarkCheck className="h-4 w-4 text-[#2962ff]" />
+                                                    ) : (
+                                                        <Bookmark className="h-4 w-4" />
+                                                    )}
+                                                </button>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* TradingView Dynamic Chart Embed */}
+                                    <div className="flex-1 min-h-[300px] lg:min-h-0 bg-[#131722] relative">
+                                        <TradingViewChart symbol={activeSymbol} theme="dark" />
+                                    </div>
+
+                                    {/* Company & Indicator Details Footer */}
+                                    {currentStock && (
+                                        <div className="h-48 border-t border-[#2a2e39] bg-[#0c0d12] flex flex-col min-h-0">
+                                            <div className="flex-1 overflow-y-auto custom-scrollbar p-3 grid grid-cols-2 md:grid-cols-4 gap-3 text-xs border-b border-white/5">
+                                                <div>
+                                                    <div className="text-[10px] text-[#787b86] font-bold uppercase tracking-wider mb-1">Mkt Cap</div>
+                                                    <div className="font-mono font-bold text-[#d1d4dc]">{formatCompact(currentStock.market_cap)}</div>
+                                                </div>
+                                                <div>
+                                                    <div className="text-[10px] text-[#787b86] font-bold uppercase tracking-wider mb-1">Sector</div>
+                                                    <div className="text-[#d1d4dc] truncate" title={currentStock.sector}>{currentStock.sector || "-"}</div>
+                                                </div>
+                                                <div>
+                                                    <div className="text-[10px] text-[#787b86] font-bold uppercase tracking-wider mb-1">P/E Ratio</div>
+                                                    <div className="font-mono font-bold text-[#d1d4dc]">{formatNum(currentStock.pe_ratio, 1)}</div>
+                                                </div>
+                                                <div>
+                                                    <div className="text-[10px] text-[#787b86] font-bold uppercase tracking-wider mb-1">EPS (TTM)</div>
+                                                    <div className="font-mono font-bold text-[#d1d4dc]">{formatNum(currentStock.eps, 2)}</div>
+                                                </div>
+                                                <div>
+                                                    <div className="text-[10px] text-[#787b86] font-bold uppercase tracking-wider mb-1">RSI (14)</div>
+                                                    <div className={`font-mono font-bold ${currentStock.rsi < 35 ? "text-[#26a69a]" : currentStock.rsi > 65 ? "text-[#ef5350]" : "text-[#d1d4dc]"}`}>
+                                                        {currentStock.rsi.toFixed(1)}
+                                                    </div>
+                                                </div>
+                                                <div>
+                                                    <div className="text-[10px] text-[#787b86] font-bold uppercase tracking-wider mb-1">EMA 50</div>
+                                                    <div className="font-mono font-bold text-[#d1d4dc]">{formatNum(currentStock.ema50)}</div>
+                                                </div>
+                                                <div>
+                                                    <div className="text-[10px] text-[#787b86] font-bold uppercase tracking-wider mb-1">EMA 200</div>
+                                                    <div className="font-mono font-bold text-[#d1d4dc]">{formatNum(currentStock.ema200)}</div>
+                                                </div>
+                                                <div>
+                                                    <div className="text-[10px] text-[#787b86] font-bold uppercase tracking-wider mb-1">ADX</div>
+                                                    <div className="font-mono font-bold text-[#d1d4dc]">{formatNum(currentStock.adx14, 1)}</div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+                                </>
+                            );
+                        })()
+                    ) : (
+                        <div className="flex-1 flex flex-col items-center justify-center text-xs text-[#787b86]">
+                            <TrendingUp className="w-8 h-8 text-[#787b86]/30 mb-2" />
+                            <span>Select a stock to load the TradingView Chart</span>
+                        </div>
+                    )}
+                </div>
+
+                {/* --- Right Pane: Screener Table (Unified Layout) --- */}
+                <div className="w-full lg:w-[40%] flex flex-col min-h-0 border-t lg:border-t-0 lg:border-l border-[#2a2e39] overflow-hidden">
+                    
+                    {/* Toolbar tab switcher */}
+                    <div className="flex items-center justify-between px-4 py-2 border-b border-[#2a2e39] bg-[#0c0d12]">
+                        <div className="flex items-center gap-1 overflow-x-auto no-scrollbar">
+                            {TABS.map((tab) => (
+                                <button
+                                    key={tab.id}
+                                    onClick={() => setTechScanner({ currentTab: tab.id as any })}
+                                    className={`
+                                        h-7 px-3 rounded text-[11px] font-bold tracking-wider uppercase transition-colors shrink-0
+                                        ${currentTab === tab.id
+                                            ? "bg-[#2962ff] text-white font-black"
+                                            : "text-[#787b86] hover:text-[#d1d4dc] hover:bg-[#131722]"}
+                                    `}
+                                >
+                                    {tab.label}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* Screener Results Table List */}
+                    <div className="flex-1 overflow-auto custom-scrollbar bg-[#0c0d12]">
+                        {loading && results.length === 0 ? (
+                            <div className="flex h-full min-h-[300px] flex-col items-center justify-center gap-4">
+                                <Loader2 className="h-8 w-8 animate-spin text-[#2962ff]" />
+                                <p className="text-xs font-bold text-[#787b86] uppercase tracking-wider">Loading Stocks List...</p>
+                            </div>
+                        ) : results.length === 0 ? (
+                            <div className="flex h-full min-h-[300px] flex-col items-center justify-center gap-4 text-[#787b86]">
+                                <Database className="h-8 w-8 opacity-20" />
+                                <p className="text-xs font-bold text-zinc-600 uppercase tracking-widest">No Stocks Found</p>
+                            </div>
+                        ) : (
+                            <table className="w-full text-left text-sm whitespace-nowrap table-fixed border-collapse">
+                                <thead className="sticky top-0 z-20 bg-[#131722] text-[#787b86] border-b border-[#2a2e39] shadow-sm">
+                                    <tr>
+                                        {/* Sortable Symbol */}
+                                        <th 
+                                            className="w-36 px-4 py-2 text-left border-r border-[#2a2e39] border-b border-[#2a2e39] font-bold uppercase tracking-wider text-[10px] text-[#787b86] cursor-pointer hover:bg-[#1e222d] transition-colors"
+                                            onClick={() => handleSort("symbol")}
+                                        >
+                                            <div className="flex items-center gap-1 justify-start">
+                                                <span>Symbol</span>
+                                                {sortBy === "symbol" ? (
+                                                    sortOrder === "asc" ? <ChevronUp className="w-3 h-3 text-[#2962ff]" /> : <ChevronDown className="w-3 h-3 text-[#2962ff]" />
+                                                ) : (
+                                                    <ChevronDown className="w-3 h-3 text-[#787b86]/20 opacity-0 group-hover:opacity-100 transition-opacity" />
+                                                )}
+                                            </div>
+                                        </th>
+                                        
+                                        {/* Sortable Price */}
+                                        <SortableHeader label="Price" field="last_close" widthClass="w-24" />
+                                        
+                                        {/* Sortable Change */}
+                                        <SortableHeader label="Chg %" field="change_p" widthClass="w-24" />
+
                                         {currentTab === 'overview' && (
                                             <>
-                                                <td className="px-6 py-4 text-right font-mono text-[#b2b5be] text-xs">{formatCompact(r.volume)}</td>
-                                                <td className="px-6 py-4 text-right font-mono text-[#d1d4dc] font-bold text-xs">{formatCompact(r.market_cap)}</td>
-                                                <td className="px-6 py-4 text-right font-mono text-[#b2b5be] text-xs">{formatNum(r.pe_ratio, 1)}</td>
-                                                <td className="px-6 py-4 text-right font-mono text-[#b2b5be] text-xs">{formatNum(r.eps, 2)}</td>
-                                                <td className="px-6 py-4 text-left">
-                                                    <span className="inline-flex px-2 py-0.5 rounded bg-[#1c2030] border border-[#2a2e39] text-[9px] font-bold uppercase font-mono text-[#b2b5be]">{r.sector || '-'}</span>
-                                                </td>
+                                                <SortableHeader label="Volume" field="volume" widthClass="w-24" />
+                                                <SortableHeader label="Mkt Cap" field="market_cap" widthClass="w-28" />
+                                                <SortableHeader label="P/E" field="pe_ratio" widthClass="w-20" />
+                                                <SortableHeader label="EPS" field="eps" widthClass="w-24" />
                                             </>
                                         )}
                                         {currentTab === 'performance' && (
                                             <>
-                                                <td className="px-6 py-4 text-center">
-                                                    <div className={`
-                                                        inline-flex px-2 py-0.5 rounded text-[10px] font-bold
-                                                        ${r.rsi < 35 ? "bg-[#26a69a]/10 text-[#26a69a]" : r.rsi > 65 ? "bg-[#ef5350]/10 text-[#ef5350]" : "bg-[#1c2030] text-[#b2b5be]"}
-                                                    `}>{r.rsi.toFixed(0)}</div>
-                                                </td>
-                                                <td className="px-6 py-4 text-right font-mono text-[#b2b5be] text-xs">{formatNum(r.ema50)}</td>
-                                                <td className="px-6 py-4 text-right font-mono text-[#b2b5be] text-xs">{formatNum(r.ema200)}</td>
-                                                <td className="px-6 py-4 text-right">
-                                                    <span className={`font-mono font-bold text-xs ${r.momentum >= 0 ? "text-[#26a69a]" : "text-[#ef5350]"}`}>
-                                                        {r.momentum >= 0 ? "+" : ""}{(r.momentum * 100).toFixed(2)}%
-                                                    </span>
-                                                </td>
-                                                <td className="px-6 py-4 text-right font-mono text-[#b2b5be] text-xs">{formatNum(r.adx14, 1)}</td>
-                                                <td className="px-6 py-4 text-right font-mono text-[#b2b5be] text-xs">{formatNum(r.roc12, 1)}%</td>
+                                                <SortableHeader label="RSI" field="rsi" widthClass="w-20" align="center" />
+                                                <SortableHeader label="EMA 50" field="ema50" widthClass="w-24" />
+                                                <SortableHeader label="EMA 200" field="ema200" widthClass="w-24" />
+                                                <SortableHeader label="Momentum" field="momentum" widthClass="w-24" />
+                                                <SortableHeader label="ADX" field="adx14" widthClass="w-20" />
+                                                <SortableHeader label="ROC" field="roc12" widthClass="w-24" />
                                             </>
                                         )}
                                         {currentTab === 'dividends' && (
                                             <>
-                                                <td className="px-6 py-4 text-right font-mono text-[#2962ff] font-bold">{r.dividend_yield ? `${formatNum(r.dividend_yield * 100, 2)}%` : "-"}</td>
-                                                <td className="px-6 py-4 text-left font-mono text-[#787b86] text-[10px] uppercase truncate">{r.industry || "-"}</td>
+                                                <SortableHeader label="Yield %" field="dividend_yield" widthClass="w-24" />
                                             </>
                                         )}
                                         {currentTab === 'valuation' && (
                                             <>
-                                                <td className="px-6 py-4 text-right font-mono text-[#d1d4dc] font-bold">{formatCompact(r.market_cap)}</td>
-                                                <td className="px-6 py-4 text-right font-mono text-[#b2b5be]">{formatNum(r.pe_ratio, 1)}</td>
-                                                <td className="px-6 py-4 text-right font-mono text-[#b2b5be]">{formatNum(r.eps, 2)}</td>
-                                                <td className="px-6 py-4 text-right font-mono text-[#2962ff]">{r.dividend_yield ? `${formatNum(r.dividend_yield * 100, 2)}%` : "-"}</td>
+                                                <SortableHeader label="Mkt Cap" field="market_cap" widthClass="w-28" />
+                                                <SortableHeader label="P/E" field="pe_ratio" widthClass="w-20" />
+                                                <SortableHeader label="EPS" field="eps" widthClass="w-24" />
+                                                <SortableHeader label="Yield %" field="dividend_yield" widthClass="w-24" />
                                             </>
                                         )}
                                         {currentTab === 'financials' && (
                                             <>
-                                                <td className="px-6 py-4 text-left">
-                                                    <span className="inline-flex px-2 py-0.5 rounded bg-[#1c2030] border border-[#2a2e39] text-[9px] font-bold uppercase font-mono text-[#b2b5be]">{r.sector || '-'}</span>
-                                                </td>
-                                                <td className="px-6 py-4 text-left">
-                                                    <span className="inline-flex px-2 py-0.5 rounded bg-[#1c2030] border border-[#2a2e39] text-[9px] font-bold uppercase font-mono text-[#b2b5be]">{r.industry || '-'}</span>
-                                                </td>
-                                                <td className="px-6 py-4 text-right font-mono text-[#d1d4dc] font-bold">{formatCompact(r.market_cap)}</td>
+                                                <SortableHeader label="Mkt Cap" field="market_cap" widthClass="w-28" />
                                             </>
                                         )}
-                                        <td className="px-8 py-4 text-right" onClick={(e) => e.stopPropagation()}>
-                                            <button
-                                                onClick={() => {
-                                                    if (isSaved(r.symbol)) removeSymbolBySymbol(r.symbol);
-                                                    else saveSymbol({
-                                                        symbol: r.symbol,
-                                                        name: r.name,
-                                                        source: "tech_scanner",
-                                                        metadata: { logo_url: r.logo_url }
-                                                    });
-                                                }}
-                                                className={`p-1.5 rounded transition-colors ${isSaved(r.symbol) ? "text-[#2962ff] bg-[#2962ff]/10" : "text-[#787b86] hover:text-white hover:bg-[#1c2030]"}`}
-                                            >
-                                                {isSaved(r.symbol) ? <BookmarkCheck className="h-4 w-4" /> : <Bookmark className="h-4 w-4" />}
-                                            </button>
-                                        </td>
+                                        <th className="w-16 px-4 py-2 text-right border-b border-[#2a2e39] font-bold uppercase tracking-wider text-[10px] text-[#787b86]">Actions</th>
                                     </tr>
-                                ))}
-                            </tbody>
-                        </table>
+                                </thead>
+                                <tbody className="divide-y divide-[#2a2e39]">
+                                    {pagedResults.map((r) => (
+                                        <tr
+                                            key={r.symbol}
+                                            onClick={() => {
+                                                setActiveSymbol(r.symbol);
+                                                setTechScanner({ selectedStock: r });
+                                            }}
+                                            className={`
+                                                group transition-all duration-150 cursor-pointer
+                                                ${activeSymbol === r.symbol ? "bg-[#2962ff]/10" : "hover:bg-[#1e222d] bg-transparent"}
+                                            `}
+                                        >
+                                            <td className="px-4 py-2 border-r border-[#2a2e39]">
+                                                <div className="flex items-center gap-2">
+                                                    <StockLogo symbol={r.symbol} logoUrl={r.logo_url} size="sm" />
+                                                    <div className="flex flex-col min-w-0">
+                                                        <span className="font-bold text-white text-xs group-hover:text-[#2962ff] transition-colors uppercase tracking-tight">{r.symbol}</span>
+                                                        <span className="text-[9px] text-[#787b86] font-semibold uppercase tracking-wider truncate max-w-[80px]">{r.name || 'Unknown'}</span>
+                                                    </div>
+                                                </div>
+                                            </td>
+                                            <td className="px-4 py-2 text-right">
+                                                <span className="font-mono text-xs font-bold text-[#d1d4dc]">{formatNum(r.last_close)}</span>
+                                            </td>
+                                            <td className="px-4 py-2 text-right">
+                                                <span className={`font-mono text-xs font-bold ${r.change_p >= 0 ? "text-[#26a69a]" : "text-[#ef5350]"}`}>
+                                                    {r.change_p >= 0 ? "+" : ""}{r.change_p.toFixed(2)}%
+                                                </span>
+                                            </td>
+                                            {currentTab === 'overview' && (
+                                                <>
+                                                    <td className="px-4 py-2 text-right font-mono text-[#b2b5be] text-xs">{formatCompact(r.volume)}</td>
+                                                    <td className="px-4 py-2 text-right font-mono text-[#d1d4dc] font-bold text-xs">{formatCompact(r.market_cap)}</td>
+                                                    <td className="px-4 py-2 text-right font-mono text-[#b2b5be] text-xs">{formatNum(r.pe_ratio, 1)}</td>
+                                                    <td className="px-4 py-2 text-right font-mono text-[#b2b5be] text-xs">{formatNum(r.eps, 2)}</td>
+                                                </>
+                                            )}
+                                            {currentTab === 'performance' && (
+                                                <>
+                                                    <td className="px-4 py-2 text-center">
+                                                        <div className={`
+                                                            inline-flex px-1.5 py-0.5 rounded text-[9px] font-bold
+                                                            ${r.rsi < 35 ? "bg-[#26a69a]/10 text-[#26a69a]" : r.rsi > 65 ? "bg-[#ef5350]/10 text-[#ef5350]" : "bg-[#1c2030] text-[#b2b5be]"}
+                                                        `}>{r.rsi.toFixed(0)}</div>
+                                                    </td>
+                                                    <td className="px-4 py-2 text-right font-mono text-[#b2b5be] text-[10px]">{formatNum(r.ema50)}</td>
+                                                    <td className="px-4 py-2 text-right font-mono text-[#b2b5be] text-[10px]">{formatNum(r.ema200)}</td>
+                                                    <td className="px-4 py-2 text-right">
+                                                        <span className={`font-mono font-bold text-[10px] ${r.momentum >= 0 ? "text-[#26a69a]" : "text-[#ef5350]"}`}>
+                                                            {r.momentum >= 0 ? "+" : ""}{(r.momentum * 100).toFixed(1)}%
+                                                        </span>
+                                                    </td>
+                                                    <td className="px-4 py-2 text-right font-mono text-[#b2b5be] text-[10px]">{formatNum(r.adx14, 1)}</td>
+                                                    <td className="px-4 py-2 text-right font-mono text-[#b2b5be] text-[10px]">{formatNum(r.roc12, 1)}%</td>
+                                                </>
+                                            )}
+                                            {currentTab === 'dividends' && (
+                                                <>
+                                                    <td className="px-4 py-2 text-right font-mono text-[#2962ff] font-bold text-xs">{r.dividend_yield ? `${formatNum(r.dividend_yield * 100, 2)}%` : "-"}</td>
+                                                </>
+                                            )}
+                                            {currentTab === 'valuation' && (
+                                                <>
+                                                    <td className="px-4 py-2 text-right font-mono text-[#d1d4dc] font-bold text-xs">{formatCompact(r.market_cap)}</td>
+                                                    <td className="px-4 py-2 text-right font-mono text-[#b2b5be] text-xs">{formatNum(r.pe_ratio, 1)}</td>
+                                                    <td className="px-4 py-2 text-right font-mono text-[#b2b5be] text-xs">{formatNum(r.eps, 2)}</td>
+                                                    <td className="px-4 py-2 text-right font-mono text-[#2962ff] text-xs">{r.dividend_yield ? `${formatNum(r.dividend_yield * 100, 2)}%` : "-"}</td>
+                                                </>
+                                            )}
+                                            {currentTab === 'financials' && (
+                                                <>
+                                                    <td className="px-4 py-2 text-right font-mono text-[#d1d4dc] font-bold text-xs">{formatCompact(r.market_cap)}</td>
+                                                </>
+                                            )}
+                                            <td className="px-4 py-2 text-right" onClick={(e) => e.stopPropagation()}>
+                                                <button
+                                                    onClick={() => {
+                                                        if (isSaved(r.symbol)) removeSymbolBySymbol(r.symbol);
+                                                        else saveSymbol({
+                                                            symbol: r.symbol,
+                                                            name: r.name,
+                                                            source: "tech_scanner",
+                                                            metadata: { logo_url: r.logo_url }
+                                                        });
+                                                    }}
+                                                    className={`p-1 rounded transition-colors ${isSaved(r.symbol) ? "text-[#2962ff] bg-[#2962ff]/10" : "text-[#787b86] hover:text-white hover:bg-[#1c2030]"}`}
+                                                >
+                                                    {isSaved(r.symbol) ? <BookmarkCheck className="h-3.5 w-3.5" /> : <Bookmark className="h-3.5 w-3.5" />}
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        )}
+                    </div>
+
+                    {/* Pagination Footer */}
+                    {totalPages > 1 && (
+                        <div className="px-4 py-2.5 border-t border-[#2a2e39] bg-[#131722] flex items-center justify-between z-30">
+                            <div className="text-[10px] font-bold uppercase tracking-wider text-[#787b86]">
+                                Page <span className="text-white font-bold">{currentPage}</span> / <span className="text-[#b2b5be]">{totalPages}</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <button
+                                    disabled={currentPage === 1}
+                                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                                    className="h-7 px-3 rounded border border-[#2a2e39] bg-[#1c2030] flex items-center justify-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-[#b2b5be] hover:text-white hover:bg-[#2a2e39] transition-all disabled:opacity-20 active:scale-95"
+                                >
+                                    <ChevronLeft className="w-3 h-3" /> Prev
+                                </button>
+                                <button
+                                    disabled={currentPage === totalPages}
+                                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                                    className="h-7 px-3 rounded border border-[#2a2e39] bg-[#1c2030] flex items-center justify-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-[#b2b5be] hover:text-white hover:bg-[#2a2e39] transition-all disabled:opacity-20 active:scale-95"
+                                >
+                                    Next <ChevronRight className="w-3 h-3" />
+                                </button>
+                            </div>
+                        </div>
                     )}
                 </div>
-
-                {/* --- Pagination Footer (TradingView Replica Style) --- */}
-                {totalPages > 1 && (
-                    <div className="px-4 sm:px-6 py-3 border-t border-[#2a2e39] bg-[#131722] flex flex-col sm:flex-row items-center justify-between gap-3 sm:gap-0 z-30">
-                        <div className="text-[10px] font-bold uppercase tracking-wider text-[#787b86]">
-                            Page <span className="text-white font-bold">{currentPage}</span> / <span className="text-[#b2b5be]">{totalPages}</span>
-                        </div>
-                        <div className="flex items-center gap-2 sm:gap-3 w-full sm:w-auto">
-                            <button
-                                disabled={currentPage === 1}
-                                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                                className="flex-1 sm:flex-initial h-8 px-4 rounded border border-[#2a2e39] bg-[#1c2030] flex items-center justify-center gap-2 text-[10px] font-bold uppercase tracking-wider text-[#b2b5be] hover:text-white hover:bg-[#2a2e39] transition-all disabled:opacity-20 active:scale-95"
-                            >
-                                <ChevronLeft className="w-3.5 h-3.5" /> Prev
-                            </button>
-                            <button
-                                disabled={currentPage === totalPages}
-                                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                                className="flex-1 sm:flex-initial h-8 px-4 rounded border border-[#2a2e39] bg-[#1c2030] flex items-center justify-center gap-2 text-[10px] font-bold uppercase tracking-wider text-[#b2b5be] hover:text-white hover:bg-[#2a2e39] transition-all disabled:opacity-20 active:scale-95"
-                            >
-                                Next <ChevronRight className="w-3.5 h-3.5" />
-                            </button>
-                        </div>
-                    </div>
-                )}
-
-                {/* --- Detail Slide-over --- */}
-                {selectedStock && (
-                    <>
-                        <div className="fixed inset-0 bg-black/60 z-[200] animate-in fade-in duration-200" onClick={() => setTechScanner({ selectedStock: null })} />
-                        <div className="fixed inset-y-0 right-0 w-full sm:w-[420px] bg-[#131722] border-l border-[#2a2e39] z-[201] animate-in slide-in-from-right duration-300 flex flex-col shadow-2xl">
-                            {/* Slide-over Header */}
-                            <div className="p-4 flex items-center justify-between border-b border-[#2a2e39] bg-[#0c0d12]">
-                                <div className="flex items-center gap-3">
-                                    <StockLogo symbol={selectedStock.symbol} logoUrl={selectedStock.logo_url} size="xl" />
-                                    <div className="flex flex-col gap-0.5">
-                                        <h2 className="text-xl font-bold text-white tracking-tight leading-none uppercase">{selectedStock.symbol}</h2>
-                                        <p className="text-[10px] font-bold uppercase tracking-wider text-[#787b86] max-w-[200px] truncate">{selectedStock.name}</p>
-                                    </div>
-                                </div>
-                                <button
-                                    onClick={() => setTechScanner({ selectedStock: null })}
-                                    className="p-1.5 rounded bg-[#1c2030] text-[#787b86] hover:text-white hover:bg-[#2a2e39] transition-colors border border-[#2a2e39] active:scale-95"
-                                >
-                                    <X className="h-4.5 w-4.5" />
-                                </button>
-                            </div>
-
-                            {/* Slide-over Content */}
-                            <div className="flex-1 overflow-y-auto custom-scrollbar p-5 space-y-6">
-                                {/* Highlights Grid */}
-                                <div className="grid grid-cols-2 gap-3">
-                                    <div className="p-4 bg-[#0c0d12] rounded border border-[#2a2e39] space-y-1 relative overflow-hidden group">
-                                        <div className="text-[10px] font-bold uppercase tracking-wider text-[#787b86]">Price</div>
-                                        <div className="text-2xl font-mono font-bold text-white">{formatNum(selectedStock.last_close)}</div>
-                                        <div className={`text-[10px] font-bold ${selectedStock.change_p >= 0 ? "text-[#26a69a]" : "text-[#ef5350]"}`}>
-                                            {selectedStock.change_p >= 0 ? "+" : ""}{selectedStock.change_p.toFixed(2)}% Today
-                                        </div>
-                                    </div>
-                                    <div className="p-4 bg-[#0c0d12] rounded border border-[#2a2e39] space-y-1 relative overflow-hidden group">
-                                        <div className="text-[10px] font-bold uppercase tracking-wider text-[#787b86]">RSI (14)</div>
-                                        <div className={`text-2xl font-mono font-bold ${selectedStock.rsi < 35 ? "text-[#26a69a]" : selectedStock.rsi > 65 ? "text-[#ef5350]" : "text-white"}`}>
-                                            {selectedStock.rsi.toFixed(1)}
-                                        </div>
-                                        <div className="text-[9px] font-bold uppercase tracking-wider text-[#787b86]">
-                                            {selectedStock.rsi < 35 ? "Oversold" : selectedStock.rsi > 65 ? "Overbought" : "Neutral"}
-                                        </div>
-                                    </div>
-                                </div>
-
-                                {/* Fundamentals Group */}
-                                <div className="space-y-3">
-                                    <div className="flex items-center gap-1.5 text-[11px] font-bold text-white uppercase tracking-wider border-b border-[#2a2e39] pb-2">
-                                        <Landmark className="w-3.5 h-3.5 text-amber-500" />
-                                        <span>Company Profile</span>
-                                    </div>
-                                    <div className="grid grid-cols-1 divide-y divide-[#2a2e39]">
-                                        {[
-                                            { label: "Market Cap", val: formatCompact(selectedStock.market_cap), icon: Database },
-                                            { label: "Sector", val: selectedStock.sector || "-", icon: LayoutTemplate },
-                                            { label: "Industry", val: selectedStock.industry || "-", icon: PieChart },
-                                            { label: "P/E Ratio", val: formatNum(selectedStock.pe_ratio, 1), icon: Scale },
-                                            { label: "Dividend Yield", val: selectedStock.dividend_yield ? `${(selectedStock.dividend_yield * 100).toFixed(2)}%` : "N/A", icon: Coins },
-                                            { label: "EPS (TTM)", val: formatNum(selectedStock.eps, 2), icon: Coins },
-                                            { label: "Beta", val: formatNum(selectedStock.beta, 2), icon: TrendingUp },
-                                        ].map((m) => (
-                                            <div key={m.label} className="flex justify-between items-center py-2.5 bg-transparent hover:bg-[#1c2030] px-2 rounded transition-colors">
-                                                <div className="flex items-center gap-2">
-                                                    <m.icon className="w-3.5 h-3.5 text-[#787b86]" />
-                                                    <span className="text-[11px] font-bold uppercase tracking-wider text-[#787b86]">{m.label}</span>
-                                                </div>
-                                                <span className="font-mono font-bold text-sm text-[#d1d4dc]">{m.val}</span>
-                                            </div>
-                                        ))}
-                                    </div>
-                                </div>
-
-                                {/* Technical Analysis Group */}
-                                <div className="space-y-3">
-                                    <div className="flex items-center gap-1.5 text-[11px] font-bold text-white uppercase tracking-wider border-b border-[#2a2e39] pb-2">
-                                        <BarChart3 className="w-3.5 h-3.5 text-[#2962ff]" />
-                                        <span>Technical Analysis</span>
-                                    </div>
-                                    <div className="grid grid-cols-1 divide-y divide-[#2a2e39]">
-                                        {[
-                                            { label: "EMA 50", val: formatNum(selectedStock.ema50) },
-                                            { label: "EMA 200", val: formatNum(selectedStock.ema200) },
-                                            { label: "Momentum", val: `${(selectedStock.momentum * 100).toFixed(2)}%`, color: selectedStock.momentum >= 0 ? "text-[#26a69a]" : "text-[#ef5350]" },
-                                            { label: "ADX (Trend)", val: formatNum(selectedStock.adx14, 1) },
-                                            { label: "ROC (Rate of Chg)", val: `${formatNum(selectedStock.roc12, 1)}%` },
-                                        ].map((m) => (
-                                            <div key={m.label} className="flex justify-between items-center py-2.5 bg-transparent hover:bg-[#1c2030] px-2 rounded transition-colors">
-                                                <span className="text-[11px] font-bold uppercase tracking-wider text-[#787b86]">{m.label}</span>
-                                                <span className={`font-mono font-bold text-sm ${m.color || "text-[#d1d4dc]"}`}>{m.val}</span>
-                                            </div>
-                                        ))}
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* Slide-over Actions */}
-                            <div className="p-4 border-t border-[#2a2e39] bg-[#0c0d12] flex gap-3">
-                                <button
-                                    onClick={() => addSymbolToCompare(selectedStock.symbol)}
-                                    className="flex-1 h-11 flex items-center justify-center gap-2 rounded bg-[#2962ff] hover:bg-[#1a4eff] text-white font-bold text-[11px] uppercase tracking-wider shadow-lg shadow-[#2962ff]/10 transition-colors active:scale-[0.98]"
-                                >
-                                    <ArrowLeftRight className="h-4 w-4" />
-                                    Compare
-                                </button>
-                                <button
-                                    onClick={() => {
-                                        if (isSaved(selectedStock.symbol)) removeSymbolBySymbol(selectedStock.symbol);
-                                        else saveSymbol({ symbol: selectedStock.symbol, name: selectedStock.name, source: "tech_scanner", metadata: {} });
-                                    }}
-                                    className="w-11 h-11 flex items-center justify-center rounded border border-[#2a2e39] bg-[#1c2030] text-[#787b86] hover:text-white hover:bg-[#2a2e39] transition-colors active:scale-95"
-                                >
-                                    {isSaved(selectedStock.symbol) ? (
-                                        <BookmarkCheck className="h-4.5 w-4.5 text-[#2962ff]" />
-                                    ) : (
-                                        <Bookmark className="h-4.5 w-4.5" />
-                                    )}
-                                </button>
-                            </div>
-                        </div>
-                    </>
-                )}
             </div>
 
             {/* --- Manage Technical Scan Telegram Alerts Dialog --- */}
