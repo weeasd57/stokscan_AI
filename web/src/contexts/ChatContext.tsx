@@ -116,7 +116,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             }
 
             // Real OpenRouter Call (Example implementation, assuming OpenRouter is preferred)
-            const systemPrompt = `You are a Stock Market AI Assistant integrated into the "Artoro" app.
+            const systemPrompt = `You are a Stock Market AI Assistant integrated into the "EGX Bots" app.
             
             APP CONTEXT:
             - Home: Dashboard with popular stocks.
@@ -129,7 +129,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             Be concise, helpful, and professional. Format outputs with Markdown.
             If the user asks to scan for bullish stocks, suggest setting Technical Scanner to RSI > 50 and Price > EMA 200.
             `;
-
+ 
             // Using OpenRouter instead of Gemini
             const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
                 method: "POST",
@@ -137,7 +137,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
                     "Content-Type": "application/json",
                     "Authorization": `Bearer ${openRouterKey}`,
                     "HTTP-Referer": window.location.origin,
-                    "X-Title": "Artoro"
+                    "X-Title": "EGX Bots"
                 },
                 body: JSON.stringify({
                     model: "google/gemini-flash-1.5", // Still can use Gemini via OpenRouter if desired, or move to GPT-4o-mini

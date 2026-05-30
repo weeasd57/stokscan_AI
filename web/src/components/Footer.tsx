@@ -37,7 +37,7 @@ export default function Footer() {
 
                 <div className="border-t border-white/5 pt-8 flex flex-col md:flex-row justify-between items-center gap-4 text-center md:text-left">
                     <p className="text-[10px] font-black text-zinc-700 uppercase tracking-widest">
-                        © 2026 Artoro. Built for professional analysis.
+                        © 2026 EGX Bots. Built for professional analysis.
                     </p>
                 </div>
 
