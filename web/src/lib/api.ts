@@ -4,7 +4,12 @@ import type { PredictResponse } from "@/lib/types";
 export const getProductionApiUrl = (): string => {
   if (typeof window !== "undefined") {
     const host = window.location.hostname;
-    if (host.endsWith(".vercel.app") || host === "stokscan-ai-web.vercel.app") {
+    if (
+      host !== "localhost" && 
+      host !== "127.0.0.1" && 
+      !host.startsWith("192.168.") && 
+      !host.startsWith("10.")
+    ) {
       return "https://weeasdwee-ai-bot.hf.space";
     }
   }
