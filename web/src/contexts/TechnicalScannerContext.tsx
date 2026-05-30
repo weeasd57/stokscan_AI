@@ -180,25 +180,48 @@ function buildFilterFromState(s: TechScannerState): TechFilter {
 }
 
 export function TechnicalScannerProvider({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<TechScannerState>(loadSessionState);
+  const [state, setState] = useState<TechScannerState>(DEFAULT_STATE);
+  const [isLoaded, setIsLoaded] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const stateRef = useRef(state);
   const hasBootstrappedRef = useRef(false);
 
+  // Load from session storage after mount to prevent SSR/hydration mismatch
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem(SESSION_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as Partial<TechScannerState>;
+        setState((prev) => ({
+          ...prev,
+          ...parsed,
+          selectedStock: null,
+          results: Array.isArray(parsed.results) ? parsed.results : [],
+          scanHistory: Array.isArray(parsed.scanHistory) ? parsed.scanHistory : [],
+        }));
+      }
+    } catch (e) {
+      console.error("Failed to load session state", e);
+    } finally {
+      setIsLoaded(true);
+    }
+  }, []);
+
   useEffect(() => {
     stateRef.current = state;
   }, [state]);
 
   useEffect(() => {
+    if (!isLoaded) return;
     try {
       const { selectedStock: _selected, ...persisted } = state;
       sessionStorage.setItem(SESSION_KEY, JSON.stringify(persisted));
     } catch {
       // sessionStorage may be unavailable
     }
-  }, [state]);
+  }, [state, isLoaded]);
 
   const setTechScanner = useCallback((u: Updater<TechScannerState>) => {
     setState((prev) =>
@@ -332,6 +355,7 @@ export function TechnicalScannerProvider({ children }: { children: ReactNode }) 
   }, []);
 
   useEffect(() => {
+    if (!isLoaded) return;
     const current = stateRef.current;
 
     if (current.country !== "Egypt") {
@@ -345,7 +369,7 @@ export function TechnicalScannerProvider({ children }: { children: ReactNode }) 
     if (!current.hasScanned) {
       void runTechScan();
     }
-  }, [state.country, runTechScan, setTechScanner]);
+  }, [state.country, runTechScan, setTechScanner, isLoaded]);
 
   const value = useMemo<TechnicalScannerContextType>(
     () => ({
