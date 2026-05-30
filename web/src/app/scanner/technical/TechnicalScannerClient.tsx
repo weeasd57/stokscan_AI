@@ -3,10 +3,10 @@
 import { useState, useEffect, useMemo } from "react";
 import { 
     Sliders, Search, Loader2, Globe, Database, TrendingUp, X, Filter, 
-    Bookmark, BookmarkCheck, ArrowLeftRight, ChevronLeft, ChevronRight, 
+    ChevronLeft, ChevronRight, 
     BarChart3, PieChart, Landmark, Coins, Scale, Percent, Minus, Plus, 
     Info, LayoutTemplate, Settings2, Bell, BellRing, Trash, Check, 
-    AlertCircle, ChevronDown, ChevronUp, Star
+    AlertCircle, ChevronDown, ChevronUp, Star, ExternalLink
 } from "lucide-react";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useWatchlist } from "@/contexts/WatchlistContext";
@@ -59,6 +59,8 @@ export default function TechnicalScannerPage() {
             minPrice,
             useAiFilter,
             minAiPrecision,
+            activeSymbol,
+            chartHeight,
         },
         setTechScanner,
         runTechScan,
@@ -66,8 +68,72 @@ export default function TechnicalScannerPage() {
         error,
     } = useTechnicalScanner();
 
-    // Chart Active Symbol State
-    const [activeSymbol, setActiveSymbol] = useState("COMI");
+    // Resizable Panels States
+    const [sidebarWidth, setSidebarWidth] = useState<number>(320);
+    const [isResizingHeight, setIsResizingHeight] = useState<boolean>(false);
+    const [isResizingWidth, setIsResizingWidth] = useState<boolean>(false);
+
+    // Resizing Height Effect
+    useEffect(() => {
+        if (!isResizingHeight) return;
+
+        const handleMouseMove = (e: MouseEvent) => {
+            const container = document.getElementById("technical-screener-workspace");
+            if (container) {
+                const rect = container.getBoundingClientRect();
+                const newHeight = Math.max(250, Math.min(800, e.clientY - rect.top));
+                setTechScanner({ chartHeight: newHeight });
+            }
+        };
+
+        const handleMouseUp = () => {
+            setIsResizingHeight(false);
+            document.body.style.cursor = "default";
+            document.body.style.userSelect = "auto";
+        };
+
+        document.body.style.cursor = "ns-resize";
+        document.body.style.userSelect = "none";
+        window.addEventListener("mousemove", handleMouseMove);
+        window.addEventListener("mouseup", handleMouseUp);
+
+        return () => {
+            window.removeEventListener("mousemove", handleMouseMove);
+            window.removeEventListener("mouseup", handleMouseUp);
+        };
+    }, [isResizingHeight]);
+
+    // Resizing Width Effect
+    useEffect(() => {
+        if (!isResizingWidth) return;
+
+        const handleMouseMove = (e: MouseEvent) => {
+            const container = document.getElementById("chart-pane-container");
+            if (container) {
+                const parentRect = container.parentElement?.getBoundingClientRect();
+                if (parentRect) {
+                    const newWidth = Math.max(200, Math.min(600, parentRect.right - e.clientX));
+                    setSidebarWidth(newWidth);
+                }
+            }
+        };
+
+        const handleMouseUp = () => {
+            setIsResizingWidth(false);
+            document.body.style.cursor = "default";
+            document.body.style.userSelect = "auto";
+        };
+
+        document.body.style.cursor = "ew-resize";
+        document.body.style.userSelect = "none";
+        window.addEventListener("mousemove", handleMouseMove);
+        window.addEventListener("mouseup", handleMouseUp);
+
+        return () => {
+            window.removeEventListener("mousemove", handleMouseMove);
+            window.removeEventListener("mouseup", handleMouseUp);
+        };
+    }, [isResizingWidth]);
 
     // Client-side Sorting State
     const [sortBy, setSortBy] = useState<string>("");
@@ -117,13 +183,13 @@ export default function TechnicalScannerPage() {
 
     // Synchronize activeSymbol with loaded results
     useEffect(() => {
-        if (results.length > 0) {
+        if (activeSymbol !== null && results.length > 0) {
             const exists = results.some(r => r.symbol === activeSymbol);
             if (!exists) {
-                setActiveSymbol(results[0].symbol);
+                setTechScanner({ activeSymbol: null });
             }
         }
-    }, [results, activeSymbol]);
+    }, [results, activeSymbol, setTechScanner]);
 
     // Sorting & Filtering memo
     const filteredResults = useMemo(() => {
@@ -1204,89 +1270,6 @@ export default function TechnicalScannerPage() {
 
     return (
         <div className="flex flex-col h-full bg-[#0c0d12] text-[#d1d4dc] font-sans selection:bg-[#2962ff]/30 selection:text-white relative min-h-[calc(100vh-100px)] border border-[#2a2e39]">
-            {/* --- TradingView-Style Header --- */}
-            <div className="flex items-center justify-between border-b border-[#2a2e39] bg-[#131722] px-4 py-3 sm:px-6">
-                <div className="flex items-center gap-3">
-                    <h1 className="text-sm sm:text-base font-bold text-white tracking-tight flex items-center gap-2">
-                        <Database className="w-4 h-4 text-[#2962ff]" />
-                        <span>Stock Screener</span>
-                    </h1>
-                    <div className="h-4 w-[1px] bg-[#2a2e39]" />
-                    {/* All Stocks / Filter Dropdown selector */}
-                    <div className="relative">
-                        <button className="flex items-center gap-1 text-xs font-bold text-white hover:text-[#2962ff] transition-colors">
-                            <span>Egypt Stocks</span>
-                            <ChevronDown className="w-3.5 h-3.5" />
-                        </button>
-                    </div>
-                    {loading && <Loader2 className="h-4 w-4 animate-spin text-[#2962ff]" />}
-                </div>
-                
-                {/* Top Right Actions */}
-                <div className="flex items-center gap-3">
-                    {/* Search Bar */}
-                    <div className="relative hidden sm:block">
-                        <input
-                            type="text"
-                            placeholder="Search Symbol..."
-                            value={searchTerm}
-                            onChange={(e) => setTechScanner({ searchTerm: e.target.value })}
-                            className="w-48 sm:w-64 h-8 pl-8 pr-3 rounded bg-[#1c2030] border border-[#2a2e39] text-white text-xs placeholder-[#787b86] focus:outline-none focus:border-[#2962ff] transition-all"
-                        />
-                        <Search className="absolute left-2.5 top-2.5 w-3.5 h-3.5 text-[#787b86]" />
-                        {searchTerm && (
-                            <button onClick={() => setTechScanner({ searchTerm: "" })} className="absolute right-2.5 top-2.5 text-[#787b86] hover:text-white">
-                                <X className="w-3.5 h-3.5" />
-                            </button>
-                        )}
-                    </div>
-
-                    {/* Reset Button */}
-                    <button
-                        onClick={handleResetFilters}
-                        className="flex items-center gap-1 px-2.5 h-8 text-[11px] font-bold text-[#b2b5be] hover:text-white hover:bg-[#1c2030] border border-[#2a2e39] rounded transition-colors active:scale-95 uppercase tracking-wider"
-                        title="Clear all filters"
-                    >
-                        <X className="w-3.5 h-3.5" />
-                        <span className="hidden xs:inline">Reset</span>
-                    </button>
-
-                    {/* Telegram Alerts */}
-                    {user && (
-                        <button
-                            onClick={() => {
-                                setShowManageAlertsDialog(true);
-                                void fetchAlerts();
-                                void fetchTelegramChatId();
-                            }}
-                            className="flex items-center gap-1.5 px-3 h-8 text-[11px] font-bold bg-[#2962ff] hover:bg-[#1a4eff] text-white rounded transition-colors active:scale-95 shadow-md shadow-[#2962ff]/20 uppercase tracking-wider"
-                        >
-                            <Bell className="w-3.5 h-3.5" />
-                            <span className="hidden xs:inline">Alerts</span>
-                        </button>
-                    )}
-                </div>
-            </div>
-
-            {/* Mobile Search Bar */}
-            <div className="sm:hidden p-3 border-b border-[#2a2e39] bg-[#131722] flex items-center">
-                <div className="relative w-full">
-                    <input
-                        type="text"
-                        placeholder="Search Symbol..."
-                        value={searchTerm}
-                        onChange={(e) => setTechScanner({ searchTerm: e.target.value })}
-                        className="w-full h-8 pl-8 pr-3 rounded bg-[#1c2030] border border-[#2a2e39] text-white text-xs placeholder-[#787b86] focus:outline-none focus:border-[#2962ff] transition-all"
-                    />
-                    <Search className="absolute left-2.5 top-2.5 w-3.5 h-3.5 text-[#787b86]" />
-                    {searchTerm && (
-                        <button onClick={() => setTechScanner({ searchTerm: "" })} className="absolute right-2.5 top-2.5 text-[#787b86] hover:text-white">
-                            <X className="w-3.5 h-3.5" />
-                        </button>
-                    )}
-                </div>
-            </div>
-
             {/* --- Scanner Templates --- */}
             <div className="px-4 py-3 sm:px-6 bg-[#0c0d12] border-b border-[#2a2e39]">
                 <ScannerTemplates onSelect={applyTemplate} />
@@ -1294,12 +1277,14 @@ export default function TechnicalScannerPage() {
 
             {/* --- Horizontal Filter Pills Bar Wrapper (Fixed z-index and clipping wrapper) --- */}
             <div className="relative filter-wrapper z-50">
-                <div className="flex items-center gap-2 px-4 py-2 border-b border-[#2a2e39] bg-[#131722] overflow-x-auto no-scrollbar scroll-smooth relative z-40">
-                    {/* Country indicator (Pinned) */}
-                    <div className="flex items-center gap-1.5 h-8 px-3 rounded bg-[#1c2030] border border-[#2a2e39] text-[11px] font-bold text-white shrink-0 uppercase tracking-wider">
-                        <Globe className="w-3.5 h-3.5 text-[#2962ff]" />
-                        <span>Egypt (EGX)</span>
-                    </div>
+                <div className="flex items-center justify-between px-4 py-2 border-b border-[#2a2e39] bg-[#131722] gap-4 z-40 relative">
+                    {/* Left scrollable pills */}
+                    <div className="flex items-center gap-2 overflow-x-auto no-scrollbar scroll-smooth flex-1">
+                        {/* Country indicator (Pinned) */}
+                        <div className="flex items-center gap-1.5 h-8 px-3 rounded bg-[#1c2030] border border-[#2a2e39] text-[11px] font-bold text-white shrink-0 uppercase tracking-wider">
+                            <Globe className="w-3.5 h-3.5 text-[#2962ff]" />
+                            <span>Egypt (EGX)</span>
+                        </div>
 
                     {/* Dynamic Filter Pills */}
                     {visibleFilters.map((filterId) => {
@@ -1380,6 +1365,71 @@ export default function TechnicalScannerPage() {
                     )}
                 </div>
 
+                    {/* Right actions (Search, Reset, Alerts) */}
+                    <div className="flex items-center gap-2 shrink-0">
+                        {/* Search Bar */}
+                        <div className="relative hidden sm:block">
+                            <input
+                                type="text"
+                                placeholder="Search Symbol..."
+                                value={searchTerm}
+                                onChange={(e) => setTechScanner({ searchTerm: e.target.value })}
+                                className="w-36 sm:w-48 h-8 pl-8 pr-3 rounded bg-[#1c2030] border border-[#2a2e39] text-white text-xs placeholder-[#787b86] focus:outline-none focus:border-[#2962ff] transition-all"
+                            />
+                            <Search className="absolute left-2.5 top-2.5 w-3.5 h-3.5 text-[#787b86]" />
+                            {searchTerm && (
+                                <button onClick={() => setTechScanner({ searchTerm: "" })} className="absolute right-2.5 top-2.5 text-[#787b86] hover:text-white">
+                                    <X className="w-3.5 h-3.5" />
+                                </button>
+                            )}
+                        </div>
+
+                        {/* Reset Button */}
+                        <button
+                            onClick={handleResetFilters}
+                            className="flex items-center gap-1 px-2.5 h-8 text-[11px] font-bold text-[#b2b5be] hover:text-white hover:bg-[#1c2030] border border-[#2a2e39] rounded transition-colors active:scale-95 uppercase tracking-wider"
+                            title="Clear all filters"
+                        >
+                            <X className="w-3.5 h-3.5" />
+                            <span className="hidden xs:inline">Reset</span>
+                        </button>
+
+                        {/* Telegram Alerts */}
+                        {user && (
+                            <button
+                                onClick={() => {
+                                    setShowManageAlertsDialog(true);
+                                    void fetchAlerts();
+                                    void fetchTelegramChatId();
+                                }}
+                                className="flex items-center gap-1.5 px-3 h-8 text-[11px] font-bold bg-[#2962ff] hover:bg-[#1a4eff] text-white rounded transition-colors active:scale-95 shadow-md shadow-[#2962ff]/20 uppercase tracking-wider"
+                            >
+                                <Bell className="w-3.5 h-3.5" />
+                                <span className="hidden xs:inline">Alerts</span>
+                            </button>
+                        )}
+                    </div>
+                </div>
+
+                {/* Mobile Search Bar (Only shown on mobile) */}
+                <div className="sm:hidden p-3 border-b border-[#2a2e39] bg-[#131722] flex items-center">
+                    <div className="relative w-full">
+                        <input
+                            type="text"
+                            placeholder="Search Symbol..."
+                            value={searchTerm}
+                            onChange={(e) => setTechScanner({ searchTerm: e.target.value })}
+                            className="w-full h-8 pl-8 pr-3 rounded bg-[#1c2030] border border-[#2a2e39] text-white text-xs placeholder-[#787b86] focus:outline-none focus:border-[#2962ff] transition-all"
+                        />
+                        <Search className="absolute left-2.5 top-2.5 w-3.5 h-3.5 text-[#787b86]" />
+                        {searchTerm && (
+                            <button onClick={() => setTechScanner({ searchTerm: "" })} className="absolute right-2.5 top-2.5 text-[#787b86] hover:text-white">
+                                <X className="w-3.5 h-3.5" />
+                            </button>
+                        )}
+                    </div>
+                </div>
+
                 {/* Popovers rendered OUTSIDE of the overflow scrolling container */}
                 {activeFilterPopover && popoverPosition && (
                     <div 
@@ -1400,19 +1450,23 @@ export default function TechnicalScannerPage() {
                 )}
             </div>
 
-            {/* --- Main Workspace (TradingView Split Screen Layout) --- */}
-            <div className="flex-1 min-h-0 flex flex-col lg:flex-row">
+            {/* --- Main Workspace (Vertical Split Screen Layout: Chart on Top, Table below) --- */}
+            <div id="technical-screener-workspace" className="flex-1 min-h-0 flex flex-col relative">
                 
-                {/* --- Left Pane: TradingView Advanced Chart & Dynamic Info Panel --- */}
-                <div className="w-full lg:w-[60%] border-r border-[#2a2e39] flex flex-col min-h-[500px] lg:min-h-0 bg-[#131722]">
-                    {/* Active Stock details header */}
-                    {activeSymbol ? (
-                        (() => {
-                            const currentStock = results.find(r => r.symbol === activeSymbol) || results[0];
-                            return (
-                                <>
-                                    <div className="p-3 border-b border-[#2a2e39] bg-[#0c0d12] flex items-center justify-between">
-                                        {currentStock ? (
+                {/* --- Top Pane: TradingView Chart & Details Sidebar --- */}
+                {activeSymbol && (
+                    <>
+                        <div 
+                            style={{ height: `${chartHeight}px` }}
+                            className="w-full flex flex-col bg-[#131722] shrink-0 overflow-hidden relative"
+                        >
+                            {(() => {
+                                const currentStock = results.find(r => r.symbol === activeSymbol);
+                                if (!currentStock) return null;
+                                return (
+                                    <div id="chart-pane-container" className="flex-1 flex flex-col min-h-0 min-w-0 bg-[#131722] overflow-hidden">
+                                        {/* Active Stock details header */}
+                                        <div className="p-3 border-b border-[#2a2e39] bg-[#0c0d12] flex items-center justify-between shrink-0">
                                             <div className="flex items-center gap-3">
                                                 <StockLogo symbol={currentStock.symbol} logoUrl={currentStock.logo_url} size="md" />
                                                 <div className="flex flex-col">
@@ -1428,95 +1482,165 @@ export default function TechnicalScannerPage() {
                                                     </div>
                                                 </div>
                                             </div>
-                                        ) : (
-                                            <span className="text-xs font-bold text-white uppercase tracking-wider">{activeSymbol}</span>
-                                        )}
 
-                                        {currentStock && (
                                             <div className="flex items-center gap-2">
-                                                <button
-                                                    onClick={() => addSymbolToCompare(currentStock.symbol)}
-                                                    className="h-8 px-3 rounded bg-[#2962ff] hover:bg-[#1a4eff] text-white font-bold text-[10px] uppercase tracking-wider flex items-center gap-1.5 transition-colors active:scale-95"
-                                                >
-                                                    <ArrowLeftRight className="w-3.5 h-3.5" />
-                                                    <span>Compare</span>
-                                                </button>
+                                                {/* Pop Out Button */}
                                                 <button
                                                     onClick={() => {
-                                                        if (isSaved(currentStock.symbol)) removeSymbolBySymbol(currentStock.symbol);
-                                                        else saveSymbol({ symbol: currentStock.symbol, name: currentStock.name, source: "tech_scanner", metadata: {} });
+                                                        const exchange = country?.toLowerCase() === "egypt" ? "EGX" : (country?.toLowerCase() === "crypto" ? "CRYPTO" : "US");
+                                                        const popoutUrl = `/chart/popout?symbol=${encodeURIComponent(activeSymbol)}&exchange=${encodeURIComponent(exchange)}`;
+                                                        window.open(popoutUrl, "_blank", "width=1200,height=750,menubar=no,status=no,toolbar=no");
                                                     }}
-                                                    className="w-8 h-8 rounded border border-[#2a2e39] bg-[#1c2030] text-[#787b86] hover:text-white hover:bg-[#2a2e39] flex items-center justify-center transition-colors active:scale-95"
+                                                    className="w-8 h-8 rounded border border-zinc-700 bg-[#1c2030] text-[#b2b5be] hover:bg-zinc-800 hover:text-white flex items-center justify-center transition-colors active:scale-95"
+                                                    title="Pop Out Chart"
                                                 >
-                                                    {isSaved(currentStock.symbol) ? (
-                                                        <BookmarkCheck className="h-4 w-4 text-[#2962ff]" />
-                                                    ) : (
-                                                        <Bookmark className="h-4 w-4" />
-                                                    )}
+                                                    <ExternalLink className="h-4 w-4" />
+                                                </button>
+
+                                                {/* Close button to hide chart */}
+                                                <button
+                                                    onClick={() => {
+                                                        setTechScanner({ activeSymbol: null, selectedStock: null });
+                                                    }}
+                                                    className="w-8 h-8 rounded border border-[#ef5350]/30 bg-[#1c2030] text-[#ef5350] hover:bg-[#ef5350]/15 hover:text-[#ef5350] flex items-center justify-center transition-colors active:scale-95 ml-1"
+                                                    title="Close Chart"
+                                                >
+                                                    <X className="h-4 w-4" />
                                                 </button>
                                             </div>
-                                        )}
-                                    </div>
+                                        </div>
 
-                                    {/* TradingView Dynamic Chart Embed */}
-                                    <div className="flex-1 min-h-[300px] lg:min-h-0 bg-[#131722] relative">
-                                        <TradingViewChart symbol={activeSymbol} theme="dark" />
-                                    </div>
+                                        {/* TradingView Dynamic Chart Embed */}
+                                        <div className="flex-1 min-h-0 w-full bg-[#131722] relative overflow-hidden">
+                                            <TradingViewChart 
+                                                symbol={activeSymbol} 
+                                                theme="dark" 
+                                                exchange={country?.toLowerCase() === "egypt" ? "EGX" : (country?.toLowerCase() === "crypto" ? "CRYPTO" : "US")} 
+                                            />
+                                        </div>
 
-                                    {/* Company & Indicator Details Footer */}
-                                    {currentStock && (
-                                        <div className="h-48 border-t border-[#2a2e39] bg-[#0c0d12] flex flex-col min-h-0">
-                                            <div className="flex-1 overflow-y-auto custom-scrollbar p-3 grid grid-cols-2 md:grid-cols-4 gap-3 text-xs border-b border-white/5">
-                                                <div>
-                                                    <div className="text-[10px] text-[#787b86] font-bold uppercase tracking-wider mb-1">Mkt Cap</div>
-                                                    <div className="font-mono font-bold text-[#d1d4dc]">{formatCompact(currentStock.market_cap)}</div>
+                                        {/* Horizontal Symbol Profile & Stats Bar */}
+                                        <div className="border-t border-[#2a2e39] bg-[#0c0d12] px-4 py-2.5 flex items-center overflow-x-auto no-scrollbar gap-6 shrink-0 select-none">
+                                            {/* Market Cap */}
+                                            <div className="flex items-center gap-2">
+                                                <div className="w-7 h-7 rounded-md bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400 shrink-0">
+                                                    <Coins className="w-3.5 h-3.5" />
                                                 </div>
-                                                <div>
-                                                    <div className="text-[10px] text-[#787b86] font-bold uppercase tracking-wider mb-1">Sector</div>
-                                                    <div className="text-[#d1d4dc] truncate" title={currentStock.sector}>{currentStock.sector || "-"}</div>
+                                                <div className="flex flex-col">
+                                                    <span className="text-[9px] text-[#787b86] font-bold uppercase tracking-wider leading-none">Mkt Cap</span>
+                                                    <span className="font-mono font-bold text-zinc-100 text-xs mt-0.5">{formatCompact(currentStock.market_cap)}</span>
                                                 </div>
-                                                <div>
-                                                    <div className="text-[10px] text-[#787b86] font-bold uppercase tracking-wider mb-1">P/E Ratio</div>
-                                                    <div className="font-mono font-bold text-[#d1d4dc]">{formatNum(currentStock.pe_ratio, 1)}</div>
+                                            </div>
+
+                                            <div className="h-6 w-[1px] bg-zinc-800" />
+
+                                            {/* Sector */}
+                                            <div className="flex items-center gap-2">
+                                                <div className="w-7 h-7 rounded-md bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 shrink-0">
+                                                    <PieChart className="w-3.5 h-3.5" />
                                                 </div>
-                                                <div>
-                                                    <div className="text-[10px] text-[#787b86] font-bold uppercase tracking-wider mb-1">EPS (TTM)</div>
-                                                    <div className="font-mono font-bold text-[#d1d4dc]">{formatNum(currentStock.eps, 2)}</div>
+                                                <div className="flex flex-col max-w-[120px]">
+                                                    <span className="text-[9px] text-[#787b86] font-bold uppercase tracking-wider leading-none">Sector</span>
+                                                    <span className="font-bold text-zinc-100 text-xs truncate mt-0.5" title={currentStock.sector}>{currentStock.sector || "-"}</span>
                                                 </div>
-                                                <div>
-                                                    <div className="text-[10px] text-[#787b86] font-bold uppercase tracking-wider mb-1">RSI (14)</div>
-                                                    <div className={`font-mono font-bold ${currentStock.rsi < 35 ? "text-[#26a69a]" : currentStock.rsi > 65 ? "text-[#ef5350]" : "text-[#d1d4dc]"}`}>
+                                            </div>
+
+                                            <div className="h-6 w-[1px] bg-zinc-800" />
+
+                                            {/* P/E Ratio */}
+                                            <div className="flex items-center gap-2">
+                                                <div className="w-7 h-7 rounded-md bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 shrink-0">
+                                                    <Scale className="w-3.5 h-3.5" />
+                                                </div>
+                                                <div className="flex flex-col">
+                                                    <span className="text-[9px] text-[#787b86] font-bold uppercase tracking-wider leading-none">P/E Ratio</span>
+                                                    <span className="font-mono font-bold text-zinc-100 text-xs mt-0.5">{formatNum(currentStock.pe_ratio, 1)}</span>
+                                                </div>
+                                            </div>
+
+                                            <div className="h-6 w-[1px] bg-zinc-800" />
+
+                                            {/* EPS */}
+                                            <div className="flex items-center gap-2">
+                                                <div className="w-7 h-7 rounded-md bg-teal-500/10 border border-teal-500/20 flex items-center justify-center text-teal-400 shrink-0">
+                                                    <Landmark className="w-3.5 h-3.5" />
+                                                </div>
+                                                <div className="flex flex-col">
+                                                    <span className="text-[9px] text-[#787b86] font-bold uppercase tracking-wider leading-none">EPS (TTM)</span>
+                                                    <span className="font-mono font-bold text-zinc-100 text-xs mt-0.5">{formatNum(currentStock.eps, 2)}</span>
+                                                </div>
+                                            </div>
+
+                                            <div className="h-6 w-[1px] bg-zinc-800" />
+
+                                            {/* RSI (14) */}
+                                            <div className="flex items-center gap-2">
+                                                <div className="w-7 h-7 rounded-md bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-400 shrink-0">
+                                                    <Percent className="w-3.5 h-3.5" />
+                                                </div>
+                                                <div className="flex flex-col">
+                                                    <span className="text-[9px] text-[#787b86] font-bold uppercase tracking-wider leading-none">RSI (14)</span>
+                                                    <span className={`font-mono font-bold text-xs mt-0.5 ${currentStock.rsi < 35 ? "text-[#26a69a]" : currentStock.rsi > 65 ? "text-[#ef5350]" : "text-zinc-100"}`}>
                                                         {currentStock.rsi.toFixed(1)}
-                                                    </div>
+                                                    </span>
                                                 </div>
-                                                <div>
-                                                    <div className="text-[10px] text-[#787b86] font-bold uppercase tracking-wider mb-1">EMA 50</div>
-                                                    <div className="font-mono font-bold text-[#d1d4dc]">{formatNum(currentStock.ema50)}</div>
+                                            </div>
+
+                                            <div className="h-6 w-[1px] bg-zinc-800" />
+
+                                            {/* EMA 50 */}
+                                            <div className="flex items-center gap-2">
+                                                <div className="w-7 h-7 rounded-md bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400 shrink-0">
+                                                    <TrendingUp className="w-3.5 h-3.5" />
                                                 </div>
-                                                <div>
-                                                    <div className="text-[10px] text-[#787b86] font-bold uppercase tracking-wider mb-1">EMA 200</div>
-                                                    <div className="font-mono font-bold text-[#d1d4dc]">{formatNum(currentStock.ema200)}</div>
+                                                <div className="flex flex-col">
+                                                    <span className="text-[9px] text-[#787b86] font-bold uppercase tracking-wider leading-none">EMA 50</span>
+                                                    <span className="font-mono font-bold text-zinc-100 text-xs mt-0.5">{formatNum(currentStock.ema50)}</span>
                                                 </div>
-                                                <div>
-                                                    <div className="text-[10px] text-[#787b86] font-bold uppercase tracking-wider mb-1">ADX</div>
-                                                    <div className="font-mono font-bold text-[#d1d4dc]">{formatNum(currentStock.adx14, 1)}</div>
+                                            </div>
+
+                                            <div className="h-6 w-[1px] bg-zinc-800" />
+
+                                            {/* EMA 200 */}
+                                            <div className="flex items-center gap-2">
+                                                <div className="w-7 h-7 rounded-md bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400 shrink-0">
+                                                    <TrendingUp className="w-3.5 h-3.5" />
+                                                </div>
+                                                <div className="flex flex-col">
+                                                    <span className="text-[9px] text-[#787b86] font-bold uppercase tracking-wider leading-none">EMA 200</span>
+                                                    <span className="font-mono font-bold text-zinc-100 text-xs mt-0.5">{formatNum(currentStock.ema200)}</span>
+                                                </div>
+                                            </div>
+
+                                            <div className="h-6 w-[1px] bg-zinc-800" />
+
+                                            {/* ADX */}
+                                            <div className="flex items-center gap-2">
+                                                <div className="w-7 h-7 rounded-md bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-400 shrink-0">
+                                                    <Globe className="w-3.5 h-3.5" />
+                                                </div>
+                                                <div className="flex flex-col">
+                                                    <span className="text-[9px] text-[#787b86] font-bold uppercase tracking-wider leading-none">ADX (14)</span>
+                                                    <span className="font-mono font-bold text-zinc-100 text-xs mt-0.5">{formatNum(currentStock.adx14, 1)}</span>
                                                 </div>
                                             </div>
                                         </div>
-                                    )}
-                                </>
-                            );
-                        })()
-                    ) : (
-                        <div className="flex-1 flex flex-col items-center justify-center text-xs text-[#787b86]">
-                            <TrendingUp className="w-8 h-8 text-[#787b86]/30 mb-2" />
-                            <span>Select a stock to load the TradingView Chart</span>
+                                    </div>
+                                );
+                            })()}
                         </div>
-                    )}
-                </div>
 
-                {/* --- Right Pane: Screener Table (Unified Layout) --- */}
-                <div className="w-full lg:w-[40%] flex flex-col min-h-0 border-t lg:border-t-0 lg:border-l border-[#2a2e39] overflow-hidden">
+                        {/* Horizontal Resize Handle */}
+                        <div 
+                            onMouseDown={() => setIsResizingHeight(true)}
+                            className="w-full h-1 cursor-ns-resize bg-zinc-800/40 hover:bg-indigo-600 transition-colors z-40 relative shrink-0 border-t border-b border-[#2a2e39]"
+                            title="Drag to resize chart height"
+                        />
+                    </>
+                )}
+
+                {/* --- Bottom Pane: Screener Table (Unified Layout) --- */}
+                <div className="flex-1 flex flex-col min-h-0 overflow-hidden bg-[#0c0d12]">
                     
                     {/* Toolbar tab switcher */}
                     <div className="flex items-center justify-between px-4 py-2 border-b border-[#2a2e39] bg-[#0c0d12]">
@@ -1611,7 +1735,7 @@ export default function TechnicalScannerPage() {
                                                 <SortableHeader label="Mkt Cap" field="market_cap" widthClass="w-28" />
                                             </>
                                         )}
-                                        <th className="w-16 px-4 py-2 text-right border-b border-[#2a2e39] font-bold uppercase tracking-wider text-[10px] text-[#787b86]">Actions</th>
+
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-[#2a2e39]">
@@ -1619,8 +1743,7 @@ export default function TechnicalScannerPage() {
                                         <tr
                                             key={r.symbol}
                                             onClick={() => {
-                                                setActiveSymbol(r.symbol);
-                                                setTechScanner({ selectedStock: r });
+                                                setTechScanner({ activeSymbol: r.symbol, selectedStock: r });
                                             }}
                                             className={`
                                                 group transition-all duration-150 cursor-pointer
@@ -1689,22 +1812,7 @@ export default function TechnicalScannerPage() {
                                                     <td className="px-4 py-2 text-right font-mono text-[#d1d4dc] font-bold text-xs">{formatCompact(r.market_cap)}</td>
                                                 </>
                                             )}
-                                            <td className="px-4 py-2 text-right" onClick={(e) => e.stopPropagation()}>
-                                                <button
-                                                    onClick={() => {
-                                                        if (isSaved(r.symbol)) removeSymbolBySymbol(r.symbol);
-                                                        else saveSymbol({
-                                                            symbol: r.symbol,
-                                                            name: r.name,
-                                                            source: "tech_scanner",
-                                                            metadata: { logo_url: r.logo_url }
-                                                        });
-                                                    }}
-                                                    className={`p-1 rounded transition-colors ${isSaved(r.symbol) ? "text-[#2962ff] bg-[#2962ff]/10" : "text-[#787b86] hover:text-white hover:bg-[#1c2030]"}`}
-                                                >
-                                                    {isSaved(r.symbol) ? <BookmarkCheck className="h-3.5 w-3.5" /> : <Bookmark className="h-3.5 w-3.5" />}
-                                                </button>
-                                            </td>
+
                                         </tr>
                                     ))}
                                 </tbody>

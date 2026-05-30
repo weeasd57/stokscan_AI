@@ -70,6 +70,7 @@ export default function CandleChart({
                 autoScale: true,
                 visible: true,
                 alignLabels: true,
+                minimumWidth: 80,
             },
             crosshair: {
                 mode: CrosshairMode.Magnet,
@@ -316,13 +317,45 @@ export default function CandleChart({
             rsiChart.priceScale('right').applyOptions({ scaleMargins: { top: 0.1, bottom: 0.1 } });
         }
 
-        // Sync and Resize
+        // Sync and Resize without feedback loop and with boundary clamping
+        let isSyncing = false;
         const syncs = [mainChart, macdChart, rsiChart].filter(Boolean) as IChartApi[];
-        syncs.forEach((c, idx) => {
-            c.timeScale().subscribeVisibleLogicalRangeChange(range => {
-                if (range) syncs.forEach((o, oIdx) => { if (idx !== oIdx) o.timeScale().setVisibleLogicalRange(range); });
+        if (syncs.length >= 1) {
+            const totalBars = sortedRows.length;
+            syncs.forEach((c, idx) => {
+                c.timeScale().subscribeVisibleLogicalRangeChange(range => {
+                    if (isSyncing || !range) return;
+                    
+                    let from = range.from;
+                    let to = range.to;
+                    const width = to - from;
+                    
+                    const maxFrom = totalBars - 5;
+                    const minTo = 5;
+                    
+                    let needsClamping = false;
+                    if (from > maxFrom) {
+                        from = maxFrom as any;
+                        to = (from + width) as any;
+                        needsClamping = true;
+                    }
+                    if (to < minTo) {
+                        to = minTo as any;
+                        from = (to - width) as any;
+                        needsClamping = true;
+                    }
+                    
+                    isSyncing = true;
+                    const targetRange = needsClamping ? { from, to } : range;
+                    syncs.forEach((o, oIdx) => {
+                        if (needsClamping || idx !== oIdx) {
+                            o.timeScale().setVisibleLogicalRange(targetRange);
+                        }
+                    });
+                    isSyncing = false;
+                });
             });
-        });
+        }
 
         // Resize Observer
         const resizeObserver = new ResizeObserver((entries) => {

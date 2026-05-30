@@ -1196,11 +1196,11 @@ def get_bot_logs(bot_id: str = "primary", lines: int = 100):
 candle_cache = {} # (symbol, bot_id, limit): (timestamp, data)
 
 @router.get("/candles")
-def get_candles(symbol: str, bot_id: str = "primary", limit: int = 150):
+def get_candles(symbol: str, bot_id: str = "primary", limit: int = 150, exchange: Optional[str] = None):
     """Fetch OHLC candle data + entry/exit markers for a symbol."""
     try:
         now = datetime.now()
-        cache_key = (symbol, bot_id, limit)
+        cache_key = (symbol, bot_id, limit, exchange)
         
         # Check cache (2 second window)
         if cache_key in candle_cache:
@@ -1239,23 +1239,38 @@ def get_candles(symbol: str, bot_id: str = "primary", limit: int = 150):
             }
             timeframe = tf_map.get(raw_tf.lower(), raw_tf) if raw_tf else "15m"
 
-        # Determine exchange - simple heuristic: if it has /USD or /USDT it's crypto.
-        # Improved: Symbols ending in USD or USDT are also likely crypto.
-        is_crypto = "/" in symbol or symbol.upper().endswith("USD") or symbol.upper().endswith("USDT")
-        
-        exchange = "CRYPTO" if is_crypto else "US"
-        
-        if bot:
-            ds = getattr(bot.config, "data_source", "").lower()
-            # If virtual is source but it doesn't look like crypto, assume US Stock
-            if "virtual" in ds and not is_crypto:
-                exchange = "US"
+        # Determine exchange if not provided
+        if not exchange:
+            is_crypto = "/" in symbol or symbol.upper().endswith("USD") or symbol.upper().endswith("USDT")
+            exchange = "CRYPTO" if is_crypto else "US"
+            if bot:
+                ds = getattr(bot.config, "data_source", "").lower()
+                # If virtual is source but it doesn't look like crypto, assume US Stock
+                if "virtual" in ds and not is_crypto:
+                    exchange = "US"
+        else:
+            exchange = exchange.upper()
 
         raw_candles = []
         if exchange == "CRYPTO":
             from api.local_storage import load_crypto_bars_local
             raw_candles = load_crypto_bars_local(db_symbol, timeframe, limit=limit)
             # Already chronological
+        elif exchange == "EGX":
+            # For EGX stocks, query from stock_prices daily table
+            def fetch_prices(sb):
+                return sb.table("stock_prices") \
+                    .select("date,open,high,low,close,volume") \
+                    .eq("symbol", db_symbol) \
+                    .eq("exchange", "EGX") \
+                    .order("date", desc=True) \
+                    .limit(limit) \
+                    .execute()
+
+            prices_resp = _supabase_read_with_retry(fetch_prices, table_name="stock_prices")
+            raw_candles = prices_resp.data or [] if prices_resp else []
+            # Reverse to chronological order
+            raw_candles.reverse()
         else:
             # Query OHLC data with centralized retry logic
             def fetch_bars(sb):
@@ -1293,13 +1308,19 @@ def get_candles(symbol: str, bot_id: str = "primary", limit: int = 150):
 
         # Format for lightweight-charts: time as unix timestamp
         candles = []
+        from datetime import timezone as dt_timezone
         for c in raw_candles:
             try:
-                ts = c.get("ts", "")
-                # Parse ISO timestamp to unix seconds
+                ts = c.get("ts") or c.get("date")
+                # Parse ISO timestamp or daily date string to unix seconds
                 if ts:
-                    dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
-                    unix_ts = int(dt.timestamp())
+                    if "T" in ts or " " in ts:
+                        dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                        unix_ts = int(dt.timestamp())
+                    else:
+                        # Date format 'YYYY-MM-DD'
+                        dt = datetime.strptime(ts, "%Y-%m-%d")
+                        unix_ts = int(dt.replace(tzinfo=dt_timezone.utc).timestamp())
                 else:
                     continue
                 candles.append({

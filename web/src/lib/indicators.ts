@@ -307,3 +307,121 @@ export function calculateBollingerBands(data: Candle[], period: number = 20, std
 
     return result;
 }
+
+// 6. Calculate Average True Range (ATR)
+export interface AtrDataPoint {
+    time: number;
+    value: number;
+}
+
+export function calculateATR(data: Candle[], period: number = 14): AtrDataPoint[] {
+    const result: AtrDataPoint[] = [];
+    if (data.length <= period) return result;
+
+    const trs: number[] = [];
+    trs.push(data[0].high - data[0].low);
+
+    for (let i = 1; i < data.length; i++) {
+        const h_l = data[i].high - data[i].low;
+        const h_cp = Math.abs(data[i].high - data[i - 1].close);
+        const l_cp = Math.abs(data[i].low - data[i - 1].close);
+        trs.push(Math.max(h_l, h_cp, l_cp));
+    }
+
+    let sum = 0;
+    for (let i = 0; i < period; i++) {
+        sum += trs[i];
+    }
+    let atr = sum / period;
+    result.push({ time: data[period].time, value: atr });
+
+    for (let i = period + 1; i < data.length; i++) {
+        atr = (atr * (period - 1) + trs[i]) / period;
+        result.push({ time: data[i].time, value: atr });
+    }
+
+    return result;
+}
+
+// 7. Calculate Stochastic Oscillator
+export interface StochDataPoint {
+    time: number;
+    k: number;
+    d: number;
+}
+
+export function calculateStochastic(data: Candle[], kPeriod: number = 14, dPeriod: number = 3): StochDataPoint[] {
+    const result: StochDataPoint[] = [];
+    if (data.length < kPeriod) return result;
+
+    const kValues: { time: number; value: number }[] = [];
+
+    for (let i = kPeriod - 1; i < data.length; i++) {
+        let lowestLow = data[i].low;
+        let highestHigh = data[i].high;
+
+        for (let j = i - kPeriod + 1; j <= i; j++) {
+            if (data[j].low < lowestLow) lowestLow = data[j].low;
+            if (data[j].high > highestHigh) highestHigh = data[j].high;
+        }
+
+        const range = highestHigh - lowestLow;
+        const k = range === 0 ? 50 : 100 * (data[i].close - lowestLow) / range;
+        kValues.push({ time: data[i].time, value: k });
+    }
+
+    if (kValues.length < dPeriod) return result;
+
+    for (let i = dPeriod - 1; i < kValues.length; i++) {
+        let sum = 0;
+        for (let j = i - dPeriod + 1; j <= i; j++) {
+            sum += kValues[j].value;
+        }
+        const d = sum / dPeriod;
+        result.push({
+            time: kValues[i].time,
+            k: kValues[i].value,
+            d: d
+        });
+    }
+
+    return result;
+}
+
+// 8. Calculate Commodity Channel Index (CCI)
+export interface CciDataPoint {
+    time: number;
+    value: number;
+}
+
+export function calculateCCI(data: Candle[], period: number = 20): CciDataPoint[] {
+    const result: CciDataPoint[] = [];
+    if (data.length < period) return result;
+
+    const tps = data.map(d => (d.high + d.low + d.close) / 3);
+
+    for (let i = period - 1; i < data.length; i++) {
+        let sum = 0;
+        for (let j = i - period + 1; j <= i; j++) {
+            sum += tps[j];
+        }
+        const sma = sum / period;
+
+        let mdSum = 0;
+        for (let j = i - period + 1; j <= i; j++) {
+            mdSum += Math.abs(tps[j] - sma);
+        }
+        const md = mdSum / period;
+
+        const tp = tps[i];
+        const cci = md === 0 ? 0 : (tp - sma) / (0.015 * md);
+
+        result.push({
+            time: data[i].time,
+            value: cci
+        });
+    }
+
+    return result;
+}
+
