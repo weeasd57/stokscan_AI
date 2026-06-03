@@ -4,6 +4,7 @@
 
 :root {
   color-scheme: dark;
+  --header-h: 80px;
 }
 
 html {
@@ -26,10 +27,14 @@ body {
   }
 
   .header-stable {
-    min-height: 4rem; /* ensures consistent header height */
+    height: var(--header-h); /* consistent header height */
     display: flex;
     align-items: center;
     justify-content: space-between;
+  }
+
+  .page-below-header {
+    top: var(--header-h);
   }
 
   .language-switch {

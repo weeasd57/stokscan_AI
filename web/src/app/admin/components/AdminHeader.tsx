@@ -14,7 +14,7 @@ export default function AdminHeader({ activeMainTab, setActiveMainTab }: AdminHe
     ] as const;
 
     return (
-        <header className="sticky top-0 z-50 w-full border-b border-white/5 bg-black/60 backdrop-blur-xl supports-[backdrop-filter]:bg-black/30">
+        <header className="sticky top-[80px] z-50 w-full border-b border-white/5 bg-black/60 backdrop-blur-xl supports-[backdrop-filter]:bg-black/30">
             <div className="max-w-[1920px] mx-auto">
                 <div className="flex flex-col md:flex-row md:items-center justify-start px-4 md:px-8 py-4 gap-4 md:gap-0">
 

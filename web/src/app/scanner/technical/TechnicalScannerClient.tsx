@@ -1851,11 +1851,11 @@ export default function TechnicalScannerPage() {
             {showManageAlertsDialog && (
                 <>
                     <div className="fixed inset-0 bg-black/60 z-[210] animate-in fade-in duration-200" onClick={() => setShowManageAlertsDialog(false)} />
-                    <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-lg p-6 bg-[#131722] border border-[#2a2e39] rounded-lg z-[211] animate-in zoom-in-95 duration-200 shadow-2xl space-y-5 text-left">
-                        <div className="flex justify-between items-center pb-3 border-b border-[#2a2e39]">
-                            <div className="flex items-center gap-2">
+                    <div className={`fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-lg p-6 bg-[#131722] border border-[#2a2e39] rounded-lg z-[211] animate-in zoom-in-95 duration-200 shadow-2xl space-y-5 ${language === 'ar' ? 'text-right' : 'text-left'}`}>
+                        <div className={`flex ${language === 'ar' ? 'flex-row-reverse' : 'flex-row'} justify-between items-center pb-3 border-b border-[#2a2e39]`}>
+                            <div className={`flex ${language === 'ar' ? 'flex-row-reverse' : 'flex-row'} items-center gap-2`}>
                                 <BellRing className="w-5 h-5 text-amber-500" />
-                                <h3 className="text-sm font-bold text-white uppercase tracking-wider">Telegram Alerts</h3>
+                                <h3 className="text-sm font-bold text-white uppercase tracking-wider">{t("telegram.alerts.title")}</h3>
                             </div>
                             <button
                                 onClick={() => setShowManageAlertsDialog(false)}
@@ -1867,26 +1867,26 @@ export default function TechnicalScannerPage() {
 
                         {/* Telegram chat ID warning */}
                         {!fetchingTelegramChatId && !telegramChatId && (
-                            <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded flex items-start gap-3">
+                            <div className={`p-4 bg-amber-500/10 border border-amber-500/20 rounded flex ${language === 'ar' ? 'flex-row-reverse text-right' : 'flex-row text-left'} items-start gap-3`}>
                                 <AlertCircle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
                                 <div className="space-y-1 text-xs text-amber-200">
-                                    <p className="font-bold">معرف تيليجرام غير مفعّل!</p>
+                                    <p className="font-bold">{t("telegram.alerts.inactive_title")}</p>
                                     <p className="opacity-80">
-                                        لتلقي التنبيهات الفنية، يرجى التوجه لصفحة الملف الشخصي وتعيين معرف تيليجرام الخاص بك، ثم تفعيل البوت.
+                                        {t("telegram.alerts.inactive_desc")}
                                     </p>
                                 </div>
                             </div>
                         )}
 
                         <div className="space-y-3">
-                            <div className="flex justify-between items-center">
-                                <span className="text-[10px] font-bold text-[#787b86] uppercase tracking-wider">Active Alerts</span>
+                            <div className={`flex ${language === 'ar' ? 'flex-row-reverse' : 'flex-row'} justify-between items-center`}>
+                                <span className="text-[10px] font-bold text-[#787b86] uppercase tracking-wider">{t("telegram.alerts.active_alerts")}</span>
                                 <button
                                     disabled={!telegramChatId}
                                     onClick={() => setShowCreateAlertDialog(true)}
-                                    className="px-3 py-1.5 rounded bg-[#2962ff] hover:bg-[#1a4eff] disabled:opacity-20 text-[10px] font-bold uppercase tracking-wider text-white transition-colors flex items-center gap-1 active:scale-95"
+                                    className={`px-3 py-1.5 rounded bg-[#2962ff] hover:bg-[#1a4eff] disabled:opacity-20 text-[10px] font-bold uppercase tracking-wider text-white transition-colors flex ${language === 'ar' ? 'flex-row-reverse' : 'flex-row'} items-center gap-1 active:scale-95`}
                                 >
-                                    <Plus className="w-3.5 h-3.5" /> Create Alert
+                                    <Plus className="w-3.5 h-3.5" /> {t("telegram.alerts.create_alert")}
                                 </button>
                             </div>
 
@@ -1897,16 +1897,16 @@ export default function TechnicalScannerPage() {
                                     </div>
                                 ) : alerts.length === 0 ? (
                                     <div className="text-center py-8 text-[#787b86] text-xs font-bold uppercase tracking-wider">
-                                        No Technical Alerts Set
+                                        {t("telegram.alerts.no_alerts")}
                                     </div>
                                 ) : (
                                     alerts.map((a) => (
-                                        <div key={a.id} className="p-4 rounded bg-[#0c0d12] border border-[#2a2e39] flex justify-between items-center">
-                                            <div className="space-y-1.5 min-w-0 pr-4">
+                                        <div key={a.id} className={`p-4 rounded bg-[#0c0d12] border border-[#2a2e39] flex ${language === 'ar' ? 'flex-row-reverse' : 'flex-row'} justify-between items-center`}>
+                                            <div className={`space-y-1.5 min-w-0 pr-4 ${language === 'ar' ? 'text-right' : 'text-left'}`}>
                                                 <h4 className="font-bold text-xs text-white font-mono truncate">{a.name}</h4>
-                                                <div className="flex flex-wrap gap-1">
+                                                <div className={`flex flex-wrap ${language === 'ar' ? 'flex-row-reverse' : 'flex-row'} gap-1`}>
                                                     <span className="px-1.5 py-0.5 rounded bg-[#2962ff]/10 border border-[#2962ff]/20 text-[9px] font-mono text-[#2962ff] uppercase font-bold">
-                                                        {a.filters.country || "Egypt"}
+                                                        {a.filters.country === "Egypt" || a.filters.country === "egypt" ? t("telegram.alerts.filter.egypt") : (a.filters.country || "Egypt")}
                                                     </span>
                                                     {Object.entries(a.filters).map(([k, v]) => {
                                                         if (k === "country" || k === "limit" || v === undefined || v === null || v === false) return null;
@@ -1918,7 +1918,7 @@ export default function TechnicalScannerPage() {
                                                     })}
                                                 </div>
                                             </div>
-                                            <div className="flex items-center gap-3 shrink-0">
+                                            <div className={`flex ${language === 'ar' ? 'flex-row-reverse' : 'flex-row'} items-center gap-3 shrink-0`}>
                                                 <button
                                                     onClick={() => handleToggleAlert(a.id, !a.is_active)}
                                                     className={`
@@ -1931,7 +1931,7 @@ export default function TechnicalScannerPage() {
                                                 <button
                                                     onClick={() => handleDeleteAlert(a.id)}
                                                     className="p-1.5 rounded bg-red-500/10 hover:bg-red-500/20 text-red-500 transition-colors"
-                                                    title="Delete alert"
+                                                    title={t("telegram.alerts.delete_tooltip")}
                                                 >
                                                     <Trash className="w-3.5 h-3.5" />
                                                 </button>
@@ -1949,9 +1949,9 @@ export default function TechnicalScannerPage() {
             {showCreateAlertDialog && (
                 <>
                     <div className="fixed inset-0 bg-black/60 z-[220] animate-in fade-in duration-200" onClick={() => setShowCreateAlertDialog(false)} />
-                    <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md p-6 bg-[#131722] border border-[#2a2e39] rounded-lg z-[221] animate-in zoom-in-95 duration-200 shadow-2xl space-y-5 text-left">
-                        <div className="flex justify-between items-center pb-3 border-b border-[#2a2e39]">
-                            <h3 className="text-sm font-bold text-white uppercase tracking-wider">Create Telegram Alert</h3>
+                    <div className={`fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md p-6 bg-[#131722] border border-[#2a2e39] rounded-lg z-[221] animate-in zoom-in-95 duration-200 shadow-2xl space-y-5 ${language === 'ar' ? 'text-right' : 'text-left'}`}>
+                        <div className={`flex ${language === 'ar' ? 'flex-row-reverse' : 'flex-row'} justify-between items-center pb-3 border-b border-[#2a2e39]`}>
+                            <h3 className="text-sm font-bold text-white uppercase tracking-wider">{t("telegram.alerts.create_title")}</h3>
                             <button
                                 onClick={() => setShowCreateAlertDialog(false)}
                                 className="p-1 rounded bg-[#1c2030] hover:bg-[#2a2e39] text-[#787b86] hover:text-white transition-colors border border-[#2a2e39]"
@@ -1962,48 +1962,48 @@ export default function TechnicalScannerPage() {
 
                         <div className="space-y-4">
                             <div className="space-y-1.5">
-                                <label className="text-[10px] text-[#787b86] font-bold uppercase tracking-wider">Alert Name</label>
+                                <label className="text-[10px] text-[#787b86] font-bold uppercase tracking-wider block">{t("telegram.alerts.alert_name")}</label>
                                 <input
                                     type="text"
-                                    placeholder="e.g. RSI Oversold EGX Stocks"
+                                    placeholder={t("telegram.alerts.name_placeholder")}
                                     value={newAlertName}
                                     onChange={(e) => setNewAlertName(e.target.value)}
-                                    className="w-full h-9 px-3 rounded bg-[#1c2030] border border-[#2a2e39] text-white text-xs focus:outline-none focus:border-[#2962ff]"
+                                    className={`w-full h-9 px-3 rounded bg-[#1c2030] border border-[#2a2e39] text-white text-xs focus:outline-none focus:border-[#2962ff] ${language === 'ar' ? 'text-right' : 'text-left'}`}
                                 />
                             </div>
 
                             <div className="p-4 bg-[#0c0d12] border border-[#2a2e39] rounded space-y-2">
-                                <h4 className="text-[10px] font-bold uppercase text-[#787b86] tracking-wider">Active Filters Included:</h4>
-                                <div className="space-y-1.5 text-xs text-[#b2b5be] font-mono">
-                                    <div>• Market: <span className="text-white">Egypt (EGX)</span></div>
-                                    {minPrice && <div>• Min Price: <span className="text-white">&gt;= {minPrice} EGP</span></div>}
-                                    {(rsiMin || rsiMax) && <div>• RSI: <span className="text-white">{rsiMin || 0} - {rsiMax || 100}</span></div>}
-                                    {marketCapMin && <div>• Min Market Cap: <span className="text-white">{formatCompact(Number(marketCapMin))} EGP</span></div>}
-                                    {marketCapMax && <div>• Max Market Cap: <span className="text-white">{formatCompact(Number(marketCapMax))} EGP</span></div>}
-                                    {sector && <div>• Sector: <span className="text-white">{sector}</span></div>}
-                                    {aboveEma50 && <div>• Price &gt; EMA 50: <span className="text-white">Yes</span></div>}
-                                    {aboveEma200 && <div>• Price &gt; EMA 200: <span className="text-white">Yes</span></div>}
-                                    {goldenCross && <div>• Golden Cross: <span className="text-white">Yes</span></div>}
-                                    {volumeAboveSma20 && <div>• Vol &gt; SMA 20: <span className="text-white">Yes</span></div>}
-                                    {aboveVwap20 && <div>• Price &gt; VWAP 20: <span className="text-white">Yes</span></div>}
-                                    {useAiFilter && <div>• AI Predictions: <span className="text-white">Precision &gt;= {minAiPrecision}</span></div>}
+                                <h4 className="text-[10px] font-bold uppercase text-[#787b86] tracking-wider">{t("telegram.alerts.filters_included")}</h4>
+                                <div className={`space-y-1.5 text-xs text-[#b2b5be] font-mono ${language === 'ar' ? 'text-right' : 'text-left'}`}>
+                                    <div>• {t("telegram.alerts.filter.market")}: <span className="text-white">{t("telegram.alerts.filter.egypt")}</span></div>
+                                    {minPrice && <div>• {t("telegram.alerts.filter.min_price")}: <span className="text-white">&gt;= {minPrice} EGP</span></div>}
+                                    {(rsiMin || rsiMax) && <div>• {t("telegram.alerts.filter.rsi")}: <span className="text-white">{rsiMin || 0} - {rsiMax || 100}</span></div>}
+                                    {marketCapMin && <div>• {t("telegram.alerts.filter.min_mcap")}: <span className="text-white">{formatCompact(Number(marketCapMin))} EGP</span></div>}
+                                    {marketCapMax && <div>• {t("telegram.alerts.filter.max_mcap")}: <span className="text-white">{formatCompact(Number(marketCapMax))} EGP</span></div>}
+                                    {sector && <div>• {t("telegram.alerts.filter.sector")}: <span className="text-white">{sector}</span></div>}
+                                    {aboveEma50 && <div>• {t("telegram.alerts.filter.above_ema50")}: <span className="text-white">{t("telegram.alerts.filter.yes")}</span></div>}
+                                    {aboveEma200 && <div>• {t("telegram.alerts.filter.above_ema200")}: <span className="text-white">{t("telegram.alerts.filter.yes")}</span></div>}
+                                    {goldenCross && <div>• {t("telegram.alerts.filter.golden_cross")}: <span className="text-white">{t("telegram.alerts.filter.yes")}</span></div>}
+                                    {volumeAboveSma20 && <div>• {t("telegram.alerts.filter.vol_above_sma20")}: <span className="text-white">{t("telegram.alerts.filter.yes")}</span></div>}
+                                    {aboveVwap20 && <div>• {t("telegram.alerts.filter.above_vwap20")}: <span className="text-white">{t("telegram.alerts.filter.yes")}</span></div>}
+                                    {useAiFilter && <div>• {t("telegram.alerts.filter.ai_predictions")}: <span className="text-white">Precision &gt;= {minAiPrecision}</span></div>}
                                 </div>
                             </div>
                         </div>
 
-                        <div className="flex gap-3">
+                        <div className={`flex ${language === 'ar' ? 'flex-row-reverse' : 'flex-row'} gap-3`}>
                             <button
                                 onClick={() => setShowCreateAlertDialog(false)}
                                 className="flex-1 h-9 rounded bg-[#1c2030] hover:bg-[#2a2e39] border border-[#2a2e39] text-xs font-bold uppercase tracking-wider text-[#b2b5be] hover:text-white transition-colors"
                             >
-                                Cancel
+                                {t("telegram.alerts.cancel")}
                             </button>
                             <button
                                 onClick={handleCreateAlert}
                                 disabled={savingAlert || !newAlertName.trim()}
-                                className="flex-1 h-9 rounded bg-[#2962ff] hover:bg-[#1a4eff] disabled:opacity-20 text-xs font-bold uppercase tracking-wider text-white transition-colors flex items-center justify-center gap-2 active:scale-95"
+                                className={`flex-1 h-9 rounded bg-[#2962ff] hover:bg-[#1a4eff] disabled:opacity-20 text-xs font-bold uppercase tracking-wider text-white transition-colors flex ${language === 'ar' ? 'flex-row-reverse' : 'flex-row'} items-center justify-center gap-2 active:scale-95`}
                             >
-                                {savingAlert ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Save Alert"}
+                                {savingAlert ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : t("telegram.alerts.save_btn")}
                             </button>
                         </div>
                     </div>

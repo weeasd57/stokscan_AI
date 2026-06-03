@@ -594,7 +594,7 @@ export default function AdminPage() {
     const totalPages = Math.ceil(filteredSymbols.length / pageSize);
 
     return (
-        <div className="min-h-screen bg-black text-zinc-100 flex flex-col selection:bg-indigo-500/30">
+        <div className="min-h-screen bg-black text-zinc-100 flex flex-col selection:bg-indigo-500/30 pt-[80px]">
             {/* Top Navigation Header */}
             <AdminHeader
                 activeMainTab={activeMainTab}

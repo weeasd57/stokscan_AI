@@ -1365,33 +1365,47 @@ def get_supabase_symbols(country: Optional[str] = None) -> List[Dict[str, Any]]:
     if not supabase: return []
     
     try:
-        # 1. Try RPC first (active symbols with metadata)
-        params = {}
-        if country:
-            params['p_country'] = country
-        
-        rpc_res = supabase.rpc("get_active_symbols", params).execute()
         symbols_map = {}
-        
-        if rpc_res.data:
-            for r in rpc_res.data:
-                symbols_map[r['symbol']] = {
-                    "symbol": str(r.get('symbol') or ''),
-                    "exchange": str(r.get('exchange') or ''),
-                    "name": str(r.get('name') or ''),
-                    "country": str(r.get('country') or country or ''),
-                    "hasLocal": True
-                }
 
-        # 2. Add fallback for symbols in stock_fundamentals
+        # 1. Try RPC first (active symbols with metadata) - paginated
         try:
-            fund_query = supabase.table("stock_fundamentals").select("symbol, exchange, data")
+            params = {}
             if country:
-                # Filter by country in JSONB
-                fund_query = fund_query.eq("data->>country", country)
+                params['p_country'] = country
             
-            fund_res = fund_query.execute()
-            if fund_res.data:
+            page_size = 1000
+            offset = 0
+            while True:
+                rpc_res = supabase.rpc("get_active_symbols", params).range(offset, offset + page_size - 1).execute()
+                if not rpc_res.data:
+                    break
+                for r in rpc_res.data:
+                    symbols_map[r['symbol']] = {
+                        "symbol": str(r.get('symbol') or ''),
+                        "exchange": str(r.get('exchange') or ''),
+                        "name": str(r.get('name') or ''),
+                        "country": str(r.get('country') or country or ''),
+                        "hasLocal": True
+                    }
+                if len(rpc_res.data) < page_size:
+                    break
+                offset += page_size
+        except Exception as rpc_err:
+            print(f"Active symbols RPC query failed: {rpc_err}")
+
+        # 2. Add fallback for symbols in stock_fundamentals - paginated
+        try:
+            page_size = 1000
+            offset = 0
+            while True:
+                fund_query = supabase.table("stock_fundamentals").select("symbol, exchange, data")
+                if country:
+                    # Filter by country in JSONB
+                    fund_query = fund_query.eq("data->>country", country)
+                
+                fund_res = fund_query.range(offset, offset + page_size - 1).execute()
+                if not fund_res.data:
+                    break
                 for r in fund_res.data:
                     data_obj = r.get("data") or {}
                     # Try to get country from nested data
@@ -1406,10 +1420,13 @@ def get_supabase_symbols(country: Optional[str] = None) -> List[Dict[str, Any]]:
                             "country": str(row_country or ''),
                             "hasLocal": True
                         }
+                if len(fund_res.data) < page_size:
+                    break
+                offset += page_size
         except Exception as fund_err:
             print(f"Fallback fundamentals query failed: {fund_err}")
 
-        # 3. Last fallback: stock_prices table (limited)
+        # 3. Last fallback: stock_prices table (limited to 5000 records, paginated)
         try:
             # Map countries to exchanges for direct querying if we have the info
             country_to_ex = {
@@ -1421,21 +1438,16 @@ def get_supabase_symbols(country: Optional[str] = None) -> List[Dict[str, Any]]:
             
             ex_filter = country_to_ex.get(country) if country else None
             
-            # Use a slightly larger range if needed
-            # To get more unique symbols, we fetch a few pages or a larger block
-            # Since we can't do DISTINCT easily, we fetch 2000 recent price records
-            price_query = supabase.table("stock_prices").select("symbol, exchange")
-            if ex_filter:
-                price_query = price_query.eq("exchange", ex_filter)
-            
-            # Fetch in two chunks to avoid PostgREST 1000 limit issues
-            p1 = price_query.range(0, 999).execute()
-            p2 = price_query.range(1000, 1999).execute()
-            
-            all_price_rows = (p1.data or []) + (p2.data or [])
-            
-            if all_price_rows:
-                for r in all_price_rows:
+            page_size = 1000
+            offset = 0
+            for _ in range(5):
+                price_query = supabase.table("stock_prices").select("symbol, exchange")
+                if ex_filter:
+                    price_query = price_query.eq("exchange", ex_filter)
+                p_res = price_query.range(offset, offset + page_size - 1).execute()
+                if not p_res.data:
+                    break
+                for r in p_res.data:
                     sym = r['symbol']
                     if sym not in symbols_map:
                         symbols_map[sym] = {
@@ -1445,6 +1457,9 @@ def get_supabase_symbols(country: Optional[str] = None) -> List[Dict[str, Any]]:
                             "country": str(country or 'Unknown'),
                             "hasLocal": True
                         }
+                if len(p_res.data) < page_size:
+                    break
+                offset += page_size
         except Exception as price_err:
             print(f"Fallback price query failed: {price_err}")
 
@@ -1913,6 +1928,16 @@ def sync_df_to_supabase(ticker: str, df: pd.DataFrame, timeframe: str = "1d") ->
         is_intraday = timeframe.lower() not in ["1d", "1day", "daily"]
         
         for _, row in df.iterrows():
+            # Skip zero volume records for stocks to avoid garbage/placeholder price data.
+            # Indexes (exchange == "INDX") can have 0 volume.
+            volume_val = row.get('volume')
+            if sb_exchange.upper() != "INDX" and volume_val is not None and pd.notna(volume_val):
+                try:
+                    if int(volume_val) == 0:
+                        continue
+                except Exception:
+                    pass
+
             adj_close = row.get('adjusted_close')
             if adj_close is None:
                 adj_close = row.get('close')
@@ -2169,7 +2194,7 @@ def get_company_fundamentals(
         # Allow EGX/CC in TradingView as fallback
         # if upper.endswith(".EGX") or upper.endswith(".CC"): return None
 
-        from tradingview_integration import fetch_tradingview_fundamentals_bulk
+        from api.tradingview_integration import fetch_tradingview_fundamentals_bulk
         bulk = fetch_tradingview_fundamentals_bulk([upper])
         if upper not in bulk: return None
         

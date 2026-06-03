@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useMemo } from "react";
 import { createChart, IChartApi, ISeriesApi, UTCTimestamp, SeriesMarker, ColorType } from "lightweight-charts";
-import { Loader2, Settings, Eye, EyeOff, BarChart3, AlertCircle, Search, X } from "lucide-react";
+import { Loader2, Eye, EyeOff, BarChart3, AlertCircle, Search, X, Trash2, Plus, Sliders } from "lucide-react";
 import { 
     calculateEMA, 
     calculateRSI, 
@@ -12,65 +12,63 @@ import {
     calculateATR,
     calculateStochastic,
     calculateCCI,
-    Candle, 
-    LineDataPoint,
-    BollingerBandsDataPoint,
-    MacdDataPoint,
-    AtrDataPoint,
-    StochDataPoint,
-    CciDataPoint
+    Candle
 } from "@/lib/indicators";
+
+export interface CustomMarker {
+    time: number; // unix timestamp (seconds)
+    position: "aboveBar" | "belowBar";
+    color: string;
+    shape: "arrowUp" | "arrowDown" | "circle" | "square";
+    text?: string;
+    size?: number;
+}
 
 interface TradingViewChartProps {
     symbol: string;
     theme?: "dark" | "light";
     exchange?: string;
+    activeTool?: string;
+    onToolDrawComplete?: () => void;
+    customMarkers?: CustomMarker[];
+    focusTimestamp?: number; // unix seconds — scrolls chart to this candle
+    hideIndicators?: boolean;
 }
 
-interface IndicatorState {
-    ema9: boolean;
-    ema20: boolean;
-    ema50: boolean;
-    ema200: boolean;
-    sma20: boolean;
-    sma50: boolean;
-    sma200: boolean;
-    bb: boolean;
-    rsi: boolean;
-    macd: boolean;
-    atr: boolean;
-    stoch: boolean;
-    cci: boolean;
+export interface ActiveIndicator {
+    id: string;
+    type: "EMA" | "SMA" | "BB" | "RSI" | "MACD" | "ATR" | "STOCH" | "CCI";
+    params: Record<string, number>;
+    color: string;
+    visible: boolean;
 }
 
-interface IndicatorParams {
-    ema9: number;
-    ema20: number;
-    ema50: number;
-    ema200: number;
-    sma20: number;
-    sma50: number;
-    sma200: number;
-    bbPeriod: number;
-    bbStdDev: number;
-    rsi: number;
-    macdFast: number;
-    macdSlow: number;
-    macdSignal: number;
-    atr: number;
-    stochK: number;
-    stochD: number;
-    cci: number;
-}
+const AVAILABLE_INDICATORS = [
+    { type: "EMA", name: "Exponential Moving Average (EMA)", desc: "Exponential moving average of close prices.", category: "Overlays" },
+    { type: "SMA", name: "Simple Moving Average (SMA)", desc: "Arithmetic mean of close prices over a specified period.", category: "Overlays" },
+    { type: "BB", name: "Bollinger Bands (BB)", desc: "Volatility bands placed above and below a moving average.", category: "Overlays" },
+    { type: "RSI", name: "Relative Strength Index (RSI)", desc: "Momentum oscillator that measures velocity and change of price.", category: "Oscillators" },
+    { type: "MACD", name: "Moving Average Convergence Divergence (MACD)", desc: "Trend-following momentum indicator showing EMA relationship.", category: "Oscillators" },
+    { type: "ATR", name: "Average True Range (ATR)", desc: "Market volatility indicator showing average price range movement.", category: "Volatility" },
+    { type: "STOCH", name: "Stochastic Oscillator", desc: "Compares closing price to its price range over a period.", category: "Oscillators" },
+    { type: "CCI", name: "Commodity Channel Index (CCI)", desc: "Measures current price relative to average price level.", category: "Oscillators" }
+];
 
-export default function TradingViewChart({ symbol, theme = "dark", exchange }: TradingViewChartProps) {
+const COLOR_PALETTE = ["#2196f3", "#ff9800", "#e91e63", "#9c27b0", "#4caf50", "#00bcd4", "#ffeb3b"];
+
+export default function TradingViewChart({ 
+    symbol, 
+    theme = "dark", 
+    exchange,
+    activeTool = "cursor",
+    onToolDrawComplete,
+    customMarkers = [],
+    focusTimestamp,
+    hideIndicators = false
+}: TradingViewChartProps) {
     const mainContainerRef = useRef<HTMLDivElement>(null);
     const priceContainerRef = useRef<HTMLDivElement>(null);
-    const rsiContainerRef = useRef<HTMLDivElement>(null);
-    const macdContainerRef = useRef<HTMLDivElement>(null);
-    const atrContainerRef = useRef<HTMLDivElement>(null);
-    const stochContainerRef = useRef<HTMLDivElement>(null);
-    const cciContainerRef = useRef<HTMLDivElement>(null);
+    const paneContainersRef = useRef<Map<string, HTMLDivElement>>(new Map());
 
     // States
     const [candlesData, setCandlesData] = useState<Candle[]>([]);
@@ -78,8 +76,18 @@ export default function TradingViewChart({ symbol, theme = "dark", exchange }: T
     const [timeframe, setTimeframe] = useState<string>("15m");
     const [loading, setLoading] = useState<boolean>(true);
     const [error, setError] = useState<string | null>(null);
-    const [showIndicatorMenu, setShowIndicatorMenu] = useState<boolean>(false);
-    
+    const [showIndicatorModal, setShowIndicatorModal] = useState<boolean>(false);
+    const [indicatorSearchQuery, setIndicatorSearchQuery] = useState<string>("");
+
+    // Dynamic active indicators list
+    const [activeIndicators, setActiveIndicators] = useState<ActiveIndicator[]>(
+        hideIndicators ? [] : [
+            { id: "ema-50", type: "EMA", params: { period: 50 }, color: "#e91e63", visible: true },
+            { id: "ema-200", type: "EMA", params: { period: 200 }, color: "#9c27b0", visible: true },
+            { id: "rsi-14", type: "RSI", params: { period: 14 }, color: "#7e57c2", visible: true },
+        ]
+    );
+
     // Hover details legend state
     const [hoverData, setHoverData] = useState<{
         open: number;
@@ -87,125 +95,28 @@ export default function TradingViewChart({ symbol, theme = "dark", exchange }: T
         low: number;
         close: number;
         volume?: number;
-        ema9?: number;
-        ema20?: number;
-        ema50?: number;
-        ema200?: number;
-        sma20?: number;
-        sma50?: number;
-        sma200?: number;
-        bbUpper?: number;
-        bbMiddle?: number;
-        bbLower?: number;
-        rsi?: number;
-        macdVal?: number;
-        macdSignal?: number;
-        macdHist?: number;
-        atr?: number;
-        stochK?: number;
-        stochD?: number;
-        cci?: number;
+        indicatorValues: Record<string, any>;
     } | null>(null);
-
-    // Active indicators toggles
-    const [indicators, setIndicators] = useState<IndicatorState>({
-        ema9: false,
-        ema20: false,
-        ema50: true,
-        ema200: true,
-        sma20: false,
-        sma50: false,
-        sma200: false,
-        bb: false,
-        rsi: true,
-        macd: false,
-        atr: false,
-        stoch: false,
-        cci: false,
-    });
-
-    const [indicatorParams, setIndicatorParams] = useState<IndicatorParams>({
-        ema9: 9,
-        ema20: 20,
-        ema50: 50,
-        ema200: 200,
-        sma20: 20,
-        sma50: 50,
-        sma200: 200,
-        bbPeriod: 20,
-        bbStdDev: 2,
-        rsi: 14,
-        macdFast: 12,
-        macdSlow: 26,
-        macdSignal: 9,
-        atr: 14,
-        stochK: 14,
-        stochD: 3,
-        cci: 20
-    });
-
-    const [showIndicatorModal, setShowIndicatorModal] = useState<boolean>(false);
-    const [indicatorSearchQuery, setIndicatorSearchQuery] = useState<string>("");
 
     // Refs for charts and series for update/destroy lifecycle
     const chartRefs = useRef<{
         priceChart: IChartApi | null;
-        rsiChart: IChartApi | null;
-        macdChart: IChartApi | null;
-        atrChart: IChartApi | null;
-        stochChart: IChartApi | null;
-        cciChart: IChartApi | null;
         candlestickSeries: ISeriesApi<"Candlestick"> | null;
         volumeSeries: ISeriesApi<"Histogram"> | null;
-        ema9Series: ISeriesApi<"Line"> | null;
-        ema20Series: ISeriesApi<"Line"> | null;
-        ema50Series: ISeriesApi<"Line"> | null;
-        ema200Series: ISeriesApi<"Line"> | null;
-        sma20Series: ISeriesApi<"Line"> | null;
-        sma50Series: ISeriesApi<"Line"> | null;
-        sma200Series: ISeriesApi<"Line"> | null;
-        bbUpperSeries: ISeriesApi<"Line"> | null;
-        bbMiddleSeries: ISeriesApi<"Line"> | null;
-        bbLowerSeries: ISeriesApi<"Line"> | null;
-        rsiSeries: ISeriesApi<"Line"> | null;
-        macdLineSeries: ISeriesApi<"Line"> | null;
-        macdSignalSeries: ISeriesApi<"Line"> | null;
-        macdHistSeries: ISeriesApi<"Histogram"> | null;
-        atrSeries: ISeriesApi<"Line"> | null;
-        stochKSeries: ISeriesApi<"Line"> | null;
-        stochDSeries: ISeriesApi<"Line"> | null;
-        cciSeries: ISeriesApi<"Line"> | null;
+        lowerCharts: Map<string, IChartApi>;
+        indicatorSeries: Map<string, ISeriesApi<any>[]>;
     }>({
         priceChart: null,
-        rsiChart: null,
-        macdChart: null,
-        atrChart: null,
-        stochChart: null,
-        cciChart: null,
         candlestickSeries: null,
         volumeSeries: null,
-        ema9Series: null,
-        ema20Series: null,
-        ema50Series: null,
-        ema200Series: null,
-        sma20Series: null,
-        sma50Series: null,
-        sma200Series: null,
-        bbUpperSeries: null,
-        bbMiddleSeries: null,
-        bbLowerSeries: null,
-        rsiSeries: null,
-        macdLineSeries: null,
-        macdSignalSeries: null,
-        macdHistSeries: null,
-        atrSeries: null,
-        stochKSeries: null,
-        stochDSeries: null,
-        cciSeries: null
+        lowerCharts: new Map(),
+        indicatorSeries: new Map(),
     });
 
     const lastSize = useRef({ width: 0, height: 0 });
     const savedLogicalRangeRef = useRef<{ from: number; to: number } | null>(null);
+    const priceLinesRef = useRef<any[]>([]);
+    const drawnPriceLevelsRef = useRef<number[]>([]);
 
     // 1. Fetch OHLCV candles data from our FastAPI backend
     useEffect(() => {
@@ -250,44 +161,43 @@ export default function TradingViewChart({ symbol, theme = "dark", exchange }: T
         };
     }, [symbol, exchange]);
 
+    // Indicators that render in separate lower panes
+    const lowerPaneIndicators = useMemo(() => {
+        return activeIndicators.filter(ind => 
+            ind.visible && ["RSI", "MACD", "ATR", "STOCH", "CCI"].includes(ind.type)
+        );
+    }, [activeIndicators]);
+
     // 2. Initialize and draw charts (Lightweight Charts Canvas)
     useEffect(() => {
         if (loading || error || candlesData.length === 0) return;
 
         const handleResize = (newWidth?: number, newHeight?: number) => {
             const width = newWidth !== undefined ? newWidth : (mainContainerRef.current?.clientWidth || 0);
-            const height = newHeight !== undefined ? newHeight : (mainContainerRef.current?.clientHeight || 450);
+            const height = newHeight !== undefined ? newHeight : (mainContainerRef.current?.clientHeight || 0);
+            
+            if (width <= 0 || height <= 0) return;
+            
             if (chartRefs.current.priceChart) {
-                let activeLowerPanesCount = 0;
-                if (indicators.rsi) activeLowerPanesCount++;
-                if (indicators.macd) activeLowerPanesCount++;
-                if (indicators.atr) activeLowerPanesCount++;
-                if (indicators.stoch) activeLowerPanesCount++;
-                if (indicators.cci) activeLowerPanesCount++;
-                
-                const paneHeight = 100;
+                const paneHeight = 120;
+                const activeLowerPanesCount = lowerPaneIndicators.length;
                 const pricePaneHeight = Math.max(150, height - (activeLowerPanesCount * paneHeight) - 45);
                 
                 chartRefs.current.priceChart.resize(width, pricePaneHeight);
-                if (chartRefs.current.rsiChart) chartRefs.current.rsiChart.resize(width, paneHeight);
-                if (chartRefs.current.macdChart) chartRefs.current.macdChart.resize(width, paneHeight);
-                if (chartRefs.current.atrChart) chartRefs.current.atrChart.resize(width, paneHeight);
-                if (chartRefs.current.stochChart) chartRefs.current.stochChart.resize(width, paneHeight);
-                if (chartRefs.current.cciChart) chartRefs.current.cciChart.resize(width, paneHeight);
+                lowerPaneIndicators.forEach(ind => {
+                    const lowerChart = chartRefs.current.lowerCharts.get(ind.id);
+                    if (lowerChart) {
+                        lowerChart.resize(width, paneHeight);
+                    }
+                });
             }
         };
 
         const width = mainContainerRef.current?.clientWidth || 0;
         const height = mainContainerRef.current?.clientHeight || 450;
         
-        let activeLowerPanesCount = 0;
-        if (indicators.rsi) activeLowerPanesCount++;
-        if (indicators.macd) activeLowerPanesCount++;
-        if (indicators.atr) activeLowerPanesCount++;
-        if (indicators.stoch) activeLowerPanesCount++;
-        if (indicators.cci) activeLowerPanesCount++;
-        
-        const paneHeight = 100;
+        const paneHeight = 120;
+        const activeLowerPanesCount = lowerPaneIndicators.length;
         const priceHeight = Math.max(150, height - (activeLowerPanesCount * paneHeight) - 45);
 
         // Chart styling colors (Dark theme replication)
@@ -356,6 +266,27 @@ export default function TradingViewChart({ symbol, theme = "dark", exchange }: T
         candlestickSeries.setData(candlesData.map(c => ({ ...c, time: c.time as UTCTimestamp })));
         chartRefs.current.candlestickSeries = candlestickSeries;
 
+        if (activeTool === "trash") {
+            drawnPriceLevelsRef.current = [];
+            if (onToolDrawComplete) {
+                onToolDrawComplete();
+            }
+        }
+
+        // Redraw existing S/R levels
+        priceLinesRef.current = [];
+        drawnPriceLevelsRef.current.forEach((priceVal) => {
+            const line = candlestickSeries.createPriceLine({
+                price: priceVal,
+                color: '#6366f1',
+                lineWidth: 2,
+                lineStyle: 2, // Dotted
+                axisLabelVisible: true,
+                title: 'S/R Level',
+            });
+            priceLinesRef.current.push(line);
+        });
+
         // Add Volume Overlay on Price Chart (scaled at bottom)
         const volumeSeries = priceChart.addHistogramSeries({
             color: "#26a69a30",
@@ -376,96 +307,69 @@ export default function TradingViewChart({ symbol, theme = "dark", exchange }: T
         volumeSeries.setData(volumeData);
         chartRefs.current.volumeSeries = volumeSeries;
 
-        // --- Calculate Overlay Indicators ---
-        
-        // SMA 20
-        let sma20Points: LineDataPoint[] = [];
-        if (indicators.sma20) {
-            sma20Points = calculateSMA(candlesData, indicatorParams.sma20);
-            const sma20Series = priceChart.addLineSeries({ color: "#4caf50", lineWidth: 2, title: `SMA ${indicatorParams.sma20}` });
-            sma20Series.setData(sma20Points.map(p => ({ time: p.time as UTCTimestamp, value: p.value })));
-            chartRefs.current.sma20Series = sma20Series;
-        }
+        // --- Precalculate indicator data maps ---
+        const calculatedIndicatorData = new Map<string, any>();
+        activeIndicators.forEach(ind => {
+            if (!ind.visible) return;
+            if (ind.type === "EMA") {
+                calculatedIndicatorData.set(ind.id, calculateEMA(candlesData, ind.params.period || 9));
+            } else if (ind.type === "SMA") {
+                calculatedIndicatorData.set(ind.id, calculateSMA(candlesData, ind.params.period || 20));
+            } else if (ind.type === "BB") {
+                calculatedIndicatorData.set(ind.id, calculateBollingerBands(candlesData, ind.params.period || 20, ind.params.stdDev || 2));
+            } else if (ind.type === "RSI") {
+                calculatedIndicatorData.set(ind.id, calculateRSI(candlesData, ind.params.period || 14));
+            } else if (ind.type === "MACD") {
+                calculatedIndicatorData.set(ind.id, calculateMACD(candlesData, ind.params.fast || 12, ind.params.slow || 26, ind.params.signal || 9));
+            } else if (ind.type === "ATR") {
+                calculatedIndicatorData.set(ind.id, calculateATR(candlesData, ind.params.period || 14));
+            } else if (ind.type === "STOCH") {
+                calculatedIndicatorData.set(ind.id, calculateStochastic(candlesData, ind.params.k || 14, ind.params.d || 3));
+            } else if (ind.type === "CCI") {
+                calculatedIndicatorData.set(ind.id, calculateCCI(candlesData, ind.params.period || 20));
+            }
+        });
 
-        // SMA 50
-        let sma50Points: LineDataPoint[] = [];
-        if (indicators.sma50) {
-            sma50Points = calculateSMA(candlesData, indicatorParams.sma50);
-            const sma50Series = priceChart.addLineSeries({ color: "#00bcd4", lineWidth: 2, title: `SMA ${indicatorParams.sma50}` });
-            sma50Series.setData(sma50Points.map(p => ({ time: p.time as UTCTimestamp, value: p.value })));
-            chartRefs.current.sma50Series = sma50Series;
-        }
+        // --- Draw Overlay Indicators on priceChart ---
+        activeIndicators.forEach(ind => {
+            if (!ind.visible || !["EMA", "SMA", "BB"].includes(ind.type)) return;
+            const data = calculatedIndicatorData.get(ind.id);
+            if (!data) return;
 
-        // SMA 200
-        let sma200Points: LineDataPoint[] = [];
-        if (indicators.sma200) {
-            sma200Points = calculateSMA(candlesData, indicatorParams.sma200);
-            const sma200Series = priceChart.addLineSeries({ color: "#ffeb3b", lineWidth: 2, title: `SMA ${indicatorParams.sma200}` });
-            sma200Series.setData(sma200Points.map(p => ({ time: p.time as UTCTimestamp, value: p.value })));
-            chartRefs.current.sma200Series = sma200Series;
-        }
-        
-        // EMA 9
-        let ema9Points: LineDataPoint[] = [];
-        if (indicators.ema9) {
-            ema9Points = calculateEMA(candlesData, indicatorParams.ema9);
-            const ema9Series = priceChart.addLineSeries({ color: "#2196f3", lineWidth: 2, title: `EMA ${indicatorParams.ema9}` });
-            ema9Series.setData(ema9Points.map(p => ({ time: p.time as UTCTimestamp, value: p.value })));
-            chartRefs.current.ema9Series = ema9Series;
-        }
+            const seriesList: ISeriesApi<any>[] = [];
 
-        // EMA 20
-        let ema20Points: LineDataPoint[] = [];
-        if (indicators.ema20) {
-            ema20Points = calculateEMA(candlesData, indicatorParams.ema20);
-            const ema20Series = priceChart.addLineSeries({ color: "#ff9800", lineWidth: 2, title: `EMA ${indicatorParams.ema20}` });
-            ema20Series.setData(ema20Points.map(p => ({ time: p.time as UTCTimestamp, value: p.value })));
-            chartRefs.current.ema20Series = ema20Series;
-        }
+            if (ind.type === "EMA" || ind.type === "SMA") {
+                const series = priceChart.addLineSeries({ 
+                    color: ind.color, 
+                    lineWidth: 2, 
+                    title: `${ind.type} (${ind.params.period})` 
+                });
+                series.setData(data.map((p: any) => ({ time: p.time as UTCTimestamp, value: p.value })));
+                seriesList.push(series);
+            } else if (ind.type === "BB") {
+                const upper = priceChart.addLineSeries({ color: "#90caf9", lineWidth: 1, lineStyle: 2, title: "BB Upper" });
+                upper.setData(data.map((p: any) => ({ time: p.time as UTCTimestamp, value: p.upper })));
+                
+                const middle = priceChart.addLineSeries({ color: "#42a5f5", lineWidth: 1, lineStyle: 0, title: "BB Basis" });
+                middle.setData(data.map((p: any) => ({ time: p.time as UTCTimestamp, value: p.middle })));
+                
+                const lower = priceChart.addLineSeries({ color: "#90caf9", lineWidth: 1, lineStyle: 2, title: "BB Lower" });
+                lower.setData(data.map((p: any) => ({ time: p.time as UTCTimestamp, value: p.lower })));
 
-        // EMA 50
-        let ema50Points: LineDataPoint[] = [];
-        if (indicators.ema50) {
-            ema50Points = calculateEMA(candlesData, indicatorParams.ema50);
-            const ema50Series = priceChart.addLineSeries({ color: "#e91e63", lineWidth: 2, title: `EMA ${indicatorParams.ema50}` });
-            ema50Series.setData(ema50Points.map(p => ({ time: p.time as UTCTimestamp, value: p.value })));
-            chartRefs.current.ema50Series = ema50Series;
-        }
+                seriesList.push(upper, middle, lower);
+            }
 
-        // EMA 200
-        let ema200Points: LineDataPoint[] = [];
-        if (indicators.ema200) {
-            ema200Points = calculateEMA(candlesData, indicatorParams.ema200);
-            const ema200Series = priceChart.addLineSeries({ color: "#9c27b0", lineWidth: 2, title: `EMA ${indicatorParams.ema200}` });
-            ema200Series.setData(ema200Points.map(p => ({ time: p.time as UTCTimestamp, value: p.value })));
-            chartRefs.current.ema200Series = ema200Series;
-        }
+            chartRefs.current.indicatorSeries.set(ind.id, seriesList);
+        });
 
-        // Bollinger Bands
-        let bbPoints: BollingerBandsDataPoint[] = [];
-        if (indicators.bb) {
-            bbPoints = calculateBollingerBands(candlesData, indicatorParams.bbPeriod, indicatorParams.bbStdDev);
-            
-            const upper = priceChart.addLineSeries({ color: "#90caf9", lineWidth: 1, lineStyle: 2, title: "BB Upper" });
-            upper.setData(bbPoints.map(p => ({ time: p.time as UTCTimestamp, value: p.upper })));
-            chartRefs.current.bbUpperSeries = upper;
-
-            const middle = priceChart.addLineSeries({ color: "#42a5f5", lineWidth: 1, lineStyle: 0, title: "BB Basis" });
-            middle.setData(bbPoints.map(p => ({ time: p.time as UTCTimestamp, value: p.middle })));
-            chartRefs.current.bbMiddleSeries = middle;
-
-            const lower = priceChart.addLineSeries({ color: "#90caf9", lineWidth: 1, lineStyle: 2, title: "BB Lower" });
-            lower.setData(bbPoints.map(p => ({ time: p.time as UTCTimestamp, value: p.lower })));
-            chartRefs.current.bbLowerSeries = lower;
-        }
-
-        // --- Create Lower Panes ---
+        // --- Initialize dynamic lower pane charts ---
         const activeCharts: IChartApi[] = [priceChart];
+        
+        lowerPaneIndicators.forEach(ind => {
+            const container = paneContainersRef.current.get(ind.id);
+            if (!container) return;
 
-        // RSI Pane
-        let rsiPoints: LineDataPoint[] = [];
-        if (indicators.rsi) {
-            const rsiChart = createChart(rsiContainerRef.current!, {
+            const lowerChart = createChart(container, {
                 width: width,
                 height: paneHeight,
                 layout: {
@@ -508,316 +412,92 @@ export default function TradingViewChart({ symbol, theme = "dark", exchange }: T
                     }
                 }
             });
-            chartRefs.current.rsiChart = rsiChart;
-            activeCharts.push(rsiChart);
 
-            // Add lines for 70 and 30 levels
-            const rsiSeries = rsiChart.addLineSeries({ color: "#7e57c2", lineWidth: 2 });
-            rsiPoints = calculateRSI(candlesData, indicatorParams.rsi);
-            
-            // Map candlesData to keep dates aligned (pad beginning with whitespace data)
-            const rsiData = candlesData.map(c => {
-                const p = rsiPoints.find(pt => pt.time === c.time);
-                return p !== undefined 
-                    ? { time: c.time as UTCTimestamp, value: p.value } 
-                    : { time: c.time as UTCTimestamp };
-            });
-            rsiSeries.setData(rsiData);
-            chartRefs.current.rsiSeries = rsiSeries;
+            chartRefs.current.lowerCharts.set(ind.id, lowerChart);
+            activeCharts.push(lowerChart);
 
-            // Render limit lines (30/70) margins
-            const rsiScale = rsiSeries.priceScale();
-            rsiScale.applyOptions({
-                scaleMargins: {
-                    top: 0.1,
-                    bottom: 0.1,
-                },
-            });
-        }
+            // Add indicator series to this chart
+            const data = calculatedIndicatorData.get(ind.id);
+            if (!data) return;
 
-        // ATR Pane
-        let atrPoints: AtrDataPoint[] = [];
-        if (indicators.atr) {
-            const atrChart = createChart(atrContainerRef.current!, {
-                width: width,
-                height: paneHeight,
-                layout: {
-                    background: { type: ColorType.Solid, color: backgroundColor },
-                    textColor: textColor,
-                },
-                grid: {
-                    vertLines: { color: gridColor },
-                    horzLines: { color: gridColor },
-                },
-                crosshair: { mode: 1 },
-                timeScale: {
-                    borderColor: "#2a2e39",
-                    visible: false,
-                    rightOffset: 30,
-                    fixLeftEdge: false,
-                    fixRightEdge: false,
-                },
-                rightPriceScale: {
-                    borderColor: "#2a2e39",
-                    minimumWidth: 80,
-                },
-                handleScroll: {
-                    mouseWheel: false,
-                    pressedMouseMove: true,
-                    horzTouchDrag: true,
-                    vertTouchDrag: true,
-                },
-                handleScale: {
-                    mouseWheel: true,
-                    pinch: true,
-                    axisPressedMouseMove: {
-                        time: false,
-                        price: true,
+            const seriesList: ISeriesApi<any>[] = [];
+
+            if (ind.type === "RSI" || ind.type === "ATR" || ind.type === "CCI") {
+                const series = lowerChart.addLineSeries({ color: ind.color, lineWidth: 2 });
+                const seriesData = candlesData.map(c => {
+                    const p = data.find((pt: any) => pt.time === c.time);
+                    return p !== undefined 
+                        ? { time: c.time as UTCTimestamp, value: p.value } 
+                        : { time: c.time as UTCTimestamp };
+                });
+                series.setData(seriesData);
+                seriesList.push(series);
+                
+                series.priceScale().applyOptions({
+                    scaleMargins: {
+                        top: 0.15,
+                        bottom: 0.15,
                     },
-                    axisDoubleClickReset: {
-                        time: true,
-                        price: true,
-                    }
-                }
-            });
-            chartRefs.current.atrChart = atrChart;
-            activeCharts.push(atrChart);
+                });
+            } else if (ind.type === "MACD") {
+                const macdLine = lowerChart.addLineSeries({ color: "#2962ff", lineWidth: 2 });
+                const macdLineData = candlesData.map(c => {
+                    const p = data.find((pt: any) => pt.time === c.time);
+                    return p !== undefined 
+                        ? { time: c.time as UTCTimestamp, value: p.macd } 
+                        : { time: c.time as UTCTimestamp };
+                });
+                macdLine.setData(macdLineData);
+                seriesList.push(macdLine);
 
-            const atrSeries = atrChart.addLineSeries({ color: "#26a69a", lineWidth: 2 });
-            atrPoints = calculateATR(candlesData, indicatorParams.atr);
-            
-            const atrData = candlesData.map(c => {
-                const p = atrPoints.find(pt => pt.time === c.time);
-                return p !== undefined 
-                    ? { time: c.time as UTCTimestamp, value: p.value } 
-                    : { time: c.time as UTCTimestamp };
-            });
-            atrSeries.setData(atrData);
-            chartRefs.current.atrSeries = atrSeries;
-        }
+                const macdSignal = lowerChart.addLineSeries({ color: "#ff6d00", lineWidth: 2 });
+                const macdSignalData = candlesData.map(c => {
+                    const p = data.find((pt: any) => pt.time === c.time);
+                    return p !== undefined 
+                        ? { time: c.time as UTCTimestamp, value: p.signal } 
+                        : { time: c.time as UTCTimestamp };
+                });
+                macdSignal.setData(macdSignalData);
+                seriesList.push(macdSignal);
 
-        // Stochastic Pane
-        let stochPoints: StochDataPoint[] = [];
-        if (indicators.stoch) {
-            const stochChart = createChart(stochContainerRef.current!, {
-                width: width,
-                height: paneHeight,
-                layout: {
-                    background: { type: ColorType.Solid, color: backgroundColor },
-                    textColor: textColor,
-                },
-                grid: {
-                    vertLines: { color: gridColor },
-                    horzLines: { color: gridColor },
-                },
-                crosshair: { mode: 1 },
-                timeScale: {
-                    borderColor: "#2a2e39",
-                    visible: false,
-                    rightOffset: 30,
-                    fixLeftEdge: false,
-                    fixRightEdge: false,
-                },
-                rightPriceScale: {
-                    borderColor: "#2a2e39",
-                    minimumWidth: 80,
-                },
-                handleScroll: {
-                    mouseWheel: false,
-                    pressedMouseMove: true,
-                    horzTouchDrag: true,
-                    vertTouchDrag: true,
-                },
-                handleScale: {
-                    mouseWheel: true,
-                    pinch: true,
-                    axisPressedMouseMove: {
-                        time: false,
-                        price: true,
-                    },
-                    axisDoubleClickReset: {
-                        time: true,
-                        price: true,
-                    }
-                }
-            });
-            chartRefs.current.stochChart = stochChart;
-            activeCharts.push(stochChart);
+                const macdHist = lowerChart.addHistogramSeries({ color: "#26a69a" });
+                const macdHistData = candlesData.map(c => {
+                    const p = data.find((pt: any) => pt.time === c.time);
+                    return p !== undefined 
+                        ? { 
+                            time: c.time as UTCTimestamp, 
+                            value: p.histogram, 
+                            color: p.histogram >= 0 ? "#26a69a80" : "#ef535080" 
+                          } 
+                        : { time: c.time as UTCTimestamp };
+                });
+                macdHist.setData(macdHistData);
+                seriesList.push(macdHist);
+            } else if (ind.type === "STOCH") {
+                const kSeries = lowerChart.addLineSeries({ color: "#2196f3", lineWidth: 2 });
+                const dSeries = lowerChart.addLineSeries({ color: "#ff9800", lineWidth: 2, lineStyle: 2 });
+                
+                const kData = candlesData.map(c => {
+                    const p = data.find((pt: any) => pt.time === c.time);
+                    return p !== undefined 
+                        ? { time: c.time as UTCTimestamp, value: p.k } 
+                        : { time: c.time as UTCTimestamp };
+                });
+                const dData = candlesData.map(c => {
+                    const p = data.find((pt: any) => pt.time === c.time);
+                    return p !== undefined 
+                        ? { time: c.time as UTCTimestamp, value: p.d } 
+                        : { time: c.time as UTCTimestamp };
+                });
+                kSeries.setData(kData);
+                dSeries.setData(dData);
+                seriesList.push(kSeries, dSeries);
+            }
 
-            const kSeries = stochChart.addLineSeries({ color: "#2196f3", lineWidth: 2 });
-            const dSeries = stochChart.addLineSeries({ color: "#ff9800", lineWidth: 2, lineStyle: 2 });
-            stochPoints = calculateStochastic(candlesData, indicatorParams.stochK, indicatorParams.stochD);
-            
-            const kData = candlesData.map(c => {
-                const p = stochPoints.find(pt => pt.time === c.time);
-                return p !== undefined 
-                    ? { time: c.time as UTCTimestamp, value: p.k } 
-                    : { time: c.time as UTCTimestamp };
-            });
-            const dData = candlesData.map(c => {
-                const p = stochPoints.find(pt => pt.time === c.time);
-                return p !== undefined 
-                    ? { time: c.time as UTCTimestamp, value: p.d } 
-                    : { time: c.time as UTCTimestamp };
-            });
-            kSeries.setData(kData);
-            dSeries.setData(dData);
-            chartRefs.current.stochKSeries = kSeries;
-            chartRefs.current.stochDSeries = dSeries;
-        }
+            chartRefs.current.indicatorSeries.set(ind.id, seriesList);
+        });
 
-        // CCI Pane
-        let cciPoints: CciDataPoint[] = [];
-        if (indicators.cci) {
-            const cciChart = createChart(cciContainerRef.current!, {
-                width: width,
-                height: paneHeight,
-                layout: {
-                    background: { type: ColorType.Solid, color: backgroundColor },
-                    textColor: textColor,
-                },
-                grid: {
-                    vertLines: { color: gridColor },
-                    horzLines: { color: gridColor },
-                },
-                crosshair: { mode: 1 },
-                timeScale: {
-                    borderColor: "#2a2e39",
-                    visible: false,
-                    rightOffset: 30,
-                    fixLeftEdge: false,
-                    fixRightEdge: false,
-                },
-                rightPriceScale: {
-                    borderColor: "#2a2e39",
-                    minimumWidth: 80,
-                },
-                handleScroll: {
-                    mouseWheel: false,
-                    pressedMouseMove: true,
-                    horzTouchDrag: true,
-                    vertTouchDrag: true,
-                },
-                handleScale: {
-                    mouseWheel: true,
-                    pinch: true,
-                    axisPressedMouseMove: {
-                        time: false,
-                        price: true,
-                    },
-                    axisDoubleClickReset: {
-                        time: true,
-                        price: true,
-                    }
-                }
-            });
-            chartRefs.current.cciChart = cciChart;
-            activeCharts.push(cciChart);
-
-            const cciSeries = cciChart.addLineSeries({ color: "#e91e63", lineWidth: 2 });
-            cciPoints = calculateCCI(candlesData, indicatorParams.cci);
-            
-            const cciData = candlesData.map(c => {
-                const p = cciPoints.find(pt => pt.time === c.time);
-                return p !== undefined 
-                    ? { time: c.time as UTCTimestamp, value: p.value } 
-                    : { time: c.time as UTCTimestamp };
-            });
-            cciSeries.setData(cciData);
-            chartRefs.current.cciSeries = cciSeries;
-        }
-
-        // MACD Pane
-        let macdPoints: MacdDataPoint[] = [];
-        if (indicators.macd) {
-            const macdChart = createChart(macdContainerRef.current!, {
-                width: width,
-                height: paneHeight,
-                layout: {
-                    background: { type: ColorType.Solid, color: backgroundColor },
-                    textColor: textColor,
-                },
-                grid: {
-                    vertLines: { color: gridColor },
-                    horzLines: { color: gridColor },
-                },
-                crosshair: { mode: 1 },
-                timeScale: {
-                    borderColor: "#2a2e39",
-                    visible: false,
-                    rightOffset: 30,
-                    fixLeftEdge: false,
-                    fixRightEdge: false,
-                },
-                rightPriceScale: {
-                    borderColor: "#2a2e39",
-                    minimumWidth: 80,
-                },
-                handleScroll: {
-                    mouseWheel: false,
-                    pressedMouseMove: true,
-                    horzTouchDrag: true,
-                    vertTouchDrag: true,
-                },
-                handleScale: {
-                    mouseWheel: true,
-                    pinch: true,
-                    axisPressedMouseMove: {
-                        time: false,
-                        price: true,
-                    },
-                    axisDoubleClickReset: {
-                        time: true,
-                        price: true,
-                    }
-                }
-            });
-            chartRefs.current.macdChart = macdChart;
-            activeCharts.push(macdChart);
-
-            // MACD line
-            macdPoints = calculateMACD(candlesData, indicatorParams.macdFast, indicatorParams.macdSlow, indicatorParams.macdSignal);
-            
-            const macdLineSeries = macdChart.addLineSeries({ color: "#2962ff", lineWidth: 2 });
-            const macdLineData = candlesData.map(c => {
-                const p = macdPoints.find(pt => pt.time === c.time);
-                return p !== undefined 
-                    ? { time: c.time as UTCTimestamp, value: p.macd } 
-                    : { time: c.time as UTCTimestamp };
-            });
-            macdLineSeries.setData(macdLineData);
-            chartRefs.current.macdLineSeries = macdLineSeries;
-
-            // Signal line
-            const macdSignalSeries = macdChart.addLineSeries({ color: "#ff6d00", lineWidth: 2 });
-            const macdSignalData = candlesData.map(c => {
-                const p = macdPoints.find(pt => pt.time === c.time);
-                return p !== undefined 
-                    ? { time: c.time as UTCTimestamp, value: p.signal } 
-                    : { time: c.time as UTCTimestamp };
-            });
-            macdSignalSeries.setData(macdSignalData);
-            chartRefs.current.macdSignalSeries = macdSignalSeries;
-
-            // Histogram
-            const macdHistSeries = macdChart.addHistogramSeries({
-                color: "#26a69a"
-            });
-            const macdHistData = candlesData.map(c => {
-                const p = macdPoints.find(pt => pt.time === c.time);
-                return p !== undefined 
-                    ? { 
-                        time: c.time as UTCTimestamp, 
-                        value: p.histogram, 
-                        color: p.histogram >= 0 ? "#26a69a80" : "#ef535080" 
-                      } 
-                    : { time: c.time as UTCTimestamp };
-            });
-            macdHistSeries.setData(macdHistData);
-            chartRefs.current.macdHistSeries = macdHistSeries;
-        }
-
-        // Sync visual timescales across active pane charts without loop feedback and with boundary clamping
+        // Sync visual timescales across active pane charts
         let isSyncing = false;
         if (activeCharts.length >= 1) {
             const totalBars = candlesData.length;
@@ -830,9 +510,6 @@ export default function TradingViewChart({ symbol, theme = "dark", exchange }: T
                     let to = range.to;
                     const width = to - from;
                     
-                    // Clamp to keep candles visible on canvas:
-                    // Max from (left-most visible index) should not exceed totalBars - 5
-                    // Min to (right-most visible index) should not go below 5
                     const maxFrom = totalBars - 5;
                     const minTo = 5;
                     
@@ -860,11 +537,40 @@ export default function TradingViewChart({ symbol, theme = "dark", exchange }: T
             }
         }
 
-        // --- Render Local Strategy Trade Markers ---
-        if (markersData && markersData.length > 0) {
-            // Map markers unix timestamps to verify they exist on the chart
+        // --- Render Strategy Trade Markers (API + custom injected) ---
+        {
             const candleTimes = new Set(candlesData.map(c => c.time));
-            const formattedMarkers: SeriesMarker<UTCTimestamp>[] = markersData
+
+            // Build date-string → candle-time map for daily candle matching
+            // (trade dates are YYYY-MM-DD midnight UTC; candles may use market-open time)
+            const dateMap = new Map<string, number>();
+            for (const c of candlesData) {
+                const dateStr = new Date((c.time as number) * 1000).toISOString().slice(0, 10);
+                if (!dateMap.has(dateStr)) dateMap.set(dateStr, c.time as number);
+            }
+
+            // Build sorted candle times for nearest-candle fallback
+            const sortedCandleTimes = [...candleTimes].sort((a, b) => (a as number) - (b as number));
+
+            // Helper: snap a unix-seconds timestamp to the nearest candle
+            const snapToCandle = (ts: number): UTCTimestamp | null => {
+                // 1. Exact match
+                if (candleTimes.has(ts)) return ts as UTCTimestamp;
+                // 2. Date-string match (handles timezone offset for daily bars)
+                const dateStr = new Date(ts * 1000).toISOString().slice(0, 10);
+                if (dateMap.has(dateStr)) return dateMap.get(dateStr)! as UTCTimestamp;
+                // 3. Nearest candle fallback
+                let best: number | null = null;
+                let bestDiff = Infinity;
+                for (const ct of sortedCandleTimes) {
+                    const diff = Math.abs((ct as number) - ts);
+                    if (diff < bestDiff) { bestDiff = diff; best = ct as number; }
+                    else if (diff > bestDiff) break;
+                }
+                return best !== null ? best as UTCTimestamp : null;
+            };
+
+            const apiMarkers: SeriesMarker<UTCTimestamp>[] = (markersData || [])
                 .filter(m => candleTimes.has(m.time))
                 .map(m => ({
                     time: m.time as UTCTimestamp,
@@ -874,8 +580,56 @@ export default function TradingViewChart({ symbol, theme = "dark", exchange }: T
                     text: m.text,
                     size: 1.5,
                 }));
-            candlestickSeries.setMarkers(formattedMarkers);
+
+            const injectedMarkers: SeriesMarker<UTCTimestamp>[] = (customMarkers || [])
+                .map(m => {
+                    const snapped = snapToCandle(m.time);
+                    if (!snapped) return null;
+                    return {
+                        time: snapped,
+                        position: m.position,
+                        color: m.color,
+                        shape: m.shape,
+                        text: m.text || "",
+                        size: m.size ?? 2,
+                    } as SeriesMarker<UTCTimestamp>;
+                })
+                .filter(Boolean) as SeriesMarker<UTCTimestamp>[];
+
+            const allMarkers = [...apiMarkers, ...injectedMarkers]
+                .sort((a, b) => (a.time as number) - (b.time as number));
+
+            if (allMarkers.length > 0) {
+                candlestickSeries.setMarkers(allMarkers);
+            }
         }
+
+        // --- Setup click subscription to draw horizontal levels ---
+        priceChart.subscribeClick((param) => {
+            if (activeTool === "horizontal" && param.point && candlestickSeries) {
+                const clickedPrice = candlestickSeries.coordinateToPrice(param.point.y);
+                if (clickedPrice === null || clickedPrice === undefined) return;
+                
+                // Add to persistent list
+                drawnPriceLevelsRef.current.push(clickedPrice);
+                
+                // Draw immediately
+                const line = candlestickSeries.createPriceLine({
+                    price: clickedPrice,
+                    color: '#6366f1',
+                    lineWidth: 2,
+                    lineStyle: 2, // Dotted
+                    axisLabelVisible: true,
+                    title: 'S/R Level',
+                });
+                priceLinesRef.current.push(line);
+                
+                // Complete drawing
+                if (onToolDrawComplete) {
+                    onToolDrawComplete();
+                }
+            }
+        });
 
         // --- Setup Crosshair Tooltip Hover Legend details ---
         priceChart.subscribeCrosshairMove((param) => {
@@ -888,21 +642,27 @@ export default function TradingViewChart({ symbol, theme = "dark", exchange }: T
             if (!candle) return;
 
             const t = param.time as number;
+            const values: Record<string, any> = {};
 
-            // Retrieve values for enabled indicators at current crosshair coordinate
-            const e9 = ema9Points.find(p => p.time === t)?.value;
-            const e20 = ema20Points.find(p => p.time === t)?.value;
-            const e50 = ema50Points.find(p => p.time === t)?.value;
-            const e200 = ema200Points.find(p => p.time === t)?.value;
-            const sma20Val = sma20Points.find(p => p.time === t)?.value;
-            const sma50Val = sma50Points.find(p => p.time === t)?.value;
-            const sma200Val = sma200Points.find(p => p.time === t)?.value;
-            const bb = bbPoints.find(p => p.time === t);
-            const rsiVal = rsiPoints.find(p => p.time === t)?.value;
-            const macdVal = macdPoints.find(p => p.time === t);
-            const atrVal = atrPoints.find(p => p.time === t)?.value;
-            const stochVal = stochPoints.find(p => p.time === t);
-            const cciVal = cciPoints.find(p => p.time === t)?.value;
+            activeIndicators.forEach(ind => {
+                if (!ind.visible) return;
+                const data = calculatedIndicatorData.get(ind.id);
+                if (!data) return;
+
+                if (ind.type === "EMA" || ind.type === "SMA" || ind.type === "RSI" || ind.type === "ATR" || ind.type === "CCI") {
+                    const pt = data.find((p: any) => p.time === t);
+                    if (pt) values[ind.id] = pt.value;
+                } else if (ind.type === "BB") {
+                    const pt = data.find((p: any) => p.time === t);
+                    if (pt) values[ind.id] = { upper: pt.upper, middle: pt.middle, lower: pt.lower };
+                } else if (ind.type === "MACD") {
+                    const pt = data.find((p: any) => p.time === t);
+                    if (pt) values[ind.id] = { macd: pt.macd, signal: pt.signal, histogram: pt.histogram };
+                } else if (ind.type === "STOCH") {
+                    const pt = data.find((p: any) => p.time === t);
+                    if (pt) values[ind.id] = { k: pt.k, d: pt.d };
+                }
+            });
 
             setHoverData({
                 open: candle.open,
@@ -910,24 +670,7 @@ export default function TradingViewChart({ symbol, theme = "dark", exchange }: T
                 low: candle.low,
                 close: candle.close,
                 volume: candle.volume,
-                ema9: e9,
-                ema20: e20,
-                ema50: e50,
-                ema200: e200,
-                sma20: sma20Val,
-                sma50: sma50Val,
-                sma200: sma200Val,
-                bbUpper: bb?.upper,
-                bbMiddle: bb?.middle,
-                bbLower: bb?.lower,
-                rsi: rsiVal,
-                macdVal: macdVal?.macd,
-                macdSignal: macdVal?.signal,
-                macdHist: macdVal?.histogram,
-                atr: atrVal,
-                stochK: stochVal?.k,
-                stochD: stochVal?.d,
-                cci: cciVal
+                indicatorValues: values
             });
         });
 
@@ -937,8 +680,8 @@ export default function TradingViewChart({ symbol, theme = "dark", exchange }: T
             const { width, height } = entries[0].contentRect;
             const roundedWidth = Math.floor(width);
             const roundedHeight = Math.floor(height);
-            // Prevent infinite resize loops
-            if (roundedWidth !== lastSize.current.width || roundedHeight !== lastSize.current.height) {
+            if (roundedWidth > 0 && roundedHeight > 0 && 
+                (roundedWidth !== lastSize.current.width || roundedHeight !== lastSize.current.height)) {
                 lastSize.current = { width: roundedWidth, height: roundedHeight };
                 handleResize(roundedWidth, roundedHeight);
             }
@@ -948,45 +691,34 @@ export default function TradingViewChart({ symbol, theme = "dark", exchange }: T
             resizeObserver.observe(mainContainerRef.current);
         }
         
-        // Initial resize and initial timescale alignment to prevent date misalignment of indicator sub-panes
-        setTimeout(() => {
-            handleResize();
-            
-            if (chartRefs.current.priceChart) {
-                let range = savedLogicalRangeRef.current;
-                if (!range) {
-                    const totalBars = candlesData.length;
-                    const from = Math.max(0, totalBars - 150);
-                    range = { from, to: totalBars };
-                }
-                
-                chartRefs.current.priceChart.timeScale().setVisibleLogicalRange(range);
-
-                const currentRange = chartRefs.current.priceChart.timeScale().getVisibleLogicalRange();
-                if (currentRange) {
-                    if (chartRefs.current.rsiChart) {
-                        chartRefs.current.rsiChart.timeScale().setVisibleLogicalRange(currentRange);
-                    }
-                    if (chartRefs.current.macdChart) {
-                        chartRefs.current.macdChart.timeScale().setVisibleLogicalRange(currentRange);
-                    }
-                    if (chartRefs.current.atrChart) {
-                        chartRefs.current.atrChart.timeScale().setVisibleLogicalRange(currentRange);
-                    }
-                    if (chartRefs.current.stochChart) {
-                        chartRefs.current.stochChart.timeScale().setVisibleLogicalRange(currentRange);
-                    }
-                    if (chartRefs.current.cciChart) {
-                        chartRefs.current.cciChart.timeScale().setVisibleLogicalRange(currentRange);
-                    }
-                }
+        // Initial resize and scale sync
+        handleResize();
+        
+        if (chartRefs.current.priceChart) {
+            let range = savedLogicalRangeRef.current;
+            if (!range) {
+                const totalBars = candlesData.length;
+                const from = Math.max(0, totalBars - 150);
+                range = { from, to: totalBars };
             }
-        }, 150);
+            
+            chartRefs.current.priceChart.timeScale().setVisibleLogicalRange(range);
+
+            const currentRange = chartRefs.current.priceChart.timeScale().getVisibleLogicalRange();
+            if (currentRange) {
+                lowerPaneIndicators.forEach(ind => {
+                    const lowerChart = chartRefs.current.lowerCharts.get(ind.id);
+                    if (lowerChart) {
+                        lowerChart.timeScale().setVisibleLogicalRange(currentRange);
+                    }
+                });
+            }
+        }
 
         return () => {
             resizeObserver.disconnect();
             
-            // Save current logical range before destruction
+            // Save current logical range
             if (chartRefs.current.priceChart) {
                 const range = chartRefs.current.priceChart.timeScale().getVisibleLogicalRange();
                 if (range) {
@@ -994,316 +726,155 @@ export default function TradingViewChart({ symbol, theme = "dark", exchange }: T
                 }
             }
             
-            // Clean up charts
+            // Clean up price chart and series
             if (chartRefs.current.priceChart) {
-                chartRefs.current.priceChart.removeSeries(candlestickSeries);
-                chartRefs.current.priceChart.removeSeries(volumeSeries);
+                if (chartRefs.current.candlestickSeries) {
+                    try {
+                        chartRefs.current.priceChart.removeSeries(chartRefs.current.candlestickSeries);
+                    } catch {}
+                    chartRefs.current.candlestickSeries = null;
+                }
+                if (chartRefs.current.volumeSeries) {
+                    try {
+                        chartRefs.current.priceChart.removeSeries(chartRefs.current.volumeSeries);
+                    } catch {}
+                    chartRefs.current.volumeSeries = null;
+                }
+                
+                chartRefs.current.indicatorSeries.forEach(seriesList => {
+                    seriesList.forEach(series => {
+                        try {
+                            chartRefs.current.priceChart?.removeSeries(series);
+                        } catch {}
+                    });
+                });
+                
                 chartRefs.current.priceChart.remove();
                 chartRefs.current.priceChart = null;
             }
-            if (chartRefs.current.rsiChart) {
-                chartRefs.current.rsiChart.remove();
-                chartRefs.current.rsiChart = null;
-            }
-            if (chartRefs.current.macdChart) {
-                chartRefs.current.macdChart.remove();
-                chartRefs.current.macdChart = null;
-            }
-            if (chartRefs.current.atrChart) {
-                chartRefs.current.atrChart.remove();
-                chartRefs.current.atrChart = null;
-            }
-            if (chartRefs.current.stochChart) {
-                chartRefs.current.stochChart.remove();
-                chartRefs.current.stochChart = null;
-            }
-            if (chartRefs.current.cciChart) {
-                chartRefs.current.cciChart.remove();
-                chartRefs.current.cciChart = null;
-            }
+
+            // Clean up lower charts
+            chartRefs.current.lowerCharts.forEach(lowerChart => {
+                try {
+                    lowerChart.remove();
+                } catch {}
+            });
+            chartRefs.current.lowerCharts.clear();
+            chartRefs.current.indicatorSeries.clear();
         };
-    }, [candlesData, indicators, loading, error, markersData, indicatorParams]);
+    }, [candlesData, activeIndicators, loading, error, markersData, lowerPaneIndicators, activeTool, customMarkers]);
 
-    const toggleIndicator = (key: keyof IndicatorState) => {
-        setIndicators(prev => ({
-            ...prev,
-            [key]: !prev[key]
-        }));
-    };
+    // --- Scroll chart to focusTimestamp when it changes (e.g. navigating between trades) ---
+    useEffect(() => {
+        if (!focusTimestamp || !chartRefs.current.priceChart || candlesData.length === 0) return;
+        const chart = chartRefs.current.priceChart;
+        const ts = chart.timeScale();
 
-    const renderIndicatorParams = (key: string) => {
-        const inputClass = "w-14 h-6 px-1 rounded bg-[#1c2030] border border-[#2a2e39] text-white text-center text-xs font-mono focus:outline-none focus:border-indigo-500 transition-colors";
-        const labelClass = "flex items-center gap-1.5 shrink-0";
-
-        const updateParam = (paramKey: keyof IndicatorParams, val: number) => {
-            if (isNaN(val) || val < 1) return;
-            setIndicatorParams(prev => ({
-                ...prev,
-                [paramKey]: val
-            }));
-        };
-
-        switch (key) {
-            case "ema9":
-                return (
-                    <label className={labelClass}>
-                        <span>Period:</span>
-                        <input 
-                            type="number" 
-                            min="1" 
-                            max="500" 
-                            value={indicatorParams.ema9}
-                            onChange={(e) => updateParam("ema9", parseInt(e.target.value))}
-                            className={inputClass}
-                        />
-                    </label>
-                );
-            case "ema20":
-                return (
-                    <label className={labelClass}>
-                        <span>Period:</span>
-                        <input 
-                            type="number" 
-                            min="1" 
-                            max="500" 
-                            value={indicatorParams.ema20}
-                            onChange={(e) => updateParam("ema20", parseInt(e.target.value))}
-                            className={inputClass}
-                        />
-                    </label>
-                );
-            case "ema50":
-                return (
-                    <label className={labelClass}>
-                        <span>Period:</span>
-                        <input 
-                            type="number" 
-                            min="1" 
-                            max="500" 
-                            value={indicatorParams.ema50}
-                            onChange={(e) => updateParam("ema50", parseInt(e.target.value))}
-                            className={inputClass}
-                        />
-                    </label>
-                );
-            case "ema200":
-                return (
-                    <label className={labelClass}>
-                        <span>Period:</span>
-                        <input 
-                            type="number" 
-                            min="1" 
-                            max="500" 
-                            value={indicatorParams.ema200}
-                            onChange={(e) => updateParam("ema200", parseInt(e.target.value))}
-                            className={inputClass}
-                        />
-                    </label>
-                );
-            case "sma20":
-                return (
-                    <label className={labelClass}>
-                        <span>Period:</span>
-                        <input 
-                            type="number" 
-                            min="1" 
-                            max="500" 
-                            value={indicatorParams.sma20}
-                            onChange={(e) => updateParam("sma20", parseInt(e.target.value))}
-                            className={inputClass}
-                        />
-                    </label>
-                );
-            case "sma50":
-                return (
-                    <label className={labelClass}>
-                        <span>Period:</span>
-                        <input 
-                            type="number" 
-                            min="1" 
-                            max="500" 
-                            value={indicatorParams.sma50}
-                            onChange={(e) => updateParam("sma50", parseInt(e.target.value))}
-                            className={inputClass}
-                        />
-                    </label>
-                );
-            case "sma200":
-                return (
-                    <label className={labelClass}>
-                        <span>Period:</span>
-                        <input 
-                            type="number" 
-                            min="1" 
-                            max="500" 
-                            value={indicatorParams.sma200}
-                            onChange={(e) => updateParam("sma200", parseInt(e.target.value))}
-                            className={inputClass}
-                        />
-                    </label>
-                );
-            case "bb":
-                return (
-                    <div className="flex items-center gap-3">
-                        <label className={labelClass}>
-                            <span>Period:</span>
-                            <input 
-                                type="number" 
-                                min="1" 
-                                max="200" 
-                                value={indicatorParams.bbPeriod}
-                                onChange={(e) => updateParam("bbPeriod", parseInt(e.target.value))}
-                                className={inputClass}
-                            />
-                        </label>
-                        <label className={labelClass}>
-                            <span>StdDev:</span>
-                            <input 
-                                type="number" 
-                                min="1" 
-                                max="10" 
-                                value={indicatorParams.bbStdDev}
-                                onChange={(e) => updateParam("bbStdDev", parseInt(e.target.value))}
-                                className={inputClass}
-                            />
-                        </label>
-                    </div>
-                );
-            case "rsi":
-                return (
-                    <label className={labelClass}>
-                        <span>Period:</span>
-                        <input 
-                            type="number" 
-                            min="1" 
-                            max="200" 
-                            value={indicatorParams.rsi}
-                            onChange={(e) => updateParam("rsi", parseInt(e.target.value))}
-                            className={inputClass}
-                        />
-                    </label>
-                );
-            case "macd":
-                return (
-                    <div className="flex flex-wrap items-center gap-3">
-                        <label className={labelClass}>
-                            <span>Fast:</span>
-                            <input 
-                                type="number" 
-                                min="1" 
-                                max="200" 
-                                value={indicatorParams.macdFast}
-                                onChange={(e) => updateParam("macdFast", parseInt(e.target.value))}
-                                className={inputClass}
-                            />
-                        </label>
-                        <label className={labelClass}>
-                            <span>Slow:</span>
-                            <input 
-                                type="number" 
-                                min="1" 
-                                max="200" 
-                                value={indicatorParams.macdSlow}
-                                onChange={(e) => updateParam("macdSlow", parseInt(e.target.value))}
-                                className={inputClass}
-                            />
-                        </label>
-                        <label className={labelClass}>
-                            <span>Signal:</span>
-                            <input 
-                                type="number" 
-                                min="1" 
-                                max="200" 
-                                value={indicatorParams.macdSignal}
-                                onChange={(e) => updateParam("macdSignal", parseInt(e.target.value))}
-                                className={inputClass}
-                            />
-                        </label>
-                    </div>
-                );
-            case "atr":
-                return (
-                    <label className={labelClass}>
-                        <span>Period:</span>
-                        <input 
-                            type="number" 
-                            min="1" 
-                            max="200" 
-                            value={indicatorParams.atr}
-                            onChange={(e) => updateParam("atr", parseInt(e.target.value))}
-                            className={inputClass}
-                        />
-                    </label>
-                );
-            case "stoch":
-                return (
-                    <div className="flex items-center gap-3">
-                        <label className={labelClass}>
-                            <span>%K:</span>
-                            <input 
-                                type="number" 
-                                min="1" 
-                                max="200" 
-                                value={indicatorParams.stochK}
-                                onChange={(e) => updateParam("stochK", parseInt(e.target.value))}
-                                className={inputClass}
-                            />
-                        </label>
-                        <label className={labelClass}>
-                            <span>%D:</span>
-                            <input 
-                                type="number" 
-                                min="1" 
-                                max="200" 
-                                value={indicatorParams.stochD}
-                                onChange={(e) => updateParam("stochD", parseInt(e.target.value))}
-                                className={inputClass}
-                            />
-                        </label>
-                    </div>
-                );
-            case "cci":
-                return (
-                    <label className={labelClass}>
-                        <span>Period:</span>
-                        <input 
-                            type="number" 
-                            min="1" 
-                            max="200" 
-                            value={indicatorParams.cci}
-                            onChange={(e) => updateParam("cci", parseInt(e.target.value))}
-                            className={inputClass}
-                        />
-                    </label>
-                );
-            default:
-                return null;
+        // Build date-string → index map to find bar index of focusTimestamp
+        const dateStr = new Date(focusTimestamp * 1000).toISOString().slice(0, 10);
+        let targetIndex = -1;
+        for (let i = 0; i < candlesData.length; i++) {
+            const cDate = new Date((candlesData[i].time as number) * 1000).toISOString().slice(0, 10);
+            if (cDate === dateStr) { targetIndex = i; break; }
         }
+        // Fall back to nearest timestamp
+        if (targetIndex === -1) {
+            let best = 0;
+            let bestDiff = Infinity;
+            for (let i = 0; i < candlesData.length; i++) {
+                const diff = Math.abs((candlesData[i].time as number) - focusTimestamp);
+                if (diff < bestDiff) { bestDiff = diff; best = i; }
+            }
+            targetIndex = best;
+        }
+
+        // Show a window of ~60 bars centered on the target
+        const half = 30;
+        const from = Math.max(0, targetIndex - half);
+        const to = Math.min(candlesData.length - 1, targetIndex + half);
+        ts.setVisibleLogicalRange({ from, to });
+    }, [focusTimestamp, candlesData]);
+
+    // Add new indicator instance
+    const addIndicator = (type: string) => {
+        const id = `${type.toLowerCase()}-${Date.now()}`;
+        let params: Record<string, number> = {};
+        
+        const currentCount = activeIndicators.filter(i => i.type === type).length;
+        let color = COLOR_PALETTE[currentCount % COLOR_PALETTE.length];
+
+        switch (type) {
+            case "EMA":
+                const emaPeriods = [9, 20, 50, 200];
+                params = { period: emaPeriods[currentCount % emaPeriods.length] };
+                break;
+            case "SMA":
+                const smaPeriods = [20, 50, 200];
+                params = { period: smaPeriods[currentCount % smaPeriods.length] };
+                break;
+            case "BB":
+                params = { period: 20, stdDev: 2 };
+                break;
+            case "RSI":
+                params = { period: 14 };
+                color = "#7e57c2";
+                break;
+            case "MACD":
+                params = { fast: 12, slow: 26, signal: 9 };
+                color = "#2962ff";
+                break;
+            case "ATR":
+                params = { period: 14 };
+                color = "#26a69a";
+                break;
+            case "STOCH":
+                params = { k: 14, d: 3 };
+                color = "#2196f3";
+                break;
+            case "CCI":
+                params = { period: 20 };
+                color = "#e91e63";
+                break;
+        }
+
+        setActiveIndicators(prev => [
+            ...prev,
+            { id, type: type as any, params, color, visible: true }
+        ]);
     };
 
-    const INDICATORS_LIST = [
-        { key: "ema9", name: "Exponential Moving Average (EMA 1)", desc: "Short-term exponential average of close prices.", category: "Overlays" },
-        { key: "ema20", name: "Exponential Moving Average (EMA 2)", desc: "Short-term exponential average of close prices.", category: "Overlays" },
-        { key: "ema50", name: "Exponential Moving Average (EMA 3)", desc: "Medium-term trend tracking average.", category: "Overlays" },
-        { key: "ema200", name: "Exponential Moving Average (EMA 4)", desc: "Long-term market baseline indicator.", category: "Overlays" },
-        { key: "sma20", name: "Simple Moving Average (SMA 1)", desc: "Short-term simple arithmetic average of prices.", category: "Overlays" },
-        { key: "sma50", name: "Simple Moving Average (SMA 2)", desc: "Medium-term simple trend tracking average.", category: "Overlays" },
-        { key: "sma200", name: "Simple Moving Average (SMA 3)", desc: "Long-term simple baseline trend indicator.", category: "Overlays" },
-        { key: "bb", name: "Bollinger Bands", desc: "Volatility bands placed above and below a moving average.", category: "Overlays" },
-        { key: "rsi", name: "Relative Strength Index (RSI)", desc: "Momentum oscillator that measures velocity and change of price.", category: "Lower Pane" },
-        { key: "macd", name: "MACD", desc: "Trend-following momentum indicator showing relationship between EMAs.", category: "Lower Pane" },
-        { key: "atr", name: "Average True Range (ATR)", desc: "Market volatility indicator showing the average range of price movement.", category: "Lower Pane" },
-        { key: "stoch", name: "Stochastic Oscillator", desc: "Compares a closing price to its price range over a given time period.", category: "Lower Pane" },
-        { key: "cci", name: "Commodity Channel Index (CCI)", desc: "Measures current price relative to average price level over period.", category: "Lower Pane" }
-    ];
+    // Remove indicator instance
+    const removeIndicator = (id: string) => {
+        setActiveIndicators(prev => prev.filter(ind => ind.id !== id));
+    };
+
+    // Toggle indicator visibility
+    const toggleIndicatorVisibility = (id: string) => {
+        setActiveIndicators(prev => prev.map(ind => 
+            ind.id === id ? { ...ind, visible: !ind.visible } : ind
+        ));
+    };
+
+    const formatHoverDetails = (ind: ActiveIndicator, hoverVal: any) => {
+        if (!hoverVal) return "";
+        if (ind.type === "RSI" || ind.type === "ATR" || ind.type === "CCI") {
+            return `: ${hoverVal.toFixed(2)}`;
+        }
+        if (ind.type === "MACD") {
+            return `: M ${hoverVal.macd?.toFixed(2)} S ${hoverVal.signal?.toFixed(2)} H ${hoverVal.histogram?.toFixed(2)}`;
+        }
+        if (ind.type === "STOCH") {
+            return `: K ${hoverVal.k?.toFixed(2)} D ${hoverVal.d?.toFixed(2)}`;
+        }
+        return "";
+    };
 
     const filteredIndicatorsList = useMemo(() => {
-        if (!indicatorSearchQuery) return INDICATORS_LIST;
+        if (!indicatorSearchQuery) return AVAILABLE_INDICATORS;
         const q = indicatorSearchQuery.toLowerCase();
-        return INDICATORS_LIST.filter(ind => 
+        return AVAILABLE_INDICATORS.filter(ind => 
             ind.name.toLowerCase().includes(q) || 
-            ind.desc.toLowerCase().includes(q) ||
-            ind.category.toLowerCase().includes(q)
+            ind.desc.toLowerCase().includes(q)
         );
     }, [indicatorSearchQuery]);
 
@@ -1330,30 +901,23 @@ export default function TradingViewChart({ symbol, theme = "dark", exchange }: T
         <div ref={mainContainerRef} className="w-full h-full flex flex-col bg-[#131722] relative select-none overflow-hidden">
             {/* Custom Interactive Toolbar */}
             <div className="h-10 border-b border-[#2a2e39] bg-[#1c2030]/30 px-3 flex items-center justify-between text-xs text-[#d1d4dc] z-30 select-none">
-                {/* Left scrollable items */}
                 <div className="flex items-center gap-3 overflow-x-auto no-scrollbar flex-1 mr-2">
                     <div className="flex items-center gap-1.5 shrink-0">
                         <span className="font-bold text-white uppercase tracking-tight">{symbol}</span>
                         <span className="text-[10px] text-[#787b86] font-mono">({timeframe})</span>
                     </div>
-
                     <div className="h-4 w-[1px] bg-[#2a2e39] shrink-0" />
                 </div>
 
-                {/* Right side items (Not scrollable, contains relative dropdown) */}
                 <div className="flex items-center gap-3 shrink-0">
-                    {/* Indicators Modal Trigger */}
-                    <div className="relative z-50">
-                        <button 
-                            onClick={() => setShowIndicatorModal(true)}
-                            className="flex items-center gap-1 h-7 px-2.5 rounded transition-all active:scale-95 text-[11px] font-bold bg-[#1c2030] hover:bg-[#2a2e39] text-[#b2b5be] border border-[#2a2e39] uppercase tracking-wider"
-                        >
-                            <Settings className="w-3.5 h-3.5" />
-                            <span>Indicators</span>
-                        </button>
-                    </div>
+                    <button 
+                        onClick={() => setShowIndicatorModal(true)}
+                        className="flex items-center gap-1.5 h-7 px-3 rounded transition-all active:scale-95 text-[11px] font-black bg-indigo-600 hover:bg-indigo-700 text-white uppercase tracking-wider"
+                    >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>Indicators</span>
+                    </button>
 
-                    {/* Display markers count */}
                     {markersData.length > 0 && (
                         <div className="flex items-center gap-1 text-[10px] font-bold text-[#26a69a] uppercase tracking-wider font-mono shrink-0">
                             <BarChart3 className="w-3.5 h-3.5 text-[#26a69a]" />
@@ -1363,7 +927,7 @@ export default function TradingViewChart({ symbol, theme = "dark", exchange }: T
                 </div>
             </div>
 
-            {/* Sub-Legend containing exact Candlestick metrics and Indicator values under Crosshair */}
+            {/* Sub-Legend containing exact Candlestick metrics and Overlay Indicator values */}
             <div className="absolute top-12 left-4 z-20 flex flex-wrap gap-x-3 gap-y-1 text-[10px] font-mono text-[#787b86] max-w-[90%] pointer-events-none">
                 {hoverData ? (
                     <>
@@ -1375,133 +939,126 @@ export default function TradingViewChart({ symbol, theme = "dark", exchange }: T
                             <span className="text-[#d1d4dc] shrink-0 font-bold uppercase tracking-tighter">V: <span className="text-white">{hoverData.volume.toLocaleString()}</span></span>
                         )}
                         
-                        {/* Overlay Indicators */}
-                        {indicators.ema9 && hoverData.ema9 !== undefined && (
-                            <span className="text-[#2196f3] shrink-0 font-bold">EMA({indicatorParams.ema9}): <span>{hoverData.ema9.toFixed(2)}</span></span>
-                        )}
-                        {indicators.ema20 && hoverData.ema20 !== undefined && (
-                            <span className="text-[#ff9800] shrink-0 font-bold">EMA({indicatorParams.ema20}): <span>{hoverData.ema20.toFixed(2)}</span></span>
-                        )}
-                        {indicators.ema50 && hoverData.ema50 !== undefined && (
-                            <span className="text-[#e91e63] shrink-0 font-bold">EMA({indicatorParams.ema50}): <span>{hoverData.ema50.toFixed(2)}</span></span>
-                        )}
-                        {indicators.ema200 && hoverData.ema200 !== undefined && (
-                            <span className="text-[#9c27b0] shrink-0 font-bold">EMA({indicatorParams.ema200}): <span>{hoverData.ema200.toFixed(2)}</span></span>
-                        )}
-                        {indicators.sma20 && hoverData.sma20 !== undefined && (
-                            <span className="text-[#4caf50] shrink-0 font-bold">SMA({indicatorParams.sma20}): <span>{hoverData.sma20.toFixed(2)}</span></span>
-                        )}
-                        {indicators.sma50 && hoverData.sma50 !== undefined && (
-                            <span className="text-[#00bcd4] shrink-0 font-bold">SMA({indicatorParams.sma50}): <span>{hoverData.sma50.toFixed(2)}</span></span>
-                        )}
-                        {indicators.sma200 && hoverData.sma200 !== undefined && (
-                            <span className="text-[#ffeb3b] shrink-0 font-bold">SMA({indicatorParams.sma200}): <span>{hoverData.sma200.toFixed(2)}</span></span>
-                        )}
-                        {indicators.bb && hoverData.bbMiddle !== undefined && (
-                            <span className="text-[#90caf9] shrink-0 font-bold">
-                                BB({indicatorParams.bbPeriod},{indicatorParams.bbStdDev}): <span className="text-white">U {hoverData.bbUpper?.toFixed(2)}</span> M {hoverData.bbMiddle?.toFixed(2)} <span className="text-white">L {hoverData.bbLower?.toFixed(2)}</span>
-                            </span>
-                        )}
-                        {indicators.rsi && hoverData.rsi !== undefined && (
-                            <span className="text-[#7e57c2] shrink-0 font-bold">RSI({indicatorParams.rsi}): <span>{hoverData.rsi.toFixed(2)}</span></span>
-                        )}
-                        {indicators.macd && hoverData.macdVal !== undefined && (
-                            <span className="text-[#2962ff] shrink-0 font-bold">
-                                MACD({indicatorParams.macdFast},{indicatorParams.macdSlow},{indicatorParams.macdSignal}): <span className="text-[#2962ff]">{hoverData.macdVal?.toFixed(2)}</span> Sig: <span className="text-[#ff6d00]">{hoverData.macdSignal?.toFixed(2)}</span> Hist: <span className={hoverData.macdHist! >= 0 ? "text-[#26a69a]" : "text-[#ef5350]"}>{hoverData.macdHist?.toFixed(2)}</span>
-                            </span>
-                        )}
-                        {indicators.atr && hoverData.atr !== undefined && (
-                            <span className="text-[#26a69a] shrink-0 font-bold">ATR({indicatorParams.atr}): <span>{hoverData.atr.toFixed(2)}</span></span>
-                        )}
-                        {indicators.stoch && hoverData.stochK !== undefined && (
-                            <span className="text-[#2196f3] shrink-0 font-bold">STOCH(K={indicatorParams.stochK},D={indicatorParams.stochD}): <span className="text-[#2196f3]">K {hoverData.stochK.toFixed(2)}</span> <span className="text-[#ff9800]">D {hoverData.stochD?.toFixed(2)}</span></span>
-                        )}
-                        {indicators.cci && hoverData.cci !== undefined && (
-                            <span className="text-[#e91e63] shrink-0 font-bold">CCI({indicatorParams.cci}): <span>{hoverData.cci.toFixed(2)}</span></span>
-                        )}
+                        {/* Render active overlay indicators values */}
+                        {activeIndicators.map(ind => {
+                            if (!ind.visible || !["EMA", "SMA", "BB"].includes(ind.type) || !hoverData.indicatorValues) return null;
+                            const val = hoverData.indicatorValues[ind.id];
+                            if (val === undefined) return null;
+
+                            if (ind.type === "EMA" || ind.type === "SMA") {
+                                return (
+                                    <span key={ind.id} style={{ color: ind.color }} className="shrink-0 font-bold">
+                                        {ind.type}({ind.params.period}): <span className="text-white">{val.toFixed(2)}</span>
+                                    </span>
+                                );
+                            }
+                            if (ind.type === "BB") {
+                                return (
+                                    <span key={ind.id} style={{ color: ind.color }} className="shrink-0 font-bold">
+                                        BB({ind.params.period},{ind.params.stdDev}): <span className="text-white">U {val.upper?.toFixed(2)}</span> M {val.middle?.toFixed(2)} <span className="text-white">L {val.lower?.toFixed(2)}</span>
+                                    </span>
+                                );
+                            }
+                            return null;
+                        })}
                     </>
                 ) : (
                     <span className="text-[#787b86] italic tracking-wide">Hover crosshair over candles for OHLCV & Indicator metrics</span>
                 )}
             </div>
 
+            {/* TradingView Legend Active Indicators Widget (Top-Left overlay) */}
+            <div className="absolute top-24 left-4 z-20 flex flex-col gap-1.5 pointer-events-auto max-h-[40%] overflow-y-auto no-scrollbar">
+                {activeIndicators.map(ind => (
+                    <div key={ind.id} className="flex items-center justify-between gap-3 bg-[#0c0d12]/80 backdrop-blur-md px-2.5 py-1.5 rounded-xl border border-white/5 text-[10px] text-zinc-300 font-mono font-bold select-none hover:border-zinc-700 transition-all">
+                        <div className="flex items-center gap-2">
+                            <span className="w-2 h-2 rounded-full border border-white/10 shrink-0" style={{ backgroundColor: ind.color }} />
+                            <span className="text-white tracking-tight">{ind.type} ({Object.values(ind.params).join(", ")})</span>
+                        </div>
+                        
+                        <div className="flex items-center gap-1.5 border-l border-white/10 pl-2">
+                            <button 
+                                onClick={() => toggleIndicatorVisibility(ind.id)}
+                                className="text-zinc-500 hover:text-white transition-colors p-0.5 rounded hover:bg-white/5"
+                                title={ind.visible ? "Hide" : "Show"}
+                            >
+                                {ind.visible ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+                            </button>
+                            <button 
+                                onClick={() => removeIndicator(ind.id)}
+                                className="text-zinc-500 hover:text-red-400 transition-colors p-0.5 rounded hover:bg-white/5"
+                                title="Remove"
+                            >
+                                <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                        </div>
+                    </div>
+                ))}
+            </div>
+
             {/* Containers for Price and Lower Pane charts */}
             <div className="flex-1 flex flex-col min-h-0 bg-[#131722] p-1 overflow-hidden">
-                
                 {/* 1. Candlestick Chart */}
                 <div ref={priceContainerRef} className="flex-1 w-full min-h-0 overflow-hidden" />
 
-                {/* 2. RSI Panel (rendered dynamically if checked) */}
-                {indicators.rsi && (
-                    <div className="w-full h-[100px] relative border-t border-[#2a2e39] mt-1 shrink-0 overflow-hidden">
-                        <div className="absolute top-1 left-4 z-20 pointer-events-none text-[9px] font-mono font-bold text-[#787b86] uppercase tracking-wider">
-                            RSI (14) <span className="text-[#7e57c2] font-semibold">{hoverData?.rsi ? `: ${hoverData.rsi.toFixed(2)}` : ""}</span>
-                        </div>
-                        {/* 30 & 70 line markers in overlay */}
-                        <div className="absolute right-0 top-[30px] w-full border-t border-[#7e57c2]/10 pointer-events-none flex justify-end pr-2 text-[8px] text-[#787b86]/30">70</div>
-                        <div className="absolute right-0 bottom-[30px] w-full border-t border-[#7e57c2]/10 pointer-events-none flex justify-end pr-2 text-[8px] text-[#787b86]/30">30</div>
-                        
-                        <div ref={rsiContainerRef} className="w-full h-full overflow-hidden" />
-                    </div>
-                )}
-
-                {/* 3. MACD Panel (rendered dynamically if checked) */}
-                {indicators.macd && (
-                    <div className="w-full h-[100px] relative border-t border-[#2a2e39] mt-1 shrink-0 overflow-hidden">
-                        <div className="absolute top-1 left-4 z-20 pointer-events-none text-[9px] font-mono font-bold text-[#787b86] uppercase tracking-wider">
-                            MACD (12, 26, 9) <span className="text-[#2962ff] font-semibold">
-                                {hoverData?.macdVal ? `: M ${hoverData.macdVal.toFixed(2)} S ${hoverData.macdSignal?.toFixed(2)} H ${hoverData.macdHist?.toFixed(2)}` : ""}
-                            </span>
+                {/* Dynamic Lower Panes */}
+                {lowerPaneIndicators.map((ind) => (
+                    <div 
+                        key={ind.id} 
+                        className="w-full h-[120px] relative border-t border-[#2a2e39] mt-1 shrink-0 overflow-hidden"
+                    >
+                        <div className="absolute top-1.5 left-4 z-20 pointer-events-none text-[9px] font-mono font-bold text-[#787b86] uppercase tracking-wider flex items-center gap-1.5">
+                            <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: ind.color }} />
+                            <span>{ind.type} ({Object.values(ind.params).join(", ")})</span>
+                            {hoverData && hoverData.indicatorValues && hoverData.indicatorValues[ind.id] !== undefined && (
+                                <span className="font-semibold ml-1">
+                                    {formatHoverDetails(ind, hoverData.indicatorValues[ind.id])}
+                                </span>
+                            )}
                         </div>
                         
-                        <div ref={macdContainerRef} className="w-full h-full overflow-hidden" />
-                    </div>
-                )}
+                        {/* Visual guidelines for RSI / STOCH / CCI */}
+                        {ind.type === "RSI" && (
+                            <>
+                                <div className="absolute right-0 top-[35px] w-full border-t border-[#7e57c2]/10 pointer-events-none flex justify-end pr-2 text-[8px] text-[#787b86]/30">70</div>
+                                <div className="absolute right-0 bottom-[35px] w-full border-t border-[#7e57c2]/10 pointer-events-none flex justify-end pr-2 text-[8px] text-[#787b86]/30">30</div>
+                            </>
+                        )}
+                        {ind.type === "STOCH" && (
+                            <>
+                                <div className="absolute right-0 top-[25px] w-full border-t border-[#2196f3]/10 pointer-events-none flex justify-end pr-2 text-[8px] text-[#787b86]/30">80</div>
+                                <div className="absolute right-0 bottom-[25px] w-full border-t border-[#2196f3]/10 pointer-events-none flex justify-end pr-2 text-[8px] text-[#787b86]/30">20</div>
+                            </>
+                        )}
+                        {ind.type === "CCI" && (
+                            <>
+                                <div className="absolute right-0 top-[35px] w-full border-t border-white/5 pointer-events-none flex justify-end pr-2 text-[8px] text-[#787b86]/30">100</div>
+                                <div className="absolute right-0 bottom-[35px] w-full border-t border-white/5 pointer-events-none flex justify-end pr-2 text-[8px] text-[#787b86]/30">-100</div>
+                            </>
+                        )}
 
-                {/* 4. ATR Panel (rendered dynamically if checked) */}
-                {indicators.atr && (
-                    <div className="w-full h-[100px] relative border-t border-[#2a2e39] mt-1 shrink-0 overflow-hidden">
-                        <div className="absolute top-1 left-4 z-20 pointer-events-none text-[9px] font-mono font-bold text-[#787b86] uppercase tracking-wider">
-                            ATR (14) <span className="text-[#26a69a] font-semibold">{hoverData?.atr ? `: ${hoverData.atr.toFixed(2)}` : ""}</span>
-                        </div>
-                        <div ref={atrContainerRef} className="w-full h-full overflow-hidden" />
+                        <div 
+                            id={`pane-chart-${ind.id}`}
+                            ref={(el) => {
+                                if (el) {
+                                    paneContainersRef.current.set(ind.id, el);
+                                } else {
+                                    paneContainersRef.current.delete(ind.id);
+                                }
+                            }} 
+                            className="w-full h-full overflow-hidden" 
+                        />
                     </div>
-                )}
-
-                {/* 5. Stochastic Panel (rendered dynamically if checked) */}
-                {indicators.stoch && (
-                    <div className="w-full h-[100px] relative border-t border-[#2a2e39] mt-1 shrink-0 overflow-hidden">
-                        <div className="absolute top-1 left-4 z-20 pointer-events-none text-[9px] font-mono font-bold text-[#787b86] uppercase tracking-wider">
-                            Stochastic (14, 3) <span className="text-[#2196f3] font-semibold">
-                                {hoverData?.stochK ? `: K ${hoverData.stochK.toFixed(2)} D ${hoverData.stochD?.toFixed(2)}` : ""}
-                            </span>
-                        </div>
-                        <div className="absolute right-0 top-[20px] w-full border-t border-[#2196f3]/10 pointer-events-none flex justify-end pr-2 text-[8px] text-[#787b86]/30">80</div>
-                        <div className="absolute right-0 bottom-[20px] w-full border-t border-[#2196f3]/10 pointer-events-none flex justify-end pr-2 text-[8px] text-[#787b86]/30">20</div>
-                        <div ref={stochContainerRef} className="w-full h-full overflow-hidden" />
-                    </div>
-                )}
-
-                {/* 6. CCI Panel (rendered dynamically if checked) */}
-                {indicators.cci && (
-                    <div className="w-full h-[100px] relative border-t border-[#2a2e39] mt-1 shrink-0 overflow-hidden">
-                        <div className="absolute top-1 left-4 z-20 pointer-events-none text-[9px] font-mono font-bold text-[#787b86] uppercase tracking-wider">
-                            CCI (20) <span className="text-[#e91e63] font-semibold">{hoverData?.cci ? `: ${hoverData.cci.toFixed(2)}` : ""}</span>
-                        </div>
-                        <div className="absolute right-0 top-[30px] w-full border-t border-white/5 pointer-events-none flex justify-end pr-2 text-[8px] text-[#787b86]/30">100</div>
-                        <div className="absolute right-0 bottom-[30px] w-full border-t border-white/5 pointer-events-none flex justify-end pr-2 text-[8px] text-[#787b86]/30">-100</div>
-                        <div ref={cciContainerRef} className="w-full h-full overflow-hidden" />
-                    </div>
-                )}
+                ))}
             </div>
 
             {/* Indicators Modal Overlay */}
             {showIndicatorModal && (
                 <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-[200] p-4 select-none">
-                    <div className="bg-[#131722] border border-[#2a2e39] rounded-2xl w-full max-w-xl shadow-2xl flex flex-col overflow-hidden max-h-[85vh]">
+                    <div className="bg-[#131722] border border-[#2a2e39] rounded-2xl w-full max-w-2xl shadow-2xl flex flex-col overflow-hidden max-h-[85vh]">
                         {/* Header */}
                         <div className="px-5 py-4 border-b border-[#2a2e39] flex items-center justify-between">
-                            <span className="text-sm font-bold text-white uppercase tracking-wider">Indicators & Metrics</span>
+                            <span className="text-sm font-bold text-white uppercase tracking-wider">Indicators Workspace</span>
                             <button 
                                 onClick={() => {
                                     setShowIndicatorModal(false);
@@ -1524,64 +1081,31 @@ export default function TradingViewChart({ symbol, theme = "dark", exchange }: T
                                 autoFocus
                             />
                             <Search className="absolute left-8 top-5 w-4 h-4 text-[#787b86]" />
-                            {indicatorSearchQuery && (
-                                <button 
-                                    onClick={() => setIndicatorSearchQuery("")}
-                                    className="absolute right-8 top-5 text-[#787b86] hover:text-white"
-                                >
-                                    <X className="w-3.5 h-3.5" />
-                                </button>
-                            )}
                         </div>
                         
-                        {/* Indicators List */}
-                        <div className="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-1.5 min-h-0">
-                            {filteredIndicatorsList.length > 0 ? (
-                                filteredIndicatorsList.map((ind) => (
-                                    <div
-                                        key={ind.key}
-                                        className={`flex flex-col w-full p-3 rounded-xl border text-left transition-all
-                                            ${indicators[ind.key as keyof IndicatorState] 
-                                                ? "bg-[#2962ff]/5 border-[#2962ff]/20 text-white" 
-                                                : "bg-[#1c2030]/40 border-white/5 hover:bg-[#1c2030]/80 text-[#d1d4dc]"
-                                            }
-                                        `}
-                                    >
-                                        <div 
-                                            className="flex items-center justify-between w-full cursor-pointer select-none active:scale-[0.99] transition-transform"
-                                            onClick={() => toggleIndicator(ind.key as keyof IndicatorState)}
+                        <div className="flex-1 overflow-y-auto custom-scrollbar p-5 space-y-6 min-h-0">
+                            {/* Catalog indicators catalog grid list */}
+                            <div className="space-y-3">
+                                <h4 className="text-[10px] font-black text-zinc-500 uppercase tracking-widest border-b border-[#2a2e39] pb-1.5">Catalog (Click to add indicator)</h4>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                    {filteredIndicatorsList.map((ind) => (
+                                        <button
+                                            key={ind.type}
+                                            onClick={() => addIndicator(ind.type)}
+                                            className="p-3.5 rounded-xl border border-white/5 bg-[#1c2030]/20 hover:bg-[#1c2030]/60 hover:border-zinc-700 transition-all text-left flex flex-col justify-between h-24 group relative overflow-hidden active:scale-[0.98]"
                                         >
-                                            <div className="flex flex-col gap-0.5">
-                                                <span className="text-xs font-bold uppercase tracking-wide">{ind.name}</span>
-                                                <span className="text-[10px] text-[#787b86] font-medium leading-relaxed">{ind.desc}</span>
+                                            <div className="space-y-1 z-10 relative">
+                                                <div className="text-[11px] font-black text-white uppercase group-hover:text-indigo-400 transition-colors">{ind.name}</div>
+                                                <div className="text-[9px] text-[#787b86] font-semibold leading-snug line-clamp-2">{ind.desc}</div>
                                             </div>
-                                            <div className="flex items-center gap-3 shrink-0 pl-4">
-                                                <span className="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-zinc-800 text-[#787b86] border border-white/5">{ind.category}</span>
-                                                {indicators[ind.key as keyof IndicatorState] ? (
-                                                    <Eye className="w-4 h-4 text-indigo-400" />
-                                                ) : (
-                                                    <EyeOff className="w-4 h-4 text-[#787b86]/40" />
-                                                )}
+                                            <div className="z-10 relative flex justify-between items-center w-full">
+                                                <span className="text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded bg-zinc-800 text-[#787b86] border border-white/5">{ind.category}</span>
+                                                <span className="text-[9px] font-black text-indigo-400 group-hover:translate-x-1 transition-transform uppercase tracking-wider flex items-center gap-0.5">+ Add</span>
                                             </div>
-                                        </div>
-
-                                        {/* Input fields to edit parameters if active */}
-                                        {indicators[ind.key as keyof IndicatorState] && (
-                                            <div 
-                                                className="mt-2.5 pt-2.5 border-t border-white/5 flex flex-wrap items-center gap-3 text-[10px] font-bold text-zinc-400 select-text"
-                                                onClick={(e) => e.stopPropagation()}
-                                            >
-                                                <span className="uppercase text-[#787b86] select-none">Inputs:</span>
-                                                {renderIndicatorParams(ind.key)}
-                                            </div>
-                                        )}
-                                    </div>
-                                ))
-                            ) : (
-                                <div className="text-center py-8 text-xs text-[#787b86] font-medium">
-                                    No indicators match "{indicatorSearchQuery}"
+                                        </button>
+                                    ))}
                                 </div>
-                            )}
+                            </div>
                         </div>
                     </div>
                 </div>

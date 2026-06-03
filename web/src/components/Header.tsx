@@ -2,25 +2,94 @@
 
 import Link from "next/link";
 import Image from "next/image";
-import { usePathname, useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams, useRouter } from "next/navigation";
 import { useLanguage } from "@/contexts/LanguageContext";
-import { Globe, BarChart2, Brain, Activity, Menu, X, User, ChevronDown, ArrowLeftRight, Crown } from "lucide-react";
+import { Globe, BarChart2, Brain, Activity, Menu, X, User, ChevronDown, ArrowLeftRight, Crown, Search, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
+import { searchSymbols } from "@/lib/api";
+
+const POPULAR_EGX_STOCKS = [
+    { symbol: "COMI", name: "Commercial International Bank", exchange: "EGX", country: "Egypt" },
+    { symbol: "FWRY", name: "Fawry for Banking & Payment Technology", exchange: "EGX", country: "Egypt" },
+    { symbol: "TMGH", name: "Talaat Moustafa Group", exchange: "EGX", country: "Egypt" },
+    { symbol: "EAST", name: "Eastern Company", exchange: "EGX", country: "Egypt" },
+    { symbol: "AALR", name: "General Co. for Land Reclamation", exchange: "EGX", country: "Egypt" },
+];
 
 export default function Header() {
     const { language, setLanguage, t } = useLanguage();
     const { user, signOut } = useAuth();
     const pathname = usePathname();
     const searchParams = useSearchParams();
+    const router = useRouter();
     const currentTab = searchParams.get("tab");
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
     const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+
+    const [searchQuery, setSearchQuery] = useState("");
+    const [searchResults, setSearchResults] = useState<any[]>([]);
+    const [searching, setSearching] = useState(false);
+    const [searchFocused, setSearchFocused] = useState(false);
 
     useEffect(() => {
         setMobileMenuOpen(false);
         setAccountMenuOpen(false);
     }, [pathname]);
+
+    useEffect(() => {
+        if (!searchQuery.trim()) {
+            setSearchResults([]);
+            return;
+        }
+
+        const delayDebounce = setTimeout(async () => {
+            setSearching(true);
+            try {
+                const results = await searchSymbols(searchQuery, undefined, 50, undefined, undefined, "EGX");
+                setSearchResults(results);
+            } catch (err) {
+                console.error("Error searching symbols:", err);
+            } finally {
+                setSearching(false);
+            }
+        }, 200);
+
+        return () => clearTimeout(delayDebounce);
+    }, [searchQuery]);
+
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+                e.preventDefault();
+                const input = document.getElementById("header-search-input");
+                input?.focus();
+            } else if (e.key === "/") {
+                const active = document.activeElement?.tagName.toLowerCase();
+                if (active !== "input" && active !== "textarea") {
+                    e.preventDefault();
+                    const input = document.getElementById("header-search-input");
+                    input?.focus();
+                }
+            } else if (e.key === "Escape") {
+                setSearchFocused(false);
+                setSearchQuery("");
+            }
+        };
+        window.addEventListener("keydown", handleKeyDown);
+        return () => window.removeEventListener("keydown", handleKeyDown);
+    }, []);
+
+    useEffect(() => {
+        const handleClickOutside = (e: MouseEvent) => {
+            const container = document.getElementById("header-search-container");
+            if (container && !container.contains(e.target as Node)) {
+                setSearchFocused(false);
+            }
+        };
+        document.addEventListener("mousedown", handleClickOutside);
+        return () => document.removeEventListener("mousedown", handleClickOutside);
+    }, []);
 
     const navItems = [
         { href: "/scanner/backtests?tab=bots", label: t("nav.scanner.ai_trading"), icon: <Brain className="w-4 h-4" />, activePath: "/scanner/backtests" },
@@ -39,23 +108,24 @@ export default function Header() {
     };
 
     return (
-        <header className="fixed top-0 left-0 right-0 z-[100] px-6 py-6 md:px-8 header-stable">
+        <header className="fixed top-3 left-0 right-0 z-[100] px-3 sm:px-6 md:px-8 header-stable">
             <div className="mx-auto max-w-[1800px] w-full">
-                <div className="flex items-center justify-between rounded-[2rem] border border-white/10 bg-zinc-950/40 backdrop-blur-3xl px-6 py-3.5 shadow-[0_20px_50px_rgba(0,0,0,0.5)] ring-1 ring-white/5 transition-all duration-500 hover:border-white/20">
+                <div className="flex items-center justify-between rounded-2xl sm:rounded-[2rem] border border-white/10 bg-zinc-950/40 backdrop-blur-3xl px-3 sm:px-6 py-2.5 sm:py-3.5 shadow-[0_20px_50px_rgba(0,0,0,0.5)] ring-1 ring-white/5 transition-all duration-500 hover:border-white/20">
                     {/* Brand / Logo */}
-                    <div className="flex items-center gap-6">
-                        <Link href="/scanner/ai" className="group flex items-center gap-3">
-                            <div className="relative transition-all duration-500 group-hover:rotate-12 group-hover:scale-110">
+                    <div className="flex items-center gap-2 sm:gap-6">
+                        <Link href="/" className="group flex items-center gap-2 sm:gap-3">
+                            <div className="relative transition-all duration-500 group-hover:rotate-12 group-hover:scale-110 flex-shrink-0">
                                 <Image
                                     src="/favicon_io/apple-touch-icon.png?v=2"
                                     alt="EGX Bots logo"
-                                    width={44}
-                                    height={44}
-                                    className="object-contain"
+                                    width={36}
+                                    height={36}
+                                    className="object-contain sm:w-11 sm:h-11"
                                     priority
                                 />
                             </div>
-                            <div className="flex flex-col min-w-0 sm:flex header-title">
+                            {/* Hide title text on very small screens to save space */}
+                            <div className="hidden sm:flex flex-col min-w-0 header-title">
                                 <span className="text-base font-bold tracking-tight text-white leading-tight truncate">
                                     {t("app.title")}
                                 </span>
@@ -63,10 +133,98 @@ export default function Header() {
                                     {t("header.pro_analysis")}
                                 </span>
                             </div>
+                            {/* Show compact title on xs only */}
+                            <span className="sm:hidden text-sm font-black tracking-tight text-white">EGX Bots</span>
                         </Link>
 
+                        {/* Desktop Search Engine */}
+                        <div id="header-search-container" className={`relative hidden md:block transition-all duration-300 ease-in-out ${searchFocused ? "w-72 lg:w-96" : "w-48 lg:w-64"}`}>
+                            <div className="relative flex items-center">
+                                <Search className="absolute left-3 w-4 h-4 text-zinc-500" />
+                                <input
+                                    id="header-search-input"
+                                    type="text"
+                                    placeholder={language === "ar" ? "ابحث عن سهم مصري..." : "Search EGX symbol..."}
+                                    value={searchQuery}
+                                    onChange={(e) => setSearchQuery(e.target.value)}
+                                    onFocus={() => setSearchFocused(true)}
+                                    className="h-9 w-full rounded-xl border border-white/10 bg-zinc-900/40 pl-9 pr-8 text-xs font-semibold text-white placeholder:text-zinc-600 outline-none focus:border-white/20 focus:ring-1 focus:ring-white/5 transition-all"
+                                />
+                                <kbd className="absolute right-3 px-1.5 py-0.5 rounded bg-zinc-950 border border-white/5 text-[9px] font-mono text-zinc-600 pointer-events-none uppercase">
+                                    /
+                                </kbd>
+                            </div>
+
+                            {/* Dropdown Overlay */}
+                            {searchFocused && (
+                                <div className="absolute top-11 left-0 right-0 max-h-80 overflow-y-auto rounded-2xl border border-white/10 bg-zinc-950/95 backdrop-blur-2xl shadow-2xl p-1.5 z-50 animate-in fade-in slide-in-from-top-1 duration-200">
+                                    {!searchQuery.trim() ? (
+                                        <div className="flex flex-col gap-0.5">
+                                            <div className="px-3 py-1.5 text-[9px] font-bold text-zinc-500 uppercase tracking-wider">
+                                                {language === "ar" ? "الأسهم المصرية الأكثر شعبية" : "Popular EGX Stocks"}
+                                            </div>
+                                            {POPULAR_EGX_STOCKS.map((result) => (
+                                                <button
+                                                    key={result.symbol}
+                                                    onClick={() => {
+                                                        setSearchQuery("");
+                                                        setSearchFocused(false);
+                                                        router.push(`/chart?symbol=${encodeURIComponent(result.symbol)}&exchange=EGX`);
+                                                    }}
+                                                    className="flex items-center justify-between w-full px-3 py-2 rounded-xl text-left hover:bg-white/5 transition-all active:scale-[0.99]"
+                                                >
+                                                    <div className="flex flex-col min-w-0">
+                                                        <span className="text-xs font-black text-white">{result.symbol}</span>
+                                                        <span className="text-[10px] text-zinc-500 font-semibold truncate max-w-[180px] lg:max-w-[220px]">
+                                                            {result.name}
+                                                        </span>
+                                                    </div>
+                                                    <span className="text-[8px] font-black uppercase tracking-wider px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                                                        EGX
+                                                    </span>
+                                                </button>
+                                            ))}
+                                        </div>
+                                    ) : searching ? (
+                                        <div className="flex items-center justify-center py-5 text-zinc-500 gap-1.5 text-[10px] font-bold uppercase tracking-wider">
+                                            <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-500" />
+                                            <span>{language === "ar" ? "جاري البحث..." : "Searching..."}</span>
+                                        </div>
+                                    ) : searchResults.length > 0 ? (
+                                        <div className="flex flex-col gap-0.5">
+                                            {searchResults.map((result) => (
+                                                <button
+                                                    key={result.symbol}
+                                                    onClick={() => {
+                                                        setSearchQuery("");
+                                                        setSearchFocused(false);
+                                                        router.push(`/chart?symbol=${encodeURIComponent(result.symbol)}&exchange=EGX`);
+                                                    }}
+                                                    className="flex items-center justify-between w-full px-3 py-2 rounded-xl text-left hover:bg-white/5 transition-all active:scale-[0.99]"
+                                                >
+                                                    <div className="flex flex-col min-w-0">
+                                                        <span className="text-xs font-black text-white">{result.symbol}</span>
+                                                        <span className="text-[10px] text-zinc-500 font-semibold truncate max-w-[180px] lg:max-w-[220px]">
+                                                            {result.name}
+                                                        </span>
+                                                    </div>
+                                                    <span className="text-[8px] font-black uppercase tracking-wider px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                                                        EGX
+                                                    </span>
+                                                </button>
+                                            ))}
+                                        </div>
+                                    ) : (
+                                        <div className="text-center py-5 text-xs text-zinc-600 font-bold uppercase tracking-wide">
+                                            {language === "ar" ? "لا توجد نتائج" : "No symbols found"}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+
                         {/* Desktop Navigation */}
-                        <nav className="hidden lg:flex items-center gap-1 ml-4 py-1 px-1 rounded-xl bg-white/5 border border-white/5 flex-wrap max-w-full">
+                        <nav className="hidden lg:flex flex-row flex-nowrap items-center gap-1 ml-2 xl:ml-4 py-1 px-1 rounded-xl bg-white/5 border border-white/5">
                             {navItems.map((item) => {
                                 const isActive = checkActive(item.href, item.activePath);
                                 return (
@@ -77,9 +235,10 @@ export default function Header() {
                                             ? "bg-zinc-100 text-zinc-950 shadow-lg shadow-white/5"
                                             : "text-zinc-500 hover:text-zinc-50 hover:bg-white/5"
                                             }`}
+                                        title={item.label}
                                     >
                                         {item.icon}
-                                        {item.label}
+                                        <span className="hidden xl:inline">{item.label}</span>
                                         {isActive && (
                                             <span className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-blue-500" />
                                         )}
@@ -89,20 +248,21 @@ export default function Header() {
                         </nav>
                     </div>
 
-                    {/* Desktop Actions */}
-                    <div className="flex items-center gap-2">
-                        {/* Language Switcher */}
+                    {/* Actions */}
+                    <div className="flex items-center gap-1.5 sm:gap-2">
+                        {/* Language Switcher — hidden on mobile (inside mobile menu) */}
                         <button
                             onClick={() => setLanguage(language === "ar" ? "en" : "ar")}
-                            className="flex items-center justify-center gap-1.5 h-9 px-3 rounded-xl border border-white/5 bg-white/5 text-zinc-400 hover:text-white transition-all text-xs font-bold w-20 language-switch"
+                            className="hidden sm:flex items-center justify-center gap-1.5 h-9 px-2 rounded-xl border border-white/5 bg-white/5 text-zinc-400 hover:text-white transition-all text-xs font-bold w-9 xl:w-20 language-switch"
                             title={language === "ar" ? "Switch to English" : "تغيير إلى العربية"}
                         >
                             <Globe className="h-4 w-4" />
-                            <span>{language === "ar" ? "EN" : "العربية"}</span>
+                            <span className="hidden xl:inline">{language === "ar" ? "EN" : "العربية"}</span>
                         </button>
 
+                        {/* Account — hidden on mobile (inside mobile menu) */}
                         {user ? (
-                            <div className="relative">
+                            <div className="relative hidden sm:block">
                                 <button
                                     onClick={() => setAccountMenuOpen(!accountMenuOpen)}
                                     className={`flex items-center gap-2 h-9 px-3 rounded-xl border transition-all ${accountMenuOpen ? "bg-white/10 border-white/20 text-white" : "bg-white/5 border-white/5 text-zinc-400 hover:text-white"}`}
@@ -142,90 +302,105 @@ export default function Header() {
                         ) : (
                             <Link
                                 href="/login"
-                                className="h-9 px-5 flex items-center rounded-xl bg-white text-zinc-950 text-xs font-bold uppercase tracking-wider hover:bg-zinc-200 transition-all shadow-lg shadow-white/5"
+                                className="hidden sm:flex h-9 px-5 items-center rounded-xl bg-white text-zinc-950 text-xs font-bold uppercase tracking-wider hover:bg-zinc-200 transition-all shadow-lg shadow-white/5"
                             >
                                 {t("auth.login")}
                             </Link>
                         )}
 
-                        {/* Hamburger */}
+                        {/* Hamburger — mobile only, always visible */}
                         <button
                             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-                            className="lg:hidden h-9 w-9 flex items-center justify-center rounded-xl bg-white/5 border border-white/5 text-white hover:bg-white/10 transition-all"
+                            className="lg:hidden h-9 w-9 flex items-center justify-center rounded-xl bg-white/5 border border-white/10 text-white hover:bg-white/10 transition-all flex-shrink-0"
+                            aria-label="Toggle menu"
                         >
                             {mobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
                         </button>
                     </div>
                 </div>
 
-                {/* Mobile Menu Panel */}
+                {/* Mobile Menu Panel - Compact Dropdown */}
                 {mobileMenuOpen && (
-                    <div className="lg:hidden mt-3 rounded-2xl border border-white/5 bg-zinc-950/80 backdrop-blur-2xl p-2 shadow-2xl animate-in slide-in-from-top-4 duration-300 overflow-hidden">
-                        <div className="grid grid-cols-1 gap-1">
-                            {navItems.map((item) => {
-                                const isActive = checkActive(item.href, item.activePath);
-                                return (
-                                    <Link
-                                        key={item.href}
-                                        href={item.href}
-                                        className={`flex items-center gap-4 px-4 py-4 rounded-xl text-sm font-bold uppercase tracking-widest transition-all ${isActive
-                                            ? "bg-white text-zinc-950"
-                                            : "text-zinc-400 hover:text-white hover:bg-white/5"
-                                            }`}
-                                    >
-                                        {item.icon}
-                                        {item.label}
-                                    </Link>
-                                );
-                            })}
-
-                            <div className="h-px bg-white/5 my-2 mx-4" />
-
-                            {/* Mobile Language Switcher */}
-                            <div className="flex items-center justify-between p-2 px-4">
-                                <span className="text-xs font-bold uppercase text-zinc-500">{language === "ar" ? "اللغة" : "Language"}</span>
+                    <>
+                        {/* Backdrop overlay – tap anywhere outside to close */}
+                        <div
+                            className="lg:hidden fixed inset-0 z-[90] bg-black/60 backdrop-blur-sm"
+                            onClick={() => setMobileMenuOpen(false)}
+                            aria-hidden="true"
+                        />
+                        <div className="lg:hidden mt-6 rounded-2xl border border-white/10 bg-zinc-950/98 backdrop-blur-2xl shadow-2xl animate-in slide-in-from-top-2 duration-200 overflow-hidden relative z-[101]">
+                            {/* Close button at top right */}
+                            <div className="flex items-center justify-between px-3 pt-2.5 pb-1">
+                                <span className="text-[9px] font-black uppercase tracking-[0.2em] text-zinc-600">Menu</span>
                                 <button
-                                    onClick={() => setLanguage(language === "ar" ? "en" : "ar")}
-                                    className="flex items-center justify-center gap-1.5 h-9 px-3 rounded-xl border border-white/10 bg-white/5 text-zinc-300 hover:text-white transition-all text-xs font-bold"
+                                    onClick={() => setMobileMenuOpen(false)}
+                                    className="h-7 w-7 flex items-center justify-center rounded-lg bg-white/5 hover:bg-white/10 text-zinc-500 hover:text-white transition-all"
+                                    aria-label="Close menu"
                                 >
-                                    <Globe className="h-4 w-4" />
-                                    <span>{language === "ar" ? "English" : "العربية"}</span>
+                                    <X className="h-3.5 w-3.5" />
                                 </button>
                             </div>
 
-                            <div className="h-px bg-white/5 my-2 mx-4" />
+                            {/* Nav Items */}
+                            <div className="px-1.5 pb-1 flex flex-col gap-0.5">
+                                {navItems.map((item) => {
+                                    const isActive = checkActive(item.href, item.activePath);
+                                    return (
+                                        <Link
+                                            key={item.href}
+                                            href={item.href}
+                                            className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider transition-all ${isActive
+                                                ? "bg-white text-zinc-950"
+                                                : "text-zinc-400 hover:text-white hover:bg-white/5"
+                                                }`}
+                                        >
+                                            {item.icon}
+                                            {item.label}
+                                        </Link>
+                                    );
+                                })}
+                            </div>
 
-                            <div className="flex items-center justify-end p-2">
-                                {!user && (
+                            <div className="h-px bg-white/5 mx-3" />
+
+                            {/* Bottom Row: Language + Account */}
+                            <div className="flex items-center gap-2 p-2">
+                                <button
+                                    onClick={() => setLanguage(language === "ar" ? "en" : "ar")}
+                                    className="flex items-center gap-1.5 h-8 px-3 rounded-xl border border-white/10 bg-white/5 text-zinc-400 hover:text-white transition-all text-xs font-bold flex-1 justify-center"
+                                >
+                                    <Globe className="h-3.5 w-3.5" />
+                                    <span>{language === "ar" ? "English" : "العربية"}</span>
+                                </button>
+                                {!user ? (
                                     <Link
                                         href="/login"
-                                        className="px-6 py-3 rounded-xl bg-blue-600 text-white text-xs font-bold uppercase tracking-widest"
+                                        className="flex items-center justify-center h-8 px-4 rounded-xl bg-blue-600 text-white text-xs font-bold uppercase flex-1"
                                     >
                                         {t("auth.login")}
                                     </Link>
+                                ) : (
+                                    <>
+                                        <Link
+                                            href="/profile"
+                                            className="flex items-center justify-center gap-1.5 h-8 px-3 rounded-xl border border-white/10 bg-white/5 text-zinc-400 hover:text-white text-xs font-bold flex-1"
+                                        >
+                                            <User className="h-3.5 w-3.5" />
+                                        </Link>
+                                        <button
+                                            onClick={() => signOut()}
+                                            className="flex items-center justify-center h-8 px-3 rounded-xl bg-red-500/10 text-red-400 text-xs font-bold flex-1"
+                                        >
+                                            {t("auth.logout")}
+                                        </button>
+                                    </>
                                 )}
                             </div>
-
-                            {user && (
-                                <div className="grid grid-cols-2 gap-2 p-2">
-                                    <Link
-                                        href="/profile"
-                                        className="flex items-center justify-center gap-2 h-12 rounded-xl border border-white/10 text-xs font-bold uppercase text-zinc-400"
-                                    >
-                                        <User className="h-4 w-4" /> {t("nav.profile")}
-                                    </Link>
-                                    <button
-                                        onClick={() => signOut()}
-                                        className="flex items-center justify-center gap-2 h-12 rounded-xl bg-red-500/10 text-xs font-bold uppercase text-red-500"
-                                    >
-                                        {t("auth.logout")}
-                                    </button>
-                                </div>
-                            )}
                         </div>
-                    </div>
+                    </>
                 )}
             </div>
         </header>
     );
 }
+

@@ -10,6 +10,8 @@ import Link from "next/link";
 import Image from "next/image";
 import { useSearchParams } from "next/navigation";
 import { TradeTimeline } from "@/app/admin/components/TradeTimeline";
+import TradingViewChart from "@/components/TradingViewChart";
+
 
 // Helper component to fetch and display EGX30 comparison
 const Egx30Comparison = ({ start, end, botReturn }: { start: string, end: string, botReturn: number }) => {
@@ -270,6 +272,36 @@ export default function AIScannerPage() {
     const [expandedFilteredMap, setExpandedFilteredMap] = useState<Record<string, boolean>>({});
     const [loadedTrades, setLoadedTrades] = useState<Record<string, any[]>>({});
     const [tradesLoadingMap, setTradesLoadingMap] = useState<Record<string, boolean>>({});
+
+    const [selectedTrade, setSelectedTrade] = useState<any | null>(null);
+
+    const symbolTrades = useMemo(() => {
+        if (!selectedTrade || !expandedBacktestId) return [];
+        const trades = loadedTrades[expandedBacktestId] ?? [];
+        return trades.filter((x: any) => (x.symbol || x.Symbol || x.features?.symbol)?.toUpperCase() === selectedTrade.symbol?.toUpperCase() || (x.symbol || x.Symbol || x.features?.symbol)?.toUpperCase() === (selectedTrade.Symbol || selectedTrade.features?.symbol)?.toUpperCase());
+    }, [loadedTrades, selectedTrade, expandedBacktestId]);
+
+    const currentSymbolTradeIndex = useMemo(() => {
+        if (!selectedTrade || symbolTrades.length === 0) return -1;
+        const currentEntryDate = selectedTrade.features?.entry_date || selectedTrade.Entry_Date || selectedTrade.entry_date || selectedTrade.features?.trade_date || selectedTrade.date;
+        const currentEntryPrice = selectedTrade.entry_price ?? selectedTrade.entry;
+        return symbolTrades.findIndex((t: any) => {
+            const entryDate = t.features?.entry_date || t.Entry_Date || t.entry_date || t.features?.trade_date || t.date;
+            const entryPrice = t.entry_price ?? t.entry;
+            return entryDate === currentEntryDate && entryPrice === currentEntryPrice;
+        });
+    }, [symbolTrades, selectedTrade]);
+
+    const formatDate = (raw: string | undefined): string => {
+        if (!raw) return '—';
+        try {
+            return new Date(raw).toLocaleDateString(language === "ar" ? "ar-EG" : "en-US", {
+                month: 'short',
+                day: 'numeric',
+                year: 'numeric'
+            });
+        } catch { return '—'; }
+    };
 
     // Filters and Sorting states for Backtests tab
     const [backtestSearchQuery, setBacktestSearchQuery] = useState("");
@@ -921,9 +953,9 @@ export default function AIScannerPage() {
                                                                 <div className="flex flex-col items-center gap-1">
                                                                     <span className="font-mono text-indigo-400 font-black text-[10px] uppercase bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20">{bot.timeframe || "1Hour"}</span>
                                                                     <div className="flex items-center gap-1 font-mono text-[9px]">
-                                                                        <span className="text-emerald-400 font-bold">{language === "ar" ? "الهدف" : "T"}:{Math.round((bot.target_pct || 0.06) * 100)}%</span>
+                                                                        <span className="text-emerald-400 font-bold">{language === "ar" ? "الهدف" : "T"}:{Math.round((bot.target_pct || 0.10) * 100)}%</span>
                                                                         <span className="text-zinc-700">|</span>
-                                                                        <span className="text-red-400 font-bold">{language === "ar" ? "الوقف" : "SL"}:{Math.round((bot.stop_loss_pct || 0.02) * 100)}%</span>
+                                                                        <span className="text-red-400 font-bold">{language === "ar" ? "الوقف" : "SL"}:{Math.round((bot.stop_loss_pct || 0.035) * 100)}%</span>
                                                                     </div>
                                                                     {bot.use_council && (
                                                                         <span className="text-[8px] text-zinc-500 font-bold">{t("backtest.council")} {bot.council_threshold ?? 0.25}</span>
@@ -1074,9 +1106,9 @@ export default function AIScannerPage() {
                                                         </span>
                                                         <span className="font-mono text-indigo-400 font-black text-[10px] uppercase bg-indigo-500/10 px-2.5 py-1 rounded-full border border-indigo-500/20">{bot.timeframe || "1Hour"}</span>
                                                         <div className="flex items-center gap-1 font-mono text-[9px] bg-zinc-950/50 px-2.5 py-1 rounded-full border border-white/5">
-                                                            <span className="text-emerald-400 font-bold">{language === "ar" ? "الهدف" : "T"}:{Math.round((bot.target_pct || 0.06) * 100)}%</span>
+                                                            <span className="text-emerald-400 font-bold">{language === "ar" ? "الهدف" : "T"}:{Math.round((bot.target_pct || 0.10) * 100)}%</span>
                                                             <span className="text-zinc-700">|</span>
-                                                            <span className="text-red-400 font-bold">{language === "ar" ? "الوقف" : "SL"}:{Math.round((bot.stop_loss_pct || 0.02) * 100)}%</span>
+                                                            <span className="text-red-400 font-bold">{language === "ar" ? "الوقف" : "SL"}:{Math.round((bot.stop_loss_pct || 0.035) * 100)}%</span>
                                                         </div>
                                                         {bot.use_council && (
                                                             <span className="text-[9px] text-zinc-500 font-bold bg-zinc-900 px-2.5 py-1 rounded-full border border-white/5">{t("backtest.council")} {bot.council_threshold ?? 0.25}</span>
@@ -1754,7 +1786,11 @@ export default function AIScannerPage() {
                                                                         }
 
                                                                         return (
-                                                                            <tr key={index} className={`hover:bg-white/[0.02] transition-colors ${isRejected ? 'opacity-40 grayscale-[0.8]' : ''}`}>
+                                                                            <tr 
+                                                                                key={index} 
+                                                                                onClick={() => setSelectedTrade(trade)}
+                                                                                className={`group cursor-pointer hover:bg-white/[0.04] transition-colors ${isRejected ? 'opacity-40 grayscale-[0.8]' : ''}`}
+                                                                            >
                                                                                 <td className="px-6 py-3.5 font-bold text-white uppercase tracking-tight">{sym}</td>
                                                                                 <td className="px-6 py-3.5 text-center">
                                                                                     <div className="flex items-center justify-center gap-2 text-[10px]">
@@ -1801,6 +1837,255 @@ export default function AIScannerPage() {
                             })}
                         </div>
                     )}
+                </div>
+            )}
+            {selectedTrade && (
+                <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/70 backdrop-blur-md animate-in fade-in duration-200" dir="rtl" style={{ direction: 'rtl' }}>
+                    <div className="absolute inset-0" onClick={() => setSelectedTrade(null)} />
+                    <div className="relative w-full max-w-2xl max-h-[90vh] overflow-hidden bg-zinc-950 border border-white/10 rounded-[2rem] shadow-2xl flex flex-col animate-in zoom-in-95 duration-200">
+                        {/* Header */}
+                        <div className="p-5 border-b border-white/5 flex items-center justify-between bg-zinc-900/40">
+                            <div className="flex items-center gap-3">
+                                <div className="px-3 py-1.5 rounded-xl bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 text-xs font-black">
+                                    {selectedTrade.Symbol || selectedTrade.symbol || selectedTrade.features?.symbol}
+                                </div>
+                                <div className="text-right">
+                                    <h4 className="text-sm font-black text-white uppercase tracking-tight">تفاصيل الصفقة</h4>
+                                    <p className="text-[9px] text-zinc-500 font-bold uppercase tracking-widest mt-0.5">
+                                        العملية {currentSymbolTradeIndex + 1} من {symbolTrades.length} في هذا السهم
+                                    </p>
+                                </div>
+                            </div>
+                            <button 
+                                onClick={() => setSelectedTrade(null)} 
+                                className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-zinc-500 hover:text-white transition-all border border-white/5"
+                            >
+                                <ChevronDown className="h-4 w-4 rotate-180" />
+                            </button>
+                        </div>
+
+                        {/* Smart Navigation Buttons */}
+                        <div className="px-5 py-3 bg-zinc-900/20 border-b border-white/5 flex items-center justify-between" dir="ltr">
+                            <button
+                                disabled={currentSymbolTradeIndex <= 0}
+                                onClick={() => setSelectedTrade(symbolTrades[currentSymbolTradeIndex - 1])}
+                                className="px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/5 disabled:opacity-30 disabled:pointer-events-none text-[10px] font-black text-white transition-all flex items-center gap-1.5"
+                            >
+                                {language === "ar" ? "الصفقة السابقة" : "Prev Trade"}
+                            </button>
+                            <span className="text-[10px] text-zinc-400 font-mono font-bold">
+                                {selectedTrade.Symbol || selectedTrade.symbol || selectedTrade.features?.symbol} · {currentSymbolTradeIndex + 1} / {symbolTrades.length}
+                            </span>
+                            <button
+                                disabled={currentSymbolTradeIndex === -1 || currentSymbolTradeIndex >= symbolTrades.length - 1}
+                                onClick={() => setSelectedTrade(symbolTrades[currentSymbolTradeIndex + 1])}
+                                className="px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/5 disabled:opacity-30 disabled:pointer-events-none text-[10px] font-black text-white transition-all flex items-center gap-1.5"
+                            >
+                                {language === "ar" ? "الصفقة التالية" : "Next Trade"}
+                            </button>
+                        </div>
+
+                        {/* Content / Scrollable area */}
+                        <div className="flex-1 overflow-y-auto p-5 space-y-6 custom-scrollbar text-right">
+                            {/* Stock Chart */}
+                            <div className="space-y-2">
+                                <div className="flex items-center justify-between flex-row-reverse">
+                                    <span className="text-[10px] font-black text-zinc-400 uppercase tracking-wider">
+                                        شارت حركة السعر — كل تحركات {selectedTrade.Symbol || selectedTrade.symbol || selectedTrade.features?.symbol} ({symbolTrades.length} صفقة)
+                                    </span>
+                                    <div className="flex items-center gap-3 text-[9px] font-bold text-zinc-400 flex-row-reverse">
+                                        <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-emerald-500" />شراء</span>
+                                        <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-red-500" />بيع خسارة</span>
+                                        <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-emerald-300" />بيع ربح</span>
+                                    </div>
+                                </div>
+                                <div className="h-[300px] w-full rounded-2xl border border-white/5 overflow-hidden bg-[#131722]" dir="ltr">
+                                    {(() => {
+                                        const toUnix = (raw: string | undefined): number | null => {
+                                            if (!raw) return null;
+                                            if (typeof raw === 'string' && /^\d{2}\/\d{2}\/\d{4}$/.test(raw)) {
+                                                const [d, m, y] = raw.split('/');
+                                                return Math.floor(new Date(`${y}-${m}-${d}`).getTime() / 1000);
+                                            }
+                                            const ts = new Date(raw).getTime();
+                                            return Number.isNaN(ts) ? null : Math.floor(ts / 1000);
+                                        };
+
+                                        const selEntryDateRaw = selectedTrade.features?.entry_date || selectedTrade.Entry_Date || selectedTrade.entry_date || selectedTrade.features?.trade_date || selectedTrade.date;
+                                        const selEntryPrice   = selectedTrade.entry_price ?? selectedTrade.entry;
+                                        const focusTs         = toUnix(selEntryDateRaw) ?? undefined;
+
+                                        const markers: any[] = [];
+                                        const tradesToMark = symbolTrades.length > 0 ? symbolTrades : [selectedTrade];
+
+                                        for (const t of tradesToMark) {
+                                            const entryDateRaw = t.features?.entry_date || t.Entry_Date || t.entry_date || t.features?.trade_date || t.date;
+                                            const exitDateRaw  = t.features?.exit_date  || t.Exit_Date  || t.exit_date  || t.features?.trade_date || t.date;
+
+                                            const entryTs    = toUnix(entryDateRaw);
+                                            const exitTs     = toUnix(exitDateRaw);
+                                            const entryPrice = t.entry_price ?? t.entry;
+                                            const exitPrice  = t.exit_price  ?? t.exit;
+                                            const pnl        = getTradeProfitPct(t);
+                                            const isWin      = pnl > 0;
+
+                                            const tEntryDate  = t.features?.entry_date || t.Entry_Date || t.entry_date || t.features?.trade_date || t.date;
+                                            const tEntryPrice = t.entry_price ?? t.entry;
+                                            const isActive    = tEntryDate === selEntryDateRaw && tEntryPrice === selEntryPrice;
+                                            const size        = isActive ? 2.5 : 1.2;
+
+                                            if (entryTs) {
+                                                markers.push({
+                                                    time: entryTs,
+                                                    position: 'belowBar',
+                                                    color: isActive ? '#10b981' : '#6ee7b7',
+                                                    shape: 'arrowUp',
+                                                    text: isActive ? `BUY ${entryPrice != null ? Number(entryPrice).toFixed(2) : ''}` : '',
+                                                    size,
+                                                });
+                                            }
+                                            if (exitTs) {
+                                                markers.push({
+                                                    time: exitTs,
+                                                    position: 'aboveBar',
+                                                    color: isWin ? (isActive ? '#10b981' : '#6ee7b7') : (isActive ? '#ef4444' : '#fca5a5'),
+                                                    shape: 'arrowDown',
+                                                    text: isActive ? `SELL ${exitPrice != null ? Number(exitPrice).toFixed(2) : ''}` : '',
+                                                    size,
+                                                });
+                                            }
+                                        }
+
+                                        return (
+                                            <TradingViewChart
+                                                symbol={selectedTrade.Symbol || selectedTrade.symbol || selectedTrade.features?.symbol}
+                                                exchange={selectedTrade.exchange || selectedTrade.Exchange || "EGX"}
+                                                customMarkers={markers}
+                                                focusTimestamp={focusTs}
+                                                hideIndicators={true}
+                                            />
+                                        );
+                                    })()}
+                                </div>
+                            </div>
+
+                            {/* Main Stats Grid */}
+                            <div className="grid grid-cols-2 gap-4 font-sans">
+                                <div className="p-3.5 rounded-2xl bg-zinc-900/40 border border-white/5 space-y-1">
+                                    <span className="text-[9px] text-zinc-500 font-bold uppercase tracking-wider">سعر الدخول</span>
+                                    <div className="text-sm font-mono font-black text-white">
+                                        {(selectedTrade.entry_price !== undefined ? selectedTrade.entry_price : selectedTrade.entry)?.toFixed(2) || '—'}
+                                    </div>
+                                    <span className="text-[8px] text-zinc-600 block">
+                                        التاريخ: {formatDate(selectedTrade.features?.entry_date || selectedTrade.features?.trade_date || selectedTrade.created_at || selectedTrade.date)}
+                                    </span>
+                                </div>
+
+                                <div className="p-3.5 rounded-2xl bg-zinc-900/40 border border-white/5 space-y-1">
+                                    <span className="text-[9px] text-zinc-500 font-bold uppercase tracking-wider">سعر الخروج</span>
+                                    <div className="text-sm font-mono font-black text-white">
+                                        {(selectedTrade.exit_price !== undefined ? selectedTrade.exit_price : selectedTrade.exit)?.toFixed(2) || '—'}
+                                    </div>
+                                    <span className="text-[8px] text-zinc-600 block">
+                                        التاريخ: {formatDate(selectedTrade.features?.exit_date || selectedTrade.features?.trade_date || selectedTrade.created_at || selectedTrade.Exit_Date || selectedTrade.exit_date)}
+                                    </span>
+                                </div>
+
+                                <div className="p-3.5 rounded-2xl bg-zinc-900/40 border border-white/5 space-y-1">
+                                    <span className="text-[9px] text-zinc-500 font-bold uppercase tracking-wider">نسبة الربح/الخسارة</span>
+                                    <div className={`text-base font-mono font-black ${getTradeProfitPct(selectedTrade) > 0 ? 'text-emerald-400' : (getTradeProfitPct(selectedTrade) === 0 ? 'text-zinc-500' : 'text-red-400')}`}>
+                                        {getTradeProfitPct(selectedTrade) > 0 ? '+' : ''}
+                                        {getTradeProfitPct(selectedTrade)?.toFixed(1)}%
+                                    </div>
+                                    <span className="text-[8px] text-zinc-600 block">
+                                        الحالة: {selectedTrade.status || selectedTrade.Status || 'Closed'}
+                                    </span>
+                                </div>
+
+                                <div className="p-3.5 rounded-2xl bg-zinc-900/40 border border-white/5 space-y-1">
+                                    <span className="text-[9px] text-zinc-500 font-bold uppercase tracking-wider">الربح المالي</span>
+                                    <div className={`text-sm font-mono font-black ${selectedTrade.features?.profit_cash >= 0 || selectedTrade.Profit_Cash >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                                        {selectedTrade.features?.profit_cash !== undefined ? `${Math.round(selectedTrade.features.profit_cash).toLocaleString()} وحدة` : (selectedTrade.Profit_Cash !== undefined ? `${Math.round(selectedTrade.Profit_Cash).toLocaleString()} وحدة` : '—')}
+                                    </div>
+                                    <span className="text-[8px] text-zinc-600 block">
+                                        الربح التراكمي: {selectedTrade.features?.cumulative_profit !== undefined ? Math.round(selectedTrade.features.cumulative_profit).toLocaleString() : (selectedTrade.Cumulative_Profit !== undefined ? Math.round(selectedTrade.Cumulative_Profit).toLocaleString() : '—')}
+                                    </span>
+                                </div>
+                            </div>
+
+                            {/* Bot Decisions / Radar & Fundamental */}
+                            <div className="p-4 rounded-2xl bg-white/[0.02] border border-white/5 space-y-3">
+                                <span className="text-[10px] font-black text-zinc-400 uppercase tracking-wider block">تقييمات البوت</span>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="space-y-1">
+                                        <span className="text-[9px] text-zinc-500 font-bold uppercase block">تقييم الرادار (Radar Score)</span>
+                                        <div className="text-sm font-mono font-black text-white">
+                                            {(() => {
+                                                let score = selectedTrade.features?.radar_score ?? selectedTrade.features?.ai_score ?? selectedTrade.features?.score ?? selectedTrade.Radar_Score ?? selectedTrade.Score ?? selectedTrade.score;
+                                                if (score === null || score === undefined) return '—';
+                                                return score <= 1 ? `${(score * 100).toFixed(1)}%` : `${score.toFixed(1)}%`;
+                                            })()}
+                                        </div>
+                                    </div>
+                                    <div className="space-y-1">
+                                        <span className="text-[9px] text-zinc-500 font-bold uppercase block">تقييم الأساسيات (Fund Score)</span>
+                                        <div className="text-sm font-mono font-black text-white">
+                                            {(() => {
+                                                let score = selectedTrade.features?.fund_score ?? selectedTrade.Fund_Score ?? selectedTrade.fund_score;
+                                                if (score === null || score === undefined) return '—';
+                                                return score <= 1 ? `${(score * 100).toFixed(1)}%` : `${score.toFixed(1)}%`;
+                                            })()}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Symbol Movements Timeline */}
+                            <div className="space-y-3 text-right">
+                                <span className="text-[10px] font-black text-zinc-400 uppercase tracking-wider block">
+                                    كل تحركات البوت في سهم {selectedTrade.Symbol || selectedTrade.symbol || selectedTrade.features?.symbol} ({symbolTrades.length} صفقات)
+                                </span>
+                                <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1 custom-scrollbar">
+                                    {symbolTrades.map((t: any, idx: number) => {
+                                        const isActive = idx === currentSymbolTradeIndex;
+                                        const isWin = getTradeProfitPct(t) > 0;
+                                        const dateStr = formatDate(t.features?.entry_date || t.features?.trade_date || t.created_at || t.date);
+                                        
+                                        return (
+                                            <div
+                                                key={idx}
+                                                onClick={() => setSelectedTrade(t)}
+                                                className={`p-3 rounded-xl border transition-all cursor-pointer flex items-center justify-between flex-row-reverse ${
+                                                    isActive 
+                                                        ? 'bg-indigo-500/10 border-indigo-500/30 text-white shadow-lg' 
+                                                        : 'bg-zinc-900/30 border-white/5 text-zinc-400 hover:border-white/10 hover:bg-zinc-900/50'
+                                                }`}
+                                            >
+                                                <div className="flex items-center gap-3 flex-row-reverse">
+                                                    <span className={`h-2 w-2 rounded-full ${isActive ? 'bg-indigo-500 animate-pulse' : 'bg-zinc-700'}`} />
+                                                    <div className="flex flex-col text-right">
+                                                        <span className="text-xs font-mono font-bold">{dateStr}</span>
+                                                        <span className="text-[9px] text-zinc-500">
+                                                            دخول: {t.entry_price?.toFixed(2) || t.entry?.toFixed(2)} | خروج: {t.exit_price?.toFixed(2) || t.exit?.toFixed(2)}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                                <div className="flex items-center gap-3 flex-row-reverse">
+                                                    <span className={`text-xs font-mono font-black ${isWin ? 'text-emerald-400' : (getTradeProfitPct(t) === 0 ? 'text-zinc-500' : 'text-red-400')}`}>
+                                                        {getTradeProfitPct(t) > 0 ? '+' : ''}
+                                                        {getTradeProfitPct(t)?.toFixed(1)}%
+                                                    </span>
+                                                    <span className="text-[9px] uppercase font-bold text-zinc-600 bg-white/5 px-1.5 py-0.5 rounded">
+                                                        صفقة #{idx + 1}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             )}
         </div>

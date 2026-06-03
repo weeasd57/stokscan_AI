@@ -351,7 +351,7 @@ def _fetch_eod_history_eodhd(ticker: str, api_key: str, from_date: str, to_date:
 
 @app.post("/positions/evaluate_open_history", response_model=List[EvaluatePositionOut])
 def evaluate_open_positions_history(req: EvaluatePositionsRequest):
-    from tradingview_integration import fetch_tradingview_prices
+    from api.tradingview_integration import fetch_tradingview_prices
     
     api_key = os.getenv("EODHD_API_KEY")
     today = dt.datetime.utcnow().date().isoformat()
@@ -861,6 +861,350 @@ def get_news(symbol: str = Query(default="all_symbols")):
 
 
 # ------------------------------------------------------------------
+# Strategy Tester Simulation Endpoint
+# POST /backtest/simulate → single-symbol, multi-model backtest
+# ------------------------------------------------------------------
+
+class BotConfig(BaseModel):
+    id: str
+    model_name: str
+    target_pct: float = 0.10
+    stop_loss_pct: float = 0.05
+    hold_days: int = 20
+    threshold: float = 0.45
+    bot_mode: str = "normal"
+    min_volume_ratio: float = 0.3
+    use_rsi_filter: bool = True
+    use_trend_filter: bool = False
+    use_market_regime: bool = True
+    regime_adx_threshold: float = 14.0
+    use_smart_exit: bool = True
+    smart_exit_rsi_threshold: float = 40.0
+    smart_exit_volume_spike: float = 3.0
+    trading_mode: str = "hybrid"
+    use_atr_exits: bool = True
+    atr_sl_multiplier: float = 1.5
+    atr_tp_multiplier: float = 2.5
+    atr_period: int = 14
+    exit_mode: str = "hybrid"
+
+class StrategyTesterRequest(BaseModel):
+    symbol: str
+    exchange: str = "EGX"
+    start_date: str = "2023-01-01"
+    end_date: Optional[str] = None
+    models: List[str] = []          # Deprecated, kept for fallback
+    target_pct: float = 0.10        # e.g. 0.10 = 10%
+    stop_loss_pct: float = 0.05     # e.g. 0.05 = 5%
+    hold_days: int = 20
+    threshold: float = 0.45         # model confidence threshold for buy signal
+    capital: float = 100000
+    bot_mode: str = "normal"        # aggressive | normal | conservative
+    bots: Optional[List[BotConfig]] = None
+    min_volume_ratio: float = 0.3
+    use_rsi_filter: bool = True
+    use_trend_filter: bool = False
+    use_market_regime: bool = True
+    regime_adx_threshold: float = 14.0
+    use_smart_exit: bool = True
+    smart_exit_rsi_threshold: float = 40.0
+    smart_exit_volume_spike: float = 3.0
+    trading_mode: str = "hybrid"
+    use_atr_exits: bool = True
+    atr_sl_multiplier: float = 1.5
+    atr_tp_multiplier: float = 2.5
+    atr_period: int = 14
+    exit_mode: str = "hybrid"
+
+
+@app.post("/backtest/simulate")
+async def strategy_tester_endpoint(req: StrategyTesterRequest):
+    """
+    Run a strategy tester simulation for a single symbol using one or more AI models.
+    Returns OHLCV bars and per-model trade lists + statistics.
+    """
+    import traceback as _tb
+
+    api_dir = os.path.dirname(os.path.abspath(__file__))
+    models_dir = os.path.join(api_dir, "models")
+
+    # Validate models and gather simulation configs
+    sim_configs = []
+
+    if req.bots:
+        for bot in req.bots:
+            safe_m = _safe_basename(bot.model_name)
+            mp = os.path.join(models_dir, safe_m)
+            if not os.path.exists(mp):
+                raise HTTPException(status_code=422, detail=f"Model not found: {safe_m}")
+            sim_configs.append((
+                bot.id,
+                safe_m,
+                bot
+            ))
+    else:
+        for m in req.models:
+            safe_m = _safe_basename(m)
+            mp = os.path.join(models_dir, safe_m)
+            if not os.path.exists(mp):
+                raise HTTPException(status_code=422, detail=f"Model not found: {safe_m}")
+            mock_bot = BotConfig(
+                id=m,
+                model_name=safe_m,
+                target_pct=req.target_pct,
+                stop_loss_pct=req.stop_loss_pct,
+                hold_days=req.hold_days,
+                threshold=req.threshold,
+                bot_mode=req.bot_mode,
+                min_volume_ratio=req.min_volume_ratio,
+                use_rsi_filter=req.use_rsi_filter,
+                use_trend_filter=req.use_trend_filter,
+                use_market_regime=req.use_market_regime,
+                regime_adx_threshold=req.regime_adx_threshold,
+                use_smart_exit=req.use_smart_exit,
+                smart_exit_rsi_threshold=req.smart_exit_rsi_threshold,
+                smart_exit_volume_spike=req.smart_exit_volume_spike,
+                trading_mode=req.trading_mode,
+                use_atr_exits=req.use_atr_exits,
+                atr_sl_multiplier=req.atr_sl_multiplier,
+                atr_tp_multiplier=req.atr_tp_multiplier,
+                atr_period=req.atr_period,
+                exit_mode=req.exit_mode,
+            )
+            sim_configs.append((
+                m,
+                safe_m,
+                mock_bot
+            ))
+
+    if not sim_configs:
+        raise HTTPException(status_code=422, detail="No valid models or bots provided")
+
+    # ── 1. Fetch single-symbol price data from Supabase ──────────────────────
+    from api.stock_ai import _init_supabase, supabase, add_massive_features as _amf
+    _init_supabase()
+
+    try:
+        from api.train_exchange_model import add_massive_features
+    except Exception:
+        add_massive_features = None
+
+    symbol_upper = req.symbol.strip().upper()
+    exchange_upper = req.exchange.strip().upper()
+
+    # Use a buffer start 400 days before the requested start for indicator warm-up
+    try:
+        sim_start_dt = pd.to_datetime(req.start_date, format="%Y-%m-%d")
+    except Exception:
+        raise HTTPException(status_code=422, detail=f"Invalid start_date: {req.start_date}")
+
+    buffer_start_dt = sim_start_dt - pd.Timedelta(days=400)
+    buffer_start = buffer_start_dt.strftime("%Y-%m-%d")
+    end_date = req.end_date or dt.datetime.utcnow().date().isoformat()
+
+    # Fetch OHLCV for this symbol
+    try:
+        if supabase:
+            q = (
+                supabase.table("stock_prices")
+                .select("symbol,exchange,date,open,high,low,close,volume")
+                .eq("exchange", exchange_upper)
+                .eq("symbol", symbol_upper)
+                .gte("date", buffer_start)
+                .lte("date", end_date)
+                .order("date", desc=False)
+            )
+            res = q.execute()
+            rows = res.data or []
+        else:
+            rows = []
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Failed to fetch price data: {e}")
+
+    if not rows:
+        raise HTTPException(status_code=404, detail=f"No price data found for {symbol_upper} on {exchange_upper}")
+
+    df_raw = pd.DataFrame(rows)
+    df_raw["date"] = pd.to_datetime(df_raw["date"])
+    df_raw = df_raw.sort_values("date").reset_index(drop=True)
+    df_raw["symbol"] = symbol_upper
+
+    # Ensure numeric OHLCV columns
+    for col in ["open", "high", "low", "close", "volume"]:
+        if col in df_raw.columns:
+            df_raw[col] = pd.to_numeric(df_raw[col], errors="coerce")
+
+    df_raw = df_raw.set_index("date")
+
+    # ── 2. Feature engineering ───────────────────────────────────────────────
+    try:
+        if add_massive_features is not None:
+            df_featured = add_massive_features(df_raw.copy())
+        else:
+            df_featured = df_raw.copy()
+    except Exception as e:
+        print(f"[STRAT-TESTER] Feature engineering warning: {e}", flush=True)
+        df_featured = df_raw.copy()
+
+    # ── 3. Prepare OHLCV bars for frontend (simulation window only) ──────────
+    sim_mask = df_featured.index >= sim_start_dt
+    df_sim = df_featured[sim_mask].copy()
+
+    bars = []
+    for date, row in df_raw[df_raw.index >= sim_start_dt].iterrows():
+        bars.append({
+            "time": int(date.timestamp()),
+            "open": float(row["open"]) if pd.notna(row.get("open")) else None,
+            "high": float(row["high"]) if pd.notna(row.get("high")) else None,
+            "low": float(row["low"]) if pd.notna(row.get("low")) else None,
+            "close": float(row["close"]) if pd.notna(row.get("close")) else None,
+            "volume": float(row["volume"]) if pd.notna(row.get("volume")) else 0,
+        })
+
+    # ── 4. Run simulation for each model ─────────────────────────────────────
+    from api.backtest_radar import load_model, run_radar_simulation
+
+    model_results = {}
+    for bot_id, model_name, bot in sim_configs:
+        try:
+            model_path = os.path.join(models_dir, model_name)
+            model_obj = load_model(model_path)
+            if model_obj is None:
+                model_results[bot_id] = {"error": "Failed to load model", "trades": [], "stats": {}}
+                continue
+
+            # === ATR vs Percentage Safety Guard (Strategy Tester) ===
+            # The UI sends target/SL as percentages (<1.0, e.g. 0.10 = 10%).
+            # But ATR exit mode needs multipliers (>=1.0, e.g. 2.5x ATR).
+            # If there's a mismatch, we fall back to the bot's configured ATR multipliers.
+            safe_target = bot.target_pct
+            safe_sl = bot.stop_loss_pct
+            if bot.use_atr_exits and (bot.exit_mode or "hybrid").lower() != "manual":
+                if safe_target is not None and safe_target < 1.0:
+                    # Looks like a percentage, not a multiplier → use configured ATR tp multiplier
+                    safe_target = bot.atr_tp_multiplier if bot.atr_tp_multiplier and bot.atr_tp_multiplier >= 1.0 else 2.5
+                if safe_sl is not None and safe_sl < 1.0:
+                    # Looks like a percentage, not a multiplier → use configured ATR sl multiplier
+                    safe_sl = bot.atr_sl_multiplier if bot.atr_sl_multiplier and bot.atr_sl_multiplier >= 1.0 else 1.5
+            else:
+                # Manual exit mode → must be a fraction < 1.0
+                if safe_target is not None and safe_target >= 1.0:
+                    safe_target = 0.10  # coerce to 10% default
+                if safe_sl is not None and safe_sl >= 1.0:
+                    safe_sl = 0.05  # coerce to 5% default
+
+            result = run_radar_simulation(
+                df=df_featured.copy(),
+                model=model_obj,
+                council=None,
+                threshold=bot.threshold,
+                capital=req.capital,
+                sim_start_dt=sim_start_dt,
+                sim_end_dt=pd.to_datetime(end_date) if end_date else None,
+                quiet=True,
+                target_pct_override=safe_target,
+                stop_loss_pct_override=safe_sl,
+                min_volume_ratio=bot.min_volume_ratio,
+                use_rsi_filter=bot.use_rsi_filter,
+                use_trend_filter=bot.use_trend_filter,
+                use_market_regime=bot.use_market_regime,
+                regime_adx_threshold=bot.regime_adx_threshold,
+                use_smart_exit=bot.use_smart_exit,
+                smart_exit_rsi_threshold=bot.smart_exit_rsi_threshold,
+                smart_exit_volume_spike=bot.smart_exit_volume_spike,
+                trading_mode=bot.trading_mode,
+                use_atr_exits=bot.use_atr_exits,
+                atr_sl_multiplier=bot.atr_sl_multiplier,
+                atr_tp_multiplier=bot.atr_tp_multiplier,
+                atr_period=bot.atr_period,
+                exit_mode=bot.exit_mode,
+            )
+
+            if not result:
+                model_results[bot_id] = {"error": "Simulation returned empty result", "trades": [], "stats": {}}
+                continue
+
+            # Convert Trades Log DataFrame to a list of dicts
+            df_trades = result.get("Trades Log")
+            trades = []
+            if df_trades is not None and not df_trades.empty:
+                # Convert DataFrame to list of dicts and handle any numpy/pandas types
+                raw_trades = df_trades.to_dict(orient="records")
+                for t in raw_trades:
+                    clean_t = {}
+                    for k, v in t.items():
+                        if isinstance(v, (np.integer, np.int64)):
+                            clean_t[k] = int(v)
+                        elif isinstance(v, (np.floating, np.float64)):
+                            clean_t[k] = float(v)
+                        elif isinstance(v, np.ndarray):
+                            clean_t[k] = v.tolist()
+                        elif pd.isna(v):
+                            clean_t[k] = None
+                        else:
+                            clean_t[k] = v
+                    trades.append(clean_t)
+
+            # Extract metrics and sanitize numpy types for JSON serialization
+            stats = {}
+            for k, v in result.items():
+                if k == "Trades Log":
+                    continue
+                if isinstance(v, (np.integer, np.int64)):
+                    stats[k] = int(v)
+                elif isinstance(v, (np.floating, np.float64)):
+                    stats[k] = float(v)
+                elif isinstance(v, np.ndarray):
+                    stats[k] = v.tolist()
+                elif pd.isna(v):
+                    stats[k] = None
+                elif isinstance(v, (int, float, str, bool)) or v is None:
+                    stats[k] = v
+                else:
+                    try:
+                        stats[k] = float(v)
+                    except Exception:
+                        stats[k] = str(v)
+
+            # Compute simple stats if not already in stats
+            if trades and not stats.get("win_rate"):
+                wins = [t for t in trades if t.get("PnL_Pct", 0) > 0]
+                stats["total_trades"] = len(trades)
+                stats["win_rate"] = round(len(wins) / len(trades) * 100, 1)
+                total_pnl = sum(t.get("PnL_Pct", 0) for t in trades)
+                stats["net_profit_pct"] = round(total_pnl * 100, 2)
+                stats["avg_return_pct"] = round(total_pnl / len(trades) * 100, 2)
+
+            model_results[bot_id] = {
+                "trades": trades,
+                "stats": stats,
+            }
+
+        except Exception as e:
+            print(f"[STRAT-TESTER] Bot {bot_id} error: {e}", flush=True)
+            _tb.print_exc()
+            model_results[bot_id] = {"error": str(e), "trades": [], "stats": {}}
+
+    return {
+        "symbol": symbol_upper,
+        "exchange": exchange_upper,
+        "start_date": req.start_date,
+        "end_date": end_date,
+        "bars": bars,
+        "total_bars": len(bars),
+        "models": model_results,
+        "config": {
+            "threshold": threshold,
+            "target_pct": target_pct,
+            "stop_loss_pct": stop_loss_pct,
+            "hold_days": req.hold_days,
+            "bot_mode": req.bot_mode,
+            "capital": req.capital,
+        }
+    }
+
+
+# ------------------------------------------------------------------
 # Backtest Endpoint
 # ------------------------------------------------------------------
 from pydantic import BaseModel as PBM
@@ -890,6 +1234,20 @@ class BacktestRequest(PBM):
     stop_loss_pct: float | None = None
     capital: float = 100000
     crypto_quote_filters: list[str] | None = None
+    min_volume_ratio: float = 0.3
+    use_rsi_filter: bool = True
+    use_trend_filter: bool = False
+    use_market_regime: bool = True
+    regime_adx_threshold: float = 14.0
+    use_smart_exit: bool = True
+    smart_exit_rsi_threshold: float = 40.0
+    smart_exit_volume_spike: float = 3.0
+    trading_mode: str = "hybrid"
+    use_atr_exits: bool = True
+    atr_sl_multiplier: float = 1.5
+    atr_tp_multiplier: float = 2.5
+    atr_period: int = 14
+    exit_mode: str = "hybrid"
 
 
 def _safe_basename(name: str) -> str:
@@ -1095,14 +1453,21 @@ async def backtest_endpoint(req: BacktestRequest, background_tasks: BackgroundTa
             })
 
     # Use the sanitized model name end-to-end (subprocess + model card lookup).
-    # Safety: If the frontend accidentally sent percentages (e.g. 0.1) instead
-    # of ATR multipliers (expected >= 1.0), coerce to safe defaults and log.
-    if req.target_pct is not None and req.target_pct < 1.0:
-        print(f"WARNING: target_pct looks like a percentage ({req.target_pct}); forcing to 2.0 for safety.", flush=True)
-        req.target_pct = 2.0
-    if req.stop_loss_pct is not None and req.stop_loss_pct < 1.0:
-        print(f"WARNING: stop_loss_pct looks like a percentage ({req.stop_loss_pct}); forcing to 1.0 for safety.", flush=True)
-        req.stop_loss_pct = 1.0
+    # Safety: If using ATR exits, target/SL must be >= 1.0 (multipliers). If manual exits, they must be < 1.0 (percentages).
+    if req.use_atr_exits and getattr(req, "exit_mode", "hybrid").lower() != "manual":
+        if req.target_pct is not None and req.target_pct < 1.0:
+            print(f"WARNING: target_pct looks like a percentage ({req.target_pct}) but ATR exits are active; forcing to 2.0 for safety.", flush=True)
+            req.target_pct = 2.0
+        if req.stop_loss_pct is not None and req.stop_loss_pct < 1.0:
+            print(f"WARNING: stop_loss_pct looks like a percentage ({req.stop_loss_pct}) but ATR exits are active; forcing to 1.0 for safety.", flush=True)
+            req.stop_loss_pct = 1.0
+    else:
+        if req.target_pct is not None and req.target_pct >= 1.0:
+            print(f"WARNING: target_pct looks like a multiplier ({req.target_pct}) but manual exits are active; forcing to 0.10 for safety.", flush=True)
+            req.target_pct = 0.10
+        if req.stop_loss_pct is not None and req.stop_loss_pct >= 1.0:
+            print(f"WARNING: stop_loss_pct looks like a multiplier ({req.stop_loss_pct}) but manual exits are active; forcing to 0.05 for safety.", flush=True)
+            req.stop_loss_pct = 0.05
 
     req_sanitized = BacktestRequest(
         exchange=req.exchange,
@@ -1117,6 +1482,20 @@ async def backtest_endpoint(req: BacktestRequest, background_tasks: BackgroundTa
         stop_loss_pct=req.stop_loss_pct,
         capital=req.capital,
         crypto_quote_filters=req.crypto_quote_filters,
+        min_volume_ratio=req.min_volume_ratio,
+        use_rsi_filter=req.use_rsi_filter,
+        use_trend_filter=req.use_trend_filter,
+        use_market_regime=req.use_market_regime,
+        regime_adx_threshold=req.regime_adx_threshold,
+        use_smart_exit=req.use_smart_exit,
+        smart_exit_rsi_threshold=req.smart_exit_rsi_threshold,
+        smart_exit_volume_spike=req.smart_exit_volume_spike,
+        trading_mode=req.trading_mode,
+        use_atr_exits=req.use_atr_exits,
+        atr_sl_multiplier=req.atr_sl_multiplier,
+        atr_tp_multiplier=req.atr_tp_multiplier,
+        atr_period=req.atr_period,
+        exit_mode=req.exit_mode,
     )
 
     background_tasks.add_task(run_backtest_task, req_sanitized, backtest_id)
@@ -1175,6 +1554,36 @@ def run_backtest_task(req: BacktestRequest, backtest_id: str = None):
     if req.capital is not None:
         cmd.extend(["--capital", str(req.capital)])
     
+    # Pass Centralized Bot Settings to backtest_radar subprocess
+    if req.min_volume_ratio is not None:
+        cmd.extend(["--min-volume-ratio", str(req.min_volume_ratio)])
+    if not req.use_rsi_filter:
+        cmd.append("--no-rsi-filter")
+    if req.use_trend_filter:
+        cmd.append("--use-trend-filter")
+    if not req.use_market_regime:
+        cmd.append("--no-market-regime")
+    if req.regime_adx_threshold is not None:
+        cmd.extend(["--regime-adx-threshold", str(req.regime_adx_threshold)])
+    if not req.use_smart_exit:
+        cmd.append("--no-smart-exit")
+    if req.smart_exit_rsi_threshold is not None:
+        cmd.extend(["--smart-exit-rsi", str(req.smart_exit_rsi_threshold)])
+    if req.smart_exit_volume_spike is not None:
+        cmd.extend(["--smart-exit-vol", str(req.smart_exit_volume_spike)])
+    if req.trading_mode:
+        cmd.extend(["--trading-mode", req.trading_mode])
+    if not req.use_atr_exits:
+        cmd.append("--no-atr-exits")
+    if req.atr_sl_multiplier is not None:
+        cmd.extend(["--atr-sl-mult", str(req.atr_sl_multiplier)])
+    if req.atr_tp_multiplier is not None:
+        cmd.extend(["--atr-tp-mult", str(req.atr_tp_multiplier)])
+    if req.atr_period is not None:
+        cmd.extend(["--atr-period", str(req.atr_period)])
+    if req.exit_mode:
+        cmd.extend(["--exit-mode", req.exit_mode])
+
     # Always use quiet mode in background tasks to keep terminal clean
     cmd.append("--quiet")
 
@@ -1669,10 +2078,13 @@ async def get_backtests(model: Optional[str] = None, admin: Optional[bool] = Fal
                                         break
                                 if not exists:
                                     result_payload = j.get('result') or j
+                                    is_public = result_payload.get('is_public', False) or j.get('is_public', False)
+                                    if not admin and not is_public:
+                                        continue
                                     created_at = j.get('saved_at') or j.get('created_at') or result_payload.get('created_at')
                                     if not created_at:
                                         created_at = dt.datetime.utcfromtimestamp(os.path.getmtime(p)).isoformat() + "Z"
-                                    local_id = j.get('id') or f"local-{os.path.basename(p)}"
+                                    local_id = f"local-{os.path.basename(p)}"
                                     rec = {
                                         'id': local_id,
                                         'model_name': local_model,
@@ -1689,6 +2101,7 @@ async def get_backtests(model: Optional[str] = None, admin: Optional[bool] = Fal
                                         'meta_threshold': result_payload.get('meta_threshold') or result_payload.get('wave_confluence') or result_payload.get('king_threshold'),
                                         'created_at': created_at,
                                         'saved_local_path': p,
+                                        'is_public': is_public,
                                     }
                                     data.insert(0, rec)
                         except Exception:
@@ -1715,10 +2128,6 @@ async def get_backtests(model: Optional[str] = None, admin: Optional[bool] = Fal
 async def get_backtest_trades(id: str):
     """Fetch trades for a given backtest (stored in scan_results)."""
     from api.stock_ai import supabase
-    if not supabase:
-        raise HTTPException(status_code=500, detail="Supabase not initialized")
-
-    fields = "symbol,exchange,model_name,entry_price,exit_price,profit_loss_pct,status,features,created_at"
     
     # Helper to map raw log to scan_results format
     def _map_trades_log(log):
@@ -1804,6 +2213,26 @@ async def get_backtest_trades(id: str):
             })
         return mapped
 
+    if id.startswith("local-"):
+        filename = id[6:]
+        local_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "backtests_local")
+        p = os.path.join(local_dir, filename)
+        if os.path.isfile(p):
+            try:
+                with open(p, 'r', encoding='utf-8') as fh:
+                    j = json.load(fh)
+                    result_payload = j.get('result') or j
+                    trades = result_payload.get('trades_log') or result_payload.get('trades') or []
+                    return _map_trades_log(trades)
+            except Exception as e:
+                print(f"Error reading local backtest trades: {e}")
+        return []
+
+    if not supabase:
+        raise HTTPException(status_code=500, detail="Supabase not initialized")
+
+    fields = "symbol,exchange,model_name,entry_price,exit_price,profit_loss_pct,status,features,created_at"
+    
     # 1. Try fetching from scan_results (preferred)
     try:
         res = supabase.table("scan_results").select(fields).eq("batch_id", id).eq("source", "backtest").execute()
@@ -1833,6 +2262,18 @@ async def get_backtest_trades(id: str):
 @app.delete("/backtests/{id}")
 async def delete_backtest(id: str):
     """Delete a backtest record."""
+    if id.startswith("local-"):
+        filename = id[6:]
+        local_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "backtests_local")
+        p = os.path.join(local_dir, filename)
+        if os.path.isfile(p):
+            try:
+                os.remove(p)
+                return {"status": "success", "deleted": id}
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=f"Failed to delete local file: {e}")
+        raise HTTPException(status_code=404, detail="Local backtest file not found")
+
     from api.stock_ai import supabase
     if not supabase:
         raise HTTPException(status_code=500, detail="Supabase not initialized")
@@ -1847,6 +2288,24 @@ class BacktestUpdate(BaseModel):
 @app.patch("/backtests/{id}")
 async def update_backtest(id: str, req: BacktestUpdate):
     """Update visibility of a backtest record."""
+    if id.startswith("local-"):
+        filename = id[6:]
+        local_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "backtests_local")
+        p = os.path.join(local_dir, filename)
+        if os.path.isfile(p):
+            try:
+                with open(p, 'r', encoding='utf-8') as fh:
+                    j = json.load(fh)
+                j['is_public'] = req.is_public
+                if 'result' in j and isinstance(j['result'], dict):
+                    j['result']['is_public'] = req.is_public
+                with open(p, 'w', encoding='utf-8') as fh:
+                    json.dump(j, fh, ensure_ascii=False, indent=2)
+                return {"id": id, "is_public": req.is_public, "status": "success"}
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=f"Failed to update local file: {e}")
+        raise HTTPException(status_code=404, detail="Local backtest file not found")
+
     from api.stock_ai import supabase
     if not supabase:
         raise HTTPException(status_code=500, detail="Supabase not initialized")

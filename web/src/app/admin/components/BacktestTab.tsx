@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import { TradeTimeline } from "./TradeTimeline";
 import Egx30MonthlyChart from "./Egx30MonthlyChart";
+import TradingViewChart from "@/components/TradingViewChart";
 import {
   LineChart as RLineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
   BarChart, Bar, ScatterChart, Scatter, Cell, ReferenceLine
@@ -93,6 +94,56 @@ const BacktestAnalysisModal = ({ isOpen, onClose, bt, trades, loading }: { isOpe
   const [actualRange, setActualRange] = React.useState<{ start: string; end: string; days: number } | null>(null);
   const [activeTab, setActiveTab] = React.useState<'summary' | 'trades' | 'chart'>('summary');
   const [showFilteredOnly, setShowFilteredOnly] = React.useState<boolean>(true);
+  const [selectedTrade, setSelectedTrade] = React.useState<any | null>(null);
+
+  const symbolTrades = React.useMemo(() => {
+    if (!selectedTrade) return [];
+    return (trades || []).filter((x: any) => x.symbol?.toUpperCase() === selectedTrade.symbol?.toUpperCase());
+  }, [trades, selectedTrade]);
+
+  const currentSymbolTradeIndex = React.useMemo(() => {
+    if (!selectedTrade || symbolTrades.length === 0) return -1;
+    const currentEntryDate = selectedTrade.features?.entry_date || selectedTrade.features?.trade_date || selectedTrade.created_at || selectedTrade.date;
+    const currentEntryPrice = selectedTrade.entry_price ?? selectedTrade.entry;
+    return symbolTrades.findIndex((t: any) => {
+      const entryDate = t.features?.entry_date || t.features?.trade_date || t.created_at || t.date;
+      const entryPrice = t.entry_price ?? t.entry;
+      return entryDate === currentEntryDate && entryPrice === currentEntryPrice;
+    });
+  }, [symbolTrades, selectedTrade]);
+
+  React.useEffect(() => {
+    if (!isOpen) {
+      setSelectedTrade(null);
+    }
+  }, [isOpen]);
+
+  const formatDate = (rawDate: any) => {
+    if (!rawDate) return 'N/A';
+    try {
+      const d = new Date(rawDate);
+      if (Number.isNaN(d.getTime())) {
+        // If it's in DD/MM/YYYY format, try parsing manually
+        if (typeof rawDate === 'string' && rawDate.includes('/')) {
+          const parts = rawDate.split('/');
+          if (parts.length === 3) {
+            const day = parseInt(parts[0], 10);
+            const month = parseInt(parts[1], 10) - 1;
+            const year = parseInt(parts[2], 10);
+            const nd = new Date(year, month, day);
+            if (!Number.isNaN(nd.getTime())) {
+              return `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+            }
+          }
+        }
+        return 'N/A';
+      }
+      const yyyy = d.getFullYear();
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const dd = String(d.getDate()).padStart(2, '0');
+      return `${yyyy}-${mm}-${dd}`;
+    } catch { return 'N/A'; }
+  };
 
   const buildDailyStats = React.useCallback(() => {
     const daily: Record<string, { count: number; notional: number }> = {};
@@ -365,7 +416,11 @@ const BacktestAnalysisModal = ({ isOpen, onClose, bt, trades, loading }: { isOpe
                         const isRejected = status === 'Rejected';
 
                         return (
-                          <tr key={i} className={`group hover:bg-white/[0.02] transition-colors ${isRejected ? 'opacity-40 grayscale-[0.8]' : ''}`}>
+                          <tr 
+                            key={i} 
+                            onClick={() => setSelectedTrade(t)}
+                            className={`group cursor-pointer hover:bg-white/[0.04] transition-colors ${isRejected ? 'opacity-40 grayscale-[0.8]' : ''}`}
+                          >
                             <td className="px-6 py-4 text-left">
                               <span className="text-sm font-black text-white">{t.symbol}</span>
                             </td>
@@ -474,6 +529,259 @@ const BacktestAnalysisModal = ({ isOpen, onClose, bt, trades, loading }: { isOpe
             </div>
           )}
         </div>
+
+        {/* Trade Details Sub-Modal */}
+        {selectedTrade && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/70 backdrop-blur-md animate-in fade-in duration-200">
+            <div className="absolute inset-0" onClick={() => setSelectedTrade(null)} />
+            <div className="relative w-full max-w-2xl max-h-[90vh] overflow-hidden bg-zinc-950 border border-white/10 rounded-[2rem] shadow-2xl flex flex-col animate-in zoom-in-95 duration-200">
+              {/* Header */}
+              <div className="p-5 border-b border-white/5 flex items-center justify-between bg-zinc-900/40">
+                <div className="flex items-center gap-3">
+                  <div className="px-3 py-1.5 rounded-xl bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 text-xs font-black">
+                    {selectedTrade.symbol}
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-black text-white uppercase tracking-tight">تفاصيل الصفقة</h4>
+                    <p className="text-[9px] text-zinc-500 font-bold uppercase tracking-widest mt-0.5">
+                      العملية {currentSymbolTradeIndex + 1} من {symbolTrades.length} في هذا السهم
+                    </p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setSelectedTrade(null)} 
+                  className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-zinc-500 hover:text-white transition-all border border-white/5"
+                >
+                  <ChevronDown className="h-4 w-4 rotate-180" />
+                </button>
+              </div>
+
+              {/* Smart Navigation Buttons */}
+              <div className="px-5 py-3 bg-zinc-900/20 border-b border-white/5 flex items-center justify-between">
+                <button
+                  disabled={currentSymbolTradeIndex <= 0}
+                  onClick={() => setSelectedTrade(symbolTrades[currentSymbolTradeIndex - 1])}
+                  className="px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/5 disabled:opacity-30 disabled:pointer-events-none text-[10px] font-black text-white transition-all flex items-center gap-1.5"
+                >
+                  الصفقة السابقة
+                </button>
+                <span className="text-[10px] text-zinc-400 font-mono font-bold">
+                  {selectedTrade.symbol} · {currentSymbolTradeIndex + 1} / {symbolTrades.length}
+                </span>
+                <button
+                  disabled={currentSymbolTradeIndex === -1 || currentSymbolTradeIndex >= symbolTrades.length - 1}
+                  onClick={() => setSelectedTrade(symbolTrades[currentSymbolTradeIndex + 1])}
+                  className="px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/5 disabled:opacity-30 disabled:pointer-events-none text-[10px] font-black text-white transition-all flex items-center gap-1.5"
+                >
+                  الصفقة التالية
+                </button>
+              </div>
+
+              {/* Content / Scrollable area */}
+              <div className="flex-1 overflow-y-auto p-5 space-y-6 custom-scrollbar">
+                {/* Stock Chart */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-black text-zinc-400 uppercase tracking-wider">
+                      شارت حركة السعر — كل تحركات {selectedTrade.symbol} ({symbolTrades.length} صفقة)
+                    </span>
+                    <div className="flex items-center gap-3 text-[9px] font-bold text-zinc-400">
+                      <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-emerald-500" />شراء</span>
+                      <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-red-500" />بيع خسارة</span>
+                      <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-emerald-300" />بيع ربح</span>
+                    </div>
+                  </div>
+                  <div className="h-[300px] w-full rounded-2xl border border-white/5 overflow-hidden bg-[#131722]">
+                    {(() => {
+                      const toUnix = (raw: string | undefined): number | null => {
+                        if (!raw) return null;
+                        if (typeof raw === 'string' && /^\d{2}\/\d{2}\/\d{4}$/.test(raw)) {
+                          const [d, m, y] = raw.split('/');
+                          return Math.floor(new Date(`${y}-${m}-${d}`).getTime() / 1000);
+                        }
+                        const ts = new Date(raw).getTime();
+                        return Number.isNaN(ts) ? null : Math.floor(ts / 1000);
+                      };
+
+                      // Selected trade identity for highlight & focus
+                      const selEntryDateRaw = selectedTrade.features?.entry_date || selectedTrade.Entry_Date || selectedTrade.entry_date || selectedTrade.features?.trade_date || selectedTrade.date;
+                      const selEntryPrice   = selectedTrade.entry_price ?? selectedTrade.entry;
+                      const focusTs         = toUnix(selEntryDateRaw) ?? undefined;
+
+                      const markers: any[] = [];
+                      const tradesToMark = symbolTrades.length > 0 ? symbolTrades : [selectedTrade];
+
+                      for (const t of tradesToMark) {
+                        const entryDateRaw = t.features?.entry_date || t.Entry_Date || t.entry_date || t.features?.trade_date || t.date;
+                        const exitDateRaw  = t.features?.exit_date  || t.Exit_Date  || t.exit_date  || t.features?.trade_date || t.date;
+
+                        const entryTs    = toUnix(entryDateRaw);
+                        const exitTs     = toUnix(exitDateRaw);
+                        const entryPrice = t.entry_price ?? t.entry;
+                        const exitPrice  = t.exit_price  ?? t.exit;
+                        const pnl        = t.profit_loss_pct ?? ((t.pnl_pct ?? 0) * 100);
+                        const isWin      = pnl > 0;
+
+                        // Identify the currently selected trade
+                        const tEntryDate  = t.features?.entry_date || t.Entry_Date || t.entry_date || t.features?.trade_date || t.date;
+                        const tEntryPrice = t.entry_price ?? t.entry;
+                        const isActive    = tEntryDate === selEntryDateRaw && tEntryPrice === selEntryPrice;
+                        const size        = isActive ? 2.5 : 1.2;
+
+                        if (entryTs) {
+                          markers.push({
+                            time: entryTs,
+                            position: 'belowBar',
+                            color: isActive ? '#10b981' : '#6ee7b7',
+                            shape: 'arrowUp',
+                            text: isActive ? `BUY ${entryPrice != null ? Number(entryPrice).toFixed(2) : ''}` : '',
+                            size,
+                          });
+                        }
+                        if (exitTs) {
+                          markers.push({
+                            time: exitTs,
+                            position: 'aboveBar',
+                            color: isWin ? (isActive ? '#10b981' : '#6ee7b7') : (isActive ? '#ef4444' : '#fca5a5'),
+                            shape: 'arrowDown',
+                            text: isActive ? `SELL ${exitPrice != null ? Number(exitPrice).toFixed(2) : ''}` : '',
+                            size,
+                          });
+                        }
+                      }
+
+                      return (
+                        <TradingViewChart
+                          symbol={selectedTrade.symbol}
+                          exchange={selectedTrade.exchange || bt?.exchange || "EGX"}
+                          customMarkers={markers}
+                          focusTimestamp={focusTs}
+                          hideIndicators={true}
+                        />
+                      );
+                    })()}
+                  </div>
+                </div>
+
+                {/* Main Stats Grid */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="p-3.5 rounded-2xl bg-zinc-900/40 border border-white/5 space-y-1">
+                    <span className="text-[9px] text-zinc-500 font-bold uppercase tracking-wider">سعر الدخول</span>
+                    <div className="text-sm font-mono font-black text-white">
+                      {(selectedTrade.entry_price !== undefined ? selectedTrade.entry_price : selectedTrade.entry)?.toFixed(2) || '—'}
+                    </div>
+                    <span className="text-[8px] text-zinc-600 block">
+                      التاريخ: {formatDate(selectedTrade.features?.entry_date || selectedTrade.features?.trade_date || selectedTrade.created_at || selectedTrade.date)}
+                    </span>
+                  </div>
+
+                  <div className="p-3.5 rounded-2xl bg-zinc-900/40 border border-white/5 space-y-1">
+                    <span className="text-[9px] text-zinc-500 font-bold uppercase tracking-wider">سعر الخروج</span>
+                    <div className="text-sm font-mono font-black text-white">
+                      {(selectedTrade.exit_price !== undefined ? selectedTrade.exit_price : selectedTrade.exit)?.toFixed(2) || '—'}
+                    </div>
+                    <span className="text-[8px] text-zinc-600 block">
+                      التاريخ: {formatDate(selectedTrade.features?.exit_date || selectedTrade.features?.trade_date || selectedTrade.created_at || selectedTrade.Exit_Date || selectedTrade.exit_date)}
+                    </span>
+                  </div>
+
+                  <div className="p-3.5 rounded-2xl bg-zinc-900/40 border border-white/5 space-y-1">
+                    <span className="text-[9px] text-zinc-500 font-bold uppercase tracking-wider">نسبة الربح/الخسارة</span>
+                    <div className={`text-base font-mono font-black ${selectedTrade.profit_loss_pct > 0 || selectedTrade.pnl_pct > 0 ? 'text-emerald-400' : ((selectedTrade.profit_loss_pct === 0 || selectedTrade.pnl_pct === 0) ? 'text-zinc-500' : 'text-red-400')}`}>
+                      {selectedTrade.profit_loss_pct > 0 || selectedTrade.pnl_pct > 0 ? '+' : ''}
+                      {(selectedTrade.profit_loss_pct !== undefined ? selectedTrade.profit_loss_pct : (selectedTrade.pnl_pct * 100))?.toFixed(1)}%
+                    </div>
+                    <span className="text-[8px] text-zinc-600 block">
+                      الحالة: {selectedTrade.status || 'Closed'}
+                    </span>
+                  </div>
+
+                  <div className="p-3.5 rounded-2xl bg-zinc-900/40 border border-white/5 space-y-1">
+                    <span className="text-[9px] text-zinc-500 font-bold uppercase tracking-wider">الربح المالي</span>
+                    <div className={`text-sm font-mono font-black ${selectedTrade.features?.profit_cash >= 0 || selectedTrade.Profit_Cash >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                      {selectedTrade.features?.profit_cash !== undefined ? `${Math.round(selectedTrade.features.profit_cash).toLocaleString()} وحدة` : (selectedTrade.Profit_Cash !== undefined ? `${Math.round(selectedTrade.Profit_Cash).toLocaleString()} وحدة` : '—')}
+                    </div>
+                    <span className="text-[8px] text-zinc-600 block">
+                      الربح التراكمي: {selectedTrade.features?.cumulative_profit !== undefined ? Math.round(selectedTrade.features.cumulative_profit).toLocaleString() : (selectedTrade.Cumulative_Profit !== undefined ? Math.round(selectedTrade.Cumulative_Profit).toLocaleString() : '—')}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Bot Decisions / Radar & Fundamental */}
+                <div className="p-4 rounded-2xl bg-white/[0.02] border border-white/5 space-y-3">
+                  <span className="text-[10px] font-black text-zinc-400 uppercase tracking-wider block">تقييمات البوت</span>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <span className="text-[9px] text-zinc-500 font-bold uppercase block">تقييم الرادار (Radar Score)</span>
+                      <div className="text-sm font-mono font-black text-white">
+                        {(() => {
+                          let score = selectedTrade.features?.radar_score ?? selectedTrade.features?.ai_score ?? selectedTrade.features?.score ?? selectedTrade.Radar_Score ?? selectedTrade.Score;
+                          if (score === null || score === undefined) return '—';
+                          return score <= 1 ? `${(score * 100).toFixed(1)}%` : `${score.toFixed(1)}%`;
+                        })()}
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <span className="text-[9px] text-zinc-500 font-bold uppercase block">تقييم الأساسيات (Fund Score)</span>
+                      <div className="text-sm font-mono font-black text-white">
+                        {(() => {
+                          let score = selectedTrade.features?.fund_score ?? selectedTrade.Fund_Score;
+                          if (score === null || score === undefined) return '—';
+                          return score <= 1 ? `${(score * 100).toFixed(1)}%` : `${score.toFixed(1)}%`;
+                        })()}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Symbol Movements Timeline */}
+                <div className="space-y-3">
+                  <span className="text-[10px] font-black text-zinc-400 uppercase tracking-wider block">
+                    كل تحركات البوت في سهم {selectedTrade.symbol} ({symbolTrades.length} صفقات)
+                  </span>
+                  <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1 custom-scrollbar">
+                    {symbolTrades.map((t: any, idx: number) => {
+                      const isActive = idx === currentSymbolTradeIndex;
+                      const isWin = t.profit_loss_pct > 0 || t.pnl_pct > 0;
+                      const dateStr = formatDate(t.features?.entry_date || t.features?.trade_date || t.created_at || t.date);
+                      
+                      return (
+                        <div
+                          key={idx}
+                          onClick={() => setSelectedTrade(t)}
+                          className={`p-3 rounded-xl border transition-all cursor-pointer flex items-center justify-between ${
+                            isActive 
+                              ? 'bg-indigo-500/10 border-indigo-500/30 text-white shadow-lg' 
+                              : 'bg-zinc-900/30 border-white/5 text-zinc-400 hover:border-white/10 hover:bg-zinc-900/50'
+                          }`}
+                        >
+                          <div className="flex items-center gap-3">
+                            <span className={`h-2 w-2 rounded-full ${isActive ? 'bg-indigo-500 animate-pulse' : 'bg-zinc-700'}`} />
+                            <div className="flex flex-col text-left">
+                              <span className="text-xs font-mono font-bold">{dateStr}</span>
+                              <span className="text-[9px] text-zinc-500">
+                                دخول: {t.entry_price?.toFixed(2) || t.entry?.toFixed(2)} | خروج: {t.exit_price?.toFixed(2) || t.exit?.toFixed(2)}
+                              </span>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <span className={`text-xs font-mono font-black ${isWin ? 'text-emerald-400' : ((t.profit_loss_pct === 0 || t.pnl_pct === 0) ? 'text-zinc-500' : 'text-red-400')}`}>
+                              {t.profit_loss_pct > 0 || t.pnl_pct > 0 ? '+' : ''}
+                              {(t.profit_loss_pct !== undefined ? t.profit_loss_pct : (t.pnl_pct * 100))?.toFixed(1)}%
+                            </span>
+                            <span className="text-[9px] uppercase font-bold text-zinc-600 bg-white/5 px-1.5 py-0.5 rounded">
+                              صفقة #{idx + 1}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -1080,7 +1388,7 @@ export default function BacktestTab() {
       interval = setInterval(async () => {
         try {
           const baseUrl = getProductionApiUrl() || "/api";
-          const res = await fetch(`${baseUrl}/backtests`); // Refresh full history
+          const res = await fetch(`${baseUrl}/backtests?admin=true`); // Refresh full history
           if (!res.ok) return;
           const data = await res.json();
           setHistory(data);
@@ -1127,7 +1435,7 @@ export default function BacktestTab() {
   async function loadHistory() {
     setHistoryLoading(true);
     try {
-      const data = await getBacktests();
+      const data = await getBacktests(undefined, true);
       setHistory(data);
     } catch (err) {
       console.error("Failed to load backtest history:", err);
@@ -2392,14 +2700,16 @@ export default function BacktestTab() {
                                 </span>
                                 <span className="text-[8px] text-zinc-600 uppercase font-bold tracking-tighter">Best Profit</span>
                               </div>
-                            ) : (
+                                                        ) : (
                               (() => {
                                 const tradesLog = (bt as any).trades_log as any[] | undefined;
-                                let preProfit = 0;
-                                let postProfit = 0;
+                                let prePct = 0;
+                                let postPct = 0;
                                 const cap = bt.capital || 100000;
 
-                                if (Array.isArray(tradesLog)) {
+                                if (Array.isArray(tradesLog) && tradesLog.length > 0) {
+                                  let preProfit = 0;
+                                  let postProfit = 0;
                                   for (const t of tradesLog) {
                                     const pc = Number((t as any).Profit_Cash ?? (t as any).profit_cash ?? (t as any).features?.profit_cash ?? 0) || 0;
                                     const isAccepted = (t as any).Status === "Accepted" || (t as any).status === "Accepted";
@@ -2407,10 +2717,12 @@ export default function BacktestTab() {
                                     preProfit += pc;
                                     if (isAccepted) postProfit += pc;
                                   }
+                                  prePct = (preProfit / cap) * 100;
+                                  postPct = (postProfit / cap) * 100;
+                                } else {
+                                  prePct = (bt as any).pre_council_profit_pct ?? (bt as any).profit_pct ?? (((bt as any).net_profit || 0) / cap * 100);
+                                  postPct = (bt as any).post_council_profit_pct ?? (bt as any).profit_pct ?? (((bt as any).net_profit || 0) / cap * 100);
                                 }
-
-                                const prePct = (preProfit / cap) * 100;
-                                const postPct = (postProfit / cap) * 100;
 
                                 return (
                                   <div className="flex flex-col items-end gap-1">
@@ -2473,6 +2785,8 @@ export default function BacktestTab() {
                                       steps += 1;
                                     }
                                   }
+                                } else {
+                                  totalProfitCash = (bt as any).net_profit ?? 0;
                                 }
 
                                 const colorClass = (totalProfitCash || 0) >= 0 ? "text-emerald-400" : "text-red-400";

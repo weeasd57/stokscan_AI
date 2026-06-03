@@ -39,6 +39,7 @@ class TelegramBot:
         self.loop: Optional[asyncio.AbstractEventLoop] = None
         self.thread: Optional[threading.Thread] = None
         self.chat_id: Optional[int] = None
+        self.bot_username: Optional[str] = None
         self._ready = False
         self._queue: deque = deque(maxlen=200)     # outbound message queue
         self._net_ok = False                        # last-known network status
@@ -115,38 +116,21 @@ class TelegramBot:
 
     # ── outbound messaging (queued) ──────────────────────────────────
 
-    def send_notification(self, message: str):
+    def send_notification(self, message: str, chat_id: Optional[Any] = None):
         """Queue a message for delivery.  Returns immediately."""
-        # 1. Global chat_id (admin channel)
         targets = set()
-        if self.bot_instance and getattr(self.bot_instance.config, "telegram_chat_id", None):
-            self.chat_id = self.bot_instance.config.telegram_chat_id
-        if self.chat_id:
-            targets.add(str(self.chat_id).strip())
+        if chat_id:
+            targets.add(str(chat_id).strip())
+        else:
+            # 1. Global chat_id (admin channel)
+            if self.bot_instance and getattr(self.bot_instance.config, "telegram_chat_id", None):
+                self.chat_id = self.bot_instance.config.telegram_chat_id
+            if self.chat_id:
+                targets.add(str(self.chat_id).strip())
             
-        # 2. Subscribers chat IDs
-        if self.bot_instance and hasattr(self.bot_instance, "bot_id"):
-            bot_id = self.bot_instance.bot_id
-            try:
-                from api.stock_ai import supabase, _init_supabase
-                _init_supabase()
-                if supabase:
-                    # Query bot_subscriptions where notifications_enabled is true
-                    subs_res = supabase.table("bot_subscriptions").select("user_id, telegram_chat_id").eq("bot_id", bot_id).eq("notifications_enabled", True).execute()
-                    if subs_res.data:
-                        user_ids = [sub["user_id"] for sub in subs_res.data]
-                        
-                        # Query profiles to get default telegram_chat_id for these users
-                        profiles_res = supabase.table("profiles").select("id, telegram_chat_id").in_("id", user_ids).execute()
-                        profiles_map = {p["id"]: p.get("telegram_chat_id") for p in (profiles_res.data or []) if p.get("telegram_chat_id")}
-                        
-                        for sub in subs_res.data:
-                            # Use custom sub telegram_chat_id if present, else fallback to profile telegram_chat_id
-                            chat_id_val = sub.get("telegram_chat_id") or profiles_map.get(sub["user_id"])
-                            if chat_id_val:
-                                targets.add(str(chat_id_val).strip())
-            except Exception as e:
-                self._log(f"Error querying subscriber chat IDs for notification: {e}")
+        # 2. Subscribers chat IDs (Now handled dynamically with custom TP/SL inside live_bot.py)
+        # We only send the central admin-formatted logs/notifications to the admin chat
+        pass
                 
         # Send to all unique target chat IDs
         if not targets or not self.token:
@@ -197,7 +181,12 @@ class TelegramBot:
                 return
 
             if text.startswith("/start") or text.startswith("/help"):
-                self._handle_start(chat_id)
+                parts = text.split()
+                if len(parts) > 1 and text.startswith("/start"):
+                    user_id_param = parts[1].strip()
+                    self._handle_start_with_user_id(chat_id, user_id_param)
+                else:
+                    self._handle_start(chat_id)
             elif text.startswith("/status"):
                 self._handle_status(chat_id)
             elif text.startswith("/positions"):
@@ -222,6 +211,30 @@ class TelegramBot:
         if not admin_chat_id:
             admin_chat_id = self.chat_id
         return admin_chat_id and str(chat_id) == str(admin_chat_id)
+
+    def _handle_start_with_user_id(self, chat_id, user_id_param):
+        import uuid
+        try:
+            # Validate UUID format
+            uid = str(uuid.UUID(user_id_param))
+            from api.stock_ai import supabase
+            if supabase:
+                # Update profiles table
+                res = supabase.table("profiles").update({"telegram_chat_id": str(chat_id)}).eq("id", uid).execute()
+                if res.data:
+                    self._reply(chat_id, 
+                        "✅ *تم ربط حساب تليجرام بنجاح!*\n\n"
+                        "لقد تم ربط حسابك في المنصة بمعرف تليجرام هذا. ستتلقى إشارات الشراء والبيع والتحذيرات مباشرة هنا.\n\n"
+                        "🚀 *Telegram successfully linked!*\n\n"
+                        "Your Telegram account has been linked to your platform profile. You will receive buy/sell signals and risk alerts directly here."
+                    )
+                else:
+                    self._reply(chat_id, "❌ Error linking account: Profile not found.")
+            else:
+                self._reply(chat_id, "❌ Database connection error.")
+        except Exception as e:
+            self._log(f"Error handling start parameter: {e}")
+            self._reply(chat_id, "❌ Invalid activation link.")
 
     def _handle_start(self, chat_id):
         self._reply(chat_id,
@@ -336,7 +349,8 @@ class TelegramBot:
                         ]})
                         me = self._call_api("getMe")
                         if me.get("ok"):
-                            self._log(f"Bot is @{me['result'].get('username','?')}")
+                            self.bot_username = me['result'].get('username','')
+                            self._log(f"Bot is @{self.bot_username}")
                         self._ready = True
                         self._net_ok = True
                         break
