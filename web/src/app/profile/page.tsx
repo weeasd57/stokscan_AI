@@ -107,7 +107,7 @@ export default function ProfilePage() {
   if (!user) return null;
 
   return (
-    <div className="flex flex-col gap-10 pb-20 max-w-[1600px] mx-auto mt-20 px-4">
+    <div className="flex flex-col gap-10 pb-20 max-w-[1600px] mx-auto mt-2 px-4">
       <header className="flex flex-col gap-3">
         <h1 className="text-4xl font-black tracking-tighter text-white uppercase italic">{t("nav.profile")}</h1>
         <p className="text-sm text-zinc-500 font-medium max-w-lg">{t("profile.track")}</p>

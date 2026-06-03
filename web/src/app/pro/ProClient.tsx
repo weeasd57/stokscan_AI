@@ -93,7 +93,7 @@ export default function ProPage() {
     }
 
     return (
-        <div className="flex flex-col gap-16 pb-20 max-w-[1200px] mx-auto pt-10">
+        <div className="flex flex-col gap-16 pb-20 max-w-[1200px] mx-auto pt-2">
             <header className="text-center space-y-4">
                 <h1 className="text-5xl font-black tracking-tighter text-white uppercase italic">
                     Upgrade to <span className="text-indigo-500">Pro</span>

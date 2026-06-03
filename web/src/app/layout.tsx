@@ -32,7 +32,7 @@ export default function RootLayout({
       <body className="bg-zinc-950 text-zinc-50 antialiased selection:bg-blue-500/30">
         <Providers>
           <Header />
-          <main id="main-content" className="w-full pb-12 px-3 sm:px-6 md:px-8 mx-auto max-w-[1800px]">
+          <main id="main-content" className="w-full pt-[96px] pb-12 px-3 sm:px-6 md:px-8 mx-auto max-w-[1800px]">
             {children}
           </main>
           <Footer />
