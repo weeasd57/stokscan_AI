@@ -34,7 +34,7 @@ body {
   }
 
   .page-below-header {
-    top: var(--header-h);
+    top: calc(var(--header-h) + 12px);
   }
 
   .language-switch {
