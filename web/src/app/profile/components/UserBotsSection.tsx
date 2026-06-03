@@ -20,6 +20,10 @@ interface Bot {
     is_subscribed?: boolean;
     subscription_telegram_chat_id?: string | null;
     subscription_notifications_enabled?: boolean;
+    subscription_target_pct?: number | null;
+    subscription_stop_loss_pct?: number | null;
+    subscription_max_open_positions?: number | null;
+    subscription_pct_cash_per_trade?: number | null;
 }
 
 export default function UserBotsSection() {
@@ -32,6 +36,10 @@ export default function UserBotsSection() {
     const [settingsOpen, setSettingsOpen] = useState(false);
     const [selectedBot, setSelectedBot] = useState<Bot | null>(null);
     const [customChatId, setCustomChatId] = useState<string>("");
+    const [customTarget, setCustomTarget] = useState<string>("");
+    const [customStop, setCustomStop] = useState<string>("");
+    const [customMaxPositions, setCustomMaxPositions] = useState<string>("");
+    const [customCash, setCustomCash] = useState<string>("");
     const [savingSettings, setSavingSettings] = useState(false);
 
     useEffect(() => {
@@ -105,11 +113,38 @@ export default function UserBotsSection() {
     const openSettings = (bot: Bot) => {
         setSelectedBot(bot);
         setCustomChatId(bot.subscription_telegram_chat_id || "");
+        setCustomTarget(bot.subscription_target_pct !== null && bot.subscription_target_pct !== undefined ? String(bot.subscription_target_pct) : "");
+        setCustomStop(bot.subscription_stop_loss_pct !== null && bot.subscription_stop_loss_pct !== undefined ? String(bot.subscription_stop_loss_pct) : "");
+        setCustomMaxPositions(bot.subscription_max_open_positions !== null && bot.subscription_max_open_positions !== undefined ? String(bot.subscription_max_open_positions) : "");
+        setCustomCash(bot.subscription_pct_cash_per_trade !== null && bot.subscription_pct_cash_per_trade !== undefined ? String(bot.subscription_pct_cash_per_trade * 100) : "");
         setSettingsOpen(true);
     };
 
     const saveSettings = async () => {
         if (!user || !selectedBot) return;
+        
+        const targetVal = customTarget.trim() !== "" ? Number(customTarget) : null;
+        const stopVal = customStop.trim() !== "" ? Number(customStop) : null;
+        const maxPosVal = customMaxPositions.trim() !== "" ? Number(customMaxPositions) : null;
+        const cashVal = customCash.trim() !== "" ? Number(customCash) / 100.0 : null;
+
+        if (targetVal !== null && (isNaN(targetVal) || targetVal <= 0 || targetVal > 100)) {
+            toast.error("Target must be a number between 0 and 100");
+            return;
+        }
+        if (stopVal !== null && (isNaN(stopVal) || stopVal <= 0 || stopVal > 100)) {
+            toast.error("Stop loss must be a number between 0 and 100");
+            return;
+        }
+        if (maxPosVal !== null && (isNaN(maxPosVal) || maxPosVal <= 0)) {
+            toast.error("Max open positions must be a positive integer");
+            return;
+        }
+        if (cashVal !== null && (isNaN(cashVal) || cashVal <= 0 || cashVal > 1)) {
+            toast.error("Cash percentage must be between 0 and 100");
+            return;
+        }
+
         setSavingSettings(true);
         try {
             const res = await fetch("/api/ai_bot/subscription/update", {
@@ -119,10 +154,14 @@ export default function UserBotsSection() {
                     bot_id: selectedBot.bot_id,
                     user_id: user.id,
                     telegram_chat_id: customChatId.trim() || null,
+                    target_pct: targetVal,
+                    stop_loss_pct: stopVal,
+                    max_open_positions: maxPosVal,
+                    pct_cash_per_trade: cashVal,
                 })
             });
             if (res.ok) {
-                toast.success("Telegram chat settings saved");
+                toast.success("Settings saved successfully");
                 setSettingsOpen(false);
                 fetchBots();
             } else {
@@ -262,16 +301,17 @@ export default function UserBotsSection() {
             <Dialog.Root open={settingsOpen} onOpenChange={setSettingsOpen}>
                 <Dialog.Portal>
                     <Dialog.Overlay className="fixed inset-0 bg-black/85 backdrop-blur-sm z-[999]" />
-                    <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md bg-zinc-950 border border-white/10 rounded-[2rem] p-8 z-[1000] shadow-2xl">
-                        <Dialog.Title className="text-xl font-black text-white uppercase tracking-tight mb-4 flex items-center gap-2">
-                            <Send className="w-5 h-5 text-indigo-400" />
-                            Telegram settings
+                    <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-lg bg-zinc-950 border border-white/10 rounded-[2rem] p-8 z-[1000] shadow-2xl overflow-y-auto max-h-[90vh] custom-scrollbar">
+                        <Dialog.Title className="text-xl font-black text-white uppercase tracking-tight mb-6 flex items-center gap-2 border-b border-white/5 pb-3">
+                            <Settings className="w-5 h-5 text-indigo-400" />
+                            Bot custom settings
                         </Dialog.Title>
 
                         <div className="space-y-6">
+                            {/* Telegram Chat ID */}
                             <div className="space-y-2">
                                 <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block">
-                                    Telegram Chat ID for {selectedBot?.name}
+                                    Telegram Chat ID Override
                                 </label>
                                 <input 
                                     type="text" 
@@ -280,10 +320,80 @@ export default function UserBotsSection() {
                                     placeholder="Leave empty to use default profile Telegram Chat ID"
                                     className="w-full bg-zinc-900 border border-white/5 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-indigo-500 font-mono placeholder:text-zinc-700"
                                 />
-                                <p className="text-[10px] text-zinc-600 font-bold uppercase tracking-wider leading-relaxed">
-                                    * If left blank, notifications will fall back to your global Default Telegram Chat ID specified on your profile.
-                                </p>
                             </div>
+
+                            <div className="grid grid-cols-2 gap-4">
+                                {/* Custom Target % */}
+                                <div className="space-y-2">
+                                    <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block">
+                                        Target Profit (%)
+                                    </label>
+                                    <div className="relative">
+                                        <input 
+                                            type="number" 
+                                            value={customTarget} 
+                                            onChange={(e) => setCustomTarget(e.target.value)}
+                                            placeholder="Default (10%)"
+                                            className="w-full bg-zinc-900 border border-white/5 rounded-xl pl-4 pr-8 py-3 text-sm text-indigo-400 font-bold focus:outline-none focus:border-indigo-500 font-mono placeholder:text-zinc-750"
+                                        />
+                                        <span className="absolute right-3 top-1/2 -translate-y-1/2 font-bold text-xs text-zinc-600">%</span>
+                                    </div>
+                                </div>
+
+                                {/* Custom Stop Loss % */}
+                                <div className="space-y-2">
+                                    <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block">
+                                        Stop Loss (%)
+                                    </label>
+                                    <div className="relative">
+                                        <input 
+                                            type="number" 
+                                            value={customStop} 
+                                            onChange={(e) => setCustomStop(e.target.value)}
+                                            placeholder="Default (3.5%)"
+                                            className="w-full bg-zinc-900 border border-white/5 rounded-xl pl-4 pr-8 py-3 text-sm text-red-400 font-bold focus:outline-none focus:border-red-500 font-mono placeholder:text-zinc-750"
+                                        />
+                                        <span className="absolute right-3 top-1/2 -translate-y-1/2 font-bold text-xs text-zinc-600">%</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-4">
+                                {/* Max Open Positions */}
+                                <div className="space-y-2">
+                                    <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block">
+                                        Max Open Positions
+                                    </label>
+                                    <input 
+                                        type="number" 
+                                        value={customMaxPositions} 
+                                        onChange={(e) => setCustomMaxPositions(e.target.value)}
+                                        placeholder={`Default (${selectedBot?.max_open_positions || 8})`}
+                                        className="w-full bg-zinc-900 border border-white/5 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-indigo-500 font-mono placeholder:text-zinc-700"
+                                    />
+                                </div>
+
+                                {/* Percent Cash per Trade */}
+                                <div className="space-y-2">
+                                    <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block">
+                                        Cash Per Trade (%)
+                                    </label>
+                                    <div className="relative">
+                                        <input 
+                                            type="number" 
+                                            value={customCash} 
+                                            onChange={(e) => setCustomCash(e.target.value)}
+                                            placeholder="Default (15%)"
+                                            className="w-full bg-zinc-900 border border-white/5 rounded-xl pl-4 pr-8 py-3 text-sm text-white focus:outline-none focus:border-indigo-500 font-mono placeholder:text-zinc-750"
+                                        />
+                                        <span className="absolute right-3 top-1/2 -translate-y-1/2 font-bold text-xs text-zinc-600">%</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <p className="text-[10px] text-zinc-600 font-bold uppercase tracking-wider leading-relaxed border-t border-white/5 pt-4">
+                                * Overrides will apply only to {selectedBot?.name}. Any values left blank will fall back to your default settings or the bot's default configuration.
+                            </p>
                             
                             <div className="flex justify-end gap-3 pt-4 border-t border-white/5">
                                 <Dialog.Close asChild>

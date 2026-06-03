@@ -48,6 +48,11 @@ interface BotConfig {
     cornix_secret?: string;
     atr_period: number;
     use_smart_exit: boolean;
+    use_schedule?: boolean;
+    schedule_start_time?: string;
+    schedule_end_time?: string;
+    schedule_timezone?: string;
+    schedule_days?: number[];
 }
 
 interface BotListItem {
@@ -1877,6 +1882,91 @@ export default function LiveBotTab() {
                                 >
                                     <Switch.Thumb className={`block w-4 h-4 rounded-full bg-white shadow-lg transition-transform duration-300 transform translate-y-1 ${configForm.save_to_supabase !== false ? 'translate-x-7' : 'translate-x-1'}`} />
                                 </Switch.Root>
+                            </div>
+
+                            {/* Operating Schedule */}
+                            <div className="bg-black/20 rounded-xl p-4 border border-white/5 space-y-4">
+                                <div className="flex items-center justify-between">
+                                    <div className="space-y-1">
+                                        <label className="text-sm font-bold text-white flex items-center gap-2">
+                                            <Clock className="w-4 h-4 text-indigo-400" />
+                                            Operating Schedule
+                                        </label>
+                                        <p className="text-xs text-zinc-500">Only execute scans/trades during specific times</p>
+                                    </div>
+                                    <Switch.Root
+                                        checked={configForm.use_schedule ?? false}
+                                        onCheckedChange={(c: boolean) => setConfigForm({ ...configForm, use_schedule: c })}
+                                        className={`w-12 h-6 rounded-full relative shadow-inner transition-colors duration-300 ${configForm.use_schedule ? 'bg-indigo-600' : 'bg-zinc-700'}`}
+                                    >
+                                        <Switch.Thumb className={`block w-4 h-4 rounded-full bg-white shadow-lg transition-transform duration-300 transform translate-y-1 ${configForm.use_schedule ? 'translate-x-7' : 'translate-x-1'}`} />
+                                    </Switch.Root>
+                                </div>
+
+                                {configForm.use_schedule && (
+                                    <div className="grid grid-cols-2 gap-3 pt-2 border-t border-white/5 animate-in fade-in slide-in-from-top-1 duration-300">
+                                        <div>
+                                            <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest block mb-1">Start Time</label>
+                                            <input
+                                                type="time"
+                                                value={configForm.schedule_start_time || "10:00"}
+                                                onChange={(e) => setConfigForm({ ...configForm, schedule_start_time: e.target.value })}
+                                                className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm text-white font-mono focus:border-indigo-500 focus:outline-none"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest block mb-1">End Time</label>
+                                            <input
+                                                type="time"
+                                                value={configForm.schedule_end_time || "14:30"}
+                                                onChange={(e) => setConfigForm({ ...configForm, schedule_end_time: e.target.value })}
+                                                className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm text-white font-mono focus:border-indigo-500 focus:outline-none"
+                                            />
+                                        </div>
+                                        <div className="col-span-2">
+                                            <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest block mb-1">Timezone</label>
+                                            <select
+                                                value={configForm.schedule_timezone || "Africa/Cairo"}
+                                                onChange={(e) => setConfigForm({ ...configForm, schedule_timezone: e.target.value })}
+                                                className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm text-white font-mono focus:border-indigo-500 focus:outline-none"
+                                            >
+                                                <option value="Local">Local System Time</option>
+                                                <option value="Africa/Cairo">Africa/Cairo (Egypt)</option>
+                                                <option value="UTC">UTC (Universal Time Coordinated)</option>
+                                                <option value="America/New_York">America/New_York (EST/EDT)</option>
+                                                <option value="Europe/London">Europe/London (GMT/BST)</option>
+                                            </select>
+                                        </div>
+                                        <div className="col-span-2">
+                                            <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest block mb-2">Operating Days</label>
+                                            <div className="flex gap-1.5 justify-between">
+                                                {["M", "T", "W", "T", "F", "S", "S"].map((day, idx) => {
+                                                    const currentDays = configForm.schedule_days || [0, 1, 2, 3, 4, 5, 6];
+                                                    const isSelected = currentDays.includes(idx);
+                                                    return (
+                                                        <button
+                                                            key={idx}
+                                                            type="button"
+                                                            onClick={() => {
+                                                                const updated = isSelected 
+                                                                    ? currentDays.filter(d => d !== idx)
+                                                                    : [...currentDays, idx].sort();
+                                                                setConfigForm({ ...configForm, schedule_days: updated });
+                                                            }}
+                                                            className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold transition-all border ${
+                                                                isSelected 
+                                                                    ? "bg-indigo-600/20 border-indigo-500 text-indigo-300" 
+                                                                    : "bg-black/40 border-white/5 text-zinc-500 hover:text-zinc-300"
+                                                            }`}
+                                                        >
+                                                            {day}
+                                                        </button>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
                             </div>
 
                             <div className="flex items-center justify-center gap-2 w-full py-4 rounded-xl bg-zinc-900/50 border border-white/5 text-xs font-bold text-zinc-500 uppercase tracking-widest">

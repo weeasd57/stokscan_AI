@@ -25,6 +25,7 @@ except ImportError:
 # assuming api module structure is available.
 from api.stock_ai import _supabase_upsert_with_retry, _supabase_read_with_retry, supabase
 from api.virtual_market_adapter import create_virtual_market_client
+from api.strategy_engine import StrategyEngine
 
 warnings.filterwarnings("ignore")
 
@@ -40,7 +41,7 @@ class BotConfig:
     council_threshold: float = 0.25
     max_notional_usd: float = 1000.0
     pct_cash_per_trade: float = 0.15
-    bars_limit: int = 200
+    bars_limit: int = 500
     poll_seconds: int = 120
     timeframe: str = "1Hour"
     use_council: bool = True
@@ -49,8 +50,8 @@ class BotConfig:
     # Risk
     max_open_positions: int = 8
     enable_sells: bool = True
-    target_pct: float = 0.06   # 6%
-    stop_loss_pct: float = 0.02  # 2%
+    target_pct: float = 0.10   # 10%
+    stop_loss_pct: float = 0.035  # 3.5%
     hold_max_bars: int = 30
     use_trailing: bool = True
     trail_be_pct: float = 0.04
@@ -111,6 +112,13 @@ class BotConfig:
     # 9. Time-of-Day Filter
     use_time_filter: bool = False
     
+    # 9.1 Operating Schedule Filter
+    use_schedule: bool = False
+    schedule_start_time: str = "10:00"
+    schedule_end_time: str = "14:30"
+    schedule_timezone: str = "Africa/Cairo"
+    schedule_days: Optional[List[int]] = None
+    
     # 9. Signal Quality Score
     use_quality_score: bool = True
     min_quality_score: float = 50.0
@@ -132,8 +140,8 @@ class BotConfig:
     trading_mode: str = "aggressive"  # "defensive" | "aggressive" | "hybrid"
 
     # Model Paths
-    king_model_path: str = "api/models/KING_CRYPTO.pkl"
-    council_model_path: str = "api/models/COUNCIL_CRYPTO.pkl"
+    king_model_path: str = "api/models/KING.pkl"
+    council_model_path: str = "api/models/The_Council_Validator.pkl"
 
     # Cornix Direct Integration
     cornix_webhook_url: Optional[str] = None
@@ -615,59 +623,17 @@ class LiveBot:
             }
     def _check_signal_filters(self, symbol: str, bars: pd.DataFrame, mode_overrides: dict = None) -> tuple[bool, str]:
         """Check additional technical filters before entering a trade."""
-        if bars.empty or len(bars) < 25:
-            return False, "Insufficient data"
-        
-        ov = mode_overrides or {}
-        
-        try:
-            # 1. Volume Filter (mode-adjusted)
-            if self.config.min_volume_ratio > 0:
-                recent_volume = bars['volume'].iloc[-5:].mean()
-                avg_volume = bars['volume'].iloc[-25:-5].mean()
-                
-                effective_vol_ratio = self.config.min_volume_ratio * ov.get("volume_mult", 1.0)
-                if avg_volume > 0 and recent_volume < avg_volume * effective_vol_ratio:
-                    return False, f"Low relative volume ({recent_volume/avg_volume:.2f}x < {effective_vol_ratio:.2f}x)"
-            
-            # 2. Trend Filter (SMA20) — skippable in aggressive mode
-            if self.config.use_trend_filter and not ov.get("skip_trend_filter", False):
-                closes = bars['close'].iloc[-20:]
-                sma_20 = closes.mean()
-                current_price = bars['close'].iloc[-1]
-                
-                # Add 3% tolerance
-                sma20_tolerance = 0.03
-                if current_price < sma_20 * (1 - sma20_tolerance):
-                    return False, f"Price below SMA20 tolerance ({current_price:.4f} < {sma_20 * (1 - sma20_tolerance):.4f})"
-            
-            # 3. RSI Filter
-            if self.config.use_rsi_filter:
-                closes = bars['close'].iloc[-25:]
-                rsi = self._calculate_rsi(closes, 14)
-                
-                if rsi > 70:
-                    return False, f"RSI Overbought ({rsi:.1f} > 70)"
-                elif rsi < 30:
-                    return False, f"RSI Oversold ({rsi:.1f} < 30)"
-            
-            return True, "Filters passed"
-        except Exception as e:
-            self._log(f"Filter Check Error: {e}")
-            return False, f"Filter Error: {e}"
+        return StrategyEngine.check_technical_filters(
+            bars=bars,
+            min_volume_ratio=self.config.min_volume_ratio,
+            use_trend_filter=self.config.use_trend_filter,
+            use_rsi_filter=self.config.use_rsi_filter,
+            mode_overrides=mode_overrides
+        )
 
     def _calculate_rsi(self, prices: pd.Series, period: int = 14) -> float:
         """Calculate Relative Strength Index."""
-        try:
-            delta = prices.diff()
-            gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
-            loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
-            
-            rs = gain.iloc[-1] / loss.iloc[-1] if loss.iloc[-1] != 0 else 100
-            rsi = 100 - (100 / (1 + rs))
-            return rsi
-        except Exception:
-            return 50
+        return StrategyEngine.calculate_rsi(prices, period)
 
     # ===================================================================
     #  SMART BOT FEATURES (10 Intelligence Modules)
@@ -675,52 +641,11 @@ class LiveBot:
 
     def _calculate_adx(self, bars: pd.DataFrame, period: int = 14) -> float:
         """Calculate Average Directional Index for trend strength."""
-        try:
-            if len(bars) < period * 2:
-                return 0.0
-            high = bars['high'].values
-            low = bars['low'].values
-            close = bars['close'].values
-
-            plus_dm = np.zeros(len(high))
-            minus_dm = np.zeros(len(high))
-            tr = np.zeros(len(high))
-
-            for i in range(1, len(high)):
-                h_diff = high[i] - high[i-1]
-                l_diff = low[i-1] - low[i]
-                plus_dm[i] = max(h_diff, 0) if h_diff > l_diff else 0
-                minus_dm[i] = max(l_diff, 0) if l_diff > h_diff else 0
-                tr[i] = max(high[i] - low[i], abs(high[i] - close[i-1]), abs(low[i] - close[i-1]))
-
-            # Smoothed averages
-            atr = pd.Series(tr).rolling(period).mean().values
-            plus_di = 100 * pd.Series(plus_dm).rolling(period).mean().values / np.where(atr > 0, atr, 1)
-            minus_di = 100 * pd.Series(minus_dm).rolling(period).mean().values / np.where(atr > 0, atr, 1)
-
-            dx = 100 * np.abs(plus_di - minus_di) / np.where((plus_di + minus_di) > 0, plus_di + minus_di, 1)
-            adx = pd.Series(dx).rolling(period).mean().iloc[-1]
-            return float(adx) if np.isfinite(adx) else 0.0
-        except Exception:
-            return 0.0
+        return StrategyEngine.calculate_adx(bars, period)
 
     def _calculate_atr(self, bars: pd.DataFrame, period: int = 14) -> float:
         """Calculate Average True Range."""
-        try:
-            if len(bars) < period + 1:
-                return 0.0
-            high = bars['high'].values
-            low = bars['low'].values
-            close = bars['close'].values
-
-            tr = np.zeros(len(high))
-            for i in range(1, len(high)):
-                tr[i] = max(high[i] - low[i], abs(high[i] - close[i-1]), abs(low[i] - close[i-1]))
-
-            atr = pd.Series(tr[1:]).rolling(period).mean().iloc[-1]
-            return float(atr) if np.isfinite(atr) else 0.0
-        except Exception:
-            return 0.0
+        return StrategyEngine.calculate_atr(bars, period)
 
     # ── Feature 1: Market Regime Detection ──────────────────────────────
     def _detect_market_regime(self, bars: pd.DataFrame) -> str:
@@ -728,31 +653,13 @@ class LiveBot:
         Detect market regime: 'BULL', 'BEAR', or 'SIDEWAYS'.
         Uses ADX for trend strength and SMA50 slope for direction.
         """
-        if not self.config.use_market_regime or len(bars) < 60:
-            return "UNKNOWN"
-
-        try:
-            adx = self._calculate_adx(bars, 14)
-            closes = bars['close'].iloc[-50:]
-            sma50 = closes.mean()
-            sma50_prev = bars['close'].iloc[-55:-5].mean()
-            sma_slope = (sma50 - sma50_prev) / sma50_prev if sma50_prev > 0 else 0
-            current_price = bars['close'].iloc[-1]
-
-            if adx < self.config.regime_adx_threshold:
-                regime = "SIDEWAYS"
-            elif current_price > sma50 and sma_slope > 0:
-                regime = "BULL"
-            elif current_price < sma50 and sma_slope < 0:
-                regime = "BEAR"
-            else:
-                regime = "SIDEWAYS"
-
-            self._log(f"REGIME: {regime} (ADX={adx:.1f}, SMA50_slope={sma_slope*100:.2f}%)")
-            return regime
-        except Exception as e:
-            self._log(f"Regime Detection Error: {e}")
-            return "UNKNOWN"
+        regime = StrategyEngine.detect_market_regime(
+            bars=bars,
+            use_market_regime=self.config.use_market_regime,
+            regime_adx_threshold=self.config.regime_adx_threshold
+        )
+        self._log(f"REGIME: {regime}")
+        return regime
 
     # ── Feature 2: Multi-Timeframe Confirmation ─────────────────────────
     def _check_mtf_confirmation(self, symbol: str) -> tuple[bool, str]:
@@ -852,43 +759,19 @@ class LiveBot:
         Calculate dynamic TP/SL based on ATR and exit_mode.
         Returns (take_profit_price, stop_loss_price).
         """
-        mode = getattr(self.config, 'exit_mode', 'hybrid').lower()
-        manual_tp = entry_price * (1 + self.config.target_pct)
-        manual_sl = entry_price * (1 - self.config.stop_loss_pct)
-
-        # Manual mode: always use fixed percentages
-        if mode == "manual" or not self.config.use_atr_exits:
-            return manual_tp, manual_sl
-
-        try:
-            atr = self._calculate_atr(bars, self.config.atr_period)
-            if atr <= 0:
-                return manual_tp, manual_sl
-
-            atr_tp = entry_price + (atr * self.config.atr_tp_multiplier)
-            atr_sl = entry_price - (atr * self.config.atr_sl_multiplier)
-
-            # Sanity: ensure SL isn't too tight or TP isn't too loose
-            # Crypto spreads + noise kill tight SL instantly
-            min_sl_dist = entry_price * 0.03  # At least 3% breathing room
-            max_tp_dist = entry_price * 0.30  # At most 30%
-            atr_sl = min(atr_sl, entry_price - min_sl_dist)
-            atr_tp = min(atr_tp, entry_price + max_tp_dist)
-
-            if mode == "hybrid":
-                # Hybrid: use the WIDER (safer) of the two
-                tp = max(atr_tp, manual_tp)
-                sl = min(atr_sl, manual_sl)
-            else:
-                # atr_smart: pure ATR
-                tp = atr_tp
-                sl = atr_sl
-
-            self._log(f"ATR Exits [{mode}]: TP={tp:.4f} (+{((tp/entry_price)-1)*100:.1f}%), SL={sl:.4f} (-{(1-(sl/entry_price))*100:.1f}%), ATR={atr:.4f}")
-            return tp, sl
-        except Exception as e:
-            self._log(f"ATR Exit Error: {e}")
-            return manual_tp, manual_sl
+        tp, sl = StrategyEngine.calculate_atr_exits(
+            bars=bars,
+            entry_price=entry_price,
+            target_pct=self.config.target_pct,
+            stop_loss_pct=self.config.stop_loss_pct,
+            use_atr_exits=self.config.use_atr_exits,
+            atr_sl_multiplier=self.config.atr_sl_multiplier,
+            atr_tp_multiplier=self.config.atr_tp_multiplier,
+            atr_period=self.config.atr_period,
+            exit_mode=getattr(self.config, 'exit_mode', 'hybrid')
+        )
+        self._log(f"ATR Exits: TP={tp:.4f} (+{((tp/entry_price)-1)*100:.1f}%), SL={sl:.4f} (-{(1-(sl/entry_price))*100:.1f}%)")
+        return tp, sl
 
     # ── Feature 4: RSI Divergence Detection ─────────────────────────────
     def _detect_rsi_divergence(self, bars: pd.DataFrame) -> tuple[str, float]:
@@ -944,33 +827,14 @@ class LiveBot:
         Check if momentum suggests an early exit.
         Returns (should_exit, reason).
         """
-        if not self.config.use_smart_exit or len(bars) < 25:
-            return False, ""
-
-        try:
-            pnl_pct = (current_price - entry_price) / entry_price
-            rsi = self._calculate_rsi(bars['close'].iloc[-25:], 14)
-
-            # 1. RSI dropping hard (momentum collapse)
-            # If RSI < 30 (oversold/weakness) and we are not recovering, exit early
-            if rsi < self.config.smart_exit_rsi_threshold:
-                if pnl_pct > 0.01:
-                    return True, f"SMART EXIT: RSI={rsi:.1f} dropping while in profit (+{pnl_pct*100:.1f}%)"
-                elif pnl_pct < -0.02:
-                    # If already in loss and RSI is weak, cut it before it hits full Stop Loss
-                    return True, f"SMART EXIT: Momentum collapsed (RSI={rsi:.1f}) in loss (-{abs(pnl_pct*100):.1f}%)"
-
-            # 2. Volume spike on red candle (panic selling)
-            last_candle = bars.iloc[-1]
-            if last_candle['close'] < last_candle['open']:  # Red candle
-                recent_vol = bars['volume'].iloc[-1]
-                avg_vol = bars['volume'].iloc[-20:-1].mean()
-                if avg_vol > 0 and recent_vol > avg_vol * self.config.smart_exit_volume_spike:
-                    return True, f"SMART EXIT: Volume spike {recent_vol/avg_vol:.1f}x on red candle"
-
-            return False, ""
-        except Exception:
-            return False, ""
+        return StrategyEngine.check_smart_exit(
+            bars=bars,
+            entry_price=entry_price,
+            current_price=current_price,
+            use_smart_exit=self.config.use_smart_exit,
+            rsi_threshold=self.config.smart_exit_rsi_threshold,
+            volume_spike_multiplier=self.config.smart_exit_volume_spike
+        )
 
     # ── Feature 6: Correlation Guard ────────────────────────────────────
     def _check_correlation_guard(self, symbol: str, bars: pd.DataFrame) -> tuple[bool, float, str]:
@@ -1086,6 +950,60 @@ class LiveBot:
             return True, "Good trading time"
         except Exception:
             return True, "Time check error, allowing"
+
+    def _is_inside_schedule(self) -> tuple[bool, str]:
+        if not getattr(self.config, "use_schedule", False):
+            return True, "Schedule disabled"
+        
+        try:
+            from zoneinfo import ZoneInfo
+            tz_str = getattr(self.config, "schedule_timezone", "Africa/Cairo")
+            if tz_str == "Local":
+                now = datetime.now()
+            else:
+                try:
+                    now = datetime.now(ZoneInfo(tz_str))
+                except Exception:
+                    now = datetime.now(ZoneInfo("Africa/Cairo"))
+            
+            # Check weekday
+            weekday = now.weekday()  # Monday=0, Sunday=6
+            allowed_days = getattr(self.config, "schedule_days", None)
+            if allowed_days is None:
+                allowed_days = [0, 1, 2, 3, 4, 5, 6]
+                
+            if weekday not in allowed_days:
+                day_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+                current_day = day_names[weekday]
+                allowed_day_names = [day_names[d] for d in allowed_days]
+                return False, f"Today ({current_day}) is not a scheduled trading day. Allowed: {', '.join(allowed_day_names)}"
+            
+            # Check time
+            start_str = getattr(self.config, "schedule_start_time", "10:00")
+            end_str = getattr(self.config, "schedule_end_time", "14:30")
+            
+            try:
+                start_h, start_m = map(int, start_str.split(":"))
+                end_h, end_m = map(int, end_str.split(":"))
+            except ValueError:
+                return True, "Error parsing schedule times, bypassing"
+                
+            current_time = now.time()
+            from datetime import time as dt_time
+            start_time = dt_time(start_h, start_m)
+            end_time = dt_time(end_h, end_m)
+            
+            if start_time <= end_time:
+                inside = start_time <= current_time <= end_time
+            else:
+                inside = current_time >= start_time or current_time <= end_time
+                
+            if not inside:
+                return False, f"Outside operating hours ({start_str} to {end_str}). Current time: {current_time.strftime('%H:%M')}"
+                
+            return True, "Inside scheduled hours"
+        except Exception as e:
+            return True, f"Error checking schedule: {e}"
 
     # ── Feature 9: Signal Quality Score ─────────────────────────────────
     def _calculate_signal_quality(self, king_conf: float, council_conf: Optional[float],
@@ -1638,7 +1556,7 @@ class LiveBot:
             council_threshold=_parse_float(_read_env("COUNCIL_THRESHOLD", "0.35"), 0.35),
             max_notional_usd=_parse_float(_read_env("MAX_NOTIONAL_USD", "500"), 500.0),
             pct_cash_per_trade=_parse_float(_read_env("PCT_CASH_PER_TRADE", "0.10"), 0.10),
-            bars_limit=int(float(_read_env("BARS_LIMIT", "200") or 200)),
+            bars_limit=int(float(_read_env("BARS_LIMIT", "500") or 500)),
             poll_seconds=int(float(_read_env("POLL_SECONDS", "300") or 300)),
             timeframe=str(_read_env("TIMEFRAME", "1Hour")),
             data_source=str(_read_env("LIVE_DATA_SOURCE", "binance") or "binance").strip().lower(),
@@ -1669,6 +1587,11 @@ class LiveBot:
             cornix_webhook_url=_read_env("CORNIX_WEBHOOK_URL"),
             cornix_uuid=_read_env("CORNIX_UUID"),
             cornix_secret=_read_env("CORNIX_SECRET"),
+            use_schedule=_parse_bool(_read_env("LIVE_USE_SCHEDULE", "0"), False),
+            schedule_start_time=str(_read_env("LIVE_SCHEDULE_START_TIME", "10:00")),
+            schedule_end_time=str(_read_env("LIVE_SCHEDULE_END_TIME", "14:30")),
+            schedule_timezone=str(_read_env("LIVE_SCHEDULE_TIMEZONE", "Africa/Cairo")),
+            schedule_days=[0, 1, 2, 3, 4, 5, 6]
         )
 
     def update_config(self, updates: Dict[str, Any]):
@@ -1707,15 +1630,21 @@ class LiveBot:
                                "use_market_regime", "use_mtf_confirmation", "use_atr_exits",
                                "use_rsi_divergence", "use_smart_exit", "use_correlation_guard",
                                "use_winrate_feedback", "use_time_filter", "use_quality_score",
-                               "use_partial_positions"]:
+                               "use_partial_positions", "use_schedule"]:
                         current[k] = _parse_bool(v, current[k])
 
                     elif k in ["trading_mode", "execution_mode", "name", "data_source",
-                               "king_model_path", "council_model_path", "timeframe", "exit_mode", "status"]:
+                               "king_model_path", "council_model_path", "timeframe", "exit_mode", "status",
+                               "schedule_start_time", "schedule_end_time", "schedule_timezone"]:
                         current[k] = str(v).strip()
                     elif k == "telegram_token":
                         if v:
                             current[k] = str(v).strip()
+                    elif k == "schedule_days":
+                        if isinstance(v, list):
+                            current[k] = [int(x) for x in v]
+                        else:
+                            current[k] = v
                     else:
                         current[k] = v
             
@@ -1811,6 +1740,35 @@ class LiveBot:
         king_art = load_model(king_path)
         if king_art is None:
             raise ValueError(f"Failed to load KING model from {king_path}")
+
+        # Override config parameters using model metadata to align live trading with training/backtest
+        if isinstance(king_art, dict):
+            def _meta_get(name: str, default=None):
+                v = king_art.get(name)
+                if v is not None:
+                    return v
+                pm = king_art.get("primary_model") if isinstance(king_art.get("primary_model"), dict) else {}
+                if isinstance(pm, dict):
+                    return pm.get(name, default)
+                return default
+
+            m_target = _meta_get("target_pct")
+            m_sl = _meta_get("stop_loss_pct")
+            m_hold = _meta_get("look_forward_days") or _meta_get("hold_max_bars")
+            m_thresh = _meta_get("buy_threshold") or _meta_get("buyThreshold") or _meta_get("meta_threshold")
+
+            if m_target is not None and float(m_target) > 0:
+                self.config.target_pct = float(m_target)
+                self._log(f"🟢 Overriding target_pct from model metadata: {self.config.target_pct:.1%}")
+            if m_sl is not None and float(m_sl) > 0:
+                self.config.stop_loss_pct = float(m_sl)
+                self._log(f"🟢 Overriding stop_loss_pct from model metadata: {self.config.stop_loss_pct:.1%}")
+            if m_hold is not None and int(m_hold) > 0:
+                self.config.hold_max_bars = int(m_hold)
+                self._log(f"🟢 Overriding hold_max_bars from model metadata: {self.config.hold_max_bars}")
+            if m_thresh is not None and float(m_thresh) > 0:
+                self.config.king_threshold = float(m_thresh)
+                self._log(f"🟢 Overriding king_threshold from model metadata: {self.config.king_threshold:.2f}")
 
         king_clf = reconstruct_meta_model(king_art)
         if king_clf is None:
@@ -2423,6 +2381,280 @@ class LiveBot:
             self._log(f"Sell failed for {symbol}: {e}")
             return False
 
+    def _process_subscribers_exits(self, symbol: str, bars: pd.DataFrame):
+        """
+        Evaluate and process exits for all active subscriber positions in the database.
+        """
+        if bars is None or bars.empty:
+            return
+
+        try:
+            last = bars.iloc[-1]
+            hi = float(last.get("high", 0) or 0)
+            lo = float(last.get("low", 0) or 0)
+            close = float(last.get("close", 0) or 0)
+        except Exception:
+            return
+
+        try:
+            # Fetch all open positions for this symbol from supabase
+            pos_res = supabase.table("positions") \
+                .select("*") \
+                .eq("symbol", symbol) \
+                .eq("status", "open") \
+                .execute()
+            
+            open_pos = pos_res.data or []
+            
+            for pos in open_pos:
+                meta = pos.get("metadata") or {}
+                if meta.get("bot_id") != self.bot_id:
+                    continue
+                
+                user_id = pos.get("user_id")
+                # Retrieve subscription details to get their parameters and Telegram info
+                sub_res = supabase.table("bot_subscriptions").select("*").eq("bot_id", self.bot_id).eq("user_id", user_id).execute()
+                if not sub_res.data:
+                    # User is no longer subscribed, but we should still exit their position if hit
+                    prof_res = supabase.table("profiles").select("default_target_pct, default_stop_pct, telegram_chat_id, language, notification_channel, whatsapp_number").eq("id", user_id).maybeSingle().execute()
+                    prof = prof_res.data or {}
+                    sub = {}
+                else:
+                    sub = sub_res.data[0]
+                    prof_res = supabase.table("profiles").select("default_target_pct, default_stop_pct, telegram_chat_id, language, notification_channel, whatsapp_number").eq("id", user_id).maybeSingle().execute()
+                    prof = prof_res.data or {}
+                
+                # Resolve parameters
+                target_pct = float(sub.get("target_pct") if sub.get("target_pct") is not None else (prof.get("default_target_pct") if prof.get("default_target_pct") is not None else 10.0))
+                stop_loss_pct = float(sub.get("stop_loss_pct") if sub.get("stop_loss_pct") is not None else (prof.get("default_stop_pct") if prof.get("default_stop_pct") is not None else 3.5))
+                telegram_chat_id = sub.get("telegram_chat_id") if sub.get("telegram_chat_id") else (prof.get("telegram_chat_id") if prof.get("telegram_chat_id") else None)
+                channel = prof.get("notification_channel") if prof.get("notification_channel") else "telegram"
+                whatsapp_number = prof.get("whatsapp_number") if prof.get("whatsapp_number") else None
+                lang = prof.get("language", "en")
+                
+                entry_price = float(pos.get("entry_price") or 0)
+                if entry_price <= 0:
+                    continue
+                
+                target_price = float(pos.get("target_price")) if pos.get("target_price") is not None else (entry_price * (1 + target_pct / 100.0))
+                stop_price = float(pos.get("stop_price")) if pos.get("stop_price") is not None else (entry_price * (1 - stop_loss_pct / 100.0))
+                
+                # Check hold time (bars held)
+                current_ts = str(last.get("timestamp") or getattr(last, "name", ""))
+                last_held_ts = meta.get("last_held_ts")
+                bars_held = int(meta.get("bars_held") or 0)
+                
+                if current_ts != last_held_ts:
+                    bars_held += 1
+                    meta["last_held_ts"] = current_ts
+                    meta["bars_held"] = bars_held
+                
+                exited = False
+                exit_reason = ""
+                exit_price = close
+                status_val = "closed_manual"
+                
+                if lo <= stop_price:
+                    exited = True
+                    exit_reason = "hit_stop"
+                    exit_price = stop_price
+                    status_val = "hit_stop"
+                elif hi >= target_price:
+                    exited = True
+                    exit_reason = "hit_target"
+                    exit_price = target_price
+                    status_val = "hit_target"
+                elif bars_held >= int(self.config.hold_max_bars):
+                    exited = True
+                    exit_reason = "time_exit"
+                    exit_price = close
+                    status_val = "closed_manual"
+                
+                if exited:
+                    pnl_pct = ((exit_price / entry_price) - 1) * 100.0
+                    supabase.table("positions").update({
+                        "status": status_val,
+                        "status_price": exit_price,
+                        "status_at": datetime.now(timezone.utc).isoformat(),
+                        "metadata": meta,
+                        "updated_at": datetime.now(timezone.utc).isoformat()
+                    }).eq("id", pos["id"]).execute()
+                    
+                    self._log(f"Subscriber {user_id} exited {symbol}: {exit_reason} at {exit_price:.4f} ({pnl_pct:+.2f}%)")
+                    
+                    if sub.get("notifications_enabled", True) is not False:
+                        bot_name = self.config.name
+                        if lang == "ar":
+                            reason_ar = {
+                                "hit_target": "تم تحقيق الهدف 🎯",
+                                "hit_stop": "ضرب وقف الخسارة 🛡️",
+                                "time_exit": "الحد الأقصى لوقت الاحتفاظ ⏰"
+                            }.get(exit_reason, "خروج")
+                            msg = (
+                                f"🔴 *إشارة خروج*\n"
+                                f"━━━━━━━━━━━━━━━\n"
+                                f"💎 الرمز: `{symbol}`\n"
+                                f"💰 سعر الخروج: `{exit_price:.4f}`\n"
+                                f"📊 النتيجة: `{pnl_pct:+.2f}%` ({reason_ar})\n"
+                                f"━━━━━━━━━━━━━━━\n"
+                                f"🤖 البوت: {bot_name}"
+                            )
+                        else:
+                            reason_en = {
+                                "hit_target": "Target Hit 🎯",
+                                "hit_stop": "Stop Loss Hit 🛡️",
+                                "time_exit": "Max Hold Time Reached ⏰"
+                            }.get(exit_reason, "Exit")
+                            msg = (
+                                f"🔴 *EXIT SIGNAL*\n"
+                                f"━━━━━━━━━━━━━━━\n"
+                                f"💎 Symbol: `{symbol}`\n"
+                                f"💰 Exit Price: `{exit_price:.4f}`\n"
+                                f"📊 PnL: `{pnl_pct:+.2f}%` ({reason_en})\n"
+                                f"━━━━━━━━━━━━━━━\n"
+                                f"🤖 Bot: {bot_name}"
+                            )
+                        
+                        if channel == "whatsapp" and whatsapp_number:
+                            from api.whatsapp_service import whatsapp_service
+                            whatsapp_service.send_message(whatsapp_number, msg)
+                        elif self.telegram_bridge and telegram_chat_id:
+                            self.telegram_bridge.send_notification(msg, chat_id=telegram_chat_id)
+                else:
+                    updated_stop = stop_price
+                    trail_mode = meta.get("trail_mode", "NONE")
+                    if self.config.use_trailing:
+                        be_price = float(entry_price)
+                        lock_price = float(entry_price) * (1 + float(self.config.trail_lock_pct))
+                        if hi >= float(entry_price) * (1 + float(self.config.trail_lock_trigger_pct)) and stop_price < lock_price:
+                            updated_stop = lock_price
+                            trail_mode = "+LOCK"
+                        elif hi >= float(entry_price) * (1 + float(self.config.trail_be_pct)) and stop_price < be_price:
+                            updated_stop = be_price
+                            trail_mode = "BE"
+                    
+                    if updated_stop != stop_price or bars_held != int(pos.get("metadata", {}).get("bars_held", 0)):
+                        meta["trail_mode"] = trail_mode
+                        supabase.table("positions").update({
+                            "stop_price": updated_stop,
+                            "metadata": meta,
+                            "updated_at": datetime.now(timezone.utc).isoformat()
+                        }).eq("id", pos["id"]).execute()
+                        
+        except Exception as ex:
+            self._log(f"Error processing subscriber exits: {ex}")
+            traceback.print_exc()
+
+    def _process_subscribers_entries(self, symbol: str, bars: pd.DataFrame, price: float, king_conf: float, council_conf: Optional[float], regime: str, quality: float, subscribers_data: list):
+        """
+        Evaluate and process entries (Risk Firewall checks, position creation, Telegram message)
+        for all active subscribers when a BUY signal is generated.
+        """
+        for sub_data in subscribers_data:
+            user_id = sub_data["user_id"]
+            chat_id = sub_data["telegram_chat_id"]
+            lang = sub_data["language"]
+            
+            target_pct = sub_data["target_pct"]
+            stop_loss_pct = sub_data["stop_loss_pct"]
+            max_positions = sub_data["max_open_positions"]
+            pct_cash = sub_data["pct_cash_per_trade"]
+            
+            try:
+                pos_count_res = supabase.table("positions") \
+                    .select("id", count="exact") \
+                    .eq("user_id", user_id) \
+                    .eq("status", "open") \
+                    .execute()
+                
+                open_count = pos_count_res.count if pos_count_res.count is not None else len(pos_count_res.data or [])
+                
+                # Check if this subscriber already has an open position for this specific symbol
+                sym_pos_res = supabase.table("positions") \
+                    .select("id") \
+                    .eq("user_id", user_id) \
+                    .eq("symbol", symbol) \
+                    .eq("status", "open") \
+                    .execute()
+                
+                if sym_pos_res.data:
+                    continue
+                
+                if open_count >= max_positions:
+                    self._log(f"Subscriber {user_id} Risk Firewall: max open positions ({open_count}/{max_positions}) reached. Skipping entry.")
+                    continue
+                
+                target_price = price * (1 + target_pct / 100.0)
+                stop_price = price * (1 - stop_loss_pct / 100.0)
+                
+                meta = {
+                    "bot_id": self.bot_id,
+                    "bars_held": 0,
+                    "last_held_ts": str(bars.iloc[-1].get("timestamp") or getattr(bars.iloc[-1], "name", "")),
+                    "trail_mode": "NONE",
+                    "regime": regime,
+                    "quality_score": quality,
+                    "pct_cash_per_trade": pct_cash
+                }
+                
+                source_val = "ai_scanner" if "ai" in self.bot_id or "primary" in self.bot_id else "tech_scanner"
+                
+                new_pos = {
+                    "user_id": user_id,
+                    "symbol": symbol,
+                    "name": symbol,
+                    "source": source_val,
+                    "entry_price": price,
+                    "entry_at": datetime.now(timezone.utc).isoformat(),
+                    "target_pct": target_pct,
+                    "stop_pct": stop_loss_pct,
+                    "target_price": target_price,
+                    "stop_price": stop_price,
+                    "status": "open",
+                    "metadata": meta,
+                    "added_at": datetime.now(timezone.utc).isoformat()
+                }
+                
+                supabase.table("positions").insert(new_pos).execute()
+                self._log(f"Subscriber {user_id} entered position on {symbol} at {price:.4f} (TP={target_price:.4f}, SL={stop_price:.4f})")
+                
+                if sub_data["subscription"].get("notifications_enabled", True) is not False:
+                    bot_name = self.config.name
+                    if lang == "ar":
+                        msg = (
+                            f"🟢 *إشارة شراء جديدة*\n"
+                            f"━━━━━━━━━━━━━━━\n"
+                            f"💎 الرمز: `{symbol}`\n"
+                            f"💰 سعر الدخول: `{price:.4f}`\n"
+                            f"🎯 الهدف ({target_pct}%): `{target_price:.4f}`\n"
+                            f"🛡️ وقف الخسارة ({stop_loss_pct}%): `{stop_price:.4f}`\n"
+                            f"━━━━━━━━━━━━━━━\n"
+                            f"🤖 البوت: {bot_name}"
+                        )
+                    else:
+                        msg = (
+                            f"🟢 *NEW BUY SIGNAL*\n"
+                            f"━━━━━━━━━━━━━━━\n"
+                            f"💎 Symbol: `{symbol}`\n"
+                            f"💰 Entry Price: `{price:.4f}`\n"
+                            f"🎯 Target ({target_pct}%): `{target_price:.4f}`\n"
+                            f"🛡️ Stop Loss ({stop_loss_pct}%): `{stop_price:.4f}`\n"
+                            f"━━━━━━━━━━━━━━━\n"
+                            f"🤖 Bot: {bot_name}"
+                        )
+                    
+                    channel = sub_data.get("notification_channel", "telegram")
+                    whatsapp_number = sub_data.get("whatsapp_number")
+                    
+                    if channel == "whatsapp" and whatsapp_number:
+                        from api.whatsapp_service import whatsapp_service
+                        whatsapp_service.send_message(whatsapp_number, msg)
+                    elif self.telegram_bridge and chat_id:
+                        self.telegram_bridge.send_notification(msg, chat_id=chat_id)
+                        
+            except Exception as entry_err:
+                self._log(f"Error executing entry for subscriber {user_id} on {symbol}: {entry_err}")
+
     def _maybe_sell_position(self, symbol: str, bars: pd.DataFrame) -> bool:
         """
         Apply smart exits on the latest bar:
@@ -2596,6 +2828,26 @@ class LiveBot:
                 self._current_activity = f"--- SCAN CYCLE START ({now}) ---"
                 self._log(self._current_activity)
                 
+                # Check Schedule
+                self._current_activity = "Checking operating schedule"
+                inside_sch, sch_msg = self._is_inside_schedule()
+                if not inside_sch:
+                    self._current_activity = f"Idle: {sch_msg}"
+                    last_sch_log = getattr(self, "_last_sch_msg", None)
+                    if last_sch_log != sch_msg:
+                        self._log(f"SCHEDULE IDLE: {sch_msg}")
+                        self._last_sch_msg = sch_msg
+                    
+                    sleep_time = min(60, self.config.poll_seconds)
+                    for _ in range(sleep_time):
+                        if self._stop_event.is_set(): break
+                        time.sleep(1)
+                    continue
+                else:
+                    if getattr(self, "_last_sch_msg", None) is not None:
+                        self._log("SCHEDULE ACTIVE: Back inside operating hours")
+                        self._last_sch_msg = None
+
                 # Check Daily Limits
                 self._current_activity = "Checking daily limits"
                 can_trade, limit_msg = self._check_daily_limits()
@@ -2609,6 +2861,37 @@ class LiveBot:
                 # Sync positions first to ensure Risk Firewall is accurate
                 self._current_activity = "Syncing position state"
                 self._sync_pos_state()
+                
+                # Fetch active subscribers and profiles for this bot
+                subscribers_data = []
+                try:
+                    if supabase:
+                        sub_res = supabase.table("bot_subscriptions").select("*").eq("bot_id", self.bot_id).execute()
+                        subs = sub_res.data or []
+                        user_ids = [s["user_id"] for s in subs]
+                        if user_ids:
+                            prof_res = supabase.table("profiles").select("*").in_("id", user_ids).execute()
+                            profiles_map = {p["id"]: p for p in (prof_res.data or [])}
+                        else:
+                            profiles_map = {}
+                        
+                        for sub in subs:
+                            prof = profiles_map.get(sub["user_id"]) or {}
+                            subscribers_data.append({
+                                "subscription": sub,
+                                "profile": prof,
+                                "user_id": sub["user_id"],
+                                "target_pct": float(sub.get("target_pct") if sub.get("target_pct") is not None else (prof.get("default_target_pct") if prof.get("default_target_pct") is not None else 10.0)),
+                                "stop_loss_pct": float(sub.get("stop_loss_pct") if sub.get("stop_loss_pct") is not None else (prof.get("default_stop_pct") if prof.get("default_stop_pct") is not None else 3.5)),
+                                "max_open_positions": int(sub.get("max_open_positions") if sub.get("max_open_positions") is not None else self.config.max_open_positions),
+                                "pct_cash_per_trade": float(sub.get("pct_cash_per_trade") if sub.get("pct_cash_per_trade") is not None else self.config.pct_cash_per_trade),
+                                "telegram_chat_id": sub.get("telegram_chat_id") if sub.get("telegram_chat_id") else (prof.get("telegram_chat_id") if prof.get("telegram_chat_id") else None),
+                                "notification_channel": prof.get("notification_channel") if prof.get("notification_channel") else "telegram",
+                                "whatsapp_number": prof.get("whatsapp_number") if prof.get("whatsapp_number") else None,
+                                "language": prof.get("language", "en")
+                            })
+                except Exception as sub_err:
+                    self._log(f"Error fetching subscribers: {sub_err}")
                 
                 total_managed = len(self._pos_state)
                 at_max_capacity = total_managed >= self.config.max_open_positions
@@ -2695,6 +2978,9 @@ class LiveBot:
                         self._warmup_complete[norm_sym_warmup] = True
                         self._log(f"✅ WARM-UP COMPLETE: {symbol} has {len(bars)} bars — indicators are now stable")
 
+                    # Process subscriber exits
+                    self._process_subscribers_exits(symbol, bars)
+
                     # If a position exists, apply sell logic first using the latest bar, then skip buy logic.
                     if self._has_open_position(symbol):
                         self._current_activity = f"Evaluating EXIT for {symbol}"
@@ -2707,8 +2993,11 @@ class LiveBot:
                     if at_max_capacity:
                         continue
 
+                    # Pass only closed bars to filters/regimes/quality scores to match prediction logic
+                    closed_bars = bars.iloc[:-1].copy() if len(bars) > 1 else bars
+
                     # ── Feature 1: Market Regime Detection ──
-                    regime = self._detect_market_regime(bars)
+                    regime = self._detect_market_regime(closed_bars)
                     mode = (self.config.trading_mode or "hybrid").lower()
                     mode_ov = self._get_mode_overrides()
 
@@ -2758,7 +3047,7 @@ class LiveBot:
                         self._log(f"{symbol}: KING raw={king_conf_raw:.3f} → live={king_conf:.3f} (haircut={self.config.live_confidence_haircut:.2f})")
 
                     # ── Feature 4: RSI Divergence ──
-                    divergence_type, div_boost = self._detect_rsi_divergence(bars)
+                    divergence_type, div_boost = self._detect_rsi_divergence(closed_bars)
                     adjusted_conf = king_conf + div_boost
 
                     effective_king_thresh = adaptive_threshold + mode_ov["king_offset"]
@@ -2788,7 +3077,7 @@ class LiveBot:
                          council_conf = None
 
                     # --- Technical Filters (mode-adjusted) ---
-                    filter_ok, filter_msg = self._check_signal_filters(symbol, bars, mode_overrides=mode_ov)
+                    filter_ok, filter_msg = self._check_signal_filters(symbol, closed_bars, mode_overrides=mode_ov)
                     if not filter_ok:
                         self._log(f"FILTER REJECTED: {symbol} - {filter_msg} [mode={mode}]")
                         continue
@@ -2801,7 +3090,7 @@ class LiveBot:
                         continue
 
                     # ── Feature 9: Signal Quality Score (mode-adjusted) ──
-                    quality = self._calculate_signal_quality(king_conf, council_conf, bars, regime, divergence_type)
+                    quality = self._calculate_signal_quality(king_conf, council_conf, closed_bars, regime, divergence_type)
                     effective_quality_min = mode_ov["min_quality"]
                     if quality < effective_quality_min:
                         self._log(f"QUALITY REJECTED: {symbol} score={quality:.1f} < {effective_quality_min} [mode={mode}]")
@@ -2813,9 +3102,6 @@ class LiveBot:
                         if total_managed >= self.config.max_open_positions:
                             msg = f"⚠️ *RISK FIREWALL ALERT*\n\nLimit Reached: {total_managed}/{self.config.max_open_positions} positions.\nSkipping signal for `{symbol}`.\n\n_Increase 'Max Open Trades' in settings if you want to allow more simultaneous positions._"
                             self._log(f"RISK FIREWALL: Max positions reached ({total_managed}/{self.config.max_open_positions}). Skipping signal for {symbol}.")
-                            # [SUPPRESSED] User requested not to see firewall alerts on Telegram
-                            # if self.telegram_bridge:
-                            #     self.telegram_bridge.send_notification(msg)
                             continue
                     except Exception as e:
                         self._log(f"Error checking Risk Firewall: {e}")
@@ -2827,9 +3113,8 @@ class LiveBot:
                         continue
 
                     # Signal Confirmed -> Execute trade
-                    # FIXED: Use the CLOSED bar price (iloc[-2]) to match the prediction bar.
-                    # The current bar (iloc[-1]) is still forming and its close keeps changing.
-                    last_price = float(bars.iloc[-2]['close']) if len(bars) >= 2 else float(bars.iloc[-1]['close'])
+                    # The prediction uses iloc[-2], but execution MUST use the current live market price (iloc[-1]['close'])
+                    last_price = float(bars.iloc[-1]['close'])
                     
                     # ── SLIPPAGE BUFFER ──
                     # In reality, market orders fill at a worse price due to spread.
@@ -2900,6 +3185,10 @@ class LiveBot:
                         # TELEGRAM mode: save signal record (virtual mode saves via _buy_market)
                         self._save_signal_record(symbol, last_price, notional, king_conf, council_conf, action="BUY")
                         self._log(f"{symbol}: Telegram-Only Signal recorded. (Quality={quality:.0f}, Regime={regime})")
+
+                    # Loop over all subscribers to process entries
+                    if subscribers_data:
+                        self._process_subscribers_entries(symbol, bars, last_price, king_conf, council_conf, regime, quality, subscribers_data)
 
                     # Persist state after position change so it survives restart
                     self._save_bot_state()

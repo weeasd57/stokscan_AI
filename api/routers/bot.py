@@ -55,6 +55,11 @@ class BotConfigUpdate(BaseModel):
     telegram_chat_id: Optional[int] = None
     telegram_token: Optional[str] = None
     virtual_cash: Optional[float] = None
+    use_schedule: Optional[bool] = None
+    schedule_start_time: Optional[str] = None
+    schedule_end_time: Optional[str] = None
+    schedule_timezone: Optional[str] = None
+    schedule_days: Optional[List[int]] = None
 
 def get_bot_or_404(bot_id: str):
     """Retrieve an existing bot or raise 404. Never auto-creates."""
@@ -102,6 +107,10 @@ def list_bots(user_id: Optional[str] = None, subscribed_only: bool = False):
         is_subscribed = bid in subscriptions
         sub_chat_id = subscriptions[bid].get("telegram_chat_id") if is_subscribed else None
         sub_notifications = subscriptions[bid].get("notifications_enabled", True) if is_subscribed else True
+        sub_target = subscriptions[bid].get("target_pct") if is_subscribed else None
+        sub_stop = subscriptions[bid].get("stop_loss_pct") if is_subscribed else None
+        sub_max_positions = subscriptions[bid].get("max_open_positions") if is_subscribed else None
+        sub_cash = subscriptions[bid].get("pct_cash_per_trade") if is_subscribed else None
         
         # Filter if requested
         if subscribed_only and not is_subscribed:
@@ -138,16 +147,25 @@ def list_bots(user_id: Optional[str] = None, subscribed_only: bool = False):
             "is_subscribed": is_subscribed,
             "subscription_telegram_chat_id": sub_chat_id,
             "subscription_notifications_enabled": sub_notifications,
+            "subscription_target_pct": sub_target,
+            "subscription_stop_loss_pct": sub_stop,
+            "subscription_max_open_positions": sub_max_positions,
+            "subscription_pct_cash_per_trade": sub_cash,
             "started_at": bot._started_at,
             "timeframe": getattr(bot.config, "timeframe", "1Hour"),
-            "target_pct": getattr(bot.config, "target_pct", 0.06),
-            "stop_loss_pct": getattr(bot.config, "stop_loss_pct", 0.02),
+            "target_pct": getattr(bot.config, "target_pct", 0.10),
+            "stop_loss_pct": getattr(bot.config, "stop_loss_pct", 0.035),
             "use_council": getattr(bot.config, "use_council", True),
             "council_threshold": getattr(bot.config, "council_threshold", 0.25),
             "king_threshold": getattr(bot.config, "king_threshold", 0.85),
             "king_model_path": getattr(bot.config, "king_model_path", "api/models/KING_CRYPTO.pkl"),
             "council_model_path": getattr(bot.config, "council_model_path", "api/models/COUNCIL_CRYPTO.pkl"),
-            "trading_mode": getattr(bot.config, "trading_mode", "aggressive")
+            "trading_mode": getattr(bot.config, "trading_mode", "aggressive"),
+            "use_schedule": getattr(bot.config, "use_schedule", False),
+            "schedule_start_time": getattr(bot.config, "schedule_start_time", "10:00"),
+            "schedule_end_time": getattr(bot.config, "schedule_end_time", "14:30"),
+            "schedule_timezone": getattr(bot.config, "schedule_timezone", "Africa/Cairo"),
+            "schedule_days": getattr(bot.config, "schedule_days", [0, 1, 2, 3, 4, 5, 6]),
         })
     return {"bots": bots}
 
@@ -165,6 +183,10 @@ class SubscriptionUpdateRequest(BaseModel):
     user_id: str
     telegram_chat_id: Optional[str] = None
     notifications_enabled: Optional[bool] = None
+    target_pct: Optional[float] = None
+    stop_loss_pct: Optional[float] = None
+    max_open_positions: Optional[int] = None
+    pct_cash_per_trade: Optional[float] = None
 
 @router.post("/subscribe")
 def subscribe_to_bot(req: SubscribeRequest):
@@ -224,6 +246,14 @@ def update_subscription(req: SubscriptionUpdateRequest):
             updates["telegram_chat_id"] = req.telegram_chat_id
         if req.notifications_enabled is not None:
             updates["notifications_enabled"] = req.notifications_enabled
+        if req.target_pct is not None:
+            updates["target_pct"] = req.target_pct
+        if req.stop_loss_pct is not None:
+            updates["stop_loss_pct"] = req.stop_loss_pct
+        if req.max_open_positions is not None:
+            updates["max_open_positions"] = req.max_open_positions
+        if req.pct_cash_per_trade is not None:
+            updates["pct_cash_per_trade"] = req.pct_cash_per_trade
             
         if not updates:
             return {"status": "no_change"}
@@ -337,8 +367,8 @@ def save_live_bot_history_to_backtest(bot):
                         pnl_pct = (sell_price - buy_price) / buy_price
                     
                     result = "TIME EXIT"
-                    target_pct = float(getattr(bot.config, "target_pct", 0.06) or 0.06)
-                    stop_loss_pct = float(getattr(bot.config, "stop_loss_pct", 0.02) or 0.02)
+                    target_pct = float(getattr(bot.config, "target_pct", 0.10) or 0.10)
+                    stop_loss_pct = float(getattr(bot.config, "stop_loss_pct", 0.035) or 0.035)
                     
                     if pnl_pct >= target_pct - 0.005:
                         result = "TARGET HIT 🎯"
@@ -393,8 +423,8 @@ def save_live_bot_history_to_backtest(bot):
             "is_public": True,
             "meta_threshold": getattr(bot.config, "king_threshold", 0.85),
             "council_threshold": getattr(bot.config, "council_threshold", 0.25),
-            "target_pct": getattr(bot.config, "target_pct", 0.06),
-            "stop_loss_pct": getattr(bot.config, "stop_loss_pct", 0.02),
+            "target_pct": getattr(bot.config, "target_pct", 0.10),
+            "stop_loss_pct": getattr(bot.config, "stop_loss_pct", 0.035),
             "capital": getattr(bot.config, "virtual_cash", 10000.0)
         }
 
@@ -1546,3 +1576,13 @@ def crypto_delete_bars(req: CryptoDeleteBarsRequest):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/telegram/bot_username")
+def get_telegram_bot_username():
+    """Returns the username of the linked Telegram bot."""
+    import os
+    bridge = bot_manager._telegram_bridge if hasattr(bot_manager, "_telegram_bridge") else None
+    username = getattr(bridge, "bot_username", None)
+    if not username:
+        username = os.getenv("TELEGRAM_BOT_USERNAME") or "egxbots_bot"
+    return {"username": username}

@@ -257,7 +257,10 @@ export default function LiveCandleChart({
 
         const handleResize = () => {
             if (chartContainerRef.current && chartRef.current) {
-                chartRef.current.applyOptions({ width: chartContainerRef.current.clientWidth });
+                const w = chartContainerRef.current.clientWidth;
+                if (w > 0) {
+                    chartRef.current.applyOptions({ width: w });
+                }
             }
         };
 
@@ -322,7 +325,7 @@ export default function LiveCandleChart({
                     </div>
                 )}
 
-                <div ref={chartContainerRef} className="w-full h-full" />
+                <div ref={chartContainerRef} className="absolute inset-0" />
             </div>
 
             {/* Legend / Overlay */}

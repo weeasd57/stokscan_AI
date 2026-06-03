@@ -293,13 +293,15 @@ export async function searchSymbols(
   country?: string,
   limit: number = 50,
   signal?: AbortSignal,
-  source?: "supabase" | "local"
+  source?: "supabase" | "local",
+  exchange?: string
 ): Promise<SymbolResult[]> {
   const baseUrl = GLOBAL_BASE_URL;
 
   const params = new URLSearchParams({ q: query, limit: String(limit) });
   if (country) params.set("country", country);
   if (source) params.set("source", source);
+  if (exchange) params.set("exchange", exchange);
 
   async function doFetch(url: string) {
     return await fetch(url, { cache: "no-store", signal });
@@ -770,10 +772,14 @@ export async function evaluateScan(scanId: string): Promise<{ count: number; mes
   return await response.json();
 }
 
-export async function getBacktests(model?: string): Promise<any[]> {
+export async function getBacktests(model?: string, admin: boolean = false): Promise<any[]> {
   // Prefer same-origin `/api` proxy on Vercel. If NEXT_PUBLIC_API_BASE_URL is set, use it as-is.
   const baseUrl = GLOBAL_BASE_URL || "/api";
-  const url = model ? `${baseUrl}/backtests?model=${encodeURIComponent(model)}` : `${baseUrl}/backtests`;
+  const params = new URLSearchParams();
+  if (model) params.append("model", model);
+  if (admin) params.append("admin", "true");
+  const queryStr = params.toString();
+  const url = queryStr ? `${baseUrl}/backtests?${queryStr}` : `${baseUrl}/backtests`;
   const response = await fetch(url);
   if (!response.ok) throw new Error("Failed to fetch backtests");
   return await response.json();
@@ -977,5 +983,126 @@ export async function toggleTechnicalAlert(id: string, isActive: boolean): Promi
   });
   if (!response.ok) throw new Error("Failed to toggle alert status");
   return response.json();
+}
+
+export async function getStockFundamentals(ticker: string): Promise<any> {
+  try {
+    const res = await fetch(`/api/admin/fundamentals/${encodeURIComponent(ticker)}`, { cache: "no-store" });
+    if (!res.ok) return null;
+    const result = await res.json();
+    return result.data || null;
+  } catch (err) {
+    console.error("Failed to load stock fundamentals:", err);
+    return null;
+  }
+}
+
+// ── Strategy Tester ───────────────────────────────────────────────────────────
+
+export type StrategyTesterBar = {
+  time: number;   // unix timestamp
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+};
+
+export type StrategyTesterTrade = {
+  Date: string;
+  Entry_Date: string;
+  Exit_Date: string;
+  Entry: number;
+  Exit: number;
+  PnL_Pct: number;
+  Result: string;
+  Score: number;
+  Radar_Score: number;
+  Days_Held: number;
+  Status: string;
+};
+
+export type StrategyTesterModelResult = {
+  trades: StrategyTesterTrade[];
+  stats: Record<string, any>;
+  error?: string;
+};
+
+export type StrategyTesterResponse = {
+  symbol: string;
+  exchange: string;
+  start_date: string;
+  end_date: string;
+  bars: StrategyTesterBar[];
+  total_bars: number;
+  models: Record<string, StrategyTesterModelResult>;
+  config: {
+    threshold: number;
+    target_pct: number;
+    stop_loss_pct: number;
+    hold_days: number;
+    bot_mode: string;
+    capital: number;
+  };
+};
+
+export type ApiBotConfig = {
+  id: string;
+  model_name: string;
+  target_pct: number;
+  stop_loss_pct: number;
+  hold_days: number;
+  threshold: number;
+  bot_mode: string;
+};
+
+export async function runStrategyTest(params: {
+  symbol: string;
+  exchange?: string;
+  start_date: string;
+  end_date?: string;
+  models?: string[];
+  target_pct?: number;
+  stop_loss_pct?: number;
+  hold_days?: number;
+  threshold?: number;
+  capital?: number;
+  bot_mode?: string;
+  bots?: ApiBotConfig[];
+}, signal?: AbortSignal): Promise<StrategyTesterResponse> {
+  const baseUrl = getProductionApiUrl();
+  const url = baseUrl ? `${baseUrl}/backtest/simulate` : `/api/backtest/simulate`;
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      symbol: params.symbol,
+      exchange: params.exchange ?? "EGX",
+      start_date: params.start_date,
+      end_date: params.end_date ?? null,
+      models: params.models ?? [],
+      target_pct: params.target_pct ?? 0.10,
+      stop_loss_pct: params.stop_loss_pct ?? 0.05,
+      hold_days: params.hold_days ?? 20,
+      threshold: params.threshold ?? 0.45,
+      capital: params.capital ?? 100000,
+      bot_mode: params.bot_mode ?? "normal",
+      bots: params.bots ?? null,
+    }),
+    cache: "no-store",
+    signal,
+  });
+
+  if (!res.ok) {
+    let msg = `Strategy test failed (${res.status})`;
+    try {
+      const data = await res.json() as { detail?: string };
+      if (data?.detail) msg = typeof data.detail === "string" ? data.detail : JSON.stringify(data.detail);
+    } catch { /* ignore */ }
+    throw new Error(msg);
+  }
+
+  return res.json() as Promise<StrategyTesterResponse>;
 }
 

@@ -3,7 +3,6 @@ import type { ReactNode } from "react";
 import Providers from "@/app/providers";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
-import ChatWidget from "@/components/ChatWidget";
 
 export const metadata = {
   title: "EGX Bots",
@@ -30,10 +29,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" dir="ltr">
-      <body className="bg-zinc-950 text-zinc-50 antialiased selection:bg-blue-500/30 pt-32">
+      <body className="bg-zinc-950 text-zinc-50 antialiased selection:bg-blue-500/30">
         <Providers>
           <Header />
-          <main className="w-full pb-12 px-6 md:px-8 mx-auto max-w-[1800px]">
+          <main id="main-content" className="w-full pb-12 px-3 sm:px-6 md:px-8 mx-auto max-w-[1800px]">
             {children}
           </main>
           <Footer />

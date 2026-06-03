@@ -108,7 +108,7 @@ _local_training_lock = threading.RLock()
 
 
 
-def list_local_models() -> List[str]:
+def get_local_model_filenames() -> List[str]:
     base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     models_dir = os.path.join(base_dir, "models")
     if not os.path.exists(models_dir):
@@ -220,8 +220,8 @@ def set_config(cfg: ConfigUpdate):
     if cfg.scanDays is not None: current["scanDays"] = cfg.scanDays
     _save_config(current)
     try:
-        from api.routers.admin import list_local_models as _list_local
-        all_models = _list_local()
+        from api.routers.admin import get_local_model_filenames
+        all_models = get_local_model_filenames()
         sync_data = [{"filename": m, "display_name": current.get("modelAliases", {}).get(m, m.replace(".pkl", "")), "is_enabled": m in current.get("enabledModels", []), "updated_at": datetime.now().isoformat()} for m in all_models if isinstance(m, str)]
         if sync_data: _supabase_upsert_with_retry("public_models_config", sync_data)
     except Exception as e: print(f"Supabase scan_config sync failed: {e}")
@@ -1551,6 +1551,14 @@ async def trigger_cron(req: CronTriggerRequest, background_tasks: BackgroundTask
     background_tasks.add_task(_cron_worker, req.action, req.exchange)
     return {"status": "success", "message": f"Cron action {req.action} started for {req.exchange or 'all exchanges'}"}
 
+# Global in-memory cache for model metadata
+# Key: absolute path of the model file
+# Value: dict containing:
+#   "mtime": float,
+#   "size": int,
+#   "metadata": dict
+MODEL_METADATA_CACHE = {}
+
 @router.get("/models/list")
 def list_local_models():
     """List local model files from api/models directory, with optional metadata.
@@ -1625,12 +1633,48 @@ def list_local_models():
                 "type": "pkl",
             }
 
+            # Check cache
+            cache_key = filepath
+            mtime = stat.st_mtime
+            cached = MODEL_METADATA_CACHE.get(cache_key)
+            if cached and cached.get("mtime") == mtime and cached.get("size") == size_bytes:
+                info.update(cached.get("metadata", {}))
+                models.append(info)
+                continue
+
             # Best-effort metadata extraction
             model = None
             if is_pkl and pickle is not None and (not is_training):
                 try:
-                    with open(filepath, "rb") as f:
-                        model = pickle.load(f)
+                    # Optimize: if model_card.json exists, load it instead of the heavy pickle file
+                    card_path = filepath + ".model_card.json"
+                    if os.path.exists(card_path):
+                        with open(card_path, "r", encoding="utf-8") as f:
+                            card_data = json.load(f)
+                        # Build a mock model dict to feed the rest of the parsing logic
+                        if card_data.get("artifact_kind") == "meta_labeling_system":
+                            preset = card_data.get("feature_preset")
+                            feat_count = 8 if preset == "core" else (26 if preset == "extended" else (36 if preset == "max" else 0))
+                            model = {
+                                "primary_model": {
+                                    "exchange": card_data.get("exchange"),
+                                    "featurePreset": preset,
+                                    "trainingSamples": card_data.get("training", {}).get("training_samples"),
+                                    "learning_rate": card_data.get("training", {}).get("learning_rate"),
+                                    "target_pct": card_data.get("training", {}).get("target_pct"),
+                                    "stop_loss_pct": card_data.get("training", {}).get("stop_loss_pct"),
+                                    "look_forward_days": card_data.get("training", {}).get("look_forward_days"),
+                                    "feature_names": ["dummy"] * feat_count if feat_count > 0 else None,
+                                },
+                                "meta_model": True,
+                                "meta_threshold": card_data.get("capabilities", {}).get("meta_threshold"),
+                                "training_stats": card_data.get("training", {}).get("metrics", {})
+                            }
+                        else:
+                            model = card_data # Best effort
+                    else:
+                        with open(filepath, "rb") as f:
+                            model = pickle.load(f)
                 except Exception:
                     pass
             elif is_card:
@@ -1639,15 +1683,18 @@ def list_local_models():
                         card_data = json.load(f)
                         # Build a mock model dict to feed the rest of the parsing logic
                         if card_data.get("artifact_kind") == "meta_labeling_system":
+                            preset = card_data.get("feature_preset")
+                            feat_count = 8 if preset == "core" else (26 if preset == "extended" else (36 if preset == "max" else 0))
                             model = {
                                 "primary_model": {
                                     "exchange": card_data.get("exchange"),
-                                    "featurePreset": card_data.get("feature_preset"),
+                                    "featurePreset": preset,
                                     "trainingSamples": card_data.get("training", {}).get("training_samples"),
                                     "learning_rate": card_data.get("training", {}).get("learning_rate"),
                                     "target_pct": card_data.get("training", {}).get("target_pct"),
                                     "stop_loss_pct": card_data.get("training", {}).get("stop_loss_pct"),
                                     "look_forward_days": card_data.get("training", {}).get("look_forward_days"),
+                                    "feature_names": ["dummy"] * feat_count if feat_count > 0 else None,
                                 },
                                 "meta_model": True,
                                 "meta_threshold": card_data.get("capabilities", {}).get("meta_threshold"),
@@ -1657,7 +1704,7 @@ def list_local_models():
                             model = card_data # Best effort
                 except Exception:
                     pass
-            
+
             if model is not None:
                 try:
 
@@ -1801,6 +1848,12 @@ def list_local_models():
                         info["look_forward_days"] = model.get("look_forward_days")
 
                         # Done; avoid deeper inspection
+                        metadata_to_cache = {k: v for k, v in info.items() if k not in ("name", "size_bytes", "size_mb", "created_at", "modified_at", "type")}
+                        MODEL_METADATA_CACHE[cache_key] = {
+                            "mtime": mtime,
+                            "size": size_bytes,
+                            "metadata": metadata_to_cache
+                        }
                         models.append(info)
                         continue
 
@@ -1817,7 +1870,6 @@ def list_local_models():
                     # theoretical parameters, but a relative measure of model capacity so that
                     # models with different n_estimators show different sizes in the UI.
                     num_params = getattr(model, "n_parameters_", None)
-
                     if isinstance(num_params, (int, float)):
                         # Some estimators expose an explicit parameter count
                         info["num_parameters"] = int(num_params)
@@ -1905,6 +1957,14 @@ def list_local_models():
                                     info[m] = metrics[m]
             except Exception as card_err:
                 print(f"Warning: failed to read model card for {filename}: {card_err}")
+
+            # Cache the extracted metadata fields
+            metadata_to_cache = {k: v for k, v in info.items() if k not in ("name", "size_bytes", "size_mb", "created_at", "modified_at", "type")}
+            MODEL_METADATA_CACHE[cache_key] = {
+                "mtime": mtime,
+                "size": size_bytes,
+                "metadata": metadata_to_cache
+            }
 
             models.append(info)
 

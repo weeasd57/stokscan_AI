@@ -35,8 +35,14 @@ create table if not exists public.profiles (
   display_name text,
   avatar_url text,
   language text default 'en' check (language in ('en','ar')),
-  default_target_pct numeric(6,2) not null default 5.00,
-  default_stop_pct numeric(6,2) not null default 2.00,
+  default_target_pct numeric(6,2) not null default 10.00,
+  default_stop_pct numeric(6,2) not null default 3.50,
+  telegram_chat_id text,
+  whatsapp_number text,
+  notification_channel text default 'telegram',
+  custom_ai_rules text,
+  gemini_api_key text,
+  openrouter_api_key text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );

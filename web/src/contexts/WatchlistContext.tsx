@@ -37,8 +37,8 @@ export const WatchlistProvider = ({ children }: { children: ReactNode }) => {
 
     // Modal state for target/stop input
     const [pendingItem, setPendingItem] = useState<Omit<SavedSymbol, "id" | "addedAt"> | null>(null);
-    const [defaultTarget, setDefaultTarget] = useState(5);
-    const [defaultStop, setDefaultStop] = useState(2);
+    const [defaultTarget, setDefaultTarget] = useState(10);
+    const [defaultStop, setDefaultStop] = useState(3.5);
 
     // Refs to prevent redundant API calls
     const hasInitializedRef = useRef(false);
@@ -95,8 +95,8 @@ export const WatchlistProvider = ({ children }: { children: ReactNode }) => {
                     new Map(local.filter((i) => i?.symbol).map((i) => [String(i.symbol).toUpperCase(), i] as const)).values()
                 );
 
-                const defaultTarget = Number(profile?.default_target_pct ?? 5);
-                const defaultStop = Number(profile?.default_stop_pct ?? 2);
+                const defaultTarget = Number(profile?.default_target_pct ?? 10);
+                const defaultStop = Number(profile?.default_stop_pct ?? 3.5);
 
                 const rows = uniqueLocal
                     .filter((i) => i?.symbol && !existingSymbols.has(String(i.symbol).toUpperCase()))
@@ -192,8 +192,8 @@ export const WatchlistProvider = ({ children }: { children: ReactNode }) => {
             .eq("id", user.id)
             .maybeSingle();
 
-        const suggestedTarget = Number((item as any).targetPct ?? profile?.default_target_pct ?? 5);
-        const suggestedStop = Number((item as any).stopPct ?? profile?.default_stop_pct ?? 2);
+        const suggestedTarget = Number((item as any).targetPct ?? profile?.default_target_pct ?? 10);
+        const suggestedStop = Number((item as any).stopPct ?? profile?.default_stop_pct ?? 3.5);
 
         setDefaultTarget(suggestedTarget);
         setDefaultStop(suggestedStop);

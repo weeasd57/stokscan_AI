@@ -28,6 +28,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from api.stock_ai import _get_exchange_bulk_data, _get_exchange_bulk_intraday_data, _MetaLabelingClassifier
 from api.train_exchange_model import add_massive_features
+from api.strategy_engine import StrategyEngine
 
 warnings.filterwarnings("ignore")
 
@@ -242,6 +243,20 @@ def run_radar_simulation(
     validator_threshold: float | None = None,
     target_pct_override: float | None = None,
     stop_loss_pct_override: float | None = None,
+    min_volume_ratio: float = 0.3,
+    use_rsi_filter: bool = True,
+    use_trend_filter: bool = False,
+    use_market_regime: bool = True,
+    regime_adx_threshold: float = 14.0,
+    use_smart_exit: bool = True,
+    smart_exit_rsi_threshold: float = 40.0,
+    smart_exit_volume_spike: float = 3.0,
+    trading_mode: str = "hybrid",
+    use_atr_exits: bool = True,
+    atr_sl_multiplier: float = 1.5,
+    atr_tp_multiplier: float = 2.5,
+    atr_period: int = 14,
+    exit_mode: str = "hybrid"
 ):
     """
     Simulation of Radar: Base Model Detector -> Meta Model Confirmation.
@@ -307,6 +322,16 @@ def run_radar_simulation(
         TARGET_PCT = target_pct_override
     if stop_loss_pct_override is not None and stop_loss_pct_override > 0:
         STOP_LOSS_PCT = stop_loss_pct_override
+
+    # If target or stop loss look like ATR multipliers (expected >= 1.0),
+    # map them to ATR multipliers and set manual percentage defaults.
+    if TARGET_PCT >= 1.0:
+        atr_tp_multiplier = TARGET_PCT
+        TARGET_PCT = 0.10
+        
+    if STOP_LOSS_PCT >= 1.0:
+        atr_sl_multiplier = STOP_LOSS_PCT
+        STOP_LOSS_PCT = 0.05
 
     def _position_size_multiplier(score: float | None) -> float:
         """
@@ -657,14 +682,55 @@ def run_radar_simulation(
                 entry_dt = pd.to_datetime(entry_date).tz_localize(None)
             except Exception:
                 entry_dt = None
-
             if sim_start_dt is not None and entry_dt is not None and entry_dt < sim_start_dt:
                 continue
             if sim_end_dt is not None and entry_dt is not None and entry_dt > sim_end_dt:
                 continue
+
+            # Centralized Bot Logic: 1. Market Regime Check
+            history_slice = df.iloc[max(0, i - 100):i + 1].copy()
+            history_slice.columns = [c.lower() for c in history_slice.columns]
             
-            take_profit = entry_price * (1 + TARGET_PCT)
-            stop_loss = entry_price * (1 - STOP_LOSS_PCT)
+            regime = StrategyEngine.detect_market_regime(
+                bars=history_slice,
+                use_market_regime=use_market_regime,
+                regime_adx_threshold=regime_adx_threshold
+            )
+            
+            if regime == "BEAR" and trading_mode.lower() != "aggressive":
+                continue
+
+            # Centralized Bot Logic: 2. Technical Filters Check
+            filters_passed, filter_msg = StrategyEngine.check_technical_filters(
+                bars=history_slice,
+                min_volume_ratio=min_volume_ratio,
+                use_trend_filter=use_trend_filter,
+                use_rsi_filter=use_rsi_filter,
+                mode_overrides={"skip_trend_filter": trading_mode.lower() == "aggressive"}
+            )
+            if not filters_passed:
+                continue
+
+            # Position sizing multiplier based on regime
+            regime_size_mult = 1.0
+            if regime == "SIDEWAYS":
+                regime_size_mult = 0.7 if trading_mode.lower() == "aggressive" else 0.5
+            elif regime == "BEAR" and trading_mode.lower() == "aggressive":
+                regime_size_mult = 0.3
+
+            # Calculate dynamic ATR exits
+            take_profit, stop_loss = StrategyEngine.calculate_atr_exits(
+                bars=history_slice,
+                entry_price=entry_price,
+                target_pct=TARGET_PCT,
+                stop_loss_pct=STOP_LOSS_PCT,
+                use_atr_exits=use_atr_exits,
+                atr_sl_multiplier=atr_sl_multiplier,
+                atr_tp_multiplier=atr_tp_multiplier,
+                atr_period=atr_period,
+                exit_mode=exit_mode
+            )
+            
             current_stop = float(stop_loss)
             trail_mode = "NONE"
             
@@ -695,9 +761,29 @@ def run_radar_simulation(
 
                 if hi >= take_profit:
                     outcome = "TARGET HIT 🎯"
-                    pnl_pct = TARGET_PCT
+                    pnl_pct = (take_profit - entry_price) / entry_price
                     exit_date = dates[idx]
                     exit_price = take_profit
+                    exit_idx = idx
+                    break
+
+                # Smart Exit Check at the end of the bar (close)
+                fwd_history = df.iloc[max(0, idx - 100):idx + 1].copy()
+                fwd_history.columns = [c.lower() for c in fwd_history.columns]
+                curr_price = float(closes[idx])
+                should_smart_exit, smart_reason = StrategyEngine.check_smart_exit(
+                    bars=fwd_history,
+                    entry_price=entry_price,
+                    current_price=curr_price,
+                    use_smart_exit=use_smart_exit,
+                    rsi_threshold=smart_exit_rsi_threshold,
+                    volume_spike_multiplier=smart_exit_volume_spike
+                )
+                if should_smart_exit:
+                    outcome = smart_reason
+                    pnl_pct = (curr_price - entry_price) / entry_price
+                    exit_date = dates[idx]
+                    exit_price = curr_price
                     exit_idx = idx
                     break
 
@@ -745,10 +831,11 @@ def run_radar_simulation(
                 "Radar_Score": round(float(radar_score), 4),
                 "Validator_Score": (round(float(validator_score), 4) if validator_score is not None else None),
                 "Sizing_Score": round(float(sizing_score), 4),
-                "Size_Multiplier": float(size_mult),
+                "Size_Multiplier": float(size_mult) * regime_size_mult,
                 "Fund_Score": (float(fs) if fs is not None else None),
                 "Result": outcome,
                 "PnL_Pct": float(pnl_pct),
+                "Regime": regime,
                 "Status": "Accepted" if passes_council else "Rejected",
                 "Votes": {m: round(float(v[i]), 2) for m, v in detailed_votes.items()}
             }
@@ -758,7 +845,7 @@ def run_radar_simulation(
 
             # Non-compounding: assume fixed allocation of 10% capital per trade
             # This matches the calculation in main() for consistency
-            trade_pnl_cash = (capital * 0.1) * pnl_pct
+            trade_pnl_cash = (capital * 0.1) * pnl_pct * regime_size_mult
 
             # Track pre-council (all radar signals)
             balance_pre += trade_pnl_cash
@@ -771,8 +858,6 @@ def run_radar_simulation(
                 trade_log.append({**trade_data, "Balance": float(balance_post)})
             else:
                 # Still add it to a "global log" if we want to show rejected trades in dialog
-                # Let's decide if trade_log should contain ALL trades with a status field
-                # High complexity UI: yes, all trades.
                 trade_log.append({**trade_data, "Balance": float(balance_post)})
 
     # Calculate metrics for both phases
@@ -782,7 +867,6 @@ def run_radar_simulation(
         
         # If ignore_status is True, we treat all trades as Valid candidates (Pre-Council view)
         # If False, we respect the 'Status' field (Post-Council view)
-        
         if ignore_status:
             relevant_trades = trades_list
         else:
@@ -852,6 +936,23 @@ def main():
     parser.add_argument("--quiet", "-q", action="store_true", help="Suppress verbose debug output")
     parser.add_argument("--no-trades-json", action="store_true", help="Do not print trades JSON to stdout")
     parser.add_argument("--crypto-filters", default=None, help="Comma-separated quote currency filters for crypto (e.g. USD,USDT,USDC)")
+    
+    # Centralized Bot Settings CLI
+    parser.add_argument("--min-volume-ratio", type=float, default=0.3)
+    parser.add_argument("--no-rsi-filter", action="store_true", help="Disable RSI filter")
+    parser.add_argument("--use-trend-filter", action="store_true", help="Enable SMA20 trend filter")
+    parser.add_argument("--no-market-regime", action="store_true", help="Disable market regime detection")
+    parser.add_argument("--regime-adx-threshold", type=float, default=14.0)
+    parser.add_argument("--no-smart-exit", action="store_true", help="Disable smart exit")
+    parser.add_argument("--smart-exit-rsi", type=float, default=40.0)
+    parser.add_argument("--smart-exit-vol", type=float, default=3.0)
+    parser.add_argument("--trading-mode", default="hybrid", choices=["hybrid", "aggressive"])
+    parser.add_argument("--no-atr-exits", action="store_true", help="Disable ATR-based exits")
+    parser.add_argument("--atr-sl-mult", type=float, default=1.5)
+    parser.add_argument("--atr-tp-mult", type=float, default=2.5)
+    parser.add_argument("--atr-period", type=int, default=14)
+    parser.add_argument("--exit-mode", default="hybrid")
+    
     args = parser.parse_args()
 
     # Always include a buffer window before the selected start date
@@ -1177,6 +1278,20 @@ def main():
                 target_pct_override=args.target_pct,
                 stop_loss_pct_override=args.stop_loss_pct,
                 capital=args.capital,
+                min_volume_ratio=args.min_volume_ratio,
+                use_rsi_filter=not args.no_rsi_filter,
+                use_trend_filter=args.use_trend_filter,
+                use_market_regime=not args.no_market_regime,
+                regime_adx_threshold=args.regime_adx_threshold,
+                use_smart_exit=not args.no_smart_exit,
+                smart_exit_rsi_threshold=args.smart_exit_rsi,
+                smart_exit_volume_spike=args.smart_exit_vol,
+                trading_mode=args.trading_mode,
+                use_atr_exits=not args.no_atr_exits,
+                atr_sl_multiplier=args.atr_sl_mult,
+                atr_tp_multiplier=args.atr_tp_mult,
+                atr_period=args.atr_period,
+                exit_mode=args.exit_mode,
             ) 
             
             if isinstance(res, dict) and res:

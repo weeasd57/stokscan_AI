@@ -4,11 +4,13 @@ import { useMemo, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
+import { useLanguage } from "@/contexts/LanguageContext";
 import { Eye, EyeOff } from "lucide-react";
 
 export default function LoginPage() {
   const router = useRouter();
   const { signIn, user, loading } = useAuth();
+  const { t } = useLanguage();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -44,25 +46,25 @@ export default function LoginPage() {
   return (
     <div className="mx-auto max-w-md">
       <div className="rounded-2xl border border-zinc-800 bg-zinc-950 p-6">
-        <h1 className="text-2xl font-semibold text-zinc-100">Login</h1>
-        <p className="mt-1 text-sm text-zinc-400">Sign in to sync your watchlist and settings.</p>
+        <h1 className="text-2xl font-semibold text-zinc-100">{t("auth.login.title")}</h1>
+        <p className="mt-1 text-sm text-zinc-400">{t("auth.login.subtitle")}</p>
 
         <form onSubmit={onSubmit} className="mt-6 space-y-4">
           <div className="space-y-1">
-            <label className="text-xs font-medium text-zinc-400">Email</label>
+            <label className="text-xs font-medium text-zinc-400">{t("auth.email")}</label>
             <input
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               type="email"
               autoComplete="email"
               className="h-10 w-full rounded-lg border border-zinc-800 bg-zinc-900 px-3 text-sm text-zinc-100 outline-none focus:border-indigo-500"
-              placeholder="you@example.com"
+              placeholder={t("auth.email_placeholder")}
               required
             />
           </div>
 
           <div className="space-y-1">
-            <label className="text-xs font-medium text-zinc-400">Password</label>
+            <label className="text-xs font-medium text-zinc-400">{t("auth.password")}</label>
             <div className="relative">
               <input
                 value={password}
@@ -90,14 +92,14 @@ export default function LoginPage() {
             disabled={!canSubmit}
             className="h-10 w-full rounded-lg bg-indigo-600 text-sm font-semibold text-white hover:bg-indigo-500 disabled:opacity-50 disabled:hover:bg-indigo-600"
           >
-            {submitting ? "Signing in..." : "Sign in"}
+            {submitting ? t("auth.signingin_btn") : t("auth.signin_btn")}
           </button>
         </form>
 
         <div className="mt-4 text-xs text-zinc-500">
-          Don&apos;t have an account?{" "}
+          {t("auth.login.no_account")}{" "}
           <Link href="/signup" className="text-indigo-400 hover:text-indigo-300">
-            Create one
+            {t("auth.login.create_one")}
           </Link>
         </div>
       </div>
