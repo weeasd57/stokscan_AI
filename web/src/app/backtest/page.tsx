@@ -801,8 +801,13 @@ function StrategyTesterContent() {
     hasResultRef.current = false;
     setBars([]);
     setAllTrades([]);
+    tradesRef.current = [];          // ← مسح فوري للـ ref قبل أي API call
     setModelStats({});
     setSelectedBotFilter("all");
+    // Clear chart markers immediately to prevent stale arrows from prev run
+    if (candleSeriesRef.current) {
+      candleSeriesRef.current.setMarkers([]);
+    }
 
     try {
       const result = await runStrategyTest({
@@ -877,13 +882,22 @@ function StrategyTesterContent() {
       setHasResult(true);
       hasResultRef.current = true;
 
-      // Show first bar and stop
-      setCurrentBarIndex(0);
+      // Jump to last bar so all trade markers are visible immediately
+      const lastBarIdx = loadedBars.length - 1;
+      setCurrentBarIndex(lastBarIdx);
       if (candleSeriesRef.current) {
-        candleSeriesRef.current.setData([]);
+        candleSeriesRef.current.setData(
+          loadedBars.map((b) => ({
+            time: b.time as UTCTimestamp,
+            open: b.open,
+            high: b.high,
+            low: b.low,
+            close: b.close,
+          }))
+        );
         candleSeriesRef.current.setMarkers([]);
       }
-      updateChart(0);
+      updateChart(lastBarIdx);
     } catch (e: any) {
       setError(e?.message || "فشل تشغيل الاختبار");
     } finally {
