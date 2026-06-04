@@ -69,6 +69,7 @@ export default function TradingViewChart({
     const mainContainerRef = useRef<HTMLDivElement>(null);
     const priceContainerRef = useRef<HTMLDivElement>(null);
     const paneContainersRef = useRef<Map<string, HTMLDivElement>>(new Map());
+    const activeChartIdRef = useRef<string | null>(null);
 
     // States
     const [candlesData, setCandlesData] = useState<Candle[]>([]);
@@ -498,13 +499,29 @@ export default function TradingViewChart({
         });
 
         // Sync visual timescales across active pane charts
-        let isSyncing = false;
         if (activeCharts.length >= 1) {
             const totalBars = candlesData.length;
+            
+            // Helper to get chart ID
+            const getChartId = (chart: IChartApi) => {
+                if (chart === priceChart) return "price";
+                for (const [id, lowerChart] of chartRefs.current.lowerCharts.entries()) {
+                    if (lowerChart === chart) return id;
+                }
+                return null;
+            };
+
             for (let i = 0; i < activeCharts.length; i++) {
                 const chartA = activeCharts[i];
+                const chartAId = getChartId(chartA);
+
                 chartA.timeScale().subscribeVisibleLogicalRangeChange((range) => {
-                    if (isSyncing || !range) return;
+                    if (!range) return;
+                    
+                    // Only sync if the range change is originating from the chart currently being hovered/touched
+                    if (activeChartIdRef.current !== chartAId) {
+                        return;
+                    }
                     
                     let from = range.from;
                     let to = range.to;
@@ -525,7 +542,6 @@ export default function TradingViewChart({
                         needsClamping = true;
                     }
                     
-                    isSyncing = true;
                     const targetRange = needsClamping ? { from, to } : range;
                     for (let j = 0; j < activeCharts.length; j++) {
                         if (needsClamping || i !== j) {
@@ -536,7 +552,6 @@ export default function TradingViewChart({
                             }
                         }
                     }
-                    isSyncing = false;
                 });
             }
         }
@@ -1011,7 +1026,12 @@ export default function TradingViewChart({
             {/* Containers for Price and Lower Pane charts */}
             <div className="flex-1 flex flex-col min-h-0 bg-[#131722] p-1 overflow-hidden">
                 {/* 1. Candlestick Chart */}
-                <div ref={priceContainerRef} className="flex-1 w-full min-h-0 overflow-hidden" />
+                <div 
+                    ref={priceContainerRef} 
+                    className="flex-1 w-full min-h-0 overflow-hidden" 
+                    onMouseEnter={() => { activeChartIdRef.current = "price"; }}
+                    onTouchStart={() => { activeChartIdRef.current = "price"; }}
+                />
 
                 {/* Dynamic Lower Panes */}
                 {lowerPaneIndicators.map((ind) => (
@@ -1059,6 +1079,8 @@ export default function TradingViewChart({
                                 }
                             }} 
                             className="w-full h-full overflow-hidden" 
+                            onMouseEnter={() => { activeChartIdRef.current = ind.id; }}
+                            onTouchStart={() => { activeChartIdRef.current = ind.id; }}
                         />
                     </div>
                 ))}
