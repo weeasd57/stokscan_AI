@@ -242,6 +242,11 @@ async def scan_technical(
             if not tech:
                 continue
 
+            # Skip symbols with missing/null key technical indicators (like RSI or close)
+            # because they don't have enough active historical price data.
+            if tech.get("rsi_14") is None or tech.get("close") is None:
+                continue
+
             close = _safe_float(tech.get("close"))
             rsi = _safe_float(tech.get("rsi_14"))
             ema50 = _safe_float(tech.get("ema_50"))
