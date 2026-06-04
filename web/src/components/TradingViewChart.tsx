@@ -529,7 +529,11 @@ export default function TradingViewChart({
                     const targetRange = needsClamping ? { from, to } : range;
                     for (let j = 0; j < activeCharts.length; j++) {
                         if (needsClamping || i !== j) {
-                            activeCharts[j].timeScale().setVisibleLogicalRange(targetRange);
+                            const targetChart = activeCharts[j];
+                            const currentRange = targetChart.timeScale().getVisibleLogicalRange();
+                            if (!currentRange || Math.abs(currentRange.from - targetRange.from) > 0.01 || Math.abs(currentRange.to - targetRange.to) > 0.01) {
+                                targetChart.timeScale().setVisibleLogicalRange(targetRange);
+                            }
                         }
                     }
                     isSyncing = false;
@@ -976,9 +980,9 @@ export default function TradingViewChart({
             </div>
 
             {/* TradingView Legend Active Indicators Widget (Top-Left overlay) */}
-            <div className="absolute top-24 left-4 z-20 flex flex-col gap-1.5 pointer-events-auto max-h-[40%] overflow-y-auto no-scrollbar">
+            <div className="absolute top-24 left-4 z-20 flex flex-col gap-1.5 pointer-events-none max-h-[40%] overflow-y-auto no-scrollbar">
                 {activeIndicators.map(ind => (
-                    <div key={ind.id} className="flex items-center justify-between gap-3 bg-[#0c0d12]/80 backdrop-blur-md px-2.5 py-1.5 rounded-xl border border-white/5 text-[10px] text-zinc-300 font-mono font-bold select-none hover:border-zinc-700 transition-all">
+                    <div key={ind.id} className="pointer-events-auto flex items-center justify-between gap-3 bg-[#0c0d12]/80 backdrop-blur-md px-2.5 py-1.5 rounded-xl border border-white/5 text-[10px] text-zinc-300 font-mono font-bold select-none hover:border-zinc-700 transition-all">
                         <div className="flex items-center gap-2">
                             <span className="w-2 h-2 rounded-full border border-white/10 shrink-0" style={{ backgroundColor: ind.color }} />
                             <span className="text-white tracking-tight">{ind.type} ({Object.values(ind.params).join(", ")})</span>
