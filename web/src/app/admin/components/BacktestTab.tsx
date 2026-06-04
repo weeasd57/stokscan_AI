@@ -1,8 +1,8 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { Activity, Calendar, Play, TrendingUp, Target, AlertTriangle, CheckCircle2, FileText, Globe, Trash2, Eye, Wallet, EyeOff, History as HistoryIcon, ChevronDown, LineChart, Database, Users, Cpu, ShieldCheck, Zap, Info } from "lucide-react";
-import { getLocalModels, type LocalModelMeta, getBacktests, getBacktestTrades, deleteBacktest, updateBacktestVisibility, getProductionApiUrl } from "@/lib/api";
+import { Activity, Calendar, Play, TrendingUp, Target, AlertTriangle, CheckCircle2, FileText, Globe, Trash2, Eye, Wallet, EyeOff, History as HistoryIcon, ChevronDown, LineChart, Database, Users, Cpu, ShieldCheck, Zap, Info, Star } from "lucide-react";
+import { getLocalModels, type LocalModelMeta, getBacktests, getBacktestTrades, deleteBacktest, updateBacktestVisibility, updateBacktestFavorite, getProductionApiUrl } from "@/lib/api";
 import { useAppState } from "@/contexts/AppStateContext";
 import { toast } from "sonner";
 import ConfirmDialog from "@/components/ConfirmDialog";
@@ -1334,6 +1334,7 @@ export default function BacktestTab() {
 
   // Multi-selection state
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [showFavoritesOnly, setShowFavoritesOnly] = useState<boolean>(false);
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
   const [confirmConfig, setConfirmConfig] = useState<{
     title: string;
@@ -1683,6 +1684,20 @@ export default function BacktestTab() {
       loadHistory();
     } catch (err: any) {
       toast.error("Failed to update visibility", {
+        description: err.message
+      });
+    }
+  };
+
+  const handleToggleFavorite = async (id: string, current: boolean) => {
+    try {
+      await updateBacktestFavorite(id, !current);
+      toast.success("Favorite Updated", {
+        description: !current ? "Backtest added to favorites" : "Backtest removed from favorites"
+      });
+      loadHistory();
+    } catch (err: any) {
+      toast.error("Failed to update favorite status", {
         description: err.message
       });
     }
@@ -2519,6 +2534,18 @@ export default function BacktestTab() {
               </div>
             )}
             <button
+              onClick={() => setShowFavoritesOnly(prev => !prev)}
+              className={`p-3 rounded-2xl border transition-all flex items-center gap-2 font-black text-[9px] uppercase tracking-widest ${
+                showFavoritesOnly
+                  ? "bg-amber-500/20 border-amber-500/30 text-amber-400"
+                  : "bg-white/5 border-white/10 text-zinc-400 hover:text-white hover:bg-white/10"
+              }`}
+              title="Filter by Favorites"
+            >
+              <Star className={`h-3.5 w-3.5 ${showFavoritesOnly ? "fill-amber-400" : ""}`} />
+              <span>{showFavoritesOnly ? "Favorites" : "All runs"}</span>
+            </button>
+            <button
               onClick={loadHistory}
               disabled={historyLoading}
               className={`p-3.5 rounded-2xl bg-white/5 text-zinc-400 hover:text-white transition-all border border-white/10 ${historyLoading ? "animate-spin text-indigo-500" : ""}`}
@@ -2540,6 +2567,9 @@ export default function BacktestTab() {
                     className="rounded border-zinc-800 bg-zinc-950 text-indigo-500 focus:ring-indigo-500/20"
                   />
                 </th>
+                <th className="w-10 px-2 py-4 text-center">
+                  <Star className="h-4 w-4 mx-auto text-zinc-500" />
+                </th>
 
                 <th className="px-6 py-4 text-left">Model & Exchange</th>
                 <th className="px-6 py-4 text-center">Thresholds</th>
@@ -2556,17 +2586,19 @@ export default function BacktestTab() {
             <tbody className="divide-y divide-white/5 text-zinc-400">
               {historyLoading ? (
                 <tr>
-                  <td colSpan={11} className="px-6 py-10 text-center animate-pulse">Retrieving archive data...</td>
+                  <td colSpan={12} className="px-6 py-10 text-center animate-pulse">Retrieving archive data...</td>
                 </tr>
               ) : history.length === 0 ? (
                 <tr>
-                  <td colSpan={11} className="px-6 py-10 text-center text-zinc-600">No historical records found</td>
+                  <td colSpan={12} className="px-6 py-10 text-center text-zinc-600">No historical records found</td>
                 </tr>
               ) : (
                 history
                   .filter(bt => {
                     const isOpt = bt.model_name?.startsWith("OPT:");
-                    return activeMainTab === "automation" ? isOpt : !isOpt;
+                    const matchesTab = activeMainTab === "automation" ? isOpt : !isOpt;
+                    const matchesFavorite = showFavoritesOnly ? !!bt.is_favorite : true;
+                    return matchesTab && matchesFavorite;
                   })
                   .map((bt) => {
                     const isOpt = bt.model_name?.startsWith("OPT:");
@@ -2590,6 +2622,15 @@ export default function BacktestTab() {
                               onChange={() => toggleSelect(bt.id)}
                               className="rounded border-zinc-800 bg-zinc-950 text-indigo-500 focus:ring-indigo-500/20"
                             />
+                          </td>
+                          <td className="px-2 py-4 text-center">
+                            <button
+                              onClick={() => handleToggleFavorite(bt.id, !!bt.is_favorite)}
+                              className="focus:outline-none transition-all hover:scale-110 active:scale-95"
+                              title={bt.is_favorite ? "Remove from Favorites" : "Add to Favorites"}
+                            >
+                              <Star className={`h-4.5 w-4.5 mx-auto transition-colors ${bt.is_favorite ? 'text-amber-400 fill-amber-400' : 'text-zinc-700 hover:text-zinc-500'}`} />
+                            </button>
                           </td>
 
                           <td className="px-6 py-4">

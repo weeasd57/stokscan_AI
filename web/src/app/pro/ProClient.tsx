@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Check, Zap, Star, Shield, Crown, Loader2, CreditCard } from "lucide-react";
+import { Check, Zap, Star, Shield, Crown, Loader2, CreditCard, X } from "lucide-react";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
@@ -36,6 +36,103 @@ export default function ProPage() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
+    // Paymob Checkout States
+    const [showModal, setShowModal] = useState(false);
+    const [selectedPlan, setSelectedPlan] = useState<Plan | null>(null);
+    const [firstName, setFirstName] = useState("");
+    const [lastName, setLastName] = useState("");
+    const [phoneNumber, setPhoneNumber] = useState("01010101010");
+    const [isGeneratingCheckout, setIsGeneratingCheckout] = useState(false);
+    const [iframeUrl, setIframeUrl] = useState<string | null>(null);
+    const [isCancelling, setIsCancelling] = useState(false);
+
+    const handleCancelSubscription = async () => {
+        if (!user || !subscription) return;
+        
+        if (!confirm("Are you sure you want to cancel your subscription? This will immediately downgrade your account to the Free plan.")) {
+            return;
+        }
+
+        setIsCancelling(true);
+        try {
+            const res = await fetch("/api/payment/paymob/cancel", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ user_id: user.id })
+            });
+
+            if (!res.ok) {
+                const errData = await res.json();
+                throw new Error(errData.detail || "Failed to cancel subscription");
+            }
+
+            alert("Subscription cancelled successfully. Your plan has been downgraded to Free.");
+            setSubscription(null);
+        } catch (err: any) {
+            alert(err.message || "An error occurred while cancelling your subscription.");
+        } finally {
+            setIsCancelling(false);
+        }
+    };
+
+    const handlePlanSelect = (plan: Plan) => {
+        if (!user) {
+            alert("Please login first to upgrade your subscription.");
+            return;
+        }
+        if (subscription?.plan_id === plan.name) {
+            return;
+        }
+        if (plan.name.toLowerCase() === "free") {
+            return;
+        }
+        setSelectedPlan(plan);
+        setShowModal(true);
+    };
+
+    const handleStartPayment = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!user || !selectedPlan) return;
+
+        setIsGeneratingCheckout(true);
+        try {
+            const res = await fetch("/api/payment/paymob/checkout", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    plan_id: selectedPlan.name,
+                    user_id: user.id,
+                    email: user.email || "",
+                    first_name: firstName,
+                    last_name: lastName,
+                    phone_number: phoneNumber
+                })
+            });
+
+            if (!res.ok) {
+                const errData = await res.json();
+                throw new Error(errData.detail || "Checkout generation failed");
+            }
+
+            const data = await res.json();
+            if (data.url) {
+                if (data.is_wallet) {
+                    window.open(data.url, "_blank");
+                    alert("Redirecting to Mobile Wallet simulator... Please complete payment in the new window, then refresh this page.");
+                    setShowModal(false);
+                } else {
+                    setIframeUrl(data.url);
+                }
+            } else {
+                throw new Error("No checkout URL returned from server");
+            }
+        } catch (err: any) {
+            alert(err.message || "An error occurred while preparing your checkout session.");
+        } finally {
+            setIsGeneratingCheckout(false);
+        }
+    };
+
     useEffect(() => {
         let cancelled = false;
 
@@ -52,7 +149,7 @@ export default function ProPage() {
                     setPlans(data);
                 }
 
-                // 2. Fetch subscription if user is logged in
+                // 2. Fetch subscription and profile if user is logged in
                 if (user) {
                     const { data: subRow } = await supabase
                         .from("subscriptions")
@@ -61,6 +158,28 @@ export default function ProPage() {
                         .maybeSingle();
 
                     if (!cancelled) setSubscription((subRow ?? null) as any);
+
+                    // Fetch profile to prefill payment billing details
+                    const { data: profileRow } = await supabase
+                        .from("profiles")
+                        .select("display_name, whatsapp_number")
+                        .eq("id", user.id)
+                        .maybeSingle();
+
+                    if (!cancelled && profileRow) {
+                        const name = (profileRow.display_name || "").trim();
+                        if (name) {
+                            const parts = name.split(" ");
+                            if (parts.length >= 2) {
+                                setFirstName(parts[0]);
+                                setLastName(parts.slice(1).join(" "));
+                            } else {
+                                setFirstName(name);
+                            }
+                        }
+                        // Keep 01010101010 as default test number for sandbox wallet
+                        setPhoneNumber("01010101010");
+                    }
                 }
             } catch (err) {
                 console.error("Failed to fetch pro data:", err);
@@ -110,15 +229,26 @@ export default function ProPage() {
                                 <CreditCard className="w-4 h-4 text-indigo-500" />
                                 Your Subscription
                             </div>
-                            <div className="text-sm text-zinc-200 font-bold">
+                            <div className="text-sm text-zinc-200 font-bold flex flex-col items-center gap-4 mt-1">
                                 {subscription ? (
-                                    <div className="flex items-center gap-3">
-                                        <span className="px-3 py-1 rounded-full bg-indigo-500 text-white text-[10px] uppercase font-black">
-                                            {subscription.plan_id}
-                                        </span>
-                                        <span className="text-zinc-500 font-medium tracking-widest uppercase text-[10px]">
-                                            Status: {subscription.status}
-                                        </span>
+                                    <div className="flex flex-col sm:flex-row items-center gap-4">
+                                        <div className="flex items-center gap-3">
+                                            <span className="px-3 py-1 rounded-full bg-indigo-500 text-white text-[10px] uppercase font-black">
+                                                {subscription.plan_id}
+                                            </span>
+                                            <span className="text-zinc-500 font-medium tracking-widest uppercase text-[10px]">
+                                                Status: {subscription.status}
+                                            </span>
+                                        </div>
+                                        {subscription.status === "active" && (
+                                            <button
+                                                onClick={handleCancelSubscription}
+                                                disabled={isCancelling}
+                                                className="px-4 py-1.5 rounded-full border border-red-500/30 text-red-400 hover:bg-red-500/10 text-[10px] font-black uppercase tracking-widest transition-all active:scale-95 disabled:opacity-50"
+                                            >
+                                                {isCancelling ? "Cancelling..." : "Cancel Subscription"}
+                                            </button>
+                                        )}
                                     </div>
                                 ) : (
                                     <span className="text-zinc-600 italic">No active subscription found.</span>
@@ -142,7 +272,7 @@ export default function ProPage() {
                 </div>
             )}
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-8 px-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 px-4 max-w-4xl mx-auto">
                 {plans.map((plan, i) => (
                     <div
                         key={i}
@@ -187,6 +317,7 @@ export default function ProPage() {
                         </ul>
 
                         <button
+                            onClick={() => handlePlanSelect(plan)}
                             className={`
                 w-full py-4 rounded-2xl text-[11px] font-black uppercase tracking-[0.2em] transition-all
                 ${plan.featured
@@ -216,6 +347,113 @@ export default function ProPage() {
                     </p>
                 </div>
             </section>
+
+            {/* Payment Modal */}
+            {showModal && selectedPlan && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-300">
+                    <div className="relative w-full max-w-2xl bg-zinc-950 border border-zinc-800 rounded-[2.5rem] p-8 shadow-2xl shadow-indigo-500/10 flex flex-col max-h-[90vh] overflow-y-auto">
+                        <button 
+                            onClick={() => {
+                                setShowModal(false);
+                                setIframeUrl(null);
+                            }}
+                            className="absolute top-6 right-6 p-2 rounded-xl bg-zinc-900 border border-white/5 text-zinc-400 hover:text-white hover:bg-zinc-800 transition-all"
+                        >
+                            <X className="w-4 h-4" />
+                        </button>
+
+                        {!iframeUrl ? (
+                            <div className="space-y-6">
+                                <div>
+                                    <h3 className="text-2xl font-black text-white uppercase italic">Complete Subscription</h3>
+                                    <p className="text-zinc-500 text-xs mt-1">Plan: <span className="text-indigo-400 font-bold uppercase">{selectedPlan.name}</span> — Price: <span className="text-white font-bold">${selectedPlan.price}/month</span></p>
+                                </div>
+
+                                <form onSubmit={handleStartPayment} className="space-y-4">
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div className="space-y-2">
+                                            <label className="text-[10px] font-black uppercase tracking-wider text-zinc-500">First Name</label>
+                                            <input 
+                                                type="text" 
+                                                required
+                                                value={firstName}
+                                                onChange={e => setFirstName(e.target.value)}
+                                                placeholder="e.g. Ahmad"
+                                                className="w-full px-4 py-3 rounded-xl bg-zinc-900/50 border border-zinc-800 text-sm text-white focus:outline-none focus:border-indigo-500 transition-all"
+                                            />
+                                        </div>
+                                        <div className="space-y-2">
+                                            <label className="text-[10px] font-black uppercase tracking-wider text-zinc-500">Last Name</label>
+                                            <input 
+                                                type="text" 
+                                                required
+                                                value={lastName}
+                                                onChange={e => setLastName(e.target.value)}
+                                                placeholder="e.g. Ali"
+                                                className="w-full px-4 py-3 rounded-xl bg-zinc-900/50 border border-zinc-800 text-sm text-white focus:outline-none focus:border-indigo-500 transition-all"
+                                            />
+                                        </div>
+                                    </div>
+
+                                    <div className="space-y-2">
+                                        <label className="text-[10px] font-black uppercase tracking-wider text-zinc-500">Phone Number</label>
+                                        <input 
+                                            type="tel" 
+                                            required
+                                            value={phoneNumber}
+                                            onChange={e => setPhoneNumber(e.target.value)}
+                                            placeholder="e.g. +2010xxxxxxxx"
+                                            className="w-full px-4 py-3 rounded-xl bg-zinc-900/50 border border-zinc-800 text-sm text-white focus:outline-none focus:border-indigo-500 transition-all"
+                                        />
+                                    </div>
+
+                                    <div className="space-y-2">
+                                        <label className="text-[10px] font-black uppercase tracking-wider text-zinc-500">Email Address</label>
+                                        <input 
+                                            type="email" 
+                                            disabled
+                                            value={user?.email || ""}
+                                            className="w-full px-4 py-3 rounded-xl bg-zinc-900/30 border border-zinc-800/50 text-sm text-zinc-500 cursor-not-allowed"
+                                        />
+                                    </div>
+
+                                    <button
+                                        type="submit"
+                                        disabled={isGeneratingCheckout}
+                                        className="w-full py-4 rounded-xl bg-indigo-600 text-white text-xs font-black uppercase tracking-widest hover:bg-indigo-500 transition-all flex items-center justify-center gap-2"
+                                    >
+                                        {isGeneratingCheckout ? (
+                                            <>
+                                                <Loader2 className="w-4 h-4 animate-spin" />
+                                                Preparing Checkout...
+                                            </>
+                                        ) : (
+                                            "Pay with Card / Wallet"
+                                        )}
+                                    </button>
+                                </form>
+                            </div>
+                        ) : (
+                            <div className="space-y-6 flex-1 flex flex-col">
+                                <div>
+                                    <h3 className="text-xl font-black text-white uppercase italic">Paymob Secure Checkout</h3>
+                                    <p className="text-zinc-500 text-xs mt-1">Complete your payment details inside the secure frame below.</p>
+                                </div>
+                                <div className="relative rounded-2xl overflow-hidden border border-zinc-800 bg-zinc-900 flex-1 min-h-[500px]">
+                                    <iframe 
+                                        src={iframeUrl} 
+                                        className="absolute inset-0 w-full h-full border-0" 
+                                        allow="payment"
+                                    />
+                                </div>
+                                <div className="text-center text-[10px] text-zinc-600 font-bold uppercase tracking-wider">
+                                    Close this window and refresh the dashboard once payment succeeds.
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

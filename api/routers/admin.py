@@ -158,18 +158,38 @@ def get_db_inventory_endpoint():
 
 @router.get("/plans")
 def get_plans():
-    try:
-        def _fetch_plans(sb):
-            return sb.table("plans").select("*").order("price").execute()
-        res = _supabase_read_with_retry(_fetch_plans, table_name="plans")
-        return res.data
-    except Exception as e:
-        print(f"Error fetching plans: {e}")
-        return [
-            {"name": "Free", "price": 0, "period": "forever", "desc": "For beginners", "features": ["Limited Predictions"], "featured": False, "button_text": "Current Plan"},
-            {"name": "Pro", "price": 29, "period": "month", "desc": "For serious traders", "features": ["Unlimited Predictions"], "featured": True, "button_text": "Go Pro"},
-            {"name": "Enterprise", "price": 99, "period": "month", "desc": "For professional teams", "features": ["API Access"], "featured": False, "button_text": "Contact Sales"}
-        ]
+    # Return Free and Pro plans directly to ensure beautiful presentation and remove Enterprise plan
+    return [
+        {
+            "name": "Free",
+            "price": 0,
+            "period": "forever",
+            "desc": "الخطة المجانية للمبتدئين",
+            "features": [
+                "Max 2 active bot subscriptions (2 بوت تداول كحد أقصى)",
+                "Limited technical scanning (ماسح فني محدود)",
+                "Basic strategy simulation (محاكاة أساسية للمؤشرات)",
+                "No instant Telegram alerts (لا توجد تنبيهات فورية)"
+            ],
+            "featured": False,
+            "button_text": "Current Plan"
+        },
+        {
+            "name": "Pro",
+            "price": 29,
+            "period": "month",
+            "desc": "الخطة الاحترافية للمستثمرين والشركات",
+            "features": [
+                "Unlimited active bot subscriptions (اشتراك في بوتات غير محدودة)",
+                "Instant Telegram Buy Signals (إشارات شراء فورية على تليجرام)",
+                "24/7 AI Quant Trading Bots (تشغيل بوتات التداول على مدار الساعة)",
+                "Full Strategy Simulator & Backtesting (محاكاة كاملة للأداء التاريخي)",
+                "Technical Scanner & Alerting (الماسح الفني المتقدم والتنبيهات)"
+            ],
+            "featured": True,
+            "button_text": "Go Pro"
+        }
+    ]
 
 def _reload_env() -> None:
     load_dotenv(ENV_ROOT_FILE, override=True)
@@ -1665,6 +1685,8 @@ def list_local_models():
                                     "stop_loss_pct": card_data.get("training", {}).get("stop_loss_pct"),
                                     "look_forward_days": card_data.get("training", {}).get("look_forward_days"),
                                     "feature_names": ["dummy"] * feat_count if feat_count > 0 else None,
+                                    "n_estimators": card_data.get("training", {}).get("n_estimators"),
+                                    "bestIteration": card_data.get("training", {}).get("best_iteration"),
                                 },
                                 "meta_model": True,
                                 "meta_threshold": card_data.get("capabilities", {}).get("meta_threshold"),
@@ -1695,6 +1717,8 @@ def list_local_models():
                                     "stop_loss_pct": card_data.get("training", {}).get("stop_loss_pct"),
                                     "look_forward_days": card_data.get("training", {}).get("look_forward_days"),
                                     "feature_names": ["dummy"] * feat_count if feat_count > 0 else None,
+                                    "n_estimators": card_data.get("training", {}).get("n_estimators"),
+                                    "bestIteration": card_data.get("training", {}).get("best_iteration"),
                                 },
                                 "meta_model": True,
                                 "meta_threshold": card_data.get("capabilities", {}).get("meta_threshold"),

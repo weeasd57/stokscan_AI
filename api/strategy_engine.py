@@ -74,6 +74,17 @@ class StrategyEngine:
     """
     
     @staticmethod
+    def _normalize_bars(bars: pd.DataFrame) -> pd.DataFrame:
+        """Helper to ensure column names are case-insensitive and unique to avoid duplication bugs."""
+        if bars is None or bars.empty:
+            return bars
+        bars = bars.copy()
+        # Keep only the first occurrence of each lowercase column name to prevent duplication errors
+        bars = bars.loc[:, ~bars.columns.str.lower().duplicated()]
+        bars.columns = [c.lower() for c in bars.columns]
+        return bars
+
+    @staticmethod
     def calculate_rsi(prices: pd.Series, period: int = 14) -> float:
         if len(prices) < period:
             return 50.0
@@ -92,6 +103,7 @@ class StrategyEngine:
     def calculate_adx(bars: pd.DataFrame, period: int = 14) -> float:
         """Calculate Average Directional Index for trend strength."""
         try:
+            bars = StrategyEngine._normalize_bars(bars)
             if len(bars) < period * 2:
                 return 0.0
             high = bars['high'].values
@@ -124,6 +136,7 @@ class StrategyEngine:
     def calculate_atr(bars: pd.DataFrame, period: int = 14) -> float:
         """Calculate Average True Range."""
         try:
+            bars = StrategyEngine._normalize_bars(bars)
             if len(bars) < period + 1:
                 return 0.0
             high = bars['high'].values
@@ -148,6 +161,7 @@ class StrategyEngine:
         mode_overrides: Optional[dict] = None
     ) -> Tuple[bool, str]:
         """Verify volume, trend, and RSI filters before entering."""
+        bars = StrategyEngine._normalize_bars(bars)
         if bars.empty or len(bars) < 25:
             return False, "Insufficient data"
         
@@ -194,6 +208,7 @@ class StrategyEngine:
         volume_spike_multiplier: float
     ) -> Tuple[bool, str]:
         """Determine if price momentum warrants an early exit."""
+        bars = StrategyEngine._normalize_bars(bars)
         if not use_smart_exit or len(bars) < 25:
             return False, ""
         
@@ -227,6 +242,7 @@ class StrategyEngine:
         regime_adx_threshold: float = 14.0
     ) -> str:
         """Detect market regime: 'BULL', 'BEAR', or 'SIDEWAYS'."""
+        bars = StrategyEngine._normalize_bars(bars)
         if not use_market_regime or len(bars) < 60:
             return "UNKNOWN"
         
@@ -267,6 +283,7 @@ class StrategyEngine:
         Calculate dynamic TP/SL based on ATR and exit_mode.
         Returns (take_profit_price, stop_loss_price).
         """
+        bars = StrategyEngine._normalize_bars(bars)
         manual_tp = entry_price * (1 + target_pct)
         manual_sl = entry_price * (1 - stop_loss_pct)
 

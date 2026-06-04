@@ -195,13 +195,27 @@ def subscribe_to_bot(req: SubscribeRequest):
         if not supabase:
             raise HTTPException(status_code=500, detail="Supabase client not initialized")
             
-        # 1. Enforce max 2 active subscriptions per user
-        subs_res = supabase.table("bot_subscriptions").select("id").eq("user_id", req.user_id).execute()
-        if len(subs_res.data or []) >= 2:
-            raise HTTPException(
-                status_code=400,
-                detail="لقد وصلت للحد الأقصى للاشتراك في البوتات (2 بوت بحد أقصى في الخطة المجانية)."
-            )
+        # Check SaaS subscription (Pro status)
+        is_pro = False
+        try:
+            saas_res = supabase.table("subscriptions").select("plan_id, status").eq("user_id", req.user_id).execute()
+            if saas_res.data:
+                sub = saas_res.data[0]
+                plan_id = str(sub.get("plan_id", "")).lower()
+                status = str(sub.get("status", "")).lower()
+                if plan_id == "pro" and status in ("active", "trialing"):
+                    is_pro = True
+        except Exception as e:
+            print(f"Error checking SaaS subscription for user {req.user_id}: {e}")
+
+        # 1. Enforce max 2 active subscriptions per user ONLY for Free users
+        if not is_pro:
+            subs_res = supabase.table("bot_subscriptions").select("id").eq("user_id", req.user_id).execute()
+            if len(subs_res.data or []) >= 2:
+                raise HTTPException(
+                    status_code=400,
+                    detail="لقد وصلت للحد الأقصى للاشتراك في البوتات (2 بوت بحد أقصى في الخطة المجانية). يرجى الترقية إلى الخطة الاحترافية (Pro) للحصول على بوتات غير محدودة."
+                )
             
         # 2. Insert subscription
         payload = {
@@ -1586,3 +1600,62 @@ def get_telegram_bot_username():
     if not username:
         username = os.getenv("TELEGRAM_BOT_USERNAME") or "egxbots_bot"
     return {"username": username}
+
+
+class TestNotificationRequest(BaseModel):
+    channel: str          # "telegram" or "whatsapp"
+    user_id: Optional[str] = None
+
+
+@router.post("/telegram/test_notification")
+def send_test_channel_notification(req: TestNotificationRequest):
+    """
+    Sends a test notification message to the user's linked channel.
+    Returns {ok: true, channel, message} or {ok: false, error}.
+    """
+    _init_supabase()
+
+    channel = (req.channel or "").lower().strip()
+    if channel not in ("telegram", "whatsapp"):
+        raise HTTPException(status_code=400, detail="channel must be 'telegram' or 'whatsapp'")
+
+    # ── Telegram test ──────────────────────────────────────────────────
+    if channel == "telegram":
+        bridge = getattr(bot_manager, "_telegram_bridge", None)
+        if not bridge:
+            return {"ok": False, "channel": channel, "error": "Telegram bridge not running"}
+
+        # Try to find the chat_id for this user from Supabase
+        chat_id = None
+        if req.user_id and supabase:
+            try:
+                row = supabase.table("profiles") \
+                    .select("telegram_chat_id") \
+                    .eq("id", req.user_id) \
+                    .maybe_single().execute()
+                chat_id = (row.data or {}).get("telegram_chat_id")
+            except Exception as e:
+                print(f"[test_notification] Supabase lookup failed: {e}")
+
+        # Fall back to the bridge's configured group chat
+        if not chat_id:
+            chat_id = getattr(bridge, "chat_id", None)
+
+        if not chat_id:
+            return {"ok": False, "channel": "telegram", "error": "No Telegram chat ID linked. Please connect via /start first."}
+
+        test_msg = (
+            "🔔 *اختبار الإشعارات — Test Notification*\n\n"
+            "✅ قناة تيليجرام متصلة وتعمل بشكل صحيح!\n"
+            "✅ Telegram channel is connected and working!\n\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "🤖 *EGX Bots* — نظام الإشعارات الذكي"
+        )
+        try:
+            bridge._reply(int(chat_id), test_msg)
+            return {"ok": True, "channel": "telegram", "message": f"Test message sent to chat {chat_id}"}
+        except Exception as e:
+            return {"ok": False, "channel": "telegram", "error": str(e)}
+
+    return {"ok": False, "error": "Unknown channel"}
+

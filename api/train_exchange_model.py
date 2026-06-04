@@ -1754,6 +1754,8 @@ class ModelTrainer:
                     "stop_loss_pct": metadata.get("stop_loss_pct"),
                     "look_forward_days": metadata.get("look_forward_days"),
                     "learning_rate": metadata.get("learning_rate"),
+                    "n_estimators": metadata.get("n_estimators"),
+                    "best_iteration": metadata.get("bestIteration") or metadata.get("best_iteration"),
                     "metrics": {
                         "precision": metadata.get("precision"),
                         "recall": metadata.get("recall"),
@@ -1868,6 +1870,8 @@ class ModelTrainer:
                     "stop_loss_pct": metadata.get("stop_loss_pct"),
                     "look_forward_days": metadata.get("look_forward_days"),
                     "learning_rate": metadata.get("learning_rate"),
+                    "n_estimators": metadata.get("n_estimators"),
+                    "best_iteration": metadata.get("bestIteration") or metadata.get("best_iteration"),
                     "metrics": {
                         "precision": metadata.get("precision"),
                         "recall": metadata.get("recall"),

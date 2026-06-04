@@ -2416,12 +2416,12 @@ class LiveBot:
                 sub_res = supabase.table("bot_subscriptions").select("*").eq("bot_id", self.bot_id).eq("user_id", user_id).execute()
                 if not sub_res.data:
                     # User is no longer subscribed, but we should still exit their position if hit
-                    prof_res = supabase.table("profiles").select("default_target_pct, default_stop_pct, telegram_chat_id, language, notification_channel, whatsapp_number").eq("id", user_id).maybeSingle().execute()
+                    prof_res = supabase.table("profiles").select("default_target_pct, default_stop_pct, telegram_chat_id, language, notification_channel, whatsapp_number").eq("id", user_id).maybe_single().execute()
                     prof = prof_res.data or {}
                     sub = {}
                 else:
                     sub = sub_res.data[0]
-                    prof_res = supabase.table("profiles").select("default_target_pct, default_stop_pct, telegram_chat_id, language, notification_channel, whatsapp_number").eq("id", user_id).maybeSingle().execute()
+                    prof_res = supabase.table("profiles").select("default_target_pct, default_stop_pct, telegram_chat_id, language, notification_channel, whatsapp_number").eq("id", user_id).maybe_single().execute()
                     prof = prof_res.data or {}
                 
                 # Resolve parameters
@@ -2515,10 +2515,7 @@ class LiveBot:
                                 f"🤖 Bot: {bot_name}"
                             )
                         
-                        if channel == "whatsapp" and whatsapp_number:
-                            from api.whatsapp_service import whatsapp_service
-                            whatsapp_service.send_message(whatsapp_number, msg)
-                        elif self.telegram_bridge and telegram_chat_id:
+                        if self.telegram_bridge and telegram_chat_id:
                             self.telegram_bridge.send_notification(msg, chat_id=telegram_chat_id)
                 else:
                     updated_stop = stop_price
@@ -2646,10 +2643,7 @@ class LiveBot:
                     channel = sub_data.get("notification_channel", "telegram")
                     whatsapp_number = sub_data.get("whatsapp_number")
                     
-                    if channel == "whatsapp" and whatsapp_number:
-                        from api.whatsapp_service import whatsapp_service
-                        whatsapp_service.send_message(whatsapp_number, msg)
-                    elif self.telegram_bridge and chat_id:
+                    if self.telegram_bridge and chat_id:
                         self.telegram_bridge.send_notification(msg, chat_id=chat_id)
                         
             except Exception as entry_err:

@@ -1,22 +1,22 @@
 {
-    "model_name": "NANO.pkl",
-    "created_at": "2026-05-25T18:35:13.837733Z",
+    "model_name": "THE BOT.pkl",
+    "created_at": "2026-06-03T19:45:11.401954Z",
     "exchange": "EGX",
     "artifact_kind": "meta_labeling_system",
-    "feature_preset": "core",
+    "feature_preset": "max",
     "training": {
-        "training_samples": 481355,
+        "training_samples": 491655,
         "target_pct": 0.1,
         "stop_loss_pct": 0.05,
-        "look_forward_days": 20,
-        "learning_rate": 0.05,
+        "look_forward_days": 15,
+        "learning_rate": 0.04,
         "metrics": {
-            "precision": 0.7328790601531094,
-            "recall": 1.0,
-            "f1": 0.7600272909764078,
-            "auc": 0.69373731111018
+            "precision": 0.5,
+            "recall": 0.07064097110885711,
+            "f1": 0.4511692906337519,
+            "auc": 0.6112673407419498
         },
-        "n_estimators": 15
+        "n_estimators": 1000
     },
     "data_inputs": {
         "uses_exchange_index_json": true,
@@ -28,6 +28,6 @@
     },
     "capabilities": {
         "has_meta_labeling": true,
-        "meta_threshold": 0.45
+        "meta_threshold": 0.85
     }
 }
