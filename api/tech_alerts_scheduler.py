@@ -37,15 +37,18 @@ def _alerts_worker_loop():
 
 def _refresh_closing_prices_for_alerts():
     """
-    Before running the alert scan, pull the latest daily closing prices
-    from EODHD for all synced Egyptian stocks. This ensures technical
-    indicators are computed on up-to-date data (today's close).
+    قبل تشغيل السكانر - بيجيب آخر شمعة يومية (سعر القفل) من TradingView
+    لكل الأسهم المصرية المتزامنة ويحفظها في Supabase (stock_prices).
+
+    الـ flow:
+      1. يتحقق من آخر تاريخ موجود في Supabase لكل سهم
+      2. لو آخر تاريخ ناقص (مش اليوم) → يجيب الشمعات الجديدة فقط من TradingView
+      3. يحفظ الشمعات في Supabase (upsert)
+      4. بعد كده _check_and_trigger_alerts() تقرأ البيانات الجديدة وتحسب التيكنيكال
+
+    مصدر الأسعار: TradingView (مجاني، حقيقي، يومي).
     """
     _init_supabase()
-    api_key = os.getenv("EODHD_API_KEY")
-    if not api_key:
-        print("[ALERTS SCHEDULER] EODHD API Key not set - skipping price refresh")
-        return
 
     try:
         from api.symbols_local import load_symbols_for_country
@@ -54,35 +57,103 @@ def _refresh_closing_prices_for_alerts():
         print(f"[ALERTS SCHEDULER] Failed to load Egyptian symbols: {e}")
         return
 
-    api = APIClient(api_key)
-    today = dt.date.today().isoformat()
-    # Only refresh synced tickers to avoid rate-limit abuse
-    synced = [(str(r.get("Code", r.get("Symbol", ""))), str(r.get("Exchange", "")))
-              for r in symbols_data
-              if is_ticker_synced(str(r.get("Code", r.get("Symbol", ""))), str(r.get("Exchange", "")))]
+    # Only refresh synced tickers to avoid unnecessary API calls
+    synced = [
+        (str(r.get("Code", r.get("Symbol", ""))), str(r.get("Exchange", "")))
+        for r in symbols_data
+        if is_ticker_synced(str(r.get("Code", r.get("Symbol", ""))), str(r.get("Exchange", "")))
+    ]
 
+    if not synced:
+        print("[ALERTS SCHEDULER] No synced tickers found for refresh")
+        return
+
+    today = dt.date.today()
     refreshed = 0
+    already_uptodate = 0
     errors = 0
+
+    try:
+        from api.tradingview_integration import fetch_tradingview_prices
+        from api.stock_ai import _get_supabase_info, _last_trading_day
+        last_trading = _last_trading_day(today)
+    except ImportError as e:
+        print(f"[ALERTS SCHEDULER] Import error: {e} — falling back to EODHD refresh")
+        _refresh_closing_prices_eodhd_fallback(synced)
+        return
+
+    print(f"[ALERTS SCHEDULER] Starting TradingView price refresh for {len(synced)} tickers (last trading day: {last_trading})")
+
     for symbol, exchange in synced:
         if not symbol:
             continue
+        full_ticker = f"{symbol}.{exchange}"
         try:
-            # force_local=False so it actually downloads fresh data from EODHD
-            df = get_stock_data_eodhd(
-                api, symbol,
-                from_date="2023-01-01",
-                tolerance_days=5,
-                exchange=exchange,
-                force_local=False   # <-- pull fresh closing prices
+            # Check last date in Supabase first (smart incremental)
+            info = _get_supabase_info(full_ticker)
+            last_date = info.get("last_date")
+
+            if last_date and last_date >= last_trading:
+                # Already up to date — no need to re-fetch
+                already_uptodate += 1
+                continue
+
+            # Fetch only missing candles from TradingView (daily, incremental)
+            # fetch_tradingview_prices will calculate how many bars are needed
+            ok, msg = fetch_tradingview_prices(
+                symbol=full_ticker,
+                max_days=365,    # max history to fetch on first sync
+                timeframe="1d"   # daily candle = closing price
             )
-            if df is not None and not df.empty:
+            if ok:
                 refreshed += 1
+            else:
+                errors += 1
+                print(f"[ALERTS SCHEDULER] TV refresh failed for {full_ticker}: {msg}")
+
+            # Small delay to be polite to TradingView servers
+            time.sleep(0.3)
+
         except Exception as e:
             errors += 1
-            # Silently skip individual failures
             continue
 
-    print(f"[ALERTS SCHEDULER] Price refresh complete: {refreshed} refreshed, {errors} errors out of {len(synced)} synced tickers")
+    print(
+        f"[ALERTS SCHEDULER] Price refresh done: "
+        f"{refreshed} updated, {already_uptodate} already up-to-date, "
+        f"{errors} errors — out of {len(synced)} synced tickers"
+    )
+
+
+def _refresh_closing_prices_eodhd_fallback(synced: list):
+    """
+    Fallback: use EODHD API (incremental update only) when TradingView is unavailable.
+    يستخدم update_stock_data عشان يجيب الشمعات الجديدة بس (مش كل التاريخ).
+    """
+    api_key = os.getenv("EODHD_API_KEY")
+    if not api_key:
+        print("[ALERTS SCHEDULER] EODHD API Key not set - skipping fallback refresh")
+        return
+
+    from api.stock_ai import update_stock_data
+    api = APIClient(api_key)
+    refreshed = 0
+    errors = 0
+
+    for symbol, exchange in synced:
+        if not symbol:
+            continue
+        full_ticker = f"{symbol}.{exchange}"
+        try:
+            ok, msg = update_stock_data(api, full_ticker, source="eodhd", max_days=365)
+            if ok:
+                refreshed += 1
+            else:
+                errors += 1
+        except Exception:
+            errors += 1
+
+    print(f"[ALERTS SCHEDULER] EODHD fallback refresh: {refreshed} updated, {errors} errors")
 
 def _check_and_trigger_alerts():
     _init_supabase()
