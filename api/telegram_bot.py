@@ -6,7 +6,7 @@ import json
 import time
 import requests
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Any
 from collections import deque
 
 # Configure logging
@@ -20,14 +20,9 @@ logging.getLogger("telegram").setLevel(logging.WARNING)
 class TelegramBot:
     """Telegram bot bridge — 100 % `requests`-based, zero httpx.
 
-    Hugging Face Spaces intermittently blocks outbound TCP to Telegram IPs
-    (`[Errno 1] Operation not permitted`).  This implementation:
-
-    * Queues every outbound message and sends it from a background thread
-      that retries with exponential back-off until the network opens.
-    * The webhook can be set from the user's LOCAL machine via
-      `POST /ai_bot/set_webhook` (one-time), or the bot will keep retrying.
-    * Incoming webhook updates are parsed as plain JSON — no httpx needed.
+    Supports two modes:
+    1. Webhook mode  — when WEBHOOK_URL env var is set (production / HF Spaces)
+    2. Long-Polling  — when WEBHOOK_URL is NOT set (local development)
     """
 
     # Use Cloudflare Worker relay if set, otherwise direct (fails on HF)
@@ -43,6 +38,8 @@ class TelegramBot:
         self._ready = False
         self._queue: deque = deque(maxlen=200)     # outbound message queue
         self._net_ok = False                        # last-known network status
+        self._polling = False                       # True when using long-polling
+        self._poll_offset = 0                       # getUpdates offset
         self._load_chat_id()
 
     # ── helpers ──────────────────────────────────────────────────────
@@ -64,7 +61,14 @@ class TelegramBot:
             self._log(f"Saved chat_id: {chat_id}")
 
     def _log(self, msg: str):
-        print(f"[TELEGRAM] {msg}")
+        try:
+            print(f"[TELEGRAM] {msg}")
+        except UnicodeEncodeError:
+            try:
+                print(f"[TELEGRAM] {msg.encode('utf-8', errors='replace').decode('ascii', errors='ignore')}")
+            except Exception:
+                pass
+
 
     def _call_api(self, method: str, payload: dict = None) -> dict:
         """Single Telegram Bot API call — no retries, fast fail."""
@@ -167,6 +171,35 @@ class TelegramBot:
                 time.sleep(backoff)
                 backoff = min(backoff * 2, 120)   # max 2 min
 
+    # ── long-polling loop ────────────────────────────────────────────
+
+    def _polling_loop(self):
+        """Background loop: poll getUpdates when no webhook is configured."""
+        self._log("Long-polling started.")
+        while self._polling:
+            try:
+                result = self._call_api("getUpdates", {
+                    "offset": self._poll_offset,
+                    "timeout": 30,
+                    "allowed_updates": ["message"]
+                })
+                if result.get("ok"):
+                    updates = result.get("result", [])
+                    for update in updates:
+                        self._poll_offset = update["update_id"] + 1
+                        msg = update.get("message", {})
+                        text = msg.get("text", "")
+                        chat_id = msg.get("chat", {}).get("id")
+                        if chat_id and text:
+                            self._dispatch_command(chat_id, text, msg)
+                else:
+                    err = result.get("description", result.get("error", "unknown"))
+                    self._log(f"Polling error: {err}")
+                    time.sleep(5)
+            except Exception as e:
+                self._log(f"Polling exception: {e}")
+                time.sleep(5)
+
     # ── webhook update handling ──────────────────────────────────────
 
     async def handle_webhook_update(self, data: dict):
@@ -180,24 +213,29 @@ class TelegramBot:
             if not chat_id:
                 return
 
-            if text.startswith("/start") or text.startswith("/help"):
-                parts = text.split()
-                if len(parts) > 1 and text.startswith("/start"):
-                    user_id_param = parts[1].strip()
-                    self._handle_start_with_user_id(chat_id, user_id_param)
-                else:
-                    self._handle_start(chat_id)
-            elif text.startswith("/status"):
-                self._handle_status(chat_id)
-            elif text.startswith("/positions"):
-                self._handle_positions(chat_id)
-            elif text.startswith("/trades"):
-                self._handle_trades(chat_id)
-
+            self._dispatch_command(chat_id, text, msg)
             self._log(f"Processed update: {uid}")
         except Exception as e:
             self._log(f"Webhook error: {e}")
             import traceback; traceback.print_exc()
+
+    def _dispatch_command(self, chat_id: int, text: str, msg: dict = None):
+        """Route text commands to the correct handler."""
+        if text.startswith("/start") or text.startswith("/help"):
+            parts = text.split()
+            if len(parts) > 1 and text.startswith("/start"):
+                user_id_param = parts[1].strip()
+                self._handle_start_with_user_id(chat_id, user_id_param)
+            else:
+                self._handle_start(chat_id)
+        elif text.startswith("/status"):
+            self._handle_status(chat_id)
+        elif text.startswith("/positions"):
+            self._handle_positions(chat_id)
+        elif text.startswith("/trades"):
+            self._handle_trades(chat_id)
+        elif text.startswith("/help"):
+            self._handle_help(chat_id)
 
     # ── command handlers ─────────────────────────────────────────────
 
@@ -219,33 +257,74 @@ class TelegramBot:
             uid = str(uuid.UUID(user_id_param))
             from api.stock_ai import supabase
             if supabase:
-                # Update profiles table
+                # Fetch user profile to get display name
+                profile_res = supabase.table("profiles").select("display_name, username").eq("id", uid).maybe_single().execute()
+                profile = profile_res.data or {}
+                display_name = profile.get("display_name") or profile.get("username") or "المستثمر"
+
+                # Update profiles table with telegram_chat_id
                 res = supabase.table("profiles").update({"telegram_chat_id": str(chat_id)}).eq("id", uid).execute()
                 if res.data:
-                    self._reply(chat_id, 
-                        "✅ *تم ربط حساب تليجرام بنجاح!*\n\n"
-                        "لقد تم ربط حسابك في المنصة بمعرف تليجرام هذا. ستتلقى إشارات الشراء والبيع والتحذيرات مباشرة هنا.\n\n"
-                        "🚀 *Telegram successfully linked!*\n\n"
-                        "Your Telegram account has been linked to your platform profile. You will receive buy/sell signals and risk alerts directly here."
+                    self._reply(chat_id,
+                        f"🎉 *أهلاً وسهلاً، {display_name}\\!*\n\n"
+                        "✅ *تم ربط حساب تليجرام بنجاح\\!*\n\n"
+                        "━━━━━━━━━━━━━━━━━━━━\n"
+                        "🤖 *EGX Bots* جاهز لإرسال إشارات التداول إليك فور حدوثها\\!\n\n"
+                        "📊 *ستتلقى تنبيهات عن:*\n"
+                        "• 🟢 إشارات الشراء الجديدة\n"
+                        "• 🎯 الوصول للأهداف السعرية\n"
+                        "• 🛡️ تفعيل وقف الخسارة\n\n"
+                        "━━━━━━━━━━━━━━━━━━━━\n\n"
+                        f"🎉 *Welcome, {display_name}\\!*\n\n"
+                        "✅ *Telegram successfully linked\\!*\n\n"
+                        "Your account is now connected to *EGX Bots*\\. "
+                        "You'll receive real\\-time buy signals and risk alerts directly here\\.\n\n"
+                        "📌 Use /help to see available commands\\."
                     )
                 else:
-                    self._reply(chat_id, "❌ Error linking account: Profile not found.")
+                    self._reply(chat_id,
+                        "❌ *لم يتم العثور على الحساب*\n\n"
+                        "تأكد من استخدام رابط الربط الصحيح من صفحة الإعدادات في الموقع\\.\n\n"
+                        "❌ *Account not found*\n\n"
+                        "Please use the connection link from your profile settings page\\."
+                    )
             else:
-                self._reply(chat_id, "❌ Database connection error.")
+                self._reply(chat_id,
+                    "❌ *خطأ في الاتصال بقاعدة البيانات*\n\n"
+                    "حاول مرة أخرى بعد قليل\\.\n\n"
+                    "❌ *Database connection error*\n\n"
+                    "Please try again later\\."
+                )
+        except ValueError:
+            self._reply(chat_id,
+                "❌ *رابط التفعيل غير صالح*\n\n"
+                "يرجى الضغط على زر *CONNECT TELEGRAM BOT* في صفحة الإعدادات على الموقع\\.\n\n"
+                "❌ *Invalid activation link*\n\n"
+                "Please click *CONNECT TELEGRAM BOT* from your profile settings\\."
+            )
         except Exception as e:
             self._log(f"Error handling start parameter: {e}")
-            self._reply(chat_id, "❌ Invalid activation link.")
+            self._reply(chat_id,
+                "❌ *حدث خطأ غير متوقع*\n\n"
+                "حاول مرة أخرى\\. إذا استمرت المشكلة، تواصل مع الدعم\\.\n\n"
+                "❌ *Unexpected error*\n\n"
+                "Please try again\\."
+            )
 
     def _handle_start(self, chat_id):
         self._reply(chat_id,
-            "🚀 *Artoro Trading Bot connected!*\n\n"
-            f"Your Telegram Chat ID is: `{chat_id}`\n\n"
-            "Please copy this ID and paste it in your settings on the website to receive trade notifications.\n\n"
-            "*Commands:*\n"
-            "/status - Bot status & balance (Admin only)\n"
-            "/positions - Open positions (Admin only)\n"
-            "/trades - Last 5 trades (Admin only)\n"
-            "/help - Show this message"
+            "👋 *أهلاً بك في EGX Bots\\!*\n\n"
+            "🤖 هذا البوت يرسل إشارات تداول ذكية للبورصة المصرية \\(EGX\\) مدعومة بالذكاء الاصطناعي\\.\n\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "🔗 *لربط حسابك:*\n"
+            "اذهب إلى صفحة الإعدادات في الموقع واضغط على زر *CONNECT TELEGRAM BOT*\n\n"
+            "━━━━━━━━━━━━━━━━━━━━\n\n"
+            "👋 *Welcome to EGX Bots\\!*\n\n"
+            "🤖 This bot delivers AI\\-powered trading signals for the Egyptian Exchange \\(EGX\\)\\.\n\n"
+            "🔗 *To link your account:*\n"
+            "Go to your profile settings on the website and click *CONNECT TELEGRAM BOT*\n\n"
+            f"💬 *Your Chat ID:* `{chat_id}`\n"
+            "_You can also enter this ID manually in your profile settings\\._"
         )
 
     def _handle_status(self, chat_id):
@@ -304,13 +383,64 @@ class TelegramBot:
             msg += f"{icon} {a} {s} @ ${pr:.2f}{pnl_t} ({ts})\n"
         self._reply(chat_id, msg)
 
+    def _handle_help(self, chat_id):
+        self._reply(chat_id,
+            "📋 *الأوامر المتاحة / Available Commands:*\n\n"
+            "🔗 /start — ربط حسابك بالمنصة\n"
+            "📊 /status — حالة البوت *(للمشرف)*\n"
+            "📈 /positions — المراكز المفتوحة *(للمشرف)*\n"
+            "📜 /trades — آخر الصفقات *(للمشرف)*\n"
+            "❓ /help — عرض هذه القائمة\n\n"
+            "━━━━━━━━━━━━━━━━━━━━\n\n"
+            "🔗 /start — Link your account\n"
+            "📊 /status — Bot status *(Admin)*\n"
+            "📈 /positions — Open positions *(Admin)*\n"
+            "📜 /trades — Recent trades *(Admin)*\n"
+            "❓ /help — Show this menu"
+        )
+
+    # ── bot menu setup ───────────────────────────────────────────────
+
+    def _setup_bot_menu(self):
+        """Register bot commands and set the menu button (web_app or commands)."""
+        commands = [
+            {"command": "start",     "description": "🔗 ربط الحساب / Link account"},
+            {"command": "status",    "description": "📊 حالة البوت / Bot status"},
+            {"command": "positions", "description": "📈 المراكز المفتوحة / Open positions"},
+            {"command": "trades",    "description": "📜 آخر الصفقات / Recent trades"},
+            {"command": "help",      "description": "❓ مساعدة / Help"},
+        ]
+        self._call_api("setMyCommands", {"commands": commands})
+        self._log(f"Commands registered: {[c['command'] for c in commands]}")
+
+        # Set menu button — use WebApp if WEB_ORIGIN is set, otherwise default to commands
+        web_origin = os.getenv("WEB_ORIGIN", "").strip().rstrip("/")
+        if web_origin and web_origin.startswith("http"):
+            result = self._call_api("setChatMenuButton", {
+                "menu_button": {
+                    "type": "web_app",
+                    "text": "🚀 فتح المنصة",
+                    "web_app": {"url": web_origin}
+                }
+            })
+            if result.get("ok"):
+                self._log(f"Menu button set to WebApp: {web_origin} ✅")
+            else:
+                self._log(f"WebApp menu button failed: {result.get('description','?')} — falling back to commands")
+                self._call_api("setChatMenuButton", {"menu_button": {"type": "commands"}})
+        else:
+            # Show the commands list as the menu button (default Telegram behaviour)
+            self._call_api("setChatMenuButton", {"menu_button": {"type": "commands"}})
+            self._log("Menu button set to commands list (no WEB_ORIGIN configured)")
+
     # ── lifecycle ────────────────────────────────────────────────────
 
     def stop(self):
         self._ready = False
+        self._polling = False
 
     def run(self):
-        """Background thread: DNS fix → set webhook (retry forever) → idle."""
+        """Background thread: DNS fix → webhook OR polling → idle."""
         try:
             self.loop = asyncio.new_event_loop()
             asyncio.set_event_loop(self.loop)
@@ -325,44 +455,48 @@ class TelegramBot:
             sender.start()
 
             # 3. Wait for network to stabilise
-            self._log("Waiting 15s for network baseline...")
-            time.sleep(15)
+            self._log("Waiting 5s for network baseline...")
+            time.sleep(5)
 
-            # 4. Set webhook (retry with long back-off; succeeds when net opens)
+            # 4. Resolve bot username
+            me = self._call_api("getMe")
+            if me.get("ok"):
+                self.bot_username = me['result'].get('username', '')
+                self._log(f"Bot is @{self.bot_username}")
+
             webhook_url = os.getenv("WEBHOOK_URL")
             if webhook_url:
+                # ── WEBHOOK MODE (production) ──
                 hook = f"{webhook_url.rstrip('/')}/tg-webhook/{self.token}"
                 self._log(f"Setting webhook to: {hook}")
                 backoff = 10
-                for attempt in range(1, 100):     # effectively infinite
+                for attempt in range(1, 100):
                     self._log(f"Webhook attempt {attempt}...")
                     r = self._call_api("setWebhook", {"url": hook})
                     if r.get("ok"):
                         self._log("SUCCESS: Webhook set! ✅")
-                        # Register commands & verify
-                        self._call_api("setMyCommands", {"commands": [
-                            {"command": "start", "description": "Start the bot"},
-                            {"command": "status", "description": "Bot status"},
-                            {"command": "positions", "description": "Open positions"},
-                            {"command": "trades", "description": "Recent trades"},
-                            {"command": "help",  "description": "Help"},
-                        ]})
-                        me = self._call_api("getMe")
-                        if me.get("ok"):
-                            self.bot_username = me['result'].get('username','')
-                            self._log(f"Bot is @{self.bot_username}")
+                        self._setup_bot_menu()
                         self._ready = True
                         self._net_ok = True
                         break
                     else:
                         self._log(f"Webhook failed: {r.get('error', r.get('description','?'))}  (next in {backoff}s)")
                         time.sleep(backoff)
-                        backoff = min(backoff * 1.5, 300)  # max 5 min
+                        backoff = min(backoff * 1.5, 300)
             else:
-                self._log("No WEBHOOK_URL — bridge idle.")
+                # ── LONG-POLLING MODE (local development) ──
+                self._log("No WEBHOOK_URL — starting Long-Polling mode for local dev ✅")
+                # Delete any existing webhook first
+                self._call_api("deleteWebhook", {"drop_pending_updates": False})
+                self._setup_bot_menu()
                 self._ready = True
+                self._net_ok = True
+                self._polling = True
+                # Run polling in this thread (blocks)
+                self._polling_loop()
+                return  # polling_loop runs forever
 
-            # Keep thread alive
+            # Keep thread alive (webhook mode)
             self.loop.run_forever()
         except Exception as e:
             self._log(f"Fatal: {e}")

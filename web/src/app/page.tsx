@@ -78,7 +78,7 @@ export default function HomePage() {
         feature3Title: isAr ? "ماسح فني متكامل" : "Technical Indicator Screener",
         feature3Desc: isAr ? "فلترة فورية للأسهم بناءً على RSI و MACD والتقاطعات الذهبية وانفجارات حجم التداول." : "Instant scanning for stocks based on RSI, MACD, golden crosses, and volume breakout signals.",
         
-        feature4Title: isAr ? "تنبيهات تليجرام وواتساب" : "Telegram & WhatsApp Alerts",
+        feature4Title: isAr ? "تنبيهات تليجرام" : "Telegram Alerts",
         feature4Desc: isAr ? "استقبل إشارات الشراء وإشعارات البوتات مباشرة على هاتفك فور حدوثها دون الحاجة لمتابعة الشاشة." : "Receive real-time buy signals and alerts directly on your phone, no constant screen monitoring required.",
 
         simTitle: isAr ? "تفاعل مع محاكي البوت الذكي" : "Interactive Bot Simulator Preview",
@@ -102,7 +102,7 @@ export default function HomePage() {
         step2Title: isAr ? "2. اختبر وحسّن الإعدادات" : "2. Backtest & Optimize",
         step2Desc: isAr ? "اضبط مستهدف الربح ووقف الخسارة واختبر الأداء التاريخي في ثوانٍ." : "Fine-tune target profits, stop losses, and visualize historical performance instantly.",
         step3Title: isAr ? "3. فعّل التنبيهات المباشرة" : "3. Activate Live Alerts",
-        step3Desc: isAr ? "اربط حساب تليجرام أو واتساب واستقبل إشارات الشراء فورياً." : "Connect Telegram or WhatsApp to receive real-time breakout signals directly.",
+        step3Desc: isAr ? "اربط حساب تليجرام واستقبل إشارات الشراء فورياً." : "Connect Telegram to receive real-time breakout signals directly.",
 
         ctaTitle: isAr ? "جاهز للتداول بذكاء؟" : "Ready to Trade Smarter?",
         ctaDesc: isAr ? "انضم الآن وابدأ في استخدام أقوى أدوات التحليل الكمي للبورصة المصرية." : "Join now and harness the power of quantitative analytics for the Egyptian Exchange.",

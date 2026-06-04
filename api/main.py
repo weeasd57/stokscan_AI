@@ -133,7 +133,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
     # traceback.print_exc()
     return JSONResponse(status_code=500, content={"detail": f"Internal server error: {str(exc)}"})
 
-from api.routers import scan_ai, scan_ai_fast, scan_tech, admin, bot
+from api.routers import scan_ai, scan_ai_fast, scan_tech, admin, bot, payment
 
 app.include_router(scan_ai.router)
 app.include_router(scan_ai_fast.router)
@@ -141,6 +141,7 @@ app.include_router(scan_tech.router)
 app.include_router(admin.router)
 app.include_router(bot.router, prefix="/ai_bot")
 app.include_router(bot.router, prefix="/bot") # Compatibility Alias
+app.include_router(payment.router)
 
 @app.post("/tg-webhook/{token}")
 async def telegram_webhook(token: str, request: Request, background_tasks: BackgroundTasks):
@@ -1194,9 +1195,9 @@ async def strategy_tester_endpoint(req: StrategyTesterRequest):
         "total_bars": len(bars),
         "models": model_results,
         "config": {
-            "threshold": threshold,
-            "target_pct": target_pct,
-            "stop_loss_pct": stop_loss_pct,
+            "threshold": req.threshold,
+            "target_pct": req.target_pct,
+            "stop_loss_pct": req.stop_loss_pct,
             "hold_days": req.hold_days,
             "bot_mode": req.bot_mode,
             "capital": req.capital,
@@ -2040,7 +2041,7 @@ async def get_backtests(model: Optional[str] = None, admin: Optional[bool] = Fal
             "id,model_name,exchange,start_date,end_date,total_trades,win_rate,net_profit,"
             "avg_return_per_trade,status,status_msg,meta_threshold,council_threshold,"
             "target_pct,stop_loss_pct,capital,created_at,council_model,"
-            "pre_council_win_rate,pre_council_profit_pct,post_council_win_rate,post_council_profit_pct,is_public"
+            "pre_council_win_rate,pre_council_profit_pct,post_council_win_rate,post_council_profit_pct,is_public,is_favorite"
         )
         q = stock_ai.supabase.table("backtests").select(columns).order("created_at", desc=True)
         if model:
@@ -2079,6 +2080,7 @@ async def get_backtests(model: Optional[str] = None, admin: Optional[bool] = Fal
                                 if not exists:
                                     result_payload = j.get('result') or j
                                     is_public = result_payload.get('is_public', False) or j.get('is_public', False)
+                                    is_favorite = result_payload.get('is_favorite', False) or j.get('is_favorite', False)
                                     if not admin and not is_public:
                                         continue
                                     created_at = j.get('saved_at') or j.get('created_at') or result_payload.get('created_at')
@@ -2102,6 +2104,7 @@ async def get_backtests(model: Optional[str] = None, admin: Optional[bool] = Fal
                                         'created_at': created_at,
                                         'saved_local_path': p,
                                         'is_public': is_public,
+                                        'is_favorite': is_favorite,
                                     }
                                     data.insert(0, rec)
                         except Exception:
@@ -2283,11 +2286,12 @@ async def delete_backtest(id: str):
 
 
 class BacktestUpdate(BaseModel):
-    is_public: bool
+    is_public: Optional[bool] = None
+    is_favorite: Optional[bool] = None
 
 @app.patch("/backtests/{id}")
 async def update_backtest(id: str, req: BacktestUpdate):
-    """Update visibility of a backtest record."""
+    """Update visibility or favorite status of a backtest record."""
     if id.startswith("local-"):
         filename = id[6:]
         local_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "backtests_local")
@@ -2296,12 +2300,17 @@ async def update_backtest(id: str, req: BacktestUpdate):
             try:
                 with open(p, 'r', encoding='utf-8') as fh:
                     j = json.load(fh)
-                j['is_public'] = req.is_public
-                if 'result' in j and isinstance(j['result'], dict):
-                    j['result']['is_public'] = req.is_public
+                if req.is_public is not None:
+                    j['is_public'] = req.is_public
+                    if 'result' in j and isinstance(j['result'], dict):
+                        j['result']['is_public'] = req.is_public
+                if req.is_favorite is not None:
+                    j['is_favorite'] = req.is_favorite
+                    if 'result' in j and isinstance(j['result'], dict):
+                        j['result']['is_favorite'] = req.is_favorite
                 with open(p, 'w', encoding='utf-8') as fh:
                     json.dump(j, fh, ensure_ascii=False, indent=2)
-                return {"id": id, "is_public": req.is_public, "status": "success"}
+                return {"id": id, "is_public": j.get('is_public', False), "is_favorite": j.get('is_favorite', False), "status": "success"}
             except Exception as e:
                 raise HTTPException(status_code=500, detail=f"Failed to update local file: {e}")
         raise HTTPException(status_code=404, detail="Local backtest file not found")
@@ -2310,7 +2319,16 @@ async def update_backtest(id: str, req: BacktestUpdate):
     if not supabase:
         raise HTTPException(status_code=500, detail="Supabase not initialized")
     
-    res = supabase.table("backtests").update({"is_public": req.is_public}).eq("id", id).execute()
+    update_data = {}
+    if req.is_public is not None:
+        update_data["is_public"] = req.is_public
+    if req.is_favorite is not None:
+        update_data["is_favorite"] = req.is_favorite
+
+    if not update_data:
+        raise HTTPException(status_code=400, detail="No fields to update")
+
+    res = supabase.table("backtests").update(update_data).eq("id", id).execute()
     return res.data[0] if res.data else {"error": "not found"}
 
 

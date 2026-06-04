@@ -11,6 +11,7 @@ import Image from "next/image";
 import { useSearchParams } from "next/navigation";
 import { TradeTimeline } from "@/app/admin/components/TradeTimeline";
 import TradingViewChart from "@/components/TradingViewChart";
+import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 
 
 // Helper component to fetch and display EGX30 comparison
@@ -256,6 +257,41 @@ export default function AIScannerPage() {
     const { t, language } = useLanguage();
     const searchParams = useSearchParams();
     const activeTab = searchParams.get("tab") === "backtests" ? "backtests" : "bots";
+
+    // SaaS Subscription State
+    const [isPro, setIsPro] = useState(false);
+    const supabase = useMemo(() => createSupabaseBrowserClient(), []);
+
+    useEffect(() => {
+        let active = true;
+        async function checkSubscription() {
+            if (!user) {
+                setIsPro(false);
+                return;
+            }
+            try {
+                const { data: sub } = await supabase
+                    .from("subscriptions")
+                    .select("plan_id, status")
+                    .eq("user_id", user.id)
+                    .maybeSingle();
+                
+                if (active && sub) {
+                    const planId = (sub.plan_id || "").toLowerCase();
+                    const status = (sub.status || "").toLowerCase();
+                    if (planId === "pro" && (status === "active" || status === "trialing")) {
+                        setIsPro(true);
+                        return;
+                    }
+                }
+                if (active) setIsPro(false);
+            } catch (err) {
+                console.error("Failed to check user SaaS subscription:", err);
+            }
+        }
+        void checkSubscription();
+        return () => { active = false; };
+    }, [user, supabase]);
     
     // States for Bots tab
     const [bots, setBots] = useState<Bot[]>([]);
@@ -407,8 +443,10 @@ export default function AIScannerPage() {
     // Handle Subscribe
     const handleSubscribe = async (botId: string) => {
         if (!user) return;
-        if (activeSubCount >= 2) {
-            alert("You have reached the maximum subscription limit (Max 2 bots in the free plan).");
+        if (!isPro && activeSubCount >= 2) {
+            alert(language === "ar"
+                ? "لقد وصلت للحد الأقصى للاشتراك في البوتات (2 بوت بحد أقصى في الخطة المجانية). يرجى الترقية إلى الخطة الاحترافية (Pro) للحصول على بوتات غير محدودة."
+                : "You have reached the maximum subscription limit (Max 2 bots in the free plan). Please upgrade to Pro for unlimited bots.");
             return;
         }
         setSubmittingBotId(botId);
@@ -838,12 +876,21 @@ export default function AIScannerPage() {
 
                             {/* Free limit info alert */}
                             {user && (
-                                <div className="flex items-center justify-between p-4 rounded-2xl bg-indigo-500/5 border border-indigo-500/10 text-indigo-400 text-[11px] font-bold uppercase tracking-wider mt-8">
+                                <div className={`flex items-center justify-between p-4 rounded-2xl border text-[11px] font-bold uppercase tracking-wider mt-8 ${
+                                    isPro 
+                                        ? "bg-emerald-500/5 border-emerald-500/10 text-emerald-400"
+                                        : "bg-indigo-500/5 border-indigo-500/10 text-indigo-400"
+                                }`}>
                                     <div className="flex items-center gap-2">
                                         <ShieldCheck className="w-4.5 h-4.5" />
-                                        <span>{t("bots.free_limit").replace("{count}", activeSubCount.toString())}</span>
+                                        <span>
+                                            {isPro 
+                                                ? (language === "ar" ? `اشتراكات البوت النشطة: ${activeSubCount} (خطة برو - اشتراك غير محدود)` : `Active Bot Subscriptions: ${activeSubCount} (Pro Plan - Unlimited)`)
+                                                : t("bots.free_limit").replace("{count}", activeSubCount.toString())
+                                            }
+                                        </span>
                                     </div>
-                                    {activeSubCount >= 2 && (
+                                    {!isPro && activeSubCount >= 2 && (
                                         <span className="text-amber-400 text-[10px]">{t("bots.limit_reached")}</span>
                                     )}
                                 </div>
@@ -891,7 +938,7 @@ export default function AIScannerPage() {
                                             <tbody className="divide-y divide-white/5">
                                                 {filteredBots.map((bot) => {
                                                     const isSubbed = !!bot.is_subscribed;
-                                                    const isLimitReached = activeSubCount >= 2;
+                                                    const isLimitReached = !isPro && activeSubCount >= 2;
                                                     const isLoading = submittingBotId === bot.bot_id;
                                                     const pnl = bot.total_pnl || 0;
                                                     const isProfitable = pnl >= 0;
@@ -1059,7 +1106,7 @@ export default function AIScannerPage() {
                                     <div className="lg:hidden divide-y divide-white/5">
                                         {filteredBots.map((bot) => {
                                             const isSubbed = !!bot.is_subscribed;
-                                            const isLimitReached = activeSubCount >= 2;
+                                            const isLimitReached = !isPro && activeSubCount >= 2;
                                             const isLoading = submittingBotId === bot.bot_id;
                                             const pnl = bot.total_pnl || 0;
                                             const isProfitable = pnl >= 0;

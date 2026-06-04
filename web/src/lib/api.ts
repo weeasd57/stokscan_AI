@@ -7,6 +7,7 @@ export const getProductionApiUrl = (): string => {
     if (
       host !== "localhost" && 
       host !== "127.0.0.1" && 
+      !host.includes("ngrok-free.app") &&
       !host.startsWith("192.168.") && 
       !host.startsWith("10.")
     ) {
@@ -808,6 +809,16 @@ export async function updateBacktestVisibility(id: string, isPublic: boolean): P
     body: JSON.stringify({ is_public: isPublic })
   });
   if (!response.ok) throw new Error("Failed to update backtest visibility");
+}
+
+export async function updateBacktestFavorite(id: string, isFavorite: boolean): Promise<void> {
+  const baseUrl = GLOBAL_BASE_URL || "/api";
+  const response = await fetch(`${baseUrl}/backtests/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ is_favorite: isFavorite })
+  });
+  if (!response.ok) throw new Error("Failed to update backtest favorite status");
 }
 
 export type Asset = {

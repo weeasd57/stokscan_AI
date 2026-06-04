@@ -15,7 +15,8 @@
             "recall": 0.11748731508611449,
             "f1": 0.1902667669695041,
             "auc": 0.6156995416996107
-        }
+        },
+        "n_estimators": 880
     },
     "data_inputs": {
         "uses_exchange_index_json": true,

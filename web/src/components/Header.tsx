@@ -92,9 +92,10 @@ export default function Header() {
     }, []);
 
     const navItems = [
-        { href: "/scanner/backtests?tab=bots", label: t("nav.scanner.ai_trading"), icon: <Brain className="w-4 h-4" />, activePath: "/scanner/backtests" },
+        { href: "/scanner/backtests?tab=bots", label: t("nav.scanner.ai_trading"), icon: <Brain className="w-4 h-4" />, activePath: "/scanner/backtests", badge: "AI DEMO" },
         { href: "/scanner/technical", label: t("nav.scanner.tech"), icon: <Activity className="w-4 h-4" />, activePath: "/scanner/technical" },
         { href: "/scanner/backtests?tab=backtests", label: t("nav.scanner.backtests"), icon: <BarChart2 className="w-4 h-4" />, activePath: null },
+        { href: "/pro", label: language === "ar" ? "برو" : "Pro", icon: <Crown className="w-4 h-4 text-amber-400" />, activePath: "/pro" },
     ];
 
     const checkActive = (href: string, activePath: string | null) => {
@@ -102,7 +103,8 @@ export default function Header() {
             return pathname === "/scanner/backtests" && currentTab === "backtests";
         }
         if (href.includes("?tab=bots")) {
-            return pathname === "/scanner/backtests" && currentTab !== "backtests";
+            // Only active when ?tab=bots is explicitly in the URL
+            return pathname === "/scanner/backtests" && (currentTab === "bots" || currentTab === null && false);
         }
         return activePath ? pathname === activePath : pathname === href;
     };
@@ -238,7 +240,14 @@ export default function Header() {
                                         title={item.label}
                                     >
                                         {item.icon}
-                                        <span className="hidden xl:inline">{item.label}</span>
+                                        <span className="hidden xl:inline-flex items-center gap-1.5">
+                                            {item.label}
+                                            {item.badge && (
+                                                <span className="px-1 py-0.5 rounded-[4px] bg-indigo-600 text-white text-[8px] font-black uppercase tracking-normal">
+                                                    {item.badge}
+                                                </span>
+                                            )}
+                                        </span>
                                         {isActive && (
                                             <span className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-blue-500" />
                                         )}
@@ -355,7 +364,14 @@ export default function Header() {
                                                 }`}
                                         >
                                             {item.icon}
-                                            {item.label}
+                                            <span className="flex items-center gap-1.5">
+                                                {item.label}
+                                                {item.badge && (
+                                                    <span className="px-1 py-0.5 rounded-[4px] bg-indigo-600 text-white text-[8px] font-black uppercase tracking-normal">
+                                                        {item.badge}
+                                                    </span>
+                                                )}
+                                            </span>
                                         </Link>
                                     );
                                 })}
