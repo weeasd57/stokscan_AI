@@ -11,21 +11,78 @@ from api.routers.scan_tech import TechFilter
 from api.symbols_local import load_symbols_for_country
 from api.stock_ai import is_ticker_synced, get_stock_data_eodhd, add_technical_indicators, get_company_fundamentals
 
+# ─── Scan cycle counter (used for deciding when to refresh prices) ────────────
+_scan_cycle_count = 0
+
 def start_alerts_scheduler():
     thread = threading.Thread(target=_alerts_worker_loop, daemon=True)
     thread.start()
 
 def _alerts_worker_loop():
+    global _scan_cycle_count
     print("[ALERTS SCHEDULER] Worker thread started.")
     # Wait a bit on startup to let the app initialize
     time.sleep(30)
     while True:
         try:
+            _scan_cycle_count += 1
+            # Refresh closing prices from EODHD before every scan
+            _refresh_closing_prices_for_alerts()
             _check_and_trigger_alerts()
         except Exception as e:
             print(f"[ALERTS SCHEDULER] Error in check loop: {e}")
         # Run every 30 minutes
         time.sleep(1800)
+
+
+def _refresh_closing_prices_for_alerts():
+    """
+    Before running the alert scan, pull the latest daily closing prices
+    from EODHD for all synced Egyptian stocks. This ensures technical
+    indicators are computed on up-to-date data (today's close).
+    """
+    _init_supabase()
+    api_key = os.getenv("EODHD_API_KEY")
+    if not api_key:
+        print("[ALERTS SCHEDULER] EODHD API Key not set - skipping price refresh")
+        return
+
+    try:
+        from api.symbols_local import load_symbols_for_country
+        symbols_data = load_symbols_for_country("Egypt")
+    except Exception as e:
+        print(f"[ALERTS SCHEDULER] Failed to load Egyptian symbols: {e}")
+        return
+
+    api = APIClient(api_key)
+    today = dt.date.today().isoformat()
+    # Only refresh synced tickers to avoid rate-limit abuse
+    synced = [(str(r.get("Code", r.get("Symbol", ""))), str(r.get("Exchange", "")))
+              for r in symbols_data
+              if is_ticker_synced(str(r.get("Code", r.get("Symbol", ""))), str(r.get("Exchange", "")))]
+
+    refreshed = 0
+    errors = 0
+    for symbol, exchange in synced:
+        if not symbol:
+            continue
+        try:
+            # force_local=False so it actually downloads fresh data from EODHD
+            df = get_stock_data_eodhd(
+                api, symbol,
+                from_date="2023-01-01",
+                tolerance_days=5,
+                exchange=exchange,
+                force_local=False   # <-- pull fresh closing prices
+            )
+            if df is not None and not df.empty:
+                refreshed += 1
+        except Exception as e:
+            errors += 1
+            # Silently skip individual failures
+            continue
+
+    print(f"[ALERTS SCHEDULER] Price refresh complete: {refreshed} refreshed, {errors} errors out of {len(synced)} synced tickers")
 
 def _check_and_trigger_alerts():
     _init_supabase()
@@ -104,12 +161,13 @@ def _check_and_trigger_alerts():
                 continue
                 
             try:
-                # Force local fetch since it's cached/synced
+                # Use local data (already refreshed above by _refresh_closing_prices_for_alerts)
+                # force_local=True here is safe — fresh data was pulled in the refresh step
                 df = get_stock_data_eodhd(api, symbol, from_date="2023-01-01", tolerance_days=5, exchange=exchange, force_local=True)
-                if df.empty:
+                if df is None or df.empty:
                     continue
                 df = add_technical_indicators(df)
-                if df.empty:
+                if df is None or df.empty:
                     continue
                 last = df.iloc[-1]
                 
