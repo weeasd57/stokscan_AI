@@ -1313,6 +1313,48 @@ def get_candles(symbol: str, bot_id: str = "primary", limit: int = 150, exchange
 
             prices_resp = _supabase_read_with_retry(fetch_prices, table_name="stock_prices")
             raw_candles = prices_resp.data or [] if prices_resp else []
+            
+            # Suffix/class alternative fallback (e.g. AREHA -> AREH)
+            if not raw_candles and len(db_symbol) > 3:
+                alternatives = []
+                if db_symbol.endswith("A"):
+                    alternatives.append(db_symbol[:-1])
+                elif db_symbol.endswith("B"):
+                    alternatives.append(db_symbol[:-1])
+                elif db_symbol.endswith("CB"):
+                    alternatives.append(db_symbol[:-2])
+                
+                for alt_sym in alternatives:
+                    def fetch_alt(sb):
+                        return sb.table("stock_prices") \
+                            .select("date,open,high,low,close,volume") \
+                            .eq("symbol", alt_sym) \
+                            .eq("exchange", "EGX") \
+                            .order("date", desc=True) \
+                            .limit(limit) \
+                            .execute()
+                    alt_resp = _supabase_read_with_retry(fetch_alt, table_name="stock_prices")
+                    if alt_resp and alt_resp.data:
+                        raw_candles = alt_resp.data
+                        db_symbol = alt_sym
+                        print(f"DEBUG: resolved {symbol} -> {alt_sym} in stock_prices via suffix alt")
+                        break
+            
+            # If still no data, try on-the-fly TradingView sync
+            if not raw_candles:
+                try:
+                    from api.tradingview_integration import fetch_tradingview_prices
+                    full_ticker = f"{db_symbol}.EGX"
+                    print(f"DEBUG: Ticker {full_ticker} not found in Supabase. Attempting on-the-fly TV sync...")
+                    ok, msg = fetch_tradingview_prices(full_ticker, max_days=365)
+                    if ok:
+                        # Re-query Supabase
+                        prices_resp = _supabase_read_with_retry(fetch_prices, table_name="stock_prices")
+                        raw_candles = prices_resp.data or [] if prices_resp else []
+                        print(f"DEBUG: On-the-fly TV sync succeeded for {full_ticker}. Loaded {len(raw_candles)} candles.")
+                except Exception as tv_ex:
+                    print(f"DEBUG: On-the-fly TV sync failed for {db_symbol}: {tv_ex}")
+
             # Reverse to chronological order
             raw_candles.reverse()
         else:
