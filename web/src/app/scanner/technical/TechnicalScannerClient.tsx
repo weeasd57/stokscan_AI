@@ -1457,14 +1457,14 @@ export default function TechnicalScannerPage() {
                 {activeSymbol && (
                     <>
                         <div 
-                            style={{ height: `${chartHeight}px` }}
-                            className="w-full flex flex-col bg-[#131722] shrink-0 overflow-hidden relative"
+                            style={{ height: `${chartHeight}px`, overflow: 'hidden' }}
+                            className="w-full flex flex-col bg-[#131722] shrink-0 relative"
                         >
                             {(() => {
                                 const currentStock = results.find(r => r.symbol === activeSymbol);
                                 if (!currentStock) return null;
                                 return (
-                                    <div id="chart-pane-container" className="flex-1 flex flex-col min-h-0 min-w-0 bg-[#131722] overflow-hidden">
+                                    <div id="chart-pane-container" className="flex-1 flex flex-col min-h-0 min-w-0 bg-[#131722]" style={{ overflow: 'hidden' }}>
                                         {/* Active Stock details header */}
                                         <div className="p-3 border-b border-[#2a2e39] bg-[#0c0d12] flex items-center justify-between shrink-0">
                                             <div className="flex items-center gap-3">
@@ -1511,7 +1511,15 @@ export default function TechnicalScannerPage() {
                                         </div>
 
                                         {/* TradingView Dynamic Chart Embed */}
-                                        <div className="flex-1 min-h-0 w-full bg-[#131722] relative overflow-hidden">
+                                        <div 
+                                            className="flex-1 min-h-0 w-full bg-[#131722] relative"
+                                            style={{ overflow: 'hidden' }}
+                                            onWheel={(e) => {
+                                                // ✅ Capture wheel events inside the chart zone
+                                                // so the page doesn't scroll when user zooms/scrolls the chart
+                                                e.stopPropagation();
+                                            }}
+                                        >
                                             <TradingViewChart 
                                                 symbol={activeSymbol} 
                                                 theme="dark" 

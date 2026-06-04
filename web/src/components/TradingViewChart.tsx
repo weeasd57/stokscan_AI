@@ -898,7 +898,15 @@ export default function TradingViewChart({
     }
 
     return (
-        <div ref={mainContainerRef} className="w-full h-full flex flex-col bg-[#131722] relative select-none overflow-hidden">
+        <div 
+            ref={mainContainerRef} 
+            className="w-full h-full flex flex-col bg-[#131722] relative select-none overflow-hidden"
+            style={{ touchAction: 'none' }}
+            onWheel={(e) => {
+                // ✅ Stop wheel events from bubbling to the page scroller
+                e.stopPropagation();
+            }}
+        >
             {/* Custom Interactive Toolbar */}
             <div className="h-10 border-b border-[#2a2e39] bg-[#1c2030]/30 px-3 flex items-center justify-between text-xs text-[#d1d4dc] z-30 select-none">
                 <div className="flex items-center gap-3 overflow-x-auto no-scrollbar flex-1 mr-2">
