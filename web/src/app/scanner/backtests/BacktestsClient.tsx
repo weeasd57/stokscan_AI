@@ -12,6 +12,8 @@ import { useSearchParams } from "next/navigation";
 import { TradeTimeline } from "@/app/admin/components/TradeTimeline";
 import TradingViewChart from "@/components/TradingViewChart";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+
 
 
 // Helper component to fetch and display EGX30 comparison
@@ -310,6 +312,13 @@ export default function AIScannerPage() {
     const [tradesLoadingMap, setTradesLoadingMap] = useState<Record<string, boolean>>({});
 
     const [selectedTrade, setSelectedTrade] = useState<any | null>(null);
+
+    const [mounted, setMounted] = useState(false);
+    useEffect(() => {
+        setMounted(true);
+    }, []);
+
+    const [selectedMetric, setSelectedMetric] = useState<"netProfit" | "winRate" | "avgReturn">("netProfit");
 
     const symbolTrades = useMemo(() => {
         if (!selectedTrade || !expandedBacktestId) return [];
@@ -618,6 +627,14 @@ export default function AIScannerPage() {
             };
         }).sort((a, b) => b.modelName.localeCompare(a.modelName)); // Sort KING first
     }, [backtests]);
+
+    const chartData = useMemo(() => {
+        return modelStats.map(s => ({
+            name: s.modelName === "KING" ? (language === "ar" ? "موديل KING الملكي" : "KING Model") : (language === "ar" ? "موديل NANO الذكي" : "NANO Model"),
+            value: selectedMetric === "netProfit" ? s.netProfit : selectedMetric === "winRate" ? s.winRate : s.avgReturnPerTrade,
+            fill: s.modelName === "KING" ? "#f59e0b" : "#6366f1", // Amber vs Indigo
+        }));
+    }, [modelStats, selectedMetric, language]);
 
     const formatNum = (val: number | undefined | null, decimals = 2) => {
         if (val === undefined || val === null || isNaN(val)) return "0.00";
@@ -1357,6 +1374,127 @@ export default function AIScannerPage() {
                                     </div>
                                 );
                             })}
+                        </div>
+                    )}
+
+                    {/* Comparative Performance Chart */}
+                    {modelStats.length > 0 && (
+                        <div className="relative overflow-hidden rounded-[2rem] border border-white/5 bg-gradient-to-br from-zinc-950 via-zinc-900/40 to-zinc-950 p-6 shadow-2xl mb-8">
+                            {/* Decorative background gradients */}
+                            <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500/5 rounded-full blur-[100px] pointer-events-none" />
+                            <div className="absolute bottom-0 left-0 w-64 h-64 bg-amber-500/5 rounded-full blur-[100px] pointer-events-none" />
+                            
+                            <div className="relative z-10 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6 mb-6">
+                                <div className="space-y-1.5">
+                                    <h3 className="text-sm md:text-base font-black text-white uppercase tracking-tight flex items-center gap-2">
+                                        <BarChart2 className="w-5 h-5 text-indigo-400" />
+                                        {language === "ar" ? "مقارنة الأداء العام بين البوتات" : "Global Bot Performance Comparison"}
+                                    </h3>
+                                    <p className="text-[9px] text-zinc-500 font-bold uppercase tracking-widest">
+                                        {language === "ar" ? "مقارنة بيانية للمقاييس الرئيسية بين طرازات الذكاء الاصطناعي" : "Graphical Comparison of Key Metrics Across AI Models"}
+                                    </p>
+                                </div>
+                                
+                                {/* Metric Selectors */}
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <button
+                                        onClick={() => setSelectedMetric("netProfit")}
+                                        className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-black transition-all ${
+                                            selectedMetric === "netProfit"
+                                                ? "bg-indigo-500/10 border-indigo-500/30 text-indigo-400 shadow-lg shadow-indigo-500/5"
+                                                : "bg-zinc-900/40 border-white/5 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-900/60"
+                                        }`}
+                                    >
+                                        <TrendingUp className="w-3.5 h-3.5" />
+                                        {language === "ar" ? "متوسط الأرباح" : "Avg Net Profit"}
+                                    </button>
+                                    <button
+                                        onClick={() => setSelectedMetric("winRate")}
+                                        className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-black transition-all ${
+                                            selectedMetric === "winRate"
+                                                ? "bg-indigo-500/10 border-indigo-500/30 text-indigo-400 shadow-lg shadow-indigo-500/5"
+                                                : "bg-zinc-900/40 border-white/5 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-900/60"
+                                        }`}
+                                    >
+                                        <Target className="w-3.5 h-3.5" />
+                                        {language === "ar" ? "نسبة النجاح" : "Avg Win Rate"}
+                                    </button>
+                                    <button
+                                        onClick={() => setSelectedMetric("avgReturn")}
+                                        className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-black transition-all ${
+                                            selectedMetric === "avgReturn"
+                                                ? "bg-indigo-500/10 border-indigo-500/30 text-indigo-400 shadow-lg shadow-indigo-500/5"
+                                                : "bg-zinc-900/40 border-white/5 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-900/60"
+                                        }`}
+                                    >
+                                        <Activity className="w-3.5 h-3.5" />
+                                        {language === "ar" ? "العائد/الصفقة" : "Avg Return/Trade"}
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Chart Container */}
+                            {!mounted ? (
+                                <div className="h-[280px] w-full flex flex-col items-center justify-center bg-zinc-950/20 rounded-2xl border border-white/5 animate-pulse gap-3">
+                                    <Loader2 className="w-6 h-6 animate-spin text-zinc-700" />
+                                    <span className="text-[10px] text-zinc-600 font-bold uppercase tracking-widest">Loading Comparison...</span>
+                                </div>
+                            ) : (
+                                <div className="h-[280px] w-full">
+                                    <ResponsiveContainer width="100%" height="100%">
+                                        <BarChart 
+                                            data={chartData} 
+                                            margin={{ top: 10, right: 10, left: -20, bottom: 5 }}
+                                        >
+                                            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255, 255, 255, 0.05)" />
+                                            <XAxis 
+                                                dataKey="name" 
+                                                stroke="rgba(255, 255, 255, 0.4)" 
+                                                tick={{ fontSize: 11, fontWeight: 'bold' }} 
+                                            />
+                                            <YAxis 
+                                                stroke="rgba(255, 255, 255, 0.4)" 
+                                                tick={{ fontSize: 11, fontWeight: 'bold' }}
+                                                tickFormatter={(val) => `${val.toFixed(1)}%`}
+                                            />
+                                            <Tooltip 
+                                                cursor={{ fill: 'rgba(255, 255, 255, 0.02)' }}
+                                                content={({ active, payload }) => {
+                                                    if (active && payload && payload.length) {
+                                                        const data = payload[0];
+                                                        const color = data.payload.fill;
+                                                        return (
+                                                            <div className="bg-zinc-950/95 border border-white/10 backdrop-blur-md p-4 rounded-2xl shadow-2xl text-left space-y-1">
+                                                                <div className="text-xs font-black text-white">{data.payload.name}</div>
+                                                                <div className="flex items-center gap-2">
+                                                                    <div className="w-2 h-2 rounded-full" style={{ backgroundColor: color }} />
+                                                                    <span className="text-[10px] text-zinc-400 font-bold uppercase">
+                                                                        {selectedMetric === "netProfit" 
+                                                                            ? (language === "ar" ? "متوسط الأرباح" : "Avg Net Profit") 
+                                                                            : selectedMetric === "winRate"
+                                                                            ? (language === "ar" ? "نسبة النجاح" : "Avg Win Rate")
+                                                                            : (language === "ar" ? "العائد/الصفقة" : "Avg Return/Trade")
+                                                                        }:
+                                                                    </span>
+                                                                    <span className="text-xs font-mono font-black text-white" style={{ color: color }}>
+                                                                        {Number(data.value).toFixed(2)}%
+                                                                    </span>
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    }
+                                                    return null;
+                                                }}
+                                            />
+                                            <Bar 
+                                                dataKey="value" 
+                                                radius={[10, 10, 0, 0]} 
+                                                maxBarSize={60}
+                                            />
+                                        </BarChart>
+                                    </ResponsiveContainer>
+                                </div>
+                            )}
                         </div>
                     )}
 
