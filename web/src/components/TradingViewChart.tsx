@@ -235,7 +235,7 @@ export default function TradingViewChart({
                 minimumWidth: 80,
             },
             handleScroll: {
-                mouseWheel: false,
+                mouseWheel: true,   // ✅ allow scroll on main chart
                 pressedMouseMove: true,
                 horzTouchDrag: true,
                 vertTouchDrag: true,
@@ -394,7 +394,7 @@ export default function TradingViewChart({
                     minimumWidth: 80,
                 },
                 handleScroll: {
-                    mouseWheel: false,
+                    mouseWheel: true,   // ✅ allow scroll on lower pane charts too
                     pressedMouseMove: true,
                     horzTouchDrag: true,
                     vertTouchDrag: true,
