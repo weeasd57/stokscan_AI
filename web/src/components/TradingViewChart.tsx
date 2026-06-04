@@ -56,13 +56,15 @@ const AVAILABLE_INDICATORS = [
 
 const COLOR_PALETTE = ["#2196f3", "#ff9800", "#e91e63", "#9c27b0", "#4caf50", "#00bcd4", "#ffeb3b"];
 
+const DEFAULT_CUSTOM_MARKERS: CustomMarker[] = [];
+
 export default function TradingViewChart({ 
     symbol, 
     theme = "dark", 
     exchange,
     activeTool = "cursor",
     onToolDrawComplete,
-    customMarkers = [],
+    customMarkers = DEFAULT_CUSTOM_MARKERS,
     focusTimestamp,
     hideIndicators = false
 }: TradingViewChartProps) {
