@@ -636,10 +636,14 @@ export default function AIScannerPage() {
     }, [backtests]);
 
     const chartData = useMemo(() => {
-        return modelStats.map(s => {
+        const fallbacks = ["#a855f7", "#ec4899", "#3b82f6", "#f43f5e", "#06b6d4"];
+        return modelStats.map((s, idx) => {
             let fill = "#6366f1"; // Default Indigo
             if (s.modelName === "KING") fill = "#f59e0b"; // Amber
             else if (s.modelName === "THE BOT") fill = "#10b981"; // Emerald
+            else if (s.modelName !== "NANO") {
+                fill = fallbacks[idx % fallbacks.length];
+            }
 
             let name = s.modelName;
             if (s.modelName === "KING") {
@@ -1299,8 +1303,8 @@ export default function AIScannerPage() {
                 <div className="space-y-6" dir="ltr" style={{ direction: 'ltr', unicodeBidi: 'isolate' }}>
                     {/* Model Global History Statistics */}
                     {modelStats.length > 0 && (
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-                            {modelStats.map((stat) => {
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
+                            {modelStats.map((stat, idx) => {
                                 const isKing = stat.modelName === "KING";
                                 const isNano = stat.modelName === "NANO";
                                 const isTheBot = stat.modelName === "THE BOT";
@@ -1311,19 +1315,30 @@ export default function AIScannerPage() {
                                     ? "/new_model_logo.jpg" 
                                     : "/bot_logo.jpg";
                                     
+                                const themes = [
+                                    { bg: "bg-purple-500/10 border-purple-500/25 text-purple-400", badge: "bg-purple-500/20 text-purple-400 border border-purple-500/20", icon: Sparkles },
+                                    { bg: "bg-pink-500/10 border-pink-500/25 text-pink-400", badge: "bg-pink-500/20 text-pink-400 border border-pink-500/20", icon: Activity },
+                                    { bg: "bg-blue-500/10 border-blue-500/25 text-blue-400", badge: "bg-blue-500/20 text-blue-400 border border-blue-500/20", icon: LineChart },
+                                ];
+                                const fallbackTheme = themes[idx % themes.length];
+                                    
                                 const themeClass = isKing 
                                     ? "bg-amber-500/10 border-amber-500/25 text-amber-400" 
                                     : isNano 
                                     ? "bg-indigo-500/10 border-indigo-500/25 text-indigo-400" 
-                                    : "bg-emerald-500/10 border-emerald-500/25 text-emerald-400";
+                                    : isTheBot
+                                    ? "bg-emerald-500/10 border-emerald-500/25 text-emerald-400"
+                                    : fallbackTheme.bg;
                                     
                                 const badgeClass = isKing 
                                     ? "bg-amber-500/20 text-amber-400 border border-amber-500/20" 
                                     : isNano 
                                     ? "bg-indigo-500/20 text-indigo-400 border border-indigo-500/20" 
-                                    : "bg-emerald-500/20 text-emerald-400 border border-emerald-500/20";
+                                    : isTheBot
+                                    ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/20"
+                                    : fallbackTheme.badge;
                                     
-                                const IconComp = isKing ? Brain : isNano ? Cpu : Zap;
+                                const IconComp = isKing ? Brain : isNano ? Cpu : isTheBot ? Zap : fallbackTheme.icon;
                                 
                                 const displayName = stat.modelName === "KING"
                                     ? (language === "ar" ? "موديل KING الملكي" : "KING Model")
