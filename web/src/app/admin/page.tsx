@@ -15,6 +15,7 @@ import BacktestTab from "./components/BacktestTab";
 import SymbolDrillDownModal from "./components/SymbolDrillDownModal";
 import RecalculateDialog from "./components/RecalculateDialog";
 import LiveBotTab from "./components/LiveBotTab";
+import ScheduleTab from "./components/ScheduleTab";
 
 export default function AdminPage() {
     const { t } = useLanguage();
@@ -41,7 +42,7 @@ export default function AdminPage() {
     const [currentPage, setCurrentPage] = useState(1);
     const [pageSize, setPageSize] = useState(100);
 
-    const [activeMainTab, setActiveMainTab] = useState<"data" | "ai" | "backtest" | "bot">("data");
+    const [activeMainTab, setActiveMainTab] = useState<"data" | "ai" | "backtest" | "bot" | "schedule">("data");
     const [dataSourcesTab, setDataSourcesTab] = useState<"prices" | "funds">("prices");
 
     // State restoration
@@ -672,6 +673,8 @@ export default function AdminPage() {
                     <BacktestTab />
                 ) : activeMainTab === "bot" ? (
                     <LiveBotTab />
+                ) : activeMainTab === "schedule" ? (
+                    <ScheduleTab />
                 ) : (
                     <div className="flex items-center justify-center h-full text-zinc-500">
                         Select a tab to view content
