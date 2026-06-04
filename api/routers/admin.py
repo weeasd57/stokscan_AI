@@ -2699,3 +2699,20 @@ def get_adaptive_results(exchange: str = "EGX", model_name: Optional[str] = None
     except Exception as e:
         print(f"Error fetching results: {e}")
         return []
+
+@router.get("/alert-scheduler/state")
+def get_alert_scheduler_state():
+    try:
+        from api.tech_alerts_scheduler import get_scheduler_state
+        return get_scheduler_state()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/alert-scheduler/config")
+def update_alert_scheduler_config(payload: dict):
+    try:
+        from api.tech_alerts_scheduler import set_scheduler_config
+        set_scheduler_config(payload)
+        return {"ok": True}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
