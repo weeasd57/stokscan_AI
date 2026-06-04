@@ -265,6 +265,15 @@ def _fetch_price_eodhd(ticker: str, api_key: str) -> float:
 
 web_origin = os.getenv("WEB_ORIGIN", "*")
 allow_origins = [web_origin] if web_origin != "*" else ["*"]
+if "*" not in allow_origins:
+    allow_origins.extend([
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:3001",
+        "http://127.0.0.1:3001",
+        "http://localhost:3002",
+        "http://127.0.0.1:3002",
+    ])
 
 app.add_middleware(
     CORSMiddleware,
