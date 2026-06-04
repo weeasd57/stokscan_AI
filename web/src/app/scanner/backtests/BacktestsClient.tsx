@@ -584,8 +584,10 @@ export default function AIScannerPage() {
                 groupKey = "KING";
             } else if (nameUpper.includes("NANO") || nameUpper.includes("NEW_MODEL")) {
                 groupKey = "NANO";
+            } else if (nameUpper.includes("THE BOT") || nameUpper.includes("BOT")) {
+                groupKey = "THE BOT";
             } else {
-                return;
+                groupKey = b.model_name.replace(".pkl", "").toUpperCase();
             }
 
             if (!stats[groupKey]) {
@@ -625,15 +627,35 @@ export default function AIScannerPage() {
                 netProfit: avgProfitPct,
                 avgReturnPerTrade: avgReturnPerTrade,
             };
-        }).sort((a, b) => b.modelName.localeCompare(a.modelName)); // Sort KING first
+        }).sort((a, b) => {
+            const order: Record<string, number> = { "KING": 1, "NANO": 2, "THE BOT": 3 };
+            const orderA = order[a.modelName] ?? 99;
+            const orderB = order[b.modelName] ?? 99;
+            return orderA - orderB;
+        });
     }, [backtests]);
 
     const chartData = useMemo(() => {
-        return modelStats.map(s => ({
-            name: s.modelName === "KING" ? (language === "ar" ? "موديل KING الملكي" : "KING Model") : (language === "ar" ? "موديل NANO الذكي" : "NANO Model"),
-            value: selectedMetric === "netProfit" ? s.netProfit : selectedMetric === "winRate" ? s.winRate : s.avgReturnPerTrade,
-            fill: s.modelName === "KING" ? "#f59e0b" : "#6366f1", // Amber vs Indigo
-        }));
+        return modelStats.map(s => {
+            let fill = "#6366f1"; // Default Indigo
+            if (s.modelName === "KING") fill = "#f59e0b"; // Amber
+            else if (s.modelName === "THE BOT") fill = "#10b981"; // Emerald
+
+            let name = s.modelName;
+            if (s.modelName === "KING") {
+                name = language === "ar" ? "موديل KING الملكي" : "KING Model";
+            } else if (s.modelName === "NANO") {
+                name = language === "ar" ? "موديل NANO الذكي" : "NANO Model";
+            } else if (s.modelName === "THE BOT") {
+                name = language === "ar" ? "موديل THE BOT" : "THE BOT Model";
+            }
+
+            return {
+                name,
+                value: selectedMetric === "netProfit" ? s.netProfit : selectedMetric === "winRate" ? s.winRate : s.avgReturnPerTrade,
+                fill,
+            };
+        });
     }, [modelStats, selectedMetric, language]);
 
     const formatNum = (val: number | undefined | null, decimals = 2) => {
@@ -1277,10 +1299,45 @@ export default function AIScannerPage() {
                 <div className="space-y-6" dir="ltr" style={{ direction: 'ltr', unicodeBidi: 'isolate' }}>
                     {/* Model Global History Statistics */}
                     {modelStats.length > 0 && (
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
                             {modelStats.map((stat) => {
                                 const isKing = stat.modelName === "KING";
-                                const logoUrl = isKing ? "/king_logo.jpg" : "/new_model_logo.jpg";
+                                const isNano = stat.modelName === "NANO";
+                                const isTheBot = stat.modelName === "THE BOT";
+                                
+                                const logoUrl = isKing 
+                                    ? "/king_logo.jpg" 
+                                    : isNano 
+                                    ? "/new_model_logo.jpg" 
+                                    : "/bot_logo.jpg";
+                                    
+                                const themeClass = isKing 
+                                    ? "bg-amber-500/10 border-amber-500/25 text-amber-400" 
+                                    : isNano 
+                                    ? "bg-indigo-500/10 border-indigo-500/25 text-indigo-400" 
+                                    : "bg-emerald-500/10 border-emerald-500/25 text-emerald-400";
+                                    
+                                const badgeClass = isKing 
+                                    ? "bg-amber-500/20 text-amber-400 border border-amber-500/20" 
+                                    : isNano 
+                                    ? "bg-indigo-500/20 text-indigo-400 border border-indigo-500/20" 
+                                    : "bg-emerald-500/20 text-emerald-400 border border-emerald-500/20";
+                                    
+                                const IconComp = isKing ? Brain : isNano ? Cpu : Zap;
+                                
+                                const displayName = stat.modelName === "KING"
+                                    ? (language === "ar" ? "موديل KING الملكي" : "KING Model")
+                                    : stat.modelName === "NANO"
+                                    ? (language === "ar" ? "موديل NANO الذكي" : "NANO Model")
+                                    : stat.modelName === "THE BOT"
+                                    ? (language === "ar" ? "موديل THE BOT" : "THE BOT Model")
+                                    : stat.modelName;
+
+                                const badgeName = isKing 
+                                    ? (language === "ar" ? "مميز" : "Premium") 
+                                    : isNano 
+                                    ? (language === "ar" ? "لايت" : "Lite") 
+                                    : (language === "ar" ? "أساسي" : "Standard");
                                 
                                 return (
                                     <div 
@@ -1296,20 +1353,14 @@ export default function AIScannerPage() {
                                         {/* Header */}
                                         <div className="relative z-10 flex items-center justify-between mb-6">
                                             <div className="flex items-center gap-3">
-                                                <div className={`p-2.5 rounded-xl border flex items-center justify-center shrink-0 ${
-                                                    isKing 
-                                                        ? "bg-amber-500/10 border-amber-500/25 text-amber-400" 
-                                                        : "bg-indigo-500/10 border-indigo-500/25 text-indigo-400"
-                                                }`}>
-                                                    {isKing ? <Brain className="w-5 h-5" /> : <Cpu className="w-5 h-5" />}
+                                                <div className={`p-2.5 rounded-xl border flex items-center justify-center shrink-0 ${themeClass}`}>
+                                                    <IconComp className="w-5 h-5" />
                                                 </div>
                                                 <div>
                                                     <h3 className="text-sm md:text-base font-black text-white uppercase tracking-tight flex items-center gap-2">
-                                                        {stat.modelName === "KING" ? (language === "ar" ? "موديل KING الملكي" : "KING Model") : (language === "ar" ? "موديل NANO الذكي" : "NANO Model")}
-                                                        <span className={`text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-wider ${
-                                                            isKing ? "bg-amber-500/20 text-amber-400 border border-amber-500/20" : "bg-indigo-500/20 text-indigo-400 border border-indigo-500/20"
-                                                        }`}>
-                                                            {isKing ? (language === "ar" ? "مميز" : "Premium") : (language === "ar" ? "افتراضي" : "Lite")}
+                                                        {displayName}
+                                                        <span className={`text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-wider ${badgeClass}`}>
+                                                            {badgeName}
                                                         </span>
                                                     </h3>
                                                     <p className="text-[9px] text-zinc-500 font-bold uppercase tracking-widest mt-0.5">
