@@ -1,0 +1,26 @@
+{
+    "status": "syncing",
+    "last_run": "2026-06-05T04:39:22.063927",
+    "completed_symbols": [
+        "ABUK",
+        "ACAMD",
+        "ACAP",
+        "ACGC",
+        "ACTF",
+        "ADCI",
+        "AFDI",
+        "AFMC",
+        "AIDC"
+    ],
+    "failed_symbols": [
+        "AALR",
+        "ACRO",
+        "ADIB",
+        "ADPC",
+        "AGIG",
+        "AIND",
+        "AITG"
+    ],
+    "batch_size": 2,
+    "timeframe": "15m"
+}

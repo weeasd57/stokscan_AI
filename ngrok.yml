@@ -1,0 +1,13 @@
+version: "2"
+authtoken: 2i8uzvtQ8jAYjGxHlPU8Q8aNOrj_5GasxjM93gV5YinjtVyWJ
+tunnels:
+  web:
+    proto: http
+    addr: 3000
+    schemes:
+      - https
+  api:
+    proto: http
+    addr: 8000
+    schemes:
+      - https
