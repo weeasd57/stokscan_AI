@@ -2720,14 +2720,8 @@ def update_alert_scheduler_config(payload: dict):
 @router.get("/intraday-sync/state")
 def get_intraday_sync_state():
     try:
-        from api.intraday_downloader import load_state
-        from api.stock_ai import supabase, _init_supabase
-        _init_supabase()
-        db_symbols = []
-        if supabase:
-            res = supabase.table("stock_prices").select("symbol").eq("exchange", "EGX").execute()
-            db_symbols = sorted(list(set(row["symbol"] for row in res.data))) if res.data else []
-        
+        from api.intraday_downloader import load_state, _fetch_egx_symbols
+        db_symbols = _fetch_egx_symbols()
         state = load_state()
         state["total_symbols"] = len(db_symbols)
         state["symbols_list"] = db_symbols
