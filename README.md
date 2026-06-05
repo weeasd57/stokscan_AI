@@ -1,3 +1,12 @@
+---
+title: AI BOT
+emoji: 🤖
+colorFrom: blue
+colorTo: green
+sdk: docker
+pinned: false
+---
+
 # Artoro
 
 Advanced AI-driven stock analysis platform. Combining RandomForest models with multi-source fundamentals to give you the edge.
