@@ -99,6 +99,14 @@ async def startup_event():
     except Exception as e:
         print(f"DEBUG ERROR: Failed to start Technical Alerts Scheduler: {e}")
 
+    # Start Intraday Downloader
+    try:
+        from api.intraday_downloader import start_intraday_downloader
+        start_intraday_downloader()
+        print("DEBUG: Intraday Downloader started successfully.")
+    except Exception as e:
+        print(f"DEBUG ERROR: Failed to start Intraday Downloader: {e}")
+
 
 @app.on_event("shutdown")
 async def shutdown_event():

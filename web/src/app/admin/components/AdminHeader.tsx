@@ -1,8 +1,8 @@
 "use client";
 
 interface AdminHeaderProps {
-    activeMainTab: "data" | "ai" | "backtest" | "bot" | "schedule";
-    setActiveMainTab: (tab: "data" | "ai" | "backtest" | "bot" | "schedule") => void;
+    activeMainTab: "data" | "ai" | "backtest" | "bot" | "schedule" | "intraday";
+    setActiveMainTab: (tab: "data" | "ai" | "backtest" | "bot" | "schedule" | "intraday") => void;
 }
 
 export default function AdminHeader({ activeMainTab, setActiveMainTab }: AdminHeaderProps) {
@@ -12,6 +12,7 @@ export default function AdminHeader({ activeMainTab, setActiveMainTab }: AdminHe
         { id: "bot", label: "LIVE BOT" },
         { id: "backtest", label: "BACKTEST" },
         { id: "schedule", label: "OPERATING SCHEDULE" },
+        { id: "intraday", label: "15M INTRADAY SYNC" },
     ] as const;
 
     return (
