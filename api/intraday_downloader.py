@@ -38,28 +38,24 @@ def save_state(state: Dict[str, Any]):
 def _fetch_egx_symbols() -> List[str]:
     """
     Fetch all EGX symbols reliably.
-    Primary Strategy: Load from local JSON file api/symbols_data/Egypt_all_symbols_20260525_194516.json.
+    Primary Strategy: Load from local JSON file using symbols_local.
     Fallback Strategy: Fetch from stock_fundamentals and stock_prices from Supabase.
     """
-    file_path = os.path.join(
-        os.path.dirname(os.path.abspath(__file__)),
-        "symbols_data",
-        "Egypt_all_symbols_20260525_194516.json"
-    )
-    if os.path.exists(file_path):
-        try:
-            with open(file_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            symbols = []
-            for item in data:
-                if item.get("Exchange") == "EGX" and item.get("Symbol"):
-                    symbols.append(item["Symbol"])
-            if symbols:
-                unique_symbols = sorted(list(set(symbols)))
-                print(f"[INTRADAY] Loaded {len(unique_symbols)} EGX symbols from local JSON file.")
-                return unique_symbols
-        except Exception as e:
-            print(f"[INTRADAY] Failed to load symbols from local JSON file: {e}")
+    try:
+        from api.symbols_local import load_symbols_for_country
+        data = load_symbols_for_country("Egypt")
+        symbols = []
+        for item in data:
+            sym = item.get("Symbol") or item.get("symbol") or item.get("Code")
+            ex = item.get("Exchange") or item.get("exchange")
+            if sym and (ex == "EGX" or not ex):
+                symbols.append(sym)
+        if symbols:
+            unique_symbols = sorted(list(set(symbols)))
+            print(f"[INTRADAY] Loaded {len(unique_symbols)} EGX symbols from local Egypt file.")
+            return unique_symbols
+    except Exception as e:
+        print(f"[INTRADAY] Failed to load symbols using symbols_local: {e}")
 
     print("[INTRADAY] Falling back to Supabase database query for EGX symbols...")
     stock_ai._init_supabase()
@@ -119,13 +115,47 @@ def run_intraday_sync_batch() -> Dict[str, Any]:
     if not db_symbols:
         return {"status": "error", "message": "No EGX symbols found."}
 
-    completed = set(state.get("completed_symbols", []))
-    failed = set(state.get("failed_symbols", []))
     batch_size = state.get("batch_size", 5)
     timeframe = state.get("timeframe", "15m")
+    failed = set(state.get("failed_symbols", []))
 
-    # Filter out already processed
-    remaining = [sym for sym in db_symbols if sym not in completed and sym not in failed]
+    # 2. Get current DB stats to dynamically prioritize
+    stats_list = []
+    try:
+        res = stock_ai.supabase.rpc("get_intraday_symbol_stats", {"p_exchange": "EGX", "p_timeframe": timeframe}).execute()
+        if res.data:
+            stats_list = res.data
+    except Exception as e:
+        print(f"[INTRADAY] Failed to fetch stats from DB: {e}")
+
+    stats_map = {row["symbol"]: row for row in stats_list}
+    db_completed = set(stats_map.keys())
+
+    # 3. Classify remaining symbols
+    # Missing: not in DB, and not in failed
+    missing = [sym for sym in db_symbols if sym not in db_completed and sym not in failed]
+    
+    if missing:
+        remaining = missing
+        print(f"[INTRADAY] {len(missing)} missing symbols to sync. Prioritizing.")
+    else:
+        # Outdated or completed update queue: sort by last_ts ascending (oldest first)
+        import dateutil.parser
+        def get_last_ts(sym):
+            row = stats_map.get(sym)
+            if not row or not row.get("last_ts"):
+                return dt.datetime.min.replace(tzinfo=dt.timezone.utc)
+            try:
+                # Handle potential timezone offsets or trailing Z
+                ts_str = row["last_ts"]
+                return dateutil.parser.isoparse(ts_str)
+            except Exception:
+                return dt.datetime.min.replace(tzinfo=dt.timezone.utc)
+        
+        completed_syms = [sym for sym in db_symbols if sym in db_completed]
+        completed_syms.sort(key=get_last_ts)
+        remaining = completed_syms
+        print(f"[INTRADAY] No missing symbols. Refreshing completed symbols (oldest first).")
 
     if not remaining:
         state["status"] = "idle"
@@ -170,6 +200,7 @@ def run_intraday_sync_batch() -> Dict[str, Any]:
         return sym, success, msg
 
     # Using ThreadPoolExecutor to run them in parallel
+    completed = set(db_completed)
     with ThreadPoolExecutor(max_workers=len(batch)) as executor:
         futures = {executor.submit(sync_one, sym): sym for sym in batch}
         for future in as_completed(futures):
@@ -178,6 +209,7 @@ def run_intraday_sync_batch() -> Dict[str, Any]:
                 sym, success, msg = future.result()
                 if success:
                     completed.add(sym)
+                    failed.discard(sym)
                     processed_this_run.append(f"{sym}: Success - {msg}")
                 else:
                     failed.add(sym)

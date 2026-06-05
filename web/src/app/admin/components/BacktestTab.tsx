@@ -734,6 +734,83 @@ const BacktestAnalysisModal = ({ isOpen, onClose, bt, trades, loading }: { isOpe
                   </div>
                 </div>
 
+                {/* Trade Rationale (مبررات العملية) */}
+                {(() => {
+                  let buyReason = selectedTrade.Buy_Reason ?? selectedTrade.buy_reason ?? selectedTrade.features?.buy_reason ?? selectedTrade.features?.Buy_Reason;
+                  let exitReason = selectedTrade.Exit_Reason ?? selectedTrade.exit_reason ?? selectedTrade.features?.exit_reason ?? selectedTrade.features?.Exit_Reason ?? selectedTrade.Result ?? selectedTrade.result ?? selectedTrade.features?.result;
+                  
+                  // Fallbacks for older backtests that don't have Buy_Reason / Exit_Reason saved in the DB
+                  if (!buyReason) {
+                    let score = selectedTrade.features?.radar_score ?? selectedTrade.features?.ai_score ?? selectedTrade.features?.score ?? selectedTrade.Radar_Score ?? selectedTrade.Score;
+                    let scoreStr = '';
+                    if (score !== null && score !== undefined) {
+                      scoreStr = score <= 1 ? `${(score * 100).toFixed(1)}%` : `${score.toFixed(1)}%`;
+                    }
+                    let fundScore = selectedTrade.features?.fund_score ?? selectedTrade.Fund_Score;
+                    let fundScoreStr = '';
+                    if (fundScore !== null && fundScore !== undefined) {
+                      fundScoreStr = fundScore <= 1 ? `${(fundScore * 100).toFixed(1)}%` : `${fundScore.toFixed(1)}%`;
+                    }
+                    
+                    buyReason = "إشارة دخول شراء بناءً على تقييم نموذج الذكاء الاصطناعي";
+                    if (scoreStr) {
+                      buyReason += ` (ثقة الرادار: ${scoreStr})`;
+                    }
+                    if (fundScoreStr) {
+                      buyReason += ` وتوفر تصفية أساسيات قوية (تقييم الأساسيات: ${fundScoreStr})`;
+                    }
+                    buyReason += ".";
+                  }
+
+                  if (!exitReason) {
+                    const resultVal = selectedTrade.result ?? selectedTrade.Result ?? selectedTrade.features?.result;
+                    if (resultVal) {
+                      const resStr = String(resultVal).toUpperCase();
+                      if (resStr.includes("TARGET")) {
+                        exitReason = "تحقيق الهدف الاستهدافي المحدد وتفعيل أمر جني الأرباح (Target Hit) 🎯";
+                      } else if (resStr.includes("STOP LOSS")) {
+                        exitReason = "تفعيل أمر وقف الخسارة لحماية رأس المال من الهبوط الإضافي (Stop Loss) ❌";
+                      } else if (resStr.includes("TRAIL")) {
+                        exitReason = "تفعيل أمر الوقف المتحرك لتأمين الأرباح بعد تحرك السعر لصالح الصفقة (Trailing Stop) 🛡️";
+                      } else if (resStr.includes("TIME")) {
+                        exitReason = `خروج زمني تلقائي بعد انتهاء أقصى فترة احتفاظ محددة بالصفقة (Time Exit) ⏳`;
+                      } else if (resStr.includes("SMART")) {
+                        exitReason = `خروج ذكي ومبكر لحماية الأرباح/تقليل الخسائر بسبب تغير زخم مؤشر القوة النسبية أو ظهور كميات بيع غير معتادة (Smart Exit) 💡`;
+                      } else {
+                        exitReason = resultVal;
+                      }
+                    } else {
+                      exitReason = "تم إغلاق الصفقة وتصفية المركز تلقائياً.";
+                    }
+                  }
+
+                  return (
+                    <div className="p-4 rounded-2xl bg-indigo-500/5 border border-indigo-500/10 space-y-3">
+                      <span className="text-[10px] font-black text-indigo-400 uppercase tracking-wider block text-right">
+                        مبررات العملية (Trade Rationale)
+                      </span>
+                      <div className="space-y-3 text-right">
+                        <div className="space-y-1">
+                          <span className="text-[9px] text-zinc-500 font-bold block">
+                            سبب الشراء (الذكاء الاصطناعي والمؤشرات):
+                          </span>
+                          <p className="text-xs text-zinc-200 font-medium leading-relaxed font-sans">
+                            {buyReason}
+                          </p>
+                        </div>
+                        <div className="space-y-1">
+                          <span className="text-[9px] text-zinc-500 font-bold block">
+                            سبب البيع / الخروج:
+                          </span>
+                          <p className="text-xs text-zinc-200 font-medium leading-relaxed font-sans">
+                            {exitReason}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+
                 {/* Symbol Movements Timeline */}
                 <div className="space-y-3">
                   <span className="text-[10px] font-black text-zinc-400 uppercase tracking-wider block">

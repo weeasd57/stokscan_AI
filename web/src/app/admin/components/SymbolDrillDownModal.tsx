@@ -6,7 +6,7 @@ import { useState, useMemo } from "react";
 
 interface SymbolDrillDownModalProps {
     selectedDbEx: string | null;
-    drillDownMode: "prices" | "fundamentals" | null;
+    drillDownMode: "prices" | "fundamentals" | "intraday" | null;
     dbSymbols: any[];
     localSymbols: any[];
     loadingLocalSymbols?: boolean;
@@ -19,10 +19,10 @@ interface SymbolDrillDownModalProps {
     handleRecalculateIndicators: (exchange: string, symbolsOverride?: string[]) => void;
     setSelectedDbEx: (ex: string | null) => void;
     setDbSymbols: (symbols: any[]) => void;
-    setDrillDownMode: (mode: "prices" | "fundamentals" | null) => void;
+    setDrillDownMode: (mode: "prices" | "fundamentals" | "intraday" | null) => void;
     selectedSymbols: Set<string>;
     setSelectedSymbols: (symbols: Set<string>) => void;
-    setActiveMainTab: (tab: "data" | "ai") => void;
+    setActiveMainTab: (tab: "data" | "ai" | "backtest" | "bot" | "schedule" | "intraday") => void;
 }
 
 export default function SymbolDrillDownModal({
@@ -213,12 +213,12 @@ export default function SymbolDrillDownModal({
             <div className="w-full max-w-6xl max-h-[90vh] bg-zinc-950 border border-zinc-800 rounded-3xl shadow-2xl flex flex-col overflow-hidden">
                 <div className="flex items-center justify-between p-6 border-b border-zinc-800 bg-zinc-900/50">
                     <div className="flex items-center gap-4">
-                        <div className="p-2.5 rounded-xl bg-indigo-500/10 border border-indigo-500/20">
-                            {drillDownMode === 'prices' ? <TrendingUp className="w-5 h-5 text-indigo-400" /> : <FileText className="w-5 h-5 text-emerald-400" />}
+                        <div className={`p-2.5 rounded-xl ${drillDownMode === 'prices' ? 'bg-indigo-500/10 border border-indigo-500/20' : drillDownMode === 'intraday' ? 'bg-amber-500/10 border border-amber-500/20' : 'bg-emerald-500/10 border border-emerald-500/20'}`}>
+                            {drillDownMode === 'prices' ? <TrendingUp className="w-5 h-5 text-indigo-400" /> : drillDownMode === 'intraday' ? <Zap className="w-5 h-5 text-amber-400" /> : <FileText className="w-5 h-5 text-emerald-400" />}
                         </div>
                         <div>
                             <h3 className="text-xl font-black text-white tracking-tight">
-                                {selectedDbEx} {drillDownMode === 'prices' ? 'Stock Prices' : 'Fundamentals Data'}
+                                {selectedDbEx} {drillDownMode === 'prices' ? 'Stock Prices' : drillDownMode === 'intraday' ? 'Intraday 15m Prices' : 'Fundamentals Data'}
                             </h3>
                             <div className="flex items-center gap-2 mt-0.5">
                                 <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest">
@@ -471,14 +471,16 @@ export default function SymbolDrillDownModal({
                                                 {s.last_sync ? new Date(s.last_sync).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : '—'}
                                             </td>
                                             <td className="px-6 py-4 text-zinc-500 font-mono">
-                                                {s.last_price_date || '—'}
+                                                {s.last_price_date ? (
+                                                    drillDownMode === 'intraday' ? new Date(s.last_price_date).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : s.last_price_date
+                                                ) : '—'}
                                             </td>
                                             <td className="px-6 py-4 text-right">
                                                 {s.inDb && (
                                                     <button
                                                         onClick={() => handleDownloadCsv(selectedDbEx, s.symbol)}
                                                         className="p-2 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-500 hover:text-indigo-400 hover:border-indigo-500/30 transition-all shadow-sm"
-                                                        title="Download Prices CSV"
+                                                        title={drillDownMode === 'prices' ? "Download Prices CSV" : drillDownMode === 'intraday' ? "Download Intraday CSV" : "Download Fundamentals CSV"}
                                                     >
                                                         <Download className="w-3.5 h-3.5" />
                                                     </button>

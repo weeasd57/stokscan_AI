@@ -50,6 +50,7 @@ interface LocalModel {
     recall?: number;
     f1?: number;
     auc?: number;
+    model_card?: any;
 }
 
 export default function AIAutomationTab({
@@ -66,6 +67,15 @@ export default function AIAutomationTab({
     setIsTraining
 }: AIAutomationTabProps) {
     const [workflow, setWorkflow] = useState<"ai-training" | "data-sync">("ai-training");
+
+    const formatTargetStopValue = (val: number | undefined) => {
+        if (val === undefined || val === null) return "";
+        if (val >= 1.0) {
+            return `${val.toFixed(1)} ATR`;
+        }
+        const pct = val * 100;
+        return pct % 1 === 0 ? `${pct.toFixed(0)}%` : `${pct.toFixed(1)}%`;
+    };
     const [when, setWhen] = useState<string>(""); // datetime-local value
     const [days, setDays] = useState<number>(365);
     const [updatePrices, setUpdatePrices] = useState<boolean>(true);
@@ -279,19 +289,31 @@ export default function AIAutomationTab({
     }, []);
 
     useEffect(() => {
-        if (trainingExchange !== "CRYPTO") return;
+        if (!trainingExchange) return;
 
-        // Recommended defaults for crypto training (1h intraday)
-        setUseIntraday(true);
-        setTrainingTimeframe("1h");
-        setFeaturePreset("max");
-        setTargetPct(0.03);
-        setStopLossPct(0.015);
-        setLookForwardDays(12);
-        setLearningRate(0.02);
-        setNEstimators(2000);
-
-        setModelName((prev) => (prev.trim() ? prev : "KING_CRYPTO"));
+        if (trainingExchange === "CRYPTO") {
+            // Recommended defaults for crypto training (1h intraday)
+            setUseIntraday(true);
+            setTrainingTimeframe("1h");
+            setFeaturePreset("max");
+            setTargetPct(0.03);
+            setStopLossPct(0.015);
+            setLookForwardDays(12);
+            setLearningRate(0.02);
+            setNEstimators(2000);
+            setModelName((prev) => (prev.trim() ? prev : "KING_CRYPTO"));
+        } else {
+            // Recommended defaults for stock training using ATR multipliers
+            setUseIntraday(false);
+            setTrainingTimeframe("1d");
+            setFeaturePreset("extended");
+            setTargetPct(2.0);
+            setStopLossPct(1.0);
+            setLookForwardDays(20);
+            setLearningRate(0.05);
+            setNEstimators(1000);
+            setModelName((prev) => (prev.trim() ? prev : `KING_${trainingExchange}`));
+        }
     }, [trainingExchange]);
 
     // Keep a small client-side log of training status messages for UI visibility.
@@ -748,48 +770,92 @@ export default function AIAutomationTab({
                                                     </span>
                                                 )}
                                             </div>
+
+                                            {(model.precision !== undefined || model.recall !== undefined || model.auc !== undefined) && (
+                                                <div className="px-4 py-2.5 rounded-2xl bg-zinc-900/10 border border-zinc-800/30 grid grid-cols-4 gap-1">
+                                                    <div className="flex flex-col items-center justify-center">
+                                                        <span className="text-[8px] text-zinc-600 uppercase font-black">P</span>
+                                                        <span className={`text-[10px] font-black ${model.precision && model.precision > 0.6 ? 'text-emerald-400' : 'text-zinc-400'}`}>
+                                                            {model.precision ? (model.precision * 100).toFixed(1) : "0"}%
+                                                        </span>
+                                                    </div>
+                                                    <div className="flex flex-col items-center justify-center border-l border-zinc-800/50">
+                                                        <span className="text-[8px] text-zinc-600 uppercase font-black">R</span>
+                                                        <span className={`text-[10px] font-black ${model.recall && model.recall > 0.6 ? 'text-emerald-400' : 'text-zinc-400'}`}>
+                                                            {model.recall ? (model.recall * 100).toFixed(1) : "0"}%
+                                                        </span>
+                                                    </div>
+                                                    <div className="flex flex-col items-center justify-center border-l border-zinc-800/50">
+                                                        <span className="text-[8px] text-zinc-600 uppercase font-black">F1</span>
+                                                        <span className="text-[10px] text-zinc-400 font-black">
+                                                            {model.f1 ? (model.f1 * 100).toFixed(1) : "0"}%
+                                                        </span>
+                                                    </div>
+                                                    <div className="flex flex-col items-center justify-center border-l border-zinc-800/50">
+                                                        <span className="text-[8px] text-zinc-600 uppercase font-black">AUC</span>
+                                                        <span className={`text-[10px] font-black ${model.auc && model.auc > 0.65 ? 'text-indigo-400' : 'text-zinc-400'}`}>
+                                                            {model.auc ? model.auc.toFixed(2) : "0.5"}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            )}
                                         </div>
 
-                                        {(model.precision !== undefined || model.recall !== undefined || model.auc !== undefined) && (
-                                            <div className="px-4 py-2.5 rounded-2xl bg-zinc-900/10 border border-zinc-800/30 grid grid-cols-4 gap-1">
-                                                <div className="flex flex-col items-center justify-center">
-                                                    <span className="text-[8px] text-zinc-600 uppercase font-black">P</span>
-                                                    <span className={`text-[10px] font-black ${model.precision && model.precision > 0.6 ? 'text-emerald-400' : 'text-zinc-400'}`}>
-                                                        {model.precision ? (model.precision * 100).toFixed(1) : "0"}%
+
+                                        {/* Top Features / Feature Importance */}
+                                        {(() => {
+                                            const card = model.model_card;
+                                            const featImp = card?.feature_importance;
+                                            if (!featImp || typeof featImp !== "object" || Object.keys(featImp).length === 0) return null;
+                                            
+                                            // Convert to sorted array
+                                            const sortedFeat = Object.entries(featImp)
+                                                .map(([name, val]) => ({ name, val: Number(val) }))
+                                                .sort((a, b) => b.val - a.val);
+
+                                            if (sortedFeat.length === 0) return null;
+
+                                            return (
+                                                <div className="pt-4 border-t border-zinc-800/50 space-y-2 text-right">
+                                                    <span className="text-[10px] text-zinc-500 uppercase font-black tracking-widest block">
+                                                        أهم الميزات (Top Features)
                                                     </span>
+                                                    <div className="space-y-1.5 font-mono max-h-[140px] overflow-y-auto pr-1 custom-scrollbar">
+                                                        {sortedFeat.slice(0, 20).map((f, idx) => {
+                                                            const maxVal = sortedFeat[0].val || 1;
+                                                            const pctBar = Math.min(100, Math.round((f.val / maxVal) * 100));
+                                                            const displayVal = f.val.toFixed(1) + "%";
+                                                            return (
+                                                                <div key={idx} className="text-[10px] flex items-center justify-between gap-3 text-zinc-400">
+                                                                    <span className="font-bold truncate text-zinc-300 w-[115px] text-left shrink-0">{f.name}</span>
+                                                                    <div className="flex items-center gap-2 flex-1">
+                                                                        <div className="h-1.5 rounded bg-zinc-800/50 flex-1 overflow-hidden relative">
+                                                                            <div 
+                                                                                className="absolute left-0 top-0 h-full rounded bg-indigo-500" 
+                                                                                style={{ width: `${pctBar}%` }}
+                                                                            />
+                                                                        </div>
+                                                                        <span className="text-[9px] text-zinc-500 font-bold w-[35px] text-right shrink-0">{displayVal}</span>
+                                                                    </div>
+                                                                </div>
+                                                            );
+                                                        })}
+                                                    </div>
                                                 </div>
-                                                <div className="flex flex-col items-center justify-center border-l border-zinc-800/50">
-                                                    <span className="text-[8px] text-zinc-600 uppercase font-black">R</span>
-                                                    <span className={`text-[10px] font-black ${model.recall && model.recall > 0.6 ? 'text-emerald-400' : 'text-zinc-400'}`}>
-                                                        {model.recall ? (model.recall * 100).toFixed(1) : "0"}%
-                                                    </span>
-                                                </div>
-                                                <div className="flex flex-col items-center justify-center border-l border-zinc-800/50">
-                                                    <span className="text-[8px] text-zinc-600 uppercase font-black">F1</span>
-                                                    <span className="text-[10px] text-zinc-400 font-black">
-                                                        {model.f1 ? (model.f1 * 100).toFixed(1) : "0"}%
-                                                    </span>
-                                                </div>
-                                                <div className="flex flex-col items-center justify-center border-l border-zinc-800/50">
-                                                    <span className="text-[8px] text-zinc-600 uppercase font-black">AUC</span>
-                                                    <span className={`text-[10px] font-black ${model.auc && model.auc > 0.65 ? 'text-indigo-400' : 'text-zinc-400'}`}>
-                                                        {model.auc ? model.auc.toFixed(2) : "0.5"}
-                                                    </span>
-                                                </div>
-                                            </div>
-                                        )}
+                                            );
+                                        })()}
 
                                         <div className="pt-4 border-t border-zinc-800/50 grid grid-cols-3 gap-2">
                                             {model.target_pct !== undefined && (
                                                 <div className="text-center">
                                                     <div className="text-[9px] text-zinc-600 uppercase font-bold">Target</div>
-                                                    <div className="text-[11px] text-emerald-400 font-black">{(model.target_pct * 100).toFixed(0)}%</div>
+                                                    <div className="text-[11px] text-emerald-400 font-black">{formatTargetStopValue(model.target_pct)}</div>
                                                 </div>
                                             )}
                                             {model.stop_loss_pct !== undefined && (
                                                 <div className="text-center">
                                                     <div className="text-[9px] text-zinc-600 uppercase font-bold">Stop</div>
-                                                    <div className="text-[11px] text-rose-400 font-black">{(model.stop_loss_pct * 100).toFixed(0)}%</div>
+                                                    <div className="text-[11px] text-rose-400 font-black">{formatTargetStopValue(model.stop_loss_pct)}</div>
                                                 </div>
                                             )}
                                             {model.look_forward_days !== undefined && (
@@ -1028,55 +1094,130 @@ export default function AIAutomationTab({
                                 {/* Sniper Strategy Settings */}
                                 <div className="col-span-2 pt-4 border-t border-zinc-800">
                                     <div className="flex items-center gap-2 mb-4">
-                                        <span className="text-[10px] text-zinc-500 uppercase font-black">Sniper Strategy Settings</span>
-                                        <span className="text-[10px] text-zinc-600">(Target Labels)</span>
+                                        <span className="text-[10px] text-zinc-500 uppercase font-black">
+                                            {trainingExchange === "CRYPTO" ? "Sniper Strategy Settings" : "ATR Strategy Settings (إعدادات الـ ATR)"}
+                                        </span>
+                                        <span className="text-[10px] text-zinc-600">
+                                            {trainingExchange === "CRYPTO" ? "(Target Labels)" : "(مضاعفات الهدف ووقف الخسارة)"}
+                                        </span>
                                     </div>
-                                    <div className="grid grid-cols-3 gap-3">
-                                        <div className="space-y-1">
-                                            <label className="text-[10px] text-zinc-500 uppercase font-black px-1">Target %</label>
-                                            <select
-                                                value={targetPct}
-                                                onChange={(e) => setTargetPct(Number(e.target.value))}
-                                                className="w-full h-11 rounded-xl border border-zinc-800 bg-black px-3 text-sm text-zinc-300 focus:border-indigo-500"
-                                            >
-                                                <option value={0.01}>1%</option>
-                                                <option value={0.03}>3%</option>
-                                                <option value={0.05}>5%</option>
-                                                <option value={0.10}>10%</option>
-                                                <option value={0.15}>15%</option>
-                                                <option value={0.20}>20%</option>
-                                                <option value={0.30}>30%</option>
-                                            </select>
+                                    
+                                    {trainingExchange === "CRYPTO" ? (
+                                        <div className="grid grid-cols-3 gap-3">
+                                            <div className="space-y-1">
+                                                <label className="text-[10px] text-zinc-500 uppercase font-black px-1">Target %</label>
+                                                <select
+                                                    value={targetPct}
+                                                    onChange={(e) => setTargetPct(Number(e.target.value))}
+                                                    className="w-full h-11 rounded-xl border border-zinc-800 bg-black px-3 text-sm text-zinc-300 focus:border-indigo-500"
+                                                >
+                                                    <option value={0.01}>1%</option>
+                                                    <option value={0.03}>3%</option>
+                                                    <option value={0.05}>5%</option>
+                                                    <option value={0.10}>10%</option>
+                                                    <option value={0.15}>15%</option>
+                                                    <option value={0.20}>20%</option>
+                                                    <option value={0.30}>30%</option>
+                                                </select>
+                                            </div>
+                                            <div className="space-y-1">
+                                                <label className="text-[10px] text-zinc-500 uppercase font-black px-1">Stop Loss %</label>
+                                                <select
+                                                    value={stopLossPct}
+                                                    onChange={(e) => setStopLossPct(Number(e.target.value))}
+                                                    className="w-full h-11 rounded-xl border border-zinc-800 bg-black px-3 text-sm text-zinc-300 focus:border-indigo-500"
+                                                >
+                                                    <option value={0.01}>1%</option>
+                                                    <option value={0.03}>3%</option>
+                                                    <option value={0.05}>5%</option>
+                                                    <option value={0.06}>6%</option>
+                                                    <option value={0.07}>7%</option>
+                                                    <option value={0.10}>10%</option>
+                                                </select>
+                                            </div>
+                                            <div className="space-y-1">
+                                                <label className="text-[10px] text-zinc-500 uppercase font-black px-1">Days</label>
+                                                <select
+                                                    value={lookForwardDays}
+                                                    onChange={(e) => setLookForwardDays(Number(e.target.value))}
+                                                    className="w-full h-11 rounded-xl border border-zinc-800 bg-black px-3 text-sm text-zinc-300 focus:border-indigo-500"
+                                                >
+                                                    <option value={10}>10 days</option>
+                                                    <option value={15}>15 days</option>
+                                                    <option value={20}>20 days</option>
+                                                    <option value={30}>30 days</option>
+                                                </select>
+                                            </div>
                                         </div>
-                                        <div className="space-y-1">
-                                            <label className="text-[10px] text-zinc-500 uppercase font-black px-1">Stop Loss %</label>
-                                            <select
-                                                value={stopLossPct}
-                                                onChange={(e) => setStopLossPct(Number(e.target.value))}
-                                                className="w-full h-11 rounded-xl border border-zinc-800 bg-black px-3 text-sm text-zinc-300 focus:border-indigo-500"
-                                            >
-                                                <option value={0.01}>1%</option>
-                                                <option value={0.03}>3%</option>
-                                                <option value={0.05}>5%</option>
-                                                <option value={0.06}>6%</option>
-                                                <option value={0.07}>7%</option>
-                                                <option value={0.10}>10%</option>
-                                            </select>
+                                    ) : (
+                                        <div className="space-y-4">
+                                            <div className="grid grid-cols-3 gap-3">
+                                                <div className="space-y-1">
+                                                    <label className="text-[10px] text-zinc-500 uppercase font-black px-1">Target ATR (الهدف)</label>
+                                                    <input
+                                                        type="number"
+                                                        min={1.0}
+                                                        max={10.0}
+                                                        step={0.1}
+                                                        value={targetPct}
+                                                        onChange={(e) => setTargetPct(Number(e.target.value) || 2.0)}
+                                                        className="w-full h-11 rounded-xl border border-zinc-800 bg-black px-3 text-sm text-zinc-300 focus:border-indigo-500"
+                                                    />
+                                                </div>
+                                                <div className="space-y-1">
+                                                    <label className="text-[10px] text-zinc-500 uppercase font-black px-1">Stop ATR (الستوب)</label>
+                                                    <input
+                                                        type="number"
+                                                        min={0.1}
+                                                        max={5.0}
+                                                        step={0.1}
+                                                        value={stopLossPct}
+                                                        onChange={(e) => setStopLossPct(Number(e.target.value) || 1.0)}
+                                                        className="w-full h-11 rounded-xl border border-zinc-800 bg-black px-3 text-sm text-zinc-300 focus:border-indigo-500"
+                                                    />
+                                                </div>
+                                                <div className="space-y-1">
+                                                    <label className="text-[10px] text-zinc-500 uppercase font-black px-1">Days (الأيام)</label>
+                                                    <select
+                                                        value={lookForwardDays}
+                                                        onChange={(e) => setLookForwardDays(Number(e.target.value))}
+                                                        className="w-full h-11 rounded-xl border border-zinc-800 bg-black px-3 text-sm text-zinc-300 focus:border-indigo-500"
+                                                    >
+                                                        <option value={10}>10 days</option>
+                                                        <option value={15}>15 days</option>
+                                                        <option value={20}>20 days</option>
+                                                        <option value={30}>30 days</option>
+                                                    </select>
+                                                </div>
+                                            </div>
+
+                                            {/* Arabic Help Card */}
+                                            <div className="p-4 rounded-2xl bg-indigo-500/5 border border-indigo-500/10 space-y-2 text-right" dir="rtl">
+                                                <div className="flex items-center gap-2 text-indigo-400 font-black text-xs">
+                                                    <Info className="w-4 h-4 shrink-0" />
+                                                    <span>دليل ضبط نسب الـ ATR للوصول للتوازن المثالي:</span>
+                                                </div>
+                                                <p className="text-[11px] text-zinc-400 leading-relaxed">
+                                                    الهدف ووقف الخسارة يتم حسابهما ديناميكياً كمضاعفات لمؤشر الـ ATR (متوسط التذبذب للسهم) لتفادي تقلبات السوق.
+                                                </p>
+                                                <ul className="text-[11px] text-zinc-400 space-y-1.5 list-disc list-inside">
+                                                    <li>
+                                                        <span className="text-zinc-200 font-bold">إذا كانت الدقة منخفضة (Precision Low / False Positives):</span> النموذج متسرع في الشراء ويخسر بسرعة. 
+                                                        <br />
+                                                        <span className="text-emerald-400 font-bold">◄ الإجراء:</span> قم بزيادة الهدف (مثلاً <span className="font-mono">2.5</span>) وتقليل الستوب (مثلاً <span className="font-mono">0.7</span>).
+                                                    </li>
+                                                    <li>
+                                                        <span className="text-zinc-200 font-bold">إذا كان اصطياد الفرص منخفضاً (Recall Low):</span> النموذج حذر جداً ويفوت فرصاً لأن الستوب ضيق.
+                                                        <br />
+                                                        <span className="text-emerald-400 font-bold">◄ الإجراء:</span> قم بتوسيع الستوب قليلاً (مثلاً <span className="font-mono">1.5</span>) ليعطي السهم فرصة للتحرك.
+                                                    </li>
+                                                    <li>
+                                                        قم بالتعديل تدريجياً بمقدار <span className="text-indigo-300 font-bold">0.1</span> صعوداً أو هبوطاً حتى تظهر لك الرسالة الذهبية <span className="text-emerald-400 font-bold">"Balanced results!"</span> في نهاية التدريب.
+                                                    </li>
+                                                </ul>
+                                            </div>
                                         </div>
-                                        <div className="space-y-1">
-                                            <label className="text-[10px] text-zinc-500 uppercase font-black px-1">Days</label>
-                                            <select
-                                                value={lookForwardDays}
-                                                onChange={(e) => setLookForwardDays(Number(e.target.value))}
-                                                className="w-full h-11 rounded-xl border border-zinc-800 bg-black px-3 text-sm text-zinc-300 focus:border-indigo-500"
-                                            >
-                                                <option value={10}>10 days</option>
-                                                <option value={15}>15 days</option>
-                                                <option value={20}>20 days</option>
-                                                <option value={30}>30 days</option>
-                                            </select>
-                                        </div>
-                                    </div>
+                                    )}
                                 </div>
 
                                 {/* Meta-Labeling Settings */}
@@ -1262,12 +1403,12 @@ export default function AIAutomationTab({
                                         </span>
                                         {lastTrainingSummary.targetPct !== undefined && (
                                             <span className="px-2 py-1 rounded-full bg-emerald-950/30 border border-emerald-500/20 text-[10px]">
-                                                Target: <span className="text-emerald-400 font-bold">{(lastTrainingSummary.targetPct * 100).toFixed(0)}%</span>
+                                                Target: <span className="text-emerald-400 font-bold">{formatTargetStopValue(lastTrainingSummary.targetPct)}</span>
                                             </span>
                                         )}
                                         {lastTrainingSummary.stopLossPct !== undefined && (
                                             <span className="px-2 py-1 rounded-full bg-rose-950/30 border border-rose-500/20 text-[10px]">
-                                                SL: <span className="text-rose-400 font-bold">{(lastTrainingSummary.stopLossPct * 100).toFixed(0)}%</span>
+                                                SL: <span className="text-rose-400 font-bold">{formatTargetStopValue(lastTrainingSummary.stopLossPct)}</span>
                                             </span>
                                         )}
                                         {lastTrainingSummary.lookForwardDays !== undefined && (

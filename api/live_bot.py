@@ -1591,7 +1591,20 @@ class LiveBot:
             schedule_start_time=str(_read_env("LIVE_SCHEDULE_START_TIME", "10:00")),
             schedule_end_time=str(_read_env("LIVE_SCHEDULE_END_TIME", "14:30")),
             schedule_timezone=str(_read_env("LIVE_SCHEDULE_TIMEZONE", "Africa/Cairo")),
-            schedule_days=[0, 1, 2, 3, 4, 5, 6]
+            schedule_days=[0, 1, 2, 3, 4, 5, 6],
+            use_atr_exits=_parse_bool(_read_env("LIVE_USE_ATR_EXITS", "1"), True),
+            atr_sl_multiplier=_parse_float(_read_env("LIVE_ATR_SL_MULTIPLIER", "1.5"), 1.5),
+            atr_tp_multiplier=_parse_float(_read_env("LIVE_ATR_TP_MULTIPLIER", "2.5"), 2.5),
+            atr_period=int(float(_read_env("LIVE_ATR_PERIOD", "14") or 14)),
+            exit_mode=str(_read_env("LIVE_EXIT_MODE", "hybrid") or "hybrid").strip().lower(),
+            use_smart_exit=_parse_bool(_read_env("LIVE_USE_SMART_EXIT", "1"), True),
+            smart_exit_rsi_threshold=_parse_float(_read_env("LIVE_SMART_EXIT_RSI_THRESHOLD", "40.0"), 40.0),
+            smart_exit_volume_spike=_parse_float(_read_env("LIVE_SMART_EXIT_VOLUME_SPIKE", "3.0"), 3.0),
+            use_market_regime=_parse_bool(_read_env("LIVE_USE_MARKET_REGIME", "1"), True),
+            regime_adx_threshold=_parse_float(_read_env("LIVE_REGIME_ADX_THRESHOLD", "14.0"), 14.0),
+            use_rsi_divergence=_parse_bool(_read_env("LIVE_USE_RSI_DIVERGENCE", "1"), True),
+            use_correlation_guard=_parse_bool(_read_env("LIVE_USE_CORRELATION_GUARD", "1"), True),
+            max_correlation=_parse_float(_read_env("LIVE_MAX_CORRELATION", "0.80"), 0.80)
         )
 
     def update_config(self, updates: Dict[str, Any]):
@@ -1836,6 +1849,69 @@ class LiveBot:
         except Exception as e:
             self._log(f"Sync Error: {e}")
 
+    def _reset_booster_cats(self, obj):
+        try:
+            booster = (
+                getattr(obj, "_Booster", None)
+                or getattr(obj, "booster_", None)
+                or getattr(obj, "booster", None)
+                or getattr(obj, "b", None)
+            )
+            if booster is not None:
+                if hasattr(booster, "pandas_categorical"):
+                    booster.pandas_categorical = None
+                if hasattr(booster, "categorical_feature"):
+                    booster.categorical_feature = "auto"
+        except Exception as e:
+            self._log(f"DEBUG: Could not reset booster cats: {e}")
+
+    def _reset_nested_boosters(self, obj):
+        self._reset_booster_cats(obj)
+        for attr in ["primary_model", "meta_model", "model"]:
+            child = getattr(obj, attr, None)
+            if child is not None:
+                self._reset_booster_cats(child)
+
+    def _get_primary_booster(self, obj):
+        try:
+            pm = getattr(obj, "primary_model", None)
+            if pm is None:
+                return None
+            return (
+                getattr(pm, "_Booster", None)
+                or getattr(pm, "booster_", None)
+                or getattr(pm, "booster", None)
+                or getattr(pm, "b", None)
+            )
+        except Exception:
+            return None
+
+    def _align_pandas_categories_to_booster(self, X_in: pd.DataFrame, cat_cols: list, booster, cat_cols_order: list):
+        if X_in is None or X_in.empty or not cat_cols:
+            return X_in
+
+        if booster is None or not hasattr(booster, "pandas_categorical"):
+            return X_in
+
+        train_cats = getattr(booster, "pandas_categorical", None)
+        if not isinstance(train_cats, list) or not train_cats:
+            return X_in
+
+        if not cat_cols_order or len(train_cats) != len(cat_cols_order):
+            return X_in
+
+        mapping = {c: train_cats[i] for i, c in enumerate(cat_cols_order)}
+        out = X_in.copy()
+        for c in cat_cols:
+            if c not in out.columns or c not in mapping:
+                continue
+            try:
+                categories = [str(v) for v in list(mapping[c])]
+                out[c] = pd.Categorical(out[c].astype(str), categories=categories)
+            except Exception:
+                pass
+        return out
+
     def _align_for_king(self, X_src: pd.DataFrame, king_artifact: object) -> pd.DataFrame:
         if not isinstance(X_src, pd.DataFrame):
             X_src = pd.DataFrame(X_src)
@@ -1843,26 +1919,75 @@ class LiveBot:
         if not isinstance(king_artifact, dict) or king_artifact.get("kind") != "meta_labeling_system":
             return X_src.replace([np.inf, -np.inf], np.nan).fillna(0)
 
-        pm = king_artifact.get("primary_model") or {}
-        feats = list(pm.get("feature_names") or [])
-        if not feats:
+        try:
+            pm = king_artifact.get("primary_model") or {}
+            feats = list(pm.get("feature_names") or [])
+            cats = list(pm.get("categorical_features") or [])
+            if not feats:
+                return X_src.replace([np.inf, -np.inf], np.nan).fillna(0)
+            Xk = X_src.copy()
+            missing = [c for c in feats if c not in Xk.columns]
+            for c in missing:
+                Xk[c] = 0
+            Xk = Xk[feats]
+            
+            for col in cats:
+                if col in Xk.columns:
+                    Xk[col] = Xk[col].astype(str).replace(['nan', 'None', ''], "Unknown").fillna("Unknown").astype('category')
+
+            non_cat_cols = [c for c in Xk.columns if c not in set(cats)]
+            for col in non_cat_cols:
+                if not pd.api.types.is_numeric_dtype(Xk[col]):
+                    Xk[col] = pd.to_numeric(Xk[col], errors="coerce")
+
+            Xk = Xk.replace([np.inf, -np.inf], np.nan)
+            if non_cat_cols:
+                Xk[non_cat_cols] = Xk[non_cat_cols].fillna(0)
+            return Xk
+        except Exception as e:
+            self._log(f"Error in _align_for_king: {e}")
             return X_src.replace([np.inf, -np.inf], np.nan).fillna(0)
 
-        Xk = X_src.copy()
-        missing = [c for c in feats if c not in Xk.columns]
-        for c in missing:
-            Xk[c] = 0
+    def _fetch_market_index_data(self, symbol: str) -> pd.DataFrame:
+        """Fetch market index data from Supabase stock_prices table using pagination."""
+        import api.stock_ai as stock_ai
+        if not stock_ai.supabase:
+            return pd.DataFrame()
+        try:
+            sym = symbol
+            ex = None
+            if "." in symbol:
+                parts = symbol.split(".")
+                sym = parts[0]
+                ex = parts[1]
+                if ex in ["CC", "CA"]:
+                    ex = "EGX"
+            
+            offset = 0
+            limit = 1000
+            all_data = []
+            while True:
+                query = stock_ai.supabase.table("stock_prices").select("date, close").eq("symbol", sym)
+                if ex:
+                    query = query.eq("exchange", ex)
+                idx_res = query.order("date", desc=False).range(offset, offset + limit - 1).execute()
+                if not idx_res.data:
+                    break
+                all_data.extend(idx_res.data)
+                if len(idx_res.data) < limit:
+                    break
+                offset += limit
+            
+            if all_data:
+                df = pd.DataFrame(all_data)
+                df["date"] = pd.to_datetime(df["date"])
+                df = df.set_index("date").sort_index()
+                return df
+        except Exception as e:
+            self._log(f"Error fetching market index {symbol} from DB: {e}")
+        return pd.DataFrame()
 
-        Xk = Xk[feats]
-
-        for col in Xk.columns:
-            if not pd.api.types.is_numeric_dtype(Xk[col]):
-                Xk[col] = pd.to_numeric(Xk[col], errors="coerce")
-
-        Xk = Xk.replace([np.inf, -np.inf], np.nan).fillna(0)
-        return Xk
-
-    def _prepare_features(self, bars: pd.DataFrame) -> pd.DataFrame:
+    def _prepare_features(self, bars: pd.DataFrame, market_df: Optional[pd.DataFrame] = None, df_funds: Optional[pd.DataFrame] = None, symbol: Optional[str] = None) -> pd.DataFrame:
         from api.train_exchange_model import add_technical_indicators, add_massive_features
 
         df = bars.copy()
@@ -1886,9 +2011,59 @@ class LiveBot:
             feat = add_technical_indicators(df)
             if feat is None or feat.empty:
                 return pd.DataFrame()
+
+            # Join fundamentals and sector average returns BEFORE massive features to align with training
+            if symbol and df_funds is not None and not df_funds.empty:
+                feat['symbol'] = symbol
+                feat = feat.join(df_funds.set_index("symbol"), on="symbol", how="left")
+
+            if hasattr(self, "_sector_returns_df") and self._sector_returns_df is not None and not self._sector_returns_df.empty:
+                symbol_sector = "Unknown"
+                if df_funds is not None and not df_funds.empty:
+                    match = df_funds[df_funds["symbol"] == symbol]
+                    if not match.empty:
+                        symbol_sector = match.iloc[0].get("sector", "Unknown")
+                
+                sec_df = self._sector_returns_df[self._sector_returns_df["sector"] == symbol_sector]
+                if not sec_df.empty:
+                    sec_df = sec_df.rename(columns={"daily_return": "sector_avg_return"}).copy()
+                    sec_df["date"] = pd.to_datetime(sec_df["date"])
+                    
+                    feat = feat.reset_index()
+                    idx_col = "timestamp" if "timestamp" in feat.columns else "index" if "index" in feat.columns else None
+                    if idx_col:
+                        feat["date_only"] = pd.to_datetime(feat[idx_col]).dt.date
+                        sec_df["date_only"] = pd.to_datetime(sec_df["date"]).dt.date
+                        feat = feat.merge(sec_df[["date_only", "sector_avg_return"]], on="date_only", how="left")
+                        feat = feat.drop(columns=["date_only"])
+                        feat = feat.set_index(idx_col)
+                    else:
+                        feat["date_only"] = pd.to_datetime(feat.index).dt.date
+                        sec_df["date_only"] = pd.to_datetime(sec_df["date"]).dt.date
+                        feat = feat.merge(sec_df[["date_only", "sector_avg_return"]], on="date_only", how="left")
+                        feat = feat.drop(columns=["date_only"])
+
             feat = add_massive_features(feat)
+
+            if market_df is not None and not market_df.empty:
+                from api.train_exchange_model import add_market_context
+                # Ensure DatetimeIndex
+                if not isinstance(feat.index, pd.DatetimeIndex):
+                    feat.index = pd.to_datetime(feat.index)
+                
+                # Align DatetimeIndex timezone awareness
+                market_aligned = market_df.copy()
+                if feat.index.tz is not None and market_aligned.index.tz is None:
+                    market_aligned.index = market_aligned.index.tz_localize("UTC")
+                elif feat.index.tz is None and market_aligned.index.tz is not None:
+                    market_aligned.index = market_aligned.index.tz_convert(None)
+                
+                feat = add_market_context(feat, market_aligned)
+
         except Exception as e:
             self._log(f"Feature generation error: {e}")
+            import traceback
+            self._log(traceback.format_exc())
             return pd.DataFrame()
 
         feat = feat.replace([np.inf, -np.inf], np.nan).fillna(0)
@@ -2903,6 +3078,80 @@ class LiveBot:
                     mode = (self.config.trading_mode or "hybrid").lower()
                     self._log(f"Config: {self.config.timeframe} | {len(scan_list)} symbols | mode={self.config.execution_mode} | trade_mode={mode} | active_positions={total_managed}/{self.config.max_open_positions}")
                 
+                # Fetch market index context and fundamentals if model expects them
+                import api.stock_ai as stock_ai
+                exchange = "EGX"
+                if isinstance(self.king_obj, dict):
+                    exchange = self.king_obj.get("exchange") or "EGX"
+                
+                market_df = None
+                uses_mkt = False
+                uses_funds = False
+                uses_sector_rel = False
+                mkt_symbol = "EGX30.INDX" # default fallback
+                
+                if isinstance(self.king_obj, dict):
+                    pm = self.king_obj.get("primary_model") or {}
+                    feature_names = list(pm.get("feature_names") or self.king_obj.get("meta_feature_names") or [])
+                    
+                    uses_mkt = any(f in feature_names for f in ["feat_mkt_trend", "feat_mkt_volatility", "feat_rel_strength"])
+                    uses_funds = any(f in feature_names for f in ["marketCap", "peRatio", "eps", "dividendYield", "fund_score"])
+                    uses_sector_rel = any(f in feature_names for f in ["feat_sector_rel_strength"])
+                    
+                    uses_funds = uses_funds or uses_sector_rel
+                    
+                    mkt_symbol = self.king_obj.get("exchange_index_symbol") or mkt_symbol
+                    inputs = self.king_obj.get("data_inputs") or {}
+                    if isinstance(inputs, dict):
+                        mkt_symbol = inputs.get("exchange_index_symbol") or mkt_symbol
+                    
+                    if exchange == "EGX":
+                        mkt_symbol = "EGX30.INDX"
+                    elif exchange == "US":
+                        mkt_symbol = "GSPC.INDX"
+                    elif exchange == "CRYPTO":
+                        mkt_symbol = "BTC-USD"
+                
+                if uses_mkt and stock_ai.supabase:
+                    self._log(f"Loading market index data for context: {mkt_symbol}")
+                    market_df = self._fetch_market_index_data(mkt_symbol)
+                    if not market_df.empty:
+                        self._log(f"Loaded {len(market_df)} index rows from Supabase.")
+                    else:
+                        self._log(f"Warning: Failed to load market index {mkt_symbol} from Supabase.")
+                
+                df_funds = pd.DataFrame()
+                if uses_funds and stock_ai.supabase and exchange != "CRYPTO":
+                    try:
+                        self._log(f"Loading fundamentals for exchange: {exchange}")
+                        from api.train_exchange_model import fetch_fundamentals_for_exchange
+                        df_funds = fetch_fundamentals_for_exchange(stock_ai.supabase, exchange)
+                        if not df_funds.empty:
+                            self._log(f"Loaded fundamentals for {len(df_funds)} symbols from Supabase.")
+                    except Exception as fund_err:
+                        self._log(f"Error fetching fundamentals: {fund_err}")
+                
+                self._sector_returns_df = pd.DataFrame()
+                if uses_sector_rel and stock_ai.supabase and exchange != "CRYPTO" and df_funds is not None and not df_funds.empty:
+                    try:
+                        self._log("Fetching recent daily prices for sector relative strength calculation...")
+                        recent_res = stock_ai.supabase.table("stock_prices")\
+                            .select("symbol, date, close")\
+                            .eq("exchange", exchange)\
+                            .order("date", desc=True)\
+                            .limit(2000).execute()
+                        if recent_res.data:
+                            df_recent = pd.DataFrame(recent_res.data)
+                            if not df_recent.empty:
+                                df_recent = df_recent.merge(df_funds[["symbol", "sector"]], on="symbol", how="left")
+                                df_recent["sector"] = df_recent["sector"].fillna("Unknown")
+                                df_recent = df_recent.sort_values(["symbol", "date"])
+                                df_recent["daily_return"] = df_recent.groupby("symbol")["close"].pct_change().fillna(0.0)
+                                self._sector_returns_df = df_recent.groupby(["date", "sector"], observed=False)["daily_return"].mean().reset_index()
+                                self._log(f"Calculated sector average returns for {len(self._sector_returns_df)} date-sector combinations.")
+                    except Exception as sector_err:
+                        self._log(f"Warning: Could not calculate sector average returns: {sector_err}")
+                
                 for symbol in scan_list:
                     if self._stop_event.is_set():
                         break
@@ -3003,7 +3252,7 @@ class LiveBot:
                             continue
 
                     self._current_activity = f"Preparing features for {symbol}"
-                    features = self._prepare_features(bars)
+                    features = self._prepare_features(bars, market_df=market_df, df_funds=df_funds, symbol=symbol)
                     if features.empty:
                         self._log(f"{symbol}: Features empty (insufficient data).")
                         continue
@@ -3023,6 +3272,22 @@ class LiveBot:
                         self._log(f"{symbol}: Skipping prediction - CLOSED bar is stale.")
                         continue
                     Xk = self._align_for_king(X_all, self.king_obj)
+
+                    # Align categories to booster to prevent type mismatch crashes
+                    try:
+                        pm = self.king_obj.get("primary_model") or {}
+                        cat_features = list(pm.get("categorical_features") or [])
+                        primary_booster = self._get_primary_booster(self.king_clf)
+                        Xk = self._align_pandas_categories_to_booster(
+                            Xk,
+                            cat_cols=[c for c in cat_features if c in Xk.columns],
+                            booster=primary_booster,
+                            cat_cols_order=cat_features,
+                        )
+                        if primary_booster is None or not (cat_features and hasattr(primary_booster, "pandas_categorical")):
+                            self._reset_nested_boosters(self.king_clf)
+                    except Exception as cat_err:
+                        self._log(f"Warning: Failed to align categories to booster: {cat_err}")
 
                     # ── Feature 7: Win Rate Adaptive Threshold ──
                     adaptive_threshold = self._get_adaptive_threshold(symbol)

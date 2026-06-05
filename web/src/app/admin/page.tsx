@@ -61,7 +61,7 @@ export default function AdminPage() {
     const [loadingInventory, setLoadingInventory] = useState(false);
     const [dbSearch, setDbSearch] = useState("");
     const [selectedDbEx, setSelectedDbEx] = useState<string | null>(null);
-    const [drillDownMode, setDrillDownMode] = useState<'prices' | 'fundamentals' | null>(null);
+    const [drillDownMode, setDrillDownMode] = useState<'prices' | 'fundamentals' | 'intraday' | null>(null);
     const [autoSelectPending, setAutoSelectPending] = useState<string | null>(null);
     const [dbSymbols, setDbSymbols] = useState<any[]>([]);
     const [selectedDrillSymbols, setSelectedDrillSymbols] = useState<Set<string>>(new Set());
@@ -265,7 +265,7 @@ export default function AdminPage() {
         } catch { setTrainedModels([]); } finally { setLoadingModels(false); }
     };
 
-    const fetchDbSymbols = (ex: string, mode: 'prices' | 'fundamentals' = 'prices') => {
+    const fetchDbSymbols = (ex: string, mode: 'prices' | 'fundamentals' | 'intraday' = 'prices') => {
         setLoadingDbSymbols(true);
         setSelectedDrillSymbols(new Set());
         fetch(`/api/admin/db-symbols/${ex}?mode=${mode}`)
@@ -276,7 +276,7 @@ export default function AdminPage() {
     };
 
     const handleDownloadCsv = (exchange: string, symbol?: string) => {
-        const mode = drillDownMode === 'fundamentals' ? 'export-fundamentals' : 'export-prices';
+        const mode = drillDownMode === 'fundamentals' ? 'export-fundamentals' : drillDownMode === 'intraday' ? 'export-intraday' : 'export-prices';
         window.open(`/api/admin/${mode}/${exchange}${symbol ? `?symbol=${symbol}` : ""}`, "_blank");
     };
 

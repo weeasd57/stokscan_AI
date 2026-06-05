@@ -1,4 +1,11 @@
 import os
+from dotenv import load_dotenv
+
+# Load environment variables from .env in project root
+api_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(api_dir)
+load_dotenv(os.path.join(project_root, ".env"))
+
 import warnings
 import time
 
@@ -121,17 +128,29 @@ class StreamCallback:
 def fetch_fundamentals_for_exchange(supabase: Client, exchange: str) -> pd.DataFrame:
     """Fetch all fundamental data for a given exchange from stock_fundamentals table."""
     try:
-        res = (
-            supabase.table("stock_fundamentals")
-            .select("symbol, data, fund_score")
-            .eq("exchange", exchange)
-            .execute()
-        )
-        if not res.data:
+        offset = 0
+        limit = 1000
+        all_data = []
+        while True:
+            res = (
+                supabase.table("stock_fundamentals")
+                .select("symbol, data, fund_score")
+                .eq("exchange", exchange)
+                .range(offset, offset + limit - 1)
+                .execute()
+            )
+            if not res.data:
+                break
+            all_data.extend(res.data)
+            if len(res.data) < limit:
+                break
+            offset += limit
+            
+        if not all_data:
             return pd.DataFrame()
         
         funds = []
-        for row in res.data:
+        for row in all_data:
             data = row.get("data", {})
             if not data: continue
             
@@ -144,15 +163,66 @@ def fetch_fundamentals_for_exchange(supabase: Client, exchange: str) -> pd.DataF
                     pass
             
             col_fund_score = row.get("fund_score")
+            computed_score = None
+            if col_fund_score is not None:
+                computed_score = col_fund_score
+            else:
+                computed_score = data.get("fund_score") or data.get("fundamental_score")
+            
+            if computed_score is None:
+                # Calculate fundamental score (0-10) based on key fundamentals on the fly
+                score = 0
+                try:
+                    # PE Ratio (0-3 points)
+                    pe = _finite_float(data.get("peRatio"))
+                    if pe is not None:
+                        if 0 < pe <= 15:
+                            score += 3
+                        elif 15 < pe <= 25:
+                            score += 2
+                        elif 25 < pe <= 40:
+                            score += 1
+                    
+                    # EPS (0-3 points)
+                    eps = _finite_float(data.get("eps"))
+                    if eps is not None:
+                        if eps > 1:
+                            score += 3
+                        elif eps > 0:
+                            score += 2
+                        elif eps > -0.5:
+                            score += 1
+                            
+                    # Dividend Yield (0-2 points)
+                    div_yield = _finite_float(data.get("dividendYield"))
+                    if div_yield is not None:
+                        if div_yield > 3:
+                            score += 2
+                        elif div_yield > 1:
+                            score += 1
+                            
+                    # Market Cap (0-2 points)
+                    mkt_cap = _finite_float(data.get("marketCap"))
+                    if mkt_cap is not None:
+                        if mkt_cap > 10_000_000_000:
+                            score += 2
+                        elif mkt_cap > 1_000_000_000:
+                            score += 1
+                    
+                    # Only assign if we actually had some fundamental metrics
+                    has_metrics = any(data.get(k) not in (None, "", 0, 0.0) for k in ["peRatio", "eps", "dividendYield", "marketCap"])
+                    if has_metrics:
+                        computed_score = float(score)
+                except Exception:
+                    pass
+
             flat = {
                 "symbol": row["symbol"],
                 "marketCap": _finite_float(data.get("marketCap")),
                 "peRatio": _finite_float(data.get("peRatio")),
                 "eps": _finite_float(data.get("eps")),
                 "dividendYield": _finite_float(data.get("dividendYield")),
-                "fund_score": _finite_float(
-                    col_fund_score if col_fund_score is not None else data.get("fund_score") or data.get("fundamental_score")
-                ),
+                "fund_score": _finite_float(computed_score),
                 "sector": data.get("sector"),
                 "industry": data.get("industry")
             }
@@ -309,13 +379,21 @@ def add_massive_features(df):
         
         if vol_col:
             extra_cols['PV_Trend'] = df[close_col].pct_change() * df[vol_col].pct_change()
+            
+            # --- الإضافات الجديدة (Smart Money Features) ---
+            # 1. Amihud Illiquidity (بصمة المؤسسات والسيولة)
+            extra_cols['Amihud_Illiquidity'] = (df[close_col].pct_change().abs() / (df[close_col] * df[vol_col] + 1e-9)).replace([np.inf, -np.inf], 0)
+            extra_cols['Amihud_SMA_10'] = extra_cols['Amihud_Illiquidity'].rolling(10).mean().fillna(0)
+            
+            # 2. Volume Acceleration (تسارع الفوليوم)
+            vol_sma_3 = df[vol_col].rolling(3).mean()
+            vol_sma_20 = df[vol_col].rolling(20).mean()
+            extra_cols['Volume_Acceleration'] = (vol_sma_3 / (vol_sma_20 + 1e-9)).replace([np.inf, -np.inf], 1.0).fillna(1.0)
 
-    
     # 5. Regime Features (Hurst & Volume Delta)
     if close_col:
         try:
             # Approximate Hurst via rolling variance ratio
-            # A true Hurst is slow to calculate rolling; this is a Fast Variance Ratio proxy for Regime
             roll10 = df[close_col].diff().rolling(10)
             roll30 = df[close_col].diff().rolling(30)
             var10 = roll10.var()
@@ -329,6 +407,27 @@ def add_massive_features(df):
         extra_cols['Volume_Delta'] = df[vol_col] * np.sign(df[close_col].diff())
         extra_cols['Volume_Delta_SMA_10'] = extra_cols['Volume_Delta'].rolling(10).mean().fillna(0)
 
+    # 3. Gap Anomalies (الفجوات السعرية)
+    if ('open' in df.columns or 'Open' in df.columns) and close_col:
+        open_c = 'open' if 'open' in df.columns else 'Open'
+        prev_close = df[close_col].shift(1)
+        extra_cols['Overnight_Gap'] = ((df[open_c] - prev_close) / (prev_close + 1e-9)).replace([np.inf, -np.inf], 0).fillna(0)
+        extra_cols['Intraday_Return'] = ((df[close_col] - df[open_c]) / (df[open_c] + 1e-9)).replace([np.inf, -np.inf], 0).fillna(0)
+    else:
+        extra_cols['Overnight_Gap'] = 0.0
+        extra_cols['Intraday_Return'] = 0.0
+
+    # Sector Relative Strength
+    if "sector_avg_return" in df.columns:
+        if "stock_daily_return" in df.columns:
+            extra_cols['feat_sector_rel_strength'] = df['stock_daily_return'] - df['sector_avg_return']
+        elif close_col:
+            stock_ret = df[close_col].pct_change().fillna(0.0)
+            extra_cols['feat_sector_rel_strength'] = stock_ret - df['sector_avg_return']
+        else:
+            extra_cols['feat_sector_rel_strength'] = 0.0
+    else:
+        extra_cols['feat_sector_rel_strength'] = 0.0
 
     # Maintain Case-Sensitive Columns for other functions
     for c in ["Open", "High", "Low", "Close", "Volume"]:
@@ -931,53 +1030,90 @@ class ModelTrainer:
             pass
             
         for idx_sym in candidates:
-            self._progress(f"Attempting to load market index data: {idx_sym}...")
+            self._progress(f"Attempting to load market index data from DB: {idx_sym}...")
             try:
-                idx_res = (
-                     self.supabase.table("stock_prices")
-                    .select("date, close")
-                    .eq("symbol", idx_sym)
-                    .order("date", desc=False)
-                    .execute()
-                )
-                if idx_res.data and len(idx_res.data) > 200:
-                    df = pd.DataFrame(idx_res.data)
+                sym = idx_sym
+                ex = None
+                if "." in idx_sym:
+                    parts = idx_sym.split(".")
+                    sym = parts[0]
+                    ex = parts[1]
+                    if ex in ["CC", "CA"]:
+                        ex = "EGX"
+                
+                offset = 0
+                limit = 1000
+                all_data = []
+                while True:
+                    query = self.supabase.table("stock_prices").select("date, close").eq("symbol", sym)
+                    if ex:
+                        query = query.eq("exchange", ex)
+                    idx_res = query.order("date", desc=False).range(offset, offset + limit - 1).execute()
+                    if not idx_res.data:
+                        break
+                    all_data.extend(idx_res.data)
+                    if len(idx_res.data) < limit:
+                        break
+                    offset += limit
+                
+                if all_data and len(all_data) > 200:
+                    df = pd.DataFrame(all_data)
                     df["date"] = pd.to_datetime(df["date"])
                     df = df.set_index("date").sort_index()
                     df['atr'] = df['close'].pct_change().rolling(20).std().fillna(0)
                     self.market_df = df
                     self.market_index_symbol = idx_sym
                     self.market_index_loaded = True
-                    self._progress(f"Successfully loaded market context from {idx_sym}")
+                    self._progress(f"Successfully loaded market context from {idx_sym} (DB) - Total rows: {len(all_data)}")
                     break
             except Exception as e:
                 print(f"Warning: Failed to fetch market index {idx_sym}: {e}")
 
         # Fallback to local JSON if Database failed
-        if self.market_df is None and self.market_index_local_json:
-            try:
-                api_dir = os.path.dirname(os.path.abspath(__file__))
-                project_root = os.path.dirname(api_dir)
-                full_path = os.path.join(project_root, self.market_index_local_json)
-                if os.path.exists(full_path):
-                    import json
-                    with open(full_path, 'r') as f:
-                        data = json.load(f)
-                        if data:
-                            df = pd.DataFrame(data)
-                            df["date"] = pd.to_datetime(df["date"])
-                            df = df.set_index("date").sort_index()
-                            # Standardization: ensure 'close' column exists
-                            if 'close' not in df.columns and 'Close' in df.columns:
-                                df['close'] = df['Close']
-                            
-                            if 'close' in df.columns:
-                                df['atr'] = df['close'].pct_change().rolling(20).std().fillna(0)
-                                self.market_df = df
-                                self.market_index_loaded = True
-                                self._progress(f"Successfully loaded market context from local JSON: {self.market_index_local_json}")
-            except Exception as e:
-                self._progress(f"Warning: Failed to load local market index JSON: {e}")
+        if self.market_df is None:
+            api_dir = os.path.dirname(os.path.abspath(__file__))
+            project_root = os.path.dirname(api_dir)
+            local_candidates = []
+            if self.exchange == "EGX":
+                local_candidates = [
+                    os.path.join(api_dir, "symbols_data", "EGX30-INDEX.json"),
+                    os.path.join(project_root, "symbols_data", "EGX30-INDEX.json"),
+                    os.path.join(project_root, "api", "symbols_data", "EGX30-INDEX.json")
+                ]
+            elif self.exchange == "US":
+                local_candidates = [
+                    os.path.join(api_dir, "symbols_data", "GSPC-INDEX.json"),
+                    os.path.join(project_root, "symbols_data", "GSPC-INDEX.json")
+                ]
+
+            for path in local_candidates:
+                if os.path.exists(path):
+                    try:
+                        # Quick sanity check for Git LFS pointer
+                        with open(path, 'r', encoding='utf-8') as f:
+                            first_line = f.readline()
+                            if first_line.startswith("version https://git-lfs"):
+                                self._progress(f"Warning: Local file {path} is a Git LFS pointer, skipping.")
+                                continue
+                        
+                        import json
+                        with open(path, 'r', encoding='utf-8') as f:
+                            data = json.load(f)
+                            if data:
+                                df = pd.DataFrame(data)
+                                df["date"] = pd.to_datetime(df["date"])
+                                df = df.set_index("date").sort_index()
+                                if 'close' not in df.columns and 'Close' in df.columns:
+                                    df['close'] = df['Close']
+                                
+                                if 'close' in df.columns:
+                                    df['atr'] = df['close'].pct_change().rolling(20).std().fillna(0)
+                                    self.market_df = df
+                                    self.market_index_loaded = True
+                                    self._progress(f"Successfully loaded market context from local JSON: {path}")
+                                    break
+                    except Exception as e:
+                        self._progress(f"Warning: Failed to load local market index JSON at {path}: {e}")
                 
         if self.market_df is None:
             self._progress("Warning: No market index data found. Market Context features will be 0.")
@@ -1093,7 +1229,7 @@ class ModelTrainer:
 
             # Preserve fundamentals/categorical columns (merged into df_sym) through the feature pipeline.
             # add_technical_indicators() returns a new dataframe, so we must carry these columns forward.
-            for _c in ("marketCap", "peRatio", "eps", "dividendYield", "sector", "industry"):
+            for _c in ("marketCap", "peRatio", "eps", "dividendYield", "sector", "industry", "sector_avg_return", "stock_daily_return"):
                 if _c in df_sym.columns and _c not in df.columns:
                     try:
                         if len(df_sym[_c]) == len(df):
@@ -1149,6 +1285,22 @@ class ModelTrainer:
                     if cat_col not in self.categorical_features:
                         self.categorical_features.append(cat_col)
 
+        # Precalculate sector average daily returns
+        if "sector" in df_all.columns:
+            try:
+                self._progress("Calculating sector average returns for Dual Relative Strength feature...")
+                df_all = df_all.sort_values(["symbol", "date"])
+                df_all["stock_daily_return"] = df_all.groupby("symbol")["close"].pct_change().fillna(0.0)
+                sector_avg_ret = df_all.groupby(["date", "sector"], observed=False)["stock_daily_return"].transform("mean")
+                df_all["sector_avg_return"] = sector_avg_ret.fillna(0.0)
+            except Exception as e:
+                print(f"Warning: Failed to calculate sector average returns during training data prep: {e}")
+                df_all["sector_avg_return"] = 0.0
+                df_all["stock_daily_return"] = 0.0
+        else:
+            df_all["sector_avg_return"] = 0.0
+            df_all["stock_daily_return"] = 0.0
+
         # Memory optimization
         df_all = _downcast_df(df_all)
 
@@ -1188,8 +1340,13 @@ class ModelTrainer:
             "Dist_From_High", "Dist_From_Low", "Body_Size", "Upper_Shadow", "Lower_Shadow",
             "SMA_Cross", "EMA_Cross", "Price_vs_SMA200", 
             "Day_Of_Week", "Day_Of_Month", "Close_Lag1", "RSI_Lag1", "Volume_Lag1",
-            "feat_mkt_trend", "feat_mkt_volatility", "feat_rel_strength"
+            "feat_mkt_trend", "feat_mkt_volatility", "feat_rel_strength",
+            "Amihud_Illiquidity", "Amihud_SMA_10", "Volume_Acceleration", "Overnight_Gap", "Intraday_Return", "feat_sector_rel_strength"
         ]
+        # Dynamically append fundamental features to extended list if they are in df
+        for f_feat in ["marketCap", "peRatio", "eps", "dividendYield", "fund_score"]:
+            if f_feat in df.columns and f_feat not in extended:
+                extended.append(f_feat)
         max_p = extended + ["ATR_14", "ADX_14", "STOCH_K", "STOCH_D", "CCI_20", "VWAP_20", "Momentum", "ROC_12", "VOL_SMA20", "VOL_Change"]
         
         self.predictors = []
@@ -1274,13 +1431,28 @@ class ModelTrainer:
                 callbacks=callbacks
             )
             
-            # 3. Custom Objective Function
-            preds = model.predict(X_val)
+            # 3. Custom Objective Function with Threshold Optimization
             y_prob = model.predict_proba(X_val)[:, 1]
+            
+            from sklearn.metrics import precision_recall_curve
+            precisions, recalls, thresholds = precision_recall_curve(y_val, y_prob)
+            
+            with np.errstate(divide='ignore', invalid='ignore'):
+                f1_scores = 2 * (precisions[:-1] * recalls[:-1]) / (precisions[:-1] + recalls[:-1])
+            f1_scores = np.nan_to_num(f1_scores)
+            
+            valid_indices = precisions[:-1] >= 0.50
+            if valid_indices.any():
+                valid_f1 = np.where(valid_indices, f1_scores, -1)
+                best_idx = np.argmax(valid_f1)
+            else:
+                best_idx = np.argmax(f1_scores)
+                
+            optimal_threshold = thresholds[best_idx] if best_idx < len(thresholds) else 0.5
+            preds = (y_prob >= optimal_threshold).astype(int)
             
             # Safety check for single-class predictions
             if len(np.unique(preds)) < 2:
-                # Penalize trivial solutions (all 0s or all 1s)
                 return 0.0
 
             precision = precision_score(y_val, preds, zero_division=0)
@@ -1742,12 +1914,29 @@ class ModelTrainer:
             if isinstance(metadata, dict):
                 has_meta_labeling = bool(metadata.get("has_meta_labeling") or metadata.get("meta_labeling"))
 
+            feature_importance = {}
+            try:
+                imp = None
+                if hasattr(model, "get_feature_importance"):
+                    imp = model.get_feature_importance()
+                elif hasattr(model, "feature_importances_"):
+                    imp = model.feature_importances_
+                
+                if imp is not None:
+                    importances = list(imp)
+                    total_imp = sum(importances) or 1.0
+                    for feat, val in zip(self.predictors, importances):
+                        feature_importance[feat] = round((float(val) / total_imp) * 100, 2)
+            except Exception:
+                pass
+
             card = {
                 "model_name": filename,
                 "created_at": artifact.get("timestamp"),
                 "exchange": self.exchange,
                 "artifact_kind": artifact.get("kind"),
                 "feature_preset": feature_preset,
+                "feature_importance": feature_importance,
                 "training": {
                     "training_samples": training_samples,
                     "target_pct": metadata.get("target_pct"),
@@ -1858,12 +2047,31 @@ class ModelTrainer:
             if feature_preset is None:
                 feature_preset = metadata.get("feature_preset")
 
+            feature_importance = {}
+            try:
+                imp = None
+                if hasattr(primary_model, "get_feature_importance"):
+                    imp = primary_model.get_feature_importance()
+                elif hasattr(primary_model, "feature_importances_"):
+                    imp = primary_model.feature_importances_
+                elif hasattr(primary_model, "model") and hasattr(primary_model.model, "feature_importances_"):
+                    imp = primary_model.model.feature_importances_
+                
+                if imp is not None:
+                    importances = list(imp)
+                    total_imp = sum(importances) or 1.0
+                    for feat, val in zip(self.predictors, importances):
+                        feature_importance[feat] = round((float(val) / total_imp) * 100, 2)
+            except Exception:
+                pass
+
             card = {
                 "model_name": filename,
                 "created_at": artifact.get("timestamp"),
                 "exchange": self.exchange,
                 "artifact_kind": artifact.get("kind"),
                 "feature_preset": feature_preset,
+                "feature_importance": feature_importance,
                 "training": {
                     "training_samples": training_samples,
                     "target_pct": metadata.get("target_pct"),
@@ -1998,14 +2206,21 @@ def train_model(exchange=None, supabase_url=None, supabase_key=None, *args, **kw
     use_meta_labeling = bool(kwargs.get("use_meta_labeling", True))
     meta_threshold = float(kwargs.get("meta_threshold", 0.3))
 
+    actual_model = model.model if hasattr(model, "model") else model
+    best_it = getattr(actual_model, "best_iteration_", None)
+    if isinstance(best_it, int) and best_it <= 0:
+        best_it = None
+
     metadata = {
         "target_pct": target_pct,
         "stop_loss_pct": stop_loss_pct,
         "look_forward_days": look_forward_days,
         "use_volatility_label": use_volatility_label,
-        "feature_preset": kwargs.get("feature_preset"),
-        "featurePreset": kwargs.get("feature_preset"),
-        "n_estimators": getattr(model, "best_iteration_", kwargs.get("n_estimators")),
+        "feature_preset": kwargs.get("feature_preset", "extended"),
+        "featurePreset": kwargs.get("feature_preset", "extended"),
+        "n_estimators": kwargs.get("n_estimators") or 500,
+        "best_iteration": best_it,
+        "bestIteration": best_it,
         "learning_rate": kwargs.get("learning_rate"),
         "training_samples": len(df_train),
         "trainingSamples": len(df_train),
@@ -2108,7 +2323,10 @@ def train_model(exchange=None, supabase_url=None, supabase_key=None, *args, **kw
         trainer.save_model(model, filename, metadata)
     
     # Update global summary for the dashboard
-    best_iteration = getattr(model, "best_iteration_", None)
+    actual_model = model.model if hasattr(model, "model") else model
+    best_iteration = getattr(actual_model, "best_iteration_", None)
+    if isinstance(best_iteration, int) and best_iteration <= 0:
+        best_iteration = None
     symbols_used = None
     try:
         if isinstance(df_raw, pd.DataFrame) and "symbol" in df_raw.columns:
@@ -2128,7 +2346,7 @@ def train_model(exchange=None, supabase_url=None, supabase_key=None, *args, **kw
         "useEarlyStopping": bool(use_early_stopping),
         "nEstimators": int(kwargs.get("n_estimators") or 500),
         "bestIteration": (int(best_iteration) if best_iteration is not None else None),
-        "featurePreset": kwargs.get("feature_preset"),
+        "featurePreset": kwargs.get("feature_preset", "extended"),
         "numFeatures": len(trainer.predictors),
         "trainingSamples": len(df_train),
         "rawRows": int(len(df_raw)),
@@ -2152,6 +2370,11 @@ if __name__ == "__main__":
     parser.add_argument("--learning_rate", type=float, default=0.05)
     parser.add_argument("--optimize", action="store_true", help="Use Optuna to tune hyperparameters")
     parser.add_argument("--trials", type=int, default=30, help="Number of Optuna trials")
+    
+    # الإضافات الجديدة لاستقبال النسب من سطر الأوامر
+    parser.add_argument("--target_pct", type=float, default=2.0, help="ATR Target Multiplier")
+    parser.add_argument("--stop_loss_pct", type=float, default=1.0, help="ATR Stop Loss Multiplier")
+    
     args = parser.parse_args()
     
     train_model(
@@ -2160,5 +2383,8 @@ if __name__ == "__main__":
         supabase_key=os.getenv("SUPABASE_SERVICE_ROLE_KEY"),
         learning_rate=args.learning_rate,
         optimize=args.optimize,
-        n_trials=args.trials
+        n_trials=args.trials,
+        # تمرير النسب إلى دالة التدريب
+        target_pct=args.target_pct,
+        stop_loss_pct=args.stop_loss_pct
     )

@@ -571,6 +571,7 @@ def sync_index(req: IndexSyncRequest, background_tasks: BackgroundTasks):
                 if not api_token:
                     print("Error: EODHD_API_KEY not found.")
                     return
+                api_token = api_token.strip('"').strip("'")
 
                 # Construct URL as requested by user
                 eodhd_symbol = req.symbol
@@ -802,7 +803,7 @@ def bulk_delete_bars(symbols: List[str], timeframe: str):
 
 @router.get("/db-symbols/{exchange}")
 def get_db_symbols(exchange: str, mode: str = "prices"):
-    """List all symbols for a specific exchange based on mode (prices or fundamentals)."""
+    """List all symbols for a specific exchange based on mode (prices, fundamentals, or intraday)."""
     # Map common country names to exchanges if passed incorrectly
     # Using lowercase keys for case-insensitive lookup
     country_map = {
@@ -841,6 +842,22 @@ def get_db_symbols(exchange: str, mode: str = "prices"):
                         "symbol": s, "name": d.get("name", "N/A"), "sector": d.get("sector", "N/A"),
                         "last_sync": row.get("updated_at"), "last_price_date": None
                     }
+        elif mode == "intraday":
+            def _fetch_rpc(sb):
+                return sb.rpc("get_intraday_symbol_stats", {"p_exchange": exchange, "p_timeframe": "15m"}).execute()
+            res = _supabase_read_with_retry(_fetch_rpc, table_name="intraday_symbols_rpc")
+            if res.data:
+                for row in res.data:
+                    s = row.get("symbol")
+                    if not s: continue
+                    symbols_info[s] = {
+                        "symbol": s, 
+                        "name": "N/A", 
+                        "sector": "N/A", 
+                        "last_sync": None, 
+                        "last_price_date": row.get("last_ts"),
+                        "row_count": row.get("bars_count", 0)
+                    }
         else:
             # Better logic: Fetch every unique symbol and its latest date for this exchange
             # We use an RPC for speed OR a more targeted query
@@ -875,7 +892,7 @@ def get_db_symbols(exchange: str, mode: str = "prices"):
                             symbols_info[s]["name"] = d.get("name", d.get("Name", "N/A"))
                             symbols_info[s]["sector"] = d.get("sector", d.get("Sector", "N/A"))
 
-        if mode == "prices":
+        if mode in ("prices", "intraday"):
             all_syms = list(symbols_info.keys())
             for chunk in _chunks(all_syms, 500):
                 def _fetch_updated(sb):
@@ -919,6 +936,44 @@ def export_prices_csv(exchange: str, symbol: Optional[str] = None):
         
         csv_data = df.to_csv(index=False)
         filename = f"{exchange}_{symbol or 'all'}_prices.csv"
+        
+        return StreamingResponse(
+            iter([csv_data]),
+            media_type="text/csv",
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+    except Exception as e:
+        print(f"Export error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/export-intraday/{exchange}")
+def export_intraday_csv(exchange: str, symbol: Optional[str] = None, timeframe: str = "15m"):
+    """Export 15m historical intraday bars for an exchange or symbol as CSV."""
+    _init_supabase()
+    if not stock_ai.supabase:
+        raise HTTPException(status_code=500, detail="Supabase not initialized")
+    
+    try:
+        def _fetch_export(sb):
+            q = sb.table("stock_bars_intraday").select("*").eq("exchange", exchange).eq("timeframe", timeframe)
+            if symbol:
+                q = q.eq("symbol", symbol)
+            return q.order("ts", desc=True).limit(50000).execute()
+        
+        res = _supabase_read_with_retry(_fetch_export, table_name="stock_bars_intraday")
+        
+        if not res.data:
+            raise HTTPException(status_code=404, detail="No intraday data found")
+            
+        import pandas as pd
+        df = pd.DataFrame(res.data)
+        
+        # Clean up for CSV
+        if 'id' in df.columns: df = df.drop(columns=['id'])
+        
+        csv_data = df.to_csv(index=False)
+        filename = f"{exchange}_{symbol or 'all'}_{timeframe}_intraday.csv"
         
         return StreamingResponse(
             iter([csv_data]),
@@ -1013,16 +1068,22 @@ class RecalculateTechRequest(BaseModel):
 class DeletePricesRequest(BaseModel):
     exchange: str
     symbols: List[str]
-    mode: Optional[str] = "prices"  # "prices" or "fundamentals"
+    mode: Optional[str] = "prices"  # "prices", "fundamentals", or "intraday"
 
 @router.post("/delete-prices")
 def delete_prices(req: DeletePricesRequest):
-    """Delete price (or fundamental) data for selected symbols from a given exchange."""
+    """Delete price, fundamental, or intraday data for selected symbols from a given exchange."""
     _init_supabase()
     if not req.symbols:
         raise HTTPException(status_code=400, detail="No symbols provided")
 
-    table_name = "stock_fundamentals" if req.mode == "fundamentals" else "stock_prices"
+    if req.mode == "fundamentals":
+        table_name = "stock_fundamentals"
+    elif req.mode == "intraday":
+        table_name = "stock_bars_intraday"
+    else:
+        table_name = "stock_prices"
+
     deleted_total = 0
     
     # Process in chunks of 10 symbols to avoid Supabase statement_timeout (57014)
@@ -1031,7 +1092,10 @@ def delete_prices(req: DeletePricesRequest):
     
     try:
         for chunk in _chunks(req.symbols, BATCH_SIZE):
-            res = stock_ai.supabase.table(table_name).delete().eq("exchange", req.exchange).in_("symbol", chunk).execute()
+            q = stock_ai.supabase.table(table_name).delete().eq("exchange", req.exchange).in_("symbol", chunk)
+            if req.mode == "intraday":
+                q = q.eq("timeframe", "15m")
+            res = q.execute()
             if res.data:
                 deleted_total += len(res.data)
     except Exception as e:
@@ -2105,16 +2169,27 @@ def _delete_local_model(model_name: str):
         if not os.path.abspath(filepath).startswith(models_dir):
             raise HTTPException(status_code=400, detail="Invalid model path")
         
-        if not os.path.exists(filepath):
-            raise HTTPException(status_code=404, detail="Model not found")
-        
-        os.remove(filepath)
+        deleted_anything = False
+        if os.path.exists(filepath):
+            os.remove(filepath)
+            deleted_anything = True
 
-        # Best-effort cleanup of backtest trades for this model
+        # Delete corresponding card, meta, and features JSON files if they exist
+        for suffix in (".model_card.json", ".meta.json", ".features.json"):
+            sidepath = os.path.join(models_dir, f"{model_name}{suffix}")
+            if os.path.exists(sidepath):
+                try:
+                    os.remove(sidepath)
+                    deleted_anything = True
+                except Exception:
+                    pass
+
+        if not deleted_anything:
+            print(f"DEBUG: Model files for {model_name} were already deleted.")
+
         try:
-            from api.stock_ai import _init_supabase, supabase
-            _init_supabase()
-            if supabase:
+            stock_ai._init_supabase()
+            if stock_ai.supabase:
                 try:
                     def _delete_backtest(sb):
                         return sb.table("scan_results").delete().eq("model_name", model_name).eq("source", "backtest").execute()
@@ -2213,11 +2288,9 @@ def _rename_local_model(model_name: str, req: RenameModelRequest):
             except Exception:
                 pass
 
-        # Update model name in Supabase scan_results and backtests best-effort
         try:
-            from api.stock_ai import _init_supabase, supabase
-            _init_supabase()
-            if supabase:
+            stock_ai._init_supabase()
+            if stock_ai.supabase:
                 def _update_scan_results(sb):
                     return sb.table("scan_results").update({"model_name": new_name}).eq("model_name", model_name).execute()
                 _supabase_read_with_retry(_update_scan_results, table_name="scan_results")
@@ -2339,7 +2412,7 @@ def get_ai_brain_symbol_data(symbol: str):
     """Fetches latest indicators for a symbol from Supabase for AI Brain simulation."""
     try:
         _init_supabase()
-        if not supabase:
+        if not stock_ai.supabase:
             raise HTTPException(status_code=500, detail="Supabase not initialized")
 
         # Fetch enough data for indicators (at least 201 days for SMA_200)
@@ -2646,7 +2719,7 @@ def admin_retrain_adaptive(req: RetrainRequest, background_tasks: BackgroundTask
 @router.get("/train/adaptive/stats")
 def get_adaptive_stats(exchange: str = "EGX", model_name: Optional[str] = None):
     _init_supabase()
-    if not supabase:
+    if not stock_ai.supabase:
         return {"total_logs": 0, "pending": 0, "mistakes_recent": 0}
         
     try:
@@ -2679,7 +2752,7 @@ def get_adaptive_stats(exchange: str = "EGX", model_name: Optional[str] = None):
 @router.get("/train/adaptive/results")
 def get_adaptive_results(exchange: str = "EGX", model_name: Optional[str] = None, limit: int = 20):
     _init_supabase()
-    if not supabase:
+    if not stock_ai.supabase:
         return []
     try:
         def _fetch_results(sb):
@@ -2717,22 +2790,56 @@ def update_alert_scheduler_config(payload: dict):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+class SingleSyncRequest(BaseModel):
+    symbol: str
+    timeframe: str = "15m"
+
 @router.get("/intraday-sync/state")
 def get_intraday_sync_state():
     try:
         from api.intraday_downloader import load_state, _fetch_egx_symbols
+        import api.stock_ai as stock_ai
+        
         db_symbols = _fetch_egx_symbols()
         state = load_state()
+        
+        # Dynamic DB check
+        completed_details = []
+        try:
+            stock_ai._init_supabase()
+            timeframe = state.get("timeframe", "15m")
+            res = stock_ai.supabase.rpc("get_intraday_symbol_stats", {"p_exchange": "EGX", "p_timeframe": timeframe}).execute()
+            if res.data:
+                completed_details = res.data
+        except Exception as e:
+            print(f"Error getting intraday stats: {e}")
+            
+        stats_map = {row["symbol"]: row for row in completed_details}
+        
+        completed_symbols = sorted([sym for sym in db_symbols if sym in stats_map])
+        state_failed = state.get("failed_symbols", [])
+        
+        # A symbol is failed if it was marked failed and is not completed
+        failed_symbols = sorted([sym for sym in state_failed if sym not in stats_map])
+        
+        # A symbol is missing if it is in db_symbols, not completed, and not failed
+        missing_symbols = sorted([sym for sym in db_symbols if sym not in stats_map and sym not in failed_symbols])
+        
         state["total_symbols"] = len(db_symbols)
         state["symbols_list"] = db_symbols
+        state["completed_symbols"] = completed_symbols
+        state["failed_symbols"] = failed_symbols
+        state["missing_symbols"] = missing_symbols
+        state["completed_details"] = completed_details
+        
         return state
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/intraday-sync/toggle")
-def toggle_intraday_sync(payload: dict):
+def toggle_intraday_sync(payload: dict, background_tasks: BackgroundTasks):
     try:
-        from api.intraday_downloader import load_state, save_state
+        from api.intraday_downloader import load_state, save_state, run_intraday_sync_batch
         state = load_state()
         enabled = payload.get("enabled", False)
         state["status"] = "syncing" if enabled else "idle"
@@ -2741,6 +2848,11 @@ def toggle_intraday_sync(payload: dict):
         if "timeframe" in payload:
             state["timeframe"] = str(payload["timeframe"])
         save_state(state)
+        
+        if enabled:
+            # Trigger first batch immediately in background
+            background_tasks.add_task(run_intraday_sync_batch)
+            
         return {"ok": True, "status": state["status"]}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -2756,5 +2868,57 @@ def reset_intraday_sync():
         state["last_run"] = None
         save_state(state)
         return {"ok": True}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/intraday-sync/single-sync")
+def single_sync_intraday(req: SingleSyncRequest, background_tasks: BackgroundTasks):
+    try:
+        from api.tradingview_integration import fetch_tradingview_prices
+        from api.intraday_downloader import load_state, save_state
+        import api.stock_ai as stock_ai
+        import datetime as dt
+        
+        def _task():
+            # Get last daily trading day
+            last_date = dt.date.today()
+            try:
+                stock_ai._init_supabase()
+                last_daily = stock_ai.supabase.table("stock_prices").select("date").eq("exchange", "EGX").order("date", desc=True).limit(1).execute()
+                if last_daily.data:
+                    last_date_str = last_daily.data[0]["date"]
+                    last_date = dt.datetime.strptime(last_date_str, "%Y-%m-%d").date()
+            except Exception as e:
+                print(f"[SINGLE SYNC] DB error: {e}")
+                
+            start_date = last_date - dt.timedelta(days=180)
+            
+            tv_symbol = f"{req.symbol}.CA"
+            success, msg = fetch_tradingview_prices(
+                tv_symbol,
+                max_days=365,
+                timeframe=req.timeframe,
+                start_date=start_date,
+                end_date=last_date
+            )
+            print(f"[SINGLE SYNC] {req.symbol} result: {success} - {msg}")
+            
+            # Save state update
+            state = load_state()
+            completed = set(state.get("completed_symbols", []))
+            failed = set(state.get("failed_symbols", []))
+            if success:
+                completed.add(req.symbol)
+                failed.discard(req.symbol)
+            else:
+                failed.add(req.symbol)
+                completed.discard(req.symbol)
+            state["completed_symbols"] = sorted(list(completed))
+            state["failed_symbols"] = sorted(list(failed))
+            state["last_run"] = dt.datetime.now().isoformat()
+            save_state(state)
+            
+        background_tasks.add_task(_task)
+        return {"ok": True, "message": f"Sync started for {req.symbol}"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

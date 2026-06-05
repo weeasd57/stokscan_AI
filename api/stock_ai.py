@@ -1247,6 +1247,22 @@ def get_supabase_inventory() -> List[Dict[str, Any]]:
         print(f"Warning: stock_prices direct fallback failed: {e}")
 
     try:
+        # 3c. Fetch 15m intraday count per exchange
+        intraday_counts = {}
+        try:
+            exchanges_to_check = set(expected_map.keys()) | {s.get("exchange") for s in stats if s.get("exchange")}
+            for ex in exchanges_to_check:
+                if not ex: continue
+                def _fetch_intraday_stats(sb, exchange=ex):
+                    return sb.rpc("get_intraday_symbol_stats", {"p_exchange": exchange, "p_timeframe": "15m"}).execute()
+                res_intra = _supabase_read_with_retry(_fetch_intraday_stats, table_name=f"intraday_stats_{ex}")
+                if res_intra.data:
+                    intraday_counts[ex] = len(res_intra.data)
+                else:
+                    intraday_counts[ex] = 0
+        except Exception as e:
+            print(f"Warning: Failed to fetch intraday counts: {e}")
+
         # 4. Join and group (Shared Logic)
         out = []
         mapped_exchanges = set()
@@ -1281,6 +1297,7 @@ def get_supabase_inventory() -> List[Dict[str, Any]]:
             row['fundCount'] = row.get('fund_count', 0)
             row['expectedCount'] = row['expected_count']
             row['lastUpdate'] = row.get('last_update')
+            row['intradayCount'] = intraday_counts.get(ex, 0)
             
             out.append(row)
             mapped_exchanges.add(ex)
@@ -1293,6 +1310,7 @@ def get_supabase_inventory() -> List[Dict[str, Any]]:
                     "country": expected["country"],
                     "priceCount": 0,
                     "fundCount": 0,
+                    "intradayCount": intraday_counts.get(ex, 0),
                     "expectedCount": expected["count"],
                     "lastUpdate": None
                 })
@@ -1307,6 +1325,7 @@ def get_supabase_inventory() -> List[Dict[str, Any]]:
                 row["country"] = "Crypto"
                 row["expected_count"] = 400
                 row["expectedCount"] = 400
+                row["intradayCount"] = intraday_counts.get("CRYPTO", 0)
                 crypto_found = True
                 break
         if not crypto_found:
@@ -1317,6 +1336,7 @@ def get_supabase_inventory() -> List[Dict[str, Any]]:
                 "priceCount": local_crypto_count,
                 "fund_count": 0,
                 "fundCount": 0,
+                "intradayCount": intraday_counts.get("CRYPTO", 0),
                 "expected_count": 400,
                 "expectedCount": 400,
                 "last_update": None,

@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import path from "path";
-import { promises as fs } from "fs";
+import { createClient } from "@supabase/supabase-js";
 
 type Egx30DayRow = {
   date: string;
@@ -24,9 +23,35 @@ function monthKey(dateStr: string) {
 
 export async function GET() {
   try {
-    const filePath = path.join(process.cwd(), "..", "symbols_data", "EGX30-INDEX.json");
-    const raw = await fs.readFile(filePath, "utf8");
-    const rows = JSON.parse(raw) as Egx30DayRow[];
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL || "",
+      process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ""
+    );
+
+    const rows: Egx30DayRow[] = [];
+    let page = 0;
+    const pageSize = 1000;
+    while (true) {
+      const { data, error } = await supabase
+        .from("stock_prices")
+        .select("date, open, high, low, close")
+        .eq("symbol", "EGX30")
+        .eq("exchange", "INDX")
+        .order("date", { ascending: true })
+        .range(page * pageSize, (page + 1) * pageSize - 1);
+
+      if (error) {
+        throw new Error(`Supabase query error: ${error.message}`);
+      }
+      if (!data || data.length === 0) {
+        break;
+      }
+      rows.push(...data);
+      if (data.length < pageSize) {
+        break;
+      }
+      page++;
+    }
 
     const grouped = new Map<
       string,

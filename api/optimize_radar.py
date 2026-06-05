@@ -4,9 +4,8 @@ import os
 import sys
 import pickle
 from backtest_radar import run_radar_simulation, load_model, reconstruct_meta_model
-from api.stock_ai import _get_exchange_bulk_data
+import api.stock_ai as stock_ai
 from api.train_exchange_model import add_technical_indicators, add_massive_features, add_market_context, fetch_fundamentals_for_exchange
-from api.stock_ai import _init_supabase, supabase
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -22,14 +21,14 @@ def load_models_and_data(exchange="EGX", model_name="KING 👑.pkl", start_date=
     
     # Load data
     buffer_start = "2023-01-01"
-    data_map = _get_exchange_bulk_data(exchange, from_date=buffer_start)
+    data_map = stock_ai._get_exchange_bulk_data(exchange, from_date=buffer_start)
     if not data_map:
         raise Exception("No data found")
     
     # Load fundamentals
     df_funds = pd.DataFrame()
-    if supabase:
-        df_funds = fetch_fundamentals_for_exchange(supabase, exchange)
+    if stock_ai.supabase:
+        df_funds = fetch_fundamentals_for_exchange(stock_ai.supabase, exchange)
     
     # Load market context for EGX
     market_df = None
@@ -43,8 +42,42 @@ def load_models_and_data(exchange="EGX", model_name="KING 👑.pkl", start_date=
                 market_df = pd.DataFrame(idx_data)
                 market_df['date'] = pd.to_datetime(market_df['date'])
                 market_df.set_index('date', inplace=True)
-        except Exception:
-            pass
+                print("DEBUG OPTIMIZE: Market context (EGX30) loaded from JSON.")
+        except Exception as e:
+            print(f"DEBUG OPTIMIZE: Failed to load market context from JSON: {e}")
+            
+        if market_df is None or market_df.empty:
+            try:
+                stock_ai._init_supabase()
+                if stock_ai.supabase:
+                    print("DEBUG OPTIMIZE: Loading EGX30 index from Supabase...")
+                    offset = 0
+                    limit = 1000
+                    all_data = []
+                    while True:
+                        idx_res = (
+                            stock_ai.supabase.table("stock_prices")
+                            .select("date, close")
+                            .eq("symbol", "EGX30")
+                            .eq("exchange", "INDX")
+                            .order("date", desc=False)
+                            .range(offset, offset + limit - 1)
+                            .execute()
+                        )
+                        if not idx_res.data:
+                            break
+                        all_data.extend(idx_res.data)
+                        if len(idx_res.data) < limit:
+                            break
+                        offset += limit
+                    
+                    if all_data:
+                        market_df = pd.DataFrame(all_data)
+                        market_df["date"] = pd.to_datetime(market_df["date"])
+                        market_df = market_df.set_index("date").sort_index()
+                        print(f"DEBUG OPTIMIZE: Loaded {len(market_df)} EGX30 index rows from Supabase.")
+            except Exception as db_err:
+                print(f"DEBUG OPTIMIZE: Failed to load market context from Supabase: {db_err}")
     
     # Load model
     models_dir = os.path.join(base_dir, "api", "models")
@@ -134,7 +167,10 @@ def find_golden_threshold(exchange="EGX", model_name="KING 👑.pkl", start_date
         )
         
         trades_log = stats.get('Trades Log', pd.DataFrame())
-        accepted_trades = trades_log[trades_log.get('Status') != 'Rejected']
+        if not trades_log.empty and 'Status' in trades_log.columns:
+            accepted_trades = trades_log[trades_log['Status'] != 'Rejected']
+        else:
+            accepted_trades = pd.DataFrame()
         
         if not accepted_trades.empty:
             # We assume 10k capital per trade for relative comparison
