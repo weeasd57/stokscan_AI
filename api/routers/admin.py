@@ -2716,3 +2716,51 @@ def update_alert_scheduler_config(payload: dict):
         return {"ok": True}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/intraday-sync/state")
+def get_intraday_sync_state():
+    try:
+        from api.intraday_downloader import load_state
+        from api.stock_ai import supabase, _init_supabase
+        _init_supabase()
+        db_symbols = []
+        if supabase:
+            res = supabase.table("stock_prices").select("symbol").eq("exchange", "EGX").execute()
+            db_symbols = sorted(list(set(row["symbol"] for row in res.data))) if res.data else []
+        
+        state = load_state()
+        state["total_symbols"] = len(db_symbols)
+        state["symbols_list"] = db_symbols
+        return state
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/intraday-sync/toggle")
+def toggle_intraday_sync(payload: dict):
+    try:
+        from api.intraday_downloader import load_state, save_state
+        state = load_state()
+        enabled = payload.get("enabled", False)
+        state["status"] = "syncing" if enabled else "idle"
+        if "batch_size" in payload:
+            state["batch_size"] = int(payload["batch_size"])
+        if "timeframe" in payload:
+            state["timeframe"] = str(payload["timeframe"])
+        save_state(state)
+        return {"ok": True, "status": state["status"]}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/intraday-sync/reset")
+def reset_intraday_sync():
+    try:
+        from api.intraday_downloader import load_state, save_state
+        state = load_state()
+        state["completed_symbols"] = []
+        state["failed_symbols"] = []
+        state["status"] = "idle"
+        state["last_run"] = None
+        save_state(state)
+        return {"ok": True}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
