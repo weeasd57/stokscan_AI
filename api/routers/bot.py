@@ -60,6 +60,19 @@ class BotConfigUpdate(BaseModel):
     schedule_end_time: Optional[str] = None
     schedule_timezone: Optional[str] = None
     schedule_days: Optional[List[int]] = None
+    use_atr_exits: Optional[bool] = None
+    atr_sl_multiplier: Optional[float] = None
+    atr_tp_multiplier: Optional[float] = None
+    atr_period: Optional[int] = None
+    exit_mode: Optional[str] = None
+    use_smart_exit: Optional[bool] = None
+    smart_exit_rsi_threshold: Optional[float] = None
+    smart_exit_volume_spike: Optional[float] = None
+    use_market_regime: Optional[bool] = None
+    regime_adx_threshold: Optional[float] = None
+    use_rsi_divergence: Optional[bool] = None
+    use_correlation_guard: Optional[bool] = None
+    max_correlation: Optional[float] = None
 
 def get_bot_or_404(bot_id: str):
     """Retrieve an existing bot or raise 404. Never auto-creates."""

@@ -2291,6 +2291,39 @@ export default function AIScannerPage() {
                                 </div>
                             </div>
 
+                            {/* Process Decisions Rationale */}
+                            {(selectedTrade.Buy_Reason || selectedTrade.buy_reason || selectedTrade.features?.buy_reason ||
+                              selectedTrade.Exit_Reason || selectedTrade.exit_reason || selectedTrade.features?.exit_reason ||
+                              selectedTrade.Result || selectedTrade.result) && (
+                                <div className="p-4 rounded-2xl bg-indigo-500/5 border border-indigo-500/10 space-y-3">
+                                    <span className="text-[10px] font-black text-indigo-400 uppercase tracking-wider block">
+                                        {language === "ar" ? "مبررات العملية (Rationale)" : "Trade Rationale"}
+                                    </span>
+                                    <div className="space-y-2 text-right">
+                                        {(selectedTrade.Buy_Reason || selectedTrade.buy_reason || selectedTrade.features?.buy_reason) && (
+                                            <div className="space-y-1">
+                                                <span className="text-[9px] text-zinc-500 font-bold block">
+                                                    {language === "ar" ? "سبب الشراء (الذكاء الاصطناعي والمؤشرات)" : "Buy Reason (AI & Indicators)"}
+                                                </span>
+                                                <p className="text-xs text-zinc-200 font-medium leading-relaxed font-sans">
+                                                    {selectedTrade.Buy_Reason || selectedTrade.buy_reason || selectedTrade.features?.buy_reason}
+                                                </p>
+                                            </div>
+                                        )}
+                                        {(selectedTrade.Exit_Reason || selectedTrade.exit_reason || selectedTrade.features?.exit_reason || selectedTrade.Result || selectedTrade.result) && (
+                                            <div className="space-y-1">
+                                                <span className="text-[9px] text-zinc-500 font-bold block">
+                                                    {language === "ar" ? "سبب البيع (الخروج)" : "Sell Reason (Exit)"}
+                                                </span>
+                                                <p className="text-xs text-zinc-200 font-medium leading-relaxed font-sans">
+                                                    {selectedTrade.Exit_Reason || selectedTrade.exit_reason || selectedTrade.features?.exit_reason || selectedTrade.Result || selectedTrade.result}
+                                                </p>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+
                             {/* Symbol Movements Timeline */}
                             <div className="space-y-3 text-right">
                                 <span className="text-[10px] font-black text-zinc-400 uppercase tracking-wider block">

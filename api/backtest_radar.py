@@ -102,6 +102,7 @@ def _parse_cli_date(value: str) -> pd.Timestamp:
 def load_egx30_index(start_date: str = None, end_date: str = None):
     """
     Load EGX30 index data from JSON file and filter by date range.
+    Falls back to Supabase database if local JSON file is missing.
     Returns DataFrame with date index and close prices.
     """
     global _INDEX_CACHE
@@ -111,21 +112,57 @@ def load_egx30_index(start_date: str = None, end_date: str = None):
     if cache_key in _INDEX_CACHE:
         return _INDEX_CACHE[cache_key].copy()
     
+    df = None
     try:
         # Path to EGX30-INDEX.json
         index_path = os.path.join(base_dir, "symbols_data", "EGX30-INDEX.json")
         
-        if not os.path.exists(index_path):
-            print(f"WARNING: EGX30 index file not found at {index_path}", flush=True)
-            return None
+        if os.path.exists(index_path):
+            with open(index_path, 'r') as f:
+                index_data = json.load(f)
+            
+            df = pd.DataFrame(index_data)
+            df['date'] = pd.to_datetime(df['date'])
+            df = df.set_index('date').sort_index()
+            print(f"DEBUG: Loaded EGX30 index data from JSON: {len(df)} days", flush=True)
+    except Exception as e:
+        print(f"WARNING: Error loading EGX30 index from JSON: {e}", flush=True)
         
-        with open(index_path, 'r') as f:
-            index_data = json.load(f)
-        
-        df = pd.DataFrame(index_data)
-        df['date'] = pd.to_datetime(df['date'])
-        df = df.set_index('date').sort_index()
-        
+    if df is None or df.empty:
+        print("DEBUG: Fetching EGX30 index data from Supabase...", flush=True)
+        try:
+            from api.stock_ai import _init_supabase, supabase
+            _init_supabase()
+            if supabase:
+                offset = 0
+                limit = 1000
+                all_data = []
+                while True:
+                    idx_res = (
+                        supabase.table("stock_prices")
+                        .select("date, close")
+                        .eq("symbol", "EGX30")
+                        .eq("exchange", "INDX")
+                        .order("date", desc=False)
+                        .range(offset, offset + limit - 1)
+                        .execute()
+                    )
+                    if not idx_res.data:
+                        break
+                    all_data.extend(idx_res.data)
+                    if len(idx_res.data) < limit:
+                        break
+                    offset += limit
+                
+                if all_data:
+                    df = pd.DataFrame(all_data)
+                    df["date"] = pd.to_datetime(df["date"])
+                    df = df.set_index("date").sort_index()
+                    print(f"DEBUG: Loaded EGX30 index data from Supabase: {len(df)} days", flush=True)
+        except Exception as e:
+            print(f"ERROR fetching EGX30 index from Supabase: {e}", flush=True)
+            
+    if df is not None and not df.empty:
         # Filter by date range if provided
         if start_date:
             df = df[df.index >= pd.to_datetime(start_date)]
@@ -134,15 +171,9 @@ def load_egx30_index(start_date: str = None, end_date: str = None):
         
         # Cache the result
         _INDEX_CACHE[cache_key] = df.copy()
-        
-        print(f"DEBUG: Loaded EGX30 index data: {len(df)} days from {df.index[0]} to {df.index[-1]}", flush=True)
         return df
-    
-    except Exception as e:
-        print(f"ERROR loading EGX30 index: {e}", flush=True)
-        import traceback
-        traceback.print_exc()
-        return None
+        
+    return None
 
 def calculate_benchmark_returns(start_date: str, end_date: str):
    
@@ -256,7 +287,11 @@ def run_radar_simulation(
     atr_sl_multiplier: float = 1.5,
     atr_tp_multiplier: float = 2.5,
     atr_period: int = 14,
-    exit_mode: str = "hybrid"
+    exit_mode: str = "hybrid",
+    use_trailing: bool = True,
+    trail_be_pct: float = 0.04,
+    trail_lock_trigger_pct: float = 0.06,
+    trail_lock_pct: float = 0.04
 ):
     """
     Simulation of Radar: Base Model Detector -> Meta Model Confirmation.
@@ -278,12 +313,10 @@ def run_radar_simulation(
     HOLD_MAX_BARS = 20
 
     # Trailing Stop Rules (long-only)
-    # - When unrealized profit reaches +5%: raise stop to entry (break-even)
-    # - When unrealized profit reaches +8%: raise stop to +5% (lock profit)
-    USE_TRAILING = True
-    TRAIL_BE_PCT = 0.05
-    TRAIL_LOCK_TRIGGER_PCT = 0.08
-    TRAIL_LOCK_PCT = 0.05
+    USE_TRAILING = use_trailing
+    TRAIL_BE_PCT = trail_be_pct
+    TRAIL_LOCK_TRIGGER_PCT = trail_lock_trigger_pct
+    TRAIL_LOCK_PCT = trail_lock_pct
 
     # Override from model artifact metadata when available so backtests match training assumptions.
     if isinstance(model, dict):
@@ -314,6 +347,19 @@ def run_radar_simulation(
             m_tf = str(_meta_get("timeframe", "") or "").strip().lower()
             if m_use_intraday and m_tf in {"1m", "1h"}:
                 USE_TRAILING = False
+                
+            m_use_trailing = _meta_get("use_trailing")
+            if m_use_trailing is not None:
+                USE_TRAILING = bool(m_use_trailing)
+            m_trail_be = _meta_get("trail_be_pct")
+            if m_trail_be is not None:
+                TRAIL_BE_PCT = float(m_trail_be)
+            m_trail_lock_trig = _meta_get("trail_lock_trigger_pct")
+            if m_trail_lock_trig is not None:
+                TRAIL_LOCK_TRIGGER_PCT = float(m_trail_lock_trig)
+            m_trail_lock = _meta_get("trail_lock_pct")
+            if m_trail_lock is not None:
+                TRAIL_LOCK_PCT = float(m_trail_lock)
         except Exception:
             pass
 
@@ -809,6 +855,67 @@ def run_radar_simulation(
 
             sizing_score = validator_score if validator_score is not None else float(score)
             size_mult = _position_size_multiplier(sizing_score)
+            # Build Buy Reason
+            buy_reasons = []
+            try:
+                row_entry = df.iloc[i]
+                cols_lower = {c.lower(): c for c in df.columns}
+                
+                # Check RSI
+                rsi_col = cols_lower.get("rsi")
+                if rsi_col:
+                    rsi_val = float(row_entry[rsi_col])
+                    if rsi_val < 30:
+                        buy_reasons.append(f"Oversold RSI ({rsi_val:.1f})")
+                    elif rsi_val < 45:
+                        buy_reasons.append(f"Low RSI Recovery ({rsi_val:.1f})")
+                    elif rsi_val > 70:
+                        buy_reasons.append(f"Overbought RSI Momentum ({rsi_val:.1f})")
+                    elif rsi_val > 55:
+                        buy_reasons.append(f"Bullish RSI Momentum ({rsi_val:.1f})")
+                    else:
+                        buy_reasons.append(f"RSI ({rsi_val:.1f})")
+                
+                # Check Vol Acceleration
+                vol_acc_col = cols_lower.get("feat_vol_acceleration") or cols_lower.get("vol_acceleration")
+                if vol_acc_col:
+                    vol_acc_val = float(row_entry[vol_acc_col])
+                    if vol_acc_val > 1.8:
+                        buy_reasons.append(f"Huge Vol Accel ({vol_acc_val:.1f}x)")
+                    elif vol_acc_val > 1.2:
+                        buy_reasons.append(f"Rising Vol Accel ({vol_acc_val:.1f}x)")
+                    else:
+                        buy_reasons.append(f"Vol Accel ({vol_acc_val:.1f}x)")
+                
+                # Check Sector Relative Strength
+                sector_rel_col = cols_lower.get("feat_sector_rel_strength") or cols_lower.get("sector_rel_strength")
+                if sector_rel_col:
+                    sector_rel_val = float(row_entry[sector_rel_col])
+                    if sector_rel_val > 0.01:
+                        buy_reasons.append(f"Leading Sector (+{sector_rel_val*100:.1f}%)")
+                    elif sector_rel_val < -0.01:
+                        buy_reasons.append(f"Lagging Sector ({sector_rel_val*100:.1f}%)")
+                
+                # Check Overnight Gap
+                gap_col = cols_lower.get("feat_overnight_gap") or cols_lower.get("overnight_gap")
+                if gap_col:
+                    gap_val = float(row_entry[gap_col])
+                    if abs(gap_val) > 0.005:
+                        buy_reasons.append(f"Gap ({gap_val*100:+.1f}%)")
+                
+                # Check Amihud Illiquidity
+                amihud_col = cols_lower.get("feat_amihud_10d_sma") or cols_lower.get("amihud_10d_sma")
+                if amihud_col:
+                    amihud_val = float(row_entry[amihud_col])
+                    buy_reasons.append(f"Amihud ({amihud_val:.2e})")
+            except Exception:
+                pass
+            
+            if not buy_reasons:
+                buy_reasons.append("AI Model Prediction Pattern")
+                
+            buy_reason_str = ", ".join(buy_reasons)
+
             try:
                 fs = None
                 if "fund_score" in df.columns:
@@ -817,6 +924,7 @@ def run_radar_simulation(
                     fs = None
             except Exception:
                 fs = None
+
             trade_data = {
                 "Date": entry_date.strftime("%d/%m/%Y") if hasattr(entry_date, "strftime") else str(entry_date),
                 "Entry_Date": entry_date.strftime("%Y-%m-%d"),
@@ -834,6 +942,8 @@ def run_radar_simulation(
                 "Size_Multiplier": float(size_mult) * regime_size_mult,
                 "Fund_Score": (float(fs) if fs is not None else None),
                 "Result": outcome,
+                "Buy_Reason": buy_reason_str,
+                "Exit_Reason": outcome,
                 "PnL_Pct": float(pnl_pct),
                 "Regime": regime,
                 "Status": "Accepted" if passes_council else "Rejected",
@@ -952,6 +1062,10 @@ def main():
     parser.add_argument("--atr-tp-mult", type=float, default=2.5)
     parser.add_argument("--atr-period", type=int, default=14)
     parser.add_argument("--exit-mode", default="hybrid")
+    parser.add_argument("--no-trailing", action="store_true", help="Disable trailing stop")
+    parser.add_argument("--trail-be-pct", type=float, default=0.04)
+    parser.add_argument("--trail-lock-trigger-pct", type=float, default=0.06)
+    parser.add_argument("--trail-lock-pct", type=float, default=0.04)
     
     args = parser.parse_args()
 
@@ -1057,17 +1171,9 @@ def main():
 
     market_df = None
     if args.exchange == "EGX":
-        try:
-            index_path = os.path.join(base_dir, "symbols_data", "EGX30-INDEX.json")
-            if os.path.exists(index_path):
-                with open(index_path, "r") as f:
-                    idx_data = json.load(f)
-                market_df = pd.DataFrame(idx_data)
-                market_df['date'] = pd.to_datetime(market_df['date'])
-                market_df.set_index('date', inplace=True)
-                print(f"[OK] Market context (EGX30) loaded from local JSON.", flush=True)
-        except Exception:
-            pass
+        market_df = load_egx30_index(args.start, args.end)
+        if market_df is not None:
+            print(f"[OK] Market context (EGX30) loaded. Rows: {len(market_df)}", flush=True)
 
     df_funds = pd.DataFrame()
     if supabase and args.exchange != "CRYPTO":
@@ -1292,6 +1398,10 @@ def main():
                 atr_tp_multiplier=args.atr_tp_mult,
                 atr_period=args.atr_period,
                 exit_mode=args.exit_mode,
+                use_trailing=not args.no_trailing,
+                trail_be_pct=args.trail_be_pct,
+                trail_lock_trigger_pct=args.trail_lock_trigger_pct,
+                trail_lock_pct=args.trail_lock_pct,
             ) 
             
             if isinstance(res, dict) and res:

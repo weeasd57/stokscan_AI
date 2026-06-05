@@ -325,6 +325,7 @@ def _process_symbol(
     council: Optional[TheCouncil] = None,
     market_df: Optional[pd.DataFrame] = None,
     validator: Optional[CouncilValidator] = None,
+    sector_returns_df: Optional[pd.DataFrame] = None,
 ) -> Optional[Dict[str, Any]]:
     """Process a single symbol - called in parallel."""
     try:
@@ -334,20 +335,42 @@ def _process_symbol(
         
         # 1. Technical Indicators (Fast + Massive) - Using Cached Versions
         feat = _get_data_with_indicators_cached(sym, ex or "EGX", raw, add_technical_indicators)
-        feat = _get_massive_features_cached(sym, ex or "EGX", feat)
-
-        # 2. Market Context
-        if market_df is not None:
-            feat = add_market_context(feat, market_df)
-
-        # 3. Fundamentals
+        
+        # Merge fundamentals and sector returns BEFORE massive features to match training pipeline
         feat['symbol'] = sym
+        symbol_sector = "Unknown"
         if fundamentals_map:
             fund = fundamentals_map.get(sym.upper()) or fundamentals_map.get(sym)
             if fund:
                 # Map fundamentals to columns expected by the models (assign to reduce fragmentation)
                 fund_data = {key: fund.get(key) for key in ["peRatio", "eps", "dividendYield", "marketCap", "fund_score"]}
                 feat = feat.assign(**fund_data)
+                symbol_sector = fund.get("sector", "Unknown") or "Unknown"
+        
+        feat["sector"] = symbol_sector
+        
+        if sector_returns_df is not None and not sector_returns_df.empty:
+            sec_df = sector_returns_df[sector_returns_df["sector"] == symbol_sector]
+            if not sec_df.empty:
+                sec_df = sec_df.rename(columns={"daily_return": "sector_avg_return"}).copy()
+                
+                feat = feat.reset_index()
+                idx_col = "timestamp" if "timestamp" in feat.columns else "date" if "date" in feat.columns else "index"
+                if idx_col in feat.columns:
+                    feat["date_only"] = pd.to_datetime(feat[idx_col]).dt.date
+                    feat = feat.merge(sec_df[["date_only", "sector_avg_return"]], on="date_only", how="left")
+                    feat = feat.drop(columns=["date_only"])
+                    feat = feat.set_index(idx_col)
+                else:
+                    feat["date_only"] = pd.to_datetime(feat.index).dt.date
+                    feat = feat.merge(sec_df[["date_only", "sector_avg_return"]], on="date_only", how="left")
+                    feat = feat.drop(columns=["date_only"])
+
+        feat = _get_massive_features_cached(sym, ex or "EGX", feat)
+
+        # 2. Market Context
+        if market_df is not None:
+            feat = add_market_context(feat, market_df)
         
         # 4. Labeling & Candidate Prep
         candidate = prepare_for_ai(feat, target_pct=target_pct, stop_loss_pct=stop_loss_pct, look_forward_days=look_forward_days, drop_labels=False)
@@ -659,9 +682,43 @@ async def fast_scan(
                 market_df = pd.DataFrame(idx_data)
                 market_df['date'] = pd.to_datetime(market_df['date'])
                 market_df.set_index('date', inplace=True)
-                print("DEBUG SCAN: Market context (EGX30) loaded for alignment.")
+                print("DEBUG SCAN: Market context (EGX30) loaded from JSON.")
         except Exception as e:
-            print(f"DEBUG SCAN: Failed to load market context: {e}")
+            print(f"DEBUG SCAN: Failed to load market context from JSON: {e}")
+            
+        if market_df is None or market_df.empty:
+            try:
+                from api.stock_ai import _init_supabase, supabase
+                _init_supabase()
+                if supabase:
+                    print("DEBUG SCAN: Loading EGX30 index from Supabase...")
+                    offset = 0
+                    limit = 1000
+                    all_data = []
+                    while True:
+                        idx_res = (
+                            supabase.table("stock_prices")
+                            .select("date, close")
+                            .eq("symbol", "EGX30")
+                            .eq("exchange", "INDX")
+                            .order("date", desc=False)
+                            .range(offset, offset + limit - 1)
+                            .execute()
+                        )
+                        if not idx_res.data:
+                            break
+                        all_data.extend(idx_res.data)
+                        if len(idx_res.data) < limit:
+                            break
+                        offset += limit
+                    
+                    if all_data:
+                        market_df = pd.DataFrame(all_data)
+                        market_df["date"] = pd.to_datetime(market_df["date"])
+                        market_df = market_df.set_index("date").sort_index()
+                        print(f"DEBUG SCAN: Loaded {len(market_df)} EGX30 index rows from Supabase.")
+            except Exception as db_err:
+                print(f"DEBUG SCAN: Failed to load market context from Supabase: {db_err}")
 
     # Initialize Council if requested
     council = None
@@ -721,13 +778,43 @@ async def fast_scan(
     scanned = len(symbols_to_process)
     results: List[FastScanResult] = []
 
+    # Precalculate sector returns if any model expects sector relative strength
+    uses_sector_rel = "feat_sector_rel_strength" in predictors
+    sector_returns_df = pd.DataFrame()
+    if uses_sector_rel:
+        try:
+            print("Calculating sector average returns for fast scan...")
+            all_list = []
+            for sym, ex, name, df in symbols_to_process:
+                fmap = fundamentals_map_by_ex.get(ex.upper(), {})
+                fund = fmap.get(sym.upper()) or fmap.get(sym) or {}
+                sector = fund.get("sector", "Unknown") or "Unknown"
+                
+                temp = df.copy()
+                temp["symbol"] = sym
+                temp["sector"] = sector
+                all_list.append(temp)
+            if all_list:
+                df_all_scan = pd.concat(all_list)
+                df_all_scan = df_all_scan.reset_index()
+                date_col = "date" if "date" in df_all_scan.columns else "timestamp" if "timestamp" in df_all_scan.columns else "index"
+                if date_col in df_all_scan.columns:
+                    df_all_scan["date_only"] = pd.to_datetime(df_all_scan[date_col]).dt.date
+                    df_all_scan = df_all_scan.sort_values(["symbol", "date_only"])
+                    df_all_scan["daily_return"] = df_all_scan.groupby("symbol")["close"].pct_change().fillna(0.0)
+                    sector_returns_df = df_all_scan.groupby(["date_only", "sector"], observed=False)["daily_return"].mean().reset_index()
+                    print(f"Calculated sector average returns for {len(sector_returns_df)} date-sector combinations in fast scan.")
+        except Exception as e:
+            print(f"Warning: Failed to calculate sector returns in fast scan: {e}")
+
     # Process symbols in parallel using ThreadPoolExecutor
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
         futures = {
             executor.submit(
                 _process_symbol, sym, ex, name, df, model, predictors, min_precision,
                 target_pct, stop_loss_pct, look_forward_days, buy_threshold, 
-                fundamentals_map_by_ex.get(ex.upper()), council, market_df, validator
+                fundamentals_map_by_ex.get(ex.upper()), council, market_df, validator,
+                sector_returns_df
             ): sym
             for sym, ex, name, df in symbols_to_process
         }

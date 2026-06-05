@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import path from "path";
-import { promises as fs } from "fs";
+import { createClient } from "@supabase/supabase-js";
 
 type Egx30Row = {
   date: string;
@@ -23,20 +22,26 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "Missing start/end" }, { status: 400 });
     }
 
-    const filePath = path.join(process.cwd(), "..", "symbols_data", "EGX30-INDEX.json");
-    const raw = await fs.readFile(filePath, "utf8");
-    const rows = JSON.parse(raw) as Egx30Row[];
+    const startStr = start.includes("T") ? start.split("T")[0] : start;
+    const endStr = end.includes("T") ? end.split("T")[0] : end;
 
-    const startDt = new Date(start);
-    const endDt = new Date(end);
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL || "",
+      process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ""
+    );
 
-    const period = (Array.isArray(rows) ? rows : [])
-      .filter((r) => typeof r?.date === "string")
-      .filter((r) => {
-        const d = new Date(r.date);
-        return d >= startDt && d <= endDt;
-      })
-      .sort((a, b) => (a.date > b.date ? 1 : -1));
+    const { data: period, error } = await supabase
+      .from("stock_prices")
+      .select("date, open, close")
+      .eq("symbol", "EGX30")
+      .eq("exchange", "INDX")
+      .gte("date", startStr)
+      .lte("date", endStr)
+      .order("date", { ascending: true });
+
+    if (error) {
+      throw new Error(`Supabase query error: ${error.message}`);
+    }
 
     if (period.length < 2) {
       return NextResponse.json({ return_pct: null });

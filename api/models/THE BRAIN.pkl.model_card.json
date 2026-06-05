@@ -1,0 +1,56 @@
+{
+  "model_name": "THE BRAIN.pkl",
+  "created_at": "2026-06-05T21:23:43.767989Z",
+  "exchange": "EGX",
+  "artifact_kind": "meta_labeling_system",
+  "feature_preset": "extended",
+  "feature_importance": {
+    "industry": 19.82,
+    "OBV": 5.32,
+    "SMA_Cross": 5.13,
+    "BB_Width": 5.03,
+    "EMA_Cross": 4.83,
+    "Dist_From_High": 4.66,
+    "Amihud_SMA_10": 4.38,
+    "Dist_From_Low": 4.35,
+    "SMA_200": 3.68,
+    "Price_vs_SMA200": 3.49,
+    "Body_Size": 2.96,
+    "Overnight_Gap": 2.42,
+    "Lower_Shadow": 2.30,
+    "Z_Score": 2.29,
+    "PCA_Momentum_2": 2.17,
+    "BB_PctB": 2.09,
+    "marketCap": 2.05,
+    "Close": 2.00,
+    "Volume": 1.87,
+    "PCA_Momentum_1": 1.78
+  },
+  "training": {
+    "training_samples": 491312,
+    "target_pct": 2.0,
+    "stop_loss_pct": 1.0,
+    "look_forward_days": 20,
+    "learning_rate": 0.05,
+    "n_estimators": 1000,
+    "best_iteration": 323,
+    "metrics": {
+      "precision": 0.5,
+      "recall": 0.021143783849943393,
+      "f1": 0.4644284509534635,
+      "auc": 0.5961658883962079
+    }
+  },
+  "data_inputs": {
+    "uses_exchange_index_json": false,
+    "exchange_index_json_path": null,
+    "uses_exchange_index_data": true,
+    "exchange_index_symbol": "EGX30.INDX",
+    "uses_fundamentals": true,
+    "fundamentals_loaded": true
+  },
+  "capabilities": {
+    "has_meta_labeling": true,
+    "meta_threshold": 0.55
+  }
+}

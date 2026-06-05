@@ -51,11 +51,11 @@ interface DataManagerTabProps {
     showEmptyExchanges: boolean;
     setShowEmptyExchanges: (show: boolean) => void;
     setSelectedDbEx: (ex: string | null) => void;
-    setDrillDownMode: (mode: "prices" | "fundamentals" | null) => void;
-    fetchDbSymbols: (ex: string, mode?: "prices" | "fundamentals") => void;
+    setDrillDownMode: (mode: "prices" | "fundamentals" | "intraday" | null) => void;
+    fetchDbSymbols: (ex: string, mode?: "prices" | "fundamentals" | "intraday") => void;
     setSelectedCountry: (country: string) => void;
     setAutoSelectPending: (ex: string | null) => void;
-    setActiveMainTab: (tab: "data" | "ai") => void;
+    setActiveMainTab: (tab: "data" | "ai" | "backtest" | "bot" | "schedule" | "intraday") => void;
     loadingInventory: boolean;
     setMaxWorkers: (workers: number) => void;
     setConfig: React.Dispatch<React.SetStateAction<{ priceSource: string; fundSource: string; maxWorkers: number }>>;
@@ -1209,6 +1209,81 @@ export default function DataManagerTab({
                                                                 setActiveMainTab("data");
                                                             }}
                                                             className="mt-auto w-full py-2 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-[9px] font-bold text-emerald-400 hover:bg-emerald-600 hover:text-white transition-all flex items-center justify-center gap-2"
+                                                        >
+                                                            <Zap className="w-3 h-3" />
+                                                            SELECT MISSINGS
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            ))}
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Intraday 15m Database Section */}
+                            <div className="space-y-8">
+                                <div className="flex items-center justify-between">
+                                    <h3 className="text-sm font-bold text-zinc-400 uppercase tracking-[0.2em] flex items-center gap-2">
+                                        <Zap className="w-4 h-4 text-amber-500" />
+                                        Intraday 15m Database
+                                    </h3>
+                                    <p className="text-[10px] text-zinc-600 font-medium">Synced 15m intraday bars per exchange</p>
+                                </div>
+
+                                {loadingInventory ? (
+                                    <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+                                        {[1, 2, 3, 4, 5, 6].map(i => (
+                                            <div key={i} className="h-24 rounded-2xl bg-zinc-900/50 border border-zinc-800 animate-pulse" />
+                                        ))}
+                                    </div>
+                                ) : dbInventory.length === 0 ? (
+                                    <div className="py-20 text-center border-2 border-dashed border-zinc-900 rounded-3xl">
+                                        <Database className="w-12 h-12 text-zinc-800 mx-auto mb-4" />
+                                        <p className="text-zinc-600 text-sm">No intraday data found in Supabase.</p>
+                                    </div>
+                                ) : (
+                                    <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+                                        {dbInventory
+                                            .filter(item => showEmptyExchanges || (item.intradayCount && item.intradayCount > 0))
+                                            .map((item) => (
+                                                <div
+                                                    key={`intraday-${item.exchange}`}
+                                                    onClick={(e) => {
+                                                        setSelectedDbEx(item.exchange);
+                                                        setDrillDownMode('intraday');
+                                                        fetchDbSymbols(item.exchange, 'intraday');
+                                                        if (item.country && item.country !== 'N/A') {
+                                                            setSelectedCountry(item.country);
+                                                        }
+                                                    }}
+                                                    className={`p-4 rounded-2xl border transition-all cursor-pointer group flex flex-col h-full hover:border-amber-500/30 hover:bg-amber-500/5 bg-zinc-900/30 border-zinc-800/50`}
+                                                >
+                                                    <div className="flex justify-between items-center text-[10px] font-bold text-zinc-500 uppercase group-hover:text-zinc-300">
+                                                        {item.exchange} {item.country !== 'N/A' ? `(${item.country})` : ''}
+                                                        <div className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                                                    </div>
+                                                    <div className="flex items-baseline gap-1 mt-1">
+                                                        <div className="text-2xl font-black text-zinc-100">{item.intradayCount || 0}</div>
+                                                        <div className="text-xs text-zinc-600 font-bold">/ {item.expectedCount || (item.intradayCount || 0)}</div>
+                                                    </div>
+                                                    <div className="flex items-center justify-between mt-1 min-h-[16px]">
+                                                        {item.expectedCount > (item.intradayCount || 0) && (
+                                                            <span className="text-[8px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-500 font-bold">
+                                                                {item.expectedCount - (item.intradayCount || 0)} Missing
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                    {item.expectedCount > (item.intradayCount || 0) && (
+                                                        <button
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                setDrillDownMode('intraday');
+                                                                fetchDbSymbols(item.exchange, 'intraday');
+                                                                setSelectedCountry(item.country);
+                                                                setAutoSelectPending(item.exchange);
+                                                                setActiveMainTab("intraday");
+                                                            }}
+                                                            className="mt-auto w-full py-2 rounded-xl bg-amber-500/10 border border-amber-500/30 text-[9px] font-bold text-amber-400 hover:bg-amber-600 hover:text-white transition-all flex items-center justify-center gap-2"
                                                         >
                                                             <Zap className="w-3 h-3" />
                                                             SELECT MISSINGS

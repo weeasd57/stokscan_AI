@@ -905,6 +905,10 @@ class BotConfig(BaseModel):
     atr_tp_multiplier: float = 2.5
     atr_period: int = 14
     exit_mode: str = "hybrid"
+    use_trailing: bool = True
+    trail_be_pct: float = 0.04
+    trail_lock_trigger_pct: float = 0.06
+    trail_lock_pct: float = 0.04
 
 class StrategyTesterRequest(BaseModel):
     symbol: str
@@ -933,6 +937,10 @@ class StrategyTesterRequest(BaseModel):
     atr_tp_multiplier: float = 2.5
     atr_period: int = 14
     exit_mode: str = "hybrid"
+    use_trailing: bool = True
+    trail_be_pct: float = 0.04
+    trail_lock_trigger_pct: float = 0.06
+    trail_lock_pct: float = 0.04
 
 
 @app.post("/backtest/simulate")
@@ -1136,6 +1144,10 @@ async def strategy_tester_endpoint(req: StrategyTesterRequest):
                 atr_tp_multiplier=bot.atr_tp_multiplier,
                 atr_period=bot.atr_period,
                 exit_mode=bot.exit_mode,
+                use_trailing=bot.use_trailing,
+                trail_be_pct=bot.trail_be_pct,
+                trail_lock_trigger_pct=bot.trail_lock_trigger_pct,
+                trail_lock_pct=bot.trail_lock_pct,
             )
 
             if not result:
@@ -1312,21 +1324,51 @@ def _compute_benchmark_metrics(project_root: str, model_name: str, start_date: s
         if not index_rel and ex == "EGX":
             index_rel = os.path.join("symbols_data", "EGX30-INDEX.json")
 
-        if not index_rel:
-            # print(f"[BT-LIVE] DEBUG: No exchange index json path for model={model_name}, exchange={exchange}", flush=True)
+        df = None
+        if index_rel:
+            index_path = os.path.join(project_root, index_rel)
+            if os.path.exists(index_path):
+                try:
+                    with open(index_path, "r", encoding="utf-8") as f:
+                        rows = json.load(f)
+                    if isinstance(rows, list) and rows:
+                        df = pd.DataFrame(rows)
+                except Exception:
+                    pass
+
+        # Database fallback if file is missing or empty
+        if (df is None or df.empty) and ex == "EGX":
+            try:
+                from api.stock_ai import _init_supabase, supabase
+                _init_supabase()
+                if supabase:
+                    offset = 0
+                    limit = 1000
+                    all_data = []
+                    while True:
+                        idx_res = (
+                            supabase.table("stock_prices")
+                            .select("date, close")
+                            .eq("symbol", "EGX30")
+                            .eq("exchange", "INDX")
+                            .order("date", desc=False)
+                            .range(offset, offset + limit - 1)
+                            .execute()
+                        )
+                        if not idx_res.data:
+                            break
+                        all_data.extend(idx_res.data)
+                        if len(idx_res.data) < limit:
+                            break
+                        offset += limit
+                    if all_data:
+                        df = pd.DataFrame(all_data)
+            except Exception:
+                pass
+
+        if df is None or df.empty:
             return None, None, None
 
-        index_path = os.path.join(project_root, index_rel)
-        # print(f"[BT-LIVE] DEBUG: Loading exchange index json for model={model_name}, exchange={exchange}, path={index_path}", flush=True)
-        if not os.path.exists(index_path):
-            return None, None, None
-
-        with open(index_path, "r", encoding="utf-8") as f:
-            rows = json.load(f)
-        if not isinstance(rows, list) or not rows:
-            return None, None, None
-
-        df = pd.DataFrame(rows)
         if "date" not in df.columns or "close" not in df.columns:
             return None, None, None
 
@@ -1769,6 +1811,8 @@ def run_backtest_task(req: BacktestRequest, backtest_id: str = None):
                         "Validator_Score": (float(row.get("Validator_Score")) if row.get("Validator_Score") is not None else None),
                         "Sizing_Score": (float(row.get("Sizing_Score")) if row.get("Sizing_Score") is not None else None),
                         "Fund_Score": (float(row.get("Fund_Score")) if row.get("Fund_Score") is not None else None),
+                        "Buy_Reason": row.get("Buy_Reason", ""),
+                        "Exit_Reason": row.get("Exit_Reason", ""),
                     })
         except Exception as e:
             print(f"Error parsing trades JSON: {e}")
@@ -2210,7 +2254,7 @@ async def get_backtest_trades(id: str):
             if not isinstance(t, dict): continue
             pnl = float(t.get("pnl_pct") or 0)
             mapped.append({
-                "symbol": t.get("symbol"),
+                "symbol": t.get("symbol") or t.get("Symbol"),
                 "entry_price": float(t.get("entry") or 0),
                 "exit_price": float(t.get("exit") or 0),
                 "profit_loss_pct": round(pnl * 100, 4),
@@ -2228,6 +2272,8 @@ async def get_backtest_trades(id: str):
                     "ai_score": t.get("Score") or t.get("score") or t.get("features", {}).get("ai_score"),
                     "radar_score": t.get("Radar_Score") or t.get("radar_score") or t.get("features", {}).get("radar_score"),
                     "fund_score": t.get("Fund_Score") or t.get("fund_score") or t.get("features", {}).get("fund_score"),
+                    "buy_reason": t.get("Buy_Reason") or t.get("buy_reason") or t.get("features", {}).get("buy_reason"),
+                    "exit_reason": t.get("Exit_Reason") or t.get("exit_reason") or t.get("features", {}).get("exit_reason"),
                 },
                 "created_at": t.get("date")
             })
