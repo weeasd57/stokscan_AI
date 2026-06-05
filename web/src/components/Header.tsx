@@ -4,7 +4,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { usePathname, useSearchParams, useRouter } from "next/navigation";
 import { useLanguage } from "@/contexts/LanguageContext";
-import { Globe, BarChart2, Brain, Activity, Menu, X, User, ChevronDown, ArrowLeftRight, Crown, Search, Loader2 } from "lucide-react";
+import { Globe, BarChart2, Brain, Activity, Menu, X, User, ChevronDown, ArrowLeftRight, Search, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { searchSymbols } from "@/lib/api";
@@ -95,7 +95,6 @@ export default function Header() {
         { href: "/scanner/backtests?tab=bots", label: t("nav.scanner.ai_trading"), icon: <Brain className="w-4 h-4" />, activePath: "/scanner/backtests", badge: "AI DEMO" },
         { href: "/scanner/technical", label: t("nav.scanner.tech"), icon: <Activity className="w-4 h-4" />, activePath: "/scanner/technical" },
         { href: "/scanner/backtests?tab=backtests", label: t("nav.scanner.backtests"), icon: <BarChart2 className="w-4 h-4" />, activePath: null },
-        { href: "/pro", label: language === "ar" ? "برو" : "Pro", icon: <Crown className="w-4 h-4 text-amber-400" />, activePath: "/pro" },
     ];
 
     const checkActive = (href: string, activePath: string | null) => {
