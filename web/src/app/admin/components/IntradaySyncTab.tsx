@@ -4,7 +4,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import { 
     Loader2, Play, Pause, RotateCcw, AlertTriangle, CheckCircle, 
     Database, Clock, RefreshCw, Search, ChevronLeft, ChevronRight,
-    ArrowUpDown, ShieldAlert, BadgeAlert, Sparkles
+    ArrowUpDown, ShieldAlert, BadgeAlert, Sparkles, Download, Trash2, Zap, Info
 } from "lucide-react";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { toast } from "sonner";
@@ -51,6 +51,65 @@ export default function IntradaySyncTab() {
     
     // Sync status tracking
     const [syncingSymbols, setSyncingSymbols] = useState<Set<string>>(new Set());
+    const [selectedSymbols, setSelectedSymbols] = useState<Set<string>>(new Set());
+    const [isDeleting, setIsDeleting] = useState(false);
+    const [isSyncingBatch, setIsSyncingBatch] = useState(false);
+
+    const handleDeleteSelected = async () => {
+        if (selectedSymbols.size === 0) return;
+        if (!confirm(language === "ar" 
+            ? `هل أنت متأكد من مسح بيانات الـ 15 دقيقة لـ ${selectedSymbols.size} سهم؟` 
+            : `Delete intraday data for ${selectedSymbols.size} symbol(s)?\nThis cannot be undone.`)) return;
+        setIsDeleting(true);
+        try {
+            const res = await fetch(`/api/admin/delete-prices`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    exchange: "EGX",
+                    symbols: Array.from(selectedSymbols),
+                    mode: "intraday"
+                })
+            });
+            if (!res.ok) throw new Error(await res.text());
+            const data = await res.json();
+            toast.success(language === "ar" 
+                ? `تم حذف البيانات لـ ${selectedSymbols.size} سهم بنجاح` 
+                : `Deleted ${selectedSymbols.size} symbol(s) — ${data.deleted_rows ?? 0} rows removed`);
+            
+            setSelectedSymbols(new Set());
+            await fetchState();
+        } catch (e: any) {
+            toast.error("Delete failed: " + (e.message || "Unknown error"));
+        } finally {
+            setIsDeleting(false);
+        }
+    };
+
+    const handleSyncSelected = async () => {
+        if (selectedSymbols.size === 0) return;
+        setIsSyncingBatch(true);
+        const queue = Array.from(selectedSymbols);
+        toast.info(language === "ar" 
+            ? `بدء مزامنة ${queue.length} سهم...` 
+            : `Starting sync for ${queue.length} symbol(s)...`);
+        
+        for (const sym of queue) {
+            try {
+                await fetch("/api/admin/intraday-sync/single-sync", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ symbol: sym, timeframe: timeframeInput })
+                });
+            } catch (err) {
+                console.error(`Sync failed for ${sym}:`, err);
+            }
+        }
+        toast.success(language === "ar" ? "اكتملت مزامنة الأسهم المحددة" : "Sync complete for selected symbols");
+        setSelectedSymbols(new Set());
+        await fetchState();
+        setIsSyncingBatch(false);
+    };
 
     const fetchState = async () => {
         try {
@@ -598,7 +657,26 @@ export default function IntradaySyncTab() {
                     <table className="w-full text-left border-collapse" dir={language === "ar" ? "rtl" : "ltr"}>
                         <thead>
                             <tr className="border-b border-zinc-900 bg-zinc-900/40 text-[10px] font-black uppercase tracking-wider text-zinc-400">
+                                <th className="px-6 py-4 w-12 text-center">
+                                    <input
+                                        type="checkbox"
+                                        checked={paginatedDetails.length > 0 && paginatedDetails.every(row => selectedSymbols.has(row.symbol))}
+                                        onChange={(e) => {
+                                            const next = new Set(selectedSymbols);
+                                            if (e.target.checked) {
+                                                paginatedDetails.forEach(row => next.add(row.symbol));
+                                            } else {
+                                                paginatedDetails.forEach(row => next.delete(row.symbol));
+                                            }
+                                            setSelectedSymbols(next);
+                                        }}
+                                        className="w-4 h-4 rounded border-zinc-700 bg-zinc-950 text-indigo-600 focus:ring-indigo-500"
+                                    />
+                                </th>
                                 <th className="px-6 py-4 text-center w-24">
+                                    {language === "ar" ? "الحالة" : "Status"}
+                                </th>
+                                <th className="px-6 py-4 text-center w-28">
                                     <button onClick={() => toggleSort("symbol")} className="flex items-center gap-1 hover:text-white mx-auto">
                                         {language === "ar" ? "الرمز" : "Symbol"}
                                         <ArrowUpDown className="w-3 h-3" />
@@ -628,7 +706,7 @@ export default function IntradaySyncTab() {
                                         <ArrowUpDown className="w-3 h-3" />
                                     </button>
                                 </th>
-                                <th className="px-6 py-4 text-center w-24">
+                                <th className="px-6 py-4 text-center w-32">
                                     {language === "ar" ? "العمليات" : "Actions"}
                                 </th>
                             </tr>
@@ -636,33 +714,51 @@ export default function IntradaySyncTab() {
                         <tbody className="divide-y divide-zinc-900 text-xs font-semibold text-zinc-300">
                             {paginatedDetails.length > 0 ? (
                                 paginatedDetails.map((row) => (
-                                    <tr key={row.symbol} className="hover:bg-white/5 transition-colors">
-                                        <td className="px-6 py-4 text-center font-mono">
-                                            <span className="px-2.5 py-1 rounded-lg bg-emerald-500/5 border border-emerald-500/10 text-emerald-400 font-bold">
-                                                {row.symbol}
+                                    <tr key={row.symbol} className={`hover:bg-white/5 transition-colors ${selectedSymbols.has(row.symbol) ? 'bg-indigo-600/5' : ''}`}>
+                                        <td className="px-6 py-4 text-center">
+                                            <input
+                                                type="checkbox"
+                                                checked={selectedSymbols.has(row.symbol)}
+                                                onChange={(e) => {
+                                                    const next = new Set(selectedSymbols);
+                                                    if (e.target.checked) next.add(row.symbol);
+                                                    else next.delete(row.symbol);
+                                                    setSelectedSymbols(next);
+                                                }}
+                                                className="w-4 h-4 rounded border-zinc-700 bg-zinc-950 text-indigo-600 focus:ring-indigo-500"
+                                            />
+                                        </td>
+                                        <td className="px-6 py-4 text-center">
+                                            <span className="px-2 py-0.5 rounded-full font-bold uppercase tracking-tight text-[8px] whitespace-nowrap bg-green-500/10 border border-green-500/20 text-green-400">
+                                                {language === "ar" ? "مكتمل" : "Synced"}
                                             </span>
+                                        </td>
+                                        <td className="px-6 py-4 text-center font-mono font-black text-indigo-400 hover:text-indigo-300">
+                                            {row.symbol}
                                         </td>
                                         <td className="px-6 py-4 text-right truncate max-w-[280px]" title={symbolNames[row.symbol] || "—"}>
                                             <span className="text-zinc-100 font-bold">
                                                 {symbolNames[row.symbol] || <span className="text-zinc-600 font-normal">Loading...</span>}
                                             </span>
                                         </td>
-                                        <td className="px-6 py-4 text-center text-zinc-500">
-                                            EGX
+                                        <td className="px-6 py-4 text-center">
+                                            <span className="px-2 py-0.5 rounded-md bg-zinc-900 border border-zinc-800 text-zinc-500 font-bold uppercase tracking-tighter text-[9px]">
+                                                EGX
+                                            </span>
                                         </td>
                                         <td className="px-6 py-4 text-center font-mono text-zinc-400">
                                             {state?.timeframe || "15m"}
                                         </td>
-                                        <td className="px-6 py-4 text-center font-mono font-bold text-zinc-100">
+                                        <td className="px-6 py-4 text-center font-mono font-bold text-indigo-400">
                                             {row.bars_count.toLocaleString()}
                                         </td>
                                         <td className="px-6 py-4 text-center text-zinc-400 font-mono">
                                             {formatTs(row.first_ts)}
                                         </td>
-                                        <td className="px-6 py-4 text-center text-indigo-400 font-mono font-bold">
+                                        <td className="px-6 py-4 text-center text-zinc-500 font-mono">
                                             {formatTs(row.last_ts)}
                                         </td>
-                                        <td className="px-6 py-4 text-center">
+                                        <td className="px-6 py-4 text-center flex items-center justify-center gap-1.5">
                                             <button
                                                 onClick={() => !syncingSymbols.has(row.symbol) && handleSingleSync(row.symbol)}
                                                 disabled={syncingSymbols.has(row.symbol)}
@@ -679,12 +775,21 @@ export default function IntradaySyncTab() {
                                                     <RefreshCw className="w-3.5 h-3.5" />
                                                 )}
                                             </button>
+                                            <button
+                                                onClick={() => {
+                                                    window.open(`/api/admin/export-intraday/EGX?symbol=${row.symbol}`, "_blank");
+                                                }}
+                                                className="p-1.5 rounded-lg border bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-indigo-400 hover:border-indigo-500/30 transition-all"
+                                                title={language === "ar" ? "تحميل ملف CSV" : "Download CSV"}
+                                            >
+                                                <Download className="w-3.5 h-3.5" />
+                                            </button>
                                         </td>
                                     </tr>
                                 ))
                             ) : (
                                 <tr>
-                                    <td colSpan={8} className="px-6 py-12 text-center text-zinc-500 font-bold uppercase tracking-wider">
+                                    <td colSpan={10} className="px-6 py-12 text-center text-zinc-500 font-bold uppercase tracking-wider">
                                         {language === "ar" ? "لا توجد أسهم مطابقة للمواصفات" : "No matching completed stocks found."}
                                     </td>
                                 </tr>
@@ -693,48 +798,82 @@ export default function IntradaySyncTab() {
                     </table>
                 </div>
 
-                {/* Pagination Controls */}
-                <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-4 border-t border-zinc-900">
-                    <div className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">
-                        {language === "ar" 
-                            ? `عرض ${(currentPage - 1) * pageSize + 1} - ${Math.min(currentPage * pageSize, sortedDetails.length)} من أصل ${sortedDetails.length} أسهم`
-                            : `Showing ${(currentPage - 1) * pageSize + 1} to ${Math.min(currentPage * pageSize, sortedDetails.length)} of ${sortedDetails.length} stocks`
-                        }
+                {/* Bottom Actions and Pagination Controls */}
+                <div className="space-y-4 pt-4 border-t border-zinc-900">
+                    {/* Pagination Controls */}
+                    <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+                        <div className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">
+                            {language === "ar" 
+                                ? `عرض ${(currentPage - 1) * pageSize + 1} - ${Math.min(currentPage * pageSize, sortedDetails.length)} من أصل ${sortedDetails.length} أسهم`
+                                : `Showing ${(currentPage - 1) * pageSize + 1} to ${Math.min(currentPage * pageSize, sortedDetails.length)} of ${sortedDetails.length} stocks`
+                            }
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                            <select
+                                value={pageSize}
+                                onChange={(e) => {
+                                    setPageSize(Number(e.target.value));
+                                    setCurrentPage(1);
+                                }}
+                                className="h-8 rounded-lg bg-zinc-900 border border-zinc-800 text-xs text-zinc-400 px-2 focus:outline-none focus:border-zinc-700"
+                            >
+                                <option value={10}>10 {language === "ar" ? "صفوف" : "rows"}</option>
+                                <option value={25}>25 {language === "ar" ? "صفوف" : "rows"}</option>
+                                <option value={50}>50 {language === "ar" ? "صفوف" : "rows"}</option>
+                            </select>
+
+                            <div className="flex items-center gap-1">
+                                <button
+                                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                                    disabled={currentPage === 1}
+                                    className="p-1.5 rounded-lg border border-zinc-850 bg-zinc-900 text-zinc-400 hover:text-white disabled:opacity-30 disabled:hover:text-zinc-400 transition-colors"
+                                >
+                                    <ChevronLeft className="w-4 h-4" />
+                                </button>
+                                <span className="text-xs font-mono text-zinc-400 px-2">
+                                    {currentPage} / {totalPages}
+                                </span>
+                                <button
+                                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                                    disabled={currentPage === totalPages}
+                                    className="p-1.5 rounded-lg border border-zinc-850 bg-zinc-900 text-zinc-400 hover:text-white disabled:opacity-30 disabled:hover:text-zinc-400 transition-colors"
+                                >
+                                    <ChevronRight className="w-4 h-4" />
+                                </button>
+                            </div>
+                        </div>
                     </div>
 
-                    <div className="flex items-center gap-2">
-                        <select
-                            value={pageSize}
-                            onChange={(e) => {
-                                setPageSize(Number(e.target.value));
-                                setCurrentPage(1);
-                            }}
-                            className="h-8 rounded-lg bg-zinc-900 border border-zinc-800 text-xs text-zinc-400 px-2 focus:outline-none focus:border-zinc-700"
-                        >
-                            <option value={10}>10 {language === "ar" ? "صفوف" : "rows"}</option>
-                            <option value={25}>25 {language === "ar" ? "صفوف" : "rows"}</option>
-                            <option value={50}>50 {language === "ar" ? "صفوف" : "rows"}</option>
-                        </select>
-
-                        <div className="flex items-center gap-1">
-                            <button
-                                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                                disabled={currentPage === 1}
-                                className="p-1.5 rounded-lg border border-zinc-850 bg-zinc-900 text-zinc-400 hover:text-white disabled:opacity-30 disabled:hover:text-zinc-400 transition-colors"
-                            >
-                                <ChevronLeft className="w-4 h-4" />
-                            </button>
-                            <span className="text-xs font-mono text-zinc-400 px-2">
-                                {currentPage} / {totalPages}
-                            </span>
-                            <button
-                                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                                disabled={currentPage === totalPages}
-                                className="p-1.5 rounded-lg border border-zinc-850 bg-zinc-900 text-zinc-400 hover:text-white disabled:opacity-30 disabled:hover:text-zinc-400 transition-colors"
-                            >
-                                <ChevronRight className="w-4 h-4" />
-                            </button>
+                    {/* Bottom actions panel like Data Manager */}
+                    <div className="p-4 bg-zinc-900/30 border border-zinc-900/50 flex items-center gap-3 backdrop-blur-sm rounded-2xl">
+                        <div className="mr-auto flex items-center gap-4">
+                            <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest flex items-center gap-2">
+                                <Info className="w-3.5 h-3.5 text-zinc-400" />
+                                {selectedSymbols.size} {language === "ar" ? "محدد" : "Selected"}
+                            </p>
                         </div>
+
+                        {selectedSymbols.size > 0 && (
+                            <>
+                                <button
+                                    onClick={handleDeleteSelected}
+                                    disabled={isDeleting}
+                                    className="px-4 py-2 rounded-xl bg-red-500/10 border border-red-500/30 text-[10px] font-bold text-red-400 hover:bg-red-600 hover:text-white transition-all flex items-center gap-2 disabled:opacity-50"
+                                >
+                                    {isDeleting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                                    {language === "ar" ? "حذف المحدد" : "DELETE SELECTED"}
+                                </button>
+                                <button
+                                    onClick={handleSyncSelected}
+                                    disabled={isSyncingBatch}
+                                    className="px-4 py-2 rounded-xl bg-indigo-600 text-white text-[10px] font-bold hover:bg-indigo-500 transition-all flex items-center gap-2 disabled:opacity-50"
+                                >
+                                    {isSyncingBatch ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
+                                    {language === "ar" ? "مزامنة المحدد" : "SYNC SELECTED"}
+                                </button>
+                            </>
+                        )}
                     </div>
                 </div>
             </div>
