@@ -136,7 +136,9 @@ def get_tradingview_exchange(symbol: str) -> str:
 def fetch_tradingview_prices(
     symbol: str,
     max_days: int = 365,
-    timeframe: str = "1d"
+    timeframe: str = "1d",
+    start_date: Any = None,
+    end_date: Any = None
 ) -> Tuple[bool, str]:
     """
     Fetch historical price data from TradingView and sync to Supabase.
@@ -146,6 +148,8 @@ def fetch_tradingview_prices(
         symbol: Stock symbol with exchange suffix (e.g., "AAPL.US", "AIR.PA")
         max_days: Max historical bars to fetch if no cloud data exists
         timeframe: Data interval (e.g., "1d", "1h", "15m", "1m")
+        start_date: Optional start date filter (datetime.date)
+        end_date: Optional end date filter (datetime.date)
     
     Returns:
         Tuple of (success: bool, message: str)
@@ -220,9 +224,14 @@ def fetch_tradingview_prices(
             needed_for_update = (today - last_date).days + 10 if last_date else max_days + 30
             n_bars = max(needed_for_history, needed_for_update)
         else:
-            # For intraday, use max_days as the bar count directly if it's high enough,
-            # otherwise use a reasonable default.
-            n_bars = max(max_days, 500)
+            if start_date:
+                days_to_fetch = (today - start_date).days
+                n_bars_calc = int(days_to_fetch * 20)
+                n_bars = max(n_bars_calc, max_days, 500)
+            else:
+                # For intraday, use max_days as the bar count directly if it's high enough,
+                # otherwise use a reasonable default.
+                n_bars = max(max_days, 500)
 
         n_bars = min(5000, n_bars)
 
@@ -247,6 +256,17 @@ def fetch_tradingview_prices(
         # TV returns 'datetime' column
         df_new = df_new.rename(columns={'datetime': 'ts', 'open': 'open', 'high': 'high', 'low': 'low', 'close': 'close', 'volume': 'volume'})
         
+        # Filter by start_date and end_date if provided
+        if start_date or end_date:
+            df_new['ts'] = pd.to_datetime(df_new['ts'])
+            if start_date:
+                df_new = df_new[df_new['ts'].dt.date >= start_date]
+            if end_date:
+                df_new = df_new[df_new['ts'].dt.date <= end_date]
+                
+        if df_new.empty:
+            return True, f"No new data within the filtered range ({start_date} to {end_date})"
+
         # Sync Directly
         ok, sync_msg = sync_df_to_supabase(upper, df_new, timeframe=timeframe)
         return ok, f"OK (tradingview) - {sync_msg}"
