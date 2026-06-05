@@ -35,6 +35,58 @@ def save_state(state: Dict[str, Any]):
     except Exception as e:
         print(f"Error saving intraday sync state: {e}")
 
+def _fetch_egx_symbols() -> List[str]:
+    """
+    Fetch all EGX symbols reliably.
+    Strategy (in order):
+      1. stock_fundamentals  — 1 row per symbol, no limit issue
+      2. stock_prices paginated — fallback when fundamentals empty
+    """
+    _init_supabase()
+    if not supabase:
+        return []
+
+    # ── Primary: stock_fundamentals (1 row / symbol, fast) ──────────────────
+    try:
+        res = supabase.table("stock_fundamentals") \
+            .select("symbol") \
+            .eq("exchange", "EGX") \
+            .execute()
+        if res.data:
+            syms = sorted(list(set(row["symbol"] for row in res.data if row.get("symbol"))))
+            if syms:
+                print(f"[INTRADAY] Got {len(syms)} EGX symbols from stock_fundamentals")
+                return syms
+    except Exception as e:
+        print(f"[INTRADAY] stock_fundamentals query failed: {e}")
+
+    # ── Fallback: paginate stock_prices ──────────────────────────────────────
+    try:
+        all_syms: set = set()
+        page = 0
+        PAGE_SIZE = 1000
+        while True:
+            res = supabase.table("stock_prices") \
+                .select("symbol") \
+                .eq("exchange", "EGX") \
+                .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1) \
+                .execute()
+            if not res.data:
+                break
+            for row in res.data:
+                if row.get("symbol"):
+                    all_syms.add(row["symbol"])
+            if len(res.data) < PAGE_SIZE:
+                break  # last page
+            page += 1
+        syms = sorted(list(all_syms))
+        print(f"[INTRADAY] Got {len(syms)} EGX symbols from stock_prices (paginated, {page+1} pages)")
+        return syms
+    except Exception as e:
+        print(f"[INTRADAY] stock_prices paginated query failed: {e}")
+        return []
+
+
 def run_intraday_sync_batch() -> Dict[str, Any]:
     _init_supabase()
     state = load_state()
@@ -42,15 +94,10 @@ def run_intraday_sync_batch() -> Dict[str, Any]:
         return {"status": state.get("status"), "message": "Sync is not active (status is idle)."}
 
     # 1. Fetch all EGX symbols from database
-    try:
-        res = supabase.table("stock_prices").select("symbol").eq("exchange", "EGX").execute()
-        db_symbols = sorted(list(set(row["symbol"] for row in res.data))) if res.data else []
-    except Exception as e:
-        print(f"Error fetching EGX symbols: {e}")
-        return {"status": "error", "message": f"DB Error: {e}"}
+    db_symbols = _fetch_egx_symbols()
 
     if not db_symbols:
-        return {"status": "error", "message": "No EGX symbols found in DB."}
+        return {"status": "error", "message": "No EGX symbols found in DB (checked stock_fundamentals + stock_prices)."}
 
     completed = set(state.get("completed_symbols", []))
     failed = set(state.get("failed_symbols", []))
