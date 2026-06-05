@@ -4,7 +4,7 @@ import time
 import threading
 import datetime as dt
 from typing import Dict, List, Any
-from api.stock_ai import supabase, _init_supabase
+import api.stock_ai as stock_ai
 from api.tradingview_integration import fetch_tradingview_prices
 
 STATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "intraday_sync_state.json")
@@ -38,17 +38,37 @@ def save_state(state: Dict[str, Any]):
 def _fetch_egx_symbols() -> List[str]:
     """
     Fetch all EGX symbols reliably.
-    Strategy (in order):
-      1. stock_fundamentals  — 1 row per symbol, no limit issue
-      2. stock_prices paginated — fallback when fundamentals empty
+    Primary Strategy: Load from local JSON file api/symbols_data/Egypt_all_symbols_20260525_194516.json.
+    Fallback Strategy: Fetch from stock_fundamentals and stock_prices from Supabase.
     """
-    _init_supabase()
-    if not supabase:
+    file_path = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        "symbols_data",
+        "Egypt_all_symbols_20260525_194516.json"
+    )
+    if os.path.exists(file_path):
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            symbols = []
+            for item in data:
+                if item.get("Exchange") == "EGX" and item.get("Symbol"):
+                    symbols.append(item["Symbol"])
+            if symbols:
+                unique_symbols = sorted(list(set(symbols)))
+                print(f"[INTRADAY] Loaded {len(unique_symbols)} EGX symbols from local JSON file.")
+                return unique_symbols
+        except Exception as e:
+            print(f"[INTRADAY] Failed to load symbols from local JSON file: {e}")
+
+    print("[INTRADAY] Falling back to Supabase database query for EGX symbols...")
+    stock_ai._init_supabase()
+    if not stock_ai.supabase:
         return []
 
-    # ── Primary: stock_fundamentals (1 row / symbol, fast) ──────────────────
+    # ── Primary Fallback: stock_fundamentals (1 row / symbol, fast) ──────────────────
     try:
-        res = supabase.table("stock_fundamentals") \
+        res = stock_ai.supabase.table("stock_fundamentals") \
             .select("symbol") \
             .eq("exchange", "EGX") \
             .execute()
@@ -60,13 +80,13 @@ def _fetch_egx_symbols() -> List[str]:
     except Exception as e:
         print(f"[INTRADAY] stock_fundamentals query failed: {e}")
 
-    # ── Fallback: paginate stock_prices ──────────────────────────────────────
+    # ── Secondary Fallback: paginate stock_prices ──────────────────────────────────────
     try:
         all_syms: set = set()
         page = 0
         PAGE_SIZE = 1000
         while True:
-            res = supabase.table("stock_prices") \
+            res = stock_ai.supabase.table("stock_prices") \
                 .select("symbol") \
                 .eq("exchange", "EGX") \
                 .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1) \
@@ -88,16 +108,16 @@ def _fetch_egx_symbols() -> List[str]:
 
 
 def run_intraday_sync_batch() -> Dict[str, Any]:
-    _init_supabase()
+    stock_ai._init_supabase()
     state = load_state()
     if state.get("status") != "syncing":
         return {"status": state.get("status"), "message": "Sync is not active (status is idle)."}
 
-    # 1. Fetch all EGX symbols from database
+    # 1. Fetch all EGX symbols from local file (or fallback DB)
     db_symbols = _fetch_egx_symbols()
 
     if not db_symbols:
-        return {"status": "error", "message": "No EGX symbols found in DB (checked stock_fundamentals + stock_prices)."}
+        return {"status": "error", "message": "No EGX symbols found."}
 
     completed = set(state.get("completed_symbols", []))
     failed = set(state.get("failed_symbols", []))
@@ -118,19 +138,53 @@ def run_intraday_sync_batch() -> Dict[str, Any]:
     # Process next batch
     batch = remaining[:batch_size]
     processed_this_run = []
-    
-    for sym in batch:
-        # Form TV symbol format (e.g. COMI.CA)
-        tv_symbol = f"{sym}.CA"
-        # Fetch 1 year of 15m data (365 days)
-        success, msg = fetch_tradingview_prices(tv_symbol, max_days=365, timeframe=timeframe)
-        
-        if success:
-            completed.add(sym)
-            processed_this_run.append(f"{sym}: Success - {msg}")
+
+    # Get last trading day from stock_prices
+    last_date = dt.date.today()
+    try:
+        last_daily = stock_ai.supabase.table("stock_prices").select("date").eq("exchange", "EGX").order("date", desc=True).limit(1).execute()
+        if last_daily.data:
+            last_date_str = last_daily.data[0]["date"]
+            last_date = dt.datetime.strptime(last_date_str, "%Y-%m-%d").date()
+            print(f"[INTRADAY] Last daily trading day found: {last_date}")
         else:
-            failed.add(sym)
-            processed_this_run.append(f"{sym}: Failed - {msg}")
+            print(f"[INTRADAY] No daily stock_prices found, defaulting to today: {last_date}")
+    except Exception as e:
+        print(f"[INTRADAY] Failed to query last daily trading day: {e}, defaulting to today: {last_date}")
+
+    # Compute start_date = last_date - 6 months (180 days)
+    start_date = last_date - dt.timedelta(days=180)
+    print(f"[INTRADAY] Sync range: {start_date} to {last_date}")
+
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    def sync_one(sym):
+        tv_symbol = f"{sym}.CA"
+        success, msg = fetch_tradingview_prices(
+            tv_symbol,
+            max_days=365,
+            timeframe=timeframe,
+            start_date=start_date,
+            end_date=last_date
+        )
+        return sym, success, msg
+
+    # Using ThreadPoolExecutor to run them in parallel
+    with ThreadPoolExecutor(max_workers=len(batch)) as executor:
+        futures = {executor.submit(sync_one, sym): sym for sym in batch}
+        for future in as_completed(futures):
+            sym = futures[future]
+            try:
+                sym, success, msg = future.result()
+                if success:
+                    completed.add(sym)
+                    processed_this_run.append(f"{sym}: Success - {msg}")
+                else:
+                    failed.add(sym)
+                    processed_this_run.append(f"{sym}: Failed - {msg}")
+            except Exception as e:
+                failed.add(sym)
+                processed_this_run.append(f"{sym}: Exception - {e}")
 
     state["completed_symbols"] = sorted(list(completed))
     state["failed_symbols"] = sorted(list(failed))
