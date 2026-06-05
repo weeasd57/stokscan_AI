@@ -3,8 +3,10 @@
 import { useState, useEffect } from "react";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useAppState } from "@/contexts/AppStateContext";
+import { useAuth } from "@/contexts/AuthContext";
+import { useRouter } from "next/navigation";
 import { getCountries, searchSymbols, type SymbolResult } from "@/lib/api";
-import { Database, Download, Check, AlertTriangle, Loader2, Zap, Info, TrendingUp, History, Cloud, Globe, ChevronLeft, ChevronRight, ChevronDown, FileText, X, Search } from "lucide-react";
+import { Database, Download, Check, AlertTriangle, Loader2, Zap, Info, TrendingUp, History, Cloud, Globe, ChevronLeft, ChevronRight, ChevronDown, FileText, X, Search, ShieldOff } from "lucide-react";
 import { Toaster, toast } from "sonner";
 
 import CountrySelectDialog from "@/components/CountrySelectDialog";
@@ -18,8 +20,46 @@ import LiveBotTab from "./components/LiveBotTab";
 import ScheduleTab from "./components/ScheduleTab";
 import IntradaySyncTab from "./components/IntradaySyncTab";
 
+const ADMIN_EMAIL = "weeeessd57@gmail.com";
+
 export default function AdminPage() {
-    const { t } = useLanguage();
+    const { t, language } = useLanguage();
+    const { user, loading: authLoading } = useAuth();
+    const router = useRouter();
+
+    // ─── Admin Guard ────────────────────────────────────────────────────────────
+    const isAdminUser = !authLoading && !!user && (
+        user.app_metadata?.role === "admin" || user.email?.toLowerCase() === ADMIN_EMAIL
+    );
+
+    useEffect(() => {
+        if (authLoading) return; // wait for auth to resolve
+        if (!user) {
+            router.replace("/login");
+        } else if (!isAdminUser) {
+            router.replace("/scanner/technical");
+        }
+    }, [authLoading, user, isAdminUser, router]);
+
+    // Show a blocking screen while auth resolves or if not admin
+    if (authLoading || !isAdminUser) {
+        return (
+            <div className="min-h-screen bg-black flex flex-col items-center justify-center gap-5">
+                {authLoading ? (
+                    <Loader2 className="w-10 h-10 animate-spin text-indigo-500" />
+                ) : (
+                    <>
+                        <ShieldOff className="w-14 h-14 text-red-500/70" />
+                        <p className="text-zinc-400 text-sm font-bold uppercase tracking-widest">
+                            {language === "ar" ? "غير مصرح بالدخول" : "Access Denied"}
+                        </p>
+                    </>
+                )}
+            </div>
+        );
+    }
+    // ────────────────────────────────────────────────────────────────────────────
+
     // Admin specifically needs local symbols list to manage syncing
     const [countries, setCountries] = useState<string[]>([]);
     const [countriesLoading, setCountriesLoading] = useState(false);
