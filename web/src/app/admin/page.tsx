@@ -1,12 +1,12 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useAppState } from "@/contexts/AppStateContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useRouter } from "next/navigation";
 import { getCountries, searchSymbols, type SymbolResult } from "@/lib/api";
-import { Database, Download, Check, AlertTriangle, Loader2, Zap, Info, TrendingUp, History, Cloud, Globe, ChevronLeft, ChevronRight, ChevronDown, FileText, X, Search, ShieldOff } from "lucide-react";
+import { Database, Download, Check, AlertTriangle, Loader2, Zap, Info, TrendingUp, History, Cloud, Globe, ChevronLeft, ChevronRight, ChevronDown, FileText, X, Search, ShieldOff, Lock, Eye, EyeOff, KeyRound } from "lucide-react";
 import { Toaster, toast } from "sonner";
 
 import CountrySelectDialog from "@/components/CountrySelectDialog";
@@ -20,45 +20,165 @@ import LiveBotTab from "./components/LiveBotTab";
 import ScheduleTab from "./components/ScheduleTab";
 import IntradaySyncTab from "./components/IntradaySyncTab";
 
-const ADMIN_EMAIL = "weeeessd57@gmail.com";
+const SESSION_KEY = "admin_unlocked_v1";
 
 export default function AdminPage() {
     const { t, language } = useLanguage();
     const { user, loading: authLoading } = useAuth();
     const router = useRouter();
 
-    // ─── Admin Guard ────────────────────────────────────────────────────────────
-    const isAdminUser = !authLoading && !!user && (
-        user.app_metadata?.role === "admin" || user.email?.toLowerCase() === ADMIN_EMAIL
-    );
+    // ─── Password Gate State ─────────────────────────────────────────────────
+    const [unlocked, setUnlocked] = useState(false);
+    const [passwordInput, setPasswordInput] = useState("");
+    const [showPassword, setShowPassword] = useState(false);
+    const [checking, setChecking] = useState(false);
+    const [wrongPassword, setWrongPassword] = useState(false);
+    const inputRef = useRef<HTMLInputElement>(null);
 
+    // Check sessionStorage on mount
     useEffect(() => {
-        if (authLoading) return; // wait for auth to resolve
-        if (!user) {
-            router.replace("/login");
-        } else if (!isAdminUser) {
-            router.replace("/scanner/technical");
+        if (typeof window !== "undefined") {
+            const stored = sessionStorage.getItem(SESSION_KEY);
+            if (stored === "1") setUnlocked(true);
         }
-    }, [authLoading, user, isAdminUser, router]);
+    }, []);
 
-    // Show a blocking screen while auth resolves or if not admin
-    if (authLoading || !isAdminUser) {
+    // Redirect to login if not logged in at all
+    useEffect(() => {
+        if (!authLoading && !user) {
+            router.replace("/login");
+        }
+    }, [authLoading, user, router]);
+
+    const handleUnlock = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!passwordInput.trim()) return;
+        setChecking(true);
+        setWrongPassword(false);
+        try {
+            const res = await fetch("/api/admin-unlock", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ password: passwordInput }),
+            });
+            if (res.ok) {
+                sessionStorage.setItem(SESSION_KEY, "1");
+                setUnlocked(true);
+            } else {
+                setWrongPassword(true);
+                setPasswordInput("");
+                setTimeout(() => inputRef.current?.focus(), 100);
+            }
+        } catch {
+            setWrongPassword(true);
+        } finally {
+            setChecking(false);
+        }
+    };
+
+    // Show loading while auth resolves
+    if (authLoading) {
         return (
-            <div className="min-h-screen bg-black flex flex-col items-center justify-center gap-5">
-                {authLoading ? (
-                    <Loader2 className="w-10 h-10 animate-spin text-indigo-500" />
-                ) : (
-                    <>
-                        <ShieldOff className="w-14 h-14 text-red-500/70" />
-                        <p className="text-zinc-400 text-sm font-bold uppercase tracking-widest">
-                            {language === "ar" ? "غير مصرح بالدخول" : "Access Denied"}
-                        </p>
-                    </>
-                )}
+            <div className="min-h-screen bg-black flex items-center justify-center">
+                <Loader2 className="w-10 h-10 animate-spin text-indigo-500" />
             </div>
         );
     }
-    // ────────────────────────────────────────────────────────────────────────────
+
+    // Not logged in → handled by useEffect redirect above
+    if (!user) return null;
+
+    // ─── Password Gate UI ─────────────────────────────────────────────────────
+    if (!unlocked) {
+        return (
+            <div className="min-h-screen bg-black flex flex-col items-center justify-center px-4 relative overflow-hidden">
+                {/* Background glow */}
+                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-indigo-600/8 rounded-full blur-[120px] pointer-events-none" />
+
+                <form
+                    onSubmit={handleUnlock}
+                    className="relative w-full max-w-sm"
+                >
+                    <div className="rounded-3xl border border-zinc-800/80 bg-zinc-950/90 backdrop-blur-2xl p-8 shadow-2xl shadow-black/60 space-y-7">
+
+                        {/* Icon + Title */}
+                        <div className="flex flex-col items-center gap-4 text-center">
+                            <div className="w-16 h-16 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center">
+                                <KeyRound className="w-8 h-8 text-indigo-400" />
+                            </div>
+                            <div>
+                                <h1 className="text-xl font-black text-white tracking-tight">
+                                    {language === "ar" ? "لوحة تحكم الأدمن" : "Admin Panel"}
+                                </h1>
+                                <p className="text-xs text-zinc-500 font-semibold mt-1">
+                                    {language === "ar"
+                                        ? "أدخل كلمة المرور للمتابعة"
+                                        : "Enter the admin password to continue"}
+                                </p>
+                            </div>
+                        </div>
+
+                        {/* Password Input */}
+                        <div className="space-y-2">
+                            <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">
+                                {language === "ar" ? "كلمة المرور" : "Password"}
+                            </label>
+                            <div className="relative">
+                                <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-600" />
+                                <input
+                                    ref={inputRef}
+                                    type={showPassword ? "text" : "password"}
+                                    value={passwordInput}
+                                    onChange={(e) => {
+                                        setPasswordInput(e.target.value);
+                                        setWrongPassword(false);
+                                    }}
+                                    autoFocus
+                                    placeholder="••••••••••"
+                                    className={`h-12 w-full rounded-xl border bg-zinc-900/60 pl-10 pr-11 text-sm font-semibold text-white outline-none transition-all
+                                        ${wrongPassword
+                                            ? "border-red-500/50 ring-1 ring-red-500/30 animate-shake"
+                                            : "border-zinc-800 focus:border-indigo-500/60 focus:ring-1 focus:ring-indigo-500/20"
+                                        }`}
+                                />
+                                <button
+                                    type="button"
+                                    onClick={() => setShowPassword(!showPassword)}
+                                    className="absolute right-3.5 top-1/2 -translate-y-1/2 text-zinc-600 hover:text-zinc-300 transition-colors"
+                                >
+                                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                                </button>
+                            </div>
+                            {wrongPassword && (
+                                <p className="text-xs text-red-400 font-semibold flex items-center gap-1.5">
+                                    <ShieldOff className="w-3.5 h-3.5" />
+                                    {language === "ar" ? "كلمة المرور غير صحيحة" : "Incorrect password"}
+                                </p>
+                            )}
+                        </div>
+
+                        {/* Submit */}
+                        <button
+                            type="submit"
+                            disabled={checking || !passwordInput.trim()}
+                            className="h-12 w-full rounded-xl bg-indigo-600 hover:bg-indigo-500 active:scale-[0.98] text-sm font-black text-white uppercase tracking-wider transition-all shadow-lg shadow-indigo-600/20 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                        >
+                            {checking ? (
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : null}
+                            {language === "ar" ? "دخول" : "Unlock"}
+                        </button>
+
+                        {/* Logged in as */}
+                        <p className="text-center text-[10px] text-zinc-600 font-mono">
+                            {user.email}
+                        </p>
+                    </div>
+                </form>
+            </div>
+        );
+    }
+    // ─────────────────────────────────────────────────────────────────────────────
 
     // Admin specifically needs local symbols list to manage syncing
     const [countries, setCountries] = useState<string[]>([]);

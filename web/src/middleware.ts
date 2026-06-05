@@ -2,8 +2,6 @@ import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 
-const ADMIN_EMAIL = 'weeeessd57@gmail.com'
-
 export async function middleware(request: NextRequest) {
   // Clone headers and inject ngrok skip header
   const requestHeaders = new Headers(request.headers)
@@ -13,14 +11,13 @@ export async function middleware(request: NextRequest) {
     request: { headers: requestHeaders },
   })
 
-  // ─── Admin Route Protection ────────────────────────────────────────────────
+  // ─── Admin Route: require login only (password gate handled client-side) ───
   if (request.nextUrl.pathname.startsWith('/admin')) {
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL
     const anonKey =
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??
       process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY
 
-    // If Supabase env vars are missing, block access
     if (!url || !anonKey) {
       return NextResponse.redirect(new URL('/login', request.url))
     }
@@ -35,9 +32,7 @@ export async function middleware(request: NextRequest) {
       },
     })
 
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
+    const { data: { user } } = await supabase.auth.getUser()
 
     // No session → redirect to login
     if (!user) {
@@ -46,14 +41,7 @@ export async function middleware(request: NextRequest) {
       return NextResponse.redirect(loginUrl)
     }
 
-    // Logged in but NOT admin → redirect to scanner
-    const isAdmin =
-      user.app_metadata?.role === 'admin' ||
-      user.email?.toLowerCase() === ADMIN_EMAIL
-
-    if (!isAdmin) {
-      return NextResponse.redirect(new URL('/scanner/technical', request.url))
-    }
+    // Logged in → allow through (password gate handled on the page)
   }
   // ───────────────────────────────────────────────────────────────────────────
 
