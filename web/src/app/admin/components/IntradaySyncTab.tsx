@@ -41,6 +41,9 @@ export default function IntradaySyncTab() {
     const [batchSizeInput, setBatchSizeInput] = useState(5);
     const [timeframeInput, setTimeframeInput] = useState("15m");
     const [symbolNames, setSymbolNames] = useState<Record<string, string>>({});
+    const [syncDays, setSyncDays] = useState<number>(180);
+    const [bulkSyncProgress, setBulkSyncProgress] = useState<{ current: number; total: number; lastMsg: string } | null>(null);
+    const [bulkSyncLogs, setBulkSyncLogs] = useState<string[]>([]);
     
     // UI Filters and Pagination
     const [tableSearch, setTableSearch] = useState("");
@@ -91,23 +94,66 @@ export default function IntradaySyncTab() {
     const handleSyncSelected = async () => {
         if (selectedSymbols.size === 0) return;
         setIsSyncingBatch(true);
-        const queue = Array.from(selectedSymbols);
-        toast.info(language === "ar" 
-            ? `بدء مزامنة ${queue.length} سهم...` 
-            : `Starting sync for ${queue.length} symbol(s)...`);
+        setBulkSyncLogs([]);
         
-        for (const sym of queue) {
+        const queue = Array.from(selectedSymbols);
+        const total = queue.length;
+        setBulkSyncProgress({ current: 0, total, lastMsg: language === "ar" ? "بدء المزامنة الفورية..." : "Starting bulk sync..." });
+
+        toast.info(language === "ar" 
+            ? `بدء مزامنة ${total} سهم بدفعة من 5 أسهم...` 
+            : `Starting sync for ${total} symbol(s) in batches of 5...`);
+        
+        const BATCH_SIZE = 5;
+        let processedCount = 0;
+        let localLogs: string[] = [];
+
+        for (let i = 0; i < total; i += BATCH_SIZE) {
+            const batch = queue.slice(i, i + BATCH_SIZE);
+            const batchProgressMsg = language === "ar" 
+                ? `جاري تحديث الدفعة ${Math.floor(i / BATCH_SIZE) + 1}...` 
+                : `Syncing batch ${Math.floor(i / BATCH_SIZE) + 1}...`;
+                
+            setBulkSyncProgress(prev => prev ? { ...prev, lastMsg: batchProgressMsg } : null);
+
             try {
-                await fetch("/api/admin/intraday-sync/single-sync", {
+                const res = await fetch("/api/admin/intraday-sync/update-batch", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ symbol: sym, timeframe: timeframeInput })
+                    body: JSON.stringify({
+                        symbols: batch,
+                        timeframe: timeframeInput,
+                        max_days: syncDays
+                    })
                 });
-            } catch (err) {
-                console.error(`Sync failed for ${sym}:`, err);
+                
+                if (!res.ok) throw new Error("Batch update failed");
+                const data = await res.json();
+                
+                if (data.results) {
+                    data.results.forEach((r: any) => {
+                        const timestamp = new Date().toLocaleTimeString(language === "ar" ? "ar-EG" : "en-US", { hour12: true });
+                        const statusStr = r.success ? "Success" : "Failed";
+                        const logMsg = `[${timestamp}] ${r.symbol}: ${statusStr} - ${r.message}`;
+                        localLogs = [logMsg, ...localLogs];
+                    });
+                    setBulkSyncLogs([...localLogs]);
+                }
+            } catch (err: any) {
+                const timestamp = new Date().toLocaleTimeString(language === "ar" ? "ar-EG" : "en-US", { hour12: true });
+                batch.forEach(sym => {
+                    const logMsg = `[${timestamp}] ${sym}: ERR - ${err.message || "Unknown batch error"}`;
+                    localLogs = [logMsg, ...localLogs];
+                });
+                setBulkSyncLogs([...localLogs]);
+                console.error("Intraday batch update error:", err);
             }
+            
+            processedCount += batch.length;
+            setBulkSyncProgress(prev => prev ? { ...prev, current: processedCount, lastMsg: localLogs[0] || "" } : null);
         }
-        toast.success(language === "ar" ? "اكتملت مزامنة الأسهم المحددة" : "Sync complete for selected symbols");
+
+        toast.success(language === "ar" ? "اكتملت مزامنة الأسهم المحددة بنجاح" : "Sync complete for selected symbols");
         setSelectedSymbols(new Set());
         await fetchState();
         setIsSyncingBatch(false);
@@ -526,38 +572,86 @@ export default function IntradaySyncTab() {
                     <div className="flex items-center justify-between mb-4">
                         <h3 className="text-xs font-black text-white uppercase tracking-wider flex items-center gap-2">
                             <Clock className="w-4 h-4 text-emerald-400 animate-pulse" />
-                            {language === "ar" ? "حالة وسجلات المزامنة الفورية" : "Live Download Status & Activity Feed"}
+                            {isSyncingBatch 
+                                ? (language === "ar" ? "جاري تشغيل المزامنة المحددة..." : "Running Selected Sync Batch...")
+                                : (language === "ar" ? "حالة وسجلات المزامنة الفورية" : "Live Download Status & Activity Feed")
+                            }
                         </h3>
-                        {state?.status === "syncing" && (
+                        {(state?.status === "syncing" || isSyncingBatch) && (
                             <span className="flex items-center gap-1.5 text-[9px] font-black text-emerald-400 px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20 uppercase tracking-widest">
                                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span>
-                                {language === "ar" ? "جارٍ المزامنة" : "Syncing"}
+                                {language === "ar" ? "نشط" : "Active"}
                             </span>
                         )}
                     </div>
-                    <div className="flex-1 bg-zinc-950 border border-zinc-850/50 rounded-2xl p-4 font-mono text-[10px] overflow-y-auto max-h-[140px] custom-scrollbar text-left flex flex-col justify-start gap-1.5" dir="ltr">
-                        {state?.last_batch_logs && state.last_batch_logs.length > 0 ? (
-                            state.last_batch_logs.map((log, index) => {
-                                const isSuccess = log.includes("Success");
-                                const isFailed = log.includes("Failed") || log.includes("Exception");
-                                return (
-                                    <div 
-                                        key={index} 
-                                        className={`${
-                                            isSuccess ? "text-emerald-400" : isFailed ? "text-rose-400" : "text-zinc-400"
-                                        } border-b border-zinc-900/40 pb-0.5`}
-                                    >
-                                        {log}
-                                    </div>
-                                );
-                            })
-                        ) : (
-                            <div className="text-zinc-650 h-full flex items-center justify-center font-sans text-xs">
-                                {language === "ar" 
-                                    ? "لا توجد سجلات تحميل حديثة. ابدأ المزامنة للتشغيل." 
-                                    : "No recent download logs. Click Start / Resume to begin."
-                                }
+
+                    {/* Progress Bar for frontend bulk sync */}
+                    {isSyncingBatch && bulkSyncProgress && (
+                        <div className="mb-4 space-y-1.5">
+                            <div className="flex justify-between text-[10px] font-bold text-zinc-400">
+                                <span>{language === "ar" ? "التقدم" : "Progress"}</span>
+                                <span>{Math.round((bulkSyncProgress.current / bulkSyncProgress.total) * 100)}% ({bulkSyncProgress.current}/{bulkSyncProgress.total})</span>
                             </div>
+                            <div className="h-1.5 w-full rounded-full bg-zinc-950 overflow-hidden border border-zinc-900">
+                                <div
+                                    className="h-full bg-indigo-500 transition-all duration-300"
+                                    style={{ width: `${(bulkSyncProgress.current / bulkSyncProgress.total) * 100}%` }}
+                                />
+                            </div>
+                            {bulkSyncProgress.lastMsg && (
+                                <div className="text-[9px] text-zinc-500 font-mono truncate text-left" dir="ltr">
+                                    {bulkSyncProgress.lastMsg}
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    <div className="flex-1 bg-zinc-950 border border-zinc-850/50 rounded-2xl p-4 font-mono text-[10px] overflow-y-auto max-h-[140px] custom-scrollbar text-left flex flex-col justify-start gap-1.5" dir="ltr">
+                        {isSyncingBatch ? (
+                            bulkSyncLogs.length > 0 ? (
+                                bulkSyncLogs.map((log, index) => {
+                                    const isSuccess = log.includes("Success");
+                                    const isFailed = log.includes("Failed") || log.includes("Exception") || log.includes("ERR");
+                                    return (
+                                        <div 
+                                            key={index} 
+                                            className={`${
+                                                isSuccess ? "text-emerald-400" : isFailed ? "text-rose-400" : "text-zinc-400"
+                                            } border-b border-zinc-900/40 pb-0.5`}
+                                        >
+                                            {log}
+                                        </div>
+                                    );
+                                })
+                            ) : (
+                                <div className="text-zinc-650 h-full flex items-center justify-center font-sans text-xs">
+                                    {language === "ar" ? "تهيئة المزامنة..." : "Initializing sync..."}
+                                </div>
+                            )
+                        ) : (
+                            state?.last_batch_logs && state.last_batch_logs.length > 0 ? (
+                                state.last_batch_logs.map((log, index) => {
+                                    const isSuccess = log.includes("Success");
+                                    const isFailed = log.includes("Failed") || log.includes("Exception");
+                                    return (
+                                        <div 
+                                            key={index} 
+                                            className={`${
+                                                isSuccess ? "text-emerald-400" : isFailed ? "text-rose-400" : "text-zinc-400"
+                                            } border-b border-zinc-900/40 pb-0.5`}
+                                        >
+                                            {log}
+                                        </div>
+                                    );
+                                })
+                            ) : (
+                                <div className="text-zinc-650 h-full flex items-center justify-center font-sans text-xs">
+                                    {language === "ar" 
+                                        ? "لا توجد سجلات تحميل حديثة. ابدأ المزامنة للتشغيل." 
+                                        : "No recent download logs. Click Start / Resume to begin."
+                                    }
+                                </div>
+                            )
                         )}
                     </div>
                 </div>
@@ -914,7 +1008,7 @@ export default function IntradaySyncTab() {
                     </div>
 
                     {/* Bottom actions panel like Data Manager */}
-                    <div className="p-4 bg-zinc-900/30 border border-zinc-900/50 flex items-center gap-3 backdrop-blur-sm rounded-2xl">
+                    <div className="p-4 bg-zinc-900/30 border border-zinc-900/50 flex flex-col sm:flex-row items-center gap-4 backdrop-blur-sm rounded-2xl">
                         <div className="mr-auto flex items-center gap-4">
                             <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest flex items-center gap-2">
                                 <Info className="w-3.5 h-3.5 text-zinc-400" />
@@ -923,7 +1017,23 @@ export default function IntradaySyncTab() {
                         </div>
 
                         {selectedSymbols.size > 0 && (
-                            <>
+                            <div className="flex flex-wrap sm:flex-nowrap items-center gap-3 w-full sm:w-auto justify-end">
+                                {/* Sync Days Input */}
+                                <div className="flex items-center gap-2 bg-zinc-950 px-3 py-1.5 rounded-xl border border-zinc-800 shrink-0">
+                                    <span className="text-[9px] font-black text-zinc-500 uppercase tracking-widest">
+                                        {language === "ar" ? "الأيام المطلوبة" : "History Days"}
+                                    </span>
+                                    <input
+                                        type="number"
+                                        min={1}
+                                        max={365}
+                                        value={syncDays}
+                                        onChange={(e) => setSyncDays(Number(e.target.value))}
+                                        className="w-14 h-6 bg-transparent text-center font-mono font-bold text-xs text-indigo-400 focus:outline-none"
+                                        disabled={isSyncingBatch}
+                                    />
+                                </div>
+
                                 <button
                                     onClick={handleDeleteSelected}
                                     disabled={isDeleting}
@@ -940,7 +1050,7 @@ export default function IntradaySyncTab() {
                                     {isSyncingBatch ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
                                     {language === "ar" ? "مزامنة المحدد" : "SYNC SELECTED"}
                                 </button>
-                            </>
+                            </div>
                         )}
                     </div>
                 </div>
