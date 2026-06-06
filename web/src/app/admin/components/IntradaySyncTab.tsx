@@ -43,7 +43,7 @@ export default function IntradaySyncTab() {
     const [symbolNames, setSymbolNames] = useState<Record<string, string>>({});
     const [syncDays, setSyncDays] = useState<number>(180);
     const [bulkSyncProgress, setBulkSyncProgress] = useState<{ current: number; total: number; lastMsg: string } | null>(null);
-    const [bulkSyncLogs, setBulkSyncLogs] = useState<string[]>([]);
+    const [syncLogs, setSyncLogs] = useState<string[]>([]);
     
     // UI Filters and Pagination
     const [tableSearch, setTableSearch] = useState("");
@@ -94,7 +94,7 @@ export default function IntradaySyncTab() {
     const handleSyncSelected = async () => {
         if (selectedSymbols.size === 0) return;
         setIsSyncingBatch(true);
-        setBulkSyncLogs([]);
+        setSyncLogs([]);
         
         const queue = Array.from(selectedSymbols);
         const total = queue.length;
@@ -137,7 +137,7 @@ export default function IntradaySyncTab() {
                         const logMsg = `[${timestamp}] ${r.symbol}: ${statusStr} - ${r.message}`;
                         localLogs = [logMsg, ...localLogs];
                     });
-                    setBulkSyncLogs([...localLogs]);
+                    setSyncLogs([...localLogs]);
                 }
             } catch (err: any) {
                 const timestamp = new Date().toLocaleTimeString(language === "ar" ? "ar-EG" : "en-US", { hour12: true });
@@ -145,7 +145,7 @@ export default function IntradaySyncTab() {
                     const logMsg = `[${timestamp}] ${sym}: ERR - ${err.message || "Unknown batch error"}`;
                     localLogs = [logMsg, ...localLogs];
                 });
-                setBulkSyncLogs([...localLogs]);
+                setSyncLogs([...localLogs]);
                 console.error("Intraday batch update error:", err);
             }
             
@@ -202,6 +202,12 @@ export default function IntradaySyncTab() {
         }, 8000);
         return () => clearInterval(timer);
     }, []);
+
+    useEffect(() => {
+        if (state && !isSyncingBatch) {
+            setSyncLogs(state.last_batch_logs || []);
+        }
+    }, [state?.last_run, isSyncingBatch]);
 
     const handleToggle = async () => {
         if (!state) return;
@@ -607,51 +613,28 @@ export default function IntradaySyncTab() {
                     )}
 
                     <div className="flex-1 bg-zinc-950 border border-zinc-850/50 rounded-2xl p-4 font-mono text-[10px] overflow-y-auto max-h-[140px] custom-scrollbar text-left flex flex-col justify-start gap-1.5" dir="ltr">
-                        {isSyncingBatch ? (
-                            bulkSyncLogs.length > 0 ? (
-                                bulkSyncLogs.map((log, index) => {
-                                    const isSuccess = log.includes("Success");
-                                    const isFailed = log.includes("Failed") || log.includes("Exception") || log.includes("ERR");
-                                    return (
-                                        <div 
-                                            key={index} 
-                                            className={`${
-                                                isSuccess ? "text-emerald-400" : isFailed ? "text-rose-400" : "text-zinc-400"
-                                            } border-b border-zinc-900/40 pb-0.5`}
-                                        >
-                                            {log}
-                                        </div>
-                                    );
-                                })
-                            ) : (
-                                <div className="text-zinc-650 h-full flex items-center justify-center font-sans text-xs">
-                                    {language === "ar" ? "تهيئة المزامنة..." : "Initializing sync..."}
-                                </div>
-                            )
+                        {syncLogs.length > 0 ? (
+                            syncLogs.map((log, index) => {
+                                const isSuccess = log.includes("Success");
+                                const isFailed = log.includes("Failed") || log.includes("Exception") || log.includes("ERR");
+                                return (
+                                    <div 
+                                        key={index} 
+                                        className={`${
+                                            isSuccess ? "text-emerald-400" : isFailed ? "text-rose-400" : "text-zinc-400"
+                                        } border-b border-zinc-900/40 pb-0.5`}
+                                    >
+                                        {log}
+                                    </div>
+                                );
+                            })
                         ) : (
-                            state?.last_batch_logs && state.last_batch_logs.length > 0 ? (
-                                state.last_batch_logs.map((log, index) => {
-                                    const isSuccess = log.includes("Success");
-                                    const isFailed = log.includes("Failed") || log.includes("Exception");
-                                    return (
-                                        <div 
-                                            key={index} 
-                                            className={`${
-                                                isSuccess ? "text-emerald-400" : isFailed ? "text-rose-400" : "text-zinc-400"
-                                            } border-b border-zinc-900/40 pb-0.5`}
-                                        >
-                                            {log}
-                                        </div>
-                                    );
-                                })
-                            ) : (
-                                <div className="text-zinc-650 h-full flex items-center justify-center font-sans text-xs">
-                                    {language === "ar" 
-                                        ? "لا توجد سجلات تحميل حديثة. ابدأ المزامنة للتشغيل." 
-                                        : "No recent download logs. Click Start / Resume to begin."
-                                    }
-                                </div>
-                            )
+                            <div className="text-zinc-650 h-full flex items-center justify-center font-sans text-xs">
+                                {language === "ar" 
+                                    ? "لا توجد سجلات تحميل حديثة. ابدأ المزامنة للتشغيل." 
+                                    : "No recent download logs. Click Start / Resume to begin."
+                                }
+                            </div>
                         )}
                     </div>
                 </div>
