@@ -2793,6 +2793,12 @@ def update_alert_scheduler_config(payload: dict):
 class SingleSyncRequest(BaseModel):
     symbol: str
     timeframe: str = "15m"
+    max_days: Optional[int] = 180
+
+class IntradayBatchUpdateRequest(BaseModel):
+    symbols: List[str]
+    timeframe: str = "15m"
+    max_days: int = 180
 
 @router.get("/intraday-sync/state")
 def get_intraday_sync_state():
@@ -2896,7 +2902,8 @@ def single_sync_intraday(req: SingleSyncRequest, background_tasks: BackgroundTas
             except Exception as e:
                 print(f"[SINGLE SYNC] DB error: {e}")
                 
-            start_date = last_date - dt.timedelta(days=180)
+            days_to_fetch = req.max_days or 180
+            start_date = last_date - dt.timedelta(days=days_to_fetch)
             
             tv_symbol = f"{req.symbol}.CA"
             success, msg = fetch_tradingview_prices(
@@ -2936,5 +2943,83 @@ def single_sync_intraday(req: SingleSyncRequest, background_tasks: BackgroundTas
             
         background_tasks.add_task(_task)
         return {"ok": True, "message": f"Sync started for {req.symbol}"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/intraday-sync/update-batch")
+def update_intraday_batch(req: IntradayBatchUpdateRequest):
+    try:
+        from api.tradingview_integration import fetch_tradingview_prices
+        from api.intraday_downloader import load_state, save_state
+        import api.stock_ai as stock_ai
+        import datetime as dt
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        # Get last daily trading day
+        last_date = dt.date.today()
+        try:
+            stock_ai._init_supabase()
+            last_daily = stock_ai.supabase.table("stock_prices").select("date").eq("exchange", "EGX").order("date", desc=True).limit(1).execute()
+            if last_daily.data:
+                last_date_str = last_daily.data[0]["date"]
+                last_date = dt.datetime.strptime(last_date_str, "%Y-%m-%d").date()
+        except Exception as e:
+            print(f"[BATCH SYNC] DB error: {e}")
+
+        start_date = last_date - dt.timedelta(days=req.max_days)
+        timeframe = req.timeframe
+
+        results = []
+        state = load_state()
+        completed = set(state.get("completed_symbols", []))
+        failed = set(state.get("failed_symbols", []))
+        failed_reasons = dict(state.get("failed_reasons", {}))
+
+        def _sync_one(sym):
+            tv_symbol = f"{sym}.CA"
+            success, msg = fetch_tradingview_prices(
+                tv_symbol,
+                max_days=365,
+                timeframe=timeframe,
+                start_date=start_date,
+                end_date=last_date
+            )
+            return sym, success, msg
+
+        processed_logs = []
+        with ThreadPoolExecutor(max_workers=min(len(req.symbols), 5)) as executor:
+            futures = {executor.submit(_sync_one, sym): sym for sym in req.symbols}
+            for future in as_completed(futures):
+                sym = futures[future]
+                try:
+                    sym, success, msg = future.result()
+                    results.append({"symbol": sym, "success": success, "message": msg})
+                    if success:
+                        completed.add(sym)
+                        failed.discard(sym)
+                        failed_reasons.pop(sym, None)
+                        processed_logs.append(f"{sym}: Success - {msg}")
+                    else:
+                        failed.add(sym)
+                        failed_reasons[sym] = msg
+                        processed_logs.append(f"{sym}: Failed - {msg}")
+                except Exception as e:
+                    results.append({"symbol": sym, "success": False, "message": str(e)})
+                    failed.add(sym)
+                    failed_reasons[sym] = str(e)
+                    processed_logs.append(f"{sym}: Exception - {e}")
+
+        # Update state
+        state["completed_symbols"] = sorted(list(completed))
+        state["failed_symbols"] = sorted(list(failed))
+        state["failed_reasons"] = failed_reasons
+        
+        # Add logs to state feed
+        timestamp = dt.datetime.now().strftime("%I:%M:%S %p")
+        state["last_batch_logs"] = [f"[{timestamp}] {log}" for log in processed_logs]
+        state["last_run"] = dt.datetime.now().isoformat()
+        save_state(state)
+
+        return {"ok": True, "results": results}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
