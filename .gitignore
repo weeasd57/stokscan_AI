@@ -49,8 +49,4 @@ api/models/*.pkl
 
 # Large data files - exclude from repo to save bandwidth and LFS budget
 symbols_data/*.json
-web/public/*.jpg
-web/public/favicon_io/
-*.png
-*.ico
 p.png
