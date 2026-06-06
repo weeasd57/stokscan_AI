@@ -46,3 +46,11 @@ AI_BOT/
 
 # Models are tracked in the api/ sub-repo, exclude from root repo to save LFS budget
 api/models/*.pkl
+
+# Large data files - exclude from repo to save bandwidth and LFS budget
+symbols_data/*.json
+web/public/*.jpg
+web/public/favicon_io/
+*.png
+*.ico
+p.png
