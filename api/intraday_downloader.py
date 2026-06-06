@@ -13,20 +13,24 @@ _downloader_thread = None
 _downloader_lock = threading.Lock()
 
 def load_state() -> Dict[str, Any]:
-    if os.path.exists(STATE_FILE):
-        try:
-            with open(STATE_FILE, "r") as f:
-                return json.load(f)
-        except Exception:
-            pass
-    return {
+    state = {
         "status": "idle",
         "last_run": None,
         "completed_symbols": [],
         "failed_symbols": [],
         "batch_size": 5,
-        "timeframe": "15m"
+        "timeframe": "15m",
+        "failed_reasons": {},
+        "last_batch_logs": []
     }
+    if os.path.exists(STATE_FILE):
+        try:
+            with open(STATE_FILE, "r") as f:
+                loaded = json.load(f)
+                state.update(loaded)
+        except Exception:
+            pass
+    return state
 
 def save_state(state: Dict[str, Any]):
     try:
@@ -118,6 +122,7 @@ def run_intraday_sync_batch() -> Dict[str, Any]:
     batch_size = state.get("batch_size", 5)
     timeframe = state.get("timeframe", "15m")
     failed = set(state.get("failed_symbols", []))
+    failed_reasons = dict(state.get("failed_reasons", {}))
 
     # 2. Get current DB stats to dynamically prioritize
     stats_list = []
@@ -210,16 +215,24 @@ def run_intraday_sync_batch() -> Dict[str, Any]:
                 if success:
                     completed.add(sym)
                     failed.discard(sym)
+                    failed_reasons.pop(sym, None)
                     processed_this_run.append(f"{sym}: Success - {msg}")
                 else:
                     failed.add(sym)
+                    failed_reasons[sym] = msg
                     processed_this_run.append(f"{sym}: Failed - {msg}")
             except Exception as e:
                 failed.add(sym)
+                failed_reasons[sym] = str(e)
                 processed_this_run.append(f"{sym}: Exception - {e}")
 
     state["completed_symbols"] = sorted(list(completed))
     state["failed_symbols"] = sorted(list(failed))
+    state["failed_reasons"] = failed_reasons
+    
+    # Prefix logs with current timestamp
+    timestamp = dt.datetime.now().strftime("%I:%M:%S %p")
+    state["last_batch_logs"] = [f"[{timestamp}] {log}" for log in processed_this_run]
     state["last_run"] = dt.datetime.now().isoformat()
     save_state(state)
 

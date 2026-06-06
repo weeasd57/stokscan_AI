@@ -27,6 +27,8 @@ interface SyncState {
     total_symbols: number;
     symbols_list: string[];
     completed_details?: CompletedDetailsRow[];
+    failed_reasons?: Record<string, string>;
+    last_batch_logs?: string[];
     message?: string;
 }
 
@@ -474,43 +476,89 @@ export default function IntradaySyncTab() {
                 </div>
             </div>
 
-            {/* Sync Settings Grid */}
-            <div className="p-6 rounded-3xl bg-zinc-900 border border-zinc-800">
-                <h3 className="text-sm font-black text-white uppercase tracking-wider mb-4 flex items-center gap-2">
-                    <Sparkles className="w-4 h-4 text-indigo-400" />
-                    {language === "ar" ? "إعدادات الدفعة والمخطط الزمني" : "Batch Settings & Configuration"}
-                </h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Sync Settings & Logs Grid */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                {/* Settings Card */}
+                <div className="lg:col-span-1 p-6 rounded-3xl bg-zinc-900 border border-zinc-800 flex flex-col justify-between">
                     <div>
-                        <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-2">
-                            {language === "ar" ? "حجم الدفعة (عدد الأسهم في الدورة)" : "Batch Size (Symbols per 5-min cycle)"}
-                        </label>
-                        <input
-                            type="number"
-                            min={1}
-                            max={50}
-                            disabled={state?.status === "syncing"}
-                            value={batchSizeInput}
-                            onChange={(e) => setBatchSizeInput(Number(e.target.value))}
-                            className="w-full h-11 px-4 rounded-xl bg-zinc-950 border border-zinc-800 text-sm text-white focus:outline-none focus:border-indigo-500/50 disabled:opacity-50"
-                        />
-                    </div>
+                        <h3 className="text-xs font-black text-white uppercase tracking-wider mb-4 flex items-center gap-2">
+                            <Sparkles className="w-4 h-4 text-indigo-400" />
+                            {language === "ar" ? "إعدادات المزامنة والتردد" : "Sync Config & Timeframe"}
+                        </h3>
+                        <div className="space-y-4">
+                            <div>
+                                <label className="block text-[9px] font-black text-zinc-500 uppercase tracking-widest mb-2">
+                                    {language === "ar" ? "حجم الدفعة (عدد الأسهم في الدورة)" : "Batch Size (per 5-min cycle)"}
+                                </label>
+                                <input
+                                    type="number"
+                                    min={1}
+                                    max={50}
+                                    disabled={state?.status === "syncing"}
+                                    value={batchSizeInput}
+                                    onChange={(e) => setBatchSizeInput(Number(e.target.value))}
+                                    className="w-full h-10 px-4 rounded-xl bg-zinc-950 border border-zinc-800 text-xs text-white focus:outline-none focus:border-indigo-500/50 disabled:opacity-50"
+                                />
+                            </div>
 
-                    <div>
-                        <label className="block text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-2">
-                            {language === "ar" ? "الإطار الزمني للشموع" : "Timeframe / Interval"}
-                        </label>
-                        <select
-                            disabled={state?.status === "syncing"}
-                            value={timeframeInput}
-                            onChange={(e) => setTimeframeInput(e.target.value)}
-                            className="w-full h-11 px-4 rounded-xl bg-zinc-950 border border-zinc-800 text-sm text-white focus:outline-none focus:border-indigo-500/50 disabled:opacity-50"
-                        >
-                            <option value="15m">{language === "ar" ? "15 دقيقة (الموصى بها)" : "15 Minutes (Recommended)"}</option>
-                            <option value="30m">{language === "ar" ? "30 دقيقة" : "30 Minutes"}</option>
-                            <option value="5m">{language === "ar" ? "5 دقائق" : "5 Minutes"}</option>
-                            <option value="1h">{language === "ar" ? "ساعة واحدة" : "1 Hour"}</option>
-                        </select>
+                            <div>
+                                <label className="block text-[9px] font-black text-zinc-500 uppercase tracking-widest mb-2">
+                                    {language === "ar" ? "الإطار الزمني للشموع" : "Timeframe / Interval"}
+                                </label>
+                                <select
+                                    disabled={state?.status === "syncing"}
+                                    value={timeframeInput}
+                                    onChange={(e) => setTimeframeInput(e.target.value)}
+                                    className="w-full h-10 px-4 rounded-xl bg-zinc-950 border border-zinc-800 text-xs text-white focus:outline-none focus:border-indigo-500/50 disabled:opacity-50"
+                                >
+                                    <option value="15m">{language === "ar" ? "15 دقيقة (الموصى بها)" : "15 Minutes (Recommended)"}</option>
+                                    <option value="30m">{language === "ar" ? "30 دقيقة" : "30 Minutes"}</option>
+                                    <option value="5m">{language === "ar" ? "5 دقائق" : "5 Minutes"}</option>
+                                    <option value="1h">{language === "ar" ? "ساعة واحدة" : "1 Hour"}</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Live Download Feed Card */}
+                <div className="lg:col-span-2 p-6 rounded-3xl bg-zinc-900 border border-zinc-800 flex flex-col h-full min-h-[200px]">
+                    <div className="flex items-center justify-between mb-4">
+                        <h3 className="text-xs font-black text-white uppercase tracking-wider flex items-center gap-2">
+                            <Clock className="w-4 h-4 text-emerald-400 animate-pulse" />
+                            {language === "ar" ? "حالة وسجلات المزامنة الفورية" : "Live Download Status & Activity Feed"}
+                        </h3>
+                        {state?.status === "syncing" && (
+                            <span className="flex items-center gap-1.5 text-[9px] font-black text-emerald-400 px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20 uppercase tracking-widest">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span>
+                                {language === "ar" ? "جارٍ المزامنة" : "Syncing"}
+                            </span>
+                        )}
+                    </div>
+                    <div className="flex-1 bg-zinc-950 border border-zinc-850/50 rounded-2xl p-4 font-mono text-[10px] overflow-y-auto max-h-[140px] custom-scrollbar text-left flex flex-col justify-start gap-1.5" dir="ltr">
+                        {state?.last_batch_logs && state.last_batch_logs.length > 0 ? (
+                            state.last_batch_logs.map((log, index) => {
+                                const isSuccess = log.includes("Success");
+                                const isFailed = log.includes("Failed") || log.includes("Exception");
+                                return (
+                                    <div 
+                                        key={index} 
+                                        className={`${
+                                            isSuccess ? "text-emerald-400" : isFailed ? "text-rose-400" : "text-zinc-400"
+                                        } border-b border-zinc-900/40 pb-0.5`}
+                                    >
+                                        {log}
+                                    </div>
+                                );
+                            })
+                        ) : (
+                            <div className="text-zinc-650 h-full flex items-center justify-center font-sans text-xs">
+                                {language === "ar" 
+                                    ? "لا توجد سجلات تحميل حديثة. ابدأ المزامنة للتشغيل." 
+                                    : "No recent download logs. Click Start / Resume to begin."
+                                }
+                            </div>
+                        )}
                     </div>
                 </div>
             </div>
@@ -575,7 +623,7 @@ export default function IntradaySyncTab() {
                         <div className="flex items-center justify-between">
                             <h3 className="text-xs font-black text-white uppercase tracking-wider flex items-center gap-2">
                                 <BadgeAlert className="w-4 h-4 text-rose-500" />
-                                {language === "ar" ? "الأسهم الفاشلة / غير متوفرة على TV" : "Failed / Delisted Tickers"}
+                                {language === "ar" ? "الأسهم الفاشلة / أخطاء TradingView" : "Failed Symbols & TradingView Errors"}
                                 <span className="text-[10px] font-bold bg-zinc-900 px-2 py-0.5 rounded text-zinc-400">
                                     {filteredFailed.length}
                                 </span>
@@ -586,32 +634,52 @@ export default function IntradaySyncTab() {
                                 type="text"
                                 value={failedSearch}
                                 onChange={(e) => setFailedSearch(e.target.value)}
-                                placeholder={language === "ar" ? "ابحث عن رمز فاشل..." : "Search failed stock..."}
+                                placeholder={language === "ar" ? "ابحث عن رمز أو خطأ..." : "Search failed stock or error..."}
                                 className="w-full h-9 pl-8 pr-4 text-xs bg-zinc-900 border border-zinc-800 rounded-lg text-white outline-none focus:border-rose-500/50"
                             />
                             <Search className="w-3.5 h-3.5 text-zinc-500 absolute left-2.5 top-3" />
                         </div>
                     </div>
-                    <div className="flex-1 overflow-y-auto pt-4 space-y-2 pr-1 custom-scrollbar">
+                    <div className="flex-1 overflow-y-auto pt-4 space-y-2.5 pr-1 custom-scrollbar">
                         {filteredFailed.length > 0 ? (
-                            <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
-                                {filteredFailed.map((sym) => (
-                                    <div 
-                                        key={sym}
-                                        onClick={() => !syncingSymbols.has(sym) && handleSingleSync(sym)}
-                                        className={`p-2 rounded-xl border text-xs font-mono text-center font-bold cursor-pointer transition-all ${
-                                            syncingSymbols.has(sym)
-                                                ? "bg-rose-500/10 border-rose-500/20 text-rose-400 animate-pulse"
-                                                : "bg-rose-500/5 border-rose-500/10 text-rose-400 hover:bg-rose-500/20 hover:border-rose-500/30"
-                                        }`}
-                                        title={symbolNames[sym] || sym}
-                                    >
-                                        <div className="flex items-center justify-center gap-1">
-                                            {syncingSymbols.has(sym) && <Loader2 className="w-3 h-3 animate-spin" />}
-                                            <span>{sym}</span>
+                            <div className="space-y-2">
+                                {filteredFailed.map((sym) => {
+                                    const errorMsg = state?.failed_reasons?.[sym];
+                                    return (
+                                        <div 
+                                            key={sym}
+                                            className="p-3 rounded-xl border bg-zinc-900/10 border-zinc-900 flex items-center justify-between gap-3 text-xs hover:border-zinc-800 transition-all group"
+                                        >
+                                            <div className="flex flex-col min-w-0 flex-1 text-left">
+                                                <div className="flex items-center gap-2">
+                                                    <span className="font-mono font-black text-rose-400 tracking-wider bg-rose-500/5 px-1.5 py-0.5 rounded border border-rose-500/10">{sym}</span>
+                                                    <span className="text-[10px] text-zinc-500 font-bold truncate">
+                                                        {symbolNames[sym] || "—"}
+                                                    </span>
+                                                </div>
+                                                <span 
+                                                    className="text-[10px] text-zinc-400 mt-1.5 font-mono break-words bg-zinc-950/40 p-2 rounded-lg border border-zinc-900/60 leading-relaxed font-bold" 
+                                                    dir="ltr"
+                                                >
+                                                    {errorMsg || (language === "ar" ? "فشل الاتصال بـ TradingView أو رمز غير مدعوم" : "Failed to connect to TradingView or unsupported ticker")}
+                                                </span>
+                                            </div>
+                                            <button
+                                                onClick={() => !syncingSymbols.has(sym) && handleSingleSync(sym)}
+                                                disabled={syncingSymbols.has(sym)}
+                                                className="px-2.5 py-2 rounded-lg border border-zinc-800 bg-zinc-950 text-[10px] font-bold text-zinc-400 hover:text-white hover:border-zinc-700 transition-all flex items-center gap-1.5 shrink-0 hover:bg-zinc-900 self-start"
+                                                title={language === "ar" ? "إعادة محاولة المزامنة" : "Retry Sync"}
+                                            >
+                                                {syncingSymbols.has(sym) ? (
+                                                    <Loader2 className="w-3.5 h-3.5 animate-spin text-rose-400" />
+                                                ) : (
+                                                    <RefreshCw className="w-3.5 h-3.5 text-rose-400" />
+                                                )}
+                                                <span>{language === "ar" ? "تحديث" : "Retry"}</span>
+                                            </button>
                                         </div>
-                                    </div>
-                                ))}
+                                    );
+                                })}
                             </div>
                         ) : (
                             <div className="h-full flex items-center justify-center text-zinc-600 text-xs font-bold uppercase tracking-wider">

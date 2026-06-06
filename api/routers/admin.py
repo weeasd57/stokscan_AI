@@ -2825,12 +2825,17 @@ def get_intraday_sync_state():
         # A symbol is missing if it is in db_symbols, not completed, and not failed
         missing_symbols = sorted([sym for sym in db_symbols if sym not in stats_map and sym not in failed_symbols])
         
+        # Filter failed reasons to match failed symbols
+        failed_reasons = state.get("failed_reasons", {})
+        filtered_failed_reasons = {sym: failed_reasons[sym] for sym in failed_symbols if sym in failed_reasons}
+        
         state["total_symbols"] = len(db_symbols)
         state["symbols_list"] = db_symbols
         state["completed_symbols"] = completed_symbols
         state["failed_symbols"] = failed_symbols
         state["missing_symbols"] = missing_symbols
         state["completed_details"] = completed_details
+        state["failed_reasons"] = filtered_failed_reasons
         
         return state
     except Exception as e:
@@ -2907,14 +2912,25 @@ def single_sync_intraday(req: SingleSyncRequest, background_tasks: BackgroundTas
             state = load_state()
             completed = set(state.get("completed_symbols", []))
             failed = set(state.get("failed_symbols", []))
+            failed_reasons = dict(state.get("failed_reasons", {}))
             if success:
                 completed.add(req.symbol)
                 failed.discard(req.symbol)
+                failed_reasons.pop(req.symbol, None)
             else:
                 failed.add(req.symbol)
                 completed.discard(req.symbol)
+                failed_reasons[req.symbol] = msg
+            
             state["completed_symbols"] = sorted(list(completed))
             state["failed_symbols"] = sorted(list(failed))
+            state["failed_reasons"] = failed_reasons
+            
+            # Add a single sync log to last_batch_logs
+            timestamp = dt.datetime.now().strftime("%I:%M:%S %p")
+            status_str = "Success" if success else "Failed"
+            state["last_batch_logs"] = [f"[{timestamp}] Single Sync {req.symbol}: {status_str} - {msg}"]
+            
             state["last_run"] = dt.datetime.now().isoformat()
             save_state(state)
             
