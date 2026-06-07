@@ -1768,7 +1768,7 @@ class LiveBot:
             m_target = _meta_get("target_pct")
             m_sl = _meta_get("stop_loss_pct")
             m_hold = _meta_get("look_forward_days") or _meta_get("hold_max_bars")
-            m_thresh = _meta_get("buy_threshold") or _meta_get("buyThreshold") or _meta_get("meta_threshold")
+            m_thresh = _meta_get("optimal_threshold") or _meta_get("buy_threshold") or _meta_get("buyThreshold") or _meta_get("meta_threshold")
             m_barrier_mode = str(_meta_get("barrier_mode") or _meta_get("barrierMode") or "").strip().lower()
 
             percent_mode = m_barrier_mode == "percent"

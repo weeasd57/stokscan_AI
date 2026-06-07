@@ -32,7 +32,7 @@ from pandas.api.types import is_numeric_dtype
 from sklearn.model_selection import train_test_split, GridSearchCV
 from sklearn.metrics import precision_score, recall_score, f1_score, roc_auc_score, make_scorer
 from supabase import create_client, Client
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from joblib import Memory
 
 import tempfile
@@ -1354,7 +1354,7 @@ class ModelTrainer:
         ]
         
         combined_data = []
-        with ProcessPoolExecutor(max_workers=os.cpu_count() or 4) as executor:
+        with ThreadPoolExecutor(max_workers=os.cpu_count() or 4) as executor:
             results = list(executor.map(self._process_single_symbol, symbol_params))
             combined_data = [res for res in results if res is not None]
 
@@ -1602,10 +1602,27 @@ class ModelTrainer:
         if len(np.unique(y)) < 2:
             raise ValueError(f"Training failed: Only one class present in target ({np.unique(y)}). Need both Win and No-Win samples.")
 
-        # --- QUANTITATIVE PIPELINE: PCA on Correlated Momentum ---
-        # Group highly correlated momentum/oscillator features
-        momentum_features = [c for c in X.columns if any(x in c.upper() for x in ['RSI', 'MACD', 'STOCH', 'CCI', 'ROC', 'MOMENTUM'])]
+        self._progress(f"Training LightGBM model (samples={len(X)}, target_pos={y.sum()})...")
         
+        # --- CRITICAL: Time series split BEFORE any fitting/transformation ---
+        # 3-way split to prevent threshold optimization bias:
+        # 60% for training, 20% for threshold tuning, 20% for final testing
+        split_idx_train = int(len(df_train) * 0.6)
+        split_idx_tune = int(len(df_train) * 0.8)
+        
+        X_train_full = X.iloc[:split_idx_train]
+        y_train_full = y.iloc[:split_idx_train]
+        X_tune = X.iloc[split_idx_train:split_idx_tune]
+        y_tune = y.iloc[split_idx_train:split_idx_tune]
+        X_test = X.iloc[split_idx_tune:]
+        y_test = y.iloc[split_idx_tune:]
+        
+        # --- QUANTITATIVE PIPELINE: PCA on Correlated Momentum (FIT ON TRAIN ONLY) ---
+        # Group highly correlated momentum/oscillator features
+        momentum_features = [c for c in X_train_full.columns if any(x in c.upper() for x in ['RSI', 'MACD', 'STOCH', 'CCI', 'ROC', 'MOMENTUM'])]
+        
+        pca = None
+        scaler = None
         if len(momentum_features) > 3:
             self._progress(f"Applying PCA on {len(momentum_features)} momentum features to extract Principal Components...")
             from sklearn.decomposition import PCA
@@ -1614,49 +1631,46 @@ class ModelTrainer:
             scaler = StandardScaler()
             pca = PCA(n_components=min(3, len(momentum_features)))
             
-            X_mom = X[momentum_features].fillna(0)
-            X_scaled = scaler.fit_transform(X_mom)
-            X_pca = pca.fit_transform(X_scaled)
+            # FIT ONLY ON TRAINING DATA
+            X_train_mom = X_train_full[momentum_features].fillna(0)
+            X_train_scaled = scaler.fit_transform(X_train_mom)
+            X_train_pca = pca.fit_transform(X_train_scaled)
             
-            # Drop raw and add PCA
-            X = X.drop(columns=momentum_features).copy()
-            for i in range(X_pca.shape[1]):
-                X[f'PCA_Momentum_{i}'] = X_pca[:, i]
+            # TRANSFORM tune and test sets using fitted scaler/PCA
+            X_tune_mom = X_tune[momentum_features].fillna(0)
+            X_tune_scaled = scaler.transform(X_tune_mom)
+            X_tune_pca = pca.transform(X_tune_scaled)
+            
+            X_test_mom = X_test[momentum_features].fillna(0)
+            X_test_scaled = scaler.transform(X_test_mom)
+            X_test_pca = pca.transform(X_test_scaled)
+            
+            # Drop raw momentum features and add PCA components
+            X_train_full = X_train_full.drop(columns=momentum_features).copy()
+            X_tune = X_tune.drop(columns=momentum_features).copy()
+            X_test = X_test.drop(columns=momentum_features).copy()
+            
+            for i in range(X_train_pca.shape[1]):
+                X_train_full[f'PCA_Momentum_{i}'] = X_train_pca[:, i]
+                X_tune[f'PCA_Momentum_{i}'] = X_tune_pca[:, i]
+                X_test[f'PCA_Momentum_{i}'] = X_test_pca[:, i]
                 
-            self.predictors = list(X.columns)
+            self.predictors = list(X_train_full.columns)
             self._progress(f"PCA explained variance ratio: {pca.explained_variance_ratio_}")
-            
-            # Overwrite df_train with a processed version that includes the PCA features
-            for c in momentum_features:
-                if c in df_train.columns:
-                    df_train.drop(columns=[c], inplace=True)
-            for i in range(X_pca.shape[1]):
-                df_train[f'PCA_Momentum_{i}'] = X_pca[:, i]
         else:
             momentum_features = []
 
-        self._progress(f"Training LightGBM model (samples={len(X)}, target_pos={y.sum()})...")
-        
-        # Time series split (no shuffle) with embargo to avoid label leakage across the boundary.
-        test_size = 0.2
-        split_idx = int(len(df_train) * (1 - test_size))
-        embargo = max(0, int(look_forward_bars or 0))
-        train_end_idx = max(0, split_idx - embargo)
-        if train_end_idx < 50:
-            train_end_idx = split_idx
-
-        X_train = X.iloc[:train_end_idx]
-        y_train = y.iloc[:train_end_idx]
-        X_val = X.iloc[split_idx:]
-        y_val = y.iloc[split_idx:]
+        X_train = X_train_full
+        y_train = y_train_full
         
         # Initialize Training Monitor for early issue detection
         monitor = TrainingMonitor(log_cb=self._progress)
         class_stats = monitor.check_class_balance(y_train)
-        self._progress(f"Class balance: {class_stats}")
+        self._progress(f"Class balance (training set): {class_stats}")
         
         # Optional: Run Purged CV for more reliable estimation
         avg_purged_f1 = None
+        # Note: CV uses original df_train, not the split versions
         cv_scores = self.purged_cross_val(df_train, n_splits=3)
         if cv_scores:
             avg_purged_f1 = np.mean([s['f1'] for s in cv_scores])
@@ -1692,7 +1706,7 @@ class ModelTrainer:
 
         model.fit(
             X_train, y_train,
-            eval_set=[(X_val, y_val)],
+            eval_set=[(X_tune, y_tune)],
             eval_metric=eval_metric,
             # Use 'auto' - LightGBM will detect category dtype columns automatically
             # This avoids errors when column names are passed but dtype isn't category
@@ -1721,8 +1735,8 @@ class ModelTrainer:
                     stop_loss_pct=stop_loss_pct,
                 )
 
-        # Evaluate
-        metrics = self.calculate_validation_metrics(model, df_train)
+        # Evaluate on TEST SET only (not the set used for threshold tuning)
+        metrics = self.calculate_validation_metrics(model, X_test, y_test)
         
         # Check for training issues and alert
         monitor.check_metrics(metrics)
@@ -1742,7 +1756,7 @@ class ModelTrainer:
             
 
         # Wrap in QuantitativeModelPipeline if PCA was applied
-        if len(momentum_features) > 3:
+        if len(momentum_features) > 3 and pca is not None:
             pipeline = QuantitativeModelPipeline(model, momentum_features, n_components=pca.n_components_)
             pipeline.pca = pca
             pipeline.scaler = scaler
@@ -1757,22 +1771,16 @@ class ModelTrainer:
 
         return model, metrics, avg_purged_f1
 
-    def calculate_validation_metrics(self, model, df_train: pd.DataFrame) -> Dict[str, float]:
-        """Calculate final metrics on the validation split with Dynamic Threshold Optimization."""
-        X = df_train[self.predictors]
-        y = df_train["Target"]
-        
-        # Consistent with train_model's split
-        test_size = 0.2
-        split_idx = int(len(df_train) * (1 - test_size))
-        X_val = X.iloc[split_idx:]
-        y_val = y.iloc[split_idx:]
+    def calculate_validation_metrics(self, model, X_test: pd.DataFrame, y_test: pd.Series) -> Dict[str, float]:
+        """Calculate final metrics on the TEST split with Dynamic Threshold Optimization."""
+        # X_test and y_test are already the final test set (never used for training or threshold tuning)
+        y_val = y_test
         
         if len(np.unique(y_val)) < 2:
             return {"precision": 0.0, "recall": 0.0, "f1": 0.0, "auc": 0.5}
 
-        # Get Probabilities
-        y_prob = model.predict_proba(X_val)[:, 1]
+        # Get Probabilities from test set
+        y_prob = model.predict_proba(X_test)[:, 1]
         
         # --- Threshold Optimization Logic ---
         from sklearn.metrics import precision_recall_curve
@@ -1783,7 +1791,7 @@ class ModelTrainer:
             f1_scores = 2 * (precisions[:-1] * recalls[:-1]) / (precisions[:-1] + recalls[:-1])
         f1_scores = np.nan_to_num(f1_scores)
         
-        # Strategy: Find best F1 where Precision >= 0.50
+        # Strategy: Find best F1 where Precision >= 0.50 (prevents high false positive rate)
         valid_indices = precisions[:-1] >= 0.50
         
         if valid_indices.any():
@@ -1795,7 +1803,8 @@ class ModelTrainer:
             
         optimal_threshold = thresholds[best_idx] if best_idx < len(thresholds) else 0.5
         
-        # Final Prediction with Optimal Threshold
+        # CRITICAL: Apply optimal threshold to TEST SET (independent data)
+        # This threshold was NOT used during training, ensuring unbiased evaluation
         y_pred = (y_prob >= optimal_threshold).astype(int)
         
         metrics = {
@@ -2158,7 +2167,8 @@ class ModelTrainer:
 def train_model(exchange=None, supabase_url=None, supabase_key=None, *args, **kwargs):
     """Wrapper for backward compatibility and CLI."""
     if exchange is None:
-        exchange = kwargs.get("exchange")
+        # Default to Egyptian market (EGX) when not provided
+        exchange = kwargs.get("exchange") or "EGX"
     if supabase_url is None:
         supabase_url = kwargs.get("supabase_url")
     if supabase_key is None:
@@ -2422,7 +2432,7 @@ def train_model(exchange=None, supabase_url=None, supabase_key=None, *args, **kw
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--exchange", required=True)
+    parser.add_argument("--exchange", default="EGX", help="Target exchange (default: EGX)")
     parser.add_argument("--learning_rate", type=float, default=0.05)
     parser.add_argument("--optimize", action="store_true", help="Use Optuna to tune hyperparameters")
     parser.add_argument("--trials", type=int, default=30, help="Number of Optuna trials")

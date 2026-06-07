@@ -213,7 +213,14 @@ def load_model(model_path):
         if isinstance(obj, dict):
              # Check if it's a meta-labeling system
             if obj.get("kind") == "meta_labeling_system":
-                return obj 
+                return obj
+            # For regular model artifact, ensure optimal_threshold is present
+            if obj.get("optimal_threshold") is None:
+                # Fallback: use default or meta_threshold if available
+                if obj.get("meta_threshold") is not None:
+                    obj["optimal_threshold"] = obj["meta_threshold"]
+                else:
+                    obj["optimal_threshold"] = 0.5  # Default safe threshold
             return obj
         return obj
     except Exception as e:
@@ -266,7 +273,7 @@ def run_radar_simulation(
     df,
     model,
     council=None,
-    threshold=0.6,
+    threshold=None,
     capital=100000,
     sim_start_dt: datetime | None = None,
     sim_end_dt: datetime | None = None,
@@ -296,6 +303,15 @@ def run_radar_simulation(
     """
     Simulation of Radar: Base Model Detector -> Meta Model Confirmation.
     """
+    # Use optimal_threshold from model if threshold is not explicitly provided
+    if threshold is None:
+        if isinstance(model, dict) and model.get("optimal_threshold") is not None:
+            threshold = float(model.get("optimal_threshold"))
+        elif isinstance(model, dict) and model.get("meta_threshold") is not None:
+            threshold = float(model.get("meta_threshold"))
+        else:
+            threshold = 0.5
+    
     if df.empty: return {}
     if not quiet:
         print(f"DEBUG: run_radar_simulation called for {len(df)} rows", flush=True)
