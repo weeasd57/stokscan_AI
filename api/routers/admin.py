@@ -1206,8 +1206,8 @@ class TrainTriggerRequest(BaseModel):
     randomSearchIter: Optional[int] = None
     optunaTrials: int = 30
     maxFeatures: Optional[int] = None
-    targetPct: float = 0.15  # Target gain percentage (e.g., 0.15 = 15%)
-    stopLossPct: float = 0.05  # Stop loss percentage (e.g., 0.05 = 5%)
+    targetPct: float = 0.15  # Percent for CRYPTO, ATR multiplier for non-crypto unless barrierMode overrides
+    stopLossPct: float = 0.05  # Percent for CRYPTO, ATR multiplier for non-crypto unless barrierMode overrides
     lookForwardDays: int = 20  # Look-ahead window in trading days
     learningRate: float = 0.05
     patience: int = 50
@@ -1215,6 +1215,7 @@ class TrainTriggerRequest(BaseModel):
     metaThreshold: float = 0.7
     useIntraday: bool = False
     timeframe: Literal["1m", "1h", "1d"] = "1h"
+    barrierMode: Optional[Literal["atr", "percent"]] = None
 
 class PPOTrainRequest(BaseModel):
     exchange: str
@@ -1264,7 +1265,8 @@ async def trigger_training(req: TrainTriggerRequest):
     payload = {
         "ref": "main", # Or the current branch
         "inputs": {
-            "exchange": req.exchange
+            "exchange": req.exchange,
+            "barrier_mode": req.barrierMode or "",
         }
     }
     
@@ -1315,6 +1317,7 @@ async def trigger_local_training(req: TrainTriggerRequest, background_tasks: Bac
         target_pct: float,
         stop_loss_pct: float,
         look_forward_days: int,
+        barrier_mode: Optional[str],
         learning_rate: float,
         patience: int,
         use_meta_labeling: bool,
@@ -1363,6 +1366,7 @@ async def trigger_local_training(req: TrainTriggerRequest, background_tasks: Bac
                 target_pct=target_pct,
                 stop_loss_pct=stop_loss_pct,
                 look_forward_days=look_forward_days,
+                barrier_mode=barrier_mode,
                 learning_rate=learning_rate,
                 patience=patience,
                 use_meta_labeling=use_meta_labeling,
@@ -1404,6 +1408,7 @@ async def trigger_local_training(req: TrainTriggerRequest, background_tasks: Bac
         req.targetPct,
         req.stopLossPct,
         req.lookForwardDays,
+        req.barrierMode,
         req.learningRate,
         req.patience,
         req.useMetaLabeling,

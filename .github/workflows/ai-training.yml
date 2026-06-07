@@ -7,6 +7,10 @@ on:
         description: 'Exchange to train on (e.g. US, EGX)'
         required: true
         default: 'US'
+      barrier_mode:
+        description: 'How to interpret target/stop values: atr or percent'
+        required: false
+        default: ''
   schedule:
     - cron: '0 0 * * 0' # Weekly on Sunday midnight
 
@@ -32,4 +36,9 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
-          python api/train_exchange_model.py --exchange "${{ github.event.inputs.exchange || 'US' }}"
+          BARRIER_MODE="${{ github.event.inputs.barrier_mode || '' }}"
+          if [ -n "$BARRIER_MODE" ]; then
+            python api/train_exchange_model.py --exchange "${{ github.event.inputs.exchange || 'US' }}" --barrier_mode "$BARRIER_MODE"
+          else
+            python api/train_exchange_model.py --exchange "${{ github.event.inputs.exchange || 'US' }}"
+          fi

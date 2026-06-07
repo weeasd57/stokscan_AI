@@ -82,6 +82,35 @@ def _finite_float(value):
     return v if np.isfinite(v) else None
 
 
+def _resolve_barrier_mode(
+    target_pct: float,
+    stop_loss_pct: float,
+    barrier_mode: Optional[str] = None,
+) -> str:
+    """
+    Resolve how target/stop values should be interpreted.
+
+    Returns:
+        "percent" when both values look like fractional percentages (< 1.0).
+        "atr" otherwise, or when explicitly requested.
+    """
+    mode = str(barrier_mode or "").strip().lower()
+    if mode in {"percent", "percentage", "pct"}:
+        return "percent"
+    if mode in {"atr", "atr_multiplier", "atr-multiplier", "atr multiplier"}:
+        return "atr"
+
+    try:
+        target_v = float(target_pct)
+        stop_v = float(stop_loss_pct)
+    except Exception:
+        return "atr"
+
+    if target_v < 1.0 and stop_v < 1.0:
+        return "percent"
+    return "atr"
+
+
 def _write_training_summary(summary: dict) -> None:
     """Write last training summary to a local JSON file for UI consumption."""
     try:
@@ -653,23 +682,23 @@ def add_technical_indicators(df):
 
 def prepare_for_ai(
     df: pd.DataFrame,
-    target_pct: float = 2.0,  # Legacy naming kept for compatibility, acts as target_multiplier
-    stop_loss_pct: float = 1.0,  # Legacy naming kept for compatibility, acts as stop_multiplier
+    target_pct: float = 2.0,  # < 1.0 => percentage, >= 1.0 => ATR multiplier
+    stop_loss_pct: float = 1.0,  # < 1.0 => percentage, >= 1.0 => ATR multiplier
     look_forward_days: int = 20,
     use_volatility: bool = True,
     drop_labels: bool = True,
+    barrier_mode: Optional[str] = None,
 ) -> pd.DataFrame:
     """
-    Dynamic Triple Barrier Labeling using ATR for market regime adaptation.
+    Triple-barrier labeling used by training.
+
+    The same `target_pct` / `stop_loss_pct` inputs are shared across the app:
+    - "percent" mode: values are fractions like 0.03 = 3%
+    - "atr" mode: values are ATR multipliers like 2.0x ATR
+
     Target = 1 ONLY if Take Profit is hit BEFORE Stop Loss within the window.
     """
     if df.empty: return df
-
-    # Safety guard: Frontend values <1 are probably percentages, not ATR multipliers.
-    if target_pct < 1.0:
-        target_pct = 2.0
-    if stop_loss_pct < 1.0:
-        stop_loss_pct = 1.0
 
     out = df.copy()
     
@@ -677,18 +706,24 @@ def prepare_for_ai(
     close_col = "Close" if "Close" in out.columns else "close"
     high_col = "High" if "High" in out.columns else "high"
     low_col = "Low" if "Low" in out.columns else "low"
+    open_col = "Open" if "Open" in out.columns else ("open" if "open" in out.columns else close_col)
+    resolved_mode = _resolve_barrier_mode(target_pct, stop_loss_pct, barrier_mode)
     
     if "ATR_14" not in out.columns:
         # حساب بديل سريع للـ ATR لو مش موجود
         out["ATR_14"] = out[close_col].rolling(14).std().bfill()
 
     # الدخول من افتتاح اليوم التالي لمنع تسريب البيانات (Look-ahead Bias)
-    out['entry_price'] = out['Open' if 'Open' in out.columns else close_col].shift(-1)
+    out['entry_price'] = out[open_col].shift(-1)
     shifted_atr = out['ATR_14'].shift(-1)
-    
-    # حساب الحواجز الديناميكية
-    out['tp_barrier'] = out['entry_price'] + (shifted_atr * target_pct)
-    out['sl_barrier'] = out['entry_price'] - (shifted_atr * stop_loss_pct)
+
+    if resolved_mode == "percent":
+        out['tp_barrier'] = out['entry_price'] * (1 + float(target_pct))
+        out['sl_barrier'] = out['entry_price'] * (1 - float(stop_loss_pct))
+    else:
+        # حساب الحواجز الديناميكية
+        out['tp_barrier'] = out['entry_price'] + (shifted_atr * float(target_pct))
+        out['sl_barrier'] = out['entry_price'] - (shifted_atr * float(stop_loss_pct))
     
     out['Target'] = 0
     
@@ -1219,7 +1254,7 @@ class ModelTrainer:
     def _process_single_symbol(params):
         """Worker function for parallel processing. Must be static for pickleability."""
         try:
-            sym, df_sym, market_df, target_pct, stop_loss_pct, look_forward_days, use_vol_label, min_history = params
+            sym, df_sym, market_df, target_pct, stop_loss_pct, look_forward_days, use_vol_label, min_history, barrier_mode = params
             
             if len(df_sym) < min_history: return None
 
@@ -1246,7 +1281,14 @@ class ModelTrainer:
             df = add_market_context(df, market_df)
             
             # 4. Labeling (The Triple Barrier Strategy)
-            df = prepare_for_ai(df, target_pct, stop_loss_pct, look_forward_days, use_volatility=use_vol_label)
+            df = prepare_for_ai(
+                df,
+                target_pct,
+                stop_loss_pct,
+                look_forward_days,
+                use_volatility=use_vol_label,
+                barrier_mode=barrier_mode,
+            )
             
             # Require minimum history (redundant check but good for safety if indicators drop rows)
             if len(df) < 10: return None 
@@ -1264,6 +1306,7 @@ class ModelTrainer:
         look_forward_days: int,
         preset: str = "extended",
         use_volatility_label: bool = False,
+        barrier_mode: Optional[str] = None,
     ) -> pd.DataFrame:
         """Process features in parallel for all symbols."""
         self._progress(f"Starting parallel feature engineering (Preset: {preset})...")
@@ -1306,7 +1349,7 @@ class ModelTrainer:
 
         use_vol_label = bool(use_volatility_label)
         symbol_params = [
-            (sym, df_sym, self.market_df, target_pct, stop_loss_pct, look_forward_days, use_vol_label, self.min_history_needed) 
+            (sym, df_sym, self.market_df, target_pct, stop_loss_pct, look_forward_days, use_vol_label, self.min_history_needed, barrier_mode) 
             for sym, df_sym in df_all.groupby("symbol")
         ]
         
@@ -1941,6 +1984,7 @@ class ModelTrainer:
                     "training_samples": training_samples,
                     "target_pct": metadata.get("target_pct"),
                     "stop_loss_pct": metadata.get("stop_loss_pct"),
+                    "barrier_mode": metadata.get("barrier_mode") or metadata.get("barrierMode"),
                     "look_forward_days": metadata.get("look_forward_days"),
                     "learning_rate": metadata.get("learning_rate"),
                     "n_estimators": metadata.get("n_estimators"),
@@ -2076,6 +2120,7 @@ class ModelTrainer:
                     "training_samples": training_samples,
                     "target_pct": metadata.get("target_pct"),
                     "stop_loss_pct": metadata.get("stop_loss_pct"),
+                    "barrier_mode": metadata.get("barrier_mode") or metadata.get("barrierMode"),
                     "look_forward_days": metadata.get("look_forward_days"),
                     "learning_rate": metadata.get("learning_rate"),
                     "n_estimators": metadata.get("n_estimators"),
@@ -2129,6 +2174,11 @@ def train_model(exchange=None, supabase_url=None, supabase_key=None, *args, **kw
     use_intraday = bool(kwargs.get("use_intraday", False))
     timeframe = str(kwargs.get("timeframe", "1d") or "1d").strip().lower()
     training_strategy = str(kwargs.get("training_strategy") or "golden").strip().lower()
+    barrier_mode = str(
+        kwargs.get("barrier_mode")
+        or kwargs.get("barrierMode")
+        or ""
+    ).strip().lower() or None
 
     extra_params: Dict[str, Any] = {}
     eval_metric = "logloss"
@@ -2162,6 +2212,7 @@ def train_model(exchange=None, supabase_url=None, supabase_key=None, *args, **kw
     target_pct = float(kwargs.get("target_pct", 2.0) or 2.0)
     stop_loss_pct = float(kwargs.get("stop_loss_pct", 1.0) or 1.0)
     look_forward_days = int(kwargs.get("look_forward_days", 20) or 20)
+    resolved_barrier_mode = _resolve_barrier_mode(target_pct, stop_loss_pct, barrier_mode)
     
     df_train = trainer.prepare_training_data(
         df_raw, 
@@ -2170,6 +2221,7 @@ def train_model(exchange=None, supabase_url=None, supabase_key=None, *args, **kw
         look_forward_days,
         preset=kwargs.get("feature_preset", "extended"),
         use_volatility_label=use_volatility_label,
+        barrier_mode=resolved_barrier_mode,
     )
     
     max_features = kwargs.get("max_features")
@@ -2214,6 +2266,8 @@ def train_model(exchange=None, supabase_url=None, supabase_key=None, *args, **kw
     metadata = {
         "target_pct": target_pct,
         "stop_loss_pct": stop_loss_pct,
+        "barrier_mode": resolved_barrier_mode,
+        "barrierMode": resolved_barrier_mode,
         "look_forward_days": look_forward_days,
         "use_volatility_label": use_volatility_label,
         "feature_preset": kwargs.get("feature_preset", "extended"),
@@ -2341,6 +2395,8 @@ def train_model(exchange=None, supabase_url=None, supabase_key=None, *args, **kw
         "timestamp": datetime.now().isoformat(),
         "targetPct": float(target_pct),
         "stopLossPct": float(stop_loss_pct),
+        "barrierMode": resolved_barrier_mode,
+        "barrier_mode": resolved_barrier_mode,
         "lookForwardDays": int(look_forward_days),
         "learningRate": float(kwargs.get("learning_rate") or 0.0),
         "useEarlyStopping": bool(use_early_stopping),
@@ -2370,10 +2426,26 @@ if __name__ == "__main__":
     parser.add_argument("--learning_rate", type=float, default=0.05)
     parser.add_argument("--optimize", action="store_true", help="Use Optuna to tune hyperparameters")
     parser.add_argument("--trials", type=int, default=30, help="Number of Optuna trials")
+    parser.add_argument(
+        "--barrier_mode",
+        choices=["atr", "percent"],
+        default=None,
+        help="Interpret target/stop values as ATR multipliers or percentages. Defaults to auto-detect from the values.",
+    )
     
     # الإضافات الجديدة لاستقبال النسب من سطر الأوامر
-    parser.add_argument("--target_pct", type=float, default=2.0, help="ATR Target Multiplier")
-    parser.add_argument("--stop_loss_pct", type=float, default=1.0, help="ATR Stop Loss Multiplier")
+    parser.add_argument(
+        "--target_pct",
+        type=float,
+        default=2.0,
+        help="Target barrier value. < 1.0 = percentage, >= 1.0 = ATR multiplier.",
+    )
+    parser.add_argument(
+        "--stop_loss_pct",
+        type=float,
+        default=1.0,
+        help="Stop barrier value. < 1.0 = percentage, >= 1.0 = ATR multiplier.",
+    )
     
     args = parser.parse_args()
     
@@ -2384,6 +2456,7 @@ if __name__ == "__main__":
         learning_rate=args.learning_rate,
         optimize=args.optimize,
         n_trials=args.trials,
+        barrier_mode=args.barrier_mode,
         # تمرير النسب إلى دالة التدريب
         target_pct=args.target_pct,
         stop_loss_pct=args.stop_loss_pct

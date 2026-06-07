@@ -100,6 +100,7 @@ export default function AIAutomationTab({
         bestIteration?: number;
         targetPct?: number;
         stopLossPct?: number;
+        barrierMode?: "atr" | "percent";
         lookForwardDays?: number;
     } | null>(null);
     const [localModels, setLocalModels] = useState<LocalModel[]>([]);
@@ -1411,6 +1412,11 @@ export default function AIAutomationTab({
                                                 SL: <span className="text-rose-400 font-bold">{formatTargetStopValue(lastTrainingSummary.stopLossPct)}</span>
                                             </span>
                                         )}
+                                        {lastTrainingSummary.barrierMode && (
+                                            <span className="px-2 py-1 rounded-full bg-indigo-950/30 border border-indigo-500/20 text-[10px]">
+                                                Barrier: <span className="text-indigo-300 font-bold">{lastTrainingSummary.barrierMode.toUpperCase()}</span>
+                                            </span>
+                                        )}
                                         {lastTrainingSummary.lookForwardDays !== undefined && (
                                             <span className="px-2 py-1 rounded-full bg-sky-950/30 border border-sky-500/20 text-[10px]">
                                                 Days: <span className="text-sky-400 font-bold">{lastTrainingSummary.lookForwardDays}</span>
@@ -1511,6 +1517,7 @@ export default function AIAutomationTab({
                                                 metaThreshold,
                                                 useIntraday: trainingExchange === "CRYPTO" ? useIntraday : false,
                                                 timeframe: trainingExchange === "CRYPTO" ? trainingTimeframe : "1d",
+                                                barrierMode: trainingExchange === "CRYPTO" ? "percent" : "atr",
                                             }),
                                         });
                                         const data = await res.json();
