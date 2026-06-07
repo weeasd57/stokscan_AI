@@ -557,6 +557,28 @@ def _finite_float(value: Any) -> Optional[float]:
     return v if np.isfinite(v) else None
 
 
+def _resolve_barrier_mode(
+    target_pct: float,
+    stop_loss_pct: float,
+    barrier_mode: Optional[str] = None,
+) -> str:
+    mode = str(barrier_mode or "").strip().lower()
+    if mode in {"percent", "percentage", "pct"}:
+        return "percent"
+    if mode in {"atr", "atr_multiplier", "atr-multiplier", "atr multiplier"}:
+        return "atr"
+
+    try:
+        target_v = float(target_pct)
+        stop_v = float(stop_loss_pct)
+    except Exception:
+        return "atr"
+
+    if target_v < 1.0 and stop_v < 1.0:
+        return "percent"
+    return "atr"
+
+
 def _sanitize_fundamentals(fundamentals: Dict[str, Any]) -> Dict[str, Any]:
     out: Dict[str, Any] = {}
     for k, v in (fundamentals or {}).items():
@@ -2621,19 +2643,16 @@ def prepare_for_ai(
     look_forward_days: int = 20,
     drop_labels: bool = True,
     use_volatility_label: bool = True,
+    barrier_mode: Optional[str] = None,
 ) -> pd.DataFrame:
     """
-    Dynamic ATR Triple Barrier Labeling - matches training pipeline.
-    target_pct and stop_loss_pct are ATR multipliers (not percentages).
+    Triple-barrier labeling used by the scan/backtest pipeline.
+
+    `target_pct` / `stop_loss_pct` are interpreted as:
+    - percentages when both values are < 1.0
+    - ATR multipliers otherwise
     """
     if df.empty: return df
-
-    # Safety guard: frontend may still send percentages like 0.1/0.05
-    # while this pipeline expects ATR multipliers.
-    if target_pct < 1.0:
-        target_pct = 2.0
-    if stop_loss_pct < 1.0:
-        stop_loss_pct = 1.0
 
     out = df.copy()
     
@@ -2642,6 +2661,7 @@ def prepare_for_ai(
     open_col = "Open" if "Open" in out.columns else "open"
     high_col = "High" if "High" in out.columns else "high"
     low_col = "Low" if "Low" in out.columns else "low"
+    resolved_mode = _resolve_barrier_mode(target_pct, stop_loss_pct, barrier_mode)
     
     # Ensure ATR_14 exists
     if "ATR_14" not in out.columns:
@@ -2650,10 +2670,14 @@ def prepare_for_ai(
     # Entry is next-day open to avoid signal-entry leakage
     out['entry_price'] = out[open_col].shift(-1)
     shifted_atr = out['ATR_14'].shift(-1)
-    
-    # Dynamic barriers based on ATR
-    out['tp_barrier'] = out['entry_price'] + (shifted_atr * target_pct)
-    out['sl_barrier'] = out['entry_price'] - (shifted_atr * stop_loss_pct)
+
+    if resolved_mode == "percent":
+        out['tp_barrier'] = out['entry_price'] * (1 + float(target_pct))
+        out['sl_barrier'] = out['entry_price'] * (1 - float(stop_loss_pct))
+    else:
+        # Dynamic barriers based on ATR
+        out['tp_barrier'] = out['entry_price'] + (shifted_atr * float(target_pct))
+        out['sl_barrier'] = out['entry_price'] - (shifted_atr * float(stop_loss_pct))
 
     out['Target'] = 0
     

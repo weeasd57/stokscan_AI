@@ -1769,13 +1769,24 @@ class LiveBot:
             m_sl = _meta_get("stop_loss_pct")
             m_hold = _meta_get("look_forward_days") or _meta_get("hold_max_bars")
             m_thresh = _meta_get("buy_threshold") or _meta_get("buyThreshold") or _meta_get("meta_threshold")
+            m_barrier_mode = str(_meta_get("barrier_mode") or _meta_get("barrierMode") or "").strip().lower()
 
-            if m_target is not None and float(m_target) > 0:
-                self.config.target_pct = float(m_target)
-                self._log(f"🟢 Overriding target_pct from model metadata: {self.config.target_pct:.1%}")
-            if m_sl is not None and float(m_sl) > 0:
-                self.config.stop_loss_pct = float(m_sl)
-                self._log(f"🟢 Overriding stop_loss_pct from model metadata: {self.config.stop_loss_pct:.1%}")
+            percent_mode = m_barrier_mode == "percent"
+            if not m_barrier_mode:
+                try:
+                    percent_mode = float(m_target) < 1.0 and float(m_sl) < 1.0
+                except Exception:
+                    percent_mode = False
+
+            if percent_mode:
+                if m_target is not None and float(m_target) > 0:
+                    self.config.target_pct = float(m_target)
+                    self._log(f"🟢 Overriding target_pct from model metadata: {self.config.target_pct:.1%}")
+                if m_sl is not None and float(m_sl) > 0:
+                    self.config.stop_loss_pct = float(m_sl)
+                    self._log(f"🟢 Overriding stop_loss_pct from model metadata: {self.config.stop_loss_pct:.1%}")
+            else:
+                self._log("ℹ️ KING model was trained with ATR barrier multipliers; keeping live TP/SL percentages from bot config.")
             if m_hold is not None and int(m_hold) > 0:
                 self.config.hold_max_bars = int(m_hold)
                 self._log(f"🟢 Overriding hold_max_bars from model metadata: {self.config.hold_max_bars}")

@@ -461,14 +461,19 @@ def _process_symbol(
                 except Exception:
                     pass
             last_close = float(candidate.iloc[-1]["Close"])
-            # Use ATR-based TP/SL if available
-            atr_val = float(candidate.iloc[-1].get("ATR_14", 0)) if "ATR_14" in candidate.columns else 0
-            if atr_val > 0:
-                tp = last_close + (atr_val * target_pct)
-                sl = last_close - (atr_val * stop_loss_pct)
+            percent_mode = target_pct < 1.0 and stop_loss_pct < 1.0
+            if percent_mode:
+                tp = last_close * (1 + target_pct)
+                sl = last_close * (1 - stop_loss_pct)
             else:
-                tp = last_close * (1 + 0.02)  # Fallback 2%
-                sl = last_close * (1 - 0.01)  # Fallback 1%
+                # Use ATR-based TP/SL if available
+                atr_val = float(candidate.iloc[-1].get("ATR_14", 0)) if "ATR_14" in candidate.columns else 0
+                if atr_val > 0:
+                    tp = last_close + (atr_val * target_pct)
+                    sl = last_close - (atr_val * stop_loss_pct)
+                else:
+                    tp = last_close * (1 + 0.02)  # Fallback 2%
+                    sl = last_close * (1 - 0.01)  # Fallback 1%
             
             # Convert numpy types to native Python types for JSON serialization
             features_list = candidate[available_predictors].iloc[0].tolist()

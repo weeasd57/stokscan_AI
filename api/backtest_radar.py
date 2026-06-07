@@ -335,11 +335,25 @@ def run_radar_simulation(
             m_target = _meta_get("target_pct")
             m_sl = _meta_get("stop_loss_pct")
             m_hold = _meta_get("look_forward_days")
+            m_barrier_mode = str(_meta_get("barrier_mode") or _meta_get("barrierMode") or "").strip().lower()
 
-            if m_target is not None and float(m_target) > 0:
-                TARGET_PCT = float(m_target)
-            if m_sl is not None and float(m_sl) > 0:
-                STOP_LOSS_PCT = float(m_sl)
+            percent_mode = m_barrier_mode == "percent"
+            if not m_barrier_mode:
+                try:
+                    percent_mode = float(m_target) < 1.0 and float(m_sl) < 1.0
+                except Exception:
+                    percent_mode = False
+
+            if percent_mode:
+                if m_target is not None and float(m_target) > 0:
+                    TARGET_PCT = float(m_target)
+                if m_sl is not None and float(m_sl) > 0:
+                    STOP_LOSS_PCT = float(m_sl)
+            else:
+                if m_target is not None and float(m_target) > 0:
+                    TARGET_PCT = float(m_target)
+                if m_sl is not None and float(m_sl) > 0:
+                    STOP_LOSS_PCT = float(m_sl)
             if m_hold is not None and int(m_hold) > 0:
                 HOLD_MAX_BARS = int(m_hold)
 
