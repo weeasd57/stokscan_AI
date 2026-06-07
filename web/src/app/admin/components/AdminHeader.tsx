@@ -1,8 +1,8 @@
 "use client";
 
 interface AdminHeaderProps {
-    activeMainTab: "data" | "ai" | "backtest" | "bot" | "schedule" | "intraday";
-    setActiveMainTab: (tab: "data" | "ai" | "backtest" | "bot" | "schedule" | "intraday") => void;
+    activeMainTab: "data" | "ai" | "backtest" | "bot" | "schedule";
+    setActiveMainTab: (tab: "data" | "ai" | "backtest" | "bot" | "schedule") => void;
 }
 
 export default function AdminHeader({ activeMainTab, setActiveMainTab }: AdminHeaderProps) {
@@ -12,7 +12,6 @@ export default function AdminHeader({ activeMainTab, setActiveMainTab }: AdminHe
         { id: "bot", label: "LIVE BOT" },
         { id: "backtest", label: "BACKTEST" },
         { id: "schedule", label: "OPERATING SCHEDULE" },
-        { id: "intraday", label: "15M INTRADAY SYNC" },
     ] as const;
 
     return (
@@ -29,7 +28,7 @@ export default function AdminHeader({ activeMainTab, setActiveMainTab }: AdminHe
                                 return (
                                     <button
                                         key={tab.id}
-                                        onClick={() => setActiveMainTab(tab.id as any)}
+                                        onClick={() => setActiveMainTab(tab.id)}
                                         className={`
                                             relative px-3 md:px-5 py-2.5 rounded-xl transition-all duration-300 flex flex-col items-center justify-center flex-1 min-w-[100px]
                                             ${isActive
