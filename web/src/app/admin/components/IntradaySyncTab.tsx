@@ -4,7 +4,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import { 
     Loader2, Play, Pause, RotateCcw, AlertTriangle, CheckCircle, 
     Database, Clock, RefreshCw, Search, ChevronLeft, ChevronRight,
-    ArrowUpDown, ShieldAlert, BadgeAlert, Sparkles, Download, Trash2, Zap, Info
+    ArrowUpDown, ShieldAlert, BadgeAlert, Sparkles, Download, Trash2, Zap, Info, X
 } from "lucide-react";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { toast } from "sonner";
@@ -44,6 +44,7 @@ export default function IntradaySyncTab() {
     const [syncDays, setSyncDays] = useState<number>(180);
     const [bulkSyncProgress, setBulkSyncProgress] = useState<{ current: number; total: number; lastMsg: string } | null>(null);
     const [syncLogs, setSyncLogs] = useState<string[]>([]);
+    const [completedDialogOpen, setCompletedDialogOpen] = useState(false);
     
     // UI Filters and Pagination
     const [tableSearch, setTableSearch] = useState("");
@@ -59,6 +60,35 @@ export default function IntradaySyncTab() {
     const [selectedSymbols, setSelectedSymbols] = useState<Set<string>>(new Set());
     const [isDeleting, setIsDeleting] = useState(false);
     const [isSyncingBatch, setIsSyncingBatch] = useState(false);
+    const logsStorageKey = "intraday_sync_activity_logs_v1";
+
+    const persistLogs = (logs: string[]) => {
+        if (typeof window === "undefined") return;
+        try {
+            localStorage.setItem(logsStorageKey, JSON.stringify(logs.slice(0, 500)));
+        } catch {
+            // Local storage is best-effort only.
+        }
+    };
+
+    const appendSyncLogs = (incoming: string[]) => {
+        const cleanIncoming = incoming.filter(Boolean);
+        if (cleanIncoming.length === 0) return;
+        setSyncLogs(prev => {
+            const seen = new Set(prev);
+            const next = [...cleanIncoming.filter(log => !seen.has(log)), ...prev].slice(0, 500);
+            persistLogs(next);
+            return next;
+        });
+    };
+
+    const clearSyncLogs = () => {
+        setSyncLogs([]);
+        setBulkSyncProgress(null);
+        if (typeof window !== "undefined") {
+            localStorage.removeItem(logsStorageKey);
+        }
+    };
 
     const handleDeleteSelected = async () => {
         if (selectedSymbols.size === 0) return;
@@ -94,7 +124,6 @@ export default function IntradaySyncTab() {
     const handleSyncSelected = async () => {
         if (selectedSymbols.size === 0) return;
         setIsSyncingBatch(true);
-        setSyncLogs([]);
         
         const queue = Array.from(selectedSymbols);
         const total = queue.length;
@@ -137,7 +166,7 @@ export default function IntradaySyncTab() {
                         const logMsg = `[${timestamp}] ${r.symbol}: ${statusStr} - ${r.message}`;
                         localLogs = [logMsg, ...localLogs];
                     });
-                    setSyncLogs([...localLogs]);
+                    appendSyncLogs(localLogs);
                 }
             } catch (err: any) {
                 const timestamp = new Date().toLocaleTimeString(language === "ar" ? "ar-EG" : "en-US", { hour12: true });
@@ -145,7 +174,7 @@ export default function IntradaySyncTab() {
                     const logMsg = `[${timestamp}] ${sym}: ERR - ${err.message || "Unknown batch error"}`;
                     localLogs = [logMsg, ...localLogs];
                 });
-                setSyncLogs([...localLogs]);
+                appendSyncLogs(localLogs);
                 console.error("Intraday batch update error:", err);
             }
             
@@ -197,6 +226,15 @@ export default function IntradaySyncTab() {
     useEffect(() => {
         fetchState();
         fetchNames();
+        try {
+            const savedLogs = localStorage.getItem(logsStorageKey);
+            if (savedLogs) {
+                const parsed = JSON.parse(savedLogs);
+                if (Array.isArray(parsed)) setSyncLogs(parsed.filter(Boolean));
+            }
+        } catch {
+            // ignore malformed persisted logs
+        }
         const timer = setInterval(() => {
             fetchState();
         }, 8000);
@@ -204,8 +242,8 @@ export default function IntradaySyncTab() {
     }, []);
 
     useEffect(() => {
-        if (state && !isSyncingBatch) {
-            setSyncLogs(state.last_batch_logs || []);
+        if (state && !isSyncingBatch && state.last_batch_logs?.length) {
+            appendSyncLogs(state.last_batch_logs);
         }
     }, [state?.last_run, isSyncingBatch]);
 
@@ -309,10 +347,12 @@ export default function IntradaySyncTab() {
         try {
             const d = new Date(tsStr);
             return d.toLocaleString(language === "ar" ? "ar-EG" : "en-US", {
-                month: "short",
+                year: "2-digit",
+                month: "numeric",
                 day: "numeric",
                 hour: "2-digit",
-                minute: "2-digit"
+                minute: "2-digit",
+                hour12: true
             });
         } catch {
             return tsStr;
@@ -583,6 +623,15 @@ export default function IntradaySyncTab() {
                                 : (language === "ar" ? "حالة وسجلات المزامنة الفورية" : "Live Download Status & Activity Feed")
                             }
                         </h3>
+                        <button
+                            onClick={clearSyncLogs}
+                            disabled={syncLogs.length === 0 && !bulkSyncProgress}
+                            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-zinc-800 bg-zinc-950 text-[9px] font-black uppercase tracking-widest text-zinc-500 hover:text-white hover:border-zinc-700 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                            title="Clear console logs"
+                        >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            Clear
+                        </button>
                         {(state?.status === "syncing" || isSyncingBatch) && (
                             <span className="flex items-center gap-1.5 text-[9px] font-black text-emerald-400 px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20 uppercase tracking-widest">
                                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span>
@@ -612,7 +661,7 @@ export default function IntradaySyncTab() {
                         </div>
                     )}
 
-                    <div className="flex-1 bg-zinc-950 border border-zinc-850/50 rounded-2xl p-4 font-mono text-[10px] overflow-y-auto max-h-[140px] custom-scrollbar text-left flex flex-col justify-start gap-1.5" dir="ltr">
+                    <div className="flex-1 bg-zinc-950 border border-zinc-850/50 rounded-2xl p-4 font-mono text-[10px] overflow-y-auto h-[150px] custom-scrollbar text-left flex flex-col justify-start gap-1.5" dir="ltr">
                         {syncLogs.length > 0 ? (
                             syncLogs.map((log, index) => {
                                 const isSuccess = log.includes("Success");

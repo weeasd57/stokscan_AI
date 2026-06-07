@@ -13,6 +13,7 @@ import {
 } from "@/lib/api";
 import { useEffect, useState, useMemo } from "react";
 import { toast } from "sonner";
+import IntradaySyncTab from "./IntradaySyncTab";
 
 interface DataManagerTabProps {
     selectedCountry: string;
@@ -55,7 +56,7 @@ interface DataManagerTabProps {
     fetchDbSymbols: (ex: string, mode?: "prices" | "fundamentals" | "intraday") => void;
     setSelectedCountry: (country: string) => void;
     setAutoSelectPending: (ex: string | null) => void;
-    setActiveMainTab: (tab: "data" | "ai" | "backtest" | "bot" | "schedule" | "intraday") => void;
+    setActiveMainTab: (tab: "data" | "ai" | "backtest" | "bot" | "schedule") => void;
     loadingInventory: boolean;
     setMaxWorkers: (workers: number) => void;
     setConfig: React.Dispatch<React.SetStateAction<{ priceSource: string; fundSource: string; maxWorkers: number }>>;
@@ -131,6 +132,7 @@ export default function DataManagerTab({
         dir: "asc" | "desc";
     }>({ key: "bars", dir: "desc" });
     const [cryptoFilter, setCryptoFilter] = useState("USDT");
+    const [dataManagerView, setDataManagerView] = useState<"manager" | "intraday">("manager");
 
     const fetchCryptoSupabaseStats = async () => {
         try {
@@ -347,6 +349,32 @@ export default function DataManagerTab({
                 </p>
             </header>
 
+            <div className="w-full rounded-2xl border border-white/5 bg-zinc-950/80 p-1.5 flex flex-col sm:flex-row gap-1.5">
+                <button
+                    onClick={() => setDataManagerView("manager")}
+                    className={`flex-1 h-11 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 ${
+                        dataManagerView === "manager"
+                            ? "bg-indigo-600 text-white shadow-[0_0_20px_rgba(99,102,241,0.25)]"
+                            : "text-zinc-500 hover:text-zinc-300 hover:bg-white/5"
+                    }`}
+                >
+                    <Database className="h-3.5 w-3.5" />
+                    Data Manager
+                </button>
+                <button
+                    onClick={() => setDataManagerView("intraday")}
+                    className={`flex-1 h-11 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 ${
+                        dataManagerView === "intraday"
+                            ? "bg-amber-600 text-white shadow-[0_0_20px_rgba(245,158,11,0.22)]"
+                            : "text-zinc-500 hover:text-zinc-300 hover:bg-white/5"
+                    }`}
+                >
+                    <Zap className="h-3.5 w-3.5" />
+                    15M Intraday Sync
+                </button>
+            </div>
+
+            {dataManagerView === "manager" ? (
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 {/* Left: Controls */}
                 <div className="lg:col-span-1 space-y-4">
@@ -1281,7 +1309,8 @@ export default function DataManagerTab({
                                                                 fetchDbSymbols(item.exchange, 'intraday');
                                                                 setSelectedCountry(item.country);
                                                                 setAutoSelectPending(item.exchange);
-                                                                setActiveMainTab("intraday");
+                                                                setActiveMainTab("data");
+                                                                setDataManagerView("intraday");
                                                             }}
                                                             className="mt-auto w-full py-2 rounded-xl bg-amber-500/10 border border-amber-500/30 text-[9px] font-bold text-amber-400 hover:bg-amber-600 hover:text-white transition-all flex items-center justify-center gap-2"
                                                         >
@@ -1298,6 +1327,9 @@ export default function DataManagerTab({
                     </div>
                 </div>
             </div>
+            ) : (
+                <IntradaySyncTab />
+            )}
         </div>
     );
 }

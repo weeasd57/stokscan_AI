@@ -22,7 +22,7 @@ interface SymbolDrillDownModalProps {
     setDrillDownMode: (mode: "prices" | "fundamentals" | "intraday" | null) => void;
     selectedSymbols: Set<string>;
     setSelectedSymbols: (symbols: Set<string>) => void;
-    setActiveMainTab: (tab: "data" | "ai" | "backtest" | "bot" | "schedule" | "intraday") => void;
+    setActiveMainTab: (tab: "data" | "ai" | "backtest" | "bot" | "schedule") => void;
 }
 
 export default function SymbolDrillDownModal({
