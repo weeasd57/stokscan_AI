@@ -50,3 +50,4 @@ api/models/*.pkl
 # Large data files - exclude from repo to save bandwidth and LFS budget
 symbols_data/*.json
 p.png
+.vercel
