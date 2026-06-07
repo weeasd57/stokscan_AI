@@ -1,6 +1,6 @@
 {
     "status": "idle",
-    "last_run": "2026-06-07T03:18:33.968989",
+    "last_run": "2026-06-08T01:46:40.713907",
     "completed_symbols": [
         "AALR",
         "ABUK",
@@ -242,8 +242,7 @@
         "AIND",
         "AITG",
         "MEDP",
-        "MRCO",
-        "NDRL"
+        "MRCO"
     ],
     "batch_size": 2,
     "timeframe": "15m",
@@ -252,12 +251,13 @@
         "MRCO": "No data found for MRCO.CA on EGX at 15m",
         "AITG": "No data found for AITG.CA on EGX at 15m",
         "AIND": "No data found for AIND.CA on EGX at 15m",
-        "NDRL": "No data found for NDRL.CA on EGX at 15m",
         "AGIG": "No data found for AGIG.CA on EGX at 15m",
         "ACRO": "No data found for ACRO.CA on EGX at 15m"
     },
     "last_batch_logs": [
-        "[03:18:33 AM] AGIG: Failed - No data found for AGIG.CA on EGX at 15m",
-        "[03:18:33 AM] ACRO: Failed - No data found for ACRO.CA on EGX at 15m"
+        "[01:46:40 AM] DEIN: Success - OK (tradingview) - Synced 13 rows to stock_bars_intraday (15m).",
+        "[01:46:40 AM] SAIB: Success - OK (tradingview) - Synced 4 rows to stock_bars_intraday (15m).",
+        "[01:46:40 AM] NDRL: Success - OK (tradingview) - Synced 1 rows to stock_bars_intraday (15m).",
+        "[01:46:40 AM] GPPL: Success - OK (tradingview) - Synced 11 rows to stock_bars_intraday (15m)."
     ]
 }
