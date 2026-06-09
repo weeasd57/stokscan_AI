@@ -26,6 +26,7 @@ except ImportError:
 from api.stock_ai import _supabase_upsert_with_retry, _supabase_read_with_retry, supabase
 from api.virtual_market_adapter import create_virtual_market_client
 from api.strategy_engine import StrategyEngine
+from api.model_utils import reset_booster_cats, reset_nested_boosters, get_primary_booster, align_pandas_categories_to_booster, align_for_king
 
 warnings.filterwarnings("ignore")
 
@@ -57,6 +58,10 @@ class BotConfig:
     trail_be_pct: float = 0.04
     trail_lock_trigger_pct: float = 0.06
     trail_lock_pct: float = 0.04
+    
+    # Virtual market adapter (for paper trading)
+    virtual_key_id: Optional[str] = None
+    virtual_secret_key: Optional[str] = None
     
     # Supabase integration
     save_to_supabase: bool = False  # Save polling data to Supabase
@@ -112,28 +117,31 @@ class BotConfig:
     # 9. Time-of-Day Filter
     use_time_filter: bool = False
     
-    # 9.1 Operating Schedule Filter
+    # 10. Operating Schedule Filter
     use_schedule: bool = False
     schedule_start_time: str = "10:00"
     schedule_end_time: str = "14:30"
     schedule_timezone: str = "Africa/Cairo"
     schedule_days: Optional[List[int]] = None
     
-    # 9. Signal Quality Score
+    # 11. Signal Quality Score
     use_quality_score: bool = True
     min_quality_score: float = 50.0
     
-    # 10. Partial Position Management
+    # 12. Partial Position Management
     use_partial_positions: bool = False  # Off by default (advanced)
     partial_entry_pct: float = 0.60
     partial_exit_pct: float = 0.50
     
+    # 13. Monthly Signal Cap (EGX Strategy: Max 20 signals/month)
+    monthly_signal_cap: int = 20  # Max entries per month (0 = unlimited)
+    
     # ===== Live-Trading Shock Fixes =====
-    # 11. Warm-up: min bars before any prediction (indicators need history)
+    # 14. Warm-up: min bars before any prediction (indicators need history)
     warmup_bars: int = 100
-    # 12. Slippage buffer: assumed spread/slippage cost (0.5%)
+    # 15. Slippage buffer: assumed spread/slippage cost (0.5%)
     slippage_buffer_pct: float = 0.005
-    # 13. Confidence haircut: subtracted from KING conf in live mode (anti-overfitting)
+    # 16. Confidence haircut: subtracted from KING conf in live mode (anti-overfitting)
     live_confidence_haircut: float = 0.05
     
     # Trading Mode
@@ -299,6 +307,7 @@ class LiveBot:
         self.king_clf = None
         self.validator = None
         self.api = None
+        self.barrier_mode = "percent"  # Track which mode the trained model used
         # Per-symbol runtime state for exit logic
         self._pos_state: Dict[str, Dict[str, Any]] = {}
         # Cooldown tracker
@@ -317,6 +326,15 @@ class LiveBot:
         self._consecutive_losses = 0
         self._daily_loss = 0.0
         self._last_reset_date = datetime.now(timezone.utc).date()
+        
+        # Monthly Signal Cap Tracker (EGX Strategy: Max 20 signals/month)
+        self._signals_this_month: Dict[str, int] = {}  # {symbol: signal_count}
+        self._month_tracking = (datetime.now(timezone.utc).year, datetime.now(timezone.utc).month)
+        
+        # Pending trades queue for Supabase failover (in case upsert fails)
+        self._pending_trades = []  # List to persist failed trades
+        self._pending_trades_lock = threading.Lock()
+        self._retry_pending_trades_event = threading.Event()
 
         # Telegram Bridge
         self.telegram_bridge = None
@@ -509,7 +527,7 @@ class LiveBot:
             self._log(f"Supabase Log Error: {e}")
 
     def _save_trade_to_supabase(self, trade: Dict[str, Any]):
-        """Save a single trade record to Supabase 'bot_trades' table."""
+        """Save a single trade record to Supabase 'bot_trades' table with fallback queue."""
         try:
             # Map JSON fields to DB columns
             record = {
@@ -542,9 +560,59 @@ class LiveBot:
             self._log(f"DEBUG: Upserting trade to Supabase: {record['symbol']} {record['action']} ID={record['order_id']}")
             _supabase_upsert_with_retry("bot_trades", [record], on_conflict="order_id")
         except Exception as e:
-            self._log(f"Supabase Trade Log Error: {e}")
+            self._log(f"Supabase Trade Log Error: {e}. Adding to pending queue for retry...")
+            # Add to pending queue for later retry
+            with self._pending_trades_lock:
+                if trade not in self._pending_trades:
+                    self._pending_trades.append(trade)
             import traceback
             self._log(f"Traceback: {traceback.format_exc()}")
+
+    def _retry_pending_trades(self):
+        """Retry saving any trades that failed to save to Supabase."""
+        with self._pending_trades_lock:
+            if not self._pending_trades:
+                return
+            
+            trades_to_retry = self._pending_trades.copy()
+            self._pending_trades.clear()
+        
+        for trade in trades_to_retry:
+            try:
+                record = {
+                    "bot_id": self.bot_id,
+                    "timestamp": trade.get("timestamp"),
+                    "symbol": trade.get("symbol"),
+                    "action": trade.get("action"),
+                    "amount": trade.get("amount"),
+                    "price": trade.get("price"),
+                    "entry_price": trade.get("entry_price"),
+                    "pnl": trade.get("pnl"),
+                    "king_conf": trade.get("king_conf"),
+                    "council_conf": trade.get("council_conf"),
+                    "order_id": trade.get("order_id"),
+                    "metadata": {k: v for k, v in trade.items() if k not in [
+                        "timestamp", "symbol", "action", "amount", "price", "entry_price", "pnl", "king_conf", "council_conf", "order_id"
+                    ]}
+                }
+                
+                # Clean numeric fields
+                for k in ["amount", "price", "entry_price", "pnl", "king_conf", "council_conf"]:
+                    if k in record:
+                        v = record[k]
+                        try:
+                            fv = float(v)
+                            record[k] = fv if np.isfinite(fv) else None
+                        except (TypeError, ValueError):
+                            record[k] = None
+                
+                _supabase_upsert_with_retry("bot_trades", [record], on_conflict="order_id")
+                self._log(f"✅ Successfully retried trade: {trade.get('symbol')} {trade.get('action')}")
+            except Exception as e:
+                self._log(f"Retry failed for trade {trade.get('order_id')}: {e}. Re-queuing...")
+                with self._pending_trades_lock:
+                    if trade not in self._pending_trades:
+                        self._pending_trades.append(trade)
 
     def _save_log_to_supabase(self, message: str):
         """Save a single log entry to Supabase 'bot_logs' table."""
@@ -1243,6 +1311,40 @@ class LiveBot:
     def set_telegram_bridge(self, bridge):
         self.telegram_bridge = bridge
 
+    def _check_monthly_signal_cap(self, symbol: str) -> bool:
+        """
+        Check if monthly signal cap is reached for this symbol.
+        Resets at the beginning of each month (UTC).
+        
+        Returns:
+            True if signal is allowed, False if cap reached
+        """
+        if self.config.monthly_signal_cap <= 0:
+            return True  # Unlimited signals
+        
+        current_year_month = (datetime.now(timezone.utc).year, datetime.now(timezone.utc).month)
+        
+        # Reset counter if month changed
+        if current_year_month != self._month_tracking:
+            self._signals_this_month = {}
+            self._month_tracking = current_year_month
+            self._log(f"📅 Monthly signal cap reset for {current_year_month[0]}-{current_year_month[1]:02d}")
+        
+        # Check current count
+        current_count = self._signals_this_month.get(symbol, 0)
+        
+        if current_count >= self.config.monthly_signal_cap:
+            self._log(f"⛔ Signal cap reached for {symbol}: {current_count}/{self.config.monthly_signal_cap} signals this month")
+            return False
+        
+        return True
+    
+    def _increment_monthly_signal_count(self, symbol: str):
+        """Increment the signal counter for this symbol."""
+        current_count = self._signals_this_month.get(symbol, 0)
+        self._signals_this_month[symbol] = current_count + 1
+        self._log(f"📊 Signal count for {symbol}: {self._signals_this_month[symbol]}/{self.config.monthly_signal_cap}")
+
     def _get_precision(self, price: float) -> int:
         """Determine appropriate decimal precision based on price magnitude."""
         if price <= 0: return 2
@@ -1785,8 +1887,11 @@ class LiveBot:
                 if m_sl is not None and float(m_sl) > 0:
                     self.config.stop_loss_pct = float(m_sl)
                     self._log(f"🟢 Overriding stop_loss_pct from model metadata: {self.config.stop_loss_pct:.1%}")
+                self.barrier_mode = "percent"
             else:
-                self._log("ℹ️ KING model was trained with ATR barrier multipliers; keeping live TP/SL percentages from bot config.")
+                # ATR mode: need to use ATR multipliers instead of percentages
+                self.barrier_mode = "atr"
+                self._log(f"⚠️ KING model was trained with ATR barrier mode. Will use ATR={self.config.atr_tp_multiplier}x TP / {self.config.atr_sl_multiplier}x SL multipliers in live trading.")
             if m_hold is not None and int(m_hold) > 0:
                 self.config.hold_max_bars = int(m_hold)
                 self._log(f"🟢 Overriding hold_max_bars from model metadata: {self.config.hold_max_bars}")
@@ -1861,103 +1966,24 @@ class LiveBot:
             self._log(f"Sync Error: {e}")
 
     def _reset_booster_cats(self, obj):
-        try:
-            booster = (
-                getattr(obj, "_Booster", None)
-                or getattr(obj, "booster_", None)
-                or getattr(obj, "booster", None)
-                or getattr(obj, "b", None)
-            )
-            if booster is not None:
-                if hasattr(booster, "pandas_categorical"):
-                    booster.pandas_categorical = None
-                if hasattr(booster, "categorical_feature"):
-                    booster.categorical_feature = "auto"
-        except Exception as e:
-            self._log(f"DEBUG: Could not reset booster cats: {e}")
+        """Wrapper around model_utils.reset_booster_cats with logging."""
+        reset_booster_cats(obj, logger=self._log)
 
     def _reset_nested_boosters(self, obj):
-        self._reset_booster_cats(obj)
-        for attr in ["primary_model", "meta_model", "model"]:
-            child = getattr(obj, attr, None)
-            if child is not None:
-                self._reset_booster_cats(child)
+        """Wrapper around model_utils.reset_nested_boosters with logging."""
+        reset_nested_boosters(obj, logger=self._log)
 
     def _get_primary_booster(self, obj):
-        try:
-            pm = getattr(obj, "primary_model", None)
-            if pm is None:
-                return None
-            return (
-                getattr(pm, "_Booster", None)
-                or getattr(pm, "booster_", None)
-                or getattr(pm, "booster", None)
-                or getattr(pm, "b", None)
-            )
-        except Exception:
-            return None
+        """Wrapper around model_utils.get_primary_booster."""
+        return get_primary_booster(obj)
 
     def _align_pandas_categories_to_booster(self, X_in: pd.DataFrame, cat_cols: list, booster, cat_cols_order: list):
-        if X_in is None or X_in.empty or not cat_cols:
-            return X_in
-
-        if booster is None or not hasattr(booster, "pandas_categorical"):
-            return X_in
-
-        train_cats = getattr(booster, "pandas_categorical", None)
-        if not isinstance(train_cats, list) or not train_cats:
-            return X_in
-
-        if not cat_cols_order or len(train_cats) != len(cat_cols_order):
-            return X_in
-
-        mapping = {c: train_cats[i] for i, c in enumerate(cat_cols_order)}
-        out = X_in.copy()
-        for c in cat_cols:
-            if c not in out.columns or c not in mapping:
-                continue
-            try:
-                categories = [str(v) for v in list(mapping[c])]
-                out[c] = pd.Categorical(out[c].astype(str), categories=categories)
-            except Exception:
-                pass
-        return out
+        """Wrapper around model_utils.align_pandas_categories_to_booster."""
+        return align_pandas_categories_to_booster(X_in, cat_cols, booster, cat_cols_order)
 
     def _align_for_king(self, X_src: pd.DataFrame, king_artifact: object) -> pd.DataFrame:
-        if not isinstance(X_src, pd.DataFrame):
-            X_src = pd.DataFrame(X_src)
-
-        if not isinstance(king_artifact, dict) or king_artifact.get("kind") != "meta_labeling_system":
-            return X_src.replace([np.inf, -np.inf], np.nan).fillna(0)
-
-        try:
-            pm = king_artifact.get("primary_model") or {}
-            feats = list(pm.get("feature_names") or [])
-            cats = list(pm.get("categorical_features") or [])
-            if not feats:
-                return X_src.replace([np.inf, -np.inf], np.nan).fillna(0)
-            Xk = X_src.copy()
-            missing = [c for c in feats if c not in Xk.columns]
-            for c in missing:
-                Xk[c] = 0
-            Xk = Xk[feats]
-            
-            for col in cats:
-                if col in Xk.columns:
-                    Xk[col] = Xk[col].astype(str).replace(['nan', 'None', ''], "Unknown").fillna("Unknown").astype('category')
-
-            non_cat_cols = [c for c in Xk.columns if c not in set(cats)]
-            for col in non_cat_cols:
-                if not pd.api.types.is_numeric_dtype(Xk[col]):
-                    Xk[col] = pd.to_numeric(Xk[col], errors="coerce")
-
-            Xk = Xk.replace([np.inf, -np.inf], np.nan)
-            if non_cat_cols:
-                Xk[non_cat_cols] = Xk[non_cat_cols].fillna(0)
-            return Xk
-        except Exception as e:
-            self._log(f"Error in _align_for_king: {e}")
-            return X_src.replace([np.inf, -np.inf], np.nan).fillna(0)
+        """Wrapper around model_utils.align_for_king with logging."""
+        return align_for_king(X_src, king_artifact, logger=self._log)
 
     def _fetch_market_index_data(self, symbol: str) -> pd.DataFrame:
         """Fetch market index data from Supabase stock_prices table using pagination."""
@@ -2002,11 +2028,28 @@ class LiveBot:
         from api.train_exchange_model import add_technical_indicators, add_massive_features
 
         df = bars.copy()
-        # Original script logic
+        
+        # TIMEZONE STANDARDIZATION: Ensure all timestamps are UTC
         if "timestamp" in df.columns:
             df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce", utc=True)
             df = df.dropna(subset=["timestamp"]).sort_values("timestamp")
             df = df.set_index("timestamp")
+        elif isinstance(df.index, pd.DatetimeIndex):
+            # Ensure index is UTC
+            if df.index.tz is None:
+                df.index = df.index.tz_localize("UTC")
+            else:
+                df.index = df.index.tz_convert("UTC")
+        
+        # Standardize market_df if provided
+        if market_df is not None and not market_df.empty:
+            if isinstance(market_df.index, pd.DatetimeIndex):
+                if market_df.index.tz is None:
+                    market_df = market_df.copy()
+                    market_df.index = market_df.index.tz_localize("UTC")
+                elif market_df.index.tz.zone != "UTC":
+                    market_df = market_df.copy()
+                    market_df.index = market_df.index.tz_convert("UTC")
 
         df = df.replace([np.inf, -np.inf], np.nan)
         df = df.dropna(subset=[c for c in ["open", "high", "low", "close", "volume"] if c in df.columns])
@@ -2054,22 +2097,13 @@ class LiveBot:
                         feat = feat.merge(sec_df[["date_only", "sector_avg_return"]], on="date_only", how="left")
                         feat = feat.drop(columns=["date_only"])
 
-            feat = add_massive_features(feat)
+            feat = add_massive_features.__wrapped__(feat) if hasattr(add_massive_features, '__wrapped__') else add_massive_features(feat)
 
             if market_df is not None and not market_df.empty:
                 from api.train_exchange_model import add_market_context
-                # Ensure DatetimeIndex
-                if not isinstance(feat.index, pd.DatetimeIndex):
-                    feat.index = pd.to_datetime(feat.index)
-                
-                # Align DatetimeIndex timezone awareness
-                market_aligned = market_df.copy()
-                if feat.index.tz is not None and market_aligned.index.tz is None:
-                    market_aligned.index = market_aligned.index.tz_localize("UTC")
-                elif feat.index.tz is None and market_aligned.index.tz is not None:
-                    market_aligned.index = market_aligned.index.tz_convert(None)
-                
-                feat = add_market_context(feat, market_aligned)
+                # Both feat and market_aligned should already be UTC from _prepare_features
+                # No additional timezone conversion needed
+                feat = add_market_context(feat, market_df)
 
         except Exception as e:
             self._log(f"Feature generation error: {e}")
@@ -2611,8 +2645,8 @@ class LiveBot:
                     prof = prof_res.data or {}
                 
                 # Resolve parameters
-                target_pct = float(sub.get("target_pct") if sub.get("target_pct") is not None else (prof.get("default_target_pct") if prof.get("default_target_pct") is not None else 10.0))
-                stop_loss_pct = float(sub.get("stop_loss_pct") if sub.get("stop_loss_pct") is not None else (prof.get("default_stop_pct") if prof.get("default_stop_pct") is not None else 3.5))
+                target_pct = float(sub.get("target_pct") if sub.get("target_pct") is not None else (prof.get("default_target_pct") if prof.get("default_target_pct") is not None else 0.10))
+                stop_loss_pct = float(sub.get("stop_loss_pct") if sub.get("stop_loss_pct") is not None else (prof.get("default_stop_pct") if prof.get("default_stop_pct") is not None else 0.035))
                 telegram_chat_id = sub.get("telegram_chat_id") if sub.get("telegram_chat_id") else (prof.get("telegram_chat_id") if prof.get("telegram_chat_id") else None)
                 channel = prof.get("notification_channel") if prof.get("notification_channel") else "telegram"
                 whatsapp_number = prof.get("whatsapp_number") if prof.get("whatsapp_number") else None
@@ -2743,6 +2777,10 @@ class LiveBot:
             max_positions = sub_data["max_open_positions"]
             pct_cash = sub_data["pct_cash_per_trade"]
             
+            # 🔥 NEW: Check monthly signal cap
+            if not self._check_monthly_signal_cap(symbol):
+                continue
+            
             try:
                 pos_count_res = supabase.table("positions") \
                     .select("id", count="exact") \
@@ -2767,8 +2805,20 @@ class LiveBot:
                     self._log(f"Subscriber {user_id} Risk Firewall: max open positions ({open_count}/{max_positions}) reached. Skipping entry.")
                     continue
                 
-                target_price = price * (1 + target_pct / 100.0)
-                stop_price = price * (1 - stop_loss_pct / 100.0)
+                # Calculate TP/SL based on barrier_mode (percent or ATR)
+                if self.barrier_mode == "atr":
+                    # ATR mode: use multipliers on ATR
+                    atr_val = bars.iloc[-2].get("ATR_14", 1.0) if len(bars) > 1 else 1.0
+                    target_price = price + (atr_val * self.config.atr_tp_multiplier)
+                    stop_price = price - (atr_val * self.config.atr_sl_multiplier)
+                    display_tp_pct = (target_price / price - 1) * 100
+                    display_sl_pct = (1 - stop_price / price) * 100
+                else:
+                    # Percentage mode: use direct percentages
+                    target_price = price * (1 + target_pct / 100.0)
+                    stop_price = price * (1 - stop_loss_pct / 100.0)
+                    display_tp_pct = target_pct
+                    display_sl_pct = stop_loss_pct
                 
                 meta = {
                     "bot_id": self.bot_id,
@@ -2789,8 +2839,8 @@ class LiveBot:
                     "source": source_val,
                     "entry_price": price,
                     "entry_at": datetime.now(timezone.utc).isoformat(),
-                    "target_pct": target_pct,
-                    "stop_pct": stop_loss_pct,
+                    "target_pct": display_tp_pct,
+                    "stop_pct": display_sl_pct,
                     "target_price": target_price,
                     "stop_price": stop_price,
                     "status": "open",
@@ -2799,7 +2849,10 @@ class LiveBot:
                 }
                 
                 supabase.table("positions").insert(new_pos).execute()
-                self._log(f"Subscriber {user_id} entered position on {symbol} at {price:.4f} (TP={target_price:.4f}, SL={stop_price:.4f})")
+                self._log(f"Subscriber {user_id} entered position on {symbol} at {price:.4f} (TP={target_price:.4f} [{display_tp_pct:.1f}%], SL={stop_price:.4f} [{display_sl_pct:.1f}%])")
+                
+                # Increment monthly signal counter
+                self._increment_monthly_signal_count(symbol)
                 
                 if sub_data["subscription"].get("notifications_enabled", True) is not False:
                     bot_name = self.config.name
@@ -2809,8 +2862,8 @@ class LiveBot:
                             f"━━━━━━━━━━━━━━━\n"
                             f"💎 الرمز: `{symbol}`\n"
                             f"💰 سعر الدخول: `{price:.4f}`\n"
-                            f"🎯 الهدف ({target_pct}%): `{target_price:.4f}`\n"
-                            f"🛡️ وقف الخسارة ({stop_loss_pct}%): `{stop_price:.4f}`\n"
+                            f"🎯 الهدف ({display_tp_pct:.1f}%): `{target_price:.4f}`\n"
+                            f"🛡️ وقف الخسارة ({display_sl_pct:.1f}%): `{stop_price:.4f}`\n"
                             f"━━━━━━━━━━━━━━━\n"
                             f"🤖 البوت: {bot_name}"
                         )
@@ -2820,8 +2873,8 @@ class LiveBot:
                             f"━━━━━━━━━━━━━━━\n"
                             f"💎 Symbol: `{symbol}`\n"
                             f"💰 Entry Price: `{price:.4f}`\n"
-                            f"🎯 Target ({target_pct}%): `{target_price:.4f}`\n"
-                            f"🛡️ Stop Loss ({stop_loss_pct}%): `{stop_price:.4f}`\n"
+                            f"🎯 Target ({display_tp_pct:.1f}%): `{target_price:.4f}`\n"
+                            f"🛡️ Stop Loss ({display_sl_pct:.1f}%): `{stop_price:.4f}`\n"
                             f"━━━━━━━━━━━━━━━\n"
                             f"🤖 Bot: {bot_name}"
                         )
@@ -3037,6 +3090,10 @@ class LiveBot:
                         if self._stop_event.is_set(): break
                         time.sleep(1)
                     continue
+                
+                # Retry any pending trades that failed to save to Supabase
+                self._current_activity = "Retrying pending trades"
+                self._retry_pending_trades()
 
                 # Sync positions first to ensure Risk Firewall is accurate
                 self._current_activity = "Syncing position state"
@@ -3061,8 +3118,8 @@ class LiveBot:
                                 "subscription": sub,
                                 "profile": prof,
                                 "user_id": sub["user_id"],
-                                "target_pct": float(sub.get("target_pct") if sub.get("target_pct") is not None else (prof.get("default_target_pct") if prof.get("default_target_pct") is not None else 10.0)),
-                                "stop_loss_pct": float(sub.get("stop_loss_pct") if sub.get("stop_loss_pct") is not None else (prof.get("default_stop_pct") if prof.get("default_stop_pct") is not None else 3.5)),
+                                "target_pct": float(sub.get("target_pct") if sub.get("target_pct") is not None else (prof.get("default_target_pct") if prof.get("default_target_pct") is not None else 0.10)),
+                                "stop_loss_pct": float(sub.get("stop_loss_pct") if sub.get("stop_loss_pct") is not None else (prof.get("default_stop_pct") if prof.get("default_stop_pct") is not None else 0.035)),
                                 "max_open_positions": int(sub.get("max_open_positions") if sub.get("max_open_positions") is not None else self.config.max_open_positions),
                                 "pct_cash_per_trade": float(sub.get("pct_cash_per_trade") if sub.get("pct_cash_per_trade") is not None else self.config.pct_cash_per_trade),
                                 "telegram_chat_id": sub.get("telegram_chat_id") if sub.get("telegram_chat_id") else (prof.get("telegram_chat_id") if prof.get("telegram_chat_id") else None),
@@ -3576,7 +3633,7 @@ class BotManager:
         except Exception as e:
             print(f"Error saving bots: {e}")
 
-    def create_bot(self, bot_id: str, name: str, Virtual_key_id: str = None, Virtual_secret_key: str = None, user_id: str = None) -> LiveBot:
+    def create_bot(self, bot_id: str, name: str, virtual_key_id: str = None, virtual_secret_key: str = None, user_id: str = None) -> LiveBot:
         if bot_id in self._bots:
             raise ValueError(f"Bot ID {bot_id} already exists.")
         
@@ -3586,10 +3643,10 @@ class BotManager:
         bot.config.user_id = user_id
         
         # Apply custom keys if provided
-        if Virtual_key_id:
-            bot.config.Virtual_key_id = Virtual_key_id
-        if Virtual_secret_key:
-            bot.config.Virtual_secret_key = Virtual_secret_key
+        if virtual_key_id:
+            bot.config.virtual_key_id = virtual_key_id
+        if virtual_secret_key:
+            bot.config.virtual_secret_key = virtual_secret_key
             
         if self._telegram_bridge:
             bot.set_telegram_bridge(self._telegram_bridge)

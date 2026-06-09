@@ -7,6 +7,7 @@ import { WatchlistProvider } from "@/contexts/WatchlistContext";
 import { AppStateProvider } from "@/contexts/AppStateContext";
 import { AIScannerProvider } from "@/contexts/AIScannerContext";
 import { TechnicalScannerProvider } from "@/contexts/TechnicalScannerContext";
+import { ThemeProvider } from "@/contexts/ThemeContext";
 
 if (typeof window !== "undefined") {
   const originalFetch = window.fetch;
@@ -47,18 +48,20 @@ if (typeof window !== "undefined") {
 
 export default function Providers({ children }: { children: ReactNode }) {
   return (
-    <AuthProvider>
-      <LanguageProvider>
-        <WatchlistProvider>
-          <AppStateProvider>
-            <TechnicalScannerProvider>
-              <AIScannerProvider>
-                {children}
-              </AIScannerProvider>
-            </TechnicalScannerProvider>
-          </AppStateProvider>
-        </WatchlistProvider>
-      </LanguageProvider>
-    </AuthProvider>
+    <ThemeProvider>
+      <AuthProvider>
+        <LanguageProvider>
+          <WatchlistProvider>
+            <AppStateProvider>
+              <TechnicalScannerProvider>
+                <AIScannerProvider>
+                  {children}
+                </AIScannerProvider>
+              </TechnicalScannerProvider>
+            </AppStateProvider>
+          </WatchlistProvider>
+        </LanguageProvider>
+      </AuthProvider>
+    </ThemeProvider>
   );
 }
