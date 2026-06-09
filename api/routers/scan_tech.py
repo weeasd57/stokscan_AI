@@ -225,8 +225,12 @@ async def scan_technical(
     fundamentals_map: Dict[str, Any] = {}
     if stock_ai.supabase:
         tech_rows = _fetch_latest_technical_indicators(symbols[: min(len(symbols), max(f.limit * 3, 100))])
-        if tech_rows:
+        if not tech_rows:
+            print(f"WARNING: No technical indicators found in Supabase for {len(symbols)} symbols. Falling back to local cache.")
+        else:
             fundamentals_map = _fetch_company_fundamentals([tuple(key.split("|", 1)) for key in tech_rows.keys()])
+    else:
+        print(f"WARNING: Supabase not initialized. Falling back to local cache.")
 
     if tech_rows:
         for row in candidates:

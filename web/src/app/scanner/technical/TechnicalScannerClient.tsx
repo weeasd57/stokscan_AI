@@ -33,6 +33,7 @@ export default function TechnicalScannerPage() {
         state: {
             country,
             results,
+            hasScanned,
             scannedCount,
             searchTerm,
             rsiMin,
@@ -1269,7 +1270,7 @@ export default function TechnicalScannerPage() {
     }
 
     return (
-        <div className="flex flex-col h-full bg-[#0c0d12] text-[#d1d4dc] font-sans selection:bg-[#2962ff]/30 selection:text-white relative min-h-[calc(100vh-100px)] border border-[#2a2e39]">
+        <div className="technical-shell app-page-shell flex flex-col h-full bg-[#0c0d12] text-[#d1d4dc] font-sans selection:bg-[#2962ff]/30 selection:text-white relative min-h-[calc(100vh-100px)] border border-[#2a2e39]">
             {/* --- Scanner Templates --- */}
             <div className="px-4 py-3 sm:px-6 bg-[#0c0d12] border-b border-[#2a2e39]">
                 <ScannerTemplates onSelect={applyTemplate} />
@@ -1681,6 +1682,19 @@ export default function TechnicalScannerPage() {
                             <div className="flex h-full min-h-[300px] flex-col items-center justify-center gap-4 text-[#787b86]">
                                 <Database className="h-8 w-8 opacity-20" />
                                 <p className="text-xs font-bold text-zinc-600 uppercase tracking-widest">No Stocks Found</p>
+                                {!hasScanned && (
+                                    <button
+                                        onClick={() => runTechScan({ force: true })}
+                                        className="mt-2 px-4 py-2 bg-[#2962ff] hover:bg-[#1e4bd1] text-white text-xs font-bold rounded-lg transition-colors"
+                                    >
+                                        Scan Now
+                                    </button>
+                                )}
+                                {hasScanned && (
+                                    <p className="text-xs text-zinc-500 mt-2">
+                                        Try adjusting filters or click Scan again
+                                    </p>
+                                )}
                             </div>
                         ) : (
                             <table className="w-full text-left text-sm whitespace-nowrap table-fixed border-collapse">

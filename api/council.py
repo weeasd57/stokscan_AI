@@ -6,6 +6,7 @@ import lightgbm as lgb
 import json
 from typing import Dict, List, Any, Optional, Tuple
 import logging
+from api.model_utils import reset_booster_cats, align_pandas_categories_to_booster
 
 # Get logger for uvicorn/fastapi visibility
 logger = logging.getLogger("uvicorn.error")
@@ -116,21 +117,6 @@ class TheCouncil:
         Return class-1 probability for a model/artifact on aligned X.
         """
 
-        def _reset_booster_cats(obj: Any) -> None:
-            try:
-                booster = (
-                    getattr(obj, "_Booster", None)
-                    or getattr(obj, "booster_", None)
-                    or getattr(obj, "booster", None)
-                    or getattr(obj, "b", None)
-                )
-                if booster is not None:
-                    if hasattr(booster, "pandas_categorical"):
-                        booster.pandas_categorical = None
-                    if hasattr(booster, "categorical_feature"):
-                        booster.categorical_feature = "auto"
-            except Exception:
-                return
 
         def _coerce_X_numeric(df: pd.DataFrame) -> pd.DataFrame:
             out = df.copy()
@@ -161,11 +147,11 @@ class TheCouncil:
 
             # Recovery path (best-effort): reset booster categorical state and retry on numeric-only frame.
             try:
-                _reset_booster_cats(model)
+                reset_booster_cats(model)
                 for attr in ["primary_model", "meta_model", "model"]:
                     child = getattr(model, attr, None)
                     if child is not None:
-                        _reset_booster_cats(child)
+                        reset_booster_cats(child)
             except Exception:
                 pass
 
@@ -176,33 +162,6 @@ class TheCouncil:
                 # Final fallback: zero votes instead of crashing the whole council.
                 return np.zeros(len(Xn), dtype=float)
 
-    @staticmethod
-    def _align_pandas_categories_to_booster(X_in: pd.DataFrame, cat_cols_order: List[str], booster: Any) -> pd.DataFrame:
-        """
-        Align pandas categorical levels to the training-time categories stored in LightGBM Booster.
-        If alignment isn't possible, returns X_in unchanged.
-        """
-        try:
-            if X_in is None or X_in.empty:
-                return X_in
-            if booster is None or not hasattr(booster, "pandas_categorical"):
-                return X_in
-            train_cats = getattr(booster, "pandas_categorical", None)
-            if not isinstance(train_cats, list) or not train_cats:
-                return X_in
-            if not cat_cols_order or len(train_cats) != len(cat_cols_order):
-                return X_in
-
-            mapping = {c: train_cats[i] for i, c in enumerate(cat_cols_order)}
-            out = X_in.copy()
-            for c in cat_cols_order:
-                if c not in out.columns or c not in mapping:
-                    continue
-                categories = [str(v) for v in list(mapping[c])]
-                out[c] = pd.Categorical(out[c].astype(str), categories=categories)
-            return out
-        except Exception:
-            return X_in
 
     @staticmethod
     def _find_model_data(d: Any) -> Tuple[Optional[dict], Any]:
@@ -270,7 +229,7 @@ class TheCouncil:
                                     for c in cats:
                                         if c in X_aligned.columns:
                                             X_aligned[c] = X_aligned[c].astype('category')
-                                    X_aligned = self._align_pandas_categories_to_booster(X_aligned, cats, booster)
+                                    X_aligned = align_pandas_categories_to_booster(X_aligned, cats, booster, cats)
                                 p1 = np.asarray(booster.predict(X_aligned)).astype(float)
                             elif isinstance(m_obj, lgb.Booster):
                                 # Direct LightGBM booster
@@ -279,7 +238,7 @@ class TheCouncil:
                                     for c in cats:
                                         if c in X_aligned.columns:
                                             X_aligned[c] = X_aligned[c].astype('category')
-                                    X_aligned = self._align_pandas_categories_to_booster(X_aligned, cats, m_obj)
+                                    X_aligned = align_pandas_categories_to_booster(X_aligned, cats, m_obj, cats)
                                 p1 = np.asarray(m_obj.predict(X_aligned)).astype(float)
                             else:
                                 # Generic model (RandomForest, etc.)
@@ -336,7 +295,7 @@ class TheCouncil:
                                 for c in cats:
                                     if c in X_aligned.columns:
                                         X_aligned[c] = X_aligned[c].astype("category")
-                                X_aligned = self._align_pandas_categories_to_booster(X_aligned, cats, booster)
+                                X_aligned = align_pandas_categories_to_booster(X_aligned, cats, booster, cats)
                             votes[name] = np.asarray(booster.predict(X_aligned)).astype(float)
                         else:
                             votes[name] = np.zeros(len(X))

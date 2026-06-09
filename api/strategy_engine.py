@@ -2,70 +2,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 from typing import Any, Dict, Optional, Tuple
-
-def align_pandas_categories_to_booster(X_in: pd.DataFrame, cat_cols: list, booster, cat_cols_order: list) -> pd.DataFrame:
-    """Ensure category levels match booster expectations to avoid crashes or incorrect predictions."""
-    X = X_in.copy()
-    if booster is None or not hasattr(booster, "pandas_categorical"):
-        return X
-    
-    try:
-        expected_cats = booster.pandas_categorical
-        if not expected_cats:
-            return X
-            
-        for col_idx, col in enumerate(cat_cols_order):
-            if col in X.columns and col_idx < len(expected_cats):
-                ref_levels = expected_cats[col_idx]
-                X[col] = pd.Categorical(X[col], categories=ref_levels)
-    except Exception:
-        pass
-    return X
-
-def align_for_king(X_src: pd.DataFrame, king_artifact: Any) -> pd.DataFrame:
-    """Align the input feature DataFrame to the KING model feature schema."""
-    if not isinstance(X_src, pd.DataFrame):
-        X_src = pd.DataFrame(X_src)
-
-    if not isinstance(king_artifact, dict) or king_artifact.get("kind") != "meta_labeling_system":
-        return X_src.replace([np.inf, -np.inf], np.nan).fillna(0)
-
-    pm = king_artifact.get("primary_model") or {}
-    feats = list(pm.get("feature_names") or [])
-    if not feats:
-        return X_src.replace([np.inf, -np.inf], np.nan).fillna(0)
-
-    Xk = X_src.copy()
-    missing = [c for c in feats if c not in Xk.columns]
-    for c in missing:
-        Xk[c] = 0
-
-    Xk = Xk[feats]
-
-    # Decide categorical columns:
-    categorical_features = list(pm.get("categorical_features") or [])
-    fallback_cats = [c for c in ["sector", "industry"] if c in feats]
-    cat_cols = list(dict.fromkeys(categorical_features + fallback_cats))
-
-    for col in cat_cols:
-        if col in Xk.columns:
-            Xk[col] = (
-                Xk[col]
-                .astype(str)
-                .replace(["nan", "None", "", "0", "0.0"], "Unknown")
-                .fillna("Unknown")
-                .astype("category")
-            )
-
-    non_cat_cols = [c for c in Xk.columns if c not in set(cat_cols)]
-    for col in non_cat_cols:
-        if not pd.api.types.is_numeric_dtype(Xk[col]):
-            Xk[col] = pd.to_numeric(Xk[col], errors="coerce")
-
-    Xk = Xk.replace([np.inf, -np.inf], np.nan)
-    if non_cat_cols:
-        Xk[non_cat_cols] = Xk[non_cat_cols].fillna(0)
-    return Xk
+from api.model_utils import align_pandas_categories_to_booster, align_for_king
 
 class StrategyEngine:
     """
