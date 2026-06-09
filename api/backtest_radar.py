@@ -29,6 +29,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from api.stock_ai import _get_exchange_bulk_data, _get_exchange_bulk_intraday_data, _MetaLabelingClassifier
 from api.train_exchange_model import add_massive_features
 from api.strategy_engine import StrategyEngine
+from api.model_utils import reset_booster_cats, reset_nested_boosters, get_primary_booster, align_pandas_categories_to_booster, align_for_king
 
 warnings.filterwarnings("ignore")
 
@@ -65,9 +66,9 @@ print = safe_print
 # Global cache for index data to avoid repeated file reads
 _INDEX_CACHE = {}
 
-_DATE_ISO_RE = re.compile(r"^\\d{4}-\\d{2}-\\d{2}$")
-_DATE_ISO_DATETIME_RE = re.compile(r"^\\d{4}-\\d{2}-\\d{2}T")
-_DATE_DMY_SLASH_RE = re.compile(r"^\\d{1,2}/\\d{1,2}/\\d{4}$")
+_DATE_ISO_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_DATE_ISO_DATETIME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T")
+_DATE_DMY_SLASH_RE = re.compile(r"^\d{1,2}/\d{1,2}/\d{4}$")
 
 
 def _parse_cli_date(value: str) -> pd.Timestamp:
@@ -90,7 +91,7 @@ def _parse_cli_date(value: str) -> pd.Timestamp:
         return pd.to_datetime(v, errors="raise")
 
     if _DATE_DMY_SLASH_RE.match(v):
-        return pd.to_datetime(v, dayfirst=False, errors="raise")
+        return pd.to_datetime(v, dayfirst=True, errors="raise")
 
     # Fallback: prefer month-first parsing, then day-first.
     try:
@@ -361,15 +362,18 @@ def run_radar_simulation(
                     percent_mode = False
 
             if percent_mode:
+                # Percentage mode: 0.10 = 10%, 0.035 = 3.5%
                 if m_target is not None and float(m_target) > 0:
                     TARGET_PCT = float(m_target)
                 if m_sl is not None and float(m_sl) > 0:
                     STOP_LOSS_PCT = float(m_sl)
             else:
+                # ATR mode: values are ATR multipliers (e.g., 2.0x, 1.5x)
+                # These will be mapped to atr_tp_multiplier/atr_sl_multiplier later (lines 405+)
                 if m_target is not None and float(m_target) > 0:
-                    TARGET_PCT = float(m_target)
+                    TARGET_PCT = float(m_target)  # Will be >= 1.0 for ATR mode
                 if m_sl is not None and float(m_sl) > 0:
-                    STOP_LOSS_PCT = float(m_sl)
+                    STOP_LOSS_PCT = float(m_sl)  # Will be >= 1.0 for ATR mode
             if m_hold is not None and int(m_hold) > 0:
                 HOLD_MAX_BARS = int(m_hold)
 
@@ -429,81 +433,6 @@ def run_radar_simulation(
             return 1.0
         return 1.5
     
-    def _reset_booster_cats(obj):
-        """Reset categorical features to avoid train/valid mismatch errors."""
-        try:
-            # Try to access the underlying LightGBM Booster in common wrappers.
-            booster = (
-                getattr(obj, "_Booster", None)
-                or getattr(obj, "booster_", None)
-                or getattr(obj, "booster", None)
-                or getattr(obj, "b", None)  # PrimaryWrapper in this file
-            )
-            if booster is not None:
-                # Set pandas_categorical to None to disable categorical feature checking
-                if hasattr(booster, "pandas_categorical"):
-                    booster.pandas_categorical = None
-                # Also try to reset categorical_feature if it exists
-                if hasattr(booster, "categorical_feature"):
-                    booster.categorical_feature = "auto"
-        except Exception as e:
-            print(f"DEBUG: Could not reset booster cats: {e}", flush=True)
-
-    def _reset_nested_boosters(obj):
-        _reset_booster_cats(obj)
-        for attr in ["primary_model", "meta_model", "model"]:
-            child = getattr(obj, attr, None)
-            if child is not None:
-                _reset_booster_cats(child)
-
-    def _get_primary_booster(obj):
-        """Best-effort extraction of the underlying LightGBM Booster used for primary predictions."""
-        try:
-            pm = getattr(obj, "primary_model", None)
-            if pm is None:
-                return None
-            return (
-                getattr(pm, "_Booster", None)
-                or getattr(pm, "booster_", None)
-                or getattr(pm, "booster", None)
-                or getattr(pm, "b", None)
-            )
-        except Exception:
-            return None
-
-    def _align_pandas_categories_to_booster(X_in: pd.DataFrame, cat_cols: list, booster, cat_cols_order: list):
-        """
-        If the booster has training-time pandas categories, coerce prediction categories to match.
-        This avoids LightGBM's: "train and valid dataset categorical_feature do not match."
-        """
-        if X_in is None or X_in.empty or not cat_cols:
-            return X_in
-
-        if booster is None or not hasattr(booster, "pandas_categorical"):
-            return X_in
-
-        train_cats = getattr(booster, "pandas_categorical", None)
-        if not isinstance(train_cats, list) or not train_cats:
-            return X_in
-
-        # We only know how to map categories positionally if we have the training categorical column order.
-        if not cat_cols_order or len(train_cats) != len(cat_cols_order):
-            return X_in
-
-        mapping = {c: train_cats[i] for i, c in enumerate(cat_cols_order)}
-        out = X_in.copy()
-        for c in cat_cols:
-            if c not in out.columns or c not in mapping:
-                continue
-            try:
-                categories = [str(v) for v in list(mapping[c])]
-                # Unknown categories become NaN (-1) which LightGBM treats as missing.
-                out[c] = pd.Categorical(out[c].astype(str), categories=categories)
-            except Exception:
-                # If coercion fails, keep whatever we had.
-                pass
-        return out
-
     classifier = model
     if isinstance(model, dict) and model.get("kind") == "meta_labeling_system":
         classifier = reconstruct_meta_model(model)
@@ -511,34 +440,6 @@ def run_radar_simulation(
             return {}
         if hasattr(classifier, "meta_threshold"):
             classifier.meta_threshold = threshold
-    
-    def _align_for_king(X_src: pd.DataFrame, king_artifact: dict) -> pd.DataFrame:
-        try:
-            pm = king_artifact.get("primary_model") or {}
-            feats = list(pm.get("feature_names") or [])
-            cats = list(pm.get("categorical_features") or [])
-            if not feats:
-                return X_src.replace([np.inf, -np.inf], np.nan).fillna(0)
-            Xk = X_src.copy()
-            missing = [c for c in feats if c not in Xk.columns]
-            for c in missing:
-                Xk[c] = 0
-            Xk = Xk[feats]
-            for col in cats:
-                if col in Xk.columns:
-                    Xk[col] = Xk[col].astype(str).replace(['nan', 'None', ''], "Unknown").fillna("Unknown").astype('category')
-
-            non_cat_cols = [c for c in Xk.columns if c not in set(cats)]
-            for col in non_cat_cols:
-                if not pd.api.types.is_numeric_dtype(Xk[col]):
-                    Xk[col] = pd.to_numeric(Xk[col], errors="coerce")
-
-            Xk = Xk.replace([np.inf, -np.inf], np.nan)
-            if non_cat_cols:
-                Xk[non_cat_cols] = Xk[non_cat_cols].fillna(0)
-            return Xk
-        except Exception:
-            return X_src.replace([np.inf, -np.inf], np.nan).fillna(0)
 
     # Pre-calculate signals
     try:
@@ -590,8 +491,8 @@ def run_radar_simulation(
 
         # If we can, align category *levels* to the training booster to keep predictions meaningful.
         # Otherwise, reset booster categorical state per-call to avoid hard crashes.
-        primary_booster = _get_primary_booster(classifier)
-        X_pred = _align_pandas_categories_to_booster(
+        primary_booster = get_primary_booster(classifier)
+        X_pred = align_pandas_categories_to_booster(
             X_pred,
             cat_cols=[c for c in cat_cols if c in X_pred.columns],
             booster=primary_booster,
@@ -600,7 +501,7 @@ def run_radar_simulation(
 
         # Guard: LightGBM categorical_feature mismatch (ensure booster doesn't carry stale pandas_categorical)
         if primary_booster is None or not (categorical_features and hasattr(primary_booster, "pandas_categorical")):
-            _reset_nested_boosters(classifier)
+            reset_nested_boosters(classifier)
 
         try:
             probs = classifier.predict_proba(X_pred)
@@ -619,7 +520,7 @@ def run_radar_simulation(
                     else:
                         X_numeric[col] = X_numeric[col].astype('float32')
                 
-                _reset_nested_boosters(classifier)
+                reset_nested_boosters(classifier)
                 probs = classifier.predict_proba(X_numeric)
                 confidences = probs[:, 1]
                 print(f"[BT-LIVE] Recovered from prediction error, max={float(np.max(confidences)):.4f}", flush=True)
@@ -653,7 +554,7 @@ def run_radar_simulation(
 
             if king_clf is not None and hasattr(king_clf, "predict_proba"):
                 # Align KING input to its training feature schema.
-                Xk = _align_for_king(X_all, king_obj) if isinstance(king_obj, dict) else X_all
+                Xk = align_for_king(X_all, king_obj) if isinstance(king_obj, dict) else X_all
 
                 # Critical: if KING was trained with pandas categoricals, LightGBM requires
                 # the prediction-time category levels to match training-time levels.
@@ -666,8 +567,8 @@ def run_radar_simulation(
                         king_cat_cols_order = []
                         king_cat_cols = []
 
-                    king_primary_booster = _get_primary_booster(king_clf)
-                    Xk = _align_pandas_categories_to_booster(
+                    king_primary_booster = get_primary_booster(king_clf)
+                    Xk = align_pandas_categories_to_booster(
                         Xk,
                         cat_cols=king_cat_cols,
                         booster=king_primary_booster,

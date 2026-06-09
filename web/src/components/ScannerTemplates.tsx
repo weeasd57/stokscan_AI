@@ -59,7 +59,7 @@ export default function ScannerTemplates({ onSelect }: ScannerTemplatesProps) {
   const { t } = useLanguage();
 
   return (
-    <section className="rounded-[2.5rem] border border-white/5 bg-zinc-950/40 backdrop-blur-xl p-8 shadow-2xl relative overflow-hidden">
+    <section className="scanner-templates-panel rounded-[2.5rem] border border-white/5 bg-zinc-950/40 backdrop-blur-xl p-8 shadow-2xl relative overflow-hidden light:border-slate-200 light:bg-white/90">
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(99,102,241,0.12),_transparent_55%)]" />
       <div className="relative z-10 flex flex-col gap-6">
         <div className="flex flex-col gap-2">
@@ -81,7 +81,7 @@ export default function ScannerTemplates({ onSelect }: ScannerTemplatesProps) {
               key={item.id}
               type="button"
               onClick={() => onSelect?.(item.id)}
-              className="group relative rounded-3xl border border-white/5 bg-zinc-950/60 p-6 overflow-hidden transition-all hover:border-white/10 text-left"
+              className="group relative rounded-3xl border border-white/5 bg-zinc-950/60 p-6 overflow-hidden transition-all hover:border-white/10 text-left light:border-slate-200 light:bg-slate-50/90"
             >
               <div className={`absolute inset-0 bg-gradient-to-br ${item.gradient}`} />
               <div className="relative z-10 flex flex-col gap-4">

@@ -29,7 +29,15 @@ class CouncilValidator:
         if self.conf_feature not in df.columns:
             if primary_conf is None:
                 raise ValueError(f"Missing required confidence feature '{self.conf_feature}'.")
-            df[self.conf_feature] = np.asarray(primary_conf)
+            
+            # Validate shape: primary_conf must match number of rows in X
+            primary_conf = np.asarray(primary_conf).flatten()
+            if len(primary_conf) != len(df):
+                raise ValueError(
+                    f"primary_conf shape mismatch: got {len(primary_conf)} values for {len(df)} rows. "
+                    f"Please ensure primary_conf length matches the number of samples."
+                )
+            df[self.conf_feature] = primary_conf
 
         missing = [c for c in self.feature_names if c not in df.columns]
         for c in missing:

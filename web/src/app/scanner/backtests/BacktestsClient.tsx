@@ -686,9 +686,9 @@ export default function AIScannerPage() {
     };
 
     return (
-        <div className="mx-auto max-w-[1400px] w-full px-4 py-8 md:px-6 md:py-12 mt-2 min-h-[calc(100vh-200px)]">
+        <div className="backtests-shell app-page-shell mx-auto max-w-[1400px] w-full px-4 py-8 md:px-6 md:py-12 mt-2 min-h-[calc(100vh-200px)]">
             {/* Header Banner */}
-            <div className="relative overflow-hidden rounded-[2.5rem] border border-white/10 bg-gradient-to-tr from-zinc-950 via-zinc-900 to-zinc-950 p-8 md:p-12 mb-10 shadow-2xl shadow-indigo-500/5">
+            <div className="backtests-hero app-hero-panel relative overflow-hidden rounded-[2.5rem] p-8 md:p-12 mb-10">
                 <div className="absolute top-1/2 -translate-y-1/2 right-12 opacity-10 pointer-events-none hidden md:block">
                     <Image
                         src="/favicon_io/apple-touch-icon.png?v=2"
@@ -752,7 +752,7 @@ export default function AIScannerPage() {
                     ) : (
                         <>
                             {/* Model Artifacts Section */}
-                            <div className="p-8 rounded-3xl bg-zinc-900 border border-zinc-800 flex flex-col h-full space-y-6">
+                            <div className="app-panel p-8 rounded-3xl flex flex-col h-full space-y-6">
                                 <div className="flex items-center justify-between">
                                     <div className="flex items-center gap-4">
                                         <div className="p-3 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-400">
@@ -945,7 +945,7 @@ export default function AIScannerPage() {
                                 </div>
                             ) : (
                                 /* Admin-style Bot Overview Table */
-                                <div className="bg-zinc-900/40 border border-white/5 rounded-3xl backdrop-blur-xl overflow-hidden shadow-2xl relative">
+                                <div className="app-panel relative rounded-3xl overflow-hidden">
                                     {/* Table Header Bar */}
                                     <div className="p-6 border-b border-white/5 flex items-center justify-between bg-zinc-950/50 relative z-10">
                                         <div className="flex items-center gap-4">
@@ -1357,7 +1357,7 @@ export default function AIScannerPage() {
                                 return (
                                     <div 
                                         key={stat.modelName}
-                                        className="relative overflow-hidden rounded-[2rem] border border-white/5 bg-gradient-to-br from-zinc-950 to-zinc-900/40 p-6 shadow-2xl flex flex-col justify-between group"
+                                        className="app-panel relative overflow-hidden rounded-[2rem] p-6 flex flex-col justify-between group"
                                     >
                                         {/* Background Logo Layer */}
                                         <div 
@@ -1445,7 +1445,7 @@ export default function AIScannerPage() {
 
                     {/* Comparative Performance Chart */}
                     {modelStats.length > 0 && (
-                        <div className="relative overflow-hidden rounded-[2rem] border border-white/5 bg-gradient-to-br from-zinc-950 via-zinc-900/40 to-zinc-950 p-6 shadow-2xl mb-8">
+                        <div className="app-panel relative overflow-hidden rounded-[2rem] p-6 mb-8">
                             {/* Decorative background gradients */}
                             <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500/5 rounded-full blur-[100px] pointer-events-none" />
                             <div className="absolute bottom-0 left-0 w-64 h-64 bg-amber-500/5 rounded-full blur-[100px] pointer-events-none" />
@@ -1565,7 +1565,7 @@ export default function AIScannerPage() {
                     )}
 
                     {/* Filters and Sorting Bar */}
-                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-4 rounded-[2rem] bg-zinc-900/30 border border-white/5 backdrop-blur-xl mb-6">
+                    <div className="app-panel flex flex-col md:flex-row md:items-center justify-between gap-4 p-4 rounded-[2rem] mb-6">
                         <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
                             {/* Search Query */}
                             <div className="relative flex-1 sm:flex-initial min-w-[220px]">

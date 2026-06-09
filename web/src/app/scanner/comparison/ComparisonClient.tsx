@@ -70,7 +70,7 @@ export default function ComparisonScannerPage() {
     };
 
     return (
-        <div className="flex flex-col gap-10 max-w-[1600px] mx-auto pb-20 p-4 md:p-8">
+        <div className="comparison-shell app-page-shell flex flex-col gap-10 max-w-[1600px] mx-auto pb-20 p-4 md:p-8">
             {/* Header Section */}
             <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
                 <div className="space-y-2">
@@ -97,7 +97,7 @@ export default function ComparisonScannerPage() {
             )}
 
             {/* Controls Section */}
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-center bg-zinc-950/20 p-2 rounded-[2.5rem] border border-white/5 backdrop-blur-sm">
+            <div className="app-panel grid grid-cols-1 lg:grid-cols-12 gap-4 items-center p-2 rounded-[2.5rem]">
                 <form onSubmit={handleAddManual} className="lg:col-span-10 flex gap-2">
                     <div className="relative flex-1">
                         <Search className="absolute left-5 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-600" />

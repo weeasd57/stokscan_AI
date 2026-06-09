@@ -110,7 +110,7 @@ export default function HomePage() {
     };
 
     return (
-        <div className="relative min-h-screen pt-4 overflow-hidden" dir={isAr ? "rtl" : "ltr"}>
+        <div className="landing-shell app-page-shell relative min-h-screen pt-4 overflow-hidden" dir={isAr ? "rtl" : "ltr"}>
             
             {/* Visual Background Accents */}
             <div className="absolute top-0 left-1/4 w-96 h-96 bg-blue-500/10 rounded-full blur-[120px] pointer-events-none" />

@@ -5,22 +5,218 @@
 :root {
   color-scheme: dark;
   --header-h: 80px;
+  --app-bg: radial-gradient(circle at top left, rgba(59, 130, 246, 0.14), transparent 34%),
+    radial-gradient(circle at top right, rgba(99, 102, 241, 0.12), transparent 28%),
+    linear-gradient(180deg, #040814 0%, #080d1f 45%, #050816 100%);
+  --app-bg-solid: #050816;
+  --app-surface: rgba(8, 13, 31, 0.72);
+  --app-surface-strong: rgba(6, 10, 24, 0.88);
+  --app-surface-soft: rgba(255, 255, 255, 0.05);
+  --app-border: rgba(148, 163, 184, 0.18);
+  --app-border-strong: rgba(255, 255, 255, 0.12);
+  --app-text: #f8fafc;
+  --app-text-muted: #94a3b8;
+  --app-text-faint: #64748b;
+  --app-shadow: 0 24px 60px rgba(2, 6, 23, 0.28);
+  --app-shadow-strong: 0 30px 80px rgba(2, 6, 23, 0.42);
+}
+
+/* Dark mode (default) */
+html.dark, html {
+  color-scheme: dark;
+}
+
+/* Light mode */
+html.light {
+  color-scheme: light;
+  --app-bg: radial-gradient(circle at top left, rgba(59, 130, 246, 0.12), transparent 32%),
+    radial-gradient(circle at top right, rgba(99, 102, 241, 0.1), transparent 26%),
+    linear-gradient(180deg, #f8fbff 0%, #eef2ff 48%, #f8fafc 100%);
+  --app-bg-solid: #f4f7fb;
+  --app-surface: rgba(255, 255, 255, 0.76);
+  --app-surface-strong: rgba(255, 255, 255, 0.92);
+  --app-surface-soft: rgba(255, 255, 255, 0.58);
+  --app-border: rgba(148, 163, 184, 0.24);
+  --app-border-strong: rgba(148, 163, 184, 0.34);
+  --app-text: #0f172a;
+  --app-text-muted: #475569;
+  --app-text-faint: #64748b;
+  --app-shadow: 0 22px 60px rgba(15, 23, 42, 0.08);
+  --app-shadow-strong: 0 28px 80px rgba(15, 23, 42, 0.12);
 }
 
 html {
   direction: ltr;
 }
 
-html,
-body {
-  @apply bg-zinc-950 text-zinc-50 antialiased;
+/* Dark Mode Styles */
+html.dark,
+html {
+  @apply antialiased;
+  background-color: var(--app-bg-solid);
+  background-image: var(--app-bg);
+  color: var(--app-text);
+  background-attachment: fixed;
+}
+
+/* Light Mode Styles */
+html.light {
+  @apply antialiased;
+  background-color: var(--app-bg-solid);
+  background-image: var(--app-bg);
+  color: var(--app-text);
+  background-attachment: fixed;
+}
+
+html.light body {
+  color: var(--app-text);
+  background: transparent;
   overflow-x: hidden !important;
   max-width: 100%;
   position: relative;
   width: 100%;
 }
 
+html.dark body,
+body {
+  color: var(--app-text);
+  background: transparent;
+  overflow-x: hidden !important;
+  max-width: 100%;
+  position: relative;
+  width: 100%;
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.04), transparent 22%, transparent 78%, rgba(255, 255, 255, 0.02)),
+    radial-gradient(circle at 20% 20%, rgba(59, 130, 246, 0.08), transparent 24%),
+    radial-gradient(circle at 80% 0%, rgba(99, 102, 241, 0.08), transparent 22%);
+  opacity: 0.9;
+  z-index: -1;
+}
+
   @layer utilities {
+  .app-shell {
+    background-color: var(--app-bg-solid);
+    background-image: var(--app-bg);
+    color: var(--app-text);
+  }
+
+  .app-content-shell {
+    position: relative;
+  }
+
+  .app-page-shell {
+    position: relative;
+    color: var(--app-text);
+  }
+
+  .app-page-shell::before {
+    content: "";
+    position: absolute;
+    inset: 0 auto auto 0;
+    width: min(32rem, 65vw);
+    height: min(32rem, 65vw);
+    background: radial-gradient(circle, rgba(99, 102, 241, 0.09), transparent 70%);
+    filter: blur(12px);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .app-page-shell > * {
+    position: relative;
+    z-index: 1;
+  }
+
+  .app-header-surface,
+  .app-footer-surface,
+  .app-panel,
+  .app-panel-strong,
+  .app-soft-panel,
+  .app-hero-panel {
+    border: 1px solid var(--app-border);
+    box-shadow: var(--app-shadow);
+    backdrop-filter: blur(24px);
+  }
+
+  .app-header-surface,
+  .app-footer-surface {
+    background:
+      linear-gradient(135deg, rgba(255, 255, 255, 0.08), transparent 60%),
+      var(--app-surface);
+  }
+
+  .app-panel {
+    background:
+      linear-gradient(135deg, rgba(255, 255, 255, 0.06), transparent 55%),
+      var(--app-surface);
+  }
+
+  .app-panel-strong {
+    background:
+      linear-gradient(145deg, rgba(255, 255, 255, 0.08), transparent 58%),
+      var(--app-surface-strong);
+    border-color: var(--app-border-strong);
+    box-shadow: var(--app-shadow-strong);
+  }
+
+  .app-soft-panel {
+    background: var(--app-surface-soft);
+  }
+
+  .app-hero-panel {
+    background:
+      radial-gradient(circle at top right, rgba(59, 130, 246, 0.12), transparent 30%),
+      linear-gradient(145deg, rgba(255, 255, 255, 0.08), transparent 58%),
+      var(--app-surface-strong);
+    border-color: var(--app-border-strong);
+    box-shadow: var(--app-shadow-strong);
+  }
+
+  .app-control {
+    background: var(--app-surface-soft);
+    border: 1px solid var(--app-border);
+    color: var(--app-text);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  }
+
+  .app-control::placeholder {
+    color: var(--app-text-faint);
+  }
+
+  .app-chip {
+    background: rgba(99, 102, 241, 0.12);
+    border: 1px solid rgba(99, 102, 241, 0.22);
+    color: var(--app-text-muted);
+  }
+
+  .app-icon-button {
+    background: var(--app-surface-soft);
+    border: 1px solid var(--app-border);
+    color: var(--app-text-muted);
+  }
+
+  .app-icon-button:hover,
+  .app-control:hover {
+    border-color: var(--app-border-strong);
+    color: var(--app-text);
+  }
+
+  .app-primary-action {
+    background: linear-gradient(135deg, #2563eb 0%, #4f46e5 100%);
+    color: #ffffff;
+    box-shadow: 0 20px 40px rgba(79, 70, 229, 0.22);
+  }
+
+  .app-primary-action:hover {
+    filter: brightness(1.05);
+  }
+
   .header-title {
     min-width: 200px; /* Prevent title width change on language switch */
     flex-shrink: 0;
@@ -84,6 +280,22 @@ body {
     background: rgba(99, 102, 241, 0.4);
   }
 
+  /* Light mode scrollbar */
+  html.light .custom-scrollbar::-webkit-scrollbar-track {
+    background: rgba(0, 0, 0, 0.05);
+    border-radius: 10px;
+  }
+
+  html.light .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: rgba(99, 102, 241, 0.3);
+    border-radius: 10px;
+    border: 1px solid rgba(0, 0, 0, 0.1);
+  }
+
+  html.light .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: rgba(99, 102, 241, 0.5);
+  }
+
   @keyframes ppo-flow {
     from {
       stroke-dashoffset: 20;
@@ -143,4 +355,158 @@ body {
 .apexcharts-toolbar .apexcharts-selected svg circle,
 .apexcharts-toolbar .apexcharts-selected svg rect {
   fill: rgb(99, 102, 241) !important;
+}
+
+/* Light mode ApexCharts styles */
+html.light .apexcharts-menu,
+html.light .apexcharts-menu.apexcharts-menu-open,
+html.light .apexcharts-menu-open {
+  background-color: rgba(255, 255, 255, 0.98) !important;
+  background: rgba(255, 255, 255, 0.98) !important;
+  border: 1px solid rgba(0, 0, 0, 0.15) !important;
+  border-radius: 14px !important;
+  box-shadow: 0 25px 70px rgba(0, 0, 0, 0.1) !important;
+  padding: 6px !important;
+  color: rgb(30, 30, 30) !important;
+  z-index: 99999 !important;
+}
+
+html.light .apexcharts-menu .apexcharts-menu-item,
+html.light .apexcharts-menu .apexcharts-menu-item a {
+  color: rgb(30, 30, 30) !important;
+  border-radius: 10px !important;
+  margin: 2px !important;
+  font-weight: 800 !important;
+  letter-spacing: 0.08em !important;
+  text-transform: uppercase !important;
+  font-size: 10px !important;
+  opacity: 1 !important;
+}
+
+html.light .apexcharts-menu .apexcharts-menu-item:hover,
+html.light .apexcharts-menu .apexcharts-menu-item:hover a {
+  background: rgba(99, 102, 241, 0.15) !important;
+  color: rgb(30, 30, 30) !important;
+}
+
+html.light .apexcharts-toolbar svg,
+html.light .apexcharts-toolbar svg path,
+html.light .apexcharts-toolbar svg circle,
+html.light .apexcharts-toolbar svg rect {
+  fill: rgb(100, 116, 139) !important;
+}
+
+html.light .apexcharts-toolbar .apexcharts-selected svg,
+html.light .apexcharts-toolbar .apexcharts-selected svg path,
+html.light .apexcharts-toolbar .apexcharts-selected svg circle,
+html.light .apexcharts-toolbar .apexcharts-selected svg rect {
+  fill: rgb(99, 102, 241) !important;
+}
+
+.landing-shell,
+.backtests-shell,
+.comparison-shell,
+.technical-shell,
+.scanner-templates-panel {
+  color: var(--app-text);
+}
+
+.backtests-shell .backtests-hero {
+  background:
+    radial-gradient(circle at top right, rgba(59, 130, 246, 0.14), transparent 28%),
+    linear-gradient(145deg, rgba(255, 255, 255, 0.08), transparent 56%),
+    var(--app-surface-strong) !important;
+  border-color: var(--app-border-strong) !important;
+  box-shadow: var(--app-shadow-strong) !important;
+}
+
+html.light .backtests-shell [class*="bg-zinc-950"],
+html.light .backtests-shell [class*="bg-zinc-900"],
+html.light .comparison-shell [class*="bg-zinc-950"],
+html.light .comparison-shell [class*="bg-zinc-900"],
+html.light .landing-shell [class*="bg-zinc-950"],
+html.light .landing-shell [class*="bg-zinc-900"],
+html.light .scanner-templates-panel,
+html.light .scanner-templates-panel [class*="bg-zinc-950"],
+html.light .scanner-templates-panel [class*="bg-zinc-900"] {
+  background-color: var(--app-surface) !important;
+}
+
+html.light .backtests-shell [class*="border-white/5"],
+html.light .backtests-shell [class*="border-white/10"],
+html.light .backtests-shell [class*="border-zinc-800"],
+html.light .backtests-shell [class*="border-zinc-700"],
+html.light .comparison-shell [class*="border-white/5"],
+html.light .comparison-shell [class*="border-zinc-800"],
+html.light .landing-shell [class*="border-white/5"],
+html.light .landing-shell [class*="border-white/10"],
+html.light .scanner-templates-panel,
+html.light .scanner-templates-panel [class*="border-white/5"],
+html.light .scanner-templates-panel [class*="border-white/10"] {
+  border-color: var(--app-border) !important;
+}
+
+html.light .backtests-shell [class*="text-white"],
+html.light .backtests-shell [class*="text-zinc-100"],
+html.light .backtests-shell [class*="text-zinc-200"],
+html.light .backtests-shell [class*="text-zinc-300"],
+html.light .comparison-shell [class*="text-white"],
+html.light .comparison-shell [class*="text-zinc-200"],
+html.light .comparison-shell [class*="text-zinc-300"],
+html.light .landing-shell [class*="text-white"],
+html.light .landing-shell [class*="text-zinc-200"],
+html.light .landing-shell [class*="text-zinc-300"],
+html.light .scanner-templates-panel [class*="text-white"] {
+  color: var(--app-text) !important;
+}
+
+html.light .backtests-shell [class*="text-zinc-400"],
+html.light .backtests-shell [class*="text-zinc-500"],
+html.light .backtests-shell [class*="text-zinc-600"],
+html.light .comparison-shell [class*="text-zinc-400"],
+html.light .comparison-shell [class*="text-zinc-500"],
+html.light .comparison-shell [class*="text-zinc-600"],
+html.light .landing-shell [class*="text-zinc-400"],
+html.light .landing-shell [class*="text-zinc-500"],
+html.light .landing-shell [class*="text-zinc-600"],
+html.light .scanner-templates-panel [class*="text-zinc-400"],
+html.light .scanner-templates-panel [class*="text-zinc-500"],
+html.light .scanner-templates-panel [class*="text-zinc-600"] {
+  color: var(--app-text-muted) !important;
+}
+
+.technical-shell {
+  background: var(--app-surface-strong) !important;
+  border-color: var(--app-border) !important;
+  border-radius: 2rem;
+  box-shadow: var(--app-shadow) !important;
+  overflow: hidden;
+}
+
+html.light .technical-shell [class*="bg-[#0c0d12]"],
+html.light .technical-shell [class*="bg-[#131722]"],
+html.light .technical-shell [class*="bg-[#1c2030]"] {
+  background: var(--app-surface) !important;
+}
+
+html.light .technical-shell [class*="border-[#2a2e39]"] {
+  border-color: var(--app-border) !important;
+}
+
+html.light .technical-shell [class*="text-[#d1d4dc]"],
+html.light .technical-shell [class*="text-white"] {
+  color: var(--app-text) !important;
+}
+
+html.light .technical-shell [class*="text-[#b2b5be]"],
+html.light .technical-shell [class*="text-[#787b86]"] {
+  color: var(--app-text-muted) !important;
+}
+
+html.light .technical-shell [class*="shadow-2xl"],
+html.light .scanner-templates-panel,
+html.light .backtests-shell .backtests-hero,
+html.light .comparison-shell [class*="rounded-[2.5rem]"],
+html.light .landing-shell [class*="rounded-3xl"] {
+  box-shadow: var(--app-shadow) !important;
 }

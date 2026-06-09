@@ -351,6 +351,11 @@ def add_massive_features(df):
         if key in cols and cols[key] != key:
             df.rename(columns={cols[key]: key}, inplace=True)
     if "close" not in df.columns or "volume" not in df.columns:
+        import warnings
+        missing = []
+        if "close" not in df.columns: missing.append("close")
+        if "volume" not in df.columns: missing.append("volume")
+        warnings.warn(f"add_massive_features: Missing required columns {missing}. Returning DataFrame unprocessed. Feature engineering skipped!")
         return df
     
     # ---------------------------------------------------------
@@ -457,6 +462,48 @@ def add_massive_features(df):
             extra_cols['feat_sector_rel_strength'] = 0.0
     else:
         extra_cols['feat_sector_rel_strength'] = 0.0
+
+    # ============================================================================
+    # 🔥 EGX-Specific Features (Circuit Breaker, Volume Patterns, Bull Days)
+    # ============================================================================
+    # These features are tuned for Egyptian Exchange trading behavior
+    
+    if close_col and ('high' in df.columns or 'High' in df.columns):
+        high_col = 'high' if 'high' in df.columns else 'High'
+        low_col = 'low' if 'low' in df.columns else 'Low'
+        
+        # 1. Distance from ±10% Circuit Breaker Limits (EGX Daily Halt Rules)
+        prev_close = df[close_col].shift(1)
+        circuit_upper = prev_close * 1.10  # +10% daily limit
+        circuit_lower = prev_close * 0.90  # -10% daily limit
+        
+        current_high = df[high_col]
+        current_low = df[low_col]
+        
+        # How far from upper limit (as % of circuit range)
+        extra_cols['pct_from_circuit_breaker'] = (
+            (circuit_upper - current_high) / (circuit_upper - circuit_lower + 1e-9)
+        ).fillna(0.5).clip(0, 1)  # 0 = at upper limit, 1 = at lower limit
+        
+        # 2. Previous Day Hit Upper Limit (Strong Bullish Signal)
+        prev_high = df[high_col].shift(1)
+        extra_cols['prev_hit_upper_limit'] = (
+            (prev_high >= circuit_upper.shift(1)).astype(int)
+        ).fillna(0)
+        
+        # 3. Bull Days Percentage in Last 10 Bars
+        returns_10 = df[close_col].diff() > 0
+        extra_cols['bull_days_10'] = (
+            returns_10.rolling(10).sum() / 10.0
+        ).fillna(0.5)  # % of up days
+        
+        # 4. Volume Dry-up Pattern (Low Volume = Accumulation)
+        if vol_col:
+            vol_ma_20 = df[vol_col].rolling(20).mean()
+            extra_cols['volume_dryup'] = (
+                df[vol_col] / (vol_ma_20 + 1e-9)
+            ).replace([np.inf, -np.inf], 1.0).fillna(1.0)
+            # < 0.7 = dry-up, > 1.3 = spike
 
     # Maintain Case-Sensitive Columns for other functions
     for c in ["Open", "High", "Low", "Close", "Volume"]:
@@ -688,6 +735,8 @@ def prepare_for_ai(
     use_volatility: bool = True,
     drop_labels: bool = True,
     barrier_mode: Optional[str] = None,
+    require_volume_confirmation: bool = False,  # Stricter labeling for EGX
+    min_volume_ratio: float = 0.8,  # Min volume as ratio to 20-day average
 ) -> pd.DataFrame:
     """
     Triple-barrier labeling used by training.
@@ -697,21 +746,34 @@ def prepare_for_ai(
     - "atr" mode: values are ATR multipliers like 2.0x ATR
 
     Target = 1 ONLY if Take Profit is hit BEFORE Stop Loss within the window.
+    
+    For EGX (require_volume_confirmation=True), label only when:
+    - TP hit within 5 days (not 20) AND
+    - Volume avg in those bars ≥ min_volume_ratio * 20-day average volume
     """
     if df.empty: return df
 
     out = df.copy()
+    
+    # Stricter labeling for EGX: reduce window to 5 days for higher precision
+    effective_look_forward = 5 if require_volume_confirmation else look_forward_days
     
     # التأكد من وجود الأعمدة الأساسية
     close_col = "Close" if "Close" in out.columns else "close"
     high_col = "High" if "High" in out.columns else "high"
     low_col = "Low" if "Low" in out.columns else "low"
     open_col = "Open" if "Open" in out.columns else ("open" if "open" in out.columns else close_col)
+    volume_col = "Volume" if "Volume" in out.columns else ("volume" if "volume" in out.columns else None)
     resolved_mode = _resolve_barrier_mode(target_pct, stop_loss_pct, barrier_mode)
     
     if "ATR_14" not in out.columns:
         # حساب بديل سريع للـ ATR لو مش موجود
         out["ATR_14"] = out[close_col].rolling(14).std().bfill()
+    
+    # حساب متوسط الحجم على 20 يوم (لتأكيد volume)
+    volume_ma_20 = None
+    if require_volume_confirmation and volume_col:
+        volume_ma_20 = out[volume_col].rolling(20).mean()
 
     # الدخول من افتتاح اليوم التالي لمنع تسريب البيانات (Look-ahead Bias)
     out['entry_price'] = out[open_col].shift(-1)
@@ -732,22 +794,41 @@ def prepare_for_ai(
     low_vals = out[low_col].values
     tp_vals = out['tp_barrier'].values
     sl_vals = out['sl_barrier'].values
+    volume_vals = out[volume_col].values if volume_col else None
+    vol_ma_vals = volume_ma_20.values if volume_ma_20 is not None else None
     
+    # Vectorized approach: for each row, check if TP or SL was hit in next look_forward_days bars
     targets = np.zeros(len(out), dtype=int)
     
-    # حلقة سريعة لمعرفة أي حاجز انضرب الأول (Take Profit أم Stop Loss)
-    for i in range(len(out) - look_forward_days - 1):
+    for i in range(len(out) - effective_look_forward - 1):
         if not np.isfinite(tp_vals[i]) or not np.isfinite(sl_vals[i]):
             continue
-            
-        for j in range(1, look_forward_days + 1):
-            idx = i + j
-            if high_vals[idx] >= tp_vals[i]:
-                targets[i] = 1  # الهدف انضرب الأول
-                break
-            if low_vals[idx] <= sl_vals[i]:
-                targets[i] = 0  # الاستوب انضرب الأول
-                break
+        
+        # Vectorized: check if any high in the window >= TP
+        high_window = high_vals[i+1:i+effective_look_forward+1]
+        low_window = low_vals[i+1:i+effective_look_forward+1]
+        
+        tp_hit = np.any(high_window >= tp_vals[i])
+        sl_hit = np.any(low_window <= sl_vals[i])
+        
+        # For EGX: require volume confirmation on TP bars
+        volume_confirmed = True
+        if require_volume_confirmation and volume_vals is not None and vol_ma_vals is not None:
+            if tp_hit and vol_ma_vals[i] > 0:
+                # Check if volume during TP bars was above threshold
+                tp_idx = np.argmax(high_window >= tp_vals[i])
+                window_volume = volume_vals[i+1:i+tp_idx+2]
+                volume_confirmed = np.mean(window_volume) >= vol_ma_vals[i] * min_volume_ratio
+        
+        if tp_hit and not sl_hit and volume_confirmed:
+            targets[i] = 1  # TP hit first + volume confirmed
+        elif sl_hit and not tp_hit:
+            targets[i] = 0  # SL hit first
+        else:
+            # Both or neither hit: check which happened first
+            tp_idx = np.argmax(high_window >= tp_vals[i]) if tp_hit else len(high_window)
+            sl_idx = np.argmax(low_window <= sl_vals[i]) if sl_hit else len(low_window)
+            targets[i] = 1 if (tp_idx < sl_idx and volume_confirmed) else 0
                 
     out['Target'] = targets
     
@@ -1419,6 +1500,77 @@ class ModelTrainer:
             
         self._progress(f"Selected {len(self.predictors)} predictors (Preset: {preset})")
 
+    def get_walk_forward_splits(self, df: pd.DataFrame, n_splits: int = 5):
+        """
+        Generate walk-forward validation splits for time-series data.
+        
+        Each split = (train_idx, test_idx) where:
+        - Years 1-3 train, Year 4 test
+        - Years 1-4 train, Year 5 test
+        - ... etc
+        
+        This replaces random train_test_split for proper time-series validation.
+        """
+        if "Date" not in df.columns and df.index.name != "Date":
+            # Fallback: use row indices if Date not available
+            self._progress("⚠️ No Date column found. Using row-based walk-forward split.")
+            n_rows = len(df)
+            splits = []
+            for i in range(n_splits):
+                train_size = int(n_rows * (1 - 1/n_splits)) + int(i * n_rows / n_splits)
+                test_size = int(n_rows / n_splits)
+                train_idx = list(range(0, train_size))
+                test_idx = list(range(train_size, min(train_size + test_size, n_rows)))
+                if test_idx:
+                    splits.append((train_idx, test_idx))
+            return splits
+        
+        # Extract date column
+        date_col = df.index if df.index.name == "Date" else df["Date"]
+        dates = pd.to_datetime(date_col)
+        years = dates.dt.year.values
+        unique_years = sorted(np.unique(years))
+        
+        if len(unique_years) < 3:
+            self._progress(f"⚠️ Only {len(unique_years)} unique years. Falling back to 80-20 split.")
+            return [
+                (
+                    df.index[:-int(len(df)*0.2)].tolist(),
+                    df.index[-int(len(df)*0.2):].tolist()
+                )
+            ]
+        
+        splits = []
+        min_train_years = 2
+        
+        for test_year_idx in range(len(unique_years) - 1):
+            test_year = unique_years[test_year_idx + 1]
+            train_years = unique_years[:test_year_idx + 1]
+            
+            if len(train_years) < min_train_years:
+                continue
+            
+            train_mask = np.isin(years, train_years)
+            test_mask = years == test_year
+            
+            train_idx = df.index[train_mask].tolist()
+            test_idx = df.index[test_mask].tolist()
+            
+            if len(test_idx) > 0:
+                splits.append((train_idx, test_idx))
+        
+        if not splits:
+            self._progress("Could not create walk-forward splits. Using simple 80-20 split.")
+            splits = [
+                (
+                    df.index[:-int(len(df)*0.2)].tolist(),
+                    df.index[-int(len(df)*0.2):].tolist()
+                )
+            ]
+        
+        self._progress(f"📊 Generated {len(splits)} walk-forward splits (proper time-series validation)")
+        return splits
+
     def optimize_hyperparameters(self, df_train: pd.DataFrame, n_trials: int = 75, patience: int = 50) -> Dict[str, Any]:
         """
         Use Optuna to find the best hyperparameters for LightGBM.
@@ -1433,12 +1585,27 @@ class ModelTrainer:
 
         self._progress(f"Starting Hyperparameter Optimization with Optuna for EGX ({n_trials} trials)...")
         self._progress("Strategy: Fixed LR=0.01, Objective=(AUC+Precision)/2, Constrained Trees")
+        self._progress("Using Walk-Forward Validation (time-series aware) instead of random split")
         
         X = df_train[self.predictors]
         # Clean data BEFORE splitting to ensure types are consistent
         X = self._clean_dataset(X)
         y = df_train["Target"]
-        X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, shuffle=False)
+        
+        # Use walk-forward splits instead of random split
+        splits = self.get_walk_forward_splits(df_train, n_splits=5)
+        if not splits:
+            # Fallback to simple split
+            train_idx = list(range(int(len(X) * 0.8)))
+            val_idx = list(range(int(len(X) * 0.8), len(X)))
+            splits = [(train_idx, val_idx)]
+        
+        # Use the first split for optimization (can use ensemble of splits in production)
+        train_idx, val_idx = splits[0]
+        X_train = X.iloc[train_idx]
+        y_train = y.iloc[train_idx]
+        X_val = X.iloc[val_idx]
+        y_val = y.iloc[val_idx]
 
         def objective(trial):
             # 1. Constrained Search Space
@@ -1953,6 +2120,14 @@ class ModelTrainer:
         
         with open(filepath, "wb") as f:
             pickle.dump(artifact if booster else model, f)
+        
+        # Also save booster in text format for version compatibility
+        if booster:
+            booster_txt_path = filepath.replace(".pkl", "_booster.txt")
+            try:
+                booster.save_model(booster_txt_path)
+            except Exception as e:
+                print(f"Warning: Could not save booster text model: {e}", flush=True)
             
         try:
             uses_fundamentals = False
@@ -2082,6 +2257,20 @@ class ModelTrainer:
 
         with open(filepath, "wb") as f:
             pickle.dump(artifact, f)
+        
+        # Also save boosters in text format for version compatibility
+        try:
+            primary_booster = primary_artifact.get("booster")
+            if primary_booster:
+                primary_txt_path = filepath.replace(".pkl", "_primary_booster.txt")
+                primary_booster.save_model(primary_txt_path)
+            
+            meta_booster = meta_model.booster_ if hasattr(meta_model, "booster_") else meta_model.b if hasattr(meta_model, "b") else None
+            if meta_booster:
+                meta_txt_path = filepath.replace(".pkl", "_meta_booster.txt")
+                meta_booster.save_model(meta_txt_path)
+        except Exception as e:
+            print(f"Warning: Could not save booster text models: {e}", flush=True)
 
         try:
             uses_fundamentals = False

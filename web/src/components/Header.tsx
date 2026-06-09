@@ -4,7 +4,8 @@ import Link from "next/link";
 import Image from "next/image";
 import { usePathname, useSearchParams, useRouter } from "next/navigation";
 import { useLanguage } from "@/contexts/LanguageContext";
-import { Globe, BarChart2, Brain, Activity, Menu, X, User, ChevronDown, ArrowLeftRight, Search, Loader2 } from "lucide-react";
+import { useTheme } from "@/contexts/ThemeContext";
+import { Globe, BarChart2, Brain, Activity, Menu, X, User, ChevronDown, ArrowLeftRight, Search, Loader2, Sun, Moon } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { searchSymbols } from "@/lib/api";
@@ -19,6 +20,7 @@ const POPULAR_EGX_STOCKS = [
 
 export default function Header() {
     const { language, setLanguage, t } = useLanguage();
+    const { theme, toggleTheme } = useTheme();
     const { user, signOut } = useAuth();
     const pathname = usePathname();
     const searchParams = useSearchParams();
@@ -111,17 +113,17 @@ export default function Header() {
     return (
         <header className="fixed top-3 left-0 right-0 z-[100] px-3 sm:px-6 md:px-8 header-stable">
             <div className="mx-auto max-w-[1800px] w-full">
-                <div className="flex items-center justify-between rounded-2xl sm:rounded-[2rem] border border-white/10 bg-zinc-950/40 backdrop-blur-3xl px-3 sm:px-6 py-2.5 sm:py-3.5 shadow-[0_20px_50px_rgba(0,0,0,0.5)] ring-1 ring-white/5 transition-all duration-500 hover:border-white/20">
+                <div className="app-header-surface flex items-center justify-between rounded-2xl sm:rounded-[2rem] px-3 sm:px-6 py-2.5 sm:py-3.5 ring-1 ring-white/5 transition-all duration-500 hover:border-white/20">
                     {/* Brand / Logo */}
                     <div className="flex items-center gap-2 sm:gap-6">
                         <Link href="/" className="group flex items-center gap-2 sm:gap-3">
                             <div className="relative transition-all duration-500 group-hover:rotate-12 group-hover:scale-110 flex-shrink-0">
                                 <Image
-                                    src="/favicon_io/apple-touch-icon.png?v=2"
+                                    src="/brand-mark.svg"
                                     alt="EGX Bots logo"
                                     width={36}
                                     height={36}
-                                    className="object-contain sm:w-11 sm:h-11"
+                                    className="object-contain sm:w-11 sm:h-11 drop-shadow-[0_10px_30px_rgba(79,70,229,0.25)]"
                                     priority
                                 />
                             </div>
@@ -141,7 +143,7 @@ export default function Header() {
                         {/* Desktop Search Engine */}
                         <div id="header-search-container" className={`relative hidden md:block transition-all duration-300 ease-in-out ${searchFocused ? "w-72 lg:w-96" : "w-48 lg:w-64"}`}>
                             <div className="relative flex items-center">
-                                <Search className="absolute left-3 w-4 h-4 text-zinc-500" />
+                                <Search className="absolute left-3 w-4 h-4 text-zinc-500 light:text-slate-500" />
                                 <input
                                     id="header-search-input"
                                     type="text"
@@ -149,16 +151,16 @@ export default function Header() {
                                     value={searchQuery}
                                     onChange={(e) => setSearchQuery(e.target.value)}
                                     onFocus={() => setSearchFocused(true)}
-                                    className="h-9 w-full rounded-xl border border-white/10 bg-zinc-900/40 pl-9 pr-8 text-xs font-semibold text-white placeholder:text-zinc-600 outline-none focus:border-white/20 focus:ring-1 focus:ring-white/5 transition-all"
+                                    className="app-control h-9 w-full rounded-xl pl-9 pr-8 text-xs font-semibold outline-none focus:border-white/20 focus:ring-1 focus:ring-white/5 transition-all"
                                 />
-                                <kbd className="absolute right-3 px-1.5 py-0.5 rounded bg-zinc-950 border border-white/5 text-[9px] font-mono text-zinc-600 pointer-events-none uppercase">
+                                <kbd className="app-chip absolute right-3 px-1.5 py-0.5 rounded text-[9px] font-mono pointer-events-none uppercase">
                                     /
                                 </kbd>
                             </div>
 
                             {/* Dropdown Overlay */}
                             {searchFocused && (
-                                <div className="absolute top-11 left-0 right-0 max-h-80 overflow-y-auto rounded-2xl border border-white/10 bg-zinc-950/95 backdrop-blur-2xl shadow-2xl p-1.5 z-50 animate-in fade-in slide-in-from-top-1 duration-200">
+                                <div className="app-panel-strong absolute top-11 left-0 right-0 max-h-80 overflow-y-auto rounded-2xl p-1.5 z-50 animate-in fade-in slide-in-from-top-1 duration-200">
                                     {!searchQuery.trim() ? (
                                         <div className="flex flex-col gap-0.5">
                                             <div className="px-3 py-1.5 text-[9px] font-bold text-zinc-500 uppercase tracking-wider">
@@ -225,7 +227,7 @@ export default function Header() {
                         </div>
 
                         {/* Desktop Navigation */}
-                        <nav className="hidden lg:flex flex-row flex-nowrap items-center gap-1 ml-2 xl:ml-4 py-1 px-1 rounded-xl bg-white/5 border border-white/5">
+                        <nav className="app-soft-panel hidden lg:flex flex-row flex-nowrap items-center gap-1 ml-2 xl:ml-4 py-1 px-1 rounded-xl">
                             {navItems.map((item) => {
                                 const isActive = checkActive(item.href, item.activePath);
                                 return (
@@ -258,10 +260,24 @@ export default function Header() {
 
                     {/* Actions */}
                     <div className="flex items-center gap-1.5 sm:gap-2">
+                        {/* Theme Toggle — hidden on mobile (inside mobile menu) */}
+                        <button
+                            onClick={toggleTheme}
+                            className="app-icon-button hidden sm:flex items-center justify-center h-9 w-9 rounded-xl transition-all duration-300"
+                            title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+                            aria-label="Toggle theme"
+                        >
+                            {theme === "dark" ? (
+                                <Sun className="h-4 w-4" />
+                            ) : (
+                                <Moon className="h-4 w-4" />
+                            )}
+                        </button>
+
                         {/* Language Switcher — hidden on mobile (inside mobile menu) */}
                         <button
                             onClick={() => setLanguage(language === "ar" ? "en" : "ar")}
-                            className="hidden sm:flex items-center justify-center gap-1.5 h-9 px-2 rounded-xl border border-white/5 bg-white/5 text-zinc-400 hover:text-white transition-all text-xs font-bold w-9 xl:w-20 language-switch"
+                            className="app-icon-button hidden sm:flex items-center justify-center gap-1.5 h-9 px-2 rounded-xl transition-all text-xs font-bold w-9 xl:w-20 language-switch"
                             title={language === "ar" ? "Switch to English" : "تغيير إلى العربية"}
                         >
                             <Globe className="h-4 w-4" />
@@ -273,7 +289,7 @@ export default function Header() {
                             <div className="relative hidden sm:block">
                                 <button
                                     onClick={() => setAccountMenuOpen(!accountMenuOpen)}
-                                    className={`flex items-center gap-2 h-9 px-3 rounded-xl border transition-all ${accountMenuOpen ? "bg-white/10 border-white/20 text-white" : "bg-white/5 border-white/5 text-zinc-400 hover:text-white"}`}
+                                    className={`h-9 px-3 rounded-xl transition-all ${accountMenuOpen ? "app-panel text-white" : "app-icon-button hover:text-white"} flex items-center gap-2`}
                                 >
                                     <div className="w-5 h-5 rounded-full bg-gradient-to-br from-zinc-700 to-zinc-800 flex items-center justify-center border border-white/10">
                                         <User className="h-3 w-3" />
@@ -282,7 +298,7 @@ export default function Header() {
                                 </button>
 
                                 {accountMenuOpen && (
-                                    <div className="absolute right-0 mt-3 w-56 p-1.5 rounded-2xl border border-white/10 bg-zinc-950/90 backdrop-blur-2xl shadow-2xl animate-in fade-in slide-in-from-top-2 duration-200">
+                                    <div className="app-panel-strong absolute right-0 mt-3 w-56 p-1.5 rounded-2xl animate-in fade-in slide-in-from-top-2 duration-200">
                                         <div className="px-3 py-2 mb-1 border-b border-white/5">
                                             <p className="text-[10px] uppercase tracking-widest font-bold text-zinc-500">{t("account.label")}</p>
                                             <p className="text-xs font-medium text-zinc-300 truncate">{user.email}</p>
@@ -310,7 +326,7 @@ export default function Header() {
                         ) : (
                             <Link
                                 href="/login"
-                                className="hidden sm:flex h-9 px-5 items-center rounded-xl bg-white text-zinc-950 text-xs font-bold uppercase tracking-wider hover:bg-zinc-200 transition-all shadow-lg shadow-white/5"
+                                className="app-primary-action hidden sm:flex h-9 px-5 items-center rounded-xl text-xs font-bold uppercase tracking-wider transition-all"
                             >
                                 {t("auth.login")}
                             </Link>
@@ -319,7 +335,7 @@ export default function Header() {
                         {/* Hamburger — mobile only, always visible */}
                         <button
                             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-                            className="lg:hidden h-9 w-9 flex items-center justify-center rounded-xl bg-white/5 border border-white/10 text-white hover:bg-white/10 transition-all flex-shrink-0"
+                            className="app-icon-button lg:hidden h-9 w-9 flex items-center justify-center rounded-xl hover:bg-white/10 transition-all flex-shrink-0"
                             aria-label="Toggle menu"
                         >
                             {mobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
@@ -336,13 +352,13 @@ export default function Header() {
                             onClick={() => setMobileMenuOpen(false)}
                             aria-hidden="true"
                         />
-                        <div className="lg:hidden mt-6 rounded-2xl border border-white/10 bg-zinc-950/98 backdrop-blur-2xl shadow-2xl animate-in slide-in-from-top-2 duration-200 overflow-hidden relative z-[101]">
+                        <div className="app-panel-strong lg:hidden mt-6 rounded-2xl animate-in slide-in-from-top-2 duration-200 overflow-hidden relative z-[101]">
                             {/* Close button at top right */}
                             <div className="flex items-center justify-between px-3 pt-2.5 pb-1">
                                 <span className="text-[9px] font-black uppercase tracking-[0.2em] text-zinc-600">Menu</span>
                                 <button
                                     onClick={() => setMobileMenuOpen(false)}
-                                    className="h-7 w-7 flex items-center justify-center rounded-lg bg-white/5 hover:bg-white/10 text-zinc-500 hover:text-white transition-all"
+                                    className="app-icon-button h-7 w-7 flex items-center justify-center rounded-lg hover:bg-white/10 transition-all"
                                     aria-label="Close menu"
                                 >
                                     <X className="h-3.5 w-3.5" />
@@ -378,11 +394,23 @@ export default function Header() {
 
                             <div className="h-px bg-white/5 mx-3" />
 
-                            {/* Bottom Row: Language + Account */}
+                            {/* Bottom Row: Language + Theme + Account */}
                             <div className="flex items-center gap-2 p-2">
                                 <button
+                                    onClick={toggleTheme}
+                                    className="app-icon-button flex items-center justify-center h-8 w-8 rounded-xl transition-all"
+                                    title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+                                    aria-label="Toggle theme"
+                                >
+                                    {theme === "dark" ? (
+                                        <Sun className="h-3.5 w-3.5" />
+                                    ) : (
+                                        <Moon className="h-3.5 w-3.5" />
+                                    )}
+                                </button>
+                                <button
                                     onClick={() => setLanguage(language === "ar" ? "en" : "ar")}
-                                    className="flex items-center gap-1.5 h-8 px-3 rounded-xl border border-white/10 bg-white/5 text-zinc-400 hover:text-white transition-all text-xs font-bold flex-1 justify-center"
+                                    className="app-icon-button flex items-center gap-1.5 h-8 px-3 rounded-xl transition-all text-xs font-bold flex-1 justify-center"
                                 >
                                     <Globe className="h-3.5 w-3.5" />
                                     <span>{language === "ar" ? "English" : "العربية"}</span>
@@ -390,7 +418,7 @@ export default function Header() {
                                 {!user ? (
                                     <Link
                                         href="/login"
-                                        className="flex items-center justify-center h-8 px-4 rounded-xl bg-blue-600 text-white text-xs font-bold uppercase flex-1"
+                                        className="app-primary-action flex items-center justify-center h-8 px-4 rounded-xl text-xs font-bold uppercase flex-1"
                                     >
                                         {t("auth.login")}
                                     </Link>
@@ -398,7 +426,7 @@ export default function Header() {
                                     <>
                                         <Link
                                             href="/profile"
-                                            className="flex items-center justify-center gap-1.5 h-8 px-3 rounded-xl border border-white/10 bg-white/5 text-zinc-400 hover:text-white text-xs font-bold flex-1"
+                                            className="app-icon-button flex items-center justify-center gap-1.5 h-8 px-3 rounded-xl text-xs font-bold flex-1"
                                         >
                                             <User className="h-3.5 w-3.5" />
                                         </Link>
