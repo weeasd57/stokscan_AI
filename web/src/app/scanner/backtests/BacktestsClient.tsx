@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useMemo } from "react";
+import { createPortal } from "react-dom";
 import { Loader2, Brain, Activity, UserPlus, Zap, Settings2, BarChart2, Calendar, Target, Clock, AlertTriangle, ChevronDown, Check, X, ShieldAlert, LineChart, FileText, Download, TrendingUp, Layers, Database, Play, EyeOff, UserMinus, Search, RefreshCw, ShieldCheck, HelpCircle, ArrowRightLeft, Lock, Volume2, VolumeX, Edit, Eye, Cpu, History, Sparkles } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { getBacktests, getBacktestTrades } from "@/lib/api";
@@ -317,6 +318,15 @@ export default function AIScannerPage() {
     useEffect(() => {
         setMounted(true);
     }, []);
+
+    useEffect(() => {
+        if (!selectedTrade) return;
+        const prev = document.body.style.overflow;
+        document.body.style.overflow = "hidden";
+        return () => {
+            document.body.style.overflow = prev;
+        };
+    }, [selectedTrade]);
 
     const [selectedMetric, setSelectedMetric] = useState<"netProfit" | "winRate" | "avgReturn">("netProfit");
 
@@ -2090,10 +2100,20 @@ export default function AIScannerPage() {
                     )}
                 </div>
             )}
-            {selectedTrade && (
-                <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/70 backdrop-blur-md animate-in fade-in duration-200" dir="rtl" style={{ direction: 'rtl' }}>
-                    <div className="absolute inset-0" onClick={() => setSelectedTrade(null)} />
-                    <div className="relative w-full max-w-2xl max-h-[90vh] overflow-hidden bg-zinc-950 border border-white/10 rounded-[2rem] shadow-2xl flex flex-col animate-in zoom-in-95 duration-200">
+            {mounted && selectedTrade && createPortal(
+                <div
+                    className="fixed inset-0 z-[500] flex items-center justify-center p-3 sm:p-6 bg-black/80 backdrop-blur-md animate-in fade-in duration-200"
+                    dir="rtl"
+                    style={{ direction: "rtl" }}
+                    role="dialog"
+                    aria-modal="true"
+                    aria-label={language === "ar" ? "تفاصيل الصفقة" : "Trade details"}
+                >
+                    <div className="absolute inset-0" onClick={() => setSelectedTrade(null)} aria-hidden="true" />
+                    <div
+                        className="relative z-[501] w-full max-w-4xl max-h-[calc(100vh-1.5rem)] overflow-hidden bg-zinc-950 border border-white/10 rounded-[2rem] shadow-2xl flex flex-col animate-in zoom-in-95 duration-200"
+                        onClick={(e) => e.stopPropagation()}
+                    >
                         {/* Header */}
                         <div className="p-5 border-b border-white/5 flex items-center justify-between bg-zinc-900/40">
                             <div className="flex items-center gap-3">
@@ -2110,8 +2130,9 @@ export default function AIScannerPage() {
                             <button 
                                 onClick={() => setSelectedTrade(null)} 
                                 className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-zinc-500 hover:text-white transition-all border border-white/5"
+                                aria-label={language === "ar" ? "إغلاق" : "Close"}
                             >
-                                <ChevronDown className="h-4 w-4 rotate-180" />
+                                <X className="h-4 w-4" />
                             </button>
                         </div>
 
@@ -2150,7 +2171,7 @@ export default function AIScannerPage() {
                                         <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-emerald-300" />بيع ربح</span>
                                     </div>
                                 </div>
-                                <div className="h-[300px] w-full rounded-2xl border border-white/5 overflow-hidden bg-[#131722]" dir="ltr">
+                                <div className="h-[min(52vh,420px)] w-full rounded-2xl border border-white/5 overflow-hidden bg-[#131722]" dir="ltr">
                                     {(() => {
                                         const toUnix = (raw: string | undefined): number | null => {
                                             if (!raw) return null;
@@ -2370,7 +2391,8 @@ export default function AIScannerPage() {
                             </div>
                         </div>
                     </div>
-                </div>
+                </div>,
+                document.body
             )}
         </div>
     );

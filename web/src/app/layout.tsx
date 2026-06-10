@@ -10,10 +10,12 @@ export const metadata = {
   manifest: "/favicon_io/site.webmanifest",
   icons: {
     icon: [
-      { url: "/brand-mark.svg", type: "image/svg+xml" },
+      { url: "/favicon_io/favicon.ico", type: "image/x-icon" },
+      { url: "/favicon_io/favicon-32x32.png", type: "image/png", sizes: "32x32" },
+      { url: "/favicon_io/favicon-16x16.png", type: "image/png", sizes: "16x16" }
     ],
-    shortcut: "/brand-mark.svg",
-    apple: "/brand-mark.svg",
+    shortcut: "/favicon_io/favicon.ico",
+    apple: "/favicon_io/apple-touch-icon.png",
   },
   robots: {
     index: true,

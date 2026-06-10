@@ -3,11 +3,18 @@ const nextConfig = {
   reactStrictMode: true,
   async rewrites() {
     console.log("Using Python Path:", process.env.PYTHON_PATH || "Default System Python");
-    const BACKEND_URL =
+    // Rewrites must target the Python backend only — never the Next.js origin.
+    let backendUrl =
       process.env.PYTHON_BACKEND_URL ||
-      process.env.NEXT_PUBLIC_API_BASE_URL ||
       "http://127.0.0.1:8000";
-    console.log("Using Python Backend URL:", BACKEND_URL);
+    if (/localhost:3000|:3000\b/.test(backendUrl)) {
+      console.warn(
+        "[next.config] Ignoring backend URL pointing at Next.js dev server; using http://127.0.0.1:8000"
+      );
+      backendUrl = "http://127.0.0.1:8000";
+    }
+    console.log("Using Python Backend URL:", backendUrl);
+    const BACKEND_URL = backendUrl.replace(/\/$/, "");
     return [
       {
         source: '/api/:path*',
