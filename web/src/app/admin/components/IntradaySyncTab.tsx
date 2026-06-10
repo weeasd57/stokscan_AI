@@ -4,8 +4,9 @@ import React, { useState, useEffect, useMemo } from "react";
 import { 
     Loader2, Play, Pause, RotateCcw, AlertTriangle, CheckCircle, 
     Database, Clock, RefreshCw, Search, ChevronLeft, ChevronRight,
-    ArrowUpDown, ShieldAlert, BadgeAlert, Sparkles, Download, Trash2, Zap, Info, X
+    ArrowUpDown, ShieldAlert, BadgeAlert, Sparkles, Download, Trash2, Zap, Info, X, History as HistoryIcon, Save
 } from "lucide-react";
+import * as Switch from "@radix-ui/react-switch";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { toast } from "sonner";
 
@@ -24,12 +25,27 @@ interface SyncState {
     missing_symbols: string[];
     batch_size: number;
     timeframe: string;
+    provider?: "tradingview" | "eodhd";
+    sync_days?: number;
+    catchup_status?: "idle" | "running";
+    catchup_progress?: { processed: number; total: number; remaining: number };
     total_symbols: number;
     symbols_list: string[];
     completed_details?: CompletedDetailsRow[];
     failed_reasons?: Record<string, string>;
     last_batch_logs?: string[];
     message?: string;
+    run_history?: Array<{ run_at: string; status: string; source?: string; summary?: string }>;
+    scheduler?: {
+        enabled: boolean;
+        run_time: string;
+        last_run_date: string | null;
+        total_runs: number;
+        status?: string;
+        last_run_at?: string | null;
+        last_run_status?: string | null;
+    };
+    scheduler_logs?: string[];
 }
 
 export default function IntradaySyncTab() {
@@ -40,6 +56,12 @@ export default function IntradaySyncTab() {
     const [resetting, setResetting] = useState(false);
     const [batchSizeInput, setBatchSizeInput] = useState(5);
     const [timeframeInput, setTimeframeInput] = useState("15m");
+    const [providerInput, setProviderInput] = useState<"tradingview" | "eodhd">("tradingview");
+    const [catchupLoading, setCatchupLoading] = useState(false);
+    const [savingProvider, setSavingProvider] = useState(false);
+    const [savingScheduler, setSavingScheduler] = useState(false);
+    const [schedulerEnabled, setSchedulerEnabled] = useState(false);
+    const [schedulerRunTime, setSchedulerRunTime] = useState("15:45");
     const [symbolNames, setSymbolNames] = useState<Record<string, string>>({});
     const [syncDays, setSyncDays] = useState<number>(180);
     const [bulkSyncProgress, setBulkSyncProgress] = useState<{ current: number; total: number; lastMsg: string } | null>(null);
@@ -197,6 +219,12 @@ export default function IntradaySyncTab() {
             if (data) {
                 setBatchSizeInput(data.batch_size || 5);
                 setTimeframeInput(data.timeframe || "15m");
+                setProviderInput(data.provider === "eodhd" ? "eodhd" : "tradingview");
+                if (data.sync_days) setSyncDays(data.sync_days);
+                if (data.scheduler) {
+                    setSchedulerEnabled(!!data.scheduler.enabled);
+                    setSchedulerRunTime(data.scheduler.run_time || "15:45");
+                }
             }
         } catch (err) {
             console.error("Failed to load intraday sync state:", err);
@@ -259,6 +287,8 @@ export default function IntradaySyncTab() {
                     enabled: nextEnabled,
                     batch_size: batchSizeInput,
                     timeframe: timeframeInput,
+                    provider: providerInput,
+                    sync_days: syncDays,
                 }),
             });
             if (!res.ok) throw new Error("Failed to toggle sync");
@@ -272,6 +302,66 @@ export default function IntradaySyncTab() {
             toast.error("Error: " + err);
         } finally {
             setToggling(false);
+        }
+    };
+
+    const handleProviderChange = async (next: "tradingview" | "eodhd") => {
+        setProviderInput(next);
+        setSavingProvider(true);
+        try {
+            const res = await fetch("/api/admin/intraday-sync/provider", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ provider: next }),
+            });
+            if (!res.ok) throw new Error("Failed to set provider");
+            toast.success(
+                language === "ar"
+                    ? `تم التبديل إلى ${next === "eodhd" ? "EODHD" : "TradingView"}`
+                    : `Provider set to ${next === "eodhd" ? "EODHD" : "TradingView"}`
+            );
+            await fetchState();
+        } catch (err) {
+            toast.error("Error: " + err);
+        } finally {
+            setSavingProvider(false);
+        }
+    };
+
+    const handleSmartCatchup = async () => {
+        setCatchupLoading(true);
+        try {
+            const res = await fetch("/api/admin/intraday-sync/smart-catchup", { method: "POST" });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data.detail || "Catch-up failed");
+            toast.success(
+                language === "ar"
+                    ? "بدأ التحديث الذكي من آخر بيانات لآخر يوم تداول"
+                    : "Smart catch-up started (last DB update → last market close)"
+            );
+            await fetchState();
+        } catch (err: any) {
+            toast.error(err.message || "Catch-up error");
+        } finally {
+            setCatchupLoading(false);
+        }
+    };
+
+    const handleSaveScheduler = async () => {
+        setSavingScheduler(true);
+        try {
+            const res = await fetch("/api/admin/intraday-scheduler/config", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ enabled: schedulerEnabled, run_time: schedulerRunTime }),
+            });
+            if (!res.ok) throw new Error("Failed to save scheduler");
+            toast.success(language === "ar" ? "تم حفظ جدول التحديث اليومي" : "Daily scheduler saved");
+            await fetchState();
+        } catch (err) {
+            toast.error("Error: " + err);
+        } finally {
+            setSavingScheduler(false);
         }
     };
 
@@ -441,17 +531,38 @@ export default function IntradaySyncTab() {
                     <div>
                         <h2 className="text-xl font-black text-white flex items-center gap-2">
                             {language === "ar" ? "مزامنة البيانات اللحظية (15m)" : "Intraday 15m Candles Sync"}
-                            <span className="text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded bg-indigo-500/20 border border-indigo-500/30 text-indigo-400">
-                                TV-INTEGRATED
+                            <span className={`text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded border ${
+                                providerInput === "eodhd"
+                                    ? "bg-amber-500/20 border-amber-500/30 text-amber-400"
+                                    : "bg-indigo-500/20 border-indigo-500/30 text-indigo-400"
+                            }`}>
+                                {providerInput === "eodhd" ? "EODHD" : "TV-INTEGRATED"}
                             </span>
                         </h2>
                         <p className="text-xs text-zinc-500 font-bold uppercase tracking-widest mt-1">
-                            {language === "ar" ? "تنزيل وتخزين شموع الـ 15 دقيقة من TradingView لجميع الأسهم المصرية" : "Download and store 15-minute candles from TradingView for all EGX symbols"}
+                            {language === "ar"
+                                ? "تنزيل وتخزين شموع الـ 15 دقيقة — TradingView أو EODHD"
+                                : "Download and store 15-minute candles via TradingView or EODHD"}
                         </p>
                     </div>
                 </div>
 
-                <div className="flex items-center gap-3">
+                <div className="flex flex-wrap items-center gap-3">
+                    <button
+                        onClick={handleSmartCatchup}
+                        disabled={catchupLoading || state?.catchup_status === "running"}
+                        className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-cyan-500/20 bg-cyan-500/10 text-cyan-400 hover:bg-cyan-500/20 text-xs font-black uppercase tracking-wider transition-all disabled:opacity-50"
+                    >
+                        {catchupLoading || state?.catchup_status === "running" ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                            <Zap className="w-4 h-4" />
+                        )}
+                        {state?.catchup_status === "running"
+                            ? (language === "ar" ? "جاري التحديث الذكي..." : "Smart Catch-up Running...")
+                            : (language === "ar" ? "تحديث ذكي" : "Smart Catch-up")}
+                    </button>
+
                     <button
                         onClick={handleToggle}
                         disabled={toggling}
@@ -557,7 +668,7 @@ export default function IntradaySyncTab() {
                 {/* Failed Card */}
                 <div className="p-5 rounded-2xl bg-zinc-950 border border-zinc-900 flex flex-col justify-between h-[120px]">
                     <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">
-                        {language === "ar" ? "فشلت / غير متوفرة على TV" : "Failed / Not on TV"}
+                        {language === "ar" ? "فشلت / غير متوفرة" : "Failed / Unavailable"}
                     </span>
                     <div className="text-2xl font-mono font-black text-rose-400 mt-1">
                         {failedCount}
@@ -578,6 +689,38 @@ export default function IntradaySyncTab() {
                             {language === "ar" ? "إعدادات المزامنة والتردد" : "Sync Config & Timeframe"}
                         </h3>
                         <div className="space-y-4">
+                            <div>
+                                <label className="block text-[9px] font-black text-zinc-500 uppercase tracking-widest mb-2">
+                                    {language === "ar" ? "مصدر البيانات (Provider)" : "Data Provider"}
+                                </label>
+                                <div className="grid grid-cols-2 gap-2">
+                                    <button
+                                        type="button"
+                                        disabled={savingProvider || state?.status === "syncing"}
+                                        onClick={() => handleProviderChange("tradingview")}
+                                        className={`h-10 rounded-xl border text-[10px] font-black uppercase tracking-wider transition-all ${
+                                            providerInput === "tradingview"
+                                                ? "bg-indigo-500/20 border-indigo-500/40 text-indigo-300"
+                                                : "bg-zinc-950 border-zinc-800 text-zinc-500 hover:border-zinc-700"
+                                        }`}
+                                    >
+                                        TradingView
+                                    </button>
+                                    <button
+                                        type="button"
+                                        disabled={savingProvider || state?.status === "syncing"}
+                                        onClick={() => handleProviderChange("eodhd")}
+                                        className={`h-10 rounded-xl border text-[10px] font-black uppercase tracking-wider transition-all ${
+                                            providerInput === "eodhd"
+                                                ? "bg-amber-500/20 border-amber-500/40 text-amber-300"
+                                                : "bg-zinc-950 border-zinc-800 text-zinc-500 hover:border-zinc-700"
+                                        }`}
+                                    >
+                                        EODHD
+                                    </button>
+                                </div>
+                            </div>
+
                             <div>
                                 <label className="block text-[9px] font-black text-zinc-500 uppercase tracking-widest mb-2">
                                     {language === "ar" ? "حجم الدفعة (عدد الأسهم في الدورة)" : "Batch Size (per 5-min cycle)"}
@@ -683,6 +826,108 @@ export default function IntradaySyncTab() {
                                     ? "لا توجد سجلات تحميل حديثة. ابدأ المزامنة للتشغيل." 
                                     : "No recent download logs. Click Start / Resume to begin."
                                 }
+                            </div>
+                        )}
+                    </div>
+                </div>
+            </div>
+
+            {/* Daily Scheduler & Run Reports */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div className="lg:col-span-1 p-6 rounded-3xl bg-zinc-900 border border-zinc-800 space-y-5">
+                    <h3 className="text-xs font-black text-white uppercase tracking-wider flex items-center gap-2">
+                        <Clock className="w-4 h-4 text-purple-400" />
+                        {language === "ar" ? "جدول التحديث اليومي" : "Daily Auto Catch-up"}
+                    </h3>
+                    <p className="text-[10px] text-zinc-500 leading-relaxed">
+                        {language === "ar"
+                            ? "تشغيل تلقائي مرة واحدة يومياً بعد إغلاق البورصة — يحدّث الأسهم من آخر بيانات لآخر يوم تداول."
+                            : "Runs once daily after market close — smart catch-up for all outdated EGX symbols."}
+                    </p>
+                    <div className="flex items-center justify-between p-3 rounded-xl bg-zinc-950 border border-zinc-800">
+                        <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">
+                            {language === "ar" ? "تفعيل الجدول" : "Enable Scheduler"}
+                        </span>
+                        <Switch.Root
+                            checked={schedulerEnabled}
+                            onCheckedChange={setSchedulerEnabled}
+                            className="w-11 h-6 bg-zinc-800 rounded-full relative data-[state=checked]:bg-purple-600 transition-colors outline-none cursor-pointer"
+                        >
+                            <Switch.Thumb className="block w-5 h-5 bg-white rounded-full transition-transform translate-x-0.5 data-[state=checked]:translate-x-[22px]" />
+                        </Switch.Root>
+                    </div>
+                    <div>
+                        <label className="block text-[9px] font-black text-zinc-500 uppercase tracking-widest mb-2">
+                            {language === "ar" ? "وقت التشغيل (توقيت القاهرة)" : "Run Time (Cairo)"}
+                        </label>
+                        <input
+                            type="time"
+                            value={schedulerRunTime}
+                            onChange={(e) => setSchedulerRunTime(e.target.value)}
+                            className="w-full h-10 px-4 rounded-xl bg-zinc-950 border border-zinc-800 text-xs text-white focus:outline-none focus:border-purple-500/50"
+                        />
+                    </div>
+                    <button
+                        onClick={handleSaveScheduler}
+                        disabled={savingScheduler}
+                        className="w-full flex items-center justify-center gap-2 h-10 rounded-xl border border-purple-500/30 bg-purple-500/10 text-purple-300 text-[10px] font-black uppercase tracking-wider hover:bg-purple-500/20 disabled:opacity-50"
+                    >
+                        {savingScheduler ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                        {language === "ar" ? "حفظ الجدول" : "Save Schedule"}
+                    </button>
+                    <div className="text-[9px] text-zinc-600 font-mono space-y-1 pt-2 border-t border-zinc-800">
+                        <div>{language === "ar" ? "آخر تشغيل:" : "Last run:"} {state?.scheduler?.last_run_at ? formatTs(state.scheduler.last_run_at) : "—"}</div>
+                        <div>{language === "ar" ? "إجمالي التشغيلات:" : "Total runs:"} {state?.scheduler?.total_runs ?? 0}</div>
+                        <div>{language === "ar" ? "الحالة:" : "Status:"} {state?.scheduler?.last_run_status ?? "—"}</div>
+                    </div>
+                </div>
+
+                <div className="lg:col-span-2 p-6 rounded-3xl bg-zinc-900 border border-zinc-800 flex flex-col min-h-[220px]">
+                    <h3 className="text-xs font-black text-white uppercase tracking-wider flex items-center gap-2 mb-4">
+                        <HistoryIcon className="w-4 h-4 text-zinc-400" />
+                        {language === "ar" ? "تقارير التشغيل اليومي" : "Daily Run Reports"}
+                    </h3>
+                    {state?.catchup_status === "running" && state.catchup_progress && (
+                        <div className="mb-4 p-3 rounded-xl bg-cyan-500/5 border border-cyan-500/20">
+                            <div className="flex justify-between text-[10px] font-bold text-cyan-400 mb-1.5">
+                                <span>{language === "ar" ? "تقدم التحديث الذكي" : "Smart Catch-up Progress"}</span>
+                                <span>
+                                    {state.catchup_progress.processed}/{state.catchup_progress.total}
+                                    {state.catchup_progress.remaining > 0 && ` (${state.catchup_progress.remaining} left)`}
+                                </span>
+                            </div>
+                            <div className="h-1.5 w-full rounded-full bg-zinc-950 overflow-hidden">
+                                <div
+                                    className="h-full bg-cyan-500 transition-all"
+                                    style={{
+                                        width: state.catchup_progress.total > 0
+                                            ? `${(state.catchup_progress.processed / state.catchup_progress.total) * 100}%`
+                                            : "0%",
+                                    }}
+                                />
+                            </div>
+                        </div>
+                    )}
+                    <div className="flex-1 overflow-y-auto space-y-2 max-h-[200px] custom-scrollbar">
+                        {(state?.run_history?.length ?? 0) > 0 ? (
+                            state!.run_history!.map((entry, i) => (
+                                <div key={i} className="flex items-start justify-between gap-3 p-3 rounded-xl bg-zinc-950 border border-zinc-800 text-[10px]">
+                                    <div>
+                                        <div className="font-mono text-zinc-400">{formatTs(entry.run_at)}</div>
+                                        <div className="text-zinc-300 mt-0.5">{entry.summary || entry.source || "—"}</div>
+                                    </div>
+                                    <span className={`shrink-0 px-2 py-0.5 rounded font-black uppercase tracking-wider ${
+                                        entry.status === "ok" ? "bg-emerald-500/10 text-emerald-400" :
+                                        entry.status === "partial" ? "bg-amber-500/10 text-amber-400" :
+                                        "bg-rose-500/10 text-rose-400"
+                                    }`}>
+                                        {entry.status}
+                                    </span>
+                                </div>
+                            ))
+                        ) : (
+                            <div className="text-zinc-600 text-xs text-center py-8">
+                                {language === "ar" ? "لا توجد تقارير بعد — شغّل التحديث الذكي أو فعّل الجدول اليومي" : "No run reports yet — use Smart Catch-up or enable daily scheduler"}
                             </div>
                         )}
                     </div>
