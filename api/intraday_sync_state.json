@@ -1,6 +1,6 @@
 {
     "status": "idle",
-    "last_run": "2026-06-08T01:46:55.596240",
+    "last_run": "2026-06-10T03:10:31.358510",
     "completed_symbols": [
         "AALR",
         "ABUK",
@@ -156,6 +156,7 @@
         "MIPH",
         "MOED",
         "MOIL",
+        "MOIN",
         "MOSC",
         "MPCI",
         "MPCO",
@@ -196,6 +197,7 @@
         "RMDA",
         "ROTO",
         "RREI",
+        "RTVC",
         "RUBX",
         "SAIB",
         "SAUD",
@@ -205,6 +207,7 @@
         "SDTI",
         "SEIG",
         "SIPC",
+        "SKPC",
         "SMFR",
         "SMPP",
         "SNFC",
@@ -213,6 +216,7 @@
         "SPMD",
         "SUCE",
         "SUGR",
+        "SVCE",
         "SWDY",
         "TALM",
         "TANM",
@@ -241,12 +245,16 @@
         "AGIG",
         "AIND",
         "AITG",
+        "ALRA",
+        "AREHA",
         "EDBM",
         "MEDP",
         "MRCO"
     ],
     "batch_size": 2,
     "timeframe": "15m",
+    "provider": "tradingview",
+    "sync_days": 180,
     "failed_reasons": {
         "MEDP": "No data found for MEDP.CA on EGX at 15m",
         "MRCO": "No data found for MRCO.CA on EGX at 15m",
@@ -254,9 +262,38 @@
         "AIND": "No data found for AIND.CA on EGX at 15m",
         "AGIG": "No data found for AGIG.CA on EGX at 15m",
         "ACRO": "No data found for ACRO.CA on EGX at 15m",
-        "EDBM": "No data found for EDBM.CA on EGX at 15m"
+        "EDBM": "No data found for EDBM.CA on EGX at 15m",
+        "ALRA": "No data found for ALRA.CA on EGX at 15m",
+        "AREHA": "No data found for AREHA.CA on EGX at 15m"
     },
     "last_batch_logs": [
-        "[01:46:55 AM] Single Sync EDBM: Failed - No data found for EDBM.CA on EGX at 15m"
+        "[03:10:31 AM] ALRA: Failed - No data found for ALRA.CA on EGX at 15m",
+        "[03:10:31 AM] AREHA: Failed - No data found for AREHA.CA on EGX at 15m"
+    ],
+    "catchup_status": "idle",
+    "catchup_last_run": null,
+    "catchup_progress": {
+        "processed": 0,
+        "total": 0,
+        "remaining": 0
+    },
+    "scheduler": {
+        "enabled": false,
+        "run_time": "15:45",
+        "timezone": "Africa/Cairo",
+        "last_run_date": null,
+        "total_runs": 0,
+        "status": "idle",
+        "last_run_at": null,
+        "last_run_status": null
+    },
+    "run_history": [],
+    "scheduler_logs": [
+        "[2026-06-10 03:52:17] [SCHEDULER] Intraday daily scheduler thread started.",
+        "[2026-06-10 03:41:00] [SCHEDULER] Intraday daily scheduler thread started.",
+        "[2026-06-10 03:30:42] [SCHEDULER] Intraday daily scheduler thread started.",
+        "[2026-06-10 03:30:08] [SCHEDULER] Intraday daily scheduler thread started.",
+        "[2026-06-10 03:29:59] [SCHEDULER] Intraday daily scheduler thread started.",
+        "[2026-06-10 03:29:50] [SCHEDULER] Intraday daily scheduler thread started."
     ]
 }

@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { Loader2, Brain, Activity, UserPlus, Zap, Settings2, BarChart2, Calendar, Target, Clock, AlertTriangle, ChevronDown, Check, X, ShieldAlert, LineChart, FileText, Download, TrendingUp, Layers, Database, Play, EyeOff, UserMinus, Search, RefreshCw, ShieldCheck, HelpCircle, ArrowRightLeft, Lock, Volume2, VolumeX, Edit, Eye, Cpu, History, Sparkles } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { getBacktests, getBacktestTrades } from "@/lib/api";
+import { selectCanonicalModelCards } from "@/lib/models";
 import { useLanguage } from "@/contexts/LanguageContext";
 import StockLogo from "@/components/StockLogo";
 import Link from "next/link";
@@ -422,14 +423,16 @@ export default function AIScannerPage() {
             if (!res.ok) throw new Error("Failed to fetch model cards");
             const data = await res.json();
             // Filter out crypto & validator models
-            const filtered = (data || []).filter((m: any) => {
-                const name = (m.name || m.model_name || "").toUpperCase();
-                const ex = (m.exchange || "").toUpperCase();
-                if (name.includes("CRYPTO") || ex === "CRYPTO") return false;
-                if (name.includes("COUNCIL") || name.includes("VALIDATOR") || name.includes("ADVISOR")) return false;
-                if (m.model_type === "council_validator") return false;
-                return true;
-            });
+            const filtered = selectCanonicalModelCards(
+                (data || []).filter((m: any) => {
+                    const name = (m.name || m.model_name || "").toUpperCase();
+                    const ex = (m.exchange || "").toUpperCase();
+                    if (name.includes("CRYPTO") || ex === "CRYPTO") return false;
+                    if (name.includes("COUNCIL") || name.includes("VALIDATOR") || name.includes("ADVISOR")) return false;
+                    if (m.model_type === "council_validator") return false;
+                    return true;
+                })
+            );
             setModelCards(filtered);
         } catch (err: any) {
             setModelsError(err.message || "An error occurred while loading model cards.");
@@ -712,7 +715,7 @@ export default function AIScannerPage() {
                     <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/25 text-indigo-400 text-xs font-black uppercase tracking-wider">
                         <Sparkles className="w-3.5 h-3.5" /> {activeTab === "backtests" ? t("backtest.model_evaluation") : t("backtest.artificial_intelligence")}
                     </div>
-                    <h1 className="text-3xl md:text-5xl font-black text-white tracking-tight leading-none uppercase">
+                    <h1 className="text-3xl md:text-5xl font-black app-text-primary tracking-tight leading-none uppercase">
                         {activeTab === "backtests" ? (
                             language === "ar" ? (
                                 <>
@@ -735,7 +738,7 @@ export default function AIScannerPage() {
                             )
                         )}
                     </h1>
-                    <p className="text-zinc-400 font-medium text-sm md:text-base leading-relaxed">
+                    <p className="app-text-muted font-medium text-sm md:text-base leading-relaxed">
                         {activeTab === "backtests"
                             ? t("backtest.subtitle")
                             : t("bots.banner_desc")}
@@ -769,8 +772,8 @@ export default function AIScannerPage() {
                                             <Database className="w-6 h-6" />
                                         </div>
                                         <div>
-                                            <h2 className="text-xl font-black text-white">{t("model.artifacts")}</h2>
-                                            <p className="text-xs text-zinc-500 font-bold uppercase tracking-widest mt-1">{t("model.available")}</p>
+                                            <h2 className="text-xl font-black app-text-primary">{t("model.artifacts")}</h2>
+                                            <p className="text-xs app-text-muted font-bold uppercase tracking-widest mt-1">{t("model.available")}</p>
                                         </div>
                                     </div>
                                 </div>
@@ -786,11 +789,11 @@ export default function AIScannerPage() {
                                             {t("backtest.no_models_found")}
                                         </div>
                                     ) : (
-                                        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 pr-2 custom-scrollbar">
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pr-2 custom-scrollbar max-w-4xl">
                                             {modelCards.map((model) => (
                                                 <div
                                                     key={model.name}
-                                                    className="p-6 rounded-3xl bg-zinc-950 border border-zinc-800/50 hover:border-zinc-700/80 transition-all flex flex-col justify-between group h-full space-y-6 relative overflow-hidden"
+                                                    className="model-artifact-card p-6 rounded-3xl bg-zinc-950 border border-zinc-800/50 hover:border-zinc-700/80 light:hover:border-indigo-300/60 transition-all flex flex-col justify-between group h-full space-y-6 relative overflow-hidden"
                                                 >
                                                     {/* Background Image Layer */}
                                                     {model.name.toUpperCase().includes("KING") ? (
@@ -798,7 +801,7 @@ export default function AIScannerPage() {
                                                             className="absolute inset-0 bg-cover bg-center opacity-[0.08] pointer-events-none transition-transform duration-700 group-hover:scale-105" 
                                                             style={{ backgroundImage: "url('/king_logo.jpg')" }} 
                                                         />
-                                                    ) : model.name.toUpperCase().includes("NEW_MODEL") ? (
+                                                    ) : model.name.toUpperCase().includes("BRAIN") || model.name.toUpperCase().includes("NANO") ? (
                                                         <div 
                                                             className="absolute inset-0 bg-cover bg-center opacity-[0.08] pointer-events-none transition-transform duration-700 group-hover:scale-105" 
                                                             style={{ backgroundImage: "url('/new_model_logo.jpg')" }} 
@@ -806,7 +809,7 @@ export default function AIScannerPage() {
                                                     ) : null}
 
                                                     {/* Gradient overlay for readability */}
-                                                    <div className="absolute inset-0 bg-gradient-to-t from-zinc-950 via-zinc-950/80 to-transparent pointer-events-none" />
+                                                    <div className="absolute inset-0 model-artifact-fade bg-gradient-to-t from-zinc-950 via-zinc-950/80 to-transparent pointer-events-none" />
 
                                                     <div className="flex flex-col justify-between h-full space-y-6 relative z-10">
                                                         <div className="space-y-4">
@@ -816,19 +819,19 @@ export default function AIScannerPage() {
                                                                 </div>
                                                             </div>
                                                             <div className="min-w-0">
-                                                                <div className="text-base font-black text-zinc-100 truncate">{model.name}</div>
+                                                                <div className="text-base font-black app-text-primary truncate">{model.name}</div>
                                                                 {model.exchange && (
                                                                     <div className="text-[10px] text-indigo-400 uppercase font-black tracking-widest mt-1">{model.exchange}</div>
                                                                 )}
                                                             </div>
                                                             <div className="grid grid-cols-2 gap-2">
-                                                                <div className="p-2.5 rounded-xl bg-zinc-900/50 border border-zinc-800/50">
-                                                                    <div className="text-[10px] text-zinc-600 uppercase font-bold">{t("model.size")}</div>
-                                                                    <div className="text-xs font-mono text-zinc-400">{model.size_mb} MB</div>
+                                                                <div className="model-stat-box p-2.5 rounded-xl bg-zinc-900/50 border border-zinc-800/50">
+                                                                    <div className="text-[10px] app-text-faint uppercase font-bold">{t("model.size")}</div>
+                                                                    <div className="text-xs font-mono app-text-muted">{model.size_mb} MB</div>
                                                                 </div>
-                                                                <div className="p-2.5 rounded-xl bg-zinc-900/50 border border-zinc-800/50">
-                                                                    <div className="text-[10px] text-zinc-600 uppercase font-bold">{t("model.modified")}</div>
-                                                                    <div className="text-xs text-zinc-400">{new Date(model.modified_at).toLocaleDateString()}</div>
+                                                                <div className="model-stat-box p-2.5 rounded-xl bg-zinc-900/50 border border-zinc-800/50">
+                                                                    <div className="text-[10px] app-text-faint uppercase font-bold">{t("model.modified")}</div>
+                                                                    <div className="text-xs app-text-muted">{new Date(model.modified_at).toLocaleDateString()}</div>
                                                                 </div>
                                                             </div>
                                                             <div className="flex flex-wrap gap-2">
