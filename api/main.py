@@ -20,6 +20,8 @@ from dotenv import load_dotenv
 
 # Load environment variables from the repo root (and optional web env overrides).
 base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if base_dir not in sys.path:
+    sys.path.insert(0, base_dir)
 load_dotenv(os.path.join(base_dir, ".env"))
 load_dotenv(os.path.join(base_dir, "web", ".env.local"), override=True)
 

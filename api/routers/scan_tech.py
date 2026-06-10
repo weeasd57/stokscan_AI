@@ -415,7 +415,8 @@ async def scan_technical(
         name = str(row.get("Name", ""))
         exchange = str(row.get("Exchange", "")).strip()
         
-        if not symbol or (symbol.upper(), exchange.upper()) not in cached_tickers:
+        # Skip if not in cache, but allow if we have no cached data at all
+        if cached_tickers and (symbol.upper(), exchange.upper()) not in cached_tickers:
             continue
 
         try:

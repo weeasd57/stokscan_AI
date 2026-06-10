@@ -119,11 +119,11 @@ export default function Header() {
                         <Link href="/" className="group flex items-center gap-2 sm:gap-3">
                             <div className="relative transition-all duration-500 group-hover:rotate-12 group-hover:scale-110 flex-shrink-0">
                                 <Image
-                                    src="/brand-mark.svg"
+                                    src="/favicon_io/favicon.ico"
                                     alt="EGX Bots logo"
                                     width={36}
                                     height={36}
-                                    className="object-contain sm:w-11 sm:h-11 drop-shadow-[0_10px_30px_rgba(79,70,229,0.25)]"
+                                    className="object-contain sm:w-11 sm:h-11 rounded-lg"
                                     priority
                                 />
                             </div>
