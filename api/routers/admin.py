@@ -2856,6 +2856,7 @@ def get_intraday_sync_state():
 def toggle_intraday_sync(payload: dict, background_tasks: BackgroundTasks):
     try:
         from api.intraday_downloader import load_state, save_state, run_intraday_sync_batch
+        from api.intraday_provider import normalize_provider
         state = load_state()
         enabled = payload.get("enabled", False)
         state["status"] = "syncing" if enabled else "idle"
@@ -2863,6 +2864,10 @@ def toggle_intraday_sync(payload: dict, background_tasks: BackgroundTasks):
             state["batch_size"] = int(payload["batch_size"])
         if "timeframe" in payload:
             state["timeframe"] = str(payload["timeframe"])
+        if "provider" in payload:
+            state["provider"] = normalize_provider(payload["provider"])
+        if "sync_days" in payload:
+            state["sync_days"] = int(payload["sync_days"])
         save_state(state)
         
         if enabled:
@@ -2870,6 +2875,55 @@ def toggle_intraday_sync(payload: dict, background_tasks: BackgroundTasks):
             background_tasks.add_task(run_intraday_sync_batch)
             
         return {"ok": True, "status": state["status"]}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/intraday-sync/provider")
+def set_intraday_provider(payload: dict):
+    try:
+        from api.intraday_downloader import load_state, save_state
+        from api.intraday_provider import normalize_provider
+        state = load_state()
+        state["provider"] = normalize_provider(payload.get("provider"))
+        save_state(state)
+        return {"ok": True, "provider": state["provider"]}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/intraday-sync/smart-catchup")
+def trigger_smart_catchup():
+    try:
+        from api.intraday_downloader import start_smart_catchup_job, get_last_market_close_date
+        started, msg = start_smart_catchup_job(source="manual")
+        if not started:
+            raise HTTPException(status_code=409, detail=msg)
+        return {
+            "ok": True,
+            "message": msg,
+            "last_market_close": get_last_market_close_date().isoformat(),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/intraday-scheduler/state")
+def get_intraday_scheduler_state():
+    try:
+        from api.intraday_scheduler import get_scheduler_state
+        return get_scheduler_state()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/intraday-scheduler/config")
+def set_intraday_scheduler_config(payload: dict):
+    try:
+        from api.intraday_scheduler import set_scheduler_config
+        return set_scheduler_config(payload)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -2890,33 +2944,24 @@ def reset_intraday_sync():
 @router.post("/intraday-sync/single-sync")
 def single_sync_intraday(req: SingleSyncRequest, background_tasks: BackgroundTasks):
     try:
-        from api.tradingview_integration import fetch_tradingview_prices
-        from api.intraday_downloader import load_state, save_state
-        import api.stock_ai as stock_ai
+        from api.intraday_downloader import load_state, save_state, get_last_market_close_date
+        from api.intraday_provider import fetch_intraday_prices, normalize_provider
         import datetime as dt
         
         def _task():
-            # Get last daily trading day
-            last_date = dt.date.today()
-            try:
-                stock_ai._init_supabase()
-                last_daily = stock_ai.supabase.table("stock_prices").select("date").eq("exchange", "EGX").order("date", desc=True).limit(1).execute()
-                if last_daily.data:
-                    last_date_str = last_daily.data[0]["date"]
-                    last_date = dt.datetime.strptime(last_date_str, "%Y-%m-%d").date()
-            except Exception as e:
-                print(f"[SINGLE SYNC] DB error: {e}")
-                
-            days_to_fetch = req.max_days or 180
+            state = load_state()
+            provider = normalize_provider(state.get("provider"))
+            last_date = get_last_market_close_date()
+            days_to_fetch = req.max_days or int(state.get("sync_days", 180))
             start_date = last_date - dt.timedelta(days=days_to_fetch)
-            
-            tv_symbol = f"{req.symbol}.CA"
-            success, msg = fetch_tradingview_prices(
-                tv_symbol,
+
+            success, msg = fetch_intraday_prices(
+                req.symbol,
                 max_days=365,
                 timeframe=req.timeframe,
                 start_date=start_date,
-                end_date=last_date
+                end_date=last_date,
+                provider=provider,
             )
             print(f"[SINGLE SYNC] {req.symbol} result: {success} - {msg}")
             
@@ -2954,40 +2999,30 @@ def single_sync_intraday(req: SingleSyncRequest, background_tasks: BackgroundTas
 @router.post("/intraday-sync/update-batch")
 def update_intraday_batch(req: IntradayBatchUpdateRequest):
     try:
-        from api.tradingview_integration import fetch_tradingview_prices
-        from api.intraday_downloader import load_state, save_state
-        import api.stock_ai as stock_ai
-        import datetime as dt
+        from api.intraday_downloader import load_state, save_state, get_last_market_close_date
+        from api.intraday_provider import fetch_intraday_prices, normalize_provider
         from concurrent.futures import ThreadPoolExecutor, as_completed
+        import datetime as dt
 
-        # Get last daily trading day
-        last_date = dt.date.today()
-        try:
-            stock_ai._init_supabase()
-            last_daily = stock_ai.supabase.table("stock_prices").select("date").eq("exchange", "EGX").order("date", desc=True).limit(1).execute()
-            if last_daily.data:
-                last_date_str = last_daily.data[0]["date"]
-                last_date = dt.datetime.strptime(last_date_str, "%Y-%m-%d").date()
-        except Exception as e:
-            print(f"[BATCH SYNC] DB error: {e}")
-
+        last_date = get_last_market_close_date()
         start_date = last_date - dt.timedelta(days=req.max_days)
         timeframe = req.timeframe
 
         results = []
         state = load_state()
+        provider = normalize_provider(state.get("provider"))
         completed = set(state.get("completed_symbols", []))
         failed = set(state.get("failed_symbols", []))
         failed_reasons = dict(state.get("failed_reasons", {}))
 
         def _sync_one(sym):
-            tv_symbol = f"{sym}.CA"
-            success, msg = fetch_tradingview_prices(
-                tv_symbol,
+            success, msg = fetch_intraday_prices(
+                sym,
                 max_days=365,
                 timeframe=timeframe,
                 start_date=start_date,
-                end_date=last_date
+                end_date=last_date,
+                provider=provider,
             )
             return sym, success, msg
 

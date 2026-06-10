@@ -105,6 +105,8 @@ async def startup_event():
     try:
         from api.intraday_downloader import start_intraday_downloader
         start_intraday_downloader()
+        from api.intraday_scheduler import start_intraday_scheduler
+        start_intraday_scheduler()
         print("DEBUG: Intraday Downloader started successfully.")
     except Exception as e:
         print(f"DEBUG ERROR: Failed to start Intraday Downloader: {e}")
