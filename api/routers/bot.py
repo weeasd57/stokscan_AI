@@ -719,8 +719,9 @@ def get_model_cards():
                 continue
                 
             filtered.append(m)
-            
-        return filtered
+
+        from api.model_catalog import select_canonical_model_cards
+        return select_canonical_model_cards(filtered)
     except Exception as e:
         print(f"Error fetching model cards: {e}")
         return []

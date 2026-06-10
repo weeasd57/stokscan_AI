@@ -57,7 +57,7 @@ export default function RootLayout({
       <body className="app-shell antialiased selection:dark:bg-blue-500/30 selection:light:bg-blue-300/30">
         <Providers>
           <Header />
-          <main id="main-content" className="app-content-shell w-full pt-[96px] pb-12 px-3 sm:px-6 md:px-8 mx-auto max-w-[1800px]">
+          <main id="main-content" className="app-content-shell w-full pt-[var(--header-offset,88px)] pb-12 px-3 sm:px-6 md:px-8 mx-auto max-w-[1800px]">
             {children}
           </main>
           <Footer />
