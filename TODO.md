@@ -316,10 +316,192 @@ This file tracks all remaining integration and refactoring tasks based on the sp
 
 ---
 
-## 🎯 الأولويات والتوصيات - Priorities & Recommendations
+## � Phase 9: Advanced AI & Signal Enhancements ⚪ (0% Complete)
+
+**Priority: HIGH - Core product differentiation features**
+
+**Note:** هذه المميزات مستوحاة من تحليل احتياجات المستخدمين وتهدف لتحسين تجربة المنصة
+
+### 9.1 AI Enhancements - تحسينات الذكاء الاصطناعي
+
+- [ ] **9.1.1 Historical Similarity — شبه ده** ⚠️ **Priority: HIGH**
+  - ⚪ تطوير نظام بحث عن أنماط تاريخية مشابهة
+  - ⚪ استخدام Cosine Similarity على feature vectors لإيجاد حالات مشابهة
+  - ⚪ عرض إحصائيات النتائج التاريخية (win rate، average return، time to target)
+  - ⚪ دمج في Signal Explanation لشرح سبب الإشارة
+  - **التقنية:** Cosine similarity على normalized features + KNN لأقرب 10 حالات
+  - **الأثر المتوقع:** يشرح ليه الإشارة طلعت — مش بس اشتري/بيع - يزيد الثقة بنسبة 40%
+  - **الجهد المتوقع:** 6-8 ساعات
+
+- [ ] **9.1.2 EGX-Specific Features Integration**
+  - ⚪ إضافة Circuit Breaker Distance feature (المسافة من الحد الأعلى/الأدنى)
+  - ⚪ إضافة Bull Consistency feature (استمرارية الصعود)
+  - ⚪ إضافة Volume Dry-up Detection (جفاف السيولة)
+  - ⚪ إضافة 52-week Position feature (موقع السهم من أعلى/أدنى سنوي)
+  - **التقنية:** 4 features جديدة في add_massive_features function
+  - **الأثر المتوقع:** الموديل يفهم طبيعة EGX مش بس السوق العالمي
+  - **الجهد المتوقع:** 4-5 ساعات
+
+- [ ] **9.1.3 Compound Confidence Score**
+  - ⚪ تطوير نظام Confidence Score مركب
+  - ⚪ الثقة النهائية = KING × Council × Volume × Market Timing
+  - ⚪ تطبيق Floor Threshold عند 0.45
+  - ⚪ دمج في Signal Generation Pipeline
+  - **التقنية:** Multiplicative scoring مع validation checks
+  - **الأثر المتوقع:** يمنع إشارات المصادفة اللي واحد بس وافق عليها
+  - **الجهد المتوقع:** 3-4 ساعات
+
+### 9.2 Signal Intelligence - ذكاء الإشارات
+
+- [ ] **9.2.1 Signal Reasoning/Explanation** ⚠️ **Priority: HIGH**
+  - ⚪ استخراج Feature Importance من KING booster
+  - ⚪ توليد شرح نصي لكل إشارة (RSI على كام، Volume زاد بكام، السهم فين من SMA)
+  - ⚪ عرض أهم 3-5 أسباب لكل إشارة
+  - ⚪ دمج مع Historical Similarity للسياق
+  - **التقنية:** SHAP values أو feature importance extraction من LightGBM
+  - **الأثر المتوقع:** المستخدم يفهم ويثق في الإشارة - يزيد conversion بنسبة 50%
+  - **الجهد المتوقع:** 5-6 ساعات
+
+- [ ] **9.2.2 Signal Expiry & Lifecycle Management**
+  - ⚪ إضافة Timestamp لكل إشارة
+  - ⚪ تطبيق Auto-expiry بعد 3 أيام
+  - ⚪ إضافة Signal Status (active, expired, executed, cancelled)
+  - ⚪ تنظيف الإشارات القديمة تلقائياً
+  - **التقنية:** Timestamp comparison في كل scan cycle + status tracking
+  - **الأثر المتوقع:** يمنع تنفيذ إشارات قديمة في ظروف مختلفة
+  - **الجهد المتوقع:** 3-4 ساعات
+
+- [ ] **9.2.3 Re-entry Protection (Cooldown Period)**
+  - ⚪ تتبع الصفقات الخاسرة لكل سهم
+  - ⚪ منع إشارة جديدة على نفس السهم لمدة 14 يوم بعد خسارة
+  - ⚪ تخزين Cooldown Dict في BotManager
+  - ⚪ عرض سبب الرفض في logs
+  - **التقنية:** Cooldown dict: {symbol: last_loss_date} مع TTL check
+  - **الأثر المتوقع:** يمنع الدخول مرات كتير في سهم فاشل
+  - **الجهد المتوقع:** 2-3 ساعات
+
+### 9.3 Market Intelligence - ذكاء السوق
+
+- [ ] **9.3.1 Enhanced Sector Momentum Analysis** ⚠️ **Priority: HIGH**
+  - ⚪ حساب Sector Momentum لكل قطاع (بنوك، عقارات، تشييد، أغذية، اتصالات)
+  - ⚪ تطوير `calculate_sector_momentum()` function
+  - ⚪ تطوير `adjust_confidence_by_sector()` للتحذير لو القطاع ضعيف
+  - ⚪ دمج في Signal Confidence Calculation
+  - **التقنية:** Group by sector → calculate 5/20 day returns → weighted average
+  - **الأثر المتوقع:** يضيف context حقيقي للإشارة - يقلل الإشارات الخاطئة بنسبة 20%
+  - **الجهد المتوقع:** 4-5 ساعات
+
+- [ ] **9.3.2 Market Timing Score Enhancement**
+  - ⚪ تطوير `calculate_market_timing_score()` function
+  - ⚪ استخدام EGX30 آخر 5 و20 يوم
+  - ⚪ تطبيق Confidence Multipliers: BULL = +10%، BEAR = -25%
+  - ⚪ دمج في Signal Generation
+  - **التقنية:** EGX30 momentum + ADX strength → confidence multiplier
+  - **الأثر المتوقع:** يمنع الشراء في وسط crash
+  - **الجهد المتوقع:** 3-4 ساعات
+
+- [ ] **9.3.3 Market Breadth Indicator**
+  - ⚪ حساب Advance/Decline Ratio يومياً
+  - ⚪ نسبة الأسهم الصاعدة vs الهابطة في EGX
+  - ⚪ تحديد صحة السوق: >70% = قوي، <30% = ضعيف
+  - ⚪ استخدام كـ filter إضافي للإشارات
+  - **التقنية:** Daily calculation على كل أسهم EGX + caching
+  - **الأثر المتوقع:** مؤشر صحة السوق الحقيقي
+  - **الجهد المتوقع:** 3-4 ساعات
+
+### 9.4 Risk Management Intelligence - ذكاء إدارة المخاطر
+
+- [ ] **9.4.1 Risk Transparency & Profile** ⚠️ **Priority: HIGH**
+  - ⚪ تطوير `calculate_risk_profile()` function لكل إشارة
+  - ⚪ حساب: نسبة المكسب/الخسارة المتوقعة، أسوأ حالة تاريخية
+  - ⚪ استخدام Kelly Criterion لاقتراح حجم الصفقة
+  - ⚪ عرض Risk Profile مع كل إشارة
+  - **التقنية:** Historical stats + Kelly Criterion + Monte Carlo simulation
+  - **الأثر المتوقع:** المستخدم يقرر بوعي مش بالعاطفة
+  - **الجهد المتوقع:** 5-6 ساعات
+
+- [ ] **9.4.2 Enhanced Circuit Breaker Awareness**
+  - ⚪ حساب Distance from Upper/Lower Limit (±10% في EGX)
+  - ⚪ إضافة تحذير لو السهم قريب من Circuit Breaker
+  - ⚪ منع الدخول لو السهم على بُعد <2% من الحد
+  - **التقنية:** pct_from_upper/lower_limit features + early warning
+  - **الأثر المتوقع:** يتجنب الدخول قبل circuit breaker مباشرة
+  - **الجهد المتوقع:** 2-3 ساعات
+
+---
+
+## 🆕 Phase 10: Portfolio Management & User Experience ⚪ (0% Complete)
+
+**Priority: MEDIUM-HIGH - User-facing features for retention**
+
+### 10.1 Portfolio Tracking System
+
+- [ ] **10.1.1 Portfolio Tracker Database Schema** ⚠️ **Priority: HIGH**
+  - ⚪ إنشاء جدول `user_positions` في Supabase:
+    - Columns: user_id, symbol, entry_price, quantity, entry_date, notes
+  - ⚪ إنشاء جدول `user_transactions` للتتبع التاريخي
+  - ⚪ إضافة Foreign Keys و Constraints
+  - **الجهد المتوقع:** 2 ساعات
+
+- [ ] **10.1.2 Portfolio Tracker API & Logic**
+  - ⚪ إنشاء API endpoints: Add/Edit/Delete positions
+  - ⚪ Real-time P&L calculation من أسعار السوق الحية
+  - ⚪ مقارنة أداء المحفظة مع EGX30 benchmark
+  - ⚪ حساب Portfolio Metrics: Total Return، Win Rate، Sharpe Ratio
+  - **التقنية:** Real-time price fetch + aggregation queries
+  - **الأثر المتوقع:** يعرف أداء محفظته بدقة في أي وقت
+  - **الجهد المتوقع:** 6-8 ساعات
+
+- [ ] **10.1.3 TP/SL Alerts for Portfolio**
+  - ⚪ Price monitoring لكل سهم في محفظة المستخدم
+  - ⚪ تنبيه فوري على واتساب/تيليجرام عند الوصول للهدف أو وقف الخسارة
+  - ⚪ Custom alerts (يحددها المستخدم)
+  - **التقنية:** Price check في scan cycle + WhatsApp/Telegram dispatch
+  - **الأثر المتوقع:** مش محتاج تراقب الشاشة طول اليوم
+  - **الجهد المتوقع:** 4-5 ساعات
+
+### 10.2 Performance Analytics Dashboard
+
+- [ ] **10.2.1 User Performance Dashboard UI**
+  - ⚪ إنشاء صفحة Dashboard في Next.js
+  - ⚪ عرض إحصائيات: عدد الصفقات، Win Rate، Average Profit، Best/Worst Trade
+  - ⚪ رسم بياني للأداء مقارنة بـ EGX30
+  - ⚪ تقرير شهري/سنوي
+  - **التقنية:** Recharts للرسوم + Aggregation على trades history
+  - **الأثر المتوقع:** تعرف هل أداءك أحسن من السوق ولا لأ
+  - **الجهد المتوقع:** 8-10 ساعات
+
+- [ ] **10.2.2 Trade History & Journal**
+  - ⚪ سجل تاريخي لكل الصفقات (manual + signals)
+  - ⚪ إمكانية إضافة ملاحظات لكل صفقة
+  - ⚪ Filtering & Search capabilities
+  - ⚪ Export to CSV/PDF
+  - **الجهد المتوقع:** 5-6 ساعات
+
+### 10.3 Advanced Notifications & Calendar
+
+- [ ] **10.3.1 Enhanced Dividend Calendar**
+  - ⚪ جمع تواريخ توزيع الأرباح من EGX disclosures
+  - ⚪ تنبيه المستخدم قبل الجمعية العمومية بـ 7 أيام
+  - ⚪ عرض Expected Dividend Amount
+  - ⚪ تكامل مع Portfolio Tracker
+  - **التقنية:** EGX disclosure scraping أو manual entry + calendar integration
+  - **الأثر المتوقع:** تخطيط أفضل لقرارات الشراء/البيع
+  - **الجهد المتوقع:** 6-8 ساعات
+
+- [ ] **10.3.2 Earnings Calendar Integration**
+  - ⚪ تواريخ إعلان النتائج المالية
+  - ⚪ تنبيه قبل الإعلان بـ 3 أيام
+  - ⚪ Historical earnings performance
+  - **الجهد المتوقع:** 4-5 ساعات
+
+---
+
+## �🎯 الأولويات والتوصيات - Priorities & Recommendations
 
 ### ⚠️ **الخطوات التالية الموصى بها - Recommended Next Steps:**
 
+#### **المرحلة الحالية (Core Integration):**
 1. **Phase 2.2** - دمج Walk-Forward في التدريب ✅ **START HERE**
    - أولوية قصوى لتحسين validation
    - الجهد: 3-4 ساعات
@@ -340,21 +522,94 @@ This file tracks all remaining integration and refactoring tasks based on the sp
    - الجهد: 8-12 ساعة
    - المخاطر: عالية - يتطلب اختبار دقيق
 
+#### **المرحلة التالية (Product Enhancement):**
+5. **Phase 9.1.1** - Historical Similarity ⭐ **HIGH VALUE**
+   - ميزة تنافسية قوية
+   - الجهد: 6-8 ساعات
+   - الأثر: يزيد الثقة بنسبة 40%
+
+6. **Phase 9.2.1** - Signal Reasoning ⭐ **HIGH VALUE**
+   - شرح الإشارات للمستخدم
+   - الجهد: 5-6 ساعات
+   - الأثر: يزيد conversion بنسبة 50%
+
+7. **Phase 10.1** - Portfolio Tracker ⭐ **USER RETENTION**
+   - ميزة أساسية للاحتفاظ بالمستخدمين
+   - الجهد: 12-15 ساعة
+   - الأثر: زيادة engagement بنسبة 70%
+
 ### 📊 **ملخص الجهد المتبقي - Remaining Effort Summary:**
 
-| المرحلة | الحالة | الجهد المتبقي | الأولوية |
-|---------|-------|---------------|----------|
-| Phase 1 | ✅ مكتمل | 0 ساعات | - |
-| Phase 2 | 🔄 30% | 8-10 ساعات | 🔴 عالية جداً |
-| Phase 3 | ⚪ 0% | 10-14 ساعة | 🔴 عالية |
-| Phase 4 | ⚪ 0% | 12-16 ساعة | 🔴 حرجة |
-| Phase 5 | ⚪ 0% | 7-10 ساعات | 🟡 متوسطة |
-| Phase 6 | ⚪ 0% | 5-6 ساعات | 🟡 متوسطة |
-| Phase 7 | ⚪ 0% | 11-16 ساعة | 🟢 منخفضة |
-| Phase 8 | ⚪ 0% | 14-18 ساعة | 🟢 منخفضة |
+| المرحلة | الحالة | الجهد المتبقي | الأولوية | الأثر المتوقع |
+|---------|-------|---------------|----------|---------------|
+| Phase 1 | ✅ مكتمل | 0 ساعات | - | - |
+| Phase 2 | 🔄 30% | 8-10 ساعات | 🔴 عالية جداً | تحسين validation |
+| Phase 3 | ⚪ 0% | 10-14 ساعة | 🔴 عالية | ثقة في النتائج |
+| Phase 4 | ⚪ 0% | 12-16 ساعة | 🔴 حرجة | live trading |
+| Phase 5 | ⚪ 0% | 7-10 ساعات | 🟡 متوسطة | debugging |
+| Phase 6 | ⚪ 0% | 5-6 ساعات | 🟡 متوسطة | documentation |
+| Phase 7 | ⚪ 0% | 11-16 ساعة | 🟢 منخفضة | macro context |
+| Phase 8 | ⚪ 0% | 14-18 ساعة | 🟢 منخفضة | data management |
+| **Phase 9** | ⚪ **0%** | **35-45 ساعة** | 🔴 **عالية** | **product differentiation** |
+| **Phase 10** | ⚪ **0%** | **25-35 ساعة** | 🟡 **متوسطة-عالية** | **user retention** |
 
-**إجمالي الجهد المتبقي للـ MVP:** ~37-50 ساعة (6-8 أيام عمل)  
-**إجمالي الجهد الكامل:** ~67-90 ساعة (11-15 يوم عمل)
+**إجمالي الجهد المتبقي للـ MVP (Phase 1-4):** ~37-50 ساعة (6-8 أيام عمل)  
+**إجمالي الجهد للمنتج المتقدم (Phase 1-6):** ~67-90 ساعة (11-15 يوم عمل)  
+**إجمالي الجهد الكامل (Phase 1-10):** ~127-170 ساعة (21-28 يوم عمل)
+
+### 🎯 **مسارات التنفيذ المقترحة - Recommended Execution Paths:**
+
+#### **مسار 1: MVP السريع (6-8 أيام)**
+```
+Phase 2 → Phase 3 → Phase 4 → إطلاق أولي
+```
+- يركز على تحسين الدقة والاتساق
+- يؤمن live trading بشكل صحيح
+- يؤجل المميزات المتقدمة
+
+#### **مسار 2: المنتج المتميز (3-4 أسابيع)**
+```
+Phase 2-4 → Phase 9 (AI Enhancements) → Phase 10.1 (Portfolio) → إطلاق
+```
+- يضيف مميزات تنافسية قوية
+- Historical Similarity + Signal Reasoning
+- Portfolio Tracking للاحتفاظ بالمستخدمين
+
+#### **مسار 3: المنتج الكامل (4-6 أسابيع)**
+```
+Phase 2-6 → Phase 9 → Phase 10 → Phase 7-8 → إطلاق SaaS
+```
+- منتج كامل جاهز للسوق
+- جميع المميزات المتقدمة
+- Admin panel + macro features
+
+### 🆕 **المميزات الجديدة المضافة - Newly Added Features:**
+
+#### **من فئة الذكاء الاصطناعي (Phase 9.1):**
+- ✨ Historical Similarity — أنماط مشابهة تاريخية
+- ✨ EGX-Specific Features — مميزات خاصة بالبورصة المصرية
+- ✨ Compound Confidence Score — درجة ثقة مركبة
+
+#### **من فئة الإشارات (Phase 9.2):**
+- ✨ Signal Reasoning/Explanation — شرح سبب كل إشارة
+- ✨ Signal Expiry & Lifecycle — انتهاء صلاحية الإشارات
+- ✨ Re-entry Protection — حماية من الدخول المتكرر
+
+#### **من فئة تحليل السوق (Phase 9.3):**
+- ✨ Enhanced Sector Momentum — تحليل زخم القطاعات
+- ✨ Market Timing Score — نقاط توقيت السوق
+- ✨ Market Breadth — عرض السوق (نسبة الصاعد/الهابط)
+
+#### **من فئة إدارة المخاطر (Phase 9.4):**
+- ✨ Risk Transparency & Profile — شفافية المخاطر
+- ✨ Enhanced Circuit Breaker — وعي محسن بالقواطع
+
+#### **من فئة المحفظة (Phase 10):**
+- ✨ Portfolio Tracker — متابعة المحفظة
+- ✨ TP/SL Alerts — تنبيهات الأهداف والخسائر
+- ✨ Performance Dashboard — لوحة الأداء
+- ✨ Dividend Calendar — تقويم توزيع الأرباح
+- ✨ Earnings Calendar — تقويم النتائج المالية
 
 ---
 
@@ -391,6 +646,21 @@ This file tracks all remaining integration and refactoring tasks based on the sp
 2. **الأولوية الآن:** دمج الوحدات في pipelines الموجودة (Training، Backtest، Live Bot)
 3. **الاختبار ضروري:** كل تغيير في Live Bot يجب اختباره بدقة قبل النشر
 4. **Backward Compatibility:** جميع التغييرات يجب أن تدعم النماذج القديمة
+5. **Phase 9 & 10:** مميزات تنافسية للمنتج - يمكن تنفيذها بعد Phase 4
+
+### **المميزات ذات الأولوية القصوى - Top Priority Features:**
+
+#### **للـ MVP (Phase 2-4):**
+- ✅ Walk-Forward Validation
+- ✅ Parameter Persistence
+- ✅ Backtesting Consistency
+- ✅ Live Bot Integration
+
+#### **للمنتج المتقدم (Phase 9-10):**
+- ⭐ Historical Similarity (6-8h) - **أعلى قيمة مضافة**
+- ⭐ Signal Reasoning (5-6h) - **يزيد conversion بنسبة 50%**
+- ⭐ Portfolio Tracker (12-15h) - **retention أساسي**
+- ⭐ Risk Transparency (5-6h) - **ثقة المستخدم**
 
 ### **المخاطر المحتملة - Potential Risks:**
 
@@ -492,6 +762,7 @@ This file tracks all remaining integration and refactoring tasks based on the sp
 
 ---
 
-**آخر تحديث:** 2026-06-11  
-**الإصدار:** 3.0  
-**الحالة:** محدّث بالكامل مع حالة التنفيذ الفعلية
+**آخر تحديث:** 2026-06-12  
+**الإصدار:** 4.0  
+**الحالة:** محدّث بالكامل - تمت إضافة Phase 9 & 10 (المميزات المتقدمة)  
+**المصدر:** دمج المميزات من FeaturesList Component + egx-unified + training-consistency specs
