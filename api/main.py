@@ -1,13 +1,14 @@
 # RESTART_DEBUG: 2
+import datetime as dt
+import io
+import json
 import os
 import sys
-import json
-import datetime as dt
 import urllib.request
-import pandas as pd
-import numpy as np
 import warnings
-import io
+
+import numpy as np
+import pandas as pd
 
 # Suppress specific FutureWarnings from libraries like 'ta'
 
@@ -25,21 +26,19 @@ if base_dir not in sys.path:
 load_dotenv(os.path.join(base_dir, ".env"))
 load_dotenv(os.path.join(base_dir, "web", ".env.local"), override=True)
 
-from fastapi import FastAPI, HTTPException, Request, Query, BackgroundTasks
-from fastapi.middleware.cors import CORSMiddleware
-from typing import Any, Dict, Optional, List, Literal
-
-from fastapi.responses import JSONResponse
-
-from pydantic import BaseModel, Field
+from typing import Any, Dict, List, Literal, Optional
 
 import yfinance as yf
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Query, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
 
 from api.stock_ai import run_pipeline
 from api.symbols_local import list_countries, search_symbols
-from api.routers import scan_ai, scan_ai_fast, scan_tech, admin
 
 app = FastAPI(title="Artoro API", version="1.0.0")
+
 
 # Request Logging Middleware
 @app.middleware("http")
@@ -47,42 +46,49 @@ async def log_requests(request: Request, call_next):
     start_time = dt.datetime.now()
     path = request.url.path
     method = request.method
-    
+
     # Skip noisy polling logs if they are successful
     is_polling = any(p in path for p in ["/api/ai_bot/status", "/bot/status"])
-    
+
     try:
         response = await call_next(request)
         duration = (dt.datetime.now() - start_time).total_seconds()
-        
+
         # Log all failures, or non-polling successes
         if response.status_code >= 400 or not is_polling:
-            # print(f"[REQ] {method} {path} - {response.status_code} ({duration:.3f}s)", flush=True)
-            pass
-            
+            print(
+                f"[REQ] {method} {path} - {response.status_code} ({duration:.3f}s)",
+                flush=True,
+            )
+
         return response
     except Exception as e:
         duration = (dt.datetime.now() - start_time).total_seconds()
-        # print(f"[REQ ERROR] {method} {path} - FAILED ({duration:.3f}s): {e}", flush=True)
+        print(
+            f"[REQ ERROR] {method} {path} - FAILED ({duration:.3f}s): {e}", flush=True
+        )
         raise e
+
 
 @app.on_event("startup")
 async def startup_event():
     # Initialize Supabase at startup
     from api.stock_ai import _init_supabase
+
     _init_supabase()
-    
+
     # Initialize Telegram Bot if token exists
     tg_token = os.getenv("ARTORO_AI_BOT", "")
     webhook_url = os.getenv("WEBHOOK_URL", "")
-    
+
     print(f"DEBUG: STARTUP - ARTORO_AI_BOT: {'SET' if tg_token else 'MISSING'}")
     print(f"DEBUG: STARTUP - WEBHOOK_URL: {webhook_url or 'NOT SET (Polling Mode)'}")
-    
+
     if tg_token:
         try:
+            from api.live_bot import bot_instance, bot_manager
             from api.telegram_bot import start_telegram_bridge
-            from api.live_bot import bot_manager, bot_instance
+
             bridge = start_telegram_bridge(tg_token, bot_instance)
             bot_manager.set_telegram_bridge(bridge)
             # Store in app state for cleanup
@@ -91,11 +97,13 @@ async def startup_event():
         except Exception as e:
             print(f"DEBUG ERROR: Failed to start Telegram Bot bridge: {e}")
             import traceback
+
             traceback.print_exc()
 
     # Start Technical Alerts Scheduler
     try:
         from api.tech_alerts_scheduler import start_alerts_scheduler
+
         start_alerts_scheduler()
         print("DEBUG: Technical Alerts Scheduler started successfully.")
     except Exception as e:
@@ -104,8 +112,10 @@ async def startup_event():
     # Start Intraday Downloader
     try:
         from api.intraday_downloader import start_intraday_downloader
+
         start_intraday_downloader()
         from api.intraday_scheduler import start_intraday_scheduler
+
         start_intraday_scheduler()
         print("DEBUG: Intraday Downloader started successfully.")
     except Exception as e:
@@ -127,6 +137,7 @@ async def shutdown_event():
         print("Saving running bots trade history to backtests on server shutdown...")
         from api.live_bot import bot_manager
         from api.routers.bot import save_live_bot_history_to_backtest
+
         for bot_id, bot in list(bot_manager._bots.items()):
             if bot.is_running:
                 print(f"Saving trade history for running bot: {bot_id}")
@@ -140,41 +151,59 @@ async def shutdown_event():
 async def unhandled_exception_handler(request: Request, exc: Exception):
     if isinstance(exc, HTTPException):
         return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
-    # print(f"Unhandled exception for {request.method} {request.url.path}: {exc}")
     import traceback
-    # traceback.print_exc()
-    return JSONResponse(status_code=500, content={"detail": f"Internal server error: {str(exc)}"})
 
-from api.routers import scan_ai, scan_ai_fast, scan_tech, admin, bot, payment
+    print(
+        f"Unhandled exception for {request.method} {request.url.path}: {exc}",
+        flush=True,
+    )
+    traceback.print_exc()
+    return JSONResponse(
+        status_code=500, content={"detail": f"Internal server error: {str(exc)}"}
+    )
+
+
+from api.routers import admin, bot, payment, scan_ai, scan_ai_fast, scan_tech
 
 app.include_router(scan_ai.router)
 app.include_router(scan_ai_fast.router)
 app.include_router(scan_tech.router)
 app.include_router(admin.router)
 app.include_router(bot.router, prefix="/ai_bot")
-app.include_router(bot.router, prefix="/bot") # Compatibility Alias
+app.include_router(bot.router, prefix="/bot")  # Compatibility Alias
 app.include_router(payment.router)
 
+
 @app.post("/tg-webhook/{token}")
-async def telegram_webhook(token: str, request: Request, background_tasks: BackgroundTasks):
+async def telegram_webhook(
+    token: str, request: Request, background_tasks: BackgroundTasks
+):
     """Endpoint for Telegram Webhooks."""
     from api.live_bot import bot_manager
-    bridge = getattr(app.state, "telegram_bridge", None) or getattr(bot_manager, "_telegram_bridge", None)
+
+    bridge = getattr(app.state, "telegram_bridge", None) or getattr(
+        bot_manager, "_telegram_bridge", None
+    )
 
     if not bridge:
         has_state = hasattr(app.state, "telegram_bridge")
         has_manager = bot_manager._telegram_bridge is not None
-        print(f"WEBHOOK 503: Bridge not found. State={has_state}, Manager={has_manager}")
+        print(
+            f"WEBHOOK 503: Bridge not found. State={has_state}, Manager={has_manager}"
+        )
         raise HTTPException(status_code=503, detail="Telegram bridge not active")
-    
+
     if token != bridge.token:
-        print(f"WEBHOOK 403: Token mismatch. Received: {token[:5]}... Expected: {bridge.token[:5]}...")
+        print(
+            f"WEBHOOK 403: Token mismatch. Received: {token[:5]}... Expected: {bridge.token[:5]}..."
+        )
         raise HTTPException(status_code=403, detail="Invalid token")
-    
+
     data = await request.json()
     background_tasks.add_task(bridge.handle_webhook_update, data)
-    
+
     return {"ok": True}
+
 
 @app.get("/tg-set-webhook")
 async def tg_set_webhook_from_local():
@@ -184,6 +213,7 @@ async def tg_set_webhook_from_local():
       https://your-space.hf.space/tg-set-webhook
     """
     import requests as req
+
     bridge = getattr(app.state, "telegram_bridge", None)
     if not bridge:
         raise HTTPException(status_code=503, detail="Bridge not started")
@@ -196,7 +226,8 @@ async def tg_set_webhook_from_local():
     try:
         r = req.post(
             f"https://api.telegram.org/bot{bridge.token}/setWebhook",
-            json={"url": hook}, timeout=30
+            json={"url": hook},
+            timeout=30,
         )
         data = r.json()
         if data.get("ok"):
@@ -207,7 +238,10 @@ async def tg_set_webhook_from_local():
     except Exception as e:
         raise HTTPException(status_code=502, detail=str(e))
 
-CONFIG_FILE = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "admin_config.json"))
+
+CONFIG_FILE = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "admin_config.json")
+)
 
 
 def _load_admin_config():
@@ -275,29 +309,34 @@ def _fetch_price_eodhd(ticker: str, api_key: str) -> float:
 
     raise ValueError("EODHD price unavailable")
 
+
 web_origin = os.getenv("WEB_ORIGIN", "*")
 allow_origins = [web_origin] if web_origin != "*" else ["*"]
 if "*" not in allow_origins:
-    allow_origins.extend([
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://localhost:3001",
-        "http://127.0.0.1:3001",
-        "http://localhost:3002",
-        "http://127.0.0.1:3002",
-    ])
+    allow_origins.extend(
+        [
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+            "http://localhost:3001",
+            "http://127.0.0.1:3001",
+            "http://localhost:3002",
+            "http://127.0.0.1:3002",
+        ]
+    )
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allow_origins,
     allow_credentials=False,
     allow_methods=["GET", "POST", "DELETE", "PATCH", "PUT", "OPTIONS"],
-    allow_headers=["*"]
+    allow_headers=["*"],
 )
 
 
 class PredictRequest(BaseModel):
-    ticker: str = Field(..., min_length=1, max_length=24, pattern=r"^[A-Za-z0-9.\-]{1,24}$")
+    ticker: str = Field(
+        ..., min_length=1, max_length=24, pattern=r"^[A-Za-z0-9.\-]{1,24}$"
+    )
     exchange: Optional[str] = Field(default=None)
     from_date: str = Field(default="2020-01-01")
     to_date: Optional[str] = Field(default=None)
@@ -355,7 +394,9 @@ def _parse_iso_date(value: Optional[str]) -> Optional[str]:
             return None
 
 
-def _fetch_eod_history_eodhd(ticker: str, api_key: str, from_date: str, to_date: str) -> List[Dict[str, Any]]:
+def _fetch_eod_history_eodhd(
+    ticker: str, api_key: str, from_date: str, to_date: str
+) -> List[Dict[str, Any]]:
     eodhd_ticker = ticker
     if ticker.endswith(".EGX"):
         eodhd_ticker = ticker.replace(".EGX", ".EG")
@@ -374,7 +415,7 @@ def _fetch_eod_history_eodhd(ticker: str, api_key: str, from_date: str, to_date:
 @app.post("/positions/evaluate_open_history", response_model=List[EvaluatePositionOut])
 def evaluate_open_positions_history(req: EvaluatePositionsRequest):
     from api.tradingview_integration import fetch_tradingview_prices
-    
+
     api_key = os.getenv("EODHD_API_KEY")
     today = dt.datetime.utcnow().date().isoformat()
     out: List[EvaluatePositionOut] = []
@@ -382,120 +423,175 @@ def evaluate_open_positions_history(req: EvaluatePositionsRequest):
     for p in req.positions:
         start_date = _parse_iso_date(p.entry_at) or _parse_iso_date(p.added_at)
         if not start_date:
-            out.append(EvaluatePositionOut(id=p.id, symbol=p.symbol, status="open", reason="missing_start_date"))
+            out.append(
+                EvaluatePositionOut(
+                    id=p.id, symbol=p.symbol, status="open", reason="missing_start_date"
+                )
+            )
             continue
 
         if p.target_price is None and p.stop_price is None:
-            out.append(EvaluatePositionOut(id=p.id, symbol=p.symbol, status="open", reason="missing_target_stop"))
+            out.append(
+                EvaluatePositionOut(
+                    id=p.id,
+                    symbol=p.symbol,
+                    status="open",
+                    reason="missing_target_stop",
+                )
+            )
             continue
 
         symbol = p.symbol.strip().upper()
         # Standardize symbol/exchange inference
-        from api.stock_ai import _infer_symbol_exchange, get_stock_data_eodhd, _finite_float
         from eodhd import APIClient
+
+        from api.stock_ai import (
+            _finite_float,
+            _infer_symbol_exchange,
+            get_stock_data_eodhd,
+        )
 
         s, e = _infer_symbol_exchange(symbol)
         full_symbol = f"{s}.{e}"
-        
+
         # Try to update from TradingView first (free)
         try:
             fetch_tradingview_prices(full_symbol, max_days=500)
         except Exception as ex:
             print(f"TradingView update failed for {full_symbol}: {ex}")
-        
+
         # Use centralized get_stock_data_eodhd which handles Supabase -> Local -> API
         df_loaded = None
         try:
             api_client = APIClient(api_key) if api_key else None
             df_loaded = get_stock_data_eodhd(
-                api=api_client,
-                ticker=full_symbol,
-                from_date=start_date,
-                exchange=e
+                api=api_client, ticker=full_symbol, from_date=start_date, exchange=e
             )
         except Exception as ex:
             print(f"Data fetch error for {full_symbol}: {ex}")
             # If no data and we have no API key, it's a real failure
             if not api_key:
-                out.append(EvaluatePositionOut(id=p.id, symbol=p.symbol, status="open", reason="no_data_source"))
+                out.append(
+                    EvaluatePositionOut(
+                        id=p.id, symbol=p.symbol, status="open", reason="no_data_source"
+                    )
+                )
                 continue
-            out.append(EvaluatePositionOut(id=p.id, symbol=p.symbol, status="open", reason=f"fetch_error:{ex}"))
+            out.append(
+                EvaluatePositionOut(
+                    id=p.id, symbol=p.symbol, status="open", reason=f"fetch_error:{ex}"
+                )
+            )
             continue
 
         if df_loaded is None or df_loaded.empty:
-            out.append(EvaluatePositionOut(id=p.id, symbol=p.symbol, status="open", reason="no_data"))
+            out.append(
+                EvaluatePositionOut(
+                    id=p.id, symbol=p.symbol, status="open", reason="no_data"
+                )
+            )
             continue
-        
+
         # We have the dataframe, ensure it's sorted and has a proper index
         if not isinstance(df_loaded.index, pd.DatetimeIndex):
             df_loaded.index = pd.to_datetime(df_loaded.index)
-        
-        df_filtered = df_loaded[df_loaded.index >= pd.to_datetime(start_date)].sort_index()
-        
+
+        df_filtered = df_loaded[
+            df_loaded.index >= pd.to_datetime(start_date)
+        ].sort_index()
+
         if df_filtered.empty:
-            out.append(EvaluatePositionOut(id=p.id, symbol=p.symbol, status="open", reason="no_data_in_range"))
+            out.append(
+                EvaluatePositionOut(
+                    id=p.id, symbol=p.symbol, status="open", reason="no_data_in_range"
+                )
+            )
             continue
-        
+
         # Evaluate hits
         hit: Optional[EvaluatePositionOut] = None
         for timestamp, row in df_filtered.iterrows():
             try:
                 # timestamp is a pd.Timestamp here
-                d = timestamp.strftime('%Y-%m-%d')
+                d = timestamp.strftime("%Y-%m-%d")
                 # EODHD/Supabase use lowercase column names
-                high_v = _finite_float(row.get('high', row.get('High')))
-                low_v = _finite_float(row.get('low', row.get('Low')))
+                high_v = _finite_float(row.get("high", row.get("High")))
+                low_v = _finite_float(row.get("low", row.get("Low")))
             except Exception:
                 continue
-            
-            hit_target = bool(p.target_price is not None and high_v is not None and high_v >= float(p.target_price))
-            hit_stop = bool(p.stop_price is not None and low_v is not None and low_v <= float(p.stop_price))
-            
+
+            hit_target = bool(
+                p.target_price is not None
+                and high_v is not None
+                and high_v >= float(p.target_price)
+            )
+            hit_stop = bool(
+                p.stop_price is not None
+                and low_v is not None
+                and low_v <= float(p.stop_price)
+            )
+
             if hit_target and hit_stop:
                 hit = EvaluatePositionOut(
-                    id=p.id, symbol=p.symbol, status="hit_stop",
-                    as_of=d, price=float(p.stop_price) if p.stop_price else None,
-                    reason="both_crossed_same_day"
+                    id=p.id,
+                    symbol=p.symbol,
+                    status="hit_stop",
+                    as_of=d,
+                    price=float(p.stop_price) if p.stop_price else None,
+                    reason="both_crossed_same_day",
                 )
                 break
-            
+
             if hit_stop:
                 hit = EvaluatePositionOut(
-                    id=p.id, symbol=p.symbol, status="hit_stop",
-                    as_of=d, price=float(p.stop_price) if p.stop_price else None,
-                    reason="low<=stop"
+                    id=p.id,
+                    symbol=p.symbol,
+                    status="hit_stop",
+                    as_of=d,
+                    price=float(p.stop_price) if p.stop_price else None,
+                    reason="low<=stop",
                 )
                 break
-            
+
             if hit_target:
                 hit = EvaluatePositionOut(
-                    id=p.id, symbol=p.symbol, status="hit_target",
-                    as_of=d, price=float(p.target_price) if p.target_price else None,
-                    reason="high>=target"
+                    id=p.id,
+                    symbol=p.symbol,
+                    status="hit_target",
+                    as_of=d,
+                    price=float(p.target_price) if p.target_price else None,
+                    reason="high>=target",
                 )
                 break
-        
+
         if hit is None:
             # Always return the latest price/date even if no hit
             last_idx = df_filtered.index[-1]
             last_row = df_filtered.iloc[-1]
-            last_price = float(last_row.get('close', last_row.get('Close')))
-            last_date = last_idx.strftime('%Y-%m-%d')
-            
+            last_price = float(last_row.get("close", last_row.get("Close")))
+            last_date = last_idx.strftime("%Y-%m-%d")
+
             cp = None
             if p.entry_price and last_price:
                 cp = ((last_price - float(p.entry_price)) / float(p.entry_price)) * 100
 
-            out.append(EvaluatePositionOut(
-                id=p.id, symbol=p.symbol, status="open",
-                as_of=last_date, price=last_price,
-                change_pct=cp,
-                reason="no_hit"
-            ))
+            out.append(
+                EvaluatePositionOut(
+                    id=p.id,
+                    symbol=p.symbol,
+                    status="open",
+                    as_of=last_date,
+                    price=last_price,
+                    change_pct=cp,
+                    reason="no_hit",
+                )
+            )
         else:
             # For hits, calculate change_pct based on the hit price
             if p.entry_price and hit.price:
-                hit.change_pct = ((hit.price - float(p.entry_price)) / float(p.entry_price)) * 100
+                hit.change_pct = (
+                    (hit.price - float(p.entry_price)) / float(p.entry_price)
+                ) * 100
             out.append(hit)
 
     return out
@@ -514,9 +610,9 @@ def root():
             "bot_status": "/bot/status",
             "bot_performance": "/bot/performance",
             "admin": "/admin",
-            "docs": "/docs"
+            "docs": "/docs",
         },
-        "message": "Welcome to Artoro API! Visit /docs for API documentation."
+        "message": "Welcome to Artoro API! Visit /docs for API documentation.",
     }
 
 
@@ -530,6 +626,7 @@ def list_local_models():
     try:
         # Prefer the richer metadata format used by the admin UI.
         from api.routers.admin import list_local_models as _list_local_models
+
         return _list_local_models()
     except Exception as e:
         print(f"Warning: Failed to use admin router for local models: {e}")
@@ -548,7 +645,9 @@ def list_local_models():
 def symbols_inventory():
     """Returns mapping of countries/exchanges to symbol/price counts."""
     from api.stock_ai import get_supabase_inventory
+
     return {"inventory": get_supabase_inventory()}
+
 
 @app.get("/symbols/countries")
 def symbols_countries(source: str = Query(default="supabase")):
@@ -559,24 +658,26 @@ def symbols_countries(source: str = Query(default="supabase")):
 
         if source == "local":
             return {"countries": list_countries()}
-        
+
         try:
             from api.stock_ai import get_supabase_countries
+
             sb_countries = get_supabase_countries()
             if sb_countries:
                 return {"countries": sb_countries}
         except Exception as sb_err:
             print(f"DEBUG ERROR: get_supabase_countries failed: {sb_err}")
-        
+
         # Fallback to local
         try:
             return {"countries": list_countries()}
         except Exception as loc_err:
             print(f"DEBUG ERROR: list_countries failed: {loc_err}")
             return {"countries": ["Egypt", "USA", "UK"]}
-            
+
     except Exception as e:
         import traceback
+
         err_msg = traceback.format_exc()
         # Try to write to a place we can definitely read on Windows if /tmp fails
         try:
@@ -618,7 +719,7 @@ def symbols_by_date(
             "p_exchange": exchange,
             "p_start": start,
             "p_end": end,
-            "p_limit": limit * 5 # Fetch more initially for filtering
+            "p_limit": limit * 5,  # Fetch more initially for filtering
         }
 
         # If exchange is None, this RPC won't work well without modifications.
@@ -634,27 +735,29 @@ def symbols_by_date(
         # We need to transform this into the format expected by the frontend.
         symbols_from_db = []
         for row in rpc_res.data:
-            symbols_from_db.append({
-                "symbol": row["symbol"],
-                "exchange": exchange, # Exchange is implicit from the RPC call
-                "name": "", # Will be enriched later
-                "last_date": row["last_date"],
-                "first_date": row["first_date"],
-                "row_count": row["count"]
-            })
+            symbols_from_db.append(
+                {
+                    "symbol": row["symbol"],
+                    "exchange": exchange,  # Exchange is implicit from the RPC call
+                    "name": "",  # Will be enriched later
+                    "last_date": row["last_date"],
+                    "first_date": row["first_date"],
+                    "row_count": row["count"],
+                }
+            )
 
         # Enrich with names from stock_fundamentals in chunks
         symbols_to_process = []
         if symbols_from_db:
             names_map: dict[str, str] = {}
             symbol_list = [s["symbol"] for s in symbols_from_db]
-            
+
             for chunk in _chunks(symbol_list, 500):
                 res = (
                     supabase.table("stock_fundamentals")
                     .select("symbol,data")
                     .in_("symbol", chunk)
-                    .eq("exchange", exchange) # Filter fundamentals by exchange too
+                    .eq("exchange", exchange)  # Filter fundamentals by exchange too
                     .execute()
                 )
                 if res.data:
@@ -670,10 +773,12 @@ def symbols_by_date(
         if search_term:
             search_term_lower = search_term.lower()
             symbols_to_process = [
-                s for s in symbols_to_process 
-                if search_term_lower in s["name"].lower() or search_term_lower in s["symbol"].lower()
+                s
+                for s in symbols_to_process
+                if search_term_lower in s["name"].lower()
+                or search_term_lower in s["symbol"].lower()
             ]
-        
+
         # Apply limit after all filtering and sorting
         symbols_to_process = symbols_to_process[:limit]
         symbols_to_process.sort(key=lambda x: x["symbol"])
@@ -686,25 +791,27 @@ def symbols_by_date(
 @app.get("/symbols/synced")
 def symbols_synced(
     country: Optional[str] = Query(default=None),
-    source: str = Query(default="supabase")
+    source: str = Query(default="supabase"),
 ):
     """API for frontend to fetch all synced symbols once and cache."""
     try:
         if source == "local" and country:
+            from api.stock_ai import _init_supabase, is_ticker_synced
             from api.symbols_local import load_symbols_for_country
-            from api.stock_ai import is_ticker_synced, _init_supabase
+
             _init_supabase()
             raw = load_symbols_for_country(country)
 
             # Batch check for Supabase presence to avoid O(N) queries
             from api.stock_ai import batch_check_local_cache
+
             symbol_ex_list = []
             for r in raw:
                 s = r.get("Symbol") or r.get("symbol") or r.get("Code") or r.get("code")
                 ex = r.get("Exchange") or r.get("exchange")
                 if s and ex:
                     symbol_ex_list.append((s, ex))
-            
+
             sync_status = batch_check_local_cache(symbol_ex_list)
 
             # Map to consistent format
@@ -714,16 +821,19 @@ def symbols_synced(
                 ex = r.get("Exchange") or r.get("exchange")
                 n = r.get("Name") or r.get("name") or ""
                 if s and ex:
-                    results.append({
-                        "symbol": s,
-                        "exchange": ex,
-                        "name": n,
-                        "country": country,
-                        "hasLocal": sync_status.get((s, ex), False)
-                    })
+                    results.append(
+                        {
+                            "symbol": s,
+                            "exchange": ex,
+                            "name": n,
+                            "country": country,
+                            "hasLocal": sync_status.get((s, ex), False),
+                        }
+                    )
             return {"results": results}
 
         from api.stock_ai import get_supabase_symbols
+
         results = get_supabase_symbols(country=country)
 
         return {"results": results}
@@ -737,31 +847,34 @@ def symbols_search(
     country: str | None = Query(default=None, max_length=64),
     exchange: str | None = Query(default=None, max_length=24),
     limit: int = Query(default=25, ge=1, le=100000),
-    source: str = Query(default="supabase")
+    source: str = Query(default="supabase"),
 ):
     try:
         if source == "local":
-            results = search_symbols(q=q, country=country, exchange=exchange, limit=limit)
+            results = search_symbols(
+                q=q, country=country, exchange=exchange, limit=limit
+            )
             return {"results": results}
-        
+
         # Supabase search
         from api.stock_ai import get_supabase_symbols
+
         all_sb = get_supabase_symbols(country=country)
-        
+
         q_low = q.lower().strip()
         results = []
         for s in all_sb:
-            s_name = str(s.get('name') or '')
-            s_symbol = str(s.get('symbol') or '')
+            s_name = str(s.get("name") or "")
+            s_symbol = str(s.get("symbol") or "")
             if not q_low or q_low in s_symbol.lower() or q_low in s_name.lower():
                 # Apply exchange filter if provided
-                s_exchange = str(s.get('exchange') or '')
+                s_exchange = str(s.get("exchange") or "")
                 if exchange and s_exchange.lower() != exchange.lower():
                     continue
                 results.append(s)
                 if len(results) >= limit:
                     break
-        
+
         # If supabase has no results, maybe fallback to local or return empty
         # but user specifically asked to use supabase for the app.
         return {"results": results}
@@ -773,18 +886,19 @@ def symbols_search(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-from threading import Lock
 import time
+from threading import Lock
 
 _PREDICT_CACHE: Dict[str, Dict[str, Any]] = {}
 _PREDICT_CACHE_LOCK = Lock()
-_PREDICT_CACHE_TTL = 300 # 5 minutes
+_PREDICT_CACHE_TTL = 300  # 5 minutes
+
 
 @app.post("/predict")
 def predict(req: PredictRequest):
     # 1. Generate a cache key based on most important request fields
     cache_key = f"{req.ticker.strip().upper()}_{req.exchange or 'AUTO'}_{req.model_name or 'DEFAULT'}_{req.rf_preset}_{req.from_date}_{req.to_date}_{req.target_pct}_{req.stop_loss_pct}_{req.look_forward_days}_{req.buy_threshold}_{req.use_volatility_label}"
-    
+
     # 2. Check cache
     with _PREDICT_CACHE_LOCK:
         cached = _PREDICT_CACHE.get(cache_key)
@@ -813,14 +927,11 @@ def predict(req: PredictRequest):
             buy_threshold=req.buy_threshold,
             use_volatility_label=req.use_volatility_label,
         )
-        
+
         # 3. Store in cache
         with _PREDICT_CACHE_LOCK:
-            _PREDICT_CACHE[cache_key] = {
-                "ts": time.time(),
-                "data": payload
-            }
-            
+            _PREDICT_CACHE[cache_key] = {"ts": time.time(), "data": payload}
+
         return payload
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -831,7 +942,9 @@ def predict(req: PredictRequest):
 
 @app.get("/price")
 def get_price(
-    ticker: str = Query(default="", min_length=1, max_length=24, pattern=r"^[A-Za-z0-9.\-]{1,24}$"),
+    ticker: str = Query(
+        default="", min_length=1, max_length=24, pattern=r"^[A-Za-z0-9.\-]{1,24}$"
+    ),
 ):
     t = ticker.strip().upper()
     cfg = _load_admin_config()
@@ -861,21 +974,33 @@ def get_news(symbol: str = Query(default="all_symbols")):
         ticker_str = "SPY" if symbol == "all_symbols" else symbol
         yf_ticker = _normalize_yahoo_ticker(ticker_str)
         t = yf.Ticker(yf_ticker)
-        
+
         raw_news = getattr(t, "news", [])
         articles = []
-        
+
         for n in raw_news:
             # Map Yahoo fields to a standard format
-            articles.append({
-                "title": n.get("title"),
-                "url": n.get("link"),
-                "source": {"name": n.get("publisher", "Yahoo Finance")},
-                "publishedAt": dt.datetime.fromtimestamp(n.get("providerPublishTime")).isoformat() if n.get("providerPublishTime") else None,
-                "description": n.get("type", "Market News"), # Yahoo news rarely has full description in this API
-                "image": n.get("thumbnail", {}).get("resolutions", [{}])[0].get("url") if n.get("thumbnail") else None
-            })
-            
+            articles.append(
+                {
+                    "title": n.get("title"),
+                    "url": n.get("link"),
+                    "source": {"name": n.get("publisher", "Yahoo Finance")},
+                    "publishedAt": dt.datetime.fromtimestamp(
+                        n.get("providerPublishTime")
+                    ).isoformat()
+                    if n.get("providerPublishTime")
+                    else None,
+                    "description": n.get(
+                        "type", "Market News"
+                    ),  # Yahoo news rarely has full description in this API
+                    "image": n.get("thumbnail", {})
+                    .get("resolutions", [{}])[0]
+                    .get("url")
+                    if n.get("thumbnail")
+                    else None,
+                }
+            )
+
         return {"articles": articles}
     except Exception as e:
         print(f"News fetch error: {e}")
@@ -886,6 +1011,7 @@ def get_news(symbol: str = Query(default="all_symbols")):
 # Strategy Tester Simulation Endpoint
 # POST /backtest/simulate → single-symbol, multi-model backtest
 # ------------------------------------------------------------------
+
 
 class BotConfig(BaseModel):
     id: str
@@ -914,18 +1040,19 @@ class BotConfig(BaseModel):
     trail_lock_trigger_pct: float = 0.06
     trail_lock_pct: float = 0.04
 
+
 class StrategyTesterRequest(BaseModel):
     symbol: str
     exchange: str = "EGX"
     start_date: str = "2023-01-01"
     end_date: Optional[str] = None
-    models: List[str] = []          # Deprecated, kept for fallback
-    target_pct: float = 0.10        # e.g. 0.10 = 10%
-    stop_loss_pct: float = 0.05     # e.g. 0.05 = 5%
+    models: List[str] = []  # Deprecated, kept for fallback
+    target_pct: float = 0.10  # e.g. 0.10 = 10%
+    stop_loss_pct: float = 0.05  # e.g. 0.05 = 5%
     hold_days: int = 20
-    threshold: float = 0.45         # model confidence threshold for buy signal
+    threshold: float = 0.45  # model confidence threshold for buy signal
     capital: float = 100000
-    bot_mode: str = "normal"        # aggressive | normal | conservative
+    bot_mode: str = "normal"  # aggressive | normal | conservative
     bots: Optional[List[BotConfig]] = None
     min_volume_ratio: float = 0.3
     use_rsi_filter: bool = True
@@ -966,18 +1093,18 @@ async def strategy_tester_endpoint(req: StrategyTesterRequest):
             safe_m = _safe_basename(bot.model_name)
             mp = os.path.join(models_dir, safe_m)
             if not os.path.exists(mp):
-                raise HTTPException(status_code=422, detail=f"Model not found: {safe_m}")
-            sim_configs.append((
-                bot.id,
-                safe_m,
-                bot
-            ))
+                raise HTTPException(
+                    status_code=422, detail=f"Model not found: {safe_m}"
+                )
+            sim_configs.append((bot.id, safe_m, bot))
     else:
         for m in req.models:
             safe_m = _safe_basename(m)
             mp = os.path.join(models_dir, safe_m)
             if not os.path.exists(mp):
-                raise HTTPException(status_code=422, detail=f"Model not found: {safe_m}")
+                raise HTTPException(
+                    status_code=422, detail=f"Model not found: {safe_m}"
+                )
             mock_bot = BotConfig(
                 id=m,
                 model_name=safe_m,
@@ -1001,17 +1128,15 @@ async def strategy_tester_endpoint(req: StrategyTesterRequest):
                 atr_period=req.atr_period,
                 exit_mode=req.exit_mode,
             )
-            sim_configs.append((
-                m,
-                safe_m,
-                mock_bot
-            ))
+            sim_configs.append((m, safe_m, mock_bot))
 
     if not sim_configs:
         raise HTTPException(status_code=422, detail="No valid models or bots provided")
 
     # ── 1. Fetch single-symbol price data from Supabase ──────────────────────
-    from api.stock_ai import _init_supabase, supabase, add_massive_features as _amf
+    from api.stock_ai import _init_supabase, supabase
+    from api.stock_ai import add_massive_features as _amf
+
     _init_supabase()
 
     try:
@@ -1026,7 +1151,9 @@ async def strategy_tester_endpoint(req: StrategyTesterRequest):
     try:
         sim_start_dt = pd.to_datetime(req.start_date, format="%Y-%m-%d")
     except Exception:
-        raise HTTPException(status_code=422, detail=f"Invalid start_date: {req.start_date}")
+        raise HTTPException(
+            status_code=422, detail=f"Invalid start_date: {req.start_date}"
+        )
 
     buffer_start_dt = sim_start_dt - pd.Timedelta(days=400)
     buffer_start = buffer_start_dt.strftime("%Y-%m-%d")
@@ -1052,7 +1179,10 @@ async def strategy_tester_endpoint(req: StrategyTesterRequest):
         raise HTTPException(status_code=502, detail=f"Failed to fetch price data: {e}")
 
     if not rows:
-        raise HTTPException(status_code=404, detail=f"No price data found for {symbol_upper} on {exchange_upper}")
+        raise HTTPException(
+            status_code=404,
+            detail=f"No price data found for {symbol_upper} on {exchange_upper}",
+        )
 
     df_raw = pd.DataFrame(rows)
     df_raw["date"] = pd.to_datetime(df_raw["date"])
@@ -1082,14 +1212,16 @@ async def strategy_tester_endpoint(req: StrategyTesterRequest):
 
     bars = []
     for date, row in df_raw[df_raw.index >= sim_start_dt].iterrows():
-        bars.append({
-            "time": int(date.timestamp()),
-            "open": float(row["open"]) if pd.notna(row.get("open")) else None,
-            "high": float(row["high"]) if pd.notna(row.get("high")) else None,
-            "low": float(row["low"]) if pd.notna(row.get("low")) else None,
-            "close": float(row["close"]) if pd.notna(row.get("close")) else None,
-            "volume": float(row["volume"]) if pd.notna(row.get("volume")) else 0,
-        })
+        bars.append(
+            {
+                "time": int(date.timestamp()),
+                "open": float(row["open"]) if pd.notna(row.get("open")) else None,
+                "high": float(row["high"]) if pd.notna(row.get("high")) else None,
+                "low": float(row["low"]) if pd.notna(row.get("low")) else None,
+                "close": float(row["close"]) if pd.notna(row.get("close")) else None,
+                "volume": float(row["volume"]) if pd.notna(row.get("volume")) else 0,
+            }
+        )
 
     # ── 4. Run simulation for each model ─────────────────────────────────────
     from api.backtest_radar import load_model, run_radar_simulation
@@ -1100,7 +1232,11 @@ async def strategy_tester_endpoint(req: StrategyTesterRequest):
             model_path = os.path.join(models_dir, model_name)
             model_obj = load_model(model_path)
             if model_obj is None:
-                model_results[bot_id] = {"error": "Failed to load model", "trades": [], "stats": {}}
+                model_results[bot_id] = {
+                    "error": "Failed to load model",
+                    "trades": [],
+                    "stats": {},
+                }
                 continue
 
             # === ATR vs Percentage Safety Guard (Strategy Tester) ===
@@ -1112,10 +1248,18 @@ async def strategy_tester_endpoint(req: StrategyTesterRequest):
             if bot.use_atr_exits and (bot.exit_mode or "hybrid").lower() != "manual":
                 if safe_target is not None and safe_target < 1.0:
                     # Looks like a percentage, not a multiplier → use configured ATR tp multiplier
-                    safe_target = bot.atr_tp_multiplier if bot.atr_tp_multiplier and bot.atr_tp_multiplier >= 1.0 else 2.5
+                    safe_target = (
+                        bot.atr_tp_multiplier
+                        if bot.atr_tp_multiplier and bot.atr_tp_multiplier >= 1.0
+                        else 2.5
+                    )
                 if safe_sl is not None and safe_sl < 1.0:
                     # Looks like a percentage, not a multiplier → use configured ATR sl multiplier
-                    safe_sl = bot.atr_sl_multiplier if bot.atr_sl_multiplier and bot.atr_sl_multiplier >= 1.0 else 1.5
+                    safe_sl = (
+                        bot.atr_sl_multiplier
+                        if bot.atr_sl_multiplier and bot.atr_sl_multiplier >= 1.0
+                        else 1.5
+                    )
             else:
                 # Manual exit mode → must be a fraction < 1.0
                 if safe_target is not None and safe_target >= 1.0:
@@ -1155,7 +1299,11 @@ async def strategy_tester_endpoint(req: StrategyTesterRequest):
             )
 
             if not result:
-                model_results[bot_id] = {"error": "Simulation returned empty result", "trades": [], "stats": {}}
+                model_results[bot_id] = {
+                    "error": "Simulation returned empty result",
+                    "trades": [],
+                    "stats": {},
+                }
                 continue
 
             # Convert Trades Log DataFrame to a list of dicts
@@ -1234,7 +1382,7 @@ async def strategy_tester_endpoint(req: StrategyTesterRequest):
             "hold_days": req.hold_days,
             "bot_mode": req.bot_mode,
             "capital": req.capital,
-        }
+        },
     }
 
 
@@ -1243,17 +1391,20 @@ async def strategy_tester_endpoint(req: StrategyTesterRequest):
 # ------------------------------------------------------------------
 from pydantic import BaseModel as PBM
 
-class OptimizeRequest(PBM):
-    exchange: str
-    model: str
-    start_date: str = "2024-01-01"
-    step: float = 0.05
 
 class OptimizeRequest(PBM):
     exchange: str
     model: str
     start_date: str = "2024-01-01"
     step: float = 0.05
+
+
+class OptimizeRequest(PBM):
+    exchange: str
+    model: str
+    start_date: str = "2024-01-01"
+    step: float = 0.05
+
 
 class BacktestRequest(PBM):
     exchange: str
@@ -1301,6 +1452,7 @@ def _available_local_models(models_dir: str) -> list[str]:
     except Exception:
         return []
 
+
 def _load_model_card(models_dir: str, model_name: str) -> dict | None:
     try:
         p = os.path.join(models_dir, f"{model_name}.model_card.json")
@@ -1311,7 +1463,14 @@ def _load_model_card(models_dir: str, model_name: str) -> dict | None:
     except Exception:
         return None
 
-def _compute_benchmark_metrics(project_root: str, model_name: str, start_date: str, end_date: str | None, exchange: str | None = None) -> tuple[float | None, float | None, str | None]:
+
+def _compute_benchmark_metrics(
+    project_root: str,
+    model_name: str,
+    start_date: str,
+    end_date: str | None,
+    exchange: str | None = None,
+) -> tuple[float | None, float | None, str | None]:
     """
     Returns (benchmark_return_pct, benchmark_win_rate, benchmark_name).
     Uses local index JSON referenced by the model card.
@@ -1344,6 +1503,7 @@ def _compute_benchmark_metrics(project_root: str, model_name: str, start_date: s
         if (df is None or df.empty) and ex == "EGX":
             try:
                 from api.stock_ai import _init_supabase, supabase
+
                 _init_supabase()
                 if supabase:
                     offset = 0
@@ -1383,26 +1543,28 @@ def _compute_benchmark_metrics(project_root: str, model_name: str, start_date: s
         ed = pd.to_datetime(end_date, errors="coerce") if end_date else None
         if pd.isna(sd):
             return None, None, None
-            
+
         # Filter for the simulation period
-        mask = (df["date"] >= sd)
+        mask = df["date"] >= sd
         if ed is not None and not pd.isna(ed):
             mask = mask & (df["date"] <= ed)
-        
+
         period_df = df[mask]
-        
+
         # Calculate Return
         start_row = df.loc[df["date"] >= sd].head(1)
         if ed is not None and not pd.isna(ed):
             end_row = df.loc[df["date"] <= ed].tail(1)
         else:
             end_row = df.tail(1)
-            
+
         benchmark_return_pct = None
         if not start_row.empty and not end_row.empty:
             start_close = float(start_row["close"].iloc[0])
             end_close = float(end_row["close"].iloc[0])
-            if (np.isfinite(start_close) and np.isfinite(end_close)) and start_close != 0:
+            if (
+                np.isfinite(start_close) and np.isfinite(end_close)
+            ) and start_close != 0:
                 benchmark_return_pct = ((end_close / start_close) - 1.0) * 100.0
 
         # Calculate Win Rate (Positive daily returns)
@@ -1413,7 +1575,7 @@ def _compute_benchmark_metrics(project_root: str, model_name: str, start_date: s
             period_df["pct_change"] = period_df["close"].pct_change()
             # Drop the first row which is NaN
             period_df = period_df.dropna(subset=["pct_change"])
-            
+
             if not period_df.empty:
                 positive_days = len(period_df[period_df["pct_change"] > 0])
                 total_days = len(period_df)
@@ -1424,6 +1586,7 @@ def _compute_benchmark_metrics(project_root: str, model_name: str, start_date: s
         return benchmark_return_pct, benchmark_win_rate, str(benchmark_name)
     except Exception:
         return None, None, None
+
 
 @app.post("/backtest")
 async def backtest_endpoint(req: BacktestRequest, background_tasks: BackgroundTasks):
@@ -1440,7 +1603,9 @@ async def backtest_endpoint(req: BacktestRequest, background_tasks: BackgroundTa
         import difflib
 
         available = _available_local_models(models_dir)
-        suggestions = difflib.get_close_matches(requested_model, available, n=5, cutoff=0.1)
+        suggestions = difflib.get_close_matches(
+            requested_model, available, n=5, cutoff=0.1
+        )
         raise HTTPException(
             status_code=422,
             detail={
@@ -1460,7 +1625,9 @@ async def backtest_endpoint(req: BacktestRequest, background_tasks: BackgroundTa
             import difflib
 
             available = _available_local_models(models_dir)
-            suggestions = difflib.get_close_matches(requested_validator, available, n=5, cutoff=0.1)
+            suggestions = difflib.get_close_matches(
+                requested_validator, available, n=5, cutoff=0.1
+            )
             raise HTTPException(
                 status_code=422,
                 detail={
@@ -1473,28 +1640,35 @@ async def backtest_endpoint(req: BacktestRequest, background_tasks: BackgroundTa
 
     # 1. Create a placeholder record in Supabase to track status
     from api.stock_ai import supabase
+
     try:
         # Use today as default end_date if none provided
         end_date = req.end_date or dt.datetime.utcnow().date().isoformat()
-        
-        res = supabase.table("backtests").insert({
-            "model_name": req.model,
-            "exchange": req.exchange,
-            "council_model": req.council_model,
-            "start_date": req.start_date,
-            "end_date": end_date,
-            "status": "pending",
-            "total_trades": 0,
-            "win_rate": 0,
-            "net_profit": 0,
-            "avg_return_per_trade": 0,
-            "meta_threshold": req.meta_threshold,
-            "council_threshold": req.council_threshold,
-            "target_pct": req.target_pct,
-            "stop_loss_pct": req.stop_loss_pct,
-            "capital": req.capital
-        }).execute()
-        
+
+        res = (
+            supabase.table("backtests")
+            .insert(
+                {
+                    "model_name": req.model,
+                    "exchange": req.exchange,
+                    "council_model": req.council_model,
+                    "start_date": req.start_date,
+                    "end_date": end_date,
+                    "status": "pending",
+                    "total_trades": 0,
+                    "win_rate": 0,
+                    "net_profit": 0,
+                    "avg_return_per_trade": 0,
+                    "meta_threshold": req.meta_threshold,
+                    "council_threshold": req.council_threshold,
+                    "target_pct": req.target_pct,
+                    "stop_loss_pct": req.stop_loss_pct,
+                    "capital": req.capital,
+                }
+            )
+            .execute()
+        )
+
         backtest_id = res.data[0]["id"] if res.data else None
     except Exception as e:
         print(f"Error creating backtest record: {e}")
@@ -1507,30 +1681,48 @@ async def backtest_endpoint(req: BacktestRequest, background_tasks: BackgroundTa
             err_str = ""
 
         if "42501" in err_str or "row-level security" in err_str.lower():
-            print("WARNING: Supabase RLS prevented creating backtest record; continuing without DB record.", flush=True)
+            print(
+                "WARNING: Supabase RLS prevented creating backtest record; continuing without DB record.",
+                flush=True,
+            )
             backtest_id = None
         else:
-            raise HTTPException(status_code=502, detail={
-                "error": "supabase_insert_failed",
-                "message": "Failed to create backtest record in Supabase.",
-                "cause": str(e),
-            })
+            raise HTTPException(
+                status_code=502,
+                detail={
+                    "error": "supabase_insert_failed",
+                    "message": "Failed to create backtest record in Supabase.",
+                    "cause": str(e),
+                },
+            )
 
     # Use the sanitized model name end-to-end (subprocess + model card lookup).
     # Safety: If using ATR exits, target/SL must be >= 1.0 (multipliers). If manual exits, they must be < 1.0 (percentages).
     if req.use_atr_exits and getattr(req, "exit_mode", "hybrid").lower() != "manual":
         if req.target_pct is not None and req.target_pct < 1.0:
-            print(f"WARNING: target_pct looks like a percentage ({req.target_pct}) but ATR exits are active; forcing to 2.0 for safety.", flush=True)
+            print(
+                f"WARNING: target_pct looks like a percentage ({req.target_pct}) but ATR exits are active; forcing to 2.0 for safety.",
+                flush=True,
+            )
             req.target_pct = 2.0
         if req.stop_loss_pct is not None and req.stop_loss_pct < 1.0:
-            print(f"WARNING: stop_loss_pct looks like a percentage ({req.stop_loss_pct}) but ATR exits are active; forcing to 1.0 for safety.", flush=True)
+            print(
+                f"WARNING: stop_loss_pct looks like a percentage ({req.stop_loss_pct}) but ATR exits are active; forcing to 1.0 for safety.",
+                flush=True,
+            )
             req.stop_loss_pct = 1.0
     else:
         if req.target_pct is not None and req.target_pct >= 1.0:
-            print(f"WARNING: target_pct looks like a multiplier ({req.target_pct}) but manual exits are active; forcing to 0.10 for safety.", flush=True)
+            print(
+                f"WARNING: target_pct looks like a multiplier ({req.target_pct}) but manual exits are active; forcing to 0.10 for safety.",
+                flush=True,
+            )
             req.target_pct = 0.10
         if req.stop_loss_pct is not None and req.stop_loss_pct >= 1.0:
-            print(f"WARNING: stop_loss_pct looks like a multiplier ({req.stop_loss_pct}) but manual exits are active; forcing to 0.05 for safety.", flush=True)
+            print(
+                f"WARNING: stop_loss_pct looks like a multiplier ({req.stop_loss_pct}) but manual exits are active; forcing to 0.05 for safety.",
+                flush=True,
+            )
             req.stop_loss_pct = 0.05
 
     req_sanitized = BacktestRequest(
@@ -1564,39 +1756,46 @@ async def backtest_endpoint(req: BacktestRequest, background_tasks: BackgroundTa
 
     background_tasks.add_task(run_backtest_task, req_sanitized, backtest_id)
     return {
-        "status": "queued", 
+        "status": "queued",
         "id": backtest_id,
-        "message": f"Backtest for {req.model} on {req.exchange} has been started. Trace ID: {backtest_id}"
+        "message": f"Backtest for {req.model} on {req.exchange} has been started. Trace ID: {backtest_id}",
     }
+
 
 def run_backtest_task(req: BacktestRequest, backtest_id: str = None):
     """Internal task runner for backtests with real-time status updates."""
-    import subprocess
     import csv
+    import datetime as dt
     import json
     import os
+    import subprocess
     import sys
-    import datetime as dt
+
     from api.stock_ai import supabase
-    
+
     model_name = req.model
     exchange = req.exchange
     start_date = req.start_date
     end_date = req.end_date or dt.datetime.utcnow().date().isoformat()
-    
+
     # Build command
     api_dir = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.dirname(api_dir)
     script_path = os.path.join(api_dir, "backtest_radar.py")
-    
+
     cmd = [
-        sys.executable, script_path,
-        "--exchange", exchange,
-        "--model", model_name,
-        "--start", start_date,
-        "--end", end_date
+        sys.executable,
+        script_path,
+        "--exchange",
+        exchange,
+        "--model",
+        model_name,
+        "--start",
+        start_date,
+        "--end",
+        end_date,
     ]
-    
+
     if req.council_model:
         cmd.extend(["--council", req.council_model])
 
@@ -1605,7 +1804,7 @@ def run_backtest_task(req: BacktestRequest, backtest_id: str = None):
 
     if req.meta_threshold is not None:
         cmd.extend(["--meta-threshold", str(req.meta_threshold)])
-    
+
     if req.council_threshold is not None:
         cmd.extend(["--validator-threshold", str(req.council_threshold)])
 
@@ -1617,7 +1816,7 @@ def run_backtest_task(req: BacktestRequest, backtest_id: str = None):
 
     if req.capital is not None:
         cmd.extend(["--capital", str(req.capital)])
-    
+
     # Pass Centralized Bot Settings to backtest_radar subprocess
     if req.min_volume_ratio is not None:
         cmd.extend(["--min-volume-ratio", str(req.min_volume_ratio)])
@@ -1653,21 +1852,32 @@ def run_backtest_task(req: BacktestRequest, backtest_id: str = None):
 
     if req.crypto_quote_filters:
         cmd.extend(["--crypto-filters", ",".join(req.crypto_quote_filters)])
-        print(f"[BT-DEBUG] crypto_quote_filters received: {req.crypto_quote_filters}", flush=True)
-    
+        print(
+            f"[BT-DEBUG] crypto_quote_filters received: {req.crypto_quote_filters}",
+            flush=True,
+        )
+
     if not os.path.exists(script_path):
         print(f"Error: Backtest script not found at {script_path}")
         return
-    
+
     try:
-        print(f"Background Backtest Started: {model_name} on {exchange} (ID: {backtest_id})")
-        
+        print(
+            f"Background Backtest Started: {model_name} on {exchange} (ID: {backtest_id})"
+        )
+
         # Update status to processing
         if backtest_id:
-            try: supabase.table("backtests").update({"status": "processing", "status_msg": "Starting subprocess..."}).eq("id", backtest_id).execute()
-            except: pass
+            try:
+                supabase.table("backtests").update(
+                    {"status": "processing", "status_msg": "Starting subprocess..."}
+                ).eq("id", backtest_id).execute()
+            except:
+                pass
 
-        csv_path = os.path.join(api_dir, f"backtest_results_{exchange}_{backtest_id or 'latest'}.csv")
+        csv_path = os.path.join(
+            api_dir, f"backtest_results_{exchange}_{backtest_id or 'latest'}.csv"
+        )
         cmd.extend(["--out", csv_path])
 
         process = subprocess.Popen(
@@ -1676,12 +1886,12 @@ def run_backtest_task(req: BacktestRequest, backtest_id: str = None):
             stderr=subprocess.PIPE,
             text=True,
             cwd=api_dir,
-            encoding='utf-8',
-            errors='replace',
-            bufsize=1, # Line buffered
-            universal_newlines=True
+            encoding="utf-8",
+            errors="replace",
+            bufsize=1,  # Line buffered
+            universal_newlines=True,
         )
-        
+
         stdout_lines = []
         stderr_lines = []
 
@@ -1694,7 +1904,7 @@ def run_backtest_task(req: BacktestRequest, backtest_id: str = None):
             if line:
                 clean_line = line.strip()
                 stdout_lines.append(line)
-                
+
                 # Filter out the huge JSON trades log from the terminal output
                 if "--- JSON TRADES LOG START ---" in clean_line:
                     is_json_block = True
@@ -1704,16 +1914,21 @@ def run_backtest_task(req: BacktestRequest, backtest_id: str = None):
                     print(f"[BT-LIVE] {clean_line}")
                 elif not is_json_block:
                     print(f"[BT-LIVE] {clean_line}")
-                
+
                 # Update status if interesting progress found
-                if backtest_id and any(x in clean_line for x in ["Fetching", "Progress:", "Loading", "Processing"]):
+                if backtest_id and any(
+                    x in clean_line
+                    for x in ["Fetching", "Progress:", "Loading", "Processing"]
+                ):
                     try:
                         # Extract "Progress: 60/246" or just use the line
                         msg = clean_line
                         if "Progress:" in clean_line:
-                            msg = clean_line.split("...") [0].strip()
-                        
-                        supabase.table("backtests").update({"status_msg": msg}).eq("id", backtest_id).execute()
+                            msg = clean_line.split("...")[0].strip()
+
+                        supabase.table("backtests").update({"status_msg": msg}).eq(
+                            "id", backtest_id
+                        ).execute()
                     except:
                         pass
 
@@ -1724,17 +1939,17 @@ def run_backtest_task(req: BacktestRequest, backtest_id: str = None):
 
         stdout = "".join(stdout_lines)
         stderr = "".join(stderr_lines)
-        
+
         # Log to server console for finality
         print(f"--- Backtest Finished [{model_name}] ---")
-        
+
         # Simple extraction logic (keep as-is or improve)
         total_trades = 0
         win_rate = 0.0
         net_profit = 0
         avg_return = 0.0
         trades = []
-        
+
         lines = stdout.split("\n")
         pre_council_trades = 0
         post_council_trades = 0
@@ -1742,14 +1957,22 @@ def run_backtest_task(req: BacktestRequest, backtest_id: str = None):
         post_council_win_rate = 0.0
         pre_council_profit_pct = None
         post_council_profit_pct = None
-        
+
         for line in lines:
             if "Total Trades Detected" in line:
-                try: total_trades = int(line.split(":")[1].strip())
-                except: pass
-            elif "Win Rate:" in line and "Pre-Council" not in line and "Post-Council" not in line:
-                try: win_rate = float(line.split(":")[1].strip().replace("%", ""))
-                except: pass
+                try:
+                    total_trades = int(line.split(":")[1].strip())
+                except:
+                    pass
+            elif (
+                "Win Rate:" in line
+                and "Pre-Council" not in line
+                and "Post-Council" not in line
+            ):
+                try:
+                    win_rate = float(line.split(":")[1].strip().replace("%", ""))
+                except:
+                    pass
             elif "Simulated Profit" in line or "Net Profit" in line:
                 try:
                     parts = line.split(":")
@@ -1757,72 +1980,128 @@ def run_backtest_task(req: BacktestRequest, backtest_id: str = None):
                         # Extract number, handle commas and currency suffix
                         clean_val = parts[1].strip().split(" ")[0].replace(",", "")
                         net_profit = float(clean_val)
-                except: pass
+                except:
+                    pass
             elif "Avg Return" in line:
-                try: avg_return = float(line.split(":")[1].strip().replace("%", ""))
-                except: pass
+                try:
+                    avg_return = float(line.split(":")[1].strip().replace("%", ""))
+                except:
+                    pass
             elif "Pre-Council Trades:" in line:
-                try: pre_council_trades = int(line.split(":")[1].strip())
-                except: pass
+                try:
+                    pre_council_trades = int(line.split(":")[1].strip())
+                except:
+                    pass
             elif "Post-Council Trades:" in line:
-                try: post_council_trades = int(line.split(":")[1].strip())
-                except: pass
+                try:
+                    post_council_trades = int(line.split(":")[1].strip())
+                except:
+                    pass
             elif "Pre-Council Win Rate:" in line:
-                try: pre_council_win_rate = float(line.split(":")[1].strip().replace("%", ""))
-                except: pass
+                try:
+                    pre_council_win_rate = float(
+                        line.split(":")[1].strip().replace("%", "")
+                    )
+                except:
+                    pass
             elif "Post-Council Win Rate:" in line:
-                try: post_council_win_rate = float(line.split(":")[1].strip().replace("%", ""))
-                except: pass
+                try:
+                    post_council_win_rate = float(
+                        line.split(":")[1].strip().replace("%", "")
+                    )
+                except:
+                    pass
             elif "Pre-Council Profit:" in line:
-                try: pre_council_profit_pct = float(line.split(":")[1].strip().replace("%", ""))
-                except: pass
+                try:
+                    pre_council_profit_pct = float(
+                        line.split(":")[1].strip().replace("%", "")
+                    )
+                except:
+                    pass
             elif "Post-Council Profit:" in line:
-                try: post_council_profit_pct = float(line.split(":")[1].strip().replace("%", ""))
-                except: pass
+                try:
+                    post_council_profit_pct = float(
+                        line.split(":")[1].strip().replace("%", "")
+                    )
+                except:
+                    pass
             elif "Rejected Profitable:" in line:
-                try: rejected_profitable = int(line.split(":")[1].strip())
-                except: pass
-        
+                try:
+                    rejected_profitable = int(line.split(":")[1].strip())
+                except:
+                    pass
+
         # Parse JSON Trades Log from stdout
         try:
             val_start = stdout.find("--- JSON TRADES LOG START ---")
             val_end = stdout.find("--- JSON TRADES LOG END ---")
             if val_start != -1 and val_end != -1:
-                json_str = stdout[val_start + len("--- JSON TRADES LOG START ---"):val_end].strip();
+                json_str = stdout[
+                    val_start + len("--- JSON TRADES LOG START ---") : val_end
+                ].strip()
                 # Remove any trailing newlines from the suppression filter
                 json_str = json_str.lstrip(" \t\n")
                 parsed_trades = json.loads(json_str)
                 for row in parsed_trades:
-                    trades.append({
-                        "date": row.get("Date", ""),
-                        "symbol": row.get("Symbol", ""),
-                        "entry": float(row.get("Entry", 0) or 0),
-                        "exit": float(row.get("Exit", 0) or 0),
-                        "result": row.get("Result", ""),
-                        "pnl_pct": float(row.get("PnL_Pct", 0) or 0),
-                        "status": row.get("Status", "Accepted"),
-                        "votes": row.get("Votes", {}), # JSON keeps it as dict if it was dict
-                        "Entry_Date": row.get("Entry_Date", ""),
-                        "Exit_Date": row.get("Exit_Date", ""),
-                        "Entry_Day": row.get("Entry_Day", ""),
-                        "Exit_Day": row.get("Exit_Day", ""),
-                        "Profit_Cash": float(row.get("Profit_Cash", 0) or 0),
-                        "Cumulative_Profit": float(row.get("Cumulative_Profit", 0) or 0),
-                        "Position_Cash": float(row.get("Position_Cash", 0) or 0),
-                        "Size_Multiplier": float(row.get("Size_Multiplier", 0) or 0),
-                        "Score": (float(row.get("Score")) if row.get("Score") is not None else None),
-                        "Radar_Score": (float(row.get("Radar_Score")) if row.get("Radar_Score") is not None else None),
-                        "Validator_Score": (float(row.get("Validator_Score")) if row.get("Validator_Score") is not None else None),
-                        "Sizing_Score": (float(row.get("Sizing_Score")) if row.get("Sizing_Score") is not None else None),
-                        "Fund_Score": (float(row.get("Fund_Score")) if row.get("Fund_Score") is not None else None),
-                        "Buy_Reason": row.get("Buy_Reason", ""),
-                        "Exit_Reason": row.get("Exit_Reason", ""),
-                    })
+                    trades.append(
+                        {
+                            "date": row.get("Date", ""),
+                            "symbol": row.get("Symbol", ""),
+                            "entry": float(row.get("Entry", 0) or 0),
+                            "exit": float(row.get("Exit", 0) or 0),
+                            "result": row.get("Result", ""),
+                            "pnl_pct": float(row.get("PnL_Pct", 0) or 0),
+                            "status": row.get("Status", "Accepted"),
+                            "votes": row.get(
+                                "Votes", {}
+                            ),  # JSON keeps it as dict if it was dict
+                            "Entry_Date": row.get("Entry_Date", ""),
+                            "Exit_Date": row.get("Exit_Date", ""),
+                            "Entry_Day": row.get("Entry_Day", ""),
+                            "Exit_Day": row.get("Exit_Day", ""),
+                            "Profit_Cash": float(row.get("Profit_Cash", 0) or 0),
+                            "Cumulative_Profit": float(
+                                row.get("Cumulative_Profit", 0) or 0
+                            ),
+                            "Position_Cash": float(row.get("Position_Cash", 0) or 0),
+                            "Size_Multiplier": float(
+                                row.get("Size_Multiplier", 0) or 0
+                            ),
+                            "Score": (
+                                float(row.get("Score"))
+                                if row.get("Score") is not None
+                                else None
+                            ),
+                            "Radar_Score": (
+                                float(row.get("Radar_Score"))
+                                if row.get("Radar_Score") is not None
+                                else None
+                            ),
+                            "Validator_Score": (
+                                float(row.get("Validator_Score"))
+                                if row.get("Validator_Score") is not None
+                                else None
+                            ),
+                            "Sizing_Score": (
+                                float(row.get("Sizing_Score"))
+                                if row.get("Sizing_Score") is not None
+                                else None
+                            ),
+                            "Fund_Score": (
+                                float(row.get("Fund_Score"))
+                                if row.get("Fund_Score") is not None
+                                else None
+                            ),
+                            "Buy_Reason": row.get("Buy_Reason", ""),
+                            "Exit_Reason": row.get("Exit_Reason", ""),
+                        }
+                    )
         except Exception as e:
             print(f"Error parsing trades JSON: {e}")
-        
+
         # Save to Supabase
         from api.stock_ai import _init_supabase, supabase
+
         _init_supabase()
         if supabase:
             # Compute total return % on a fixed notional capital.
@@ -1842,7 +2121,7 @@ def run_backtest_task(req: BacktestRequest, backtest_id: str = None):
                 end_date=end_date,
                 exchange=exchange,
             )
-            
+
             # Note: We are discarding Alpha Pct calculation and replacing it with Index Win Rate
             # as requested by the user.
 
@@ -1860,7 +2139,7 @@ def run_backtest_task(req: BacktestRequest, backtest_id: str = None):
                         "net_profit": net_profit,
                         "avg_return_per_trade": avg_return,
                         "trades_log": trades,
-                        "council_model": req.council_model
+                        "council_model": req.council_model,
                     }
 
                     # Optional new analytics columns (tolerate missing DB migration).
@@ -1868,7 +2147,7 @@ def run_backtest_task(req: BacktestRequest, backtest_id: str = None):
                         update_payload["profit_pct"] = profit_pct
                     if bench_pct is not None:
                         update_payload["benchmark_return_pct"] = bench_pct
-                         
+
                     if bench_name:
                         update_payload["benchmark_name"] = bench_name
 
@@ -1879,32 +2158,64 @@ def run_backtest_task(req: BacktestRequest, backtest_id: str = None):
                         update_payload["pre_council_win_rate"] = pre_council_win_rate
                         update_payload["post_council_win_rate"] = post_council_win_rate
                         if pre_council_profit_pct is not None:
-                            update_payload["pre_council_profit_pct"] = pre_council_profit_pct
+                            update_payload["pre_council_profit_pct"] = (
+                                pre_council_profit_pct
+                            )
                         if post_council_profit_pct is not None:
-                            update_payload["post_council_profit_pct"] = post_council_profit_pct
-                        if 'rejected_profitable' in locals():
-                             # Schema doesn't have this column yet
-                             pass
+                            update_payload["post_council_profit_pct"] = (
+                                post_council_profit_pct
+                            )
+                        if "rejected_profitable" in locals():
+                            # Schema doesn't have this column yet
+                            pass
 
                     try:
                         # Clear alpha_pct if it existed
-                        update_payload["alpha_pct"] = None 
-                        supabase.table("backtests").update(update_payload).eq("id", backtest_id).execute()
+                        update_payload["alpha_pct"] = None
+                        supabase.table("backtests").update(update_payload).eq(
+                            "id", backtest_id
+                        ).execute()
                     except Exception:
                         # Retry without optional columns
-                        for k in ("profit_pct", "benchmark_return_pct", "benchmark_win_rate", "benchmark_name", "alpha_pct"):
+                        for k in (
+                            "profit_pct",
+                            "benchmark_return_pct",
+                            "benchmark_win_rate",
+                            "benchmark_name",
+                            "alpha_pct",
+                        ):
                             update_payload.pop(k, None)
-                        supabase.table("backtests").update(update_payload).eq("id", backtest_id).execute()
+                        supabase.table("backtests").update(update_payload).eq(
+                            "id", backtest_id
+                        ).execute()
 
-                    print(f"Background Backtest Updated & Saved: {model_name} (ID: {backtest_id})")
+                    print(
+                        f"Background Backtest Updated & Saved: {model_name} (ID: {backtest_id})"
+                    )
                 except Exception as e:
                     print(f"Error updating backtest result: {e}")
                     # Save a local fallback copy so results are not lost when Supabase RLS/connection blocks.
                     try:
-                        os.makedirs(os.path.join(project_root, "backtests_local"), exist_ok=True)
-                        fname = os.path.join(project_root, "backtests_local", f"backtest_{model_name.replace(' ', '_')}_{dt.datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')}.json")
+                        os.makedirs(
+                            os.path.join(project_root, "backtests_local"), exist_ok=True
+                        )
+                        fname = os.path.join(
+                            project_root,
+                            "backtests_local",
+                            f"backtest_{model_name.replace(' ', '_')}_{dt.datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')}.json",
+                        )
                         with open(fname, "w", encoding="utf-8") as fh:
-                            json.dump({"id": backtest_id, "model": model_name, "result": update_payload, "saved_at": dt.datetime.utcnow().isoformat()}, fh, ensure_ascii=False, indent=2)
+                            json.dump(
+                                {
+                                    "id": backtest_id,
+                                    "model": model_name,
+                                    "result": update_payload,
+                                    "saved_at": dt.datetime.utcnow().isoformat(),
+                                },
+                                fh,
+                                ensure_ascii=False,
+                                indent=2,
+                            )
                         print(f"Saved fallback backtest result to {fname}")
                     except Exception as e2:
                         print(f"Failed to save fallback backtest result locally: {e2}")
@@ -1912,50 +2223,79 @@ def run_backtest_task(req: BacktestRequest, backtest_id: str = None):
                 # Fallback to old behavior if no ID (shouldn't happen now)
                 try:
                     # Use today as default end_date if none provided
-                    final_end_date = req.end_date or dt.datetime.utcnow().date().isoformat()
-                    
-                    supabase.table("backtests").insert({
-                        "model_name": model_name,
-                        "exchange": exchange,
-                        "council_model": req.council_model,
-                        "start_date": req.start_date,
-                        "end_date": final_end_date,
-                        "total_trades": total_trades,
-                        "win_rate": win_rate,
-                        "net_profit": net_profit,
-                        "avg_return_per_trade": avg_return,
-                        "trades_log": trades,
-                        "status": "completed",
-                        "profit_pct": profit_pct,
-                        "benchmark_return_pct": bench_pct,
-                        "benchmark_name": bench_name,
-                        "pre_council_trades": pre_council_trades if pre_council_trades > 0 else None,
-                        "post_council_trades": post_council_trades if pre_council_trades > 0 else None,
-                        "pre_council_win_rate": pre_council_win_rate if pre_council_trades > 0 else None,
-                        "post_council_win_rate": post_council_win_rate if pre_council_trades > 0 else None,
-                        "pre_council_profit_pct": pre_council_profit_pct if 'pre_council_profit_pct' in locals() and pre_council_profit_pct is not None else None,
-                        "post_council_profit_pct": post_council_profit_pct if 'post_council_profit_pct' in locals() and post_council_profit_pct is not None else None
-                    }).execute()
+                    final_end_date = (
+                        req.end_date or dt.datetime.utcnow().date().isoformat()
+                    )
+
+                    supabase.table("backtests").insert(
+                        {
+                            "model_name": model_name,
+                            "exchange": exchange,
+                            "council_model": req.council_model,
+                            "start_date": req.start_date,
+                            "end_date": final_end_date,
+                            "total_trades": total_trades,
+                            "win_rate": win_rate,
+                            "net_profit": net_profit,
+                            "avg_return_per_trade": avg_return,
+                            "trades_log": trades,
+                            "status": "completed",
+                            "profit_pct": profit_pct,
+                            "benchmark_return_pct": bench_pct,
+                            "benchmark_name": bench_name,
+                            "pre_council_trades": pre_council_trades
+                            if pre_council_trades > 0
+                            else None,
+                            "post_council_trades": post_council_trades
+                            if pre_council_trades > 0
+                            else None,
+                            "pre_council_win_rate": pre_council_win_rate
+                            if pre_council_trades > 0
+                            else None,
+                            "post_council_win_rate": post_council_win_rate
+                            if pre_council_trades > 0
+                            else None,
+                            "pre_council_profit_pct": pre_council_profit_pct
+                            if "pre_council_profit_pct" in locals()
+                            and pre_council_profit_pct is not None
+                            else None,
+                            "post_council_profit_pct": post_council_profit_pct
+                            if "post_council_profit_pct" in locals()
+                            and post_council_profit_pct is not None
+                            else None,
+                        }
+                    ).execute()
                     print(f"Background Backtest Saved (Fallback): {model_name}")
                 except Exception as e:
                     print(f"Error saving backtest result: {e}")
                     try:
-                        os.makedirs(os.path.join(project_root, "backtests_local"), exist_ok=True)
-                        fname = os.path.join(project_root, "backtests_local", f"backtest_{model_name.replace(' ', '_')}_{dt.datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')}.json")
+                        os.makedirs(
+                            os.path.join(project_root, "backtests_local"), exist_ok=True
+                        )
+                        fname = os.path.join(
+                            project_root,
+                            "backtests_local",
+                            f"backtest_{model_name.replace(' ', '_')}_{dt.datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')}.json",
+                        )
                         with open(fname, "w", encoding="utf-8") as fh:
-                            json.dump({
-                                "model": model_name,
-                                "exchange": exchange,
-                                "start_date": req.start_date,
-                                "end_date": final_end_date,
-                                "total_trades": total_trades,
-                                "win_rate": win_rate,
-                                "net_profit": net_profit,
-                                "avg_return_per_trade": avg_return,
-                                "trades_log": trades,
-                                "status": "completed",
-                                "saved_at": dt.datetime.utcnow().isoformat()
-                            }, fh, ensure_ascii=False, indent=2)
+                            json.dump(
+                                {
+                                    "model": model_name,
+                                    "exchange": exchange,
+                                    "start_date": req.start_date,
+                                    "end_date": final_end_date,
+                                    "total_trades": total_trades,
+                                    "win_rate": win_rate,
+                                    "net_profit": net_profit,
+                                    "avg_return_per_trade": avg_return,
+                                    "trades_log": trades,
+                                    "status": "completed",
+                                    "saved_at": dt.datetime.utcnow().isoformat(),
+                                },
+                                fh,
+                                ensure_ascii=False,
+                                indent=2,
+                            )
                         print(f"Saved fallback backtest (fallback insert) to {fname}")
                     except Exception as e2:
                         print(f"Failed to save fallback backtest locally: {e2}")
@@ -1963,45 +2303,57 @@ def run_backtest_task(req: BacktestRequest, backtest_id: str = None):
     except Exception as e:
         print(f"Backtest Task Failed: {e}")
         if backtest_id:
-            try: supabase.table("backtests").update({"status": "failed", "status_msg": str(e)}).eq("id", backtest_id).execute()
-            except: pass
+            try:
+                supabase.table("backtests").update(
+                    {"status": "failed", "status_msg": str(e)}
+                ).eq("id", backtest_id).execute()
+            except:
+                pass
 
 
 def run_optimize_task(req: OptimizeRequest, opt_id: str = None):
     """Runs optimize_radar.py and updates status with trials."""
-    import subprocess
-    import os
-    import sys
     import json
+    import os
+    import subprocess
+    import sys
+
     from api.stock_ai import supabase
-    
+
     api_dir = os.path.dirname(os.path.abspath(__file__))
     script_path = os.path.join(api_dir, "optimize_radar.py")
-    
+
     cmd = [
-        sys.executable, script_path,
-        "--exchange", req.exchange,
-        "--model", req.model,
-        "--start", req.start_date,
-        "--step", str(req.step)
+        sys.executable,
+        script_path,
+        "--exchange",
+        req.exchange,
+        "--model",
+        req.model,
+        "--start",
+        req.start_date,
+        "--step",
+        str(req.step),
     ]
-    
+
     try:
         if opt_id:
-            supabase.table("backtests").update({"status": "processing", "status_msg": "Initializing optimizer..."}).eq("id", opt_id).execute()
-        
+            supabase.table("backtests").update(
+                {"status": "processing", "status_msg": "Initializing optimizer..."}
+            ).eq("id", opt_id).execute()
+
         process = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
             cwd=api_dir,
-            encoding='utf-8',
-            errors='replace',
-            bufsize=1, # Line buffered
-            universal_newlines=True
+            encoding="utf-8",
+            errors="replace",
+            bufsize=1,  # Line buffered
+            universal_newlines=True,
         )
-        
+
         trials = []
         best_threshold = 0.0
         best_profit = 0.0
@@ -2009,7 +2361,7 @@ def run_optimize_task(req: OptimizeRequest, opt_id: str = None):
         for line in process.stdout:
             clean_line = line.strip()
             print(f"[OPT] {clean_line}")
-            
+
             # Pattern: 0.30       | 10       | 70.0%     | 5,000           | 🔥 NEW HIGH!
             if "|" in clean_line:
                 parts = [p.strip() for p in clean_line.split("|")]
@@ -2019,61 +2371,78 @@ def run_optimize_task(req: OptimizeRequest, opt_id: str = None):
                         trades = int(parts[1])
                         win_rate = float(parts[2].replace("%", ""))
                         profit = float(parts[3].replace(",", ""))
-                        
+
                         trial = {
                             "threshold": thresh,
                             "trades": trades,
                             "win_rate": win_rate,
                             "profit": profit,
-                            "is_best": "NEW HIGH" in clean_line
+                            "is_best": "NEW HIGH" in clean_line,
                         }
                         trials.append(trial)
-                        
+
                         if trial["is_best"]:
                             best_threshold = thresh
                             best_profit = profit
-                            
+
                         if opt_id:
                             msg = f"Testing {thresh}: Profit {profit:,.0f} ({len(trials)} trials)"
-                            supabase.table("backtests").update({"status_msg": msg}).eq("id", opt_id).execute()
+                            supabase.table("backtests").update({"status_msg": msg}).eq(
+                                "id", opt_id
+                            ).execute()
                     except:
                         pass
-        
+
         process.wait()
-        
+
         if opt_id:
             if process.returncode == 0:
-                supabase.table("backtests").update({
-                    "status": "completed",
-                    "status_msg": f"Optimization finished. Best Threshold: {best_threshold}",
-                    "net_profit": int(best_profit),
-                    "meta_threshold": best_threshold,
-                    "trades_log": json.dumps(trials) # Store trials as JSON string in trades_log
-                }).eq("id", opt_id).execute()
+                supabase.table("backtests").update(
+                    {
+                        "status": "completed",
+                        "status_msg": f"Optimization finished. Best Threshold: {best_threshold}",
+                        "net_profit": int(best_profit),
+                        "meta_threshold": best_threshold,
+                        "trades_log": json.dumps(
+                            trials
+                        ),  # Store trials as JSON string in trades_log
+                    }
+                ).eq("id", opt_id).execute()
             else:
-                supabase.table("backtests").update({
-                    "status": "failed",
-                    "status_msg": "Optimizer process failed."
-                }).eq("id", opt_id).execute()
+                supabase.table("backtests").update(
+                    {"status": "failed", "status_msg": "Optimizer process failed."}
+                ).eq("id", opt_id).execute()
 
     except Exception as e:
         print(f"Optimization Task Failed: {e}")
         if opt_id:
-            try: supabase.table("backtests").update({"status": "failed", "status_msg": str(e)}).eq("id", opt_id).execute()
-            except: pass
+            try:
+                supabase.table("backtests").update(
+                    {"status": "failed", "status_msg": str(e)}
+                ).eq("id", opt_id).execute()
+            except:
+                pass
+
 
 @app.post("/optimize")
 async def optimize_endpoint(req: OptimizeRequest, background_tasks: BackgroundTasks):
     """Run parameter optimization as a background task."""
     from api.stock_ai import supabase
+
     try:
-        res = supabase.table("backtests").insert({
-            "model_name": f"OPT: {req.model}",
-            "exchange": req.exchange,
-            "start_date": req.start_date,
-            "status": "pending",
-            "status_msg": "Optimization queued..."
-        }).execute()
+        res = (
+            supabase.table("backtests")
+            .insert(
+                {
+                    "model_name": f"OPT: {req.model}",
+                    "exchange": req.exchange,
+                    "start_date": req.start_date,
+                    "status": "pending",
+                    "status_msg": "Optimization queued...",
+                }
+            )
+            .execute()
+        )
         opt_id = res.data[0]["id"] if res.data else None
     except Exception as e:
         print(f"Error creating optimization record: {e}")
@@ -2082,10 +2451,12 @@ async def optimize_endpoint(req: OptimizeRequest, background_tasks: BackgroundTa
     background_tasks.add_task(run_optimize_task, req, opt_id)
     return {"id": opt_id, "message": f"Optimization for {req.model} started."}
 
+
 @app.get("/backtests")
 async def get_backtests(model: Optional[str] = None, admin: Optional[bool] = False):
     """Fetch all backtest historical records."""
     import time as _time
+
     import api.stock_ai as stock_ai
 
     # Soft cache to keep UI stable if Supabase intermittently fails (e.g., SSL EOF during polling)
@@ -2108,7 +2479,11 @@ async def get_backtests(model: Optional[str] = None, admin: Optional[bool] = Fal
             "target_pct,stop_loss_pct,capital,created_at,council_model,"
             "pre_council_win_rate,pre_council_profit_pct,post_council_win_rate,post_council_profit_pct,is_public,is_favorite"
         )
-        q = stock_ai.supabase.table("backtests").select(columns).order("created_at", desc=True)
+        q = (
+            stock_ai.supabase.table("backtests")
+            .select(columns)
+            .order("created_at", desc=True)
+        )
         if model:
             q = q.eq("model_name", model)
         # Only return public backtests for regular users
@@ -2123,53 +2498,97 @@ async def get_backtests(model: Optional[str] = None, admin: Optional[bool] = Fal
             data = res.data or []
             # Also include any locally saved fallback backtests (if Supabase missed them)
             try:
-                local_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "backtests_local")
+                local_dir = os.path.join(
+                    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                    "backtests_local",
+                )
                 if os.path.isdir(local_dir):
                     for fn in sorted(os.listdir(local_dir), reverse=True):
-                        if not fn.lower().endswith('.json'):
+                        if not fn.lower().endswith(".json"):
                             continue
                         p = os.path.join(local_dir, fn)
                         try:
-                            with open(p, 'r', encoding='utf-8') as fh:
+                            with open(p, "r", encoding="utf-8") as fh:
                                 j = json.load(fh)
                                 # Avoid duplicates by simple key matching (model + start_date + end_date)
-                                local_model = j.get('model') or j.get('model_name') or (j.get('result') or {}).get('model_name')
-                                local_start = j.get('start_date') or (j.get('result') or {}).get('start_date')
-                                local_end = j.get('end_date') or (j.get('result') or {}).get('end_date')
-                                key = (str(local_model), str(local_start), str(local_end))
+                                local_model = (
+                                    j.get("model")
+                                    or j.get("model_name")
+                                    or (j.get("result") or {}).get("model_name")
+                                )
+                                local_start = j.get("start_date") or (
+                                    j.get("result") or {}
+                                ).get("start_date")
+                                local_end = j.get("end_date") or (
+                                    j.get("result") or {}
+                                ).get("end_date")
+                                key = (
+                                    str(local_model),
+                                    str(local_start),
+                                    str(local_end),
+                                )
                                 exists = False
                                 for r in data:
-                                    if (str(r.get('model_name') or r.get('model')), str(r.get('start_date')), str(r.get('end_date'))) == key:
+                                    if (
+                                        str(r.get("model_name") or r.get("model")),
+                                        str(r.get("start_date")),
+                                        str(r.get("end_date")),
+                                    ) == key:
                                         exists = True
                                         break
                                 if not exists:
-                                    result_payload = j.get('result') or j
-                                    is_public = result_payload.get('is_public', False) or j.get('is_public', False)
-                                    is_favorite = result_payload.get('is_favorite', False) or j.get('is_favorite', False)
+                                    result_payload = j.get("result") or j
+                                    is_public = result_payload.get(
+                                        "is_public", False
+                                    ) or j.get("is_public", False)
+                                    is_favorite = result_payload.get(
+                                        "is_favorite", False
+                                    ) or j.get("is_favorite", False)
                                     if not admin and not is_public:
                                         continue
-                                    created_at = j.get('saved_at') or j.get('created_at') or result_payload.get('created_at')
+                                    created_at = (
+                                        j.get("saved_at")
+                                        or j.get("created_at")
+                                        or result_payload.get("created_at")
+                                    )
                                     if not created_at:
-                                        created_at = dt.datetime.utcfromtimestamp(os.path.getmtime(p)).isoformat() + "Z"
+                                        created_at = (
+                                            dt.datetime.utcfromtimestamp(
+                                                os.path.getmtime(p)
+                                            ).isoformat()
+                                            + "Z"
+                                        )
                                     local_id = f"local-{os.path.basename(p)}"
                                     rec = {
-                                        'id': local_id,
-                                        'model_name': local_model,
-                                        'exchange': result_payload.get('exchange'),
-                                        'start_date': result_payload.get('start_date'),
-                                        'end_date': result_payload.get('end_date'),
-                                        'total_trades': result_payload.get('total_trades'),
-                                        'win_rate': result_payload.get('win_rate'),
-                                        'net_profit': result_payload.get('net_profit'),
-                                        'avg_return_per_trade': result_payload.get('avg_return_per_trade'),
-                                        'trades_log': result_payload.get('trades_log') or result_payload.get('trades') or [],
-                                        'status': result_payload.get('status') or 'completed',
-                                        'status_msg': result_payload.get('status_msg') or j.get('status_msg'),
-                                        'meta_threshold': result_payload.get('meta_threshold') or result_payload.get('wave_confluence') or result_payload.get('king_threshold'),
-                                        'created_at': created_at,
-                                        'saved_local_path': p,
-                                        'is_public': is_public,
-                                        'is_favorite': is_favorite,
+                                        "id": local_id,
+                                        "model_name": local_model,
+                                        "exchange": result_payload.get("exchange"),
+                                        "start_date": result_payload.get("start_date"),
+                                        "end_date": result_payload.get("end_date"),
+                                        "total_trades": result_payload.get(
+                                            "total_trades"
+                                        ),
+                                        "win_rate": result_payload.get("win_rate"),
+                                        "net_profit": result_payload.get("net_profit"),
+                                        "avg_return_per_trade": result_payload.get(
+                                            "avg_return_per_trade"
+                                        ),
+                                        "trades_log": result_payload.get("trades_log")
+                                        or result_payload.get("trades")
+                                        or [],
+                                        "status": result_payload.get("status")
+                                        or "completed",
+                                        "status_msg": result_payload.get("status_msg")
+                                        or j.get("status_msg"),
+                                        "meta_threshold": result_payload.get(
+                                            "meta_threshold"
+                                        )
+                                        or result_payload.get("wave_confluence")
+                                        or result_payload.get("king_threshold"),
+                                        "created_at": created_at,
+                                        "saved_local_path": p,
+                                        "is_public": is_public,
+                                        "is_favorite": is_favorite,
                                     }
                                     data.insert(0, rec)
                         except Exception:
@@ -2196,7 +2615,7 @@ async def get_backtests(model: Optional[str] = None, admin: Optional[bool] = Fal
 async def get_backtest_trades(id: str):
     """Fetch trades for a given backtest (stored in scan_results)."""
     from api.stock_ai import supabase
-    
+
     # Helper to map raw log to scan_results format
     def _map_trades_log(log):
         # Handle stringified JSON
@@ -2227,26 +2646,32 @@ async def get_backtest_trades(id: str):
                 step = t.get("step", 0)
 
                 if action == "BUY":
-                    open_trade = {"symbol": symbol, "entry_price": price, "entry_step": step}
+                    open_trade = {
+                        "symbol": symbol,
+                        "entry_price": price,
+                        "entry_step": step,
+                    }
                 elif action == "SELL" and open_trade:
                     entry_price = open_trade["entry_price"]
                     pnl = float(t.get("pnl") or 0)
                     if pnl == 0 and entry_price > 0:
                         pnl = (price - entry_price) / entry_price
-                    mapped.append({
-                        "symbol": open_trade["symbol"],
-                        "entry_price": entry_price,
-                        "exit_price": price,
-                        "profit_loss_pct": round(pnl * 100, 4),
-                        "status": "win" if pnl > 0 else "loss",
-                        "features": {
-                            "backtest_status": "Accepted",
-                            "entry_step": open_trade["entry_step"],
-                            "exit_step": step,
-                            "trade_type": "PPO",
-                        },
-                        "created_at": None,
-                    })
+                    mapped.append(
+                        {
+                            "symbol": open_trade["symbol"],
+                            "entry_price": entry_price,
+                            "exit_price": price,
+                            "profit_loss_pct": round(pnl * 100, 4),
+                            "status": "win" if pnl > 0 else "loss",
+                            "features": {
+                                "backtest_status": "Accepted",
+                                "entry_step": open_trade["entry_step"],
+                                "exit_step": step,
+                                "trade_type": "PPO",
+                            },
+                            "created_at": None,
+                        }
+                    )
                     open_trade = None
             return mapped
 
@@ -2255,44 +2680,68 @@ async def get_backtest_trades(id: str):
         if not isinstance(log, list):
             return []
         for t in log:
-            if not isinstance(t, dict): continue
+            if not isinstance(t, dict):
+                continue
             pnl = float(t.get("pnl_pct") or 0)
-            mapped.append({
-                "symbol": t.get("symbol") or t.get("Symbol"),
-                "entry_price": float(t.get("entry") or 0),
-                "exit_price": float(t.get("exit") or 0),
-                "profit_loss_pct": round(pnl * 100, 4),
-                "status": "win" if pnl > 0 else "loss",
-                "features": {
-                    "trade_date": t.get("date"),
-                    "backtest_status": t.get("status") or t.get("Status") or "Accepted",
-                    "votes": "{}",
-                    "entry_date": t.get("Entry_Date"),
-                    "exit_date": t.get("Exit_Date"),
-                    "entry_day": t.get("Entry_Day"),
-                    "exit_day": t.get("Exit_Day"),
-                    "profit_cash": t.get("Profit_Cash") or t.get("features", {}).get("profit_cash"),
-                    "cumulative_profit": t.get("Cumulative_Profit") or t.get("features", {}).get("cumulative_profit"),
-                    "ai_score": t.get("Score") or t.get("score") or t.get("features", {}).get("ai_score"),
-                    "radar_score": t.get("Radar_Score") or t.get("radar_score") or t.get("features", {}).get("radar_score"),
-                    "fund_score": t.get("Fund_Score") or t.get("fund_score") or t.get("features", {}).get("fund_score"),
-                    "buy_reason": t.get("Buy_Reason") or t.get("buy_reason") or t.get("features", {}).get("buy_reason"),
-                    "exit_reason": t.get("Exit_Reason") or t.get("exit_reason") or t.get("features", {}).get("exit_reason"),
-                },
-                "created_at": t.get("date")
-            })
+            mapped.append(
+                {
+                    "symbol": t.get("symbol") or t.get("Symbol"),
+                    "entry_price": float(t.get("entry") or 0),
+                    "exit_price": float(t.get("exit") or 0),
+                    "profit_loss_pct": round(pnl * 100, 4),
+                    "status": "win" if pnl > 0 else "loss",
+                    "features": {
+                        "trade_date": t.get("date"),
+                        "backtest_status": t.get("status")
+                        or t.get("Status")
+                        or "Accepted",
+                        "votes": "{}",
+                        "entry_date": t.get("Entry_Date"),
+                        "exit_date": t.get("Exit_Date"),
+                        "entry_day": t.get("Entry_Day"),
+                        "exit_day": t.get("Exit_Day"),
+                        "profit_cash": t.get("Profit_Cash")
+                        or t.get("features", {}).get("profit_cash"),
+                        "cumulative_profit": t.get("Cumulative_Profit")
+                        or t.get("features", {}).get("cumulative_profit"),
+                        "ai_score": t.get("Score")
+                        or t.get("score")
+                        or t.get("features", {}).get("ai_score"),
+                        "radar_score": t.get("Radar_Score")
+                        or t.get("radar_score")
+                        or t.get("features", {}).get("radar_score"),
+                        "fund_score": t.get("Fund_Score")
+                        or t.get("fund_score")
+                        or t.get("features", {}).get("fund_score"),
+                        "buy_reason": t.get("Buy_Reason")
+                        or t.get("buy_reason")
+                        or t.get("features", {}).get("buy_reason"),
+                        "exit_reason": t.get("Exit_Reason")
+                        or t.get("exit_reason")
+                        or t.get("features", {}).get("exit_reason"),
+                    },
+                    "created_at": t.get("date"),
+                }
+            )
         return mapped
 
     if id.startswith("local-"):
         filename = id[6:]
-        local_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "backtests_local")
+        local_dir = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "backtests_local",
+        )
         p = os.path.join(local_dir, filename)
         if os.path.isfile(p):
             try:
-                with open(p, 'r', encoding='utf-8') as fh:
+                with open(p, "r", encoding="utf-8") as fh:
                     j = json.load(fh)
-                    result_payload = j.get('result') or j
-                    trades = result_payload.get('trades_log') or result_payload.get('trades') or []
+                    result_payload = j.get("result") or j
+                    trades = (
+                        result_payload.get("trades_log")
+                        or result_payload.get("trades")
+                        or []
+                    )
                     return _map_trades_log(trades)
             except Exception as e:
                 print(f"Error reading local backtest trades: {e}")
@@ -2302,21 +2751,32 @@ async def get_backtest_trades(id: str):
         raise HTTPException(status_code=500, detail="Supabase not initialized")
 
     fields = "symbol,exchange,model_name,entry_price,exit_price,profit_loss_pct,status,features,created_at"
-    
+
     # 1. Try fetching from scan_results (preferred)
     try:
-        res = supabase.table("scan_results").select(fields).eq("batch_id", id).eq("source", "backtest").execute()
+        res = (
+            supabase.table("scan_results")
+            .select(fields)
+            .eq("batch_id", id)
+            .eq("source", "backtest")
+            .execute()
+        )
         if res.data:
             return res.data
     except Exception:
         # Fallback if source column isn't available yet
         try:
-            res = supabase.table("scan_results").select(fields).eq("batch_id", id).execute()
+            res = (
+                supabase.table("scan_results")
+                .select(fields)
+                .eq("batch_id", id)
+                .execute()
+            )
             if res.data:
                 return res.data
         except Exception:
             pass
-            
+
     # 2. Fallback to backtests table trades_log
     # This acts as the final source of truth for backtests that haven't been synced to scan_results
     try:
@@ -2334,20 +2794,26 @@ async def delete_backtest(id: str):
     """Delete a backtest record."""
     if id.startswith("local-"):
         filename = id[6:]
-        local_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "backtests_local")
+        local_dir = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "backtests_local",
+        )
         p = os.path.join(local_dir, filename)
         if os.path.isfile(p):
             try:
                 os.remove(p)
                 return {"status": "success", "deleted": id}
             except Exception as e:
-                raise HTTPException(status_code=500, detail=f"Failed to delete local file: {e}")
+                raise HTTPException(
+                    status_code=500, detail=f"Failed to delete local file: {e}"
+                )
         raise HTTPException(status_code=404, detail="Local backtest file not found")
 
     from api.stock_ai import supabase
+
     if not supabase:
         raise HTTPException(status_code=500, detail="Supabase not initialized")
-    
+
     res = supabase.table("backtests").delete().eq("id", id).execute()
     return {"status": "success", "deleted": id}
 
@@ -2356,36 +2822,48 @@ class BacktestUpdate(BaseModel):
     is_public: Optional[bool] = None
     is_favorite: Optional[bool] = None
 
+
 @app.patch("/backtests/{id}")
 async def update_backtest(id: str, req: BacktestUpdate):
     """Update visibility or favorite status of a backtest record."""
     if id.startswith("local-"):
         filename = id[6:]
-        local_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "backtests_local")
+        local_dir = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "backtests_local",
+        )
         p = os.path.join(local_dir, filename)
         if os.path.isfile(p):
             try:
-                with open(p, 'r', encoding='utf-8') as fh:
+                with open(p, "r", encoding="utf-8") as fh:
                     j = json.load(fh)
                 if req.is_public is not None:
-                    j['is_public'] = req.is_public
-                    if 'result' in j and isinstance(j['result'], dict):
-                        j['result']['is_public'] = req.is_public
+                    j["is_public"] = req.is_public
+                    if "result" in j and isinstance(j["result"], dict):
+                        j["result"]["is_public"] = req.is_public
                 if req.is_favorite is not None:
-                    j['is_favorite'] = req.is_favorite
-                    if 'result' in j and isinstance(j['result'], dict):
-                        j['result']['is_favorite'] = req.is_favorite
-                with open(p, 'w', encoding='utf-8') as fh:
+                    j["is_favorite"] = req.is_favorite
+                    if "result" in j and isinstance(j["result"], dict):
+                        j["result"]["is_favorite"] = req.is_favorite
+                with open(p, "w", encoding="utf-8") as fh:
                     json.dump(j, fh, ensure_ascii=False, indent=2)
-                return {"id": id, "is_public": j.get('is_public', False), "is_favorite": j.get('is_favorite', False), "status": "success"}
+                return {
+                    "id": id,
+                    "is_public": j.get("is_public", False),
+                    "is_favorite": j.get("is_favorite", False),
+                    "status": "success",
+                }
             except Exception as e:
-                raise HTTPException(status_code=500, detail=f"Failed to update local file: {e}")
+                raise HTTPException(
+                    status_code=500, detail=f"Failed to update local file: {e}"
+                )
         raise HTTPException(status_code=404, detail="Local backtest file not found")
 
     from api.stock_ai import supabase
+
     if not supabase:
         raise HTTPException(status_code=500, detail="Supabase not initialized")
-    
+
     update_data = {}
     if req.is_public is not None:
         update_data["is_public"] = req.is_public
@@ -2402,12 +2880,14 @@ async def update_backtest(id: str, req: BacktestUpdate):
 # ==========================================
 # BACKTEST OPTIMIZATION ENDPOINTS
 # ==========================================
-from api.backtest_optimizer import BacktestOptimizer
 import threading
 import uuid
 
+from api.backtest_optimizer import BacktestOptimizer
+
 # Global job storage (in production, use Redis or database)
 _optimization_jobs = {}
+
 
 class OptimizationRequest(BaseModel):
     wave_values: List[float] = [0.7, 0.8, 0.9]
@@ -2422,34 +2902,41 @@ class OptimizationRequest(BaseModel):
     end_date: str
     capital: int = 100000
 
+
 @app.post("/backtest/optimize")
 async def start_optimization(req: OptimizationRequest):
     """Start a batch optimization job. Returns job_id for tracking progress."""
     from api.stock_ai import supabase
-    
+
     # Create record in Supabase first
     opt_id = None
     try:
-        res = supabase.table("backtests").insert({
-            "model_name": f"OPT: {req.model}",
-            "exchange": req.exchange,
-            "start_date": req.start_date,
-            "end_date": req.end_date,
-            "status": "running",
-            "status_msg": "Initializing search grid...",
-            "capital": req.capital,
-            "total_trades": 0,
-            "win_rate": 0.0,
-            "net_profit": 0.0
-        }).execute()
+        res = (
+            supabase.table("backtests")
+            .insert(
+                {
+                    "model_name": f"OPT: {req.model}",
+                    "exchange": req.exchange,
+                    "start_date": req.start_date,
+                    "end_date": req.end_date,
+                    "status": "running",
+                    "status_msg": "Initializing search grid...",
+                    "capital": req.capital,
+                    "total_trades": 0,
+                    "win_rate": 0.0,
+                    "net_profit": 0.0,
+                }
+            )
+            .execute()
+        )
         if res.data:
             opt_id = res.data[0]["id"]
     except Exception as e:
         print(f"Error creating optimization record in DB: {e}")
         # Continue with job_id anyway if DB fails
-    
+
     job_id = opt_id or str(uuid.uuid4())
-    
+
     # Prepare job parameters
     job_params = {
         "wave_values": req.wave_values,
@@ -2463,12 +2950,17 @@ async def start_optimization(req: OptimizationRequest):
             "timeframe": req.timeframe,
             "start_date": req.start_date,
             "end_date": req.end_date,
-            "capital": req.capital
-        }
+            "capital": req.capital,
+        },
     }
-    
+
     # Initialize job status
-    total_combinations = len(req.wave_values) * len(req.validator_values) * len(req.target_values) * len(req.stoploss_values)
+    total_combinations = (
+        len(req.wave_values)
+        * len(req.validator_values)
+        * len(req.target_values)
+        * len(req.stoploss_values)
+    )
     _optimization_jobs[job_id] = {
         "status": "running",
         "progress": 0,
@@ -2477,97 +2969,112 @@ async def start_optimization(req: OptimizationRequest):
         "started_at": dt.datetime.now().isoformat(),
         "completed_at": None,
         "error": None,
-        "opt_id": opt_id
+        "opt_id": opt_id,
     }
-    
+
     # Run optimization in background thread
     def run_job():
         try:
             optimizer = BacktestOptimizer()
-            
+
             def progress_callback(current, total, result):
                 _optimization_jobs[job_id]["progress"] = current
                 if result:
                     _optimization_jobs[job_id]["results"].append(result)
-                
+
                 # Update Supabase progress
                 if opt_id:
                     try:
-                        supabase.table("backtests").update({
-                            "status_msg": f"Optimizing: {current}/{total} combinations tested..."
-                        }).eq("id", opt_id).execute()
-                    except: pass
-            
+                        supabase.table("backtests").update(
+                            {
+                                "status_msg": f"Optimizing: {current}/{total} combinations tested..."
+                            }
+                        ).eq("id", opt_id).execute()
+                    except:
+                        pass
+
             results_df = optimizer.optimize_parameters(
                 wave_values=req.wave_values,
                 target_values=req.target_values,
                 stoploss_values=req.stoploss_values,
-                base_params={**job_params["base_params"], "validator_values": req.validator_values},
-                progress_callback=progress_callback
+                base_params={
+                    **job_params["base_params"],
+                    "validator_values": req.validator_values,
+                },
+                progress_callback=progress_callback,
             )
-            
+
             # Save results (CSV/TXT removed as per user request, data stored in DB/Memory only)
-            
+
             # Find best config
-            best_config = results_df.nlargest(1, 'profit_percent').to_dict('records')[0] if not results_df.empty else None
-            
+            best_config = (
+                results_df.nlargest(1, "profit_percent").to_dict("records")[0]
+                if not results_df.empty
+                else None
+            )
+
             # Update job status
-            _optimization_jobs[job_id].update({
-                "status": "completed",
-                "completed_at": dt.datetime.now().isoformat(),
-                "results_df": results_df.to_dict('records')
-            })
-            
+            _optimization_jobs[job_id].update(
+                {
+                    "status": "completed",
+                    "completed_at": dt.datetime.now().isoformat(),
+                    "results_df": results_df.to_dict("records"),
+                }
+            )
+
             # Update Supabase final result
             if opt_id:
                 try:
                     update_data = {
                         "status": "completed",
                         "status_msg": "Optimization completed successfully.",
-                        "trades_log": json.dumps(results_df.to_dict('records'))
+                        "trades_log": json.dumps(results_df.to_dict("records")),
                     }
                     if best_config:
-                        update_data.update({
-                            "meta_threshold": best_config.get("wave_confluence"),
-                            "target_pct": best_config.get("target_percent"),
-                            "stop_loss_pct": best_config.get("stop_loss_percent"),
-                            "net_profit": best_config.get("profit_cash")
-                        })
-                    supabase.table("backtests").update(update_data).eq("id", opt_id).execute()
+                        update_data.update(
+                            {
+                                "meta_threshold": best_config.get("wave_confluence"),
+                                "target_pct": best_config.get("target_percent"),
+                                "stop_loss_pct": best_config.get("stop_loss_percent"),
+                                "net_profit": best_config.get("profit_cash"),
+                            }
+                        )
+                    supabase.table("backtests").update(update_data).eq(
+                        "id", opt_id
+                    ).execute()
                 except Exception as e:
                     print(f"Error updating final optimization record: {e}")
-            
+
         except Exception as e:
-            _optimization_jobs[job_id].update({
-                "status": "failed",
-                "error": str(e),
-                "completed_at": dt.datetime.now().isoformat()
-            })
+            _optimization_jobs[job_id].update(
+                {
+                    "status": "failed",
+                    "error": str(e),
+                    "completed_at": dt.datetime.now().isoformat(),
+                }
+            )
             if opt_id:
                 try:
-                    supabase.table("backtests").update({
-                        "status": "failed",
-                        "status_msg": f"Error: {str(e)}"
-                    }).eq("id", opt_id).execute()
-                except: pass
-    
+                    supabase.table("backtests").update(
+                        {"status": "failed", "status_msg": f"Error: {str(e)}"}
+                    ).eq("id", opt_id).execute()
+                except:
+                    pass
+
     thread = threading.Thread(target=run_job, daemon=True)
     thread.start()
-    
-    return {
-        "job_id": job_id,
-        "status": "started",
-        "total_tests": total_combinations
-    }
+
+    return {"job_id": job_id, "status": "started", "total_tests": total_combinations}
+
 
 @app.get("/backtest/results/{job_id}")
 async def get_optimization_results(job_id: str):
     """Get optimization job status and results."""
     if job_id not in _optimization_jobs:
         raise HTTPException(status_code=404, detail="Job not found")
-    
+
     job = _optimization_jobs[job_id]
-    
+
     return {
         "job_id": job_id,
         "status": job["status"],
@@ -2576,34 +3083,37 @@ async def get_optimization_results(job_id: str):
         "started_at": job["started_at"],
         "completed_at": job["completed_at"],
         "results": job.get("results_df", []),
-        "error": job.get("error")
+        "error": job.get("error"),
     }
+
 
 @app.get("/backtest/export/{job_id}")
 async def export_optimization_results(job_id: str, format: str = "csv"):
     """Export optimization results as CSV or report."""
     if job_id not in _optimization_jobs:
         raise HTTPException(status_code=404, detail="Job not found")
-    
+
     job = _optimization_jobs[job_id]
-    
+
     if job["status"] != "completed":
         raise HTTPException(status_code=400, detail="Job not completed yet")
-    
+
     if format == "csv":
         file_path = job.get("csv_path")
     elif format == "report":
         file_path = job.get("report_path")
     else:
-        raise HTTPException(status_code=400, detail="Invalid format. Use 'csv' or 'report'")
-    
+        raise HTTPException(
+            status_code=400, detail="Invalid format. Use 'csv' or 'report'"
+        )
+
     if not file_path or not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="File not found")
-    
+
     from fastapi.responses import FileResponse
+
     return FileResponse(
         path=file_path,
         filename=os.path.basename(file_path),
-        media_type='text/csv' if format == "csv" else 'text/plain'
+        media_type="text/csv" if format == "csv" else "text/plain",
     )
-

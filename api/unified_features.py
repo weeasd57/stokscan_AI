@@ -17,7 +17,7 @@ import pandas as pd
 import numpy as np
 from dataclasses import dataclass
 
-from api.trading_config import TradingParameters, FeatureRequirements
+from api.trading_config import TradingParameters
 
 
 @dataclass
@@ -26,7 +26,7 @@ class DataReadinessReport:
     is_ready: bool
     bars_count: int
     min_bars_required: int
-    nan_percentage: float
+    nan_percentage: float = 0.0
     max_nan_acceptable: float = 0.05
     missing_columns: List[str] = None
     warnings: List[str] = None

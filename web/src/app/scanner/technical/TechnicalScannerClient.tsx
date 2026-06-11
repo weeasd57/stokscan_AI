@@ -1277,7 +1277,7 @@ export default function TechnicalScannerPage() {
             </div>
 
             {/* --- Horizontal Filter Pills Bar Wrapper (Fixed z-index and clipping wrapper) --- */}
-            <div className="relative filter-wrapper z-50">
+            <div className="relative filter-wrapper !z-50">
                 <div className="flex items-center justify-between px-4 py-2 border-b border-[#2a2e39] bg-[#131722] gap-4 z-40 relative">
                     {/* Left scrollable pills */}
                     <div className="flex items-center gap-2 overflow-x-auto no-scrollbar scroll-smooth flex-1">
@@ -1434,7 +1434,7 @@ export default function TechnicalScannerPage() {
                 {/* Popovers rendered OUTSIDE of the overflow scrolling container */}
                 {activeFilterPopover && popoverPosition && (
                     <div 
-                        className="absolute z-[150] p-4 bg-[#131722] border border-[#2a2e39] rounded shadow-2xl w-64 space-y-3 text-left mt-1"
+                        className="!absolute !z-[150] p-4 bg-[#131722] border border-[#2a2e39] rounded shadow-2xl w-64 space-y-3 text-left mt-1"
                         style={{ top: `${popoverPosition.top}px`, left: `${popoverPosition.left}px` }}
                     >
                         {getFilterConfig(activeFilterPopover)?.renderPopover()}
@@ -1443,7 +1443,7 @@ export default function TechnicalScannerPage() {
 
                 {showAddFilterMenu && popoverPosition && (
                     <div 
-                        className="absolute z-[150] mt-1"
+                        className="!absolute !z-[150] mt-1"
                         style={{ top: `${popoverPosition.top}px`, left: `${popoverPosition.left}px` }}
                     >
                         <AddFilterPopover onClose={() => setShowAddFilterMenu(false)} />
@@ -1872,8 +1872,9 @@ export default function TechnicalScannerPage() {
             {/* --- Manage Technical Scan Telegram Alerts Dialog --- */}
             {showManageAlertsDialog && (
                 <>
-                    <div className="fixed inset-0 bg-black/60 z-[210] animate-in fade-in duration-200" onClick={() => setShowManageAlertsDialog(false)} />
-                    <div className={`fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-lg p-6 bg-[#131722] border border-[#2a2e39] rounded-lg z-[211] animate-in zoom-in-95 duration-200 shadow-2xl space-y-5 ${language === 'ar' ? 'text-right' : 'text-left'}`}>
+                    <div className="!fixed inset-0 bg-black/60 !z-[99998] animate-in fade-in duration-200" onClick={() => setShowManageAlertsDialog(false)} />
+                    <div className="!fixed inset-0 !z-[99999] flex items-center justify-center p-4" style={{ margin: 0 }} onClick={() => setShowManageAlertsDialog(false)}>
+                    <div className={`w-full max-w-lg p-6 bg-[#131722] border border-[#2a2e39] rounded-lg animate-in zoom-in-95 duration-200 shadow-2xl space-y-5 ${language === 'ar' ? 'text-right' : 'text-left'}`} onClick={(e) => e.stopPropagation()}>
                         <div className={`flex ${language === 'ar' ? 'flex-row-reverse' : 'flex-row'} justify-between items-center pb-3 border-b border-[#2a2e39]`}>
                             <div className={`flex ${language === 'ar' ? 'flex-row-reverse' : 'flex-row'} items-center gap-2`}>
                                 <BellRing className="w-5 h-5 text-amber-500" />
@@ -1964,14 +1965,16 @@ export default function TechnicalScannerPage() {
                             </div>
                         </div>
                     </div>
+                    </div>
                 </>
             )}
 
             {/* --- Create Technical Scan Telegram Alert Dialog --- */}
             {showCreateAlertDialog && (
                 <>
-                    <div className="fixed inset-0 bg-black/60 z-[220] animate-in fade-in duration-200" onClick={() => setShowCreateAlertDialog(false)} />
-                    <div className={`fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md p-6 bg-[#131722] border border-[#2a2e39] rounded-lg z-[221] animate-in zoom-in-95 duration-200 shadow-2xl space-y-5 ${language === 'ar' ? 'text-right' : 'text-left'}`}>
+                    <div className="!fixed inset-0 bg-black/60 !z-[99998] animate-in fade-in duration-200" onClick={() => setShowCreateAlertDialog(false)} />
+                    <div className="!fixed inset-0 !z-[99999] flex items-center justify-center p-4" style={{ margin: 0 }} onClick={() => setShowCreateAlertDialog(false)}>
+                    <div className={`w-full max-w-md p-6 bg-[#131722] border border-[#2a2e39] rounded-lg animate-in zoom-in-95 duration-200 shadow-2xl space-y-5 ${language === 'ar' ? 'text-right' : 'text-left'}`} onClick={(e) => e.stopPropagation()}>
                         <div className={`flex ${language === 'ar' ? 'flex-row-reverse' : 'flex-row'} justify-between items-center pb-3 border-b border-[#2a2e39]`}>
                             <h3 className="text-sm font-bold text-white uppercase tracking-wider">{t("telegram.alerts.create_title")}</h3>
                             <button
@@ -2027,6 +2030,7 @@ export default function TechnicalScannerPage() {
                             >
                                 {savingAlert ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : t("telegram.alerts.save_btn")}
                             </button>
+                        </div>
                         </div>
                     </div>
                 </>

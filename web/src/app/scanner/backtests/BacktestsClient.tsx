@@ -433,7 +433,7 @@ export default function AIScannerPage() {
                     return true;
                 })
             );
-            setModelCards(filtered);
+            setModelCards(filtered as unknown as LocalModel[]);
         } catch (err: any) {
             setModelsError(err.message || "An error occurred while loading model cards.");
         } finally {

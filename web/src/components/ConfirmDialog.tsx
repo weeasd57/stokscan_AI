@@ -1,7 +1,8 @@
 "use client";
 
 import { X, AlertTriangle, Loader2 } from "lucide-react";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 
 interface ConfirmDialogProps {
     isOpen: boolean;
@@ -27,6 +28,12 @@ export default function ConfirmDialog({
     variant = "danger"
 }: ConfirmDialogProps) {
 
+    const [isMounted, setIsMounted] = useState(false);
+
+    useEffect(() => {
+        setIsMounted(true);
+    }, []);
+
     useEffect(() => {
         const handleEsc = (e: KeyboardEvent) => {
             if (e.key === "Escape") onClose();
@@ -35,7 +42,7 @@ export default function ConfirmDialog({
         return () => window.removeEventListener("keydown", handleEsc);
     }, [isOpen, onClose]);
 
-    if (!isOpen) return null;
+    if (!isOpen || !isMounted) return null;
 
     const variantStyles = {
         danger: "bg-red-500 hover:bg-red-600 shadow-red-500/20 text-white",
@@ -49,7 +56,7 @@ export default function ConfirmDialog({
         success: "text-emerald-400"
     };
 
-    return (
+    return createPortal(
         <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4">
             <div
                 className="absolute inset-0 bg-black/80 backdrop-blur-sm animate-in fade-in duration-300"
@@ -93,6 +100,7 @@ export default function ConfirmDialog({
                     <X className="h-5 w-5" />
                 </button>
             </div>
-        </div>
+        </div>,
+        document.body
     );
 }

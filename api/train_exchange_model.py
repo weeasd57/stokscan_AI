@@ -33,7 +33,10 @@ from sklearn.model_selection import train_test_split, GridSearchCV
 from sklearn.metrics import precision_score, recall_score, f1_score, roc_auc_score, make_scorer
 from supabase import create_client, Client
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from joblib import Memory
+from api.trading_config import TradingParameters
+from api.unified_features import FeatureEngineeringManager
+from api.unified_labeling import TripleBarrierLabeler
+from api.model_catalog import select_canonical_model_cards
 
 import tempfile
 
@@ -331,6 +334,11 @@ def add_market_context(stock_df, market_df):
     # 5. Rolling Correlation
     stock_df['correlation_20'] = stock_ret.rolling(20).corr(market_ret).fillna(0)
     
+    if 'egx30_return' in market_reindexed.columns:
+        stock_df['egx30_return'] = market_reindexed['egx30_return']
+    if 'market_regime' in market_reindexed.columns:
+        stock_df['market_regime'] = market_reindexed['market_regime']
+        
     # Cleanup
     stock_df.drop(columns=['mkt_close', 'mkt_sma200'], inplace=True, errors='ignore')
     
@@ -1067,6 +1075,7 @@ class ModelTrainer:
         self.categorical_features = []
         self.min_history_needed = 200 # Default for safety (SMA200)
         self.embargo_pct = 0.01 # 1% embargo gap for purged k-fold
+        self.params = TradingParameters()
 
     def _clean_dataset(self, X: pd.DataFrame) -> pd.DataFrame:
         """
@@ -1177,6 +1186,9 @@ class ModelTrainer:
                     df["date"] = pd.to_datetime(df["date"])
                     df = df.set_index("date").sort_index()
                     df['atr'] = df['close'].pct_change().rolling(20).std().fillna(0)
+                    df['egx30_return'] = df['close'].pct_change().fillna(0)
+                    from api.egx30_fetcher import get_market_regime
+                    df['market_regime'] = df['egx30_return'].apply(get_market_regime)
                     self.market_df = df
                     self.market_index_symbol = idx_sym
                     self.market_index_loaded = True
@@ -1224,6 +1236,9 @@ class ModelTrainer:
                                 
                                 if 'close' in df.columns:
                                     df['atr'] = df['close'].pct_change().rolling(20).std().fillna(0)
+                                    df['egx30_return'] = df['close'].pct_change().fillna(0)
+                                    from api.egx30_fetcher import get_market_regime
+                                    df['market_regime'] = df['egx30_return'].apply(get_market_regime)
                                     self.market_df = df
                                     self.market_index_loaded = True
                                     self._progress(f"Successfully loaded market context from local JSON: {path}")
@@ -1335,9 +1350,13 @@ class ModelTrainer:
     def _process_single_symbol(params):
         """Worker function for parallel processing. Must be static for pickleability."""
         try:
-            sym, df_sym, market_df, target_pct, stop_loss_pct, look_forward_days, use_vol_label, min_history, barrier_mode = params
+            sym, df_sym, market_df, target_pct, stop_loss_pct, look_forward_days, use_vol_label, min_history, barrier_mode, exchange, t_params = params
             
-            if len(df_sym) < min_history: return None
+            # Check data readiness
+            manager = FeatureEngineeringManager(t_params)
+            report = manager.check_data_ready(df_sym, extra_checks=True)
+            if not report.is_ready:
+                return None
 
             # 1. Base Technical Indicators
             df = add_technical_indicators(df_sym)
@@ -1362,14 +1381,13 @@ class ModelTrainer:
             df = add_market_context(df, market_df)
             
             # 4. Labeling (The Triple Barrier Strategy)
-            df = prepare_for_ai(
-                df,
-                target_pct,
-                stop_loss_pct,
-                look_forward_days,
-                use_volatility=use_vol_label,
-                barrier_mode=barrier_mode,
-            )
+            if exchange == "EGX":
+                from api.strict_quality_labeler import StrictQualityLabeler
+                labeler = StrictQualityLabeler(t_params)
+                df, rejection_counts = labeler.label_training_data_strict(df, egx30_data=market_df, drop_labels=True)
+            else:
+                labeler = TripleBarrierLabeler(t_params)
+                df = labeler.label_training_data(df, drop_labels=True)
             
             # Require minimum history (redundant check but good for safety if indicators drop rows)
             if len(df) < 10: return None 
@@ -1394,6 +1412,19 @@ class ModelTrainer:
         
         # Determine min history based on preset
         self.min_history_needed = 200 if preset in ["extended", "max"] else 60
+        
+        # Initialize unified TradingParameters
+        self.params = TradingParameters(
+            entry_mode="next_open",
+            look_forward_days=look_forward_days,
+            barrier_mode=barrier_mode or "percent",
+            target_pct=target_pct,
+            stop_loss_pct=stop_loss_pct,
+            min_history_needed=self.min_history_needed,
+            warmup_bars=self.min_history_needed,
+            require_volume_confirmation=(self.exchange == "EGX"),
+            min_volume_ratio=0.8 if (self.exchange == "EGX") else 0.3
+        )
         
         # Merge fundamentals
         start_time = time.time()
@@ -1430,7 +1461,7 @@ class ModelTrainer:
 
         use_vol_label = bool(use_volatility_label)
         symbol_params = [
-            (sym, df_sym, self.market_df, target_pct, stop_loss_pct, look_forward_days, use_vol_label, self.min_history_needed, barrier_mode) 
+            (sym, df_sym, self.market_df, target_pct, stop_loss_pct, look_forward_days, use_vol_label, self.min_history_needed, barrier_mode, self.exchange, self.params) 
             for sym, df_sym in df_all.groupby("symbol")
         ]
         

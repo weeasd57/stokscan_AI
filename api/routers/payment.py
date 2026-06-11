@@ -1,17 +1,19 @@
-import os
-import hmac
 import hashlib
+import hmac
 import json
-import requests
+import os
+from datetime import datetime, timedelta
 from typing import Optional
+
+import requests
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
-from datetime import datetime, timedelta
 
 from api.stock_ai import _init_supabase, supabase
 
 router = APIRouter(prefix="/payment", tags=["payment"])
+
 
 class CheckoutRequest(BaseModel):
     plan_id: str
@@ -20,6 +22,7 @@ class CheckoutRequest(BaseModel):
     first_name: str
     last_name: str
     phone_number: str
+
 
 @router.post("/paymob/checkout")
 def paymob_checkout(req: CheckoutRequest):
@@ -31,7 +34,7 @@ def paymob_checkout(req: CheckoutRequest):
     if not api_key or not integration_id or not iframe_id:
         raise HTTPException(
             status_code=500,
-            detail="Paymob configuration is incomplete on the server. Please check environment variables."
+            detail="Paymob configuration is incomplete on the server. Please check environment variables.",
         )
 
     # 2. Determine price in EGP cents
@@ -56,12 +59,17 @@ def paymob_checkout(req: CheckoutRequest):
         auth_token = auth_res.json().get("token")
 
         if not auth_token:
-            raise HTTPException(status_code=500, detail="Failed to retrieve Paymob authentication token.")
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to retrieve Paymob authentication token.",
+            )
 
         # Step 2: Order Registration
         # We encode user_id and plan_id in merchant_order_id so we can decode it in the webhook securely
-        merchant_order_id = f"sub_{req.user_id}_{req.plan_id}_{int(datetime.utcnow().timestamp())}"
-        
+        merchant_order_id = (
+            f"sub_{req.user_id}_{req.plan_id}_{int(datetime.utcnow().timestamp())}"
+        )
+
         order_url = "https://accept.paymob.com/api/ecommerce/orders"
         order_payload = {
             "auth_token": auth_token,
@@ -69,14 +77,16 @@ def paymob_checkout(req: CheckoutRequest):
             "amount_cents": amount_cents,
             "currency": "EGP",
             "merchant_order_id": merchant_order_id,
-            "items": []
+            "items": [],
         }
         order_res = requests.post(order_url, json=order_payload, timeout=15)
         order_res.raise_for_status()
         order_id = order_res.json().get("id")
 
         if not order_id:
-            raise HTTPException(status_code=500, detail="Failed to register Paymob order.")
+            raise HTTPException(
+                status_code=500, detail="Failed to register Paymob order."
+            )
 
         # Step 3: Payment Key Generation
         billing_data = {
@@ -92,7 +102,7 @@ def paymob_checkout(req: CheckoutRequest):
             "email": req.email if req.email else "user@egxbots.com",
             "first_name": req.first_name if req.first_name else "Jane",
             "last_name": req.last_name if req.last_name else "Doe",
-            "phone_number": req.phone_number if req.phone_number else "+201000000000"
+            "phone_number": req.phone_number if req.phone_number else "+201000000000",
         }
 
         key_url = "https://accept.paymob.com/api/acceptance/payment_keys"
@@ -104,53 +114,59 @@ def paymob_checkout(req: CheckoutRequest):
             "billing_data": billing_data,
             "currency": "EGP",
             "integration_id": int(integration_id),
-            "lock_order_when_paid": "true"
+            "lock_order_when_paid": "true",
         }
         key_res = requests.post(key_url, json=key_payload, timeout=15)
         key_res.raise_for_status()
         payment_key = key_res.json().get("token")
 
         if not payment_key:
-            raise HTTPException(status_code=500, detail="Failed to retrieve Paymob payment token.")
+            raise HTTPException(
+                status_code=500, detail="Failed to retrieve Paymob payment token."
+            )
 
         # Step 4: Handle Card vs Mobile Wallet integration
         integration_type = os.getenv("PAYMOB_INTEGRATION_TYPE", "card").strip().lower()
-        
+
         if integration_type in ("wallet", "mobile_wallet", "mobile wallet"):
             pay_url = "https://accept.paymob.com/api/acceptance/payments/pay"
             pay_payload = {
                 "source": {
-                    "identifier": req.phone_number if req.phone_number else "01010101010",
-                    "subtype": "WALLET"
+                    "identifier": req.phone_number
+                    if req.phone_number
+                    else "01010101010",
+                    "subtype": "WALLET",
                 },
-                "payment_token": payment_key
+                "payment_token": payment_key,
             }
             print(f"Sending request to Paymob wallet pay API: {pay_url}")
             print(f"Payload: {pay_payload}")
-            
+
             pay_res = requests.post(pay_url, json=pay_payload, timeout=15)
             print(f"Response status: {pay_res.status_code}")
             print(f"Response text: {pay_res.text}")
-            
+
             pay_res.raise_for_status()
             pay_data = pay_res.json()
-            
-            redirect_url = pay_data.get("redirect_url") or pay_data.get("redirection_url")
+
+            redirect_url = pay_data.get("redirect_url") or pay_data.get(
+                "redirection_url"
+            )
             if not redirect_url:
                 # check nested data structure if any
                 redirect_url = pay_data.get("data", {}).get("redirect_url")
-                
+
             if not redirect_url:
                 raise HTTPException(
                     status_code=500,
-                    detail=f"Failed to retrieve wallet redirection URL from Paymob. Response was: {pay_res.text[:200]}"
+                    detail=f"Failed to retrieve wallet redirection URL from Paymob. Response was: {pay_res.text[:200]}",
                 )
-                
+
             return {
                 "success": True,
                 "payment_key": payment_key,
                 "url": redirect_url,
-                "is_wallet": True
+                "is_wallet": True,
             }
         else:
             # Construct standard Credit Card iframe redirect URL
@@ -160,23 +176,28 @@ def paymob_checkout(req: CheckoutRequest):
                 "payment_key": payment_key,
                 "iframe_id": iframe_id,
                 "url": redirect_url,
-                "is_wallet": False
+                "is_wallet": False,
             }
 
     except Exception as e:
         print(f"Error during Paymob checkout generation: {e}")
-        raise HTTPException(status_code=500, detail=f"Checkout generation failed: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Checkout generation failed: {str(e)}"
+        )
+
 
 @router.post("/paymob/webhook")
 async def paymob_webhook(request: Request):
     hmac_secret = os.getenv("PAYMOB_HMAC_SECRET")
     if not hmac_secret:
-        raise HTTPException(status_code=500, detail="HMAC secret not configured on server")
+        raise HTTPException(
+            status_code=500, detail="HMAC secret not configured on server"
+        )
 
     # Get raw body and query parameters for HMAC validation
     body = await request.json()
     print("INCOMING WEBHOOK BODY:", json.dumps(body))
-    
+
     query_params = dict(request.query_params)
     hmac_signature = query_params.get("hmac")
     print("INCOMING WEBHOOK QUERY HMAC:", hmac_signature)
@@ -204,7 +225,7 @@ async def paymob_webhook(request: Request):
         is_refunded = str(obj.get("is_refunded")).lower()
         is_standalone_payment = str(obj.get("is_standalone_payment")).lower()
         pending = str(obj.get("pending")).lower()
-        
+
         source_data = obj.get("source_data", {})
         source_pan = source_data.get("pan", "")
         source_sub_type = source_data.get("sub_type", "")
@@ -219,19 +240,13 @@ async def paymob_webhook(request: Request):
         print("CONCATENATED STRING FOR HMAC:", concat_str)
 
         calculated_hmac = hmac.new(
-            hmac_secret.encode('utf-8'),
-            concat_str.encode('utf-8'),
-            hashlib.sha512
+            hmac_secret.encode("utf-8"), concat_str.encode("utf-8"), hashlib.sha512
         ).hexdigest()
         print("CALCULATED HMAC:", calculated_hmac)
 
         if not hmac.compare_digest(calculated_hmac, hmac_signature):
-            print("Paymob HMAC signature mismatch!")
-            is_live_txn = obj.get("is_live")
-            if is_live_txn is False or str(is_live_txn).lower() == "false":
-                print("WARNING: HMAC mismatch, but allowing transaction because is_live is False (Sandbox mode).")
-            else:
-                raise HTTPException(status_code=401, detail="Invalid HMAC signature")
+            print("Paymob HMAC signature mismatch — rejecting webhook.")
+            raise HTTPException(status_code=401, detail="Invalid HMAC signature")
 
     except HTTPException as http_err:
         raise http_err
@@ -259,12 +274,14 @@ async def paymob_webhook(request: Request):
                         # 1. Upsert pricing plan if not exists (to satisfy FK constraint)
                         # Pro plan price is 29 USD, Enterprise is 99 USD
                         plan_cents = 2900 if plan_id.lower() == "pro" else 9900
-                        supabase.table("pricing_plans").upsert({
-                            "id": plan_id,
-                            "name": plan_id,
-                            "price_monthly_cents": plan_cents,
-                            "is_active": True
-                        }).execute()
+                        supabase.table("pricing_plans").upsert(
+                            {
+                                "id": plan_id,
+                                "name": plan_id,
+                                "price_monthly_cents": plan_cents,
+                                "is_active": True,
+                            }
+                        ).execute()
 
                         # 2. Upsert user subscription
                         now = datetime.utcnow()
@@ -276,21 +293,26 @@ async def paymob_webhook(request: Request):
                             "status": "active",
                             "current_period_start": now.isoformat(),
                             "current_period_end": end_date.isoformat(),
-                            "updated_at": now.isoformat()
+                            "updated_at": now.isoformat(),
                         }
-                        
+
                         supabase.table("subscriptions").upsert(sub_payload).execute()
-                        print(f"Successfully activated subscription for User: {user_id}, Plan: {plan_id}")
+                        print(
+                            f"Successfully activated subscription for User: {user_id}, Plan: {plan_id}"
+                        )
                 except Exception as db_err:
                     print(f"Database error updating subscription: {db_err}")
-                    raise HTTPException(status_code=500, detail="Failed to record subscription")
+                    raise HTTPException(
+                        status_code=500, detail="Failed to record subscription"
+                    )
     return {"status": "processed"}
+
 
 @router.get("/paymob/webhook")
 def paymob_webhook_get(request: Request):
     query_params = dict(request.query_params)
     success = query_params.get("success") == "true"
-    
+
     # Redirect back to the frontend pro page with status query parameters
     web_origin = os.getenv("WEB_ORIGIN", "http://localhost:3000")
     if success:
@@ -298,8 +320,10 @@ def paymob_webhook_get(request: Request):
     else:
         return RedirectResponse(url=f"{web_origin}/pro?payment=failed")
 
+
 class CancelSubscriptionRequest(BaseModel):
     user_id: str
+
 
 @router.post("/paymob/cancel")
 def cancel_subscription(req: CancelSubscriptionRequest):
@@ -307,10 +331,19 @@ def cancel_subscription(req: CancelSubscriptionRequest):
         _init_supabase()
         if not supabase:
             raise HTTPException(status_code=503, detail="Supabase not configured")
-        
-        # Deleting subscription row completely downgrades the user to Free
-        supabase.table("subscriptions").delete().eq("user_id", req.user_id).execute()
+
+        from datetime import datetime
+
+        # Mark as cancelled rather than deleting — preserves audit trail
+        supabase.table("subscriptions").update(
+            {
+                "status": "cancelled",
+                "updated_at": datetime.utcnow().isoformat(),
+            }
+        ).eq("user_id", req.user_id).execute()
         return {"success": True, "message": "Subscription cancelled successfully."}
     except Exception as e:
         print(f"Error cancelling subscription: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to cancel subscription: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to cancel subscription: {str(e)}"
+        )

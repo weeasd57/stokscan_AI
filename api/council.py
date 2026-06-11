@@ -1,29 +1,37 @@
+import json
+import logging
+import os
+import pickle
+from typing import Any, Dict, List, Optional, Tuple
+
+import lightgbm as lgb
 import numpy as np
 import pandas as pd
-import pickle
-import os
-import lightgbm as lgb
-import json
-from typing import Dict, List, Any, Optional, Tuple
-import logging
-from api.model_utils import reset_booster_cats, align_pandas_categories_to_booster
+
+from api.model_utils import align_pandas_categories_to_booster, reset_booster_cats
 
 # Get logger for uvicorn/fastapi visibility
 logger = logging.getLogger("uvicorn.error")
 
-# Add a file handler for direct inspection
-DEBUG_LOG = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "council_debug.log")
-fh = logging.FileHandler(DEBUG_LOG, encoding='utf-8')
-fh.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
-logger.addHandler(fh)
-logger.info("COUNCIL: File logging initialized.")
+if os.getenv("COUNCIL_DEBUG_LOG", "").strip().lower() in ("1", "true", "yes"):
+    DEBUG_LOG = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "council_debug.log"
+    )
+    fh = logging.FileHandler(DEBUG_LOG, encoding="utf-8")
+    fh.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
+    logger.addHandler(fh)
+    logger.info("COUNCIL: File logging initialized.")
+
 
 class TheCouncil:
     """
     Consensus-based noise reduction for stock opportunities.
     Implements Phase 2: Ensemble Filtering with Weighted Soft Voting.
     """
-    def __init__(self, models_dict: Dict[str, Any], weights: Optional[Dict[str, float]] = None):
+
+    def __init__(
+        self, models_dict: Dict[str, Any], weights: Optional[Dict[str, float]] = None
+    ):
         """
         :param models_dict: Dictionary mapping model names to loaded model objects.
         :param weights: Dictionary mapping model names to their voting weights.
@@ -36,14 +44,16 @@ class TheCouncil:
             self.weights = {name: w for name in models_dict.keys()}
         else:
             self.weights = weights
-        
+
         self.threshold = 0.5
 
     @staticmethod
     def get_categorical_features(artifact: dict) -> List[str]:
         # Try to find categorical features in the artifact
         metadata = artifact.get("metadata", {})
-        return metadata.get("categorical_features", []) or artifact.get("categorical_features", [])
+        return metadata.get("categorical_features", []) or artifact.get(
+            "categorical_features", []
+        )
 
     def _align_X_for_artifact(self, X: pd.DataFrame, artifact: dict) -> pd.DataFrame:
         """
@@ -69,8 +79,14 @@ class TheCouncil:
             categorical_features = list(artifact.get("categorical_features") or [])
         elif kind == "council_validator":
             primary_art = artifact.get("primary_model") or {}
-            required = list(primary_art.get("feature_names") or artifact.get("feature_names") or [])
-            categorical_features = list(primary_art.get("categorical_features") or artifact.get("categorical_features") or [])
+            required = list(
+                primary_art.get("feature_names") or artifact.get("feature_names") or []
+            )
+            categorical_features = list(
+                primary_art.get("categorical_features")
+                or artifact.get("categorical_features")
+                or []
+            )
 
         if not required:
             # Best-effort sanitize: drop non-numeric/non-float columns that might break boosters
@@ -79,14 +95,16 @@ class TheCouncil:
             for col in ["symbol", "exchange", "name", "date", "signal", "fund_score"]:
                 if col in out.columns:
                     out = out.drop(columns=[col])
-            
+
             num_cols = out.select_dtypes(include=[np.number]).columns
             obj_cols = out.select_dtypes(exclude=[np.number, "bool"]).columns
             if len(obj_cols) > 0:
                 out = out.drop(columns=obj_cols)
 
             if len(num_cols) > 0:
-                out[num_cols] = out[num_cols].replace([np.inf, -np.inf], np.nan).fillna(0)
+                out[num_cols] = (
+                    out[num_cols].replace([np.inf, -np.inf], np.nan).fillna(0)
+                )
             return out
 
         cat_set = set(categorical_features or [])
@@ -100,14 +118,22 @@ class TheCouncil:
         if cat_cols:
             for c in cat_cols:
                 # Force to category type to satisfy Booster requirements and avoid mismatch
-                df[c] = df[c].astype(str).replace(["nan", "None", ""], "Unknown").fillna("Unknown").astype("category")
+                df[c] = (
+                    df[c]
+                    .astype(str)
+                    .replace(["nan", "None", ""], "Unknown")
+                    .fillna("Unknown")
+                    .astype("category")
+                )
 
         non_cat_cols = [c for c in df.columns if c not in cat_cols]
         for col in non_cat_cols:
             if not pd.api.types.is_numeric_dtype(df[col]):
                 df[col] = pd.to_numeric(df[col], errors="coerce")
         if non_cat_cols:
-            df[non_cat_cols] = df[non_cat_cols].replace([np.inf, -np.inf], np.nan).fillna(0)
+            df[non_cat_cols] = (
+                df[non_cat_cols].replace([np.inf, -np.inf], np.nan).fillna(0)
+            )
 
         return df
 
@@ -117,13 +143,14 @@ class TheCouncil:
         Return class-1 probability for a model/artifact on aligned X.
         """
 
-
         def _coerce_X_numeric(df: pd.DataFrame) -> pd.DataFrame:
             out = df.copy()
             for col in out.columns:
                 try:
                     if out[col].dtype.name == "category" or out[col].dtype == object:
-                        out[col] = out[col].astype("category").cat.codes.astype("float32")
+                        out[col] = (
+                            out[col].astype("category").cat.codes.astype("float32")
+                        )
                     else:
                         if not pd.api.types.is_numeric_dtype(out[col]):
                             out[col] = pd.to_numeric(out[col], errors="coerce")
@@ -135,7 +162,11 @@ class TheCouncil:
         def _predict_raw(m: Any, df: pd.DataFrame) -> np.ndarray:
             if hasattr(m, "predict_proba"):
                 probs = m.predict_proba(df)
-                return probs[:, 1] if getattr(probs, "ndim", 1) == 2 else np.asarray(probs).reshape(-1)
+                return (
+                    probs[:, 1]
+                    if getattr(probs, "ndim", 1) == 2
+                    else np.asarray(probs).reshape(-1)
+                )
             return np.asarray(m.predict(df)).astype(float)
 
         try:
@@ -161,7 +192,6 @@ class TheCouncil:
             except Exception:
                 # Final fallback: zero votes instead of crashing the whole council.
                 return np.zeros(len(Xn), dtype=float)
-
 
     @staticmethod
     def _find_model_data(d: Any) -> Tuple[Optional[dict], Any]:
@@ -195,7 +225,7 @@ class TheCouncil:
         for name, weight in self.weights.items():
             if weight <= 0:
                 continue
-                
+
             model = self.models.get(name)
             if model is None:
                 continue
@@ -208,19 +238,22 @@ class TheCouncil:
                     if kind == "meta_labeling_system":
                         try:
                             from api.backtest_radar import reconstruct_meta_model
+
                             wrapper = reconstruct_meta_model(model)
                             if wrapper:
                                 X_aligned = self._align_X_for_artifact(X, model)
                                 p1 = wrapper.predict_proba(X_aligned)[:, 1]
                         except Exception as meta_ex:
-                            logger.error(f"COUNCIL: Meta-model reconstruction failed for {name}: {meta_ex}")
-                    
+                            logger.error(
+                                f"COUNCIL: Meta-model reconstruction failed for {name}: {meta_ex}"
+                            )
+
                     # 2. Search for Booster
                     if p1 is None:
                         model_data, m_obj = self._find_model_data(model)
                         if m_obj:
                             X_aligned = self._align_X_for_artifact(X, model_data)
-                            
+
                             if isinstance(m_obj, str):
                                 # LightGBM string booster
                                 booster = lgb.Booster(model_str=m_obj)
@@ -228,35 +261,49 @@ class TheCouncil:
                                 if cats:
                                     for c in cats:
                                         if c in X_aligned.columns:
-                                            X_aligned[c] = X_aligned[c].astype('category')
-                                    X_aligned = align_pandas_categories_to_booster(X_aligned, cats, booster, cats)
-                                p1 = np.asarray(booster.predict(X_aligned)).astype(float)
+                                            X_aligned[c] = X_aligned[c].astype(
+                                                "category"
+                                            )
+                                    X_aligned = align_pandas_categories_to_booster(
+                                        X_aligned, cats, booster, cats
+                                    )
+                                p1 = np.asarray(booster.predict(X_aligned)).astype(
+                                    float
+                                )
                             elif isinstance(m_obj, lgb.Booster):
                                 # Direct LightGBM booster
                                 cats = self.get_categorical_features(model_data)
                                 if cats:
                                     for c in cats:
                                         if c in X_aligned.columns:
-                                            X_aligned[c] = X_aligned[c].astype('category')
-                                    X_aligned = align_pandas_categories_to_booster(X_aligned, cats, m_obj, cats)
+                                            X_aligned[c] = X_aligned[c].astype(
+                                                "category"
+                                            )
+                                    X_aligned = align_pandas_categories_to_booster(
+                                        X_aligned, cats, m_obj, cats
+                                    )
                                 p1 = np.asarray(m_obj.predict(X_aligned)).astype(float)
                             else:
                                 # Generic model (RandomForest, etc.)
                                 p1 = self._predict_p1(m_obj, X_aligned)
 
                     if p1 is None:
-                        logger.error(f"COUNCIL ERROR: Model {name} has no recognized booster or meta-model")
+                        logger.error(
+                            f"COUNCIL ERROR: Model {name} has no recognized booster or meta-model"
+                        )
                         continue
                 else:
                     # Direct model object
                     X_aligned = self._align_X_for_artifact(X, {})
                     p1 = self._predict_p1(model, X_aligned)
-                
+
                 if p1 is not None and len(p1) > 0:
-                    logger.error(f"COUNCIL TRACE: model={name} weight={weight:.4f} avg_p1={np.mean(p1):.4f}")
+                    logger.info(
+                        f"COUNCIL TRACE: model={name} weight={weight:.4f} avg_p1={np.mean(p1):.4f}"
+                    )
                     total_weighted_prob += p1 * weight
                     total_weight += weight
-                
+
             except Exception as e:
                 logger.error(f"COUNCIL ERROR: Model {name} failed: {e}")
 
@@ -272,31 +319,46 @@ class TheCouncil:
         """
         votes = {}
         for name, weight in self.weights.items():
-            if weight <= 0: continue
+            if weight <= 0:
+                continue
             model = self.models.get(name)
-            if model is None: continue
+            if model is None:
+                continue
             try:
                 if isinstance(model, dict):
                     kind = (model.get("kind") or "").strip().lower()
                     if kind == "meta_labeling_system":
                         from api.backtest_radar import reconstruct_meta_model
+
                         wrapper = reconstruct_meta_model(model)
                         if wrapper is None:
-                            raise ValueError("Failed to reconstruct meta_labeling_system")
+                            raise ValueError(
+                                "Failed to reconstruct meta_labeling_system"
+                            )
                         X_aligned = self._align_X_for_artifact(X, model)
                         votes[name] = wrapper.predict_proba(X_aligned)[:, 1]
                     elif kind == "lgbm_booster" or kind == "council_validator":
-                        model_str = model.get("model_str") or (model.get("primary_model") or {}).get("model_str")
+                        model_str = model.get("model_str") or (
+                            model.get("primary_model") or {}
+                        ).get("model_str")
                         if model_str:
                             booster = lgb.Booster(model_str=model_str)
                             X_aligned = self._align_X_for_artifact(X, model)
-                            cats = self.get_categorical_features(model) or self.get_categorical_features(model.get("primary_model") or {})
+                            cats = self.get_categorical_features(
+                                model
+                            ) or self.get_categorical_features(
+                                model.get("primary_model") or {}
+                            )
                             if cats:
                                 for c in cats:
                                     if c in X_aligned.columns:
                                         X_aligned[c] = X_aligned[c].astype("category")
-                                X_aligned = align_pandas_categories_to_booster(X_aligned, cats, booster, cats)
-                            votes[name] = np.asarray(booster.predict(X_aligned)).astype(float)
+                                X_aligned = align_pandas_categories_to_booster(
+                                    X_aligned, cats, booster, cats
+                                )
+                            votes[name] = np.asarray(booster.predict(X_aligned)).astype(
+                                float
+                            )
                         else:
                             votes[name] = np.zeros(len(X))
                     else:
@@ -304,7 +366,7 @@ class TheCouncil:
                 else:
                     X_aligned = self._align_X_for_artifact(X, {})
                     votes[name] = self._predict_p1(model, X_aligned)
-            except:
+            except Exception:
                 votes[name] = np.zeros(len(X))
         return votes
 

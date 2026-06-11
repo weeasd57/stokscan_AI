@@ -1,12 +1,14 @@
 import os
 from typing import Any, Dict, List, Optional
+
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 
-from api.stock_ai import run_pipeline, check_local_cache, _get_exchange_bulk_data
+from api.stock_ai import _get_exchange_bulk_data, check_local_cache, run_pipeline
 from api.symbols_local import load_symbols_for_country
 
 router = APIRouter(prefix="/scan", tags=["scan"])
+
 
 class ScanResult(BaseModel):
     symbol: str
@@ -15,10 +17,11 @@ class ScanResult(BaseModel):
     last_close: float
     precision: float
     signal: str  # "BUY" or "SELL/HOLD"
-    confidence: str # High/Medium/Low based on precision
+    confidence: str  # High/Medium/Low based on precision
     logo_url: Optional[str] = None
     target_price: Optional[float] = None
     stop_loss: Optional[float] = None
+
 
 class SingleScanRequest(BaseModel):
     symbol: str
@@ -34,16 +37,20 @@ class ScanAiOptions(BaseModel):
     rf_params: Optional[Dict[str, Any]] = None
     model_name: Optional[str] = None
 
+
 class ScanResponse(BaseModel):
     results: List[ScanResult]
     scanned_count: int
+
 
 @router.post("/ai", response_model=ScanResponse)
 async def scan_ai(
     request: Request,
     country: str = Query(default="Egypt", description="Country to scan"),
     limit: int = Query(default=50, ge=1, le=200, description="Max symbols to scan"),
-    min_precision: float = Query(default=0.6, ge=0.0, le=1.0, description="Min precision to include"),
+    min_precision: float = Query(
+        default=0.6, ge=0.0, le=1.0, description="Min precision to include"
+    ),
     opts: Optional[ScanAiOptions] = None,
 ):
     api_key = os.getenv("EODHD_API_KEY")
@@ -52,20 +59,27 @@ async def scan_ai(
 
     try:
         symbols_data = load_symbols_for_country(country)
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=404, detail=f"No symbols found for country: {country}"
+        )
     except Exception as e:
         # If model_name specified but not found, surface clear error
         if opts and opts.model_name and "not loaded" in str(e):
-            raise HTTPException(status_code=400, detail=f"Model '{opts.model_name}' not loaded on server. Place the .pkl and retry.")
-        raise HTTPException(status_code=500, detail=str(e))
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail=f"No symbols found for country: {country}")
-    except Exception as e:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Model '{opts.model_name}' not loaded on server. Place the .pkl and retry.",
+            )
         print(f"scan_ai: failed loading symbols for {country}: {e}")
-        raise HTTPException(status_code=500, detail="Failed to load symbols")
+        raise HTTPException(status_code=500, detail=str(e))
 
     # Warm bulk cache per exchange to avoid N Supabase queries
     try:
-        exchanges = {str(row.get("Exchange", "")).upper() for row in symbols_data if isinstance(row, dict)}
+        exchanges = {
+            str(row.get("Exchange", "")).upper()
+            for row in symbols_data
+            if isinstance(row, dict)
+        }
         for ex in exchanges:
             if not ex:
                 continue
@@ -77,7 +91,7 @@ async def scan_ai(
     # This makes the scan "Local-First" and much faster
     cached_candidates = []
     others = []
-    
+
     for row in symbols_data:
         if not isinstance(row, dict):
             continue
@@ -90,11 +104,11 @@ async def scan_ai(
                 others.append(row)
         except Exception:
             continue
-            
+
     # Combine: Local cached first, then others
     sorted_candidates = cached_candidates + others
     candidates = sorted_candidates[:limit]
-    
+
     results = []
 
     rf_preset = (opts.rf_preset if opts else None) or "fast"
@@ -102,8 +116,11 @@ async def scan_ai(
     model_name = (opts.model_name if opts else None) or None
 
     if not model_name:
-        raise HTTPException(status_code=400, detail="model_name is required for AI scan (inference-only).")
-    
+        raise HTTPException(
+            status_code=400,
+            detail="model_name is required for AI scan (inference-only).",
+        )
+
     try:
         for row in candidates:
             # Check if user disconnected to stop processing immediately
@@ -117,7 +134,7 @@ async def scan_ai(
             symbol = str(row.get("Code", row.get("Symbol", "")))
             name = str(row.get("Name", ""))
             exchange = str(row.get("Exchange", ""))
-        
+
             # Skip if symbol is empty or NOT in local cache (Local-First enforcement)
             if not symbol or not check_local_cache(symbol, exchange):
                 continue
@@ -129,29 +146,33 @@ async def scan_ai(
                     ticker=symbol,
                     from_date="2020-01-01",
                     include_fundamentals=False,
-                    tolerance_days=5, # Allow cached data up to 5 days old for scanning speed
+                    tolerance_days=5,  # Allow cached data up to 5 days old for scanning speed
                     exchange=exchange,
                     force_local=True,
                     rf_preset=rf_preset,
                     rf_params=rf_params,
                     model_name=model_name,
                 )
-            
+
                 # Check for BUY signal
                 if prediction["tomorrowPrediction"] == 1:
                     prec = prediction["precision"]
 
                     if prec >= min_precision:
-                        results.append(ScanResult(
-                            symbol=symbol,
-                            exchange=exchange or None,
-                            name=name,
-                            last_close=prediction["lastClose"],
-                            precision=prec,
-                            signal="BUY",
-                            confidence="High" if prec > 0.7 else "Medium",
-                            logo_url=prediction.get("fundamentals", {}).get("logoUrl")
-                        ))
+                        results.append(
+                            ScanResult(
+                                symbol=symbol,
+                                exchange=exchange or None,
+                                name=name,
+                                last_close=prediction["lastClose"],
+                                precision=prec,
+                                signal="BUY",
+                                confidence="High" if prec > 0.7 else "Medium",
+                                logo_url=prediction.get("fundamentals", {}).get(
+                                    "logoUrl"
+                                ),
+                            )
+                        )
 
             except Exception:
                 continue
@@ -191,22 +212,22 @@ async def scan_ai_single(req: SingleScanRequest):
             rf_params=req.rf_params,
             model_name=req.model_name,
         )
-        
+
         if prediction["tomorrowPrediction"] == 1:
             prec = prediction["precision"]
             if prec >= req.min_precision:
                 return ScanResult(
                     symbol=req.symbol,
                     exchange=req.exchange,
-                    name=req.symbol, 
+                    name=req.symbol,
                     last_close=prediction["lastClose"],
                     precision=prec,
                     signal="BUY",
                     confidence="High" if prec > 0.7 else "Medium",
-                    logo_url=prediction.get("fundamentals", {}).get("logoUrl")
+                    logo_url=prediction.get("fundamentals", {}).get("logoUrl"),
                 )
     except Exception as e:
         print(f"Error scanning {req.symbol}: {e}")
         return None
-    
+
     return None

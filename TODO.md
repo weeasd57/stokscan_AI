@@ -1,566 +1,497 @@
-# TODO - مراجعة نظام التدريب/الاختبار/البوت (Live) + تحديد تعارضات
+# TODO: EGX Unified Trading System & Consistency Integration
 
-## 1) تم إنجازه
-- [x] قراءة ملف الإرشادات: `.blackbox/skills/code/SKILL.md`
-- [x] مراجعة `api/live_bot.py` واكتشاف نقاط تعارض محتملة بين:
-  - طريقة التدريب vs طريقة حساب TP/SL في البوت (percent vs ATR multipliers)
-  - اختلافات بين backtest و live في flags الخاصة بالـ exits
-  - اختلاف سعر التنفيذ (live menggunakan آخر close) عن backtest (all bars مغلقة)
-  - التحقق من تمرير بيانات Council Validator لشكل input المتوقّع
-
-## 2) ملاحظات تعارض/خطر (مطلوب التحقق منها قبل أي تعديل)
-### A) أكبر Risk: TP/SL Parameters mismatch
-- التدريب/Labels تُبنى على ATR barriers ومفروض `target/stop_loss` تكون **ATR multipliers** (حسب SKILL).
-- في `api/live_bot.py` توجد `target_pct` و `stop_loss_pct` افتراضيًا كمقادير تبدو **percentages** (مثل 0.10 و 0.035).
-- الخطر: TP/SL في Live ممكن تكون محسوبة بطريقة مختلفة عن اللي اتدرب عليه النموذج → عدم مطابقة Backtest/Training/Live.
-- لازم نتأكد أن:
-  - metadata الخاصّة بـ KING artifact تقوم بـ override مضبوط لـ `target_pct/stop_loss_pct` (كمultipliers فعلًا)
-  - أو إن `StrategyEngine.calculate_atr_exits()` تستقبل نفس تعريف القيم (multipliers vs percentages) في backtest و live بنفس الـ flags.
-
-### B) اختلاف exit_mode/use_atr_exits بين Backtest و Live
-- لازم مطابقة المدخلات بين:
-  - `api/backtest_radar.py`
-  - `api/live_bot.py`
-- أهم flags:
-  - `exit_mode`
-  - `use_atr_exits`
-  - `atr_sl_multiplier`, `atr_tp_multiplier`
-- وكمان: هل `target_pct/stop_loss_pct` تُفسَّر كمultipliers ولا percentages في كل مكان.
-
-### C) اختلاف التنفيذ السعرّي (Live) عن محاكاة الباكتيست
-- Live:
-  - تعمل Features على **closed bar** لتفادي look-ahead (`iloc[-2]`)
-  - لكن التنفيذ يستخدم `last_price = bars.iloc[-1]["close"]`
-- ده اختلاف “طبيعي” بسبب latency/slippage، لكنه لازم يتاخد في الاعتبار عند المقارنة مع backtest (اللي عادةً بيشتغل على all-bars-mclosed).
-
-### D) احتمال mismatch في شكل primary_conf لـ Council Validator
-- Live بتستدعي:
-  - `validator.predict_proba(X_all, primary_conf=...)`
-- لازم نتأكد إن `primary_conf` dimension/shape مطابق مع اللي backtest بيستخدمه.
-- أي mismatch ممكن يطلع probs غلط أو يسبب failure صامت (لو exceptions بتتكتّم داخل الـ loop).
-
-## 3) مستوى الاختبار المطلوب
-- [ ] لم يتم اختيار مستوى الاختبار حتى الآن.
-- المطلوب: تنفيذ واحد من السيناريوهين:
-  - (1) Critical-path testing
-  - (2) Thorough testing
-
-## 4) تنفيذ اختبار (مقترح) — Critical-path (إذا تم اختيارها لاحقًا)
-- [ ] اختيار Symbol واحد
-- [ ] تشغيل backtest_radar على نفس Symbol وبنفس artifact models و نفس flags (exit_mode/use_atr_exits + thresholds)
-- [ ] مقارنة TP/SL الناتجة في backtest مع TP/SL التي سيستخدمها Live signal logic لنفس snapshot (اعتبار live entry = آخر close)
-- [ ] عمل dry-run للتأكد من KING + Council probabilities بدون exceptions وصحة thresholds decision
-- [ ] تحقق صريح من تفسير target/stop:
-  - إذا barrier_mode == percent: target_pct/stop_loss_pct في Backtest وLive لازم تكون percentages (مثل 0.10)
-  - إذا barrier_mode == atr: target_pct/stop_loss_pct في Backtest وLive لازم تتحول/تُمرَّر كـ ATR multipliers (مثل 2.0) وStrategyEngine.calculate_atr_exits تستخدم نفس المفهوم
-
-
-## 5) تنفيذ اختبار (مقترح) — Thorough testing (إذا تم اختيارها لاحقًا)
-- [ ] اختبار backtest لمجموعة symbols (عدة قطاعات/حالات regime BULL/SIDEWAYS/BEAR)
-- [ ] اختبار endpoints الرئيسية (باستخدام Curl/requests) لو فيها تغيير سابق أو اعتماد على artifacts
-- [ ] edge cases:
-  - بيانات قليلة (warmup barriers)
-  - اختلاف dtype/categorical alignment
-  - missing fundamentals/sector returns
-  - فشل تحميل Models/metadata
-
-## 6) بعد الاختبار (تحسين/تعديل)
-- [ ] إذا ثبت mismatch في TP/SL definitions:
-  - أو تصميم تحويل داخلي واضح: (multipliers <-> percentages) بناءً على metadata `barrier_mode`
-  - أو توحيد المصدر الوحيد للحقيقة: مصدر metadata artifacts فقط
-- [ ] إذا ثبت اختلاف exit_mode/use_atr_exits:
-  - توحيد flags computation في backtest و live
-- [ ] إذا ثبت shape mismatch للـ Council:
-  - توحيد شكل primary_conf و/أو وسيط normalize داخل live + backtest
+This file tracks all remaining integration and refactoring tasks based on the specifications in `.kiro/specs/training-consistency` and `.kiro/specs/egx-unified-trading-system`.
 
 ---
 
-## 7) خطة الإصلاح الشاملة (من تقرير Excel) — 12 مشكلة
+## � **حالة المشروع - Project Status**
 
-### المرحلة 1️⃣: أخطاء حرجة (🔴) — تفسد النظام بالكامل
+### **✅ مكتمل - Completed**
+- Phase 1: Core Consistency & EGX Component Foundation (100%)
 
-#### 1.1) backtest_radar.py - Regex مكسورة (السطور 68-70)
-- **المشكلة**: استخدام `\\d` بدل `\d` في regex — كل التحقق من التواريخ يفشل
-- **الحل**: 
-  ```
-  من: _DATE_ISO_RE = re.compile(r"^\\d{4}-...$")
-  إلى: _DATE_ISO_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
-  ```
-- [ ] تطبيق الإصلاح
-- [ ] اختبار regex على عينة تواريخ
+### **🔄 قيد التنفيذ - In Progress**
+- Phase 2: Walk-Forward Validation & Training Pipeline Integration (30%)
 
-#### 1.2) backtest_radar.py - barrier_mode bug (السطور 356-372)
-- **المشكلة**: كود if percent_mode وelse (ATR mode) متطابقان — TP/SL خاطئة دائماً في ATR mode
-- **العلاقة بـ 2A**: هذا **نفس** التعارض الموجود في ملاحظات السابقة
-- **الحل**: 
-  ```
-  في else (ATR mode) استبدل:
-    TARGET_PCT = float(m_target)
-  بـ:
-    atr_tp_multiplier = float(m_target)
-    atr_sl_multiplier = float(m_sl)
-  واستخدم ATR في الحساب فعلاً
-  ```
-- [ ] تطبيق الإصلاح
-- [ ] التحقق من أن ATR mode يستخدم multipliers مختلفة
-
-#### 1.3) live_bot.py - target_pct تضارب (السطور 53 + 3064)
-- **المشكلة**: BotConfig تستخدم fraction (0.10) لكن loop تمرر percentage (10.0) — TP يحسب بعامل 100x
-- **العلاقة بـ 2A**: هذا **بالضبط** التعارض المكتشف في ملاحظة A
-- **الحل**: 
-  - اختر إما fraction أو percentage **في كل مكان**
-  - أضف conversion واضح: `target_pct_display = target_pct * 100` (للـ UI فقط)
-  - استخدم fraction دائماً في الحسابات
-- [ ] توحيد التعريف في BotConfig
-- [ ] توحيد في _run_loop
-- [ ] التحقق من جميع الحسابات
+### **⚪ لم يبدأ - Not Started**
+- Phase 3: Backtesting Pipeline Refactoring (0%)
+- Phase 4: Live Bot Pipeline Refactoring (0%)
+- Phase 5: Structured Logging & Monitoring (0%)
+- Phase 6: Documentation & Roadmap (0%)
+- Phase 7: Macro & Sector Feature Integration (0%)
+- Phase 8: Data Acquisition & Admin Panel Management (0%)
 
 ---
 
-### المرحلة 2️⃣: أخطاء متوسطة (🟡) — تسبب حالات نادرة صعبة الاكتشاف
+## �📋 Task Checklist
 
-#### 2.1) live_bot.py - virtual_key_id/virtual_secret_key (السطور 3589-3592)
-- **المشكلة**: تُضاف كـ dynamic attributes على dataclass — مش بتتحفظ في Supabase عند asdict()
-- **الحل**: أضفهم لـ BotConfig dataclass كـ Optional fields بشكل صريح
-- [ ] تعديل BotConfig dataclass
-- [ ] التحقق من أن asdict() يشمل الحقول الجديدة
+### Phase 1: Core Consistency & EGX Component Foundation ✅ (Completed)
+- [x] **1.1 Unified Config Module (`api/trading_config.py`)**
+  - ✅ Implement `TradingParameters` dataclass (entry_mode, barriers, thresholds, volume ratios, warmup)
+  - ✅ Implement field validation in `__post_init__`
+  - ✅ Add `from_model_artifact()` classmethod with legacy fallback
+  - ✅ Add `from_live_bot_config()` classmethod for bot integration
+  - ✅ Implement `to_dict()` and `validate()` methods
+  - ✅ Add `validate_for_market()` for EGX-specific validation
+  - **الحالة:** مكتمل 100% - الملف موجود وجاهز
 
-#### 2.2) train_exchange_model.py + live_bot.py - @memory_cache مع DataFrame متغيرة (السطر 339 + _prepare_features)
-- **المشكلة**: cache قد يرجع features قديمة لو hash لم يتغير رغم تغير البيانات
-- **الحل**: استدعي الدالة الأصلية بدون cache في live predictions: `add_massive_features.__wrapped__(feat)`
-- [ ] تطبيق في live_bot._prepare_features()
+- [x] **1.2 Unified Labeling Module (`api/unified_labeling.py`)**
+  - ✅ Implement `TripleBarrierLabeler` supporting percent and ATR barrier modes
+  - ✅ Implement `label_single_trade` and `backtest_trade` outcome simulation
+  - ✅ Integrate volume confirmation logic based on 20-day MA
+  - ✅ Support for both training labeling and backtest simulation
+  - **الحالة:** مكتمل 100% - الملف موجود وجاهز
 
-#### 2.3) backtest_radar + live_bot - code duplication (السطور 432-505 و 1863-1960)
-- **المشكلة**: _reset_booster_cats, _align_for_king, إلخ مكررة — تختلف بين الملفين
-- **الحل**: انقل لـ shared module: `api/model_utils.py` واستوردها في الملفين
-- [ ] إنشاء api/model_utils.py
-- [ ] نقل الدوال المشتركة
-- [ ] تحديث الاستيرادات في backtest_radar و live_bot
+- [x] **1.3 Unified Features Module (`api/unified_features.py`)**
+  - ✅ Implement `FeatureEngineeringManager` and `DataReadinessReport`
+  - ✅ Add `check_data_ready()`, `validate_features()`, and `check_data_leakage()`
+  - ✅ Add `detect_feature_drift()` for monitoring
+  - **الحالة:** مكتمل 100% - الملف موجود وجاهز
 
-#### 2.4) live_bot.py - Timezone inconsistency (السطور 2066-2070)
-- **المشكلة**: تحويلات متكررة بين UTC و tz-naive — فجوة في حسابات RSI/EMA
-- **الحل**: وحّد — كل DataFrames UTC دائماً
-- [ ] توحيد في _prepare_features
-- [ ] توحيد عند القراءة من Supabase
-- [ ] تحويل فقط عند الـ display
+- [x] **1.4 EGX Market Context Components**
+  - ✅ Create `api/egx30_fetcher.py` supporting Yahoo Finance, Supabase, and local JSON
+  - ✅ Implement `classify_market_regime()` (panic, trending_up, trending_down, sideways)
+  - ✅ Create `api/circuit_breaker_detector.py` to detect zero-range or range < 0.1% halts
+  - ✅ Add event logging and history tracking
+  - **الحالة:** مكتمل 100% - الملفات موجودة وجاهزة
 
-#### 2.5) live_bot.py - فقدان صفقات عند انقطاع Supabase (السطور 511-545)
-- **المشكلة**: _save_trade_to_supabase بدون fallback — فقدان البيانات عند فشل upsert
-- **الحل**: أضف queue محلية + retry في background thread
-- [ ] إنشاء _pending_trades queue
-- [ ] إضافة retry mechanism
-- [ ] اختبار السيناريو
+- [x] **1.5 Strict Quality-Focused Labeling (`api/strict_quality_labeler.py`)**
+  - ✅ Create `StrictQualityLabeler` subclassing `TripleBarrierLabeler`
+  - ✅ Enforce EGX quality filters: 7-day TP limit, volume > 20-day MA, no circuit breakers, EGX30 return >= -2%
+  - ✅ Add comprehensive rejection logging
+  - **الحالة:** مكتمل 100% - الملف موجود وجاهز
 
----
+- [x] **1.6 Verify Foundation Unit Tests**
+  - ✅ `api/tests/test_consistency.py` - 52 tests covering TradingParameters, TripleBarrierLabeler, FeatureEngineeringManager
+  - ✅ `api/tests/test_egx_components.py` - Tests for EGX30 regime classification and circuit breaker detection
+  - ✅ All tests passing 100%
+  - **الحالة:** مكتمل 100% - الاختبارات جاهزة ونجحت
 
-### المرحلة 3️⃣: تحسينات (🟢) — Performance + Correctness
+### Phase 2: Walk-Forward Validation & Training Pipeline Integration 🔄 (30% Complete)
+- [x] **2.1 Walk-Forward Split Function Created**
+  - ✅ `create_walk_forward_splits()` function exists in training pipeline
+  - ✅ Time-based splits implemented (train 2019-2021 → test 2022, etc.)
+  - ✅ Chronological ordering validated
+  - **الحالة:** مكتمل - الدالة موجودة
 
-#### 3.1) backtest_radar.py - parse_cli_date dayfirst mismatch (السطر 93)
-- **المشكلة**: pattern هو dd/mm/yyyy لكن dayfirst=False
-- **الحل**: غيّر إلى dayfirst=True
-- [ ] التصحيح
+- [ ] **2.2 Integrate Walk-Forward into Training Script** ⚠️ **Priority: HIGH**
+  - ⚪ Modify `train_exchange_model.py` to use walk-forward splits instead of random splits
+  - ⚪ Calculate per-split metrics (precision, recall, F1) for each validation window
+  - ⚪ Save validation results in model artifact under `validation` section
+  - **المتطلبات:** Requirements 6.6, 6.7, 16.5 من egx-unified spec
+  - **الجهد المتوقع:** 3-4 ساعات
+  - **المخاطر:** MEDIUM - قد تتغير نتائج التدريب بشكل كبير
 
-#### 3.2) train_exchange_model.py - pickle version lock (كل أماكن حفظ الموديل)
-- **المشكلة**: لو اتحدثت lightgbm، قد يفشل تحميل pickle
-- **الحل**: احفظ booster.save_model('KING_booster.txt') بجانب pickle
-- [ ] تطبيق في جميع نقاط الحفظ
-- [ ] تحديث نقاط التحميل
+- [ ] **2.3 Save Unified Parameters in Model Artifact** ⚠️ **Priority: HIGH**
+  - ⚪ Update `train_exchange_model.py`'s `save_meta_labeling_system()` to store:
+    - `trading_parameters` section (entry_mode, barriers, thresholds)
+    - `feature_requirements` section (min_history, warmup_bars)
+    - Walk-forward validation split results
+  - ⚪ Maintain backward compatibility with old model loading
+  - **المتطلبات:** Requirements 12.1-12.4 من egx-unified spec
+  - **الجهد المتوقع:** 2-3 ساعات
 
-#### 3.3) live_bot.py - BotConfig numbering (السطور 113-123)
-- **المشكلة**: رقم 9 مكرر مرتين — cosmetic لكن يسبب التباس
-- **الحل**: إعادة ترقيم صحيح
-- [ ] التصحيح
+- [ ] **2.4 Create Training Pipeline Integration Tests**
+  - ⚪ Write test in `api/tests/test_train_pipeline.py`:
+    - Parameter serialization round-trip test
+    - Walk-forward splits leakage prevention test
+    - Model artifact format validation test
+  - **الجهد المتوقع:** 3 ساعات
+  - **Note:** Optional for MVP but highly recommended
 
-#### 3.4) train_exchange_model.py - prepare_for_ai O(n²) (السطور 739-750)
-- **المشكلة**: حلقة Python مزدوجة بطيئة جداً على بيانات كبيرة
-- **الحل**: استبدل بـ numpy vectorization (rolling max/min) — 10-50x أسرع
-- [ ] تطبيق الـ vectorization
-- [ ] قياس الأداء
+### Phase 3: Backtesting Pipeline Refactoring (`api/backtest_radar.py`) ⚪ (0% Complete)
 
----
+**⚠️ Priority: HIGH - Critical for validating model performance**
 
-## 7) خطة الإصلاح الشاملة (من تقرير Excel) — 12 مشكلة
+- [ ] **3.1 Load Unified Parameters** 
+  - ⚪ Load `TradingParameters` from model artifact metadata using `TradingParameters.from_model_artifact()`
+  - ⚪ Log loaded parameters at the beginning of the backtest
+  - ⚪ Validate parameter compatibility
+  - **المتطلبات:** Requirements 13.1, 18.1 من egx-unified spec
+  - **الجهد المتوقع:** 1-2 ساعات
+  - **المخاطر:** MEDIUM - نتائج الـ backtest قد تتغير
 
-### ✅ المرحلة 1️⃣: أخطاء حرجة (🔴) — تم الانتهاء
+- [ ] **3.2 Validate Data Readiness**
+  - ⚪ Integrate `FeatureEngineeringManager.check_data_ready()` before starting backtesting
+  - ⚪ Alert/warn of missing columns or high NaN rates
+  - ⚪ Skip symbols with insufficient data
+  - **المتطلبات:** Requirements 2.2, 2.4, 18.3
+  - **الجهد المتوقع:** 1 ساعة
 
-#### ✅ 1.1) backtest_radar.py - Regex مكسورة (السطور 68-70)
-- **المشكلة**: استخدام `\\d` بدل `\d` في regex — كل التحقق من التواريخ يفشل
-- **الحل**: تم الإصلاح — استبدال جميع `\\d` بـ `\d`
-- [x] تطبيق الإصلاح
+- [ ] **3.3 Replace Simulation Logic with TripleBarrierLabeler**
+  - ⚪ Replace custom simulation/barrier checks with `TripleBarrierLabeler.backtest_trade()`
+  - ⚪ Support percent and ATR modes consistently with training
+  - ⚪ Apply volume confirmation if configured
+  - **المتطلبات:** Requirements 3.2, 13.2, 18.2
+  - **الجهد المتوقع:** 2-3 ساعات
+  - **المخاطر:** MEDIUM - منطق الخروج/الدخول سيتغير
 
-#### ✅ 1.2) backtest_radar.py - barrier_mode bug (السطور 356-372)
-- **المشكلة**: كود if و else متطابقان — TP/SL خاطئة في ATR mode
-- **الحل**: تم الإصلاح — استخدام ATR multipliers بشكل صحيح
-- [x] تطبيق الإصلاح
-- [x] التحقق من أن ATR mode يستخدم multipliers مختلفة
+- [ ] **3.4 Implement Training-to-Backtest Consistency Check**
+  - ⚪ Compare backtest outcomes to training labels on historical bars
+  - ⚪ Report/log warning if P&L differs by >1%
+  - ⚪ Generate consistency report with entry price, barriers, outcomes
+  - **المتطلبات:** Requirements 13.4, 13.5, 18.5
+  - **الجهد المتوقع:** 2 ساعات
 
-#### ✅ 1.3) live_bot.py - target_pct توحيد (السطور 53 + 3064)
-- **المشكلة**: BotConfig تستخدم fraction (0.10) لكن loop تمرر percentage (10.0)
-- **الحل**: تم توحيد على fractions (0.10, 0.035) في كل مكان
-- [x] توحيد التعريف في BotConfig
-- [x] توحيد في _run_loop و subscribers_data
-- [x] التحقق من جميع الحسابات
+- [ ] **3.5 Write Backtest Integration Tests**
+  - ⚪ Test identical barrier calculation on synthetic datasets
+  - ⚪ Test entry pricing consistency with training
+  - ⚪ Test parameter round-trip persistence
+  - **المتطلبات:** Requirements 13.3, 14.3, 14.4
+  - **الجهد المتوقع:** 4 ساعات
+  - **Note:** Optional but highly recommended
 
----
+### Phase 4: Live Bot Pipeline Refactoring (`api/live_bot.py`) ⚪ (0% Complete)
 
-### المرحلة 2️⃣: أخطاء متوسطة (🟡) — قيد الإنجاز
+**⚠️ Priority: CRITICAL - Direct impact on live trading**
 
-#### ✅ 2.3) backtest_radar + live_bot - code deduplication
-- **المشكلة**: _reset_booster_cats, _align_for_king، إلخ مكررة
-- **الحل**: تم الانتهاء!
-  - ✅ إنشاء `api/model_utils.py` بالدوال المشتركة
-  - ✅ تحديث `backtest_radar.py` للاستيراد من model_utils
-  - ✅ تحديث `live_bot.py` ليستخدم wrappers
-  - ✅ حذف الـ code المكرر من backtest_radar.py
+- [ ] **4.1 Load and Validate Trading Parameters**
+  - ⚪ Load `TradingParameters` from model artifact on startup
+  - ⚪ Perform parameter validation comparing model artifact parameters to live bot configuration
+  - ⚪ Raise error if `STRICT_VALIDATION=true` and configuration mismatches exist
+  - ⚪ Log parameter summary and validation results
+  - **المتطلبات:** Requirements 1.3, 12.5, 17.1 من egx-unified spec
+  - **الجهد المتوقع:** 2 ساعات
+  - **المخاطر:** HIGH - أي خطأ يؤثر على التداول المباشر
 
-#### ✅ 2.1) live_bot.py - virtual_key_id/virtual_secret_key (السطور 3589-3592)
-- **المشكلة**: تُضاف كـ dynamic attributes — مش بتتحفظ في Supabase
-- **الحل**: تم الإصلاح!
-  - ✅ إضافة virtual_key_id و virtual_secret_key لـ BotConfig dataclass كـ Optional
-  - ✅ تحديث create_bot() لاستخدام lowercase naming
-  - [x] التحقق من أن asdict() يشمل الحقول الجديدة
+- [ ] **4.2 Enforce Data Readiness**
+  - ⚪ Call `FeatureEngineeringManager.check_data_ready()` before every prediction cycle
+  - ⚪ Skip predictions and log warnings if warmup bars or data constraints are not met
+  - ⚪ Validate feature consistency before each trade
+  - **المتطلبات:** Requirements 2.3, 2.4, 17.2
+  - **الجهد المتوقع:** 1-2 ساعات
 
-#### 2.2) train_exchange_model.py + live_bot.py - @memory_cache (السطر 339)
-- **المشكلة**: cache قد يرجع features قديمة
-- **الحل**: استدعي الدالة الأصلية: `add_massive_features.__wrapped__(feat)`
-- [ ] تطبيق في live_bot._prepare_features()
+- [ ] **4.3 Integrate EGX Market Filters**
+  - ⚪ Reject buy signals if EGX30 is in "panic" regime (EGX30 daily return <= -2%)
+  - ⚪ Reject symbol buy signals if active circuit breaker is detected (high == low or range < 0.1%)
+  - ⚪ Enforce volume confirmation if `require_volume_confirmation=True` (volume > 20-day MA * min_volume_ratio)
+  - ⚪ Log all rejection reasons for analysis
+  - **المتطلبات:** Requirements 5.4, 9.4, 11.3, 11.6, 17.3
+  - **الجهد المتوقع:** 2-3 ساعات
+  - **المخاطر:** MEDIUM - يجب اختبار جميع سيناريوهات الرفض
 
-#### ✅ 2.4) live_bot.py - Timezone inconsistency (السطور 2066-2070)
-- **المشكلة**: تحويلات متكررة بين UTC و tz-naive
-- **الحل**: تم التوحيد!
-  - ✅ توحيد في _prepare_features — جميع indices تُحول لـ UTC
-  - ✅ توحيد عند القراءة من جميع المصادر
-  - ✅ توحيد logic في add_market_context
+- [ ] **4.4 Replace Hardcoded Logic with Unified Parameters**
+  - ⚪ Use `params.king_threshold` and `params.council_threshold` from `TradingParameters`
+  - ⚪ Calculate expected TP and SL targets using `TradingParameters.calculate_barriers()`
+  - ⚪ Remove all hardcoded thresholds and barriers
+  - ⚪ Apply entry_mode logic (next_open vs current_close)
+  - **المتطلبات:** Requirements 1.3, 17.4
+  - **الجهد المتوقع:** 2-3 ساعات
 
-#### ✅ 2.5) live_bot.py - فقدان صفقات عند انقطاع Supabase (السطور 511-545)
-- **المشكلة**: بدون fallback — فقدان البيانات عند فشل upsert
-- **الحل**: تم الإصلاح!
-  - ✅ إنشاء _pending_trades queue مع thread lock
-  - ✅ إضافة _retry_pending_trades() method
-  - ✅ استدعاء retry في main loop قبل كل scan cycle
+- [ ] **4.5 Write Live Bot Integration Tests**
+  - ⚪ Test signal filtering under panic, circuit breakers, and low-volume scenarios
+  - ⚪ Test parameter loading and validation
+  - ⚪ Test consistency with training/backtest logic on historical data
+  - **المتطلبات:** Requirements 10.3, 14.1, 14.4
+  - **الجهد المتوقع:** 3-4 ساعات
+  - **Note:** Critical for production deployment
 
----
+### Phase 5: Structured Logging & Monitoring ⚪ (0% Complete)
 
-### المرحلة 3️⃣: تحسينات (🟢) — Performance + Correctness
+**Priority: MEDIUM - Important for debugging and monitoring**
 
-#### ✅ 3.1) backtest_radar.py - dayfirst (السطر 93)
-- **المشكلة**: pattern dd/mm/yyyy لكن dayfirst=False
-- **الحل**: تم التصحيح لـ dayfirst=True
-- [x] التصحيح
+- [ ] **5.1 Create Structured JSON Logger (`api/structured_logger.py`)**
+  - ⚪ Implement logger writing structured JSON format
+  - ⚪ Include fields: timestamp, event, details, level, parameters
+  - ⚪ Support different log levels (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+  - **المتطلبات:** Requirements 20.1-20.6 من egx-unified spec
+  - **الجهد المتوقع:** 2 ساعات
 
-#### ✅ 3.2) train_exchange_model.py - pickle version lock
-- **المشكلة**: pickle قد يفشل إذا تحدثت lightgbm
-- **الحل**: تم حفظ boosters أيضاً بصيغة text (_booster.txt)
-- [x] تطبيق في جميع نقاط الحفظ
+- [ ] **5.2 Integrate Structured Logging into All Pipelines**
+  - ⚪ Add logging in training: parameter load, data readiness, barriers, regime classification
+  - ⚪ Add logging in backtesting: parameter consistency, trade outcomes, discrepancies
+  - ⚪ Add logging in live bot: EGX filters, signal rejections, parameter validation
+  - ⚪ Log parameter mismatches with detailed comparison tables
+  - **المتطلبات:** Requirements 20.2-20.5, 20.7
+  - **الجهد المتوقع:** 3-4 ساعات
 
-#### ✅ 3.3) live_bot.py - BotConfig numbering (السطور 113-123)
-- **المشكلة**: رقم 9 مكرر ثلاث مرات
-- **الحل**: تم إعادة الترقيم الصحيح (9→10→11→12)
-- [x] التصحيح
-
-#### ✅ 3.4) train_exchange_model.py - vectorization (السطور 739-750)
-- **المشكلة**: حلقة مزدوجة بطيئة O(n*look_forward_days)
-- **الحل**: تم استبدال بـ vectorization مع numpy operations
-- [x] تطبيق الـ vectorization
-- تحسن الأداء المتوقع: 10-50x أسرع
-
----
-
-## 📋 الملخص النهائي للمرحلة الأولى:
-```
-✅ 🔴 المرحلة 1 (الحرجة) — 3/3 اكتملت
-✅ 🟡 المرحلة 2 (المتوسطة) — 5/5 اكتملت
-✅ 🟢 المرحلة 3 (التحسينات) — 4/4 اكتملت
-
-📊 المجموع: 12/12 مشكلة تم إصلاحها! (100%)
-⏱️  الوقت المستغرق: ~1-2 ساعات
-
-🎯 المرحلة 4 (الاستراتيجيات المصرية) — اختياري للدقة الأعلى
-```
-
----
-
-### ✅ المرحلة 4️⃣: استراتيجيات السوق المصري — 100% ✅
-
-#### ✅ 4.1) Stricter Labeling للسوق المصري
-- **التحسين**: تقليل نافذة البحث من 20 يوم إلى 5 أيام + تأكيد Volume
-- **الملف**: train_exchange_model.py - prepare_for_ai()
-- **التغييرات**:
-  - إضافة parameter `require_volume_confirmation=True` للـ EGX
-  - إضافة `min_volume_ratio=0.8` (volume threshold)
-  - حساب متوسط volume على 20 يوم وتأكيده على الشمعات الفائزة
-  - النتيجة: دقة أعلى (Precision ≥ 65%)
-- [x] التطبيق
-
-#### ✅ 4.2) EGX-Specific Features
-- **الملف**: train_exchange_model.py - add_massive_features()
-- **الـ Features الجديدة**:
-  - `pct_from_circuit_breaker`: المسافة من ±10% circuit breaker limit اليومي (0=upper, 1=lower)
-  - `prev_hit_upper_limit`: هل أغلق الأمس على الحد الأعلى (signal bullish قوي)
-  - `bull_days_10`: نسبة أيام الصعود في آخر 10 شموع
-  - `volume_dryup`: نسبة الحجم إلى متوسط 20 يوم (< 0.7 = تراجع حجم، > 1.3 = spike)
-- [x] التطبيق
-
-#### ✅ 4.3) Walk-Forward Validation
-- **المشكلة**: استخدام random train_test_split يتجاهل ترتيب البيانات الزمني
-- **الحل**: استبدال بـ walk-forward time-series validation
-- **الملف**: train_exchange_model.py
-- **التغييرات**:
-  - دالة جديدة `get_walk_forward_splits()` تقسم البيانات بناءً على السنوات
-  - تحقيق مثل: السنوات 1-3 train، السنة 4 test؛ السنوات 1-4 train، السنة 5 test
-  - تطبيق في `optimize_hyperparameters()` بدلاً من train_test_split
-  - النتيجة: تقييم أدق وواقعي للنموذج على بيانات جديدة
-- [x] التطبيق
-
-#### ✅ 4.4) Monthly Signal Cap
-- **الملف**: live_bot.py
-- **التغييرات**:
-  - إضافة `monthly_signal_cap: int = 20` إلى BotConfig (0 = unlimited)
-  - إضافة عداد `_signals_this_month: Dict[str, int]` ل LiveBot
-  - دالة `_check_monthly_signal_cap()`: تحقق من حد الإشارات
-  - دالة `_increment_monthly_signal_count()`: تزيد العداد
-  - فحص قبل إنشاء أي مركز جديد (في _process_buy_entries)
-  - إعادة تعيين العداد تلقائياً في بداية كل شهر (UTC)
-  - النتيجة: تحكم أفضل بعدد الإشارات الشهري (max 20 entry/شهر)
-- [x] التطبيق
+- [ ] **5.3 Write Unit Tests for Structured Logging** (Optional)
+  - ⚪ Test JSON format output
+  - ⚪ Test log filtering by level
+  - ⚪ Verify all required fields present in log events
+  - **الجهد المتوقع:** 2 ساعات
 
 ---
 
----
+### Phase 6: Documentation & Roadmap ⚪ (0% Complete)
 
-## 🔧 **مرحلة 5️⃣: إصلاحات أمنية إضافية** — ✅ 4/4 مكتملة
+**Priority: MEDIUM - Important for team collaboration and future planning**
 
-### System Audit Fixes
+- [ ] **6.1 Create EGX Market Guide (`docs/EGX_MARKET_GUIDE.md`)**
+  - ⚪ Document liquidity concentration (60% in top 20 stocks)
+  - ⚪ Explain thin trading problem and weeks without movement
+  - ⚪ Explain circuit breaker rules (±5% limits) vs US markets
+  - ⚪ Document sector correlation patterns (banks move together)
+  - ⚪ Explain macro factor dominance (USD/EGP, interest rates)
+  - ⚪ Document COVID (2020) and currency crisis (2022-2023) outlier regimes
+  - **المتطلبات:** Requirements 19.1-19.7 من egx-unified spec
+  - **الجهد المتوقع:** 3 ساعات
 
-#### ✅ 5.1) barrier_mode Logic Clarification (backtest_radar.py)
-- **المشكلة**: كلا الفرعين (percent و ATR) يفعلان نفس الشيء → confusing
-- **الحل**: إضافة comments واضحة توضح:
-  - ATR mode: values will be >= 1.0 (multipliers)
-  - Percent mode: values will be < 1.0 (percentages)
-- [x] التصحيح
-- **ملاحظة**: الكود فعلاً صحيح، لكن الـ comments كانت مربكة
-
-#### ✅ 5.2) Live Bot Reads & Respects barrier_mode (live_bot.py)
-- **المشكلة**: Live bot كان يتجاهل barrier_mode من model metadata
-- **الحل**:
-  - أضفنا `self.barrier_mode` إلى LiveBot (line 310)
-  - حفظ barrier_mode في `_load_models()` (lines 1909-1911)
-  - استخدام barrier_mode في `_process_buy_entries()` (lines 2807-2819)
-  - حساب ATR-based TP/SL عند الحاجة
-  - عرض display_tp_pct و display_sl_pct في الـ notifications
-- [x] التطبيق الكامل
-
-#### ✅ 5.3) add_massive_features Warning on Missing Columns (train_exchange_model.py)
-- **المشكلة**: يرجع df بدون معالجة إذا كانت close/volume مفقودة (silent fail)
-- **الحل**: إضافة warning واضح
-  ```python
-  warnings.warn(f"add_massive_features: Missing required columns {missing}. Returning DataFrame unprocessed.")
-  ```
-- [x] التصحيح
-
-#### ✅ 5.4) Council Validator Shape Validation (council_validator.py)
-- **المشكلة**: لا توجد تحقق من أن primary_conf يطابق عدد الصفوف
-- **الحل**: إضافة validation في `_prepare_X()`:
-  ```python
-  if len(primary_conf) != len(df):
-      raise ValueError(f"primary_conf shape mismatch: {len(primary_conf)} values for {len(df)} rows")
-  ```
-- [x] التصحيح
+- [ ] **6.2 Create Project Roadmap (`docs/ROADMAP.md`)**
+  - ⚪ Document Phase 2: Macro features (USD/EGP, CBE rates, sector momentum, dividends)
+  - ⚪ Document Phase 3: Paper trading validation (3 months, 60% precision threshold)
+  - ⚪ Document Phase 4: SaaS launch (subscription tiers, signal explanations, risk profiles)
+  - ⚪ Include recommended optimization: reduce look_forward_days from 20 to 7-10
+  - **المتطلبات:** Requirements 15.1-15.8 من egx-unified spec
+  - **الجهد المتوقع:** 2-3 ساعات
 
 ---
 
-## 📊 ملخص نهائي: 20/20 مهمة ✅
+### Phase 7: Macro & Sector Feature Integration ⚪ (0% Complete)
 
-```
-✅ المرحلة 1 (الأخطاء الحرجة):     3/3   = 100%
-✅ المرحلة 2 (الأخطاء المتوسطة):    5/5   = 100%
-✅ المرحلة 3 (التحسينات):          4/4   = 100%
-✅ المرحلة 4 (استراتيجيات):        4/4   = 100%
-✅ المرحلة 5 (أمنية إضافية):       4/4   = 100%
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🏆 المجموع: 20/20 = 100% اكتمال!
-```
+**Priority: LOW - Future enhancement for Phase 2**
 
-### الملفات المعدلة:
-1. **api/backtest_radar.py** (2 edits)
-2. **api/live_bot.py** (6 edits)
-3. **api/train_exchange_model.py** (2 edits)
-4. **api/council_validator.py** (1 edit)
-5. **api/model_utils.py** — ✅ Reviewed
-6. **TODO.md** — ✅ Updated
+**Note:** هذه المرحلة مخططة للمستقبل (Phase 2 من Roadmap) وليست ضرورية للـ MVP الحالي
 
----
+- [ ] **7.1 Implement USD/EGP Currency Fetcher & Features**
+  - ⚪ Fetch USD/EGP exchange rate daily from Yahoo Finance Forex symbol `EGP=X`
+  - ⚪ Add local JSON fallback for offline usage
+  - ⚪ Calculate `usdegp_change` daily percentage change
+  - ⚪ Merge into stock training features
+  - **الجهد المتوقع:** 3-4 ساعات
 
----
+- [ ] **7.2 Implement CBE Interest Rate Feature**
+  - ⚪ Create schedule mapping dates to Central Bank of Egypt interest rates
+  - ⚪ Add `cbe_interest_rate` level feature
+  - ⚪ Add `cbe_rate_change` difference feature
+  - ⚪ Manual entry via admin panel (8 times/year)
+  - **الجهد المتوقع:** 2-3 ساعات
 
-## 🔍 **المراجعة الشاملة الثانية** — ✅ مكتملة
+- [ ] **7.3 Implement Sector Momentum Feature**
+  - ⚪ Calculate 5-day sector momentum of banking sector stocks
+  - ⚪ Use major bank stocks (e.g., COMI, ADIB) from existing Supabase data
+  - ⚪ Add `bank_sector_momentum` feature
+  - ⚪ Merge into training features
+  - **الجهد المتوقع:** 2-3 ساعات
 
-### نتائج المراجعة الشاملة:
+- [ ] **7.4 Implement Dividend Calendar Filter**
+  - ⚪ Create `is_near_ex_dividend()` function
+  - ⚪ Avoid buying 5 days before ex-dividend dates
+  - ⚪ Apply filter in training target labeling
+  - ⚪ Apply filter in backtesting simulation
+  - ⚪ Apply filter in live bot prediction
+  - **الجهد المتوقع:** 2-3 ساعات
 
-#### ✅ **مسار التدريب** (train_exchange_model.py)
-- `_resolve_barrier_mode()` [Lines 85-107]: ✅ Heuristic صحيح لكل الحالات
-- `prepare_for_ai()` [Lines 726-860]: ✅ TP/SL محسوبة بشكل صحيح لكلا الـ modes
-- Metadata saving [Lines 2171, 2321]: ✅ barrier_mode محفوظة بشكل صحيح
-- EGX features: ✅ موجودة كلها (circuit breaker, volume dryup, etc)
-
-#### ✅ **مسار الـ Backtest** (backtest_radar.py)
-- Metadata loading [Lines 353-376]: ✅ قراءة صحيحة مع fallback
-- Mode detection [Lines 365-376]: ✅ التمييز بين percent و ATR
-- TP/SL calculation [Lines 696-705]: ✅ يستدعي StrategyEngine بشكل صحيح
-- strategy_engine.py [Lines 208-249]: ✅ حساب ATR متطابق مع التدريب
-
-#### ✅ **مسار البوت لايف** (live_bot.py)
-- Model loading [Lines 1874-1896]: ✅ self.barrier_mode يتم تعيينها بشكل صحيح
-- TP/SL calculation [Lines 2807-2824]: ✅ ATR و percent modes متطابقة مع backtest
-- Display percentages: ✅ محسوبة بشكل صحيح لكلا الـ modes
-- Notifications: ✅ تعرض الـ percentages الصحيحة
-
-#### ✅ **Data Flow Consistency**
-```
-Training creates metadata with barrier_mode
-  ↓
-Backtest reads barrier_mode and applies same TP/SL logic
-  ↓
-Live Bot reads barrier_mode and applies same TP/SL logic
-  ↓
-Result: 100% consistency across all three paths
-```
-
-#### ✅ **Error Handling**
-- add_massive_features() [Line 359]: ✅ Warning عند missing columns
-- CouncilValidator [Lines 27-33]: ✅ Shape validation واضحة
-
-#### ✅ **No Look-Ahead Bias**
-- Training: ✅ Uses next day's open for entry
-- Backtest: ✅ Uses bars[:-1] for features
-- Live Bot: ✅ Uses iloc[-2] (closed bar) for features
+- [ ] **7.5 Write Macro & Sector Integration Tests**
+  - ⚪ Write unit tests in `api/tests/test_macro_features.py`
+  - ⚪ Verify calculations and correct merge behavior
+  - ⚪ Test edge cases (missing data, stale rates)
+  - **الجهد المتوقع:** 2-3 ساعات
 
 ---
 
-## 📊 **الحالة النهائية بعد المراجعة الثانية:**
+### Phase 8: Data Acquisition & Admin Panel Management ⚪ (0% Complete)
 
-```
-🟢 Training Path:      100% ✅ صحيح
-🟢 Backtest Path:      100% ✅ صحيح
-🟢 Live Bot Path:      100% ✅ صحيح
-🟢 Data Consistency:   100% ✅ متطابقة
-🟢 Error Handling:     100% ✅ محسّنة
-🟢 Look-Ahead Bias:    100% ✅ منفي
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🏆 النتيجة النهائية: APPROVED FOR LIVE TRADING ✅
-```
+**Priority: LOW - Future enhancement for data management**
 
----
+**Note:** هذه المرحلة للإدارة المستقبلية للبيانات الاقتصادية والكلية
 
-## 📈 **ملخص شامل: 24/24 مهمة مكتملة**
+- [ ] **8.1 Supabase Database Setup for Macro Data**
+  - ⚪ Create migration for `cbe_interest_rates` table (id, date, rate_pct)
+  - ⚪ Create migration for `dividend_calendar` table (id, symbol, ex_date, dividend_amount, currency)
+  - ⚪ Add foreign key and check constraints
+  - **الجهد المتوقع:** 2 ساعات
 
-| المرحلة | الوصف | الحالة |
-|--------|--------|--------|
-| 1 | الأخطاء الحرجة (3/3) | ✅ |
-| 2 | الأخطاء المتوسطة (5/5) | ✅ |
-| 3 | التحسينات (4/4) | ✅ |
-| 4 | الاستراتيجيات المصرية (4/4) | ✅ |
-| 5 | الإصلاحات الأمنية (4/4) | ✅ |
-| 6 | المراجعة الشاملة الأولى | ✅ |
-| 7 | المراجعة الشاملة الثانية | ✅ |
+- [ ] **8.2 API Routes Setup (Next.js & Python FastAPI)**
+  - ⚪ Create routes in `web/src/app/api/admin/macro` for:
+    - Get/Post CBE interest rate decisions
+    - Get/Post stock ex-dividend calendar records
+    - Trigger USD/EGP live rate update and cache in Supabase
+  - **الجهد المتوقع:** 4-5 ساعات
 
----
+- [ ] **8.3 Next.js Admin Panel UI Integration**
+  - ⚪ Create "Macro & Sector Data Management" tab in `web/src/app/admin/page.tsx`
+  - ⚪ Add CRUD table/form for CBE interest rates
+  - ⚪ Add CRUD table/form for ex-dividend dates
+  - ⚪ Add refresh button for current macro indicators:
+    - Current USD/EGP exchange rate
+    - Current EGX30 daily return and market regime
+    - Current bank sector 5-day momentum
+  - **الجهد المتوقع:** 6-8 ساعات
 
-## 🎯 **جاهزية الإنتاج:**
-
-✅ جميع الملفات مراجعة  
-✅ جميع الحسابات متحققة  
-✅ جميع الـ paths معتمدة  
-✅ جميع الأخطاء مصححة  
-✅ جميع التقارير محدثة  
-
-**🚀 جاهز 100% للتشغيل الفوري**
-
-### 📊 إحصائيات التطبيق:
-```
-✅ المرحلة 1 (الحرجة):     3/3   = 100% ✅
-✅ المرحلة 2 (المتوسطة):    5/5   = 100% ✅
-✅ المرحلة 3 (التحسينات):    4/4   = 100% ✅
-✅ المرحلة 4 (الاستراتيجية): 4/4   = 100% ✅
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🏆 المجموع: 16/16 مهام = 100% اكتمال!
-⏱️  الوقت الإجمالي: ~2-3 ساعات
-```
-
-### 📈 التحسينات المتوقعة:
-
-| المشكلة | التأثير | الأولوية |
-|--------|--------|---------|
-| Regex مكسورة | ✅ معالجة التاريخ الآن تعمل | 🔴 حرجة |
-| barrier_mode bug | ✅ TP/SL محسوبة بشكل صحيح | 🔴 حرجة |
-| target_pct توحيد | ✅ لا توجد أخطاء بـ 100x | 🔴 حرجة |
-| Code deduplication | ✅ صيانة أسهل | 🟡 متوسطة |
-| Virtual key persistence | ✅ البيانات لا تُفقد | 🟡 متوسطة |
-| Stale cache | ✅ تنبؤات حية دقيقة | 🟡 متوسطة |
-| Timezone inconsistency | ✅ RSI/EMA موحدة | 🟡 متوسطة |
-| Supabase failover | ✅ تداول آمن من انقطاع الشبكة | 🟡 متوسطة |
-| dayfirst bug | ✅ تاريخ CLI صحيح | 🟢 تحسين |
-| Pickle version lock | ✅ استرجاع آمن من أخطاء pickle | 🟢 تحسين |
-| Vectorization | ✅ ~10-50x أسرع | 🟢 تحسين |
-| Stricter labeling | ✅ دقة أعلى للـ EGX | 🟢 استراتيجية |
-
-### 🔧 الملفات المعدلة:
-1. **api/backtest_radar.py** — 5 إصلاحات
-2. **api/live_bot.py** — 8 إصلاحات + 2 ميزة جديدة
-3. **api/train_exchange_model.py** — 7 إصلاحات + 4 ميزات
-4. **api/model_utils.py** — جديد (shared utilities)
-
-### 🚀 الخطوات التالية (اختيارية):
-- [ ] اختبار النموذج الجديد على بيانات EGX التاريخية
-- [ ] تشغيل walk-forward validation على 2 سنة من البيانات
-- [ ] تطبيق EGX-specific features في backtest_radar أيضاً
-- [ ] تحسين التنبؤات باستخدام circuit breaker patterns
+- [ ] **8.4 Verification of Admin Panel Integration**
+  - ⚪ Verify manually added CBE rates saved correctly in Supabase
+  - ⚪ Verify dividends parsed by Python scripts correctly
+  - ⚪ Test integration with `train_exchange_model.py`, `live_bot.py`, `backtest_radar.py`
+  - **الجهد المتوقع:** 2-3 ساعات
 
 ---
 
-**تاريخ الانتهاء**: 2026-06-09
-**الحالة**: ✅ مكتمل 100%
+## 🎯 الأولويات والتوصيات - Priorities & Recommendations
 
-#### 4.1) Stricter Labeling
-- [ ] تعديل prepare_for_ai labels
+### ⚠️ **الخطوات التالية الموصى بها - Recommended Next Steps:**
 
-#### 4.2) EGX-Specific Features
-- [ ] إضافة الـ features
+1. **Phase 2.2** - دمج Walk-Forward في التدريب ✅ **START HERE**
+   - أولوية قصوى لتحسين validation
+   - الجهد: 3-4 ساعات
+   - المخاطر: متوسطة
 
-#### 4.3) Walk-Forward Validation
-- [ ] تطبيق في train_exchange_model
+2. **Phase 2.3** - حفظ Parameters في Model Artifact ✅ **THEN THIS**
+   - ضروري لـ Phase 3 و Phase 4
+   - الجهد: 2-3 ساعات
+   - المخاطر: منخفضة
 
-#### 4.4) Monthly Signal Cap
-- [ ] إضافة signal counter في live_bot
+3. **Phase 3** - تحديث Backtesting Pipeline ✅ **HIGH PRIORITY**
+   - حاسم للتحقق من أداء النموذج
+   - الجهد: 6-9 ساعات
+   - المخاطر: متوسطة
+
+4. **Phase 4** - تحديث Live Bot ⚠️ **CRITICAL BUT CAREFUL**
+   - تأثير مباشر على التداول الحي
+   - الجهد: 8-12 ساعة
+   - المخاطر: عالية - يتطلب اختبار دقيق
+
+### 📊 **ملخص الجهد المتبقي - Remaining Effort Summary:**
+
+| المرحلة | الحالة | الجهد المتبقي | الأولوية |
+|---------|-------|---------------|----------|
+| Phase 1 | ✅ مكتمل | 0 ساعات | - |
+| Phase 2 | 🔄 30% | 8-10 ساعات | 🔴 عالية جداً |
+| Phase 3 | ⚪ 0% | 10-14 ساعة | 🔴 عالية |
+| Phase 4 | ⚪ 0% | 12-16 ساعة | 🔴 حرجة |
+| Phase 5 | ⚪ 0% | 7-10 ساعات | 🟡 متوسطة |
+| Phase 6 | ⚪ 0% | 5-6 ساعات | 🟡 متوسطة |
+| Phase 7 | ⚪ 0% | 11-16 ساعة | 🟢 منخفضة |
+| Phase 8 | ⚪ 0% | 14-18 ساعة | 🟢 منخفضة |
+
+**إجمالي الجهد المتبقي للـ MVP:** ~37-50 ساعة (6-8 أيام عمل)  
+**إجمالي الجهد الكامل:** ~67-90 ساعة (11-15 يوم عمل)
 
 ---
 
-## 📋 الملخص والتقدم الحالي:
-```
-✅ 🔴 المرحلة 1 (الحرجة) — اكتملت 100%
-  ✅ 1.1) Regex fix
-  ✅ 1.2) barrier_mode fix
-  ✅ 1.3) target_pct توحيد
+## 📚 المراجع والتوثيق - References & Documentation
 
-✅ 🟡 المرحلة 2 (المتوسطة) — اكتملت 100%
-  ✅ 2.3) code dedup (✅ backtest + ✅ live)
-  ✅ 2.1) virtual_key fields
-  ✅ 2.2) cache bypass
-  ✅ 2.4) timezone (UTC everywhere)
-  ✅ 2.5) trade queue + retry
+### **Specification Files:**
+- `.kiro/specs/training-consistency/` - ✅ التوحيد الأساسي (مكتمل)
+- `.kiro/specs/egx-unified-trading-system/` - 🔄 نظام EGX الموحد (جزئي)
 
-⏳ 🟢 المرحلة 3 (التحسينات) — لم تبدأ
-  ⏳ 3.1) dayfirst
-  ⏳ 3.2) pickle version
-  ⏳ 3.3) numbering
-  ⏳ 3.4) vectorization
+### **Implementation Files:**
+- `api/trading_config.py` - ✅ معاملات موحدة
+- `api/unified_labeling.py` - ✅ منطق التسمية
+- `api/unified_features.py` - ✅ إدارة Features
+- `api/egx30_fetcher.py` - ✅ جلب بيانات EGX30
+- `api/circuit_breaker_detector.py` - ✅ كشف القواطع
+- `api/strict_quality_labeler.py` - ✅ تسمية صارمة
 
-⏳ 📈 المرحلة 4 (الاستراتيجيات المصرية) — لم تبدأ
-  ⏳ 4.1) Stricter Labeling
-  ⏳ 4.2) EGX Features
-  ⏳ 4.3) Walk-Forward
-  ⏳ 4.4) Signal Cap
+### **Test Files:**
+- `api/tests/test_consistency.py` - ✅ 52 اختبار (نجحت جميعها)
+- `api/tests/test_egx_components.py` - ✅ اختبارات EGX
+- `api/tests/test_strict_quality_labeler.py` - ✅ اختبارات التسمية الصارمة
 
-إجمالي المكتمل: 8/12 (67%)
-الوقت المتوقع للباقي: 2-3 ساعات (بدل 5-6 ساعات بدون التحسينات)
-```
+### **Documentation:**
+- `INTEGRATION_GUIDE.md` - ✅ دليل التكامل الشامل
+- `.kiro/specs/training-consistency/SOLUTION_SUMMARY.md` - ✅ ملخص الحل
+
+---
+
+## 🔍 ملاحظات هامة - Important Notes
+
+### **للمطورين - For Developers:**
+
+1. **Phase 1 مكتملة بالكامل** - جميع الوحدات الأساسية جاهزة وتم اختبارها
+2. **الأولوية الآن:** دمج الوحدات في pipelines الموجودة (Training، Backtest، Live Bot)
+3. **الاختبار ضروري:** كل تغيير في Live Bot يجب اختباره بدقة قبل النشر
+4. **Backward Compatibility:** جميع التغييرات يجب أن تدعم النماذج القديمة
+
+### **المخاطر المحتملة - Potential Risks:**
+
+1. **تغيير نتائج التدريب:** Walk-Forward قد يُظهر دقة أقل من Random Split
+2. **تغيير نتائج Backtest:** الـ simulation الجديد قد يعطي نتائج مختلفة
+3. **تأثير Live Bot:** أي خطأ في Phase 4 يؤثر على التداول الفعلي
+4. **Data Migration:** النماذج القديمة تحتاج معالجة خاصة
+
+### **Best Practices:**
+
+1. **اختبر على بيانات صغيرة أولاً** قبل التطبيق الكامل
+2. **احفظ نسخة احتياطية** من النماذج الحالية قبل التحديث
+3. **راقب الـ logs** بعناية أثناء التنفيذ
+4. **قارن النتائج** بين الإصدار القديم والجديد
+5. **وثّق جميع التغييرات** والقرارات المأخوذة
+
+---
+
+## 📖 تفاصيل إدارة البيانات الاقتصادية والكلية - Macro Data Management Details
+
+**Note:** هذا القسم يوضح آلية عمل Phase 7 و Phase 8 (ميزات مستقبلية)
+
+### **كيفية جلب وإدارة البيانات:**
+
+#### **1. سعر صرف الدولار مقابل الجنيه (USD/EGP)** 💱
+- **النوع:** تلقائي بالكامل ✅
+- **المصدر:** Yahoo Finance (الرمز: `EGP=X`)
+- **التحديث:** يومياً تلقائياً
+- **إدارياً:** زر في لوحة المسؤول لتحديث فوري وحفظ في Supabase
+
+#### **2. أسعار فائدة البنك المركزي المصري (CBE Interest Rates)** 📊
+- **النوع:** يدوي ✋
+- **المصدر:** إدخال المسؤول عبر Admin Panel
+- **التحديث:** ~8 مرات سنوياً (اجتماعات لجنة السياسة النقدية)
+- **الاستخدام:** الكود يقرأ جدول `cbe_interest_rates` في Supabase
+
+#### **3. تواريخ توزيع الأرباح (Dividend Calendar)** 💰
+- **النوع:** يدوي ✋
+- **المصدر:** إدخال المسؤول عبر Admin Panel
+- **الهدف:** تجنب الشراء قبل 5 أيام من موعد التوزيع (ex-dividend date)
+- **الاستخدام:** الكود يقرأ جدول `dividend_calendar` في Supabase
+
+#### **4. قوة دفع قطاع البنوك (Bank Sector Momentum)** 🏦
+- **النوع:** تلقائي داخلي ✅
+- **المصدر:** حساب داخلي من أسهم البنوك الموجودة في Supabase
+- **الحساب:** متوسط العائد اليومي لأسهم مثل COMI، ADIB
+- **التحديث:** يومياً تلقائياً
+
+---
+
+## 🔗 الربط مع الـ Specs - Linking to Specifications
+
+### **training-consistency spec:**
+- ✅ **Phase 1 مكتمل:** جميع الوحدات الأساسية منفذة
+- ✅ **Requirements 1-6:** تم تحقيقها بالكامل
+- 🔄 **Integration:** Phase 2-4 من TODO تُكمل التكامل
+
+### **egx-unified-trading-system spec:**
+- ✅ **Requirements 1-4:** Unified modules (مكتملة)
+- ✅ **Requirements 5, 8, 9:** EGX Context و Circuit Breakers (مكتملة)
+- ✅ **Requirement 7:** Strict Quality Labeling (مكتملة)
+- 🔄 **Requirement 6:** Walk-Forward Validation (جزئي - Phase 2.2)
+- ⚪ **Requirements 10-20:** Integration و Testing (Phase 2-6)
+
+### **الملفات المُنشأة vs المطلوبة:**
+
+| الملف | training-consistency | egx-unified | TODO.md | الحالة |
+|-------|---------------------|-------------|---------|--------|
+| `trading_config.py` | Task 1.1 ✅ | Req 1.1 ✅ | Phase 1.1 ✅ | مكتمل |
+| `unified_labeling.py` | Task 2.1-2.3 ✅ | Req 3.1-3.6 ✅ | Phase 1.2 ✅ | مكتمل |
+| `unified_features.py` | Task 3.1-3.2 ✅ | Req 2.1-2.7 ✅ | Phase 1.3 ✅ | مكتمل |
+| `egx30_fetcher.py` | ❌ | Req 5.1-5.6 ✅ | Phase 1.4 ✅ | مكتمل |
+| `circuit_breaker_detector.py` | ❌ | Req 9.1-9.5 ✅ | Phase 1.4 ✅ | مكتمل |
+| `strict_quality_labeler.py` | ❌ | Req 7.1-7.7 ✅ | Phase 1.5 ✅ | مكتمل |
+| `test_consistency.py` | Tasks ✅ | Req 14.1-14.6 ✅ | Phase 1.6 ✅ | مكتمل |
+
+---
+
+## 📞 الدعم والمساعدة - Support & Help
+
+### **عند مواجهة مشاكل:**
+
+1. **راجع الـ specs:**
+   - `.kiro/specs/training-consistency/` للمشاكل الأساسية
+   - `.kiro/specs/egx-unified-trading-system/` للميزات الخاصة بـ EGX
+
+2. **راجع الوثائق:**
+   - `INTEGRATION_GUIDE.md` - دليل التكامل الشامل
+   - `.kiro/specs/training-consistency/SOLUTION_SUMMARY.md` - ملخص الحل
+
+3. **اختبر الوحدات:**
+   - شغّل `pytest api/tests/test_consistency.py -v`
+   - شغّل `pytest api/tests/test_egx_components.py -v`
+
+4. **استخدم الأدوات المساعدة:**
+   - `FeatureEngineeringManager.check_data_ready()` للتحقق من البيانات
+   - `TradingParameters.validate()` للتحقق من المعاملات
+   - Logging للمراقبة والتشخيص
+
+---
+
+**آخر تحديث:** 2026-06-11  
+**الإصدار:** 3.0  
+**الحالة:** محدّث بالكامل مع حالة التنفيذ الفعلية

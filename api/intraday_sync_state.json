@@ -289,6 +289,8 @@
     },
     "run_history": [],
     "scheduler_logs": [
+        "[2026-06-11 01:45:33] [SCHEDULER] Intraday daily scheduler thread started.",
+        "[2026-06-11 01:24:52] [SCHEDULER] Intraday daily scheduler thread started.",
         "[2026-06-10 03:52:17] [SCHEDULER] Intraday daily scheduler thread started.",
         "[2026-06-10 03:41:00] [SCHEDULER] Intraday daily scheduler thread started.",
         "[2026-06-10 03:30:42] [SCHEDULER] Intraday daily scheduler thread started.",

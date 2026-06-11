@@ -10,7 +10,7 @@ Created: 2025-01-28
 """
 
 from dataclasses import dataclass, asdict
-from typing import Dict, Any, Optional, List, Union
+from typing import Dict, Any, Optional, List, Union, Tuple
 import logging
 import pandas as pd
 import json
@@ -182,6 +182,59 @@ class TradingParameters:
             logger.error(f"Error extracting trading parameters from artifact: {e}")
             logger.warning("Using default trading parameters")
             return cls()  # Return defaults on error
+
+    @classmethod
+    def from_live_bot_config(cls, config: Union[Dict[str, Any], Any]) -> "TradingParameters":
+        """
+        Extract trading parameters from a live bot configuration (dictionary or object).
+        
+        Args:
+            config: Live bot config dictionary or BotConfig object
+            
+        Returns:
+            TradingParameters instance
+        """
+        params = cls()
+        
+        # If it's an object (like BotConfig), convert to dict or access attributes
+        def get_val(key, default):
+            if isinstance(config, dict):
+                return config.get(key, default)
+            else:
+                return getattr(config, key, default)
+                
+        # Map values from bot configuration
+        params.entry_mode = get_val("entry_mode", params.entry_mode)
+        params.entry_buffer_pct = get_val("slippage_buffer_pct", params.entry_buffer_pct)
+        params.look_forward_days = get_val("hold_max_bars", params.look_forward_days)
+        
+        # Map barrier_mode: bot config has use_atr_exits (bool) which corresponds to barrier_mode = "atr_multiplier" if True else "percent"
+        use_atr = get_val("use_atr_exits", False)
+        params.barrier_mode = "atr_multiplier" if use_atr else "percent"
+        
+        # In percent mode, target_pct/stop_loss_pct are target_pct/stop_loss_pct.
+        # In atr_multiplier mode, target_pct/stop_loss_pct are atr_tp_multiplier/atr_sl_multiplier.
+        if params.barrier_mode == "percent":
+            params.target_pct = get_val("target_pct", params.target_pct)
+            params.stop_loss_pct = get_val("stop_loss_pct", params.stop_loss_pct)
+        else:
+            params.target_pct = get_val("atr_tp_multiplier", params.target_pct)
+            params.stop_loss_pct = get_val("atr_sl_multiplier", params.stop_loss_pct)
+            
+        params.king_threshold = get_val("king_threshold", params.king_threshold)
+        params.council_threshold = get_val("council_threshold", params.council_threshold)
+        params.min_volume_ratio = get_val("min_volume_ratio", params.min_volume_ratio)
+        params.warmup_bars = get_val("warmup_bars", params.warmup_bars)
+        params.daily_loss_limit = get_val("daily_loss_limit", params.daily_loss_limit)
+        params.max_consecutive_losses = get_val("max_consecutive_losses", params.max_consecutive_losses)
+        
+        # Optional validation
+        try:
+            params._validate()
+        except ValueError as e:
+            logger.warning(f"Extracted parameters failed validation: {e}")
+            
+        return params
     
     @classmethod
     def from_config_file(cls, config_path: Union[str, Path], profile: ConfigProfile = ConfigProfile.PRODUCTION) -> "TradingParameters":
@@ -471,6 +524,30 @@ class TradingParameters:
         """
         return asdict(self)
     
+    def validate(self) -> Tuple[bool, List[str]]:
+        """
+        Validate parameters and return compatibility/errors.
+        
+        Returns:
+            (is_valid, list_of_errors)
+        """
+        try:
+            self._validate()
+            return True, []
+        except ValueError as e:
+            # Extract errors from the multi-line message
+            msg = str(e)
+            errors = []
+            for line in msg.split('\n'):
+                line = line.strip()
+                if line.startswith('- '):
+                    errors.append(line[2:])
+                elif line.startswith('Parameter validation failed:'):
+                    continue
+                elif line:
+                    errors.append(line)
+            return False, errors
+
     def _validate(self) -> None:
         """
         Validate trading parameter values with comprehensive checks.
@@ -660,6 +737,59 @@ class TradingParameters:
             self.feature_lookback
         )
     
+    def calculate_barriers(
+        self,
+        entry_price: float,
+        atr: Optional[float] = None
+    ) -> Tuple[float, float]:
+        """
+        Calculate Take Profit and Stop Loss barriers.
+        
+        Args:
+            entry_price: The entry price of the position
+            atr: The ATR value (required if barrier_mode is 'atr_multiplier')
+            
+        Returns:
+            Tuple of (tp_price, sl_price)
+        """
+        if entry_price <= 0:
+            raise ValueError(f"Entry price must be positive: {entry_price}")
+            
+        if self.barrier_mode == "percent":
+            tp = entry_price * (1.0 + self.target_pct)
+            sl = entry_price * (1.0 - self.stop_loss_pct)
+        elif self.barrier_mode == "atr_multiplier":
+            if atr is None or atr <= 0:
+                raise ValueError(f"ATR required for atr_multiplier mode, got: {atr}")
+            tp = entry_price + (atr * self.target_pct)
+            sl = entry_price - (atr * self.stop_loss_pct)
+        else:
+            raise ValueError(f"Unknown barrier_mode: {self.barrier_mode}")
+            
+        return tp, sl
+
+    def estimate_risk_reward_ratio(
+        self,
+        entry_price: float,
+        atr: Optional[float] = None
+    ) -> float:
+        """
+        Estimate risk reward ratio.
+        
+        Args:
+            entry_price: The entry price of the position
+            atr: The ATR value (required if barrier_mode is 'atr_multiplier')
+            
+        Returns:
+            Risk reward ratio (tp_change / sl_change)
+        """
+        tp, sl = self.calculate_barriers(entry_price, atr)
+        tp_change = tp - entry_price
+        sl_change = entry_price - sl
+        if sl_change <= 0:
+            return 0.0
+        return tp_change / sl_change
+
     def create_profile_variant(self, profile: ConfigProfile) -> "TradingParameters":
         """
         Create a variant of parameters optimized for specific environment.
