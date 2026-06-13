@@ -30,7 +30,12 @@
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
-
+  <url>
+    <loc>https://egxbots.com/blogs</loc>
+    <lastmod>2026-05-30</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.6</priority>
+  </url>
   <url>
     <loc>https://egxbots.com/pro</loc>
     <lastmod>2026-05-30</lastmod>

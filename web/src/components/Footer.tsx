@@ -9,7 +9,7 @@ export default function Footer() {
   return (
     <footer className="app-footer-surface w-full py-12 mt-20">
       <div className="mx-auto max-w-5xl px-6">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-12 mb-12">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-12 mb-12">
           <div className="col-span-1 md:col-span-2 space-y-4">
             <h3 className="text-xl font-black dark:text-white light:text-gray-900 italic tracking-tighter uppercase">
               {t("app.title")}
@@ -39,6 +39,22 @@ export default function Footer() {
                   className="text-sm text-zinc-500 dark:text-zinc-500 light:text-gray-600 hover:text-indigo-400 dark:hover:text-indigo-400 light:hover:text-indigo-600 transition-colors"
                 >
                   Technical Scanner
+                </Link>
+              </li>
+            </ul>
+          </div>
+
+          <div className="space-y-4">
+            <h4 className="text-[10px] font-black dark:text-white light:text-gray-900 uppercase tracking-[0.3em]">
+              Resources
+            </h4>
+            <ul className="space-y-2">
+              <li>
+                <Link
+                  href="/blogs"
+                  className="text-sm text-zinc-500 dark:text-zinc-500 light:text-gray-600 hover:text-indigo-400 dark:hover:text-indigo-400 light:hover:text-indigo-600 transition-colors"
+                >
+                  Market Blogs
                 </Link>
               </li>
             </ul>
