@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useAIScanner } from "@/contexts/AIScannerContext";
+import StockLogo from "./StockLogo";
 import { Search, Filter, AlertTriangle, RefreshCw, ChevronLeft, ChevronRight, TrendingUp, TrendingDown, Layers, Info, CheckCircle2 } from "lucide-react";
 
 interface RecommendationsTableProps {
@@ -345,19 +346,22 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
 
                                             {/* Company / Symbol */}
                                             <td className="px-6 py-4 font-black">
-                                                <div 
-                                                    onClick={(e) => {
-                                                        if (!isLandingPage || user) {
-                                                            e.stopPropagation();
-                                                            handleStockClick(row.symbol, row.exchange);
-                                                        }
-                                                    }}
-                                                    className="flex flex-col cursor-pointer"
-                                                >
-                                                    <span className="text-base text-indigo-600 dark:text-indigo-400 hover:underline">{row.symbol}</span>
-                                                    <span className="text-[10px] text-zinc-500 dark:text-zinc-400 font-medium truncate max-w-[220px]" title={row.name}>
-                                                        {row.name}
-                                                    </span>
+                                                <div className="flex items-center gap-3">
+                                                    <StockLogo symbol={row.symbol} logoUrl={row.logo_url} size="md" />
+                                                    <div 
+                                                        onClick={(e) => {
+                                                            if (!isLandingPage || user) {
+                                                                e.stopPropagation();
+                                                                handleStockClick(row.symbol, row.exchange);
+                                                            }
+                                                        }}
+                                                        className="flex flex-col cursor-pointer"
+                                                    >
+                                                        <span className="text-base text-indigo-600 dark:text-indigo-400 hover:underline">{row.symbol}</span>
+                                                        <span className="text-[10px] text-zinc-500 dark:text-zinc-400 font-medium truncate max-w-[220px]" title={row.name}>
+                                                            {row.name}
+                                                        </span>
+                                                    </div>
                                                 </div>
                                             </td>
 

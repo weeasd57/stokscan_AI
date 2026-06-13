@@ -88,7 +88,7 @@ interface AIScannerContextType {
     recommendations: any[];
     recsLoading: boolean;
     recsError: string | null;
-    loadRecommendations: (isLandingPage?: boolean) => Promise<void>;
+    loadRecommendations: (isLandingPage?: boolean, force?: boolean) => Promise<void>;
 }
 
 const DEFAULT_STATE: AiScannerState = {
@@ -136,7 +136,13 @@ export const AIScannerProvider = ({ children }: { children: ReactNode }) => {
     const [state, setAiScanner] = useState<AiScannerState>(DEFAULT_STATE);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const [recommendations, setRecommendations] = useState<any[]>([]);
+    const [recommendations, setRecommendationsState] = useState<any[]>([]);
+    const recommendationsRef = useRef<any[]>([]);
+    const setRecommendations = useCallback((val: any[]) => {
+        recommendationsRef.current = val;
+        setRecommendationsState(val);
+    }, []);
+    const loadedLandingRef = useRef<boolean | null>(null);
     const [recsLoading, setRecsLoading] = useState(false);
     const [recsError, setRecsError] = useState<string | null>(null);
     const abortRef = useRef<AbortController | null>(null);
@@ -806,7 +812,10 @@ export const AIScannerProvider = ({ children }: { children: ReactNode }) => {
         setAiScanner(DEFAULT_STATE);
     }, []);
 
-    const loadRecommendations = useCallback(async (isLandingPage: boolean = false) => {
+    const loadRecommendations = useCallback(async (isLandingPage: boolean = false, force: boolean = false) => {
+        if (recommendationsRef.current.length > 0 && !force && loadedLandingRef.current === isLandingPage) {
+            return;
+        }
         setRecsLoading(true);
         setRecsError(null);
         try {
@@ -821,6 +830,7 @@ export const AIScannerProvider = ({ children }: { children: ReactNode }) => {
             if (scanErr) throw scanErr;
             if (!scanData || scanData.length === 0) {
                 setRecommendations([]);
+                loadedLandingRef.current = isLandingPage;
                 setRecsLoading(false);
                 return;
             }
@@ -885,11 +895,13 @@ export const AIScannerProvider = ({ children }: { children: ReactNode }) => {
                     technical_score: tech,
                     fundamental_score: fund,
                     sentiment_score: sentiment,
-                    sector: sectorMap[row.symbol] || "General"
+                    sector: sectorMap[row.symbol] || "General",
+                    logo_url: row.logo_url
                 };
             });
 
             setRecommendations(mapped);
+            loadedLandingRef.current = isLandingPage;
         } catch (err: any) {
             console.error("Error loading recommendations in context:", err);
             setRecsError(err.message || "Failed to fetch data");
