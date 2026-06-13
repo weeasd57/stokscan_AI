@@ -1480,53 +1480,93 @@ export default function AIScannerPage() {
                                             {/* Row 1: Runs + Trades */}
                                             <div className="grid grid-cols-2 gap-3">
                                                 <div className="p-3.5 rounded-2xl bg-zinc-900/50 border border-white/5 flex flex-col gap-1">
-                                                    <span className="text-[9px] font-bold text-zinc-600 uppercase tracking-wider">
-                                                        {t("backtest.stats.total_runs")}
-                                                    </span>
+                                                    <div className="flex items-center justify-between gap-1 w-full">
+                                                        <span className="text-[9px] font-bold text-zinc-600 uppercase tracking-wider truncate">
+                                                            {t("backtest.stats.total_runs")}
+                                                        </span>
+                                                        <div className="group relative shrink-0">
+                                                            <HelpCircle className="w-3 h-3 text-zinc-500 hover:text-zinc-300 transition-colors" />
+                                                            <span className="absolute bottom-full left-0 mb-2 w-48 p-2 text-[10px] bg-zinc-950 text-zinc-400 border border-white/10 rounded-xl shadow-xl opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-50 text-center font-sans font-medium normal-case leading-relaxed">
+                                                                {language === "ar" ? "عدد دورات المحاكاة الكاملة التي تم تشغيلها لتقييم الموديل." : "Total number of simulation runs executed to evaluate this model."}
+                                                            </span>
+                                                        </div>
+                                                    </div>
                                                     <span className="font-mono text-2xl font-black text-zinc-100 leading-none">
                                                         {stat.totalRuns}
                                                     </span>
-                                                    <span className="text-[8px] text-zinc-700 font-bold uppercase">backtests</span>
+                                                    <span className="text-[8px] text-zinc-700 font-bold uppercase">{language === "ar" ? "اختبارات" : "backtests"}</span>
                                                 </div>
                                                 <div className="p-3.5 rounded-2xl bg-zinc-900/50 border border-white/5 flex flex-col gap-1">
-                                                    <span className="text-[9px] font-bold text-zinc-600 uppercase tracking-wider">
-                                                        {t("backtest.stats.total_trades")}
-                                                    </span>
+                                                    <div className="flex items-center justify-between gap-1 w-full">
+                                                        <span className="text-[9px] font-bold text-zinc-600 uppercase tracking-wider truncate">
+                                                            {t("backtest.stats.total_trades")}
+                                                        </span>
+                                                        <div className="group relative shrink-0">
+                                                            <HelpCircle className="w-3 h-3 text-zinc-500 hover:text-zinc-300 transition-colors" />
+                                                            <span className="absolute bottom-full right-0 mb-2 w-48 p-2 text-[10px] bg-zinc-950 text-zinc-400 border border-white/10 rounded-xl shadow-xl opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-50 text-center font-sans font-medium normal-case leading-relaxed">
+                                                                {language === "ar" ? "إجمالي الصفقات (البيع والشراء) التي قام الموديل بتنفيذها." : "Total number of trades (buy and sell) executed by the model."}
+                                                            </span>
+                                                        </div>
+                                                    </div>
                                                     <span className="font-mono text-2xl font-black text-zinc-100 leading-none">
                                                         {stat.totalTrades}
                                                     </span>
-                                                    <span className="text-[8px] text-zinc-700 font-bold uppercase">signals</span>
+                                                    <span className="text-[8px] text-zinc-700 font-bold uppercase">{language === "ar" ? "إشارات" : "signals"}</span>
                                                 </div>
                                             </div>
 
                                             {/* Row 2: Win Rate + Net Profit + Avg Return */}
                                             <div className="grid grid-cols-3 gap-3">
                                                 <div className="p-3.5 rounded-2xl bg-emerald-500/5 border border-emerald-500/15 flex flex-col gap-1">
-                                                    <span className="text-[9px] font-bold text-emerald-700 uppercase tracking-wider">
-                                                        {t("backtest.stats.win_rate")}
-                                                    </span>
+                                                    <div className="flex items-center justify-between gap-1 w-full">
+                                                        <span className="text-[9px] font-bold text-emerald-700 uppercase tracking-wider truncate">
+                                                            {t("backtest.stats.win_rate")}
+                                                        </span>
+                                                        <div className="group relative shrink-0">
+                                                            <HelpCircle className="w-3 h-3 text-emerald-500 hover:text-emerald-300 transition-colors" />
+                                                            <span className="absolute bottom-full left-0 mb-2 w-48 p-2 text-[10px] bg-zinc-950 text-zinc-400 border border-white/10 rounded-xl shadow-xl opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-50 text-center font-sans font-medium normal-case leading-relaxed">
+                                                                {language === "ar" ? "نسبة الصفقات الرابحة من إجمالي الصفقات التي دخلها الموديل." : "Percentage of winning trades out of total executed trades."}
+                                                            </span>
+                                                        </div>
+                                                    </div>
                                                     <span className="font-mono text-xl font-black text-emerald-400 leading-none">
                                                         {stat.winRate.toFixed(1)}%
                                                     </span>
-                                                    <span className="text-[8px] text-emerald-900 font-bold uppercase">win rate</span>
+                                                    <span className="text-[8px] text-emerald-900/60 font-bold uppercase">{language === "ar" ? "نسبة النجاح" : "win rate"}</span>
                                                 </div>
                                                 <div className={`p-3.5 rounded-2xl flex flex-col gap-1 ${stat.netProfit >= 0 ? 'bg-emerald-500/5 border border-emerald-500/15' : 'bg-red-500/5 border border-red-500/15'}`}>
-                                                    <span className={`text-[9px] font-bold uppercase tracking-wider ${stat.netProfit >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>
-                                                        {t("backtest.stats.avg_profit")}
-                                                    </span>
+                                                    <div className="flex items-center justify-between gap-1 w-full">
+                                                        <span className={`text-[9px] font-bold uppercase tracking-wider truncate ${stat.netProfit >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>
+                                                            {t("backtest.stats.avg_profit")}
+                                                        </span>
+                                                        <div className="group relative shrink-0">
+                                                            <HelpCircle className={`w-3 h-3 transition-colors ${stat.netProfit >= 0 ? 'text-emerald-500 hover:text-emerald-300' : 'text-red-500 hover:text-red-300'}`} />
+                                                            <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-2 text-[10px] bg-zinc-950 text-zinc-400 border border-white/10 rounded-xl shadow-xl opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-50 text-center font-sans font-medium normal-case leading-relaxed">
+                                                                {language === "ar" ? "متوسط النسبة المئوية للربح المحقق في كل اختبار كامل." : "Average percentage return achieved per complete simulation run."}
+                                                            </span>
+                                                        </div>
+                                                    </div>
                                                     <span className={`font-mono text-xl font-black leading-none ${stat.netProfit >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                                                         {stat.netProfit >= 0 ? '+' : ''}{stat.netProfit.toFixed(1)}%
                                                     </span>
-                                                    <span className={`text-[8px] font-bold uppercase ${stat.netProfit >= 0 ? 'text-emerald-900' : 'text-red-900'}`}>avg profit</span>
+                                                    <span className={`text-[8px] font-bold uppercase ${stat.netProfit >= 0 ? 'text-emerald-900/60' : 'text-red-900/60'}`}>{language === "ar" ? "متوسط العائد" : "avg profit"}</span>
                                                 </div>
                                                 <div className={`p-3.5 rounded-2xl flex flex-col gap-1 ${stat.avgReturnPerTrade >= 0 ? 'bg-sky-500/5 border border-sky-500/15' : 'bg-red-500/5 border border-red-500/15'}`}>
-                                                    <span className={`text-[9px] font-bold uppercase tracking-wider ${stat.avgReturnPerTrade >= 0 ? 'text-sky-700' : 'text-red-700'}`}>
-                                                        {t("backtest.stats.avg_return")}
-                                                    </span>
+                                                    <div className="flex items-center justify-between gap-1 w-full">
+                                                        <span className={`text-[9px] font-bold uppercase tracking-wider truncate ${stat.avgReturnPerTrade >= 0 ? 'text-sky-700' : 'text-red-700'}`}>
+                                                            {t("backtest.stats.avg_return")}
+                                                        </span>
+                                                        <div className="group relative shrink-0">
+                                                            <HelpCircle className={`w-3 h-3 transition-colors ${stat.avgReturnPerTrade >= 0 ? 'text-sky-500 hover:text-sky-300' : 'text-red-500 hover:text-red-300'}`} />
+                                                            <span className="absolute bottom-full right-0 mb-2 w-48 p-2 text-[10px] bg-zinc-950 text-zinc-400 border border-white/10 rounded-xl shadow-xl opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-50 text-center font-sans font-medium normal-case leading-relaxed">
+                                                                {language === "ar" ? "متوسط نسبة الربح أو الخسارة المحققة في الصفقة الفردية." : "Average percentage return generated per individual trade."}
+                                                            </span>
+                                                        </div>
+                                                    </div>
                                                     <span className={`font-mono text-xl font-black leading-none ${stat.avgReturnPerTrade >= 0 ? 'text-sky-400' : 'text-red-400'}`}>
                                                         {stat.avgReturnPerTrade >= 0 ? '+' : ''}{stat.avgReturnPerTrade.toFixed(2)}%
                                                     </span>
-                                                    <span className={`text-[8px] font-bold uppercase ${stat.avgReturnPerTrade >= 0 ? 'text-sky-900' : 'text-red-900'}`}>per trade</span>
+                                                    <span className={`text-[8px] font-bold uppercase ${stat.avgReturnPerTrade >= 0 ? 'text-sky-900/60' : 'text-red-900/60'}`}>{language === "ar" ? "للصفقة" : "per trade"}</span>
                                                 </div>
                                             </div>
                                         </div>
@@ -2180,6 +2220,24 @@ export default function AIScannerPage() {
                             })}
                         </div>
                     )}
+
+                    {/* Disclaimer Card */}
+                    <div 
+                        className="p-6 rounded-[2rem] bg-indigo-500/5 border border-indigo-500/10 text-center space-y-2 mt-10"
+                        style={{
+                            boxShadow: "inset 0 1px 0 rgba(255,255,255,0.02)"
+                        }}
+                    >
+                        <h4 className="text-xs font-black text-indigo-400 uppercase tracking-widest flex items-center justify-center gap-2">
+                            <ShieldAlert className="w-4 h-4 text-indigo-400" />
+                            {language === "ar" ? "تنبيه وإخلاء مسؤولية قانوني" : "Disclaimer & Risk Warning"}
+                        </h4>
+                        <p className="text-[10px] text-zinc-500 leading-relaxed max-w-3xl mx-auto font-sans font-medium">
+                            {language === "ar" 
+                                ? "جميع نتائج الاختبارات العكسية والمحاكاة التاريخية المعروضة هي نتائج افتراضية تم حسابها بناءً على البيانات التاريخية للأسعار. الأداء السابق لنماذج الذكاء الاصطناعي لا يضمن ولا يعتبر مؤشراً موثوقاً للنتائج المستقبلية. التداول والاستثمار في أسواق المال ينطوي على مخاطر عالية لخسارة رأس المال، ويجب ألا تعتمد على هذه الإشارات كنصيحة مالية أو استثمارية مباشرة." 
+                                : "All backtest results and historical simulations shown are hypothetical and calculated based on past market data. Past performance of AI models does not guarantee or indicate future results. Trading and investing in financial markets carry high risks of capital loss, and these signals should not be considered direct financial or investment advice."}
+                        </p>
+                    </div>
                 </div>
             )}
             {mounted && selectedTrade && createPortal(
