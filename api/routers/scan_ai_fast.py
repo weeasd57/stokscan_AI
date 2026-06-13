@@ -445,12 +445,15 @@ def _process_symbol(
         if pred == 1 or council_score > 0.4:
             debug_msg = f"DEBUG SCAN: {sym} | radar_prob={precision:.3f} | council={council_score:.2f} [{consensus_ratio}]"
             if pred == 1:
-                debug_msg += " | \u2713 RADAR BUY"
+                debug_msg += " | [OK] RADAR BUY"
             if council_score >= 0.55:
-                debug_msg += " | \u2713 COUNCIL PASS"
-            print(debug_msg)
-            if detailed_votes:
-                print(f"   Votes: {detailed_votes}")
+                debug_msg += " | [OK] COUNCIL PASS"
+            try:
+                print(debug_msg)
+                if detailed_votes:
+                    print(f"   Votes: {detailed_votes}")
+            except Exception:
+                pass
         
         # Filter logic: Must pass Radar Buy (pred=1) and validator if provided
         if pred == 1:
@@ -514,8 +517,12 @@ def _process_symbol(
             return None
 
         # Log other exceptions for debugging (occasionally)
+        import random
         if random.random() < 0.05:
-            print(f"DEBUG SCAN ERROR: {sym} | {msg}")
+            try:
+                print(f"DEBUG SCAN ERROR: {sym} | {msg}")
+            except Exception:
+                pass
         return None
 
 

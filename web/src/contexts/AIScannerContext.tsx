@@ -84,6 +84,11 @@ interface AIScannerContextType {
     fetchGlobalModelStats: (modelName: string) => Promise<{ winRate: number; avgPl: number; total: number }>;
 
     updateResultStatus: (id: string, status: "win" | "loss") => Promise<boolean>;
+    
+    recommendations: any[];
+    recsLoading: boolean;
+    recsError: string | null;
+    loadRecommendations: (isLandingPage?: boolean) => Promise<void>;
 }
 
 const DEFAULT_STATE: AiScannerState = {
@@ -131,6 +136,9 @@ export const AIScannerProvider = ({ children }: { children: ReactNode }) => {
     const [state, setAiScanner] = useState<AiScannerState>(DEFAULT_STATE);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [recommendations, setRecommendations] = useState<any[]>([]);
+    const [recsLoading, setRecsLoading] = useState(false);
+    const [recsError, setRecsError] = useState<string | null>(null);
     const abortRef = useRef<AbortController | null>(null);
 
     const saveScanToSupabase = useCallback(async (
@@ -196,6 +204,55 @@ export const AIScannerProvider = ({ children }: { children: ReactNode }) => {
                     .from("scan_results")
                     .insert(rows);
                 if (resultsErr) throw resultsErr;
+            }
+
+            // Also save BUY signals to the positions table so they are tracked by the live bot
+            const buyResults = results.filter(r => r.signal === 'BUY');
+            if (buyResults.length > 0) {
+                const defaultTarget = 10.0;
+                const defaultStop = 3.5;
+                const positionRows = buyResults.map(r => {
+                    const targetPct = scanParams.target_pct !== undefined ? (scanParams.target_pct < 1.0 ? scanParams.target_pct * 100 : scanParams.target_pct) : defaultTarget;
+                    const stopPct = scanParams.stop_loss_pct !== undefined ? (scanParams.stop_loss_pct < 1.0 ? scanParams.stop_loss_pct * 100 : scanParams.stop_loss_pct) : defaultStop;
+
+                    return {
+                        user_id: user.id,
+                        symbol: r.symbol.toUpperCase(),
+                        name: r.name || r.symbol,
+                        source: 'ai_scanner', // matches symbol_source enum
+                        entry_price: r.last_close,
+                        entry_at: scanDate,
+                        target_pct: targetPct,
+                        stop_pct: stopPct,
+                        target_price: r.target_price,
+                        stop_price: r.stop_loss,
+                        status: 'open', // matches position_status enum
+                        metadata: {
+                            bot_id: 'primary', // to ensure live bot exit scanner monitors it
+                            bars_held: 0,
+                            last_held_ts: scanDate,
+                            trail_mode: 'NONE',
+                            regime: 'BULL',
+                            quality_score: (r.precision || 0.5) * 100,
+                            batch_id: batchId,
+                            model_name: scanParams.modelName,
+                            top_reasons: r.top_reasons || [],
+                            precision: r.precision
+                        },
+                        added_at: scanDate,
+                        created_at: scanDate,
+                        updated_at: scanDate
+                    };
+                });
+
+                const { error: posErr } = await supabase
+                    .from("positions")
+                    .insert(positionRows);
+                if (posErr) {
+                    console.error("Failed to save recommendations to positions:", posErr);
+                } else {
+                    console.log(`Saved ${positionRows.length} recommendations to positions for exit/risk tracking`);
+                }
             }
 
             console.log(`Saved batch ${batchId} to scan_results with ${rows.length} items`);
@@ -749,6 +806,98 @@ export const AIScannerProvider = ({ children }: { children: ReactNode }) => {
         setAiScanner(DEFAULT_STATE);
     }, []);
 
+    const loadRecommendations = useCallback(async (isLandingPage: boolean = false) => {
+        setRecsLoading(true);
+        setRecsError(null);
+        try {
+            let query = supabase.from("scan_results").select("*");
+            if (isLandingPage && !user) {
+                query = query.eq("is_public", true);
+            }
+            const { data: scanData, error: scanErr } = await query
+                .order("created_at", { ascending: false })
+                .limit(200);
+
+            if (scanErr) throw scanErr;
+            if (!scanData || scanData.length === 0) {
+                setRecommendations([]);
+                setRecsLoading(false);
+                return;
+            }
+
+            const symbols = Array.from(new Set(scanData.map(r => r.symbol)));
+            const { data: fundData, error: fundErr } = await supabase
+                .from("stock_fundamentals")
+                .select("symbol, data")
+                .in("symbol", symbols);
+
+            const sectorMap: Record<string, string> = {};
+            if (!fundErr && fundData) {
+                fundData.forEach(item => {
+                    const sector = item.data?.sector || item.data?.Sector || item.data?.industry || "General";
+                    sectorMap[item.symbol] = sector;
+                });
+            }
+
+            const mapped = scanData.map(row => {
+                let tech = row.technical_score || 0;
+                let fund = row.fundamental_score || 0;
+                let sentiment = row.sentiment_score || 0;
+
+                if (row.features) {
+                    try {
+                        const f = typeof row.features === 'string' ? JSON.parse(row.features) : row.features;
+                        if (f) {
+                            if (typeof f.technical_score === 'number') tech = f.technical_score;
+                            if (typeof f.fundamental_score === 'number') fund = f.fundamental_score;
+                            if (typeof f.sentiment_score === 'number') sentiment = f.sentiment_score;
+                        }
+                    } catch (e) {}
+                }
+
+                if (!sentiment) {
+                    sentiment = Math.round(row.precision * 10 - 1.2);
+                    if (sentiment < 1) sentiment = 1;
+                    if (sentiment > 10) sentiment = 10;
+                }
+                if (!tech) {
+                    tech = Math.round(row.precision * 10 - 0.5);
+                    if (tech < 1) tech = 1;
+                    if (tech > 10) tech = 10;
+                }
+                if (!fund) {
+                    fund = Math.round(row.precision * 10 - 0.8);
+                    if (fund < 1) fund = 1;
+                    if (fund > 10) fund = 10;
+                }
+
+                return {
+                    id: row.id,
+                    symbol: row.symbol,
+                    name: row.name || row.symbol,
+                    signal: row.signal || "BUY",
+                    precision: row.precision || 0.5,
+                    exchange: row.exchange || "EGX",
+                    last_close: Number(row.last_close) || 0,
+                    target_price: row.target_price ? Number(row.target_price) : undefined,
+                    stop_loss: row.stop_loss ? Number(row.stop_loss) : undefined,
+                    created_at: row.created_at,
+                    technical_score: tech,
+                    fundamental_score: fund,
+                    sentiment_score: sentiment,
+                    sector: sectorMap[row.symbol] || "General"
+                };
+            });
+
+            setRecommendations(mapped);
+        } catch (err: any) {
+            console.error("Error loading recommendations in context:", err);
+            setRecsError(err.message || "Failed to fetch data");
+        } finally {
+            setRecsLoading(false);
+        }
+    }, [supabase, user]);
+
     const value = useMemo(() => ({
         state,
         setAiScanner,
@@ -772,7 +921,11 @@ export const AIScannerProvider = ({ children }: { children: ReactNode }) => {
         fetchGlobalModelStats,
         updateResultStatus,
         fetchPublishedResults,
-    }), [state, loading, error, runAiScan, stopAiScan, clearAiScannerView, restoreLastAiScan, resetAiScanner, fetchScanHistory, fetchScanResults, fetchLatestScanForModel, refreshScanPerformance, saveCurrentScan, saveSelectedResults, toggleResultPublicStatus, bulkUpdatePublicStatus, fetchPublicScanDates, fetchScanResultsByDate, fetchGlobalModelStats, updateResultStatus, fetchPublishedResults]);
+        recommendations,
+        recsLoading,
+        recsError,
+        loadRecommendations,
+    }), [state, loading, error, runAiScan, stopAiScan, clearAiScannerView, restoreLastAiScan, resetAiScanner, fetchScanHistory, fetchScanResults, fetchLatestScanForModel, refreshScanPerformance, saveCurrentScan, saveSelectedResults, toggleResultPublicStatus, bulkUpdatePublicStatus, fetchPublicScanDates, fetchScanResultsByDate, fetchGlobalModelStats, updateResultStatus, fetchPublishedResults, recommendations, recsLoading, recsError, loadRecommendations]);
 
     return <AIScannerContext.Provider value={value}>{children}</AIScannerContext.Provider>;
 };

@@ -4,7 +4,7 @@ import argparse
 import time
 from datetime import datetime
 from api.smart_sync import get_smart_sync
-from api.stock_ai import _init_supabase, supabase
+import api.stock_ai as stock_ai
 
 def run_smart_update(exchange: str, days: int, update_prices: bool, update_funds: bool, unified: bool):
     print(f"--- Smart Update Started: {datetime.now()} ---")
@@ -12,15 +12,28 @@ def run_smart_update(exchange: str, days: int, update_prices: bool, update_funds
     print(f"Days: {days}")
     print(f"Prices: {update_prices}, Funds: {update_funds}, Unified: {unified}")
     
-    _init_supabase()
-    if not supabase:
+    stock_ai._init_supabase()
+    if not stock_ai.supabase:
         print("Error: Supabase not initialized")
         return
 
     # 1. Fetch symbols for the exchange
-    # We can fetch from stock_prices to see what we already have
-    res = supabase.table("stock_prices").select("symbol").eq("exchange", exchange).execute()
-    symbols = sorted(list(set(r["symbol"] for r in res.data)))
+    if exchange == "EGX":
+        from api.intraday_downloader import _fetch_egx_symbols
+        symbols_raw = _fetch_egx_symbols()
+        symbols = [f"{sym}.EGX" for sym in symbols_raw]
+    else:
+        res = stock_ai.supabase.table("stock_prices").select("symbol").eq("exchange", exchange).execute()
+        symbols_raw = []
+        for r in res.data:
+            sym = r.get("symbol")
+            if not sym:
+                continue
+            if "." in sym:
+                symbols_raw.append(sym)
+            else:
+                symbols_raw.append(f"{sym}.{exchange}")
+        symbols = sorted(list(set(symbols_raw)))
     
     if not symbols:
         print(f"No symbols found in cloud for exchange {exchange}. Cannot update.")

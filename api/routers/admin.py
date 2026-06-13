@@ -3870,3 +3870,82 @@ def update_intraday_batch(req: IntradayBatchUpdateRequest):
         return {"ok": True, "results": results}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ─── Historical Similarity Endpoints ─────────────────────────────────────
+from api.historical_similarity import (
+    run_historical_similarity,
+    get_similarity_cases,
+    save_similarity_case,
+    delete_similarity_case
+)
+
+class SimilarityRunReq(BaseModel):
+    symbol: str
+    target_date: Optional[str] = None
+    k: int = 10
+    forward_days: int = 10
+    target_return: float = 0.05
+    stop_loss: float = -0.03
+    features: Optional[List[str]] = None
+    exclusion_window: int = 20
+    search_scope: str = "same_symbol"
+
+class SimilaritySaveCaseReq(BaseModel):
+    id: Optional[str] = None
+    name: str
+    symbol: str
+    k: int = 10
+    forward_days: int = 10
+    target_return: float = 0.05
+    stop_loss: float = -0.03
+    features: List[str]
+    search_scope: str = "same_symbol"
+
+@router.post("/historical-similarity/run")
+def api_run_similarity(req: SimilarityRunReq):
+    try:
+        result = run_historical_similarity(
+            symbol=req.symbol,
+            target_date=req.target_date,
+            k=req.k,
+            forward_days=req.forward_days,
+            target_return=req.target_return,
+            stop_loss=req.stop_loss,
+            features_to_use=req.features,
+            exclusion_window=req.exclusion_window,
+            search_scope=req.search_scope
+        )
+        return result
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/historical-similarity/cases")
+def api_get_similarity_cases():
+    try:
+        return get_similarity_cases()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/historical-similarity/cases")
+def api_save_similarity_case(req: SimilaritySaveCaseReq):
+    try:
+        profile = req.dict()
+        saved = save_similarity_case(profile)
+        return saved
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.delete("/historical-similarity/cases/{case_id}")
+def api_delete_similarity_case(case_id: str):
+    try:
+        success = delete_similarity_case(case_id)
+        if not success:
+            raise HTTPException(status_code=404, detail="Scan case not found")
+        return {"success": True}
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

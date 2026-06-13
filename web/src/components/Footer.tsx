@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useLanguage } from "@/contexts/LanguageContext";
 
 export default function Footer() {
@@ -30,7 +31,7 @@ export default function Footer() {
                   href="/scanner/backtests"
                   className="text-sm text-zinc-500 dark:text-zinc-500 light:text-gray-600 hover:text-indigo-400 dark:hover:text-indigo-400 light:hover:text-indigo-600 transition-colors font-bold text-indigo-400/80 dark:text-indigo-400/80 light:text-indigo-600/80"
                 >
-                  AI Trading Scanner
+                  {t("nav.scanner.ai_trading")}
                 </Link>
               </li>
               <li>

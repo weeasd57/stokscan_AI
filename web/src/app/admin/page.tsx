@@ -18,6 +18,7 @@ import SymbolDrillDownModal from "./components/SymbolDrillDownModal";
 import RecalculateDialog from "./components/RecalculateDialog";
 import LiveBotTab from "./components/LiveBotTab";
 import ScheduleTab from "./components/ScheduleTab";
+import HistoricalSimilarityTab from "./components/HistoricalSimilarityTab";
 
 const SESSION_KEY = "admin_unlocked_v1";
 
@@ -44,7 +45,7 @@ export default function AdminPage() {
     const [symbolsQuery, setSymbolsQuery] = useState("");
     const [currentPage, setCurrentPage] = useState(1);
     const [pageSize, setPageSize] = useState(100);
-    const [activeMainTab, setActiveMainTab] = useState<"data" | "ai" | "backtest" | "bot" | "schedule">("data");
+    const [activeMainTab, setActiveMainTab] = useState<"data" | "ai" | "backtest" | "bot" | "schedule" | "similarity">("data");
     const [dataSourcesTab, setDataSourcesTab] = useState<"prices" | "funds">("prices");
     const [selectedSymbols, setSelectedSymbols] = useState<Set<string>>(new Set());
     const [processing, setProcessing] = useState(false);
@@ -549,6 +550,8 @@ export default function AdminPage() {
                     <LiveBotTab />
                 ) : activeMainTab === "schedule" ? (
                     <ScheduleTab />
+                ) : activeMainTab === "similarity" ? (
+                    <HistoricalSimilarityTab dbInventory={dbInventory} />
                 ) : (
                     <div className="flex items-center justify-center h-full text-zinc-500">
                         Select a tab to view content

@@ -331,13 +331,6 @@ class LiveBot:
         # Default config from env or defaults
         self.config = config or self._build_default_config()
 
-    @property
-    def sb(self):
-        import api.stock_ai as stock_ai
-        if not stock_ai.supabase:
-            stock_ai._init_supabase()
-        return stock_ai.supabase
-
         # Models
         self.king_obj = None
         self.king_clf = None
@@ -383,6 +376,13 @@ class LiveBot:
 
         # Finally, load last trades from Supabase to populate deque
         self._load_persistent_data()
+
+    @property
+    def sb(self):
+        import api.stock_ai as stock_ai
+        if not stock_ai.supabase:
+            stock_ai._init_supabase()
+        return stock_ai.supabase
 
     def _load_persistent_data(self):
         """Loads last trades from Supabase."""

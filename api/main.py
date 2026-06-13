@@ -1579,11 +1579,25 @@ def _normalize_adaptive_price_frame(df: pd.DataFrame) -> pd.DataFrame:
     return out.sort_index()[["Close", "High", "Low", "Volume"]]
 
 
+# ── Cache لبيانات المؤشر التكيفي (صالح لـ 30 دقيقة) ──────────────────────────
+_ADAPTIVE_INDEX_CACHE: dict = {}  # key: (exchange, date_str) → (timestamp, df)
+_ADAPTIVE_CACHE_TTL_SECONDS = 1800  # 30 دقيقة
+
+
 def _fetch_adaptive_index_data(
     exchange: str,
     as_of: Optional[str] = None,
 ) -> pd.DataFrame:
+    import time
     from api.stock_ai import _init_supabase, supabase
+
+    # ── فحص الـ cache أولاً ─────────────────────────────────────────────────
+    cache_key = (exchange.upper(), as_of or "latest")
+    cached = _ADAPTIVE_INDEX_CACHE.get(cache_key)
+    if cached:
+        cached_at, cached_df = cached
+        if time.time() - cached_at < _ADAPTIVE_CACHE_TTL_SECONDS:
+            return cached_df
 
     _init_supabase()
     if not supabase:
@@ -1601,7 +1615,9 @@ def _fetch_adaptive_index_data(
         )
     except Exception:
         as_of_dt = pd.Timestamp.utcnow().tz_localize(None)
-    start_dt = as_of_dt - pd.Timedelta(days=400)
+
+    # ── تقليل الـ lookback من 400 إلى 120 يوم (كافية للتحليل وأسرع بكثير) ──
+    start_dt = as_of_dt - pd.Timedelta(days=120)
 
     query = (
         supabase.table("stock_prices")
@@ -1610,6 +1626,7 @@ def _fetch_adaptive_index_data(
         .gte("date", start_dt.strftime("%Y-%m-%d"))
         .lte("date", as_of_dt.strftime("%Y-%m-%d"))
         .order("date", desc=False)
+        .limit(200)  # ضمان عدم تجاوز حجم معين
     )
     if symbol_exchange:
         query = query.eq("exchange", symbol_exchange)
@@ -1619,7 +1636,13 @@ def _fetch_adaptive_index_data(
     except Exception:
         rows = []
 
-    return _normalize_adaptive_price_frame(pd.DataFrame(rows))
+    result = _normalize_adaptive_price_frame(pd.DataFrame(rows))
+
+    # ── حفظ في الـ cache ─────────────────────────────────────────────────────
+    if not result.empty:
+        _ADAPTIVE_INDEX_CACHE[cache_key] = (time.time(), result)
+
+    return result
 
 
 def _resolve_adaptive_selection(

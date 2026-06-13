@@ -869,8 +869,8 @@ def _get_exchange_bulk_data(
             return cached.get("data", {})
 
         max_attempts = 3
-        page_size = 10000 
-        max_workers = 2   
+        page_size = 1000   # Supabase caps at 1000 rows per request
+        max_workers = 4
         last_err = None
 
         for attempt in range(1, max_attempts + 1):
@@ -911,7 +911,7 @@ def _get_exchange_bulk_data(
                         for r_attempt in range(retries):
                             try:
                                 # Throttle to protect IO Budget
-                                time.sleep(0.1)
+                                time.sleep(0.05)
                                 r = supabase.table("stock_prices") \
                                     .select("symbol,exchange,date,open,high,low,close,volume") \
                                     .eq("exchange", exchange.upper())

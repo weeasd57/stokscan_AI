@@ -41,6 +41,26 @@ Advanced AI-driven stock analysis platform. Combining RandomForest models with m
 - **Database**: Supabase (PostgreSQL).
 - **Data Source**: EODHD API / TradingView (via custom scrapers).
 
+## 📊 Code Statistics (إحصائيات الكود)
+
+```
+Extension          Files                Lines
+=======================================================
+.py                   82               44,386
+.tsx                  83               35,306
+.json               2635               21,557
+.md                   19                9,216
+.ts                   31                3,336
+.css                   1                  784
+.sql                   1                  357
+.js                    4                  187
+.yml                   3                  115
+.html                  2                   76
+.txt                   3                   45
+=======================================================
+TOTAL               2864              115,365
+```
+
 ## ⚡ Getting Started (تشغيل المشروع محلياً)
 
 ### Prerequisites (المتطلبات الأساسية)

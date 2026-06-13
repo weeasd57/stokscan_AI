@@ -1,10 +1,16 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  i18n: {
+    locales: ['en', 'ar'],
+    defaultLocale: 'en',
+    localeDetection: true,
+  },
   async rewrites() {
     console.log("Using Python Path:", process.env.PYTHON_PATH || "Default System Python");
     // Rewrites must target the Python backend only — never the Next.js origin.
     let backendUrl =
+      process.env.TRADING_SIGNALS_API_URL ||
       process.env.PYTHON_BACKEND_URL ||
       "http://127.0.0.1:8000";
     if (/localhost:3000|:3000\b/.test(backendUrl)) {
@@ -13,14 +19,30 @@ const nextConfig = {
       );
       backendUrl = "http://127.0.0.1:8000";
     }
-    console.log("Using Python Backend URL:", backendUrl);
+    console.log("Using Trading Signals Backend URL:", backendUrl);
     const BACKEND_URL = backendUrl.replace(/\/$/, "");
     return [
       {
         source: '/api/:path*',
         destination: `${BACKEND_URL}/:path*`,
       },
-      // Backtest endpoints are top-level on the Python backend. Some UI code calls them directly.
+      // Trading signals specific endpoints
+      {
+        source: '/signals/:path*',
+        destination: `${BACKEND_URL}/signals/:path*`,
+      },
+      {
+        source: '/markets/:path*',
+        destination: `${BACKEND_URL}/markets/:path*`,
+      },
+      {
+        source: '/alerts/:path*',
+        destination: `${BACKEND_URL}/alerts/:path*`,
+      },
+      {
+        source: '/strategies/:path*',
+        destination: `${BACKEND_URL}/strategies/:path*`,
+      },
       {
         source: '/backtest',
         destination: `${BACKEND_URL}/backtest`,

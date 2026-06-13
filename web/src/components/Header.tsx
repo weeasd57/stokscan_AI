@@ -215,18 +215,11 @@ export default function Header() {
     }, []);
 
     const navItems = [
-        { href: "/scanner/backtests?tab=bots", label: t("nav.scanner.ai_trading"), icon: <Brain className="w-4 h-4 shrink-0" />, activePath: "/scanner/backtests", badge: "AI DEMO" },
+        { href: "/scanner/backtests", label: t("nav.scanner.ai_trading"), icon: <Brain className="w-4 h-4 shrink-0" />, activePath: "/scanner/backtests", badge: "AI DEMO" },
         { href: "/scanner/technical", label: t("nav.scanner.tech"), icon: <Activity className="w-4 h-4 shrink-0" />, activePath: "/scanner/technical" },
-        { href: "/scanner/backtests?tab=backtests", label: t("nav.scanner.backtests"), icon: <BarChart2 className="w-4 h-4 shrink-0" />, activePath: null },
     ];
 
     const checkActive = (href: string, activePath: string | null) => {
-        if (href.includes("?tab=backtests")) {
-            return pathname === "/scanner/backtests" && currentTab === "backtests";
-        }
-        if (href.includes("?tab=bots")) {
-            return pathname === "/scanner/backtests" && currentTab === "bots";
-        }
         return activePath ? pathname === activePath : pathname === href;
     };
 
