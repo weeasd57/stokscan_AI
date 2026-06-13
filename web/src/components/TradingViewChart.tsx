@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useMemo } from "react";
+import { createPortal } from "react-dom";
 import { createChart, IChartApi, ISeriesApi, UTCTimestamp, SeriesMarker, ColorType } from "lightweight-charts";
 import { Loader2, Eye, EyeOff, BarChart3, AlertCircle, Search, X, Trash2, Plus, Sliders } from "lucide-react";
 import { 
@@ -1089,8 +1090,8 @@ export default function TradingViewChart({
             </div>
 
             {/* Indicators Modal Overlay */}
-            {showIndicatorModal && (
-                <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-[200] p-4 select-none">
+            {showIndicatorModal && typeof window !== "undefined" && document.body && createPortal(
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-[99999] p-4 select-none">
                     <div className="bg-[#131722] border border-[#2a2e39] rounded-2xl w-full max-w-2xl shadow-2xl flex flex-col overflow-hidden max-h-[85vh]">
                         {/* Header */}
                         <div className="px-5 py-4 border-b border-[#2a2e39] flex items-center justify-between">
@@ -1144,7 +1145,8 @@ export default function TradingViewChart({
                             </div>
                         </div>
                     </div>
-                </div>
+                </div>,
+                document.body
             )}
         </div>
     );
