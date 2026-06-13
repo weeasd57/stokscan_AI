@@ -20,7 +20,7 @@ type ProfileRow = {
 export default function ProfilePage() {
   const router = useRouter();
   const { user, loading } = useAuth();
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const supabase = useMemo(() => createSupabaseBrowserClient(), []);
 
   const [profile, setProfile] = useState<ProfileRow | null>(null);
@@ -79,10 +79,6 @@ export default function ProfilePage() {
     if (!Number.isFinite(target) || target <= 0 || target > 100) return;
     if (!Number.isFinite(stop) || stop <= 0 || stop > 100) return;
 
-    if (notificationChannel === null) {
-      // Allow saving without a notification channel selected
-    }
-
     setSavingDefaults(true);
     try {
       await supabase
@@ -104,90 +100,115 @@ export default function ProfilePage() {
   if (!user) return null;
 
   return (
-    <div className="flex flex-col gap-10 pb-20 max-w-[1600px] mx-auto mt-2 px-4">
-      <header className="flex flex-col gap-3">
-        <h1 className="text-4xl font-black tracking-tighter text-white uppercase italic">{t("nav.profile")}</h1>
-        <p className="text-sm text-zinc-500 font-medium max-w-lg">{t("profile.track")}</p>
+    <div className="neobrutal-layout flex flex-col gap-10 pb-20 max-w-[1600px] mx-auto mt-2 px-4 neobrutal-grid-bg min-h-screen">
+      <header className="flex flex-col gap-3 relative z-10 pt-4">
+        <h1 className="text-4xl sm:text-5xl font-black tracking-tighter text-black dark:text-white uppercase italic drop-shadow-[3px_3px_0px_var(--brutal-shadow)]">
+          {t("nav.profile")}
+        </h1>
+        <p className="text-sm text-zinc-700 dark:text-zinc-400 font-bold max-w-lg">{t("profile.track")}</p>
       </header>
 
-      <div className="grid grid-cols-1 gap-8">
+      <div className="grid grid-cols-1 gap-8 relative z-10">
         {/* Trading Defaults & Notification Settings */}
-        <section className="rounded-[2.5rem] border border-white/5 bg-zinc-950/40 p-8 shadow-2xl backdrop-blur-xl space-y-8 relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-600/5 blur-[100px] rounded-full -translate-y-1/2 translate-x-1/2" />
+        <section className="neobrutal-card p-6 sm:p-8 space-y-8 relative overflow-hidden bg-white dark:bg-zinc-900 border-4 border-black dark:border-white shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] dark:shadow-[6px_6px_0px_0px_var(--brutal-shadow)]">
+          <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-600/5 blur-[100px] rounded-full -translate-y-1/2 translate-x-1/2 pointer-events-none" />
 
           <div className="relative">
-            <h2 className="text-xl font-black text-white uppercase tracking-tight mb-2">Profile & Default Settings</h2>
-            <p className="text-xs text-zinc-500 font-bold uppercase tracking-widest leading-relaxed">Default values used when saving watchlist signals and routing bot notifications</p>
+            <h2 className="text-2xl font-black text-black dark:text-white uppercase tracking-tight mb-2">
+              Profile & Default Settings
+            </h2>
+            <p className="text-xs text-zinc-655 dark:text-zinc-400 font-black uppercase tracking-widest leading-relaxed">
+              Default values used when saving watchlist signals and routing bot notifications
+            </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 relative border-b border-white/5 pb-8">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 relative border-b-4 border-black dark:border-zinc-800 pb-8">
             <div className="space-y-3">
-              <label className="text-[10px] font-black text-zinc-600 uppercase tracking-[0.2em] ml-1">{t("profile.defaults.target")}</label>
+              <label className="text-[10px] font-black text-black dark:text-white uppercase tracking-[0.2em] ml-1">
+                {t("profile.defaults.target")}
+              </label>
               <div className="relative group">
                 <input
                   type="number"
                   value={defaultsTarget}
                   onChange={(e) => setDefaultsTarget(e.target.value)}
-                  className="h-14 w-full rounded-2xl border border-white/5 bg-zinc-900/50 px-5 text-lg font-black text-indigo-400 outline-none focus:ring-1 focus:ring-indigo-500/30 transition-all font-mono"
+                  className="h-14 w-full border-4 border-black dark:border-white bg-white dark:bg-zinc-950 px-5 text-lg font-black text-indigo-600 dark:text-indigo-400 outline-none transition-all font-mono shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] dark:shadow-[3px_3px_0px_0px_rgba(255,255,255,1)] focus:bg-yellow-50 dark:focus:bg-zinc-800"
                 />
-                <span className="absolute right-5 top-1/2 -translate-y-1/2 font-black text-zinc-700">%</span>
+                <span className="absolute right-5 top-1/2 -translate-y-1/2 font-black text-zinc-800 dark:text-zinc-200">%</span>
               </div>
             </div>
             <div className="space-y-3">
-              <label className="text-[10px] font-black text-zinc-600 uppercase tracking-[0.2em] ml-1">{t("profile.defaults.stop")}</label>
+              <label className="text-[10px] font-black text-black dark:text-white uppercase tracking-[0.2em] ml-1">
+                {t("profile.defaults.stop")}
+              </label>
               <div className="relative group">
                 <input
                   type="number"
                   value={defaultsStop}
                   onChange={(e) => setDefaultsStop(e.target.value)}
-                  className="h-14 w-full rounded-2xl border border-white/5 bg-zinc-900/50 px-5 text-lg font-black text-red-400 outline-none focus:ring-1 focus:ring-red-500/30 transition-all font-mono"
+                  className="h-14 w-full border-4 border-black dark:border-white bg-white dark:bg-zinc-950 px-5 text-lg font-black text-red-650 dark:text-red-400 outline-none transition-all font-mono shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] dark:shadow-[3px_3px_0px_0px_rgba(255,255,255,1)] focus:bg-yellow-50 dark:focus:bg-zinc-800"
                 />
-                <span className="absolute right-5 top-1/2 -translate-y-1/2 font-black text-zinc-700">%</span>
+                <span className="absolute right-5 top-1/2 -translate-y-1/2 font-black text-zinc-800 dark:text-zinc-200">%</span>
               </div>
             </div>
           </div>
 
           {/* Smart Notifications Settings & Preview */}
-          <div className="space-y-4">
+          <div className="space-y-6">
             <div className="relative">
-              <h3 className="text-lg font-black text-white uppercase tracking-tight mb-1">{t("profile.notification.title")}</h3>
-              <p className="text-xs text-zinc-500 font-medium leading-relaxed">{t("profile.notification.subtitle")}</p>
+              <h3 className="text-xl font-black text-black dark:text-white uppercase tracking-tight mb-1">
+                {t("profile.notification.title")}
+              </h3>
+              <p className="text-xs text-zinc-600 dark:text-zinc-400 font-bold leading-relaxed">
+                {t("profile.notification.subtitle")}
+              </p>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 relative">
               {/* Configuration panel */}
               <div className="space-y-6">
                 <div className="space-y-3">
-                  <label className="text-[10px] font-black text-zinc-600 uppercase tracking-[0.2em] ml-1">
+                  <label className="text-[10px] font-black text-black dark:text-white uppercase tracking-[0.2em] ml-1">
                     {t("profile.notification.channel.select")}
                   </label>
-                  <div className="p-1.5 rounded-2xl bg-zinc-900/80 border border-white/5">
+                  
+                  <div className="flex gap-4">
                     <button
                       type="button"
                       onClick={(e) => { e.preventDefault(); e.stopPropagation(); setNotificationChannel("telegram"); }}
-                      className={`w-full h-12 rounded-xl text-xs font-black uppercase tracking-[0.1em] transition-all duration-300 flex items-center justify-center gap-2 ${
+                      className={`flex-1 h-14 border-4 border-black dark:border-white font-black text-xs uppercase tracking-[0.1em] transition-all flex items-center justify-center gap-2 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] dark:shadow-[3px_3px_0px_0px_rgba(255,255,255,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none ${
                         notificationChannel === "telegram"
-                          ? "bg-indigo-600 text-white shadow-lg shadow-indigo-600/20"
-                          : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/40"
+                          ? "neobrutal-bg-purple text-black font-black"
+                          : "bg-white dark:bg-zinc-950 text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
                       }`}
                     >
                       <Send className="w-4 h-4" />
                       {t("profile.notification.channel.telegram")}
                     </button>
+                    {notificationChannel !== null && (
+                      <button
+                        type="button"
+                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); setNotificationChannel(null); }}
+                        className="h-14 px-4 border-4 border-black dark:border-white font-black text-xs uppercase tracking-[0.1em] transition-all flex items-center justify-center bg-red-400 hover:bg-red-300 text-black shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] dark:shadow-[3px_3px_0px_0px_rgba(255,255,255,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none"
+                        title="Deselect Channel"
+                      >
+                        {t("backtest.hide")}
+                      </button>
+                    )}
                   </div>
 
                   {/* ── Test Channel Button ── */}
-                  <div className="flex items-center gap-3 mt-1">
+                  <div className="flex items-center gap-3 mt-4">
                     {/* Active channel badge */}
-                    <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all duration-300 ${
+                    <div className={`flex items-center gap-1.5 px-3 py-2 border-4 border-black dark:border-white text-[10px] font-black uppercase tracking-widest transition-all shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_0px_rgba(255,255,255,1)] ${
                       notificationChannel === "telegram"
-                        ? "bg-indigo-500/10 border-indigo-500/20 text-indigo-400"
-                        : "bg-zinc-800/40 border-white/5 text-zinc-600"
+                        ? "neobrutal-bg-cyan text-black"
+                        : "bg-zinc-200 dark:bg-zinc-800 text-zinc-650 dark:text-zinc-400"
                     }`}>
-                      <span className={`w-1.5 h-1.5 rounded-full ${
-                        notificationChannel === "telegram" ? "bg-indigo-400" : "bg-zinc-600"
+                      <span className={`w-2 h-2 rounded-full ${
+                        notificationChannel === "telegram" ? "bg-black" : "bg-zinc-600"
                       }`} />
-                      {notificationChannel === "telegram" ? "Telegram مفعّل" : "لا يوجد قناة"}
+                      {notificationChannel === "telegram" ? (language === "ar" ? "Telegram مفعّل" : "Telegram Enabled") : (language === "ar" ? "لا يوجد قناة" : "No Channel")}
                     </div>
 
                     {/* Test button */}
@@ -199,7 +220,7 @@ export default function ProfilePage() {
                         e.preventDefault();
                         const btn = e.currentTarget;
                         btn.disabled = true;
-                        btn.textContent = "⏳ جاري الإرسال...";
+                        btn.textContent = language === "ar" ? "⏳ جاري الإرسال..." : "⏳ Sending...";
                         try {
                           const res = await fetch("/api/ai_bot/telegram/test_notification", {
                             method: "POST",
@@ -207,25 +228,25 @@ export default function ProfilePage() {
                             body: JSON.stringify({ channel: notificationChannel, user_id: user?.id }),
                           });
                           const data = await res.json();
-                          btn.textContent = data.ok ? "✅ تم الإرسال!" : `❌ ${data.error || "فشل"}`;
+                          btn.textContent = data.ok ? (language === "ar" ? "✅ تم الإرسال!" : "✅ Sent!") : `❌ ${data.error || "Failed"}`;
                         } catch {
-                          btn.textContent = "❌ خطأ في الاتصال";
+                          btn.textContent = language === "ar" ? "❌ خطأ في الاتصال" : "❌ Connection Error";
                         } finally {
-                          setTimeout(() => { btn.disabled = false; btn.textContent = "🔔 اختبار الإشعار"; }, 3000);
+                          setTimeout(() => { btn.disabled = false; btn.textContent = language === "ar" ? "🔔 اختبار الإشعار" : "🔔 Test Notification"; }, 3000);
                         }
                       }}
-                      className="flex-1 h-9 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all duration-200 flex items-center justify-center gap-2 border border-white/5 bg-zinc-800/60 text-zinc-300 hover:bg-zinc-700/60 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed"
+                      className="flex-1 h-10 neobrutal-btn bg-white dark:bg-zinc-800 text-black dark:text-white font-black text-[10px] uppercase tracking-widest border-4 border-black dark:border-white shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_0px_rgba(255,255,255,1)] flex items-center justify-center gap-2 disabled:opacity-30 disabled:cursor-not-allowed"
                     >
-                      🔔 اختبار الإشعار
+                      🔔 {language === "ar" ? "اختبار الإشعار" : "Test Notification"}
                     </button>
                   </div>
                 </div>
 
                 {/* No channel selected yet */}
                 {notificationChannel === null && (
-                  <div className="p-5 rounded-3xl border border-white/5 bg-zinc-900/20 flex flex-col items-center justify-center gap-3 text-center min-h-[120px]">
-                    <MessageSquare className="w-6 h-6 text-zinc-600" />
-                    <p className="text-xs text-zinc-500 font-semibold">
+                  <div className="p-6 border-4 border-dashed border-black dark:border-zinc-700 bg-zinc-950/5 dark:bg-zinc-950/20 flex flex-col items-center justify-center gap-3 text-center min-h-[140px]">
+                    <MessageSquare className="w-6 h-6 text-zinc-500" />
+                    <p className="text-xs text-zinc-600 dark:text-zinc-400 font-bold uppercase tracking-wider">
                       {t("profile.notification.channel.select")}
                     </p>
                   </div>
@@ -234,17 +255,17 @@ export default function ProfilePage() {
                 {/* Telegram Config UI */}
                 {notificationChannel === "telegram" && notificationChannel !== null && (
                   <div className="space-y-4 transition-all duration-300">
-                    <div className="p-5 rounded-3xl border border-white/5 bg-zinc-900/30 space-y-4">
+                    <div className="p-5 border-4 border-black dark:border-white bg-zinc-50 dark:bg-zinc-950/20 space-y-4 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] dark:shadow-[3px_3px_0px_0px_rgba(255,255,255,1)]">
                       <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-3 flex-wrap">
                           <span className="text-[10px] font-black text-zinc-500 uppercase tracking-wider">{t("profile.notification.telegram.status")}</span>
                           {defaultTelegramChatId ? (
-                            <span className="flex items-center gap-1 text-[10px] font-bold text-indigo-400 bg-indigo-500/10 px-2.5 py-1 rounded-full border border-indigo-500/20">
+                            <span className="flex items-center gap-1 text-[10px] font-bold text-black bg-emerald-400 px-2.5 py-1 rounded-full border-2 border-black">
                               <CheckCircle2 className="w-3.5 h-3.5" />
                               {t("profile.notification.telegram.linked")}
                             </span>
                           ) : (
-                            <span className="flex items-center gap-1 text-[10px] font-bold text-amber-500 bg-amber-500/10 px-2.5 py-1 rounded-full border border-amber-500/20">
+                            <span className="flex items-center gap-1 text-[10px] font-bold text-black bg-amber-400 px-2.5 py-1 rounded-full border-2 border-black">
                               <AlertCircle className="w-3.5 h-3.5" />
                               {t("profile.notification.telegram.not_linked")}
                             </span>
@@ -253,23 +274,23 @@ export default function ProfilePage() {
                         <button
                           type="button"
                           onClick={reloadAll}
-                          className="p-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-zinc-200 transition-colors"
+                          className="neobrutal-btn bg-white dark:bg-zinc-800 p-2 text-black dark:text-white border-2 border-black dark:border-white"
                           title="Refresh connection status"
                         >
                           <RefreshCw className="w-3.5 h-3.5" />
                         </button>
                       </div>
 
-                      <p className="text-xs text-zinc-400 leading-relaxed font-semibold">
+                      <p className="text-xs text-zinc-700 dark:text-zinc-300 leading-relaxed font-bold">
                         {t("profile.notification.telegram.desc")}
                       </p>
 
-                      <div className="flex flex-col gap-2 w-full">
+                      <div className="flex flex-col gap-3 w-full">
                         <a
                           href={`https://t.me/${botUsername}?start=${user.id}`}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-indigo-600/90 text-xs font-black uppercase tracking-[0.1em] text-white hover:bg-indigo-500 transition-all shadow-md hover:shadow-indigo-500/10 active:scale-[0.98]"
+                          className="inline-flex h-12 w-full items-center justify-center gap-2 neobrutal-btn neobrutal-bg-yellow text-xs font-black uppercase tracking-[0.1em] text-black"
                         >
                           <Send className="w-4 h-4" />
                           {t("profile.notification.telegram.btn")}
@@ -278,15 +299,15 @@ export default function ProfilePage() {
                           href={`https://web.telegram.org/a/#?tgaddr=tg%3A%2F%2Fresolve%3Fdomain%3D${botUsername}%26start%3D${user.id}`}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl border border-white/5 bg-zinc-900/40 text-[10px] font-black uppercase tracking-[0.1em] text-zinc-400 hover:text-white hover:bg-zinc-800 transition-all active:scale-[0.98]"
+                          className="inline-flex h-10 w-full items-center justify-center gap-2 neobrutal-btn bg-white dark:bg-zinc-800 text-black dark:text-white text-[10px] font-black uppercase tracking-[0.1em]"
                         >
                           <Globe className="w-3.5 h-3.5" />
-                          Open in Telegram Web (المتصفح)
+                          Open in Telegram Web
                         </a>
                       </div>
                       
-                      <div className="space-y-2 pt-2 border-t border-white/5">
-                        <label className="text-[9px] font-black text-zinc-500 uppercase tracking-widest">
+                      <div className="space-y-2 pt-3 border-t-4 border-black dark:border-zinc-800">
+                        <label className="text-[10px] font-black text-black dark:text-white uppercase tracking-widest">
                           Manual Telegram Chat ID (Optional)
                         </label>
                         <input
@@ -294,7 +315,7 @@ export default function ProfilePage() {
                           value={defaultTelegramChatId}
                           onChange={(e) => setDefaultTelegramChatId(e.target.value)}
                           placeholder="e.g. 987654321"
-                          className="h-10 w-full rounded-xl border border-white/5 bg-zinc-950 px-4 text-xs font-black text-zinc-300 outline-none focus:ring-1 focus:ring-indigo-500/30 transition-all font-mono"
+                          className="h-10 w-full border-4 border-black dark:border-white bg-white dark:bg-zinc-950 px-4 text-xs font-black text-black dark:text-white outline-none focus:bg-yellow-50 dark:focus:bg-zinc-800 transition-all font-mono shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_0px_rgba(255,255,255,1)]"
                         />
                       </div>
                     </div>
@@ -303,43 +324,43 @@ export default function ProfilePage() {
               </div>
 
               {/* Preview mockup panel */}
-                <div className="p-6 rounded-3xl border border-white/5 bg-zinc-900/10 flex flex-col justify-between relative overflow-hidden min-h-[300px]">
-                  <div className="absolute top-0 left-0 w-32 h-32 bg-indigo-600/5 blur-[50px] rounded-full -translate-x-1/2 -translate-y-1/2" />
-                  
-                  <span className="text-[9px] font-black text-zinc-600 uppercase tracking-[0.2em] ml-1 mb-4 block">Live Alert Preview</span>
-                  
-                  <div className="flex-1 flex items-center justify-center w-full">
-                    {notificationChannel === "telegram" ? (
-                      <div className="w-full max-w-sm rounded-2xl bg-zinc-900 p-4 border border-white/5 space-y-2 relative shadow-2xl">
-                        <div className="flex items-center justify-between pb-2 border-b border-white/5">
-                          <div className="flex items-center gap-2">
-                            <div className="w-6 h-6 rounded-full bg-indigo-600 flex items-center justify-center text-[10px] font-black text-white">🤖</div>
-                            <span className="text-[10px] font-bold text-zinc-300">Artoro Bot</span>
-                          </div>
-                          <span className="text-[8px] text-zinc-600">now</span>
+              <div className="p-6 border-4 border-black dark:border-white bg-white dark:bg-zinc-900 text-black dark:text-white flex flex-col justify-between relative overflow-hidden min-h-[300px] shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_0px_var(--brutal-shadow)]">
+                <div className="absolute top-0 left-0 w-32 h-32 bg-indigo-600/5 blur-[50px] rounded-full -translate-x-1/2 -translate-y-1/2 pointer-events-none" />
+                
+                <span className="text-[9px] font-black text-zinc-500 uppercase tracking-[0.2em] ml-1 mb-4 block">Live Alert Preview</span>
+                
+                <div className="flex-1 flex items-center justify-center w-full">
+                  {notificationChannel === "telegram" ? (
+                    <div className="w-full max-w-sm border-4 border-black dark:border-white bg-zinc-955 p-4 space-y-2 relative shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_0px_rgba(255,255,255,1)]">
+                      <div className="flex items-center justify-between pb-2 border-b border-white/5">
+                        <div className="flex items-center gap-2">
+                          <div className="w-6 h-6 rounded-full bg-indigo-650 flex items-center justify-center text-[10px] font-black text-white">🤖</div>
+                          <span className="text-[10px] font-bold text-zinc-300">Artoro Bot</span>
                         </div>
-                        <div className="text-[11px] text-zinc-300 font-mono leading-relaxed space-y-1">
-                          <div className="text-emerald-400 font-bold">🟢 NEW BUY SIGNAL</div>
-                          <div>💎 Symbol: <span className="text-white">COINS</span></div>
-                          <div>💰 Entry Price: <span className="text-white">12.4500</span></div>
-                          <div>🎯 Target ({defaultsTarget}%): <span className="text-white">{(12.4500 * (1 + Number(defaultsTarget)/100)).toFixed(4)}</span></div>
-                          <div>🛡️ Stop Loss ({defaultsStop}%): <span className="text-white">{(12.4500 * (1 - Number(defaultsStop)/100)).toFixed(4)}</span></div>
-                        </div>
+                        <span className="text-[8px] text-zinc-500">now</span>
                       </div>
-                    ) : (
-                      // No channel selected → neutral placeholder
-                      <div className="flex flex-col items-center justify-center gap-3 text-center opacity-40">
-                        <div className="w-12 h-12 rounded-2xl bg-zinc-800 flex items-center justify-center">
-                          <MessageSquare className="w-6 h-6 text-zinc-500" />
-                        </div>
-                        <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">
-                          اختر قناة لمعاينة الإشعارات
-                        </p>
+                      <div className="text-[11px] text-zinc-300 font-mono leading-relaxed space-y-1">
+                        <div className="text-emerald-400 font-bold">🟢 NEW BUY SIGNAL</div>
+                        <div>💎 Symbol: <span className="text-white">COINS</span></div>
+                        <div>💰 Entry Price: <span className="text-white">12.4500</span></div>
+                        <div>🎯 Target ({defaultsTarget}%): <span className="text-white">{(12.4500 * (1 + Number(defaultsTarget)/100)).toFixed(4)}</span></div>
+                        <div>🛡️ Stop Loss ({defaultsStop}%): <span className="text-white">{(12.4500 * (1 - Number(defaultsStop)/100)).toFixed(4)}</span></div>
                       </div>
-                    )}
-                  </div>
+                    </div>
+                  ) : (
+                    // No channel selected → neutral placeholder
+                    <div className="flex flex-col items-center justify-center gap-3 text-center opacity-45">
+                      <div className="w-12 h-12 border-4 border-black dark:border-zinc-600 flex items-center justify-center bg-zinc-100 dark:bg-zinc-800 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_0px_rgba(255,255,255,1)]">
+                        <MessageSquare className="w-6 h-6 text-zinc-500" />
+                      </div>
+                      <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">
+                        اختر قناة لمعاينة الإشعارات
+                      </p>
+                    </div>
+                  )}
+                </div>
 
-                <div className="mt-4 text-[9px] text-zinc-600 text-center font-bold uppercase tracking-wider">
+                <div className="mt-4 text-[9px] text-zinc-500 text-center font-bold uppercase tracking-wider">
                   Real-time notification templates render dynamically in English & Arabic
                 </div>
               </div>
@@ -349,7 +370,7 @@ export default function ProfilePage() {
           <button
             onClick={saveDefaults}
             disabled={savingDefaults}
-            className="h-14 w-full rounded-2xl bg-indigo-600 text-[11px] font-black uppercase tracking-[0.2em] text-white shadow-xl shadow-indigo-600/20 hover:bg-indigo-500 transition-all active:scale-[0.98] flex items-center justify-center gap-3 relative overflow-hidden group"
+            className="h-14 w-full neobrutal-btn neobrutal-bg-yellow font-black text-sm uppercase tracking-[0.2em] text-black flex items-center justify-center gap-3 relative overflow-hidden group"
           >
             {savingDefaults ? <Loader2 className="h-5 w-5 animate-spin" /> : <Save className="h-5 w-5 group-hover:scale-110 transition-transform" />}
             Save Settings

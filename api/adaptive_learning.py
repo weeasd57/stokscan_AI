@@ -101,6 +101,52 @@ class ManualRetrainer:
         self.log_cb = log_cb
         _init_supabase()
 
+    def fetch_mistakes(self, lookback_days=90, model_name=None):
+        """
+        Fetch recently verified losing predictions for adaptive retraining.
+        Supports both historical schemas used by this project.
+        """
+        if not supabase:
+            return []
+
+        try:
+            cutoff = (datetime.now() - timedelta(days=lookback_days)).strftime("%Y-%m-%d")
+            query = (
+                supabase.table("scan_results")
+                .select("*")
+                .eq("exchange", self.exchange)
+                .eq("status", "loss")
+                .gte("date", cutoff)
+                .order("date", desc=True)
+            )
+            if model_name:
+                query = query.or_(
+                    f"model_name.eq.{model_name},model_version.eq.{model_name}"
+                )
+
+            res = query.execute()
+            rows = res.data or []
+            cleaned = []
+            for row in rows:
+                features = row.get("features")
+                if not features:
+                    continue
+                if isinstance(features, str):
+                    try:
+                        json.loads(features)
+                    except Exception:
+                        continue
+                elif isinstance(features, list):
+                    row["features"] = json.dumps(features)
+                else:
+                    continue
+                cleaned.append(row)
+            _log(f"Fetched {len(cleaned)} retraining mistakes.", self.log_cb)
+            return cleaned
+        except Exception as e:
+            _log(f"Failed to fetch mistakes: {e}", self.log_cb)
+            return []
+
     def retrain_on_mistakes(self, active_learner: ActiveLearner, mistakes):
         """
         Performs native LightGBM incremental training using the 'init_model' parameter.

@@ -59,18 +59,18 @@ export default function ScannerTemplates({ onSelect }: ScannerTemplatesProps) {
   const { t } = useLanguage();
 
   return (
-    <section className="scanner-templates-panel rounded-[2.5rem] border border-white/5 bg-zinc-950/40 backdrop-blur-xl p-8 shadow-2xl relative overflow-hidden light:border-slate-200 light:bg-white/90">
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(99,102,241,0.12),_transparent_55%)]" />
+    <section className="scanner-templates-panel neobrutal-card p-8 relative overflow-hidden">
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(99,102,241,0.12),_transparent_55%)] select-none pointer-events-none" />
       <div className="relative z-10 flex flex-col gap-6">
         <div className="flex flex-col gap-2">
           <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.35em] text-zinc-500 font-black">
             <Sparkles className="h-3.5 w-3.5 text-indigo-400" />
             {t("scanner.templates.kicker")}
           </div>
-          <h2 className="text-2xl md:text-3xl font-black tracking-tight text-white">
+          <h2 className="text-2xl md:text-3xl font-black tracking-tight text-black dark:text-white">
             {t("scanner.templates.title")}
           </h2>
-          <p className="text-sm text-zinc-500 max-w-2xl">
+          <p className="text-sm text-zinc-600 dark:text-zinc-400 max-w-2xl font-bold">
             {t("scanner.templates.subtitle")}
           </p>
         </div>
@@ -81,30 +81,30 @@ export default function ScannerTemplates({ onSelect }: ScannerTemplatesProps) {
               key={item.id}
               type="button"
               onClick={() => onSelect?.(item.id)}
-              className="group relative rounded-3xl border border-white/5 bg-zinc-950/60 p-6 overflow-hidden transition-all hover:border-white/10 text-left light:border-slate-200 light:bg-slate-50/90"
+              className="group relative rounded-3xl border-4 border-black dark:border-white bg-zinc-950/80 p-6 overflow-hidden transition-all text-start shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] dark:shadow-[3px_3px_0px_0px_rgba(255,255,255,1)] hover:-translate-x-0.5 hover:-translate-y-0.5 hover:shadow-[4.5px_4.5px_0px_0px_rgba(0,0,0,1)] dark:hover:shadow-[4.5px_4.5px_0px_0px_rgba(255,255,255,1)] active:translate-x-0.5 active:translate-y-0.5 active:shadow-[1.5px_1.5px_0px_0px_rgba(0,0,0,1)] dark:active:shadow-[1.5px_1.5px_0px_0px_rgba(255,255,255,1)]"
             >
-              <div className={`absolute inset-0 bg-gradient-to-br ${item.gradient}`} />
+              <div className={`absolute inset-0 bg-gradient-to-br ${item.gradient} opacity-40`} />
               <div className="relative z-10 flex flex-col gap-4">
                 <div className="flex items-start justify-between gap-4">
                   <div>
                     <h3 className={`text-lg font-black ${item.accent}`}>
                       {t(item.titleKey)}
                     </h3>
-                    <p className="mt-2 text-sm text-zinc-400 leading-relaxed">
+                    <p className="mt-2 text-sm text-zinc-300 leading-relaxed font-semibold">
                       {t(item.descKey)}
                     </p>
                   </div>
-                  <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-white/10 bg-zinc-900/60 text-zinc-400 group-hover:text-white transition-colors">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-2xl border-2 border-white/20 bg-zinc-900/80 text-zinc-400 group-hover:text-white transition-colors shrink-0 shadow-[1px_1px_0px_0px_rgba(255,255,255,0.1)]">
                     <ArrowUpRight className="h-4 w-4" />
                   </div>
                 </div>
 
-                <div className="mt-auto flex items-center justify-between text-[10px] uppercase tracking-[0.3em] text-zinc-500 font-black">
+                <div className="mt-auto flex items-center justify-between text-[10px] uppercase tracking-[0.3em] text-zinc-400 font-black pt-4 border-t border-white/5">
                   <div className="flex items-center gap-2">
                     <Shield className="h-3.5 w-3.5 text-zinc-400" />
                     {t(item.riskKey)}
                   </div>
-                  <span className="text-zinc-600">#{item.id}</span>
+                  <span className="text-zinc-500 font-mono">#{item.id}</span>
                 </div>
               </div>
             </button>

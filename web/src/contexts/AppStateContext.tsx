@@ -50,7 +50,7 @@ type TechScannerState = {
   volumeAboveSma20: boolean;
   goldenCross: boolean;
 
-  currentTab: 'overview' | 'performance' | 'valuation' | 'dividends' | 'financials';
+  currentTab: 'ai' | 'overview' | 'performance' | 'valuation' | 'dividends' | 'financials';
   marketCapMin: string;
   marketCapMax: string;
   sector: string;
@@ -169,7 +169,7 @@ const DEFAULT_STATE: AppState = {
     aboveVwap20: false,
     volumeAboveSma20: false,
     goldenCross: false,
-    currentTab: 'overview',
+    currentTab: 'ai',
     marketCapMin: "",
     marketCapMax: "",
     sector: "",

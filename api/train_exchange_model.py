@@ -47,6 +47,7 @@ from api.model_catalog import select_canonical_model_cards
 from api.trading_config import TradingParameters
 from api.unified_features import FeatureEngineeringManager
 from api.unified_labeling import TripleBarrierLabeler
+from api.structured_logger import StructuredLogger
 from supabase import Client, create_client
 
 # Initialize memory cache for heavy feature engineering.
@@ -110,23 +111,23 @@ def _resolve_barrier_mode(
 
     Returns:
         "percent" when both values look like fractional percentages (< 1.0).
-        "atr" otherwise, or when explicitly requested.
+        "atr_multiplier" otherwise, or when explicitly requested.
     """
     mode = str(barrier_mode or "").strip().lower()
     if mode in {"percent", "percentage", "pct"}:
         return "percent"
     if mode in {"atr", "atr_multiplier", "atr-multiplier", "atr multiplier"}:
-        return "atr"
+        return "atr_multiplier"
 
     try:
         target_v = float(target_pct)
         stop_v = float(stop_loss_pct)
     except Exception:
-        return "atr"
+        return "atr_multiplier"
 
     if target_v < 1.0 and stop_v < 1.0:
         return "percent"
-    return "atr"
+    return "atr_multiplier"
 
 
 def _write_training_summary(summary: dict) -> None:
@@ -1627,6 +1628,7 @@ class ModelTrainer:
             # Check data readiness
             manager = FeatureEngineeringManager(t_params)
             report = manager.check_data_ready(df_sym, extra_checks=True)
+            StructuredLogger("training").log_data_readiness(sym, report)
             if not report.is_ready:
                 return None
 
@@ -1701,7 +1703,10 @@ class ModelTrainer:
         self._progress(f"Starting parallel feature engineering (Preset: {preset})...")
 
         # Determine min history based on preset
-        self.min_history_needed = 200 if preset in ["extended", "max"] else 60
+        # Minimum bars: 120 for extended/max (was 200) to include more EGX symbols
+        # that have shorter listing history while still having enough for SMA/RSI indicators.
+        # 120 days ~ 6 months of trading, sufficient for reliable feature calculation.
+        self.min_history_needed = 120 if preset in ["extended", "max"] else 60
 
         # Initialize unified TradingParameters
         self.params = TradingParameters(
@@ -1715,6 +1720,8 @@ class ModelTrainer:
             require_volume_confirmation=(self.exchange == "EGX"),
             min_volume_ratio=0.8 if (self.exchange == "EGX") else 0.3,
         )
+        self.struct_logger = StructuredLogger("training")
+        self.struct_logger.log_parameter_load("training_pipeline", self.params)
 
         # Merge fundamentals
         start_time = time.time()
@@ -1931,17 +1938,18 @@ class ModelTrainer:
         # Extract date column
         date_col = df.index if df.index.name == "Date" else df["Date"]
         dates = pd.to_datetime(date_col)
-        years = dates.dt.year.values
+        years = pd.Series(dates).dt.year.values
         unique_years = sorted(np.unique(years))
 
         if len(unique_years) < 3:
             self._progress(
                 f"⚠️ Only {len(unique_years)} unique years. Falling back to 80-20 split."
             )
+            split_idx = len(df) - int(len(df) * 0.2)
             return [
                 (
-                    df.index[: -int(len(df) * 0.2)].tolist(),
-                    df.index[-int(len(df) * 0.2) :].tolist(),
+                    list(range(split_idx)),
+                    list(range(split_idx, len(df))),
                 )
             ]
 
@@ -1958,8 +1966,8 @@ class ModelTrainer:
             train_mask = np.isin(years, train_years)
             test_mask = years == test_year
 
-            train_idx = df.index[train_mask].tolist()
-            test_idx = df.index[test_mask].tolist()
+            train_idx = np.where(train_mask)[0].tolist()
+            test_idx = np.where(test_mask)[0].tolist()
 
             if len(test_idx) > 0:
                 splits.append((train_idx, test_idx))
@@ -1968,10 +1976,11 @@ class ModelTrainer:
             self._progress(
                 "Could not create walk-forward splits. Using simple 80-20 split."
             )
+            split_idx = len(df) - int(len(df) * 0.2)
             splits = [
                 (
-                    df.index[: -int(len(df) * 0.2)].tolist(),
-                    df.index[-int(len(df) * 0.2) :].tolist(),
+                    list(range(split_idx)),
+                    list(range(split_idx, len(df))),
                 )
             ]
 
@@ -2276,10 +2285,17 @@ class ModelTrainer:
             X_tune = X_tune.drop(columns=momentum_features).copy()
             X_test = X_test.drop(columns=momentum_features).copy()
 
+            # Also transform the full df_train for CV and meta-labeling to prevent KeyError
+            df_train_mom = df_train[momentum_features].fillna(0)
+            df_train_scaled = scaler.transform(df_train_mom)
+            df_train_pca = pca.transform(df_train_scaled)
+            df_train = df_train.drop(columns=momentum_features).copy()
+
             for i in range(X_train_pca.shape[1]):
                 X_train_full[f"PCA_Momentum_{i}"] = X_train_pca[:, i]
                 X_tune[f"PCA_Momentum_{i}"] = X_tune_pca[:, i]
                 X_test[f"PCA_Momentum_{i}"] = X_test_pca[:, i]
+                df_train[f"PCA_Momentum_{i}"] = df_train_pca[:, i]
 
             self.predictors = list(X_train_full.columns)
             self._progress(
@@ -2416,6 +2432,12 @@ class ModelTrainer:
                 ):
                     continue
 
+                # Extract date ranges for documentation
+                train_start_date = df_split_train.index[0].strftime("%Y-%m-%d") if hasattr(df_split_train.index[0], 'strftime') else str(df_split_train.index[0])
+                train_end_date = df_split_train.index[-1].strftime("%Y-%m-%d") if hasattr(df_split_train.index[-1], 'strftime') else str(df_split_train.index[-1])
+                test_start_date = df_split_test.index[0].strftime("%Y-%m-%d") if hasattr(df_split_test.index[0], 'strftime') else str(df_split_test.index[0])
+                test_end_date = df_split_test.index[-1].strftime("%Y-%m-%d") if hasattr(df_split_test.index[-1], 'strftime') else str(df_split_test.index[-1])
+
                 X_s_train = self._clean_dataset(df_split_train[self.predictors])
                 y_s_train = df_split_train["Target"]
                 X_s_test = self._clean_dataset(df_split_test[self.predictors])
@@ -2438,22 +2460,29 @@ class ModelTrainer:
                 split_metrics = self.calculate_validation_metrics(
                     split_model, X_s_test, y_s_test
                 )
-                self.wf_splits_results.append(
-                    {
-                        "split_index": split_i,
-                        "precision": float(split_metrics.get("precision", 0.0)),
-                        "recall": float(split_metrics.get("recall", 0.0)),
-                        "f1": float(split_metrics.get("f1", 0.0)),
-                        "auc": float(split_metrics.get("auc", 0.0)),
-                    }
-                )
-                self._progress(f"Walk-Forward Split {split_i} Metrics: {split_metrics}")
+                
+                # Enhanced walk-forward split result with detailed metadata
+                split_result = {
+                    "split_index": split_i,
+                    "train_period": f"{train_start_date} to {train_end_date}",
+                    "test_period": f"{test_start_date} to {test_end_date}",
+                    "train_samples": len(df_split_train),
+                    "test_samples": len(df_split_test),
+                    "train_positive_rate": float(y_s_train.mean()),
+                    "test_positive_rate": float(y_s_test.mean()),
+                    "precision": float(split_metrics.get("precision", 0.0)),
+                    "recall": float(split_metrics.get("recall", 0.0)),
+                    "f1": float(split_metrics.get("f1", 0.0)),
+                    "auc": float(split_metrics.get("auc", 0.0)),
+                }
+                self.wf_splits_results.append(split_result)
+                self._progress(f"Walk-Forward Split {split_i}: {test_start_date} to {test_end_date} - F1: {split_result['f1']:.3f}, Precision: {split_result['precision']:.3f}")
         except Exception as e:
             self._progress(
                 f"Warning: Failed to calculate walk-forward validation metrics: {e}"
             )
 
-        return model, metrics, avg_purged_f1
+        return model, metrics, avg_purged_f1, df_train
 
     def calculate_validation_metrics(
         self, model, X_test: pd.DataFrame, y_test: pd.Series
@@ -2480,15 +2509,27 @@ class ModelTrainer:
             )
         f1_scores = np.nan_to_num(f1_scores)
 
-        # Strategy: Find best F1 where Precision >= 0.50 (prevents high false positive rate)
-        valid_indices = precisions[:-1] >= 0.50
+        # Strategy: Find best threshold where Precision >= 60% AND Recall >= 10%
+        # This targets the sweet spot: accurate enough to trust, frequent enough to be useful.
+        target_p = 0.60
+        target_r = 0.10
+        valid_indices = (precisions[:-1] >= target_p) & (recalls[:-1] >= target_r)
 
         if valid_indices.any():
+            # Among valid thresholds, pick the one with the highest F1
             valid_f1 = np.where(valid_indices, f1_scores, -1)
             best_idx = np.argmax(valid_f1)
         else:
-            self._progress("⚠️ No threshold achieves P>=50%, falling back to best F1.")
-            best_idx = np.argmax(f1_scores)
+            # Fallback 1: relax to P >= 55% only
+            fallback_indices = precisions[:-1] >= 0.55
+            if fallback_indices.any():
+                self._progress("⚠️ No threshold achieves P>=60% & R>=10%, relaxing to P>=55%.")
+                valid_f1 = np.where(fallback_indices, f1_scores, -1)
+                best_idx = np.argmax(valid_f1)
+            else:
+                # Fallback 2: best F1 regardless of precision
+                self._progress("⚠️ No threshold achieves P>=55%, falling back to best F1.")
+                best_idx = np.argmax(f1_scores)
 
         optimal_threshold = thresholds[best_idx] if best_idx < len(thresholds) else 0.5
 
@@ -2632,6 +2673,54 @@ class ModelTrainer:
         if feature_preset is None:
             feature_preset = metadata.get("feature_preset")
 
+        # Construct unified sections
+        trading_params_dict = {
+            "entry_mode": getattr(self, "params", TradingParameters()).entry_mode,
+            "entry_buffer_pct": getattr(self, "params", TradingParameters()).entry_buffer_pct,
+            "look_forward_days": getattr(self, "params", TradingParameters()).look_forward_days,
+            "look_forward_mode": getattr(self, "params", TradingParameters()).look_forward_mode,
+            "barrier_mode": getattr(self, "params", TradingParameters()).barrier_mode,
+            "target_pct": getattr(self, "params", TradingParameters()).target_pct,
+            "stop_loss_pct": getattr(self, "params", TradingParameters()).stop_loss_pct,
+            "require_volume_confirmation": getattr(self, "params", TradingParameters()).require_volume_confirmation,
+            "min_volume_ratio": getattr(self, "params", TradingParameters()).min_volume_ratio,
+            "volume_confirmation_period": getattr(self, "params", TradingParameters()).volume_confirmation_period,
+        }
+        thresholds_dict = {
+            "king_threshold": getattr(self, "params", TradingParameters()).king_threshold,
+            "optimal_threshold": metadata.get("optimal_threshold") or metadata.get("meta_threshold") or getattr(self, "params", TradingParameters()).king_threshold,
+            "council_threshold": getattr(self, "params", TradingParameters()).council_threshold,
+            "validator_threshold": getattr(self, "params", TradingParameters()).validator_threshold,
+        }
+        feature_req_dict = {
+            "min_history_needed": getattr(self, "params", TradingParameters()).min_history_needed,
+            "warmup_bars": getattr(self, "params", TradingParameters()).warmup_bars,
+            "feature_lookback": getattr(self, "params", TradingParameters()).feature_lookback,
+        }
+        
+        # Calculate walk-forward summary statistics
+        wf_results = getattr(self, "wf_splits_results", [])
+        walk_forward_summary = {}
+        if wf_results:
+            precisions = [r["precision"] for r in wf_results if r.get("precision") is not None]
+            recalls = [r["recall"] for r in wf_results if r.get("recall") is not None]
+            f1s = [r["f1"] for r in wf_results if r.get("f1") is not None]
+            aucs = [r["auc"] for r in wf_results if r.get("auc") is not None]
+            
+            walk_forward_summary = {
+                "n_splits": len(wf_results),
+                "average_precision": float(np.mean(precisions)) if precisions else 0.0,
+                "average_recall": float(np.mean(recalls)) if recalls else 0.0,
+                "average_f1": float(np.mean(f1s)) if f1s else 0.0,
+                "average_auc": float(np.mean(aucs)) if aucs else 0.5,
+                "std_precision": float(np.std(precisions)) if precisions else 0.0,
+                "std_recall": float(np.std(recalls)) if recalls else 0.0,
+                "std_f1": float(np.std(f1s)) if f1s else 0.0,
+                "std_auc": float(np.std(aucs)) if aucs else 0.0,
+                "min_f1": float(min(f1s)) if f1s else 0.0,
+                "max_f1": float(max(f1s)) if f1s else 0.0,
+            }
+
         artifact = {
             "kind": "lgbm_booster",
             "model_str": booster.model_to_string() if booster else None,
@@ -2646,11 +2735,17 @@ class ModelTrainer:
             "pca_features": pca_features,
             "pca": pca,
             "scaler": scaler,
+            "trading_parameters": trading_params_dict,
+            "thresholds": thresholds_dict,
+            "feature_requirements": feature_req_dict,
+            "walk_forward_splits_results": wf_results,
+            "walk_forward_summary": walk_forward_summary,
             **metadata,
         }
 
         with open(filepath, "wb") as f:
             pickle.dump(artifact if booster else model, f)
+
 
         # Also save booster in text format for version compatibility
         if booster:
@@ -2735,7 +2830,10 @@ class ModelTrainer:
                 "capabilities": {
                     "has_meta_labeling": has_meta_labeling,
                 },
+                "walk_forward_splits_results": getattr(self, "wf_splits_results", []),
+                "walk_forward_summary": walk_forward_summary if walk_forward_summary else {},
             }
+
 
             card_path = os.path.join(models_dir, f"{filename}.model_card.json")
             with open(card_path, "w", encoding="utf-8") as cf:
@@ -2775,6 +2873,54 @@ class ModelTrainer:
 
         booster = getattr(primary_model_for_booster, "booster_", None)
 
+        # Calculate walk-forward summary statistics
+        wf_results = getattr(self, "wf_splits_results", [])
+        walk_forward_summary = {}
+        if wf_results:
+            precisions = [r["precision"] for r in wf_results if r.get("precision") is not None]
+            recalls = [r["recall"] for r in wf_results if r.get("recall") is not None]
+            f1s = [r["f1"] for r in wf_results if r.get("f1") is not None]
+            aucs = [r["auc"] for r in wf_results if r.get("auc") is not None]
+            
+            walk_forward_summary = {
+                "n_splits": len(wf_results),
+                "average_precision": float(np.mean(precisions)) if precisions else 0.0,
+                "average_recall": float(np.mean(recalls)) if recalls else 0.0,
+                "average_f1": float(np.mean(f1s)) if f1s else 0.0,
+                "average_auc": float(np.mean(aucs)) if aucs else 0.5,
+                "std_precision": float(np.std(precisions)) if precisions else 0.0,
+                "std_recall": float(np.std(recalls)) if recalls else 0.0,
+                "std_f1": float(np.std(f1s)) if f1s else 0.0,
+                "std_auc": float(np.std(aucs)) if aucs else 0.0,
+                "min_f1": float(min(f1s)) if f1s else 0.0,
+                "max_f1": float(max(f1s)) if f1s else 0.0,
+            }
+
+        # Construct unified sections
+        trading_params_dict = {
+            "entry_mode": getattr(self, "params", TradingParameters()).entry_mode,
+            "entry_buffer_pct": getattr(self, "params", TradingParameters()).entry_buffer_pct,
+            "look_forward_days": getattr(self, "params", TradingParameters()).look_forward_days,
+            "look_forward_mode": getattr(self, "params", TradingParameters()).look_forward_mode,
+            "barrier_mode": getattr(self, "params", TradingParameters()).barrier_mode,
+            "target_pct": getattr(self, "params", TradingParameters()).target_pct,
+            "stop_loss_pct": getattr(self, "params", TradingParameters()).stop_loss_pct,
+            "require_volume_confirmation": getattr(self, "params", TradingParameters()).require_volume_confirmation,
+            "min_volume_ratio": getattr(self, "params", TradingParameters()).min_volume_ratio,
+            "volume_confirmation_period": getattr(self, "params", TradingParameters()).volume_confirmation_period,
+        }
+        thresholds_dict = {
+            "king_threshold": getattr(self, "params", TradingParameters()).king_threshold,
+            "optimal_threshold": metadata.get("optimal_threshold") or metadata.get("meta_threshold") or getattr(self, "params", TradingParameters()).king_threshold,
+            "council_threshold": getattr(self, "params", TradingParameters()).council_threshold,
+            "validator_threshold": getattr(self, "params", TradingParameters()).validator_threshold,
+        }
+        feature_req_dict = {
+            "min_history_needed": getattr(self, "params", TradingParameters()).min_history_needed,
+            "warmup_bars": getattr(self, "params", TradingParameters()).warmup_bars,
+            "feature_lookback": getattr(self, "params", TradingParameters()).feature_lookback,
+        }
+
         primary_artifact = {
             "kind": "lgbm_booster",
             "model_str": booster.model_to_string() if booster else None,
@@ -2785,6 +2931,11 @@ class ModelTrainer:
             "pca_features": pca_features,
             "pca": pca,
             "scaler": scaler,
+            "trading_parameters": trading_params_dict,
+            "thresholds": thresholds_dict,
+            "feature_requirements": feature_req_dict,
+            "walk_forward_splits_results": getattr(self, "wf_splits_results", []),
+            "walk_forward_summary": walk_forward_summary if walk_forward_summary else {},
             **metadata,
         }
 
@@ -2796,8 +2947,14 @@ class ModelTrainer:
             "meta_threshold": float(meta_threshold),
             "exchange": self.exchange,
             "timestamp": primary_artifact.get("timestamp"),
+            "trading_parameters": trading_params_dict,
+            "thresholds": thresholds_dict,
+            "feature_requirements": feature_req_dict,
+            "walk_forward_splits_results": getattr(self, "wf_splits_results", []),
+            "walk_forward_summary": walk_forward_summary if walk_forward_summary else {},
             **metadata,
         }
+
 
         with open(filepath, "wb") as f:
             pickle.dump(artifact, f)
@@ -2905,7 +3062,10 @@ class ModelTrainer:
                     "has_meta_labeling": True,
                     "meta_threshold": float(meta_threshold),
                 },
+                "walk_forward_splits_results": getattr(self, "wf_splits_results", []),
+                "walk_forward_summary": walk_forward_summary if walk_forward_summary else {},
             }
+
 
             card_path = os.path.join(models_dir, f"{filename}.model_card.json")
             with open(card_path, "w", encoding="utf-8") as cf:
@@ -3009,7 +3169,7 @@ def train_model(exchange=None, supabase_url=None, supabase_key=None, *args, **kw
     # Get use_early_stopping from kwargs (defaults to True for backward compat)
     use_early_stopping = kwargs.get("use_early_stopping", True)
 
-    model, val_metrics, avg_purged_f1 = trainer.train_model(
+    model, val_metrics, avg_purged_f1, df_train = trainer.train_model(
         df_train,
         n_estimators=kwargs.get("n_estimators") or 500,
         learning_rate=kwargs.get("learning_rate", 0.01),

@@ -1,0 +1,28 @@
+{
+  "static_metrics": {
+    "KING.pkl": {
+      "trades": 0,
+      "win_rate": 0.0,
+      "profit_pct": 0.0,
+      "net_profit": 0.0,
+      "final_capital": 100000.0,
+      "avg_return_per_trade": 0.0
+    },
+    "model_EGX.pkl": {
+      "trades": 0,
+      "win_rate": 0.0,
+      "profit_pct": 0.0,
+      "net_profit": 0.0,
+      "final_capital": 100000.0,
+      "avg_return_per_trade": 0.0
+    }
+  },
+  "adaptive_metrics": {
+    "trades": 0,
+    "win_rate": 0.0,
+    "profit_pct": 0.0,
+    "net_profit": 0.0,
+    "final_capital": 100000.0,
+    "avg_return_per_trade": 0.0
+  }
+}

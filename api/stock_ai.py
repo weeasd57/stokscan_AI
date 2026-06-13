@@ -3412,6 +3412,94 @@ def _walk_forward_profit_folds(
     return out
 
 
+def calculate_ai_score_val(prob: float, buy_threshold: float = 0.5) -> int:
+    try:
+        if prob >= buy_threshold:
+            denom = (1.0 - buy_threshold)
+            if denom <= 0: denom = 0.01
+            scaled = 6 + (prob - buy_threshold) / denom * 4
+            return int(round(min(max(scaled, 6), 10)))
+        else:
+            denom = buy_threshold
+            if denom <= 0: denom = 0.01
+            scaled = 1 + (prob / denom) * 4
+            return int(round(min(max(scaled, 1), 5)))
+    except Exception:
+        return 5
+
+def calculate_technical_score_val(row) -> int:
+    score = 0
+    try:
+        rsi = float(row.get("RSI", 50))
+        if 30 <= rsi <= 70: score += 2
+        elif 20 <= rsi < 30 or 70 < rsi <= 80: score += 1
+        
+        close = float(row.get("Close", 0))
+        ema50 = float(row.get("EMA_50", 0))
+        ema200 = float(row.get("EMA_200", 0))
+        if close > ema50 > ema200 > 0: score += 2
+        elif close > ema50 > 0 or close > ema200 > 0: score += 1
+        
+        adx = float(row.get("ADX_14", 0))
+        if adx > 25: score += 2
+        elif adx > 15: score += 1
+        
+        volume = float(row.get("Volume", 0))
+        vol_sma = float(row.get("VOL_SMA20", 1))
+        if vol_sma > 0 and volume > vol_sma: score += 2
+        elif vol_sma > 0 and volume > vol_sma * 0.7: score += 1
+    except Exception:
+        pass
+    return min(10, max(1, score))
+
+def calculate_fundamental_score_val(row) -> int:
+    score = 0
+    try:
+        pe = float(row.get("peRatio", 0))
+        if 0 < pe <= 15: score += 3
+        elif 15 < pe <= 25: score += 2
+        elif 25 < pe <= 40: score += 1
+        
+        eps = float(row.get("eps", 0))
+        if eps > 1: score += 3
+        elif eps > 0: score += 2
+        elif eps > -0.5: score += 1
+        
+        div_yield = float(row.get("dividendYield", 0))
+        if div_yield > 3: score += 2
+        elif div_yield > 1: score += 1
+        
+        mkt_cap = float(row.get("marketCap", 0))
+        if mkt_cap > 10_000_000_000: score += 2
+        elif mkt_cap > 1_000_000_000: score += 1
+    except Exception:
+        pass
+    return min(10, max(1, score))
+
+def calculate_sentiment_score_val(row) -> int:
+    score = 5
+    try:
+        mom = float(row.get("Momentum", 0))
+        if mom > 0.02: score += 2
+        elif mom > 0: score += 1
+        elif mom < -0.02: score -= 2
+        elif mom < 0: score -= 1
+        
+        rsi = float(row.get("RSI", 50))
+        if rsi > 70: score += 1
+        elif rsi < 30: score -= 2
+        
+        volume = float(row.get("Volume", 0))
+        vol_sma = float(row.get("VOL_SMA20", 1))
+        r_vol = volume / vol_sma if vol_sma > 0 else 1.0
+        if r_vol > 2.0: score += 2
+        elif r_vol > 1.2: score += 1
+        elif r_vol < 0.5: score -= 1
+    except Exception:
+        pass
+    return min(10, max(1, score))
+
+
 def run_pipeline(
     api_key: str,
     ticker: str,
@@ -3814,9 +3902,22 @@ def run_pipeline(
     if include_fundamentals and not fundamentals:
         fundamentals_error = "Fundamentals not available from yfinance."
 
+    # Calculate current scores
+    last_row_dict = prices_ai.iloc[-1].to_dict()
+    if fundamentals:
+        last_row_dict.update(fundamentals)
+    current_ai_score = calculate_ai_score_val(float(precision), buy_threshold)
+    current_tech_score = calculate_technical_score_val(last_row_dict)
+    current_fund_score = calculate_fundamental_score_val(last_row_dict)
+    current_sent_score = calculate_sentiment_score_val(last_row_dict)
+
     return {
         "ticker": selected_symbol or ticker,
         "precision": precision,
+        "ai_score": current_ai_score,
+        "technical_score": current_tech_score,
+        "fundamental_score": current_fund_score,
+        "sentiment_score": current_sent_score,
         "earnPercentage": earn_percentage,
         "profitSummary": profit_summary,
         "walkForwardFolds": walk_forward_folds,

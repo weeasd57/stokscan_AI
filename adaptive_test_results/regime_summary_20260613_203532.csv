@@ -1,0 +1,7 @@
+date,regime,recommended_model,momentum,volatility,trend_strength,confidence,reason
+2024-01-01,BULL,C:\Users\MR__CODER__\Desktop\stokscan_AI\api\models\KING.pkl,59.75461580593296,24.163065520294396,79.51219512195122,0.8485365853658536,Bull market detected (momentum: 59.8%) - using KING for high returns
+2024-02-01,STRONG_BULL,C:\Users\MR__CODER__\Desktop\stokscan_AI\api\models\KING.pkl,94.31222529708614,31.13078790258623,81.46341463414635,0.854390243902439,Bull market detected (momentum: 94.3%) - using KING for high returns
+2024-03-01,STRONG_BULL,C:\Users\MR__CODER__\Desktop\stokscan_AI\api\models\KING.pkl,83.45145780147035,32.99981856644265,86.0,0.863,Bull market detected (momentum: 83.5%) - using KING for high returns
+2024-04-01,SIDEWAYS,C:\Users\MR__CODER__\Desktop\stokscan_AI\api\models\model_EGX.pkl,-2.827777883192934,41.8632096850551,22.857142857142854,0.3212751336806677,Non-bull market (momentum: -2.8%) - using model_EGX for stability
+2024-05-01,BEAR,C:\Users\MR__CODER__\Desktop\stokscan_AI\api\models\model_EGX.pkl,-84.22729823795906,52.20061079123395,18.94736842105263,0.6518421052631579,Non-bull market (momentum: -84.2%) - using model_EGX for stability
+2024-06-01,BEAR,C:\Users\MR__CODER__\Desktop\stokscan_AI\api\models\model_EGX.pkl,-25.34936494071831,42.62256415285642,78.28571428571428,0.7528486754000536,Non-bull market (momentum: -25.3%) - using model_EGX for stability

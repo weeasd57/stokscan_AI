@@ -61,6 +61,10 @@ class BotConfigUpdate(BaseModel):
     schedule_timezone: Optional[str] = None
     schedule_days: Optional[List[int]] = None
     use_atr_exits: Optional[bool] = None
+    use_adaptive_exits: Optional[bool] = None
+    use_adaptive_model_selector: Optional[bool] = None
+    adaptive_model_pool: Optional[List[str]] = None
+    adaptive_min_confidence: Optional[float] = None
     atr_sl_multiplier: Optional[float] = None
     atr_tp_multiplier: Optional[float] = None
     atr_period: Optional[int] = None
@@ -425,8 +429,9 @@ def save_live_bot_history_to_backtest(bot):
         total_trades = len(paired_trades)
         wins = sum(1 for t in paired_trades if t["pnl_pct"] > 0)
         win_rate = (wins / total_trades) * 100.0 if total_trades > 0 else 0.0
-        net_profit = sum(t["pnl_pct"] for t in paired_trades) * 100.0
-        avg_return = sum(t["pnl_pct"] for t in paired_trades) / total_trades * 100.0 if total_trades > 0 else 0.0
+        # FIX: pnl_pct is already in percentage (0.08 = 8%), don't multiply by 100 again
+        net_profit = sum(t["pnl_pct"] for t in paired_trades)
+        avg_return = sum(t["pnl_pct"] for t in paired_trades) / total_trades if total_trades > 0 else 0.0
 
         model_name = getattr(bot.config, "king_model_path", "KING.pkl").split("/")[-1]
         exchange = "CRYPTO" if "CRYPTO" in model_name.upper() else "EGX"

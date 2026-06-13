@@ -41,34 +41,53 @@ Advanced AI-driven stock analysis platform. Combining RandomForest models with m
 - **Database**: Supabase (PostgreSQL).
 - **Data Source**: EODHD API / TradingView (via custom scrapers).
 
-## ⚡ Getting Started
+## ⚡ Getting Started (تشغيل المشروع محلياً)
 
-### Prerequisites
+### Prerequisites (المتطلبات الأساسية)
 - Node.js 18+
 - Python 3.10+
 - Supabase Account
 
-### Installation
+---
 
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/your-repo/ai-stocks.git
-   cd ai-stocks
-   ```
+### 💻 Local Run Commands (أوامر تشغيل السيرفرات محلياً)
 
-2. **Frontend Setup**
-   ```bash
-   cd web
-   npm install
-   npm run dev
-   ```
+يمكنك تشغيل المشروع من المجلد الرئيسي للمستودع (Root Directory) مباشرة كالتالي:
 
-3. **Backend Setup**
-   ```bash
-   cd api
-   pip install -r requirements.txt
-   uvicorn main:app --reload
-   ```
+#### 1️⃣ تشغيل السيرفر الخلفي (Python Backend Server)
+لتفعيل البيئة الافتراضية وتشغيل سيرفر FastAPI:
+```powershell
+# تفعيل البيئة الافتراضية (Windows PowerShell)
+.\venv\Scripts\activate
+
+# تشغيل سيرفر الـ FastAPI
+.\venv\Scripts\python -m uvicorn api.main:app --reload --host 127.0.0.1 --port 8000
+```
+*(أو إذا كنت تستخدم نظام macOS/Linux):*
+```bash
+source venv/bin/activate
+python -m uvicorn api.main:app --reload --host 127.0.0.1 --port 8000
+```
+
+#### 2️⃣ تشغيل واجهة المستخدم (Next.js Frontend)
+في نافذة تيرمينال منفصلة، قم بتشغيل خادم التطوير لواجهة المستخدم:
+```bash
+# من المجلد الرئيسي مباشرة (Root Directory)
+npm run web:dev
+```
+*(أو بالدخول لمجلد الويب):*
+```bash
+cd web
+npm run dev
+```
+
+---
+
+### 🏋️‍♂️ Model Training (تدريب موديل الذكاء الاصطناعي محلياً)
+لتشغيل سكربت التدريب يدوياً لسوق معين (مثل السوق المصري EGX):
+```powershell
+.\venv\Scripts\python -u -m api.train_exchange_model --exchange EGX
+```
 
 ## 🚀 Deployment Architecture
 

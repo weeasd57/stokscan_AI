@@ -1,7 +1,8 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { Activity, Calendar, Play, TrendingUp, Target, AlertTriangle, CheckCircle2, FileText, Globe, Trash2, Eye, Wallet, EyeOff, History as HistoryIcon, ChevronDown, LineChart, Database, Users, Cpu, ShieldCheck, Zap, Info, Star } from "lucide-react";
+import { Activity, Calendar, Play, TrendingUp, Target, AlertTriangle, CheckCircle2, FileText, Globe, Trash2, Eye, Wallet, EyeOff, History as HistoryIcon, ChevronDown, LineChart, Database, Users, Cpu, ShieldCheck, Zap, Info, Star, Brain } from "lucide-react";
+import * as Switch from "@radix-ui/react-switch";
 import { getLocalModels, type LocalModelMeta, getBacktests, getBacktestTrades, deleteBacktest, updateBacktestVisibility, updateBacktestFavorite, getProductionApiUrl } from "@/lib/api";
 import { useAppState } from "@/contexts/AppStateContext";
 import { toast } from "sonner";
@@ -1331,6 +1332,9 @@ export default function BacktestTab() {
   const [modelsLoading, setModelsLoading] = useState(false);
   const [selectedModel, setSelectedModel] = useState<string | null>(null);
   const [selectedExchange, setSelectedExchange] = useState("EGX");
+  const [useAdaptiveSelector, setUseAdaptiveSelector] = useState(false);
+  const [adaptiveModelPool, setAdaptiveModelPool] = useState<string[]>([]);
+  const [adaptiveMinConfidence, setAdaptiveMinConfidence] = useState<number>(0.55);
   const [selectedTimeframe, setSelectedTimeframe] = useState<string>("1D");
   const [selectedCouncilModel, setSelectedCouncilModel] = useState<string | null>(null);
   const [startDate, setStartDate] = useState(new Date().toISOString().slice(0, 10));
@@ -1614,6 +1618,9 @@ export default function BacktestTab() {
         crypto_quote_filters: selectedExchange === "CRYPTO" && cryptoQuoteFilters.size > 0
           ? Array.from(cryptoQuoteFilters)
           : undefined,
+        use_adaptive_model_selector: useAdaptiveSelector,
+        adaptive_model_pool: adaptiveModelPool.length > 0 ? adaptiveModelPool : undefined,
+        adaptive_min_confidence: adaptiveMinConfidence,
       };
       // Intentionally silent (avoid noisy debug logs in the browser console)
 
@@ -2061,6 +2068,65 @@ export default function BacktestTab() {
                 <option value="1D" className="bg-zinc-900 text-white">1D (Daily)</option>
                 <option value="1W" className="bg-zinc-900 text-white">1W (Weekly)</option>
               </select>
+            </div>
+
+            {/* Adaptive Model Settings */}
+            <div className="pt-6 border-t border-white/5 space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-white tracking-wider flex items-center gap-2">
+                    <Brain className="w-3.5 h-3.5 text-indigo-400" /> Adaptive Model Selector
+                  </label>
+                  <p className="text-[10px] text-zinc-500 uppercase font-bold tracking-widest">Regime-based dynamic switching</p>
+                </div>
+                <Switch.Root
+                  checked={useAdaptiveSelector}
+                  onCheckedChange={(c: boolean) => setUseAdaptiveSelector(c)}
+                  className={`w-10 h-5 rounded-full relative shadow-inner transition-colors duration-300 ${useAdaptiveSelector ? 'bg-indigo-600' : 'bg-zinc-700'}`}
+                >
+                  <Switch.Thumb className={`block w-3 h-3 rounded-full bg-white shadow-lg transition-transform duration-300 transform translate-y-1 ${useAdaptiveSelector ? 'translate-x-6' : 'translate-x-1'}`} />
+                </Switch.Root>
+              </div>
+
+              {useAdaptiveSelector && (
+                <div className="grid gap-6 md:grid-cols-2 p-5 bg-zinc-900/60 border border-white/5 rounded-2xl animate-in fade-in duration-200">
+                  <div className="space-y-2">
+                    <label className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest">Adaptive Model Pool</label>
+                    <div className="max-h-32 overflow-y-auto space-y-2 bg-black/60 border border-white/5 rounded-xl p-3">
+                      {models.map((m) => {
+                        const name = typeof m === "string" ? m : m.name;
+                        const isChecked = adaptiveModelPool.includes(name);
+                        return (
+                          <label key={name} className="flex items-center gap-2 text-xs text-zinc-400 hover:text-white cursor-pointer select-none">
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={(e) => {
+                                const newPool = e.target.checked
+                                  ? [...adaptiveModelPool, name]
+                                  : adaptiveModelPool.filter(p => p !== name);
+                                setAdaptiveModelPool(newPool);
+                              }}
+                              className="rounded border-zinc-700 text-indigo-600 focus:ring-indigo-500 bg-black/40"
+                            />
+                            <span>{name.split('/').pop()}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest">Min Regime Confidence</label>
+                    <input
+                      type="number" step="0.05" min="0.0" max="1.0"
+                      value={adaptiveMinConfidence}
+                      onChange={(e) => setAdaptiveMinConfidence(parseFloat(e.target.value) || 0.55)}
+                      className="w-full h-14 px-5 rounded-2xl border border-white/5 bg-zinc-900/80 text-white font-mono text-sm focus:ring-2 focus:ring-indigo-500/40 outline-none transition-all"
+                    />
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 

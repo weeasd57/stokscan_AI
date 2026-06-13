@@ -6,7 +6,7 @@ import {
     ChevronLeft, ChevronRight, 
     BarChart3, PieChart, Landmark, Coins, Scale, Percent, Minus, Plus, 
     Info, LayoutTemplate, Settings2, Bell, BellRing, Trash, Check, 
-    AlertCircle, ChevronDown, ChevronUp, Star, ExternalLink
+    AlertCircle, ChevronDown, ChevronUp, Star, ExternalLink, Brain
 } from "lucide-react";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useWatchlist } from "@/contexts/WatchlistContext";
@@ -239,6 +239,7 @@ export default function TechnicalScannerPage() {
     }, [filteredResults, currentPage]);
 
     const TABS = [
+        { id: 'ai', label: 'AI Scanner', icon: Brain },
         { id: 'overview', label: 'Overview', icon: LayoutTemplate },
         { id: 'performance', label: 'Performance', icon: BarChart3 },
         { id: 'valuation', label: 'Valuation', icon: PieChart },
@@ -1721,6 +1722,16 @@ export default function TechnicalScannerPage() {
                                         {/* Sortable Change */}
                                         <SortableHeader label="Chg %" field="change_p" widthClass="w-24" />
 
+                                        {currentTab === 'ai' && (
+                                            <>
+                                                <SortableHeader label="AI Score" field="ai_score" widthClass="w-24" align="center" />
+                                                <SortableHeader label="Fundamental" field="fundamental_score" widthClass="w-28" align="center" />
+                                                <SortableHeader label="Technical" field="technical_score" widthClass="w-28" align="center" />
+                                                <SortableHeader label="Sentiment" field="sentiment_score" widthClass="w-28" align="center" />
+                                                <SortableHeader label="Industry" field="industry" widthClass="w-36" align="left" />
+                                            </>
+                                        )}
+
                                         {currentTab === 'overview' && (
                                             <>
                                                 <SortableHeader label="Volume" field="volume" widthClass="w-24" />
@@ -1789,6 +1800,74 @@ export default function TechnicalScannerPage() {
                                                     {r.change_p >= 0 ? "+" : ""}{r.change_p.toFixed(2)}%
                                                 </span>
                                             </td>
+                                            {currentTab === 'ai' && (
+                                                <>
+                                                    {/* AI Score (1-10) */}
+                                                    <td className="px-4 py-2 text-center">
+                                                        {r.ai_score !== undefined && r.ai_score !== null ? (
+                                                            <div className={`
+                                                                inline-flex items-center justify-center w-8 h-8 rounded-full text-xs font-black border
+                                                                ${r.ai_score >= 8 
+                                                                    ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30" 
+                                                                    : r.ai_score >= 5 
+                                                                    ? "bg-amber-500/15 text-amber-400 border-amber-500/30" 
+                                                                    : "bg-red-500/15 text-red-400 border-red-500/30"}
+                                                            `}>
+                                                                {r.ai_score}
+                                                            </div>
+                                                        ) : (
+                                                            <span className="text-[#787b86] font-bold text-xs">—</span>
+                                                        )}
+                                                    </td>
+
+                                                    {/* Fundamental Score (1-10) */}
+                                                    <td className="px-4 py-2 text-center">
+                                                        <div className={`
+                                                            inline-flex items-center justify-center w-7 h-7 rounded-lg text-xs font-black border
+                                                            ${(r.fundamental_score ?? 0) >= 7 
+                                                                ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" 
+                                                                : (r.fundamental_score ?? 0) >= 4 
+                                                                ? "bg-amber-500/10 text-amber-400 border-amber-500/20" 
+                                                                : "bg-red-500/10 text-red-400 border-red-500/20"}
+                                                        `}>
+                                                            {r.fundamental_score ?? "—"}
+                                                        </div>
+                                                    </td>
+
+                                                    {/* Technical Score (1-10) */}
+                                                    <td className="px-4 py-2 text-center">
+                                                        <div className={`
+                                                            inline-flex items-center justify-center w-7 h-7 rounded-lg text-xs font-black border
+                                                            ${(r.technical_score ?? 0) >= 7 
+                                                                ? "bg-emerald-500/10 text-emerald-400 border-[#26a69a]/20" 
+                                                                : (r.technical_score ?? 0) >= 4 
+                                                                ? "bg-amber-500/10 text-amber-400 border-amber-500/20" 
+                                                                : "bg-red-500/10 text-red-400 border-red-500/20"}
+                                                        `}>
+                                                            {r.technical_score ?? "—"}
+                                                        </div>
+                                                    </td>
+
+                                                    {/* Sentiment Score (1-10) */}
+                                                    <td className="px-4 py-2 text-center">
+                                                        <div className={`
+                                                            inline-flex items-center justify-center w-7 h-7 rounded-lg text-xs font-black border
+                                                            ${(r.sentiment_score ?? 0) >= 7 
+                                                                ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" 
+                                                                : (r.sentiment_score ?? 0) >= 4 
+                                                                ? "bg-amber-500/10 text-amber-400 border-amber-500/20" 
+                                                                : "bg-red-500/10 text-red-400 border-red-500/20"}
+                                                        `}>
+                                                            {r.sentiment_score ?? "—"}
+                                                        </div>
+                                                    </td>
+
+                                                    {/* Industry */}
+                                                    <td className="px-4 py-2 text-left font-semibold text-xs text-[#b2b5be] truncate max-w-[120px]">
+                                                        {r.industry || "—"}
+                                                    </td>
+                                                </>
+                                            )}
                                             {currentTab === 'overview' && (
                                                 <>
                                                     <td className="px-4 py-2 text-right font-mono text-[#b2b5be] text-xs">{formatCompact(r.volume)}</td>

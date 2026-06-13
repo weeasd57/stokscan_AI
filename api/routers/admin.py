@@ -3521,7 +3521,7 @@ def get_adaptive_results(
         def _fetch_results(sb):
             query = (
                 sb.table("scan_results")
-                .select("symbol, precision, status, entry_price, created_at")
+                .select("symbol, prediction, status, entry_price, date, created_at, model_name, model_version")
                 .eq("exchange", exchange)
                 .not_.eq("status", "open")
                 .order("created_at", desc=True)

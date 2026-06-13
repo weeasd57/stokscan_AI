@@ -178,7 +178,7 @@ class StrategyEngine:
         use_market_regime: bool = True,
         regime_adx_threshold: float = 14.0
     ) -> str:
-        """Detect market regime: 'BULL', 'BEAR', or 'SIDEWAYS'."""
+        """Detect market regime: 'STRONG_BULL', 'BULL', 'BEAR', or 'SIDEWAYS'."""
         bars = StrategyEngine._normalize_bars(bars)
         if not use_market_regime or len(bars) < 60:
             return "UNKNOWN"
@@ -190,6 +190,17 @@ class StrategyEngine:
             sma50_prev = bars['close'].iloc[-55:-5].mean()
             sma_slope = (sma50 - sma50_prev) / sma50_prev if sma50_prev > 0 else 0
             current_price = bars['close'].iloc[-1]
+            
+            # Check for STRONG_BULL (Inflation run)
+            if len(bars) >= 200:
+                sma200 = bars['close'].iloc[-200:].mean()
+            else:
+                sma200 = bars['close'].mean()
+                
+            roc_3m = (current_price / bars['close'].iloc[-60]) - 1.0
+            
+            if roc_3m > 0.20 and sma50 > sma200:
+                return "STRONG_BULL"
             
             if adx < regime_adx_threshold:
                 regime = "SIDEWAYS"

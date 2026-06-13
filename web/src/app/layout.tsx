@@ -5,8 +5,37 @@ import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 
 export const metadata = {
-  title: "EGX Bots",
-  description: "Advanced AI-driven stock analysis platform. Combining RandomForest models with multi-source fundamentals to give you the edge.",
+  metadataBase: new URL('https://egxbots.com'),
+  title: {
+    default: "EGX BOTS | تحليل البورصة المصرية بالذكاء الاصطناعي",
+    template: "%s | EGX BOTS"
+  },
+  description: "منصة متقدمة لتحليل الأسهم المصرية باستخدام الذكاء الاصطناعي ونماذج RandomForest. احصل على إشارات تداول لحظية واختبارات تاريخية دقيقة.",
+  keywords: ["البورصة المصرية", "EGX", "ذكاء اصطناعي", "تحليل أسهم", "تداول آلي", "إشارات تداول"],
+  authors: [{ name: "EGX BOTS Team" }],
+  creator: "EGX BOTS",
+  openGraph: {
+    type: "website",
+    locale: "ar_EG",
+    url: "https://egxbots.com",
+    title: "EGX BOTS | تحليل البورصة المصرية بالذكاء الاصطناعي",
+    description: "أول منصة في مصر تستخدم نماذج ML متقدمة لتوقع اتجاهات السوق المصري وتوفير بوتات تداول ذكية.",
+    siteName: "EGX BOTS",
+    images: [
+      {
+        url: "/dashboard_preview.png",
+        width: 1200,
+        height: 630,
+        alt: "EGX BOTS Dashboard Preview",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "EGX BOTS | AI Stock Analysis",
+    description: "Advanced AI-driven stock analysis platform for EGX.",
+    images: ["/dashboard_preview.png"],
+  },
   manifest: "/favicon_io/site.webmanifest",
   icons: {
     icon: [
@@ -20,6 +49,13 @@ export const metadata = {
   robots: {
     index: true,
     follow: true,
+    googleBot: {
+      index: true,
+      follow: true,
+      'max-video-preview': -1,
+      'max-image-preview': 'large',
+      'max-snippet': -1,
+    },
   },
 };
 
@@ -31,6 +67,28 @@ export default function RootLayout({
   return (
     <html lang="en" dir="ltr" suppressHydrationWarning>
       <head>
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{
+            __html: JSON.stringify({
+              "@context": "https://schema.org",
+              "@type": "SoftwareApplication",
+              "name": "EGX BOTS",
+              "operatingSystem": "Web",
+              "applicationCategory": "FinanceApplication",
+              "description": "Advanced AI-driven stock analysis platform for the Egyptian Exchange (EGX).",
+              "offers": {
+                "@type": "Offer",
+                "price": "0",
+                "priceCurrency": "EGP"
+              },
+              "author": {
+                "@type": "Organization",
+                "name": "EGX BOTS"
+              }
+            })
+          }}
+        />
         {/* Script to prevent FOUC (Flash of Unstyled Content) */}
         <script
           dangerouslySetInnerHTML={{

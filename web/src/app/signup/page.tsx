@@ -40,52 +40,52 @@ export default function SignupPage() {
   }
 
   return (
-    <div className="mx-auto max-w-md">
-      <div className="rounded-2xl border border-zinc-800 bg-zinc-950 p-6">
-        <h1 className="text-2xl font-semibold text-zinc-100">{t("auth.signup.title")}</h1>
-        <p className="mt-1 text-sm text-zinc-400">{t("auth.signup.subtitle")}</p>
+    <div className="min-h-[75vh] flex flex-col items-center justify-center px-4 py-16 relative overflow-hidden neobrutal-grid-bg">
+      <div className="w-full max-w-md neobrutal-card p-8 relative z-10">
+        <h1 className="text-3xl font-black text-black dark:text-white tracking-tight">{t("auth.signup.title")}</h1>
+        <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400 font-semibold">{t("auth.signup.subtitle")}</p>
 
-        <form onSubmit={onSubmit} className="mt-6 space-y-4">
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-zinc-400">{t("auth.email")}</label>
+        <form onSubmit={onSubmit} className="mt-6 space-y-5">
+          <div className="space-y-1.5">
+            <label className="text-xs font-black uppercase tracking-wider text-black dark:text-white">{t("auth.email")}</label>
             <input
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               type="email"
               autoComplete="email"
-              className="h-10 w-full rounded-lg border border-zinc-800 bg-zinc-900 px-3 text-sm text-zinc-100 outline-none focus:border-indigo-500"
+              className="h-11 w-full border-4 border-black dark:border-white bg-white dark:bg-zinc-900 px-4 text-sm text-black dark:text-white outline-none transition-all focus:bg-yellow-50 dark:focus:bg-zinc-800 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_0px_rgba(255,255,255,1)]"
               placeholder={t("auth.email_placeholder")}
               required
             />
           </div>
 
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-zinc-400">{t("auth.password")}</label>
+          <div className="space-y-1.5">
+            <label className="text-xs font-black uppercase tracking-wider text-black dark:text-white">{t("auth.password")}</label>
             <input
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               type="password"
               autoComplete="new-password"
-              className="h-10 w-full rounded-lg border border-zinc-800 bg-zinc-900 px-3 text-sm text-zinc-100 outline-none focus:border-indigo-500"
+              className="h-11 w-full border-4 border-black dark:border-white bg-white dark:bg-zinc-900 px-4 text-sm text-black dark:text-white outline-none transition-all focus:bg-yellow-50 dark:focus:bg-zinc-800 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_0px_rgba(255,255,255,1)]"
               placeholder={t("auth.password_placeholder")}
               required
             />
           </div>
 
-          {error && <div className="rounded-lg border border-red-900/40 bg-red-950/30 p-3 text-xs text-red-300">{error}</div>}
+          {error && <div className="border-4 border-black dark:border-white bg-red-100 dark:bg-red-950 p-3.5 text-xs text-red-700 dark:text-red-300 font-bold leading-relaxed">{error}</div>}
 
           <button
             type="submit"
             disabled={!canSubmit}
-            className="h-10 w-full rounded-lg bg-indigo-600 text-sm font-semibold text-white hover:bg-indigo-500 disabled:opacity-50 disabled:hover:bg-indigo-600"
+            className="neobrutal-btn neobrutal-bg-yellow font-black text-sm text-black h-11 w-full flex items-center justify-center gap-2 uppercase tracking-wider disabled:opacity-50"
           >
             {submitting ? t("auth.creating_btn") : t("auth.create_btn")}
           </button>
         </form>
 
-        <div className="mt-4 text-xs text-zinc-500">
+        <div className="mt-6 text-center text-xs text-zinc-500 font-bold">
           {t("auth.signup.have_account")}{" "}
-          <Link href="/login" className="text-indigo-400 hover:text-indigo-300">
+          <Link href="/login" className="text-indigo-600 dark:text-indigo-400 hover:underline">
             {t("auth.signup.login")}
           </Link>
         </div>

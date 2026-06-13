@@ -34,6 +34,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
+from api.adaptive_model_selector import recommend_model_from_pool
 from api.stock_ai import run_pipeline
 from api.symbols_local import list_countries, search_symbols
 
@@ -1031,6 +1032,7 @@ class BotConfig(BaseModel):
     smart_exit_volume_spike: float = 3.0
     trading_mode: str = "hybrid"
     use_atr_exits: bool = True
+    use_adaptive_exits: bool = False
     atr_sl_multiplier: float = 1.5
     atr_tp_multiplier: float = 2.5
     atr_period: int = 14
@@ -1039,6 +1041,9 @@ class BotConfig(BaseModel):
     trail_be_pct: float = 0.04
     trail_lock_trigger_pct: float = 0.06
     trail_lock_pct: float = 0.04
+    use_adaptive_model_selector: bool = False
+    adaptive_model_pool: Optional[List[str]] = None
+    adaptive_min_confidence: float = 0.55
 
 
 class StrategyTesterRequest(BaseModel):
@@ -1064,6 +1069,7 @@ class StrategyTesterRequest(BaseModel):
     smart_exit_volume_spike: float = 3.0
     trading_mode: str = "hybrid"
     use_atr_exits: bool = True
+    use_adaptive_exits: bool = False
     atr_sl_multiplier: float = 1.5
     atr_tp_multiplier: float = 2.5
     atr_period: int = 14
@@ -1072,6 +1078,9 @@ class StrategyTesterRequest(BaseModel):
     trail_be_pct: float = 0.04
     trail_lock_trigger_pct: float = 0.06
     trail_lock_pct: float = 0.04
+    use_adaptive_model_selector: bool = False
+    adaptive_model_pool: Optional[List[str]] = None
+    adaptive_min_confidence: float = 0.55
 
 
 @app.post("/backtest/simulate")
@@ -1087,6 +1096,13 @@ async def strategy_tester_endpoint(req: StrategyTesterRequest):
 
     # Validate models and gather simulation configs
     sim_configs = []
+
+    # Check if either bots or models are provided
+    if not req.bots and not req.models:
+        raise HTTPException(
+            status_code=422, 
+            detail="Either 'bots' or 'models' must be provided in the request body"
+        )
 
     if req.bots:
         for bot in req.bots:
@@ -1224,7 +1240,39 @@ async def strategy_tester_endpoint(req: StrategyTesterRequest):
         )
 
     # ── 4. Run simulation for each model ─────────────────────────────────────
-    from api.backtest_radar import load_model, run_radar_simulation
+    from api.backtest_radar import load_model, run_radar_simulation, run_enhanced_radar_simulation
+    from api.backtest_config import BacktestConfig, get_simulation_function
+    
+    # Log current configuration
+    BacktestConfig.log_configuration()
+
+    adaptive_info = None
+    if req.use_adaptive_model_selector:
+        adaptive_pool = req.adaptive_model_pool or [name for _, name, _ in sim_configs]
+        adaptive_info = _resolve_adaptive_selection(
+            exchange=exchange_upper,
+            models_dir=models_dir,
+            as_of=req.start_date,
+            model_pool=adaptive_pool,
+            fallback_price_frame=df_raw.reset_index(),
+            min_confidence=req.adaptive_min_confidence,
+        )
+        if adaptive_info and adaptive_info.get("recommended_model"):
+            base_bot = sim_configs[0][2] if sim_configs else None
+            if base_bot is not None:
+                adaptive_bot = BotConfig(**base_bot.dict())
+                adaptive_bot.id = "Adaptive Selector"
+                adaptive_bot.model_name = adaptive_info["recommended_model"]
+                adaptive_bot.use_adaptive_model_selector = True
+                adaptive_bot.adaptive_model_pool = adaptive_pool
+                adaptive_bot.adaptive_min_confidence = req.adaptive_min_confidence
+                sim_configs.append(
+                    (
+                        adaptive_bot.id,
+                        adaptive_info["recommended_model"],
+                        adaptive_bot,
+                    )
+                )
 
     model_results = {}
     for bot_id, model_name, bot in sim_configs:
@@ -1267,7 +1315,10 @@ async def strategy_tester_endpoint(req: StrategyTesterRequest):
                 if safe_sl is not None and safe_sl >= 1.0:
                     safe_sl = 0.05  # coerce to 5% default
 
-            result = run_radar_simulation(
+            # Use enhanced simulation based on configuration
+            simulation_function = get_simulation_function()
+            
+            result = simulation_function(
                 df=df_featured.copy(),
                 model=model_obj,
                 council=None,
@@ -1296,6 +1347,7 @@ async def strategy_tester_endpoint(req: StrategyTesterRequest):
                 trail_be_pct=bot.trail_be_pct,
                 trail_lock_trigger_pct=bot.trail_lock_trigger_pct,
                 trail_lock_pct=bot.trail_lock_pct,
+                adaptive_exits=getattr(bot, "use_adaptive_exits", False),
             )
 
             if not result:
@@ -1354,12 +1406,28 @@ async def strategy_tester_endpoint(req: StrategyTesterRequest):
                 stats["total_trades"] = len(trades)
                 stats["win_rate"] = round(len(wins) / len(trades) * 100, 1)
                 total_pnl = sum(t.get("PnL_Pct", 0) for t in trades)
-                stats["net_profit_pct"] = round(total_pnl * 100, 2)
-                stats["avg_return_pct"] = round(total_pnl / len(trades) * 100, 2)
+                # FIX: PnL_Pct might already be in percentage, check and don't double-multiply
+                stats["net_profit_pct"] = round(total_pnl, 2)
+                stats["avg_return_pct"] = round(total_pnl / len(trades), 2)
+            
+            # Add enhanced portfolio statistics if available
+            if "portfolio_stats" in result:
+                portfolio_stats = result["portfolio_stats"]
+                stats["enhanced_metrics"] = {
+                    "total_return_accurate": round(portfolio_stats.get("total_return_pct", 0) * 100, 2),
+                    "max_drawdown": round(portfolio_stats.get("max_drawdown", 0) * 100, 2),
+                    "sharpe_ratio": round(portfolio_stats.get("sharpe_ratio", 0), 2),
+                    "total_commission": round(portfolio_stats.get("total_commission", 0), 2),
+                    "portfolio_value": round(portfolio_stats.get("portfolio_value", 0), 2),
+                    "cash_remaining": round(portfolio_stats.get("cash", 0), 2),
+                    "current_exposure": round(portfolio_stats.get("current_exposure", 0) * 100, 2),
+                    "avg_trade_pnl": round(portfolio_stats.get("avg_trade_pnl", 0), 2),
+                }
 
             model_results[bot_id] = {
                 "trades": trades,
                 "stats": stats,
+                "adaptive": adaptive_info if bot_id == "Adaptive Selector" else None,
             }
 
         except Exception as e:
@@ -1375,6 +1443,7 @@ async def strategy_tester_endpoint(req: StrategyTesterRequest):
         "bars": bars,
         "total_bars": len(bars),
         "models": model_results,
+        "adaptive": adaptive_info,
         "config": {
             "threshold": req.threshold,
             "target_pct": req.target_pct,
@@ -1382,6 +1451,7 @@ async def strategy_tester_endpoint(req: StrategyTesterRequest):
             "hold_days": req.hold_days,
             "bot_mode": req.bot_mode,
             "capital": req.capital,
+            "use_adaptive_model_selector": req.use_adaptive_model_selector,
         },
     }
 
@@ -1433,6 +1503,9 @@ class BacktestRequest(PBM):
     atr_tp_multiplier: float = 2.5
     atr_period: int = 14
     exit_mode: str = "hybrid"
+    use_adaptive_model_selector: bool = False
+    adaptive_model_pool: list[str] | None = None
+    adaptive_min_confidence: float = 0.55
 
 
 def _safe_basename(name: str) -> str:
@@ -1462,6 +1535,138 @@ def _load_model_card(models_dir: str, model_name: str) -> dict | None:
             return json.load(f)
     except Exception:
         return None
+
+
+def _default_index_symbol_for_exchange(exchange: str) -> tuple[str, str | None]:
+    ex = (exchange or "").strip().upper()
+    if ex == "EGX":
+        return "EGX30", "INDX"
+    return "", ex or None
+
+
+def _normalize_adaptive_price_frame(df: pd.DataFrame) -> pd.DataFrame:
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    out = df.copy()
+    rename_map = {}
+    for src, dst in {
+        "close": "Close",
+        "high": "High",
+        "low": "Low",
+        "volume": "Volume",
+    }.items():
+        if src in out.columns:
+            rename_map[src] = dst
+    out = out.rename(columns=rename_map)
+
+    if "Close" not in out.columns:
+        return pd.DataFrame()
+    if "High" not in out.columns:
+        out["High"] = out["Close"]
+    if "Low" not in out.columns:
+        out["Low"] = out["Close"]
+    if "Volume" not in out.columns:
+        out["Volume"] = 0.0
+
+    if "date" in out.columns:
+        out["date"] = pd.to_datetime(out["date"], errors="coerce")
+        out = out.dropna(subset=["date"]).set_index("date")
+    if not isinstance(out.index, pd.DatetimeIndex):
+        out.index = pd.to_datetime(out.index, errors="coerce")
+        out = out[~out.index.isna()]
+
+    return out.sort_index()[["Close", "High", "Low", "Volume"]]
+
+
+def _fetch_adaptive_index_data(
+    exchange: str,
+    as_of: Optional[str] = None,
+) -> pd.DataFrame:
+    from api.stock_ai import _init_supabase, supabase
+
+    _init_supabase()
+    if not supabase:
+        return pd.DataFrame()
+
+    symbol, symbol_exchange = _default_index_symbol_for_exchange(exchange)
+    if not symbol:
+        return pd.DataFrame()
+
+    try:
+        as_of_dt = (
+            pd.to_datetime(as_of, format="%Y-%m-%d")
+            if as_of
+            else pd.Timestamp.utcnow().tz_localize(None)
+        )
+    except Exception:
+        as_of_dt = pd.Timestamp.utcnow().tz_localize(None)
+    start_dt = as_of_dt - pd.Timedelta(days=400)
+
+    query = (
+        supabase.table("stock_prices")
+        .select("date, close, high, low, volume")
+        .eq("symbol", symbol)
+        .gte("date", start_dt.strftime("%Y-%m-%d"))
+        .lte("date", as_of_dt.strftime("%Y-%m-%d"))
+        .order("date", desc=False)
+    )
+    if symbol_exchange:
+        query = query.eq("exchange", symbol_exchange)
+
+    try:
+        rows = query.execute().data or []
+    except Exception:
+        rows = []
+
+    return _normalize_adaptive_price_frame(pd.DataFrame(rows))
+
+
+def _resolve_adaptive_selection(
+    exchange: str,
+    models_dir: str,
+    as_of: Optional[str],
+    model_pool: Optional[list[str]] = None,
+    fallback_price_frame: Optional[pd.DataFrame] = None,
+    min_confidence: float = 0.55,
+) -> dict | None:
+    index_df = _fetch_adaptive_index_data(exchange, as_of)
+    if index_df.empty and fallback_price_frame is not None:
+        index_df = _normalize_adaptive_price_frame(fallback_price_frame)
+    if index_df.empty:
+        return None
+
+    current_date = None
+    if as_of:
+        try:
+            current_date = pd.to_datetime(as_of, format="%Y-%m-%d").to_pydatetime()
+        except Exception:
+            current_date = None
+
+    model_path, regime_info, candidates = recommend_model_from_pool(
+        index_data=index_df,
+        models_dir=models_dir,
+        exchange=exchange,
+        current_date=current_date,
+        model_names=model_pool,
+    )
+    recommended_model = os.path.basename(model_path)
+    return {
+        "recommended_model": recommended_model,
+        "recommended_model_path": model_path,
+        "regime": regime_info.regime,
+        "confidence": round(float(regime_info.confidence), 4),
+        "momentum_score": round(float(regime_info.momentum_score), 4),
+        "volatility_score": round(float(regime_info.volatility_score), 4),
+        "trend_strength": round(float(regime_info.trend_strength), 4),
+        "reason": regime_info.reason,
+        "candidate_models": [item["name"] for item in candidates],
+        "candidate_count": len(candidates),
+        "meets_min_confidence": float(regime_info.confidence) >= float(min_confidence or 0.0),
+        "min_confidence": float(min_confidence or 0.0),
+        "as_of": as_of,
+        "exchange": exchange,
+    }
 
 
 def _compute_benchmark_metrics(
@@ -1596,7 +1801,21 @@ async def backtest_endpoint(req: BacktestRequest, background_tasks: BackgroundTa
     # Validate the model name early to avoid expensive work and noisy background failures.
     api_dir = os.path.dirname(os.path.abspath(__file__))
     models_dir = os.path.join(api_dir, "models")
+    adaptive_info = None
     requested_model = _safe_basename(req.model)
+    adaptive_pool = [_safe_basename(name) for name in (req.adaptive_model_pool or []) if name]
+    if req.use_adaptive_model_selector:
+        if not adaptive_pool and requested_model:
+            adaptive_pool = [requested_model]
+        adaptive_info = _resolve_adaptive_selection(
+            exchange=req.exchange,
+            models_dir=models_dir,
+            as_of=req.start_date,
+            model_pool=adaptive_pool,
+            min_confidence=req.adaptive_min_confidence,
+        )
+        if adaptive_info and adaptive_info.get("recommended_model"):
+            requested_model = _safe_basename(adaptive_info["recommended_model"])
     model_path = os.path.join(models_dir, requested_model)
     if not os.path.exists(model_path):
         # Provide a helpful hint with closest matches.
@@ -1752,14 +1971,42 @@ async def backtest_endpoint(req: BacktestRequest, background_tasks: BackgroundTa
         atr_tp_multiplier=req.atr_tp_multiplier,
         atr_period=req.atr_period,
         exit_mode=req.exit_mode,
+        use_adaptive_model_selector=req.use_adaptive_model_selector,
+        adaptive_model_pool=adaptive_pool,
+        adaptive_min_confidence=req.adaptive_min_confidence,
     )
 
     background_tasks.add_task(run_backtest_task, req_sanitized, backtest_id)
     return {
         "status": "queued",
         "id": backtest_id,
-        "message": f"Backtest for {req.model} on {req.exchange} has been started. Trace ID: {backtest_id}",
+        "message": f"Backtest for {requested_model} on {req.exchange} has been started. Trace ID: {backtest_id}",
+        "adaptive": adaptive_info,
     }
+
+
+@app.get("/adaptive/recommendation")
+def adaptive_recommendation(
+    exchange: str = Query(default="EGX"),
+    as_of: Optional[str] = Query(default=None),
+    model_names: Optional[List[str]] = Query(default=None),
+    min_confidence: float = Query(default=0.55),
+):
+    api_dir = os.path.dirname(os.path.abspath(__file__))
+    models_dir = os.path.join(api_dir, "models")
+    info = _resolve_adaptive_selection(
+        exchange=exchange,
+        models_dir=models_dir,
+        as_of=as_of,
+        model_pool=model_names,
+        min_confidence=min_confidence,
+    )
+    if not info:
+        raise HTTPException(
+            status_code=404,
+            detail="Unable to compute adaptive recommendation for the requested exchange.",
+        )
+    return info
 
 
 def run_backtest_task(req: BacktestRequest, backtest_id: str = None):
@@ -2105,14 +2352,18 @@ def run_backtest_task(req: BacktestRequest, backtest_id: str = None):
         _init_supabase()
         if supabase:
             # Compute total return % on a fixed notional capital.
+            # net_profit is in cash (EGP), convert to percentage
             initial_capital = 100000.0
             profit_pct = None
             try:
-                profit_pct = (float(net_profit) / float(initial_capital)) * 100.0
+                # Store as fraction (0.2805 = 28.05%), not percentage (28.05)
+                profit_pct = float(net_profit) / float(initial_capital)
             except Exception:
                 profit_pct = None
             if post_council_profit_pct is not None:
-                profit_pct = float(post_council_profit_pct)
+                # post_council_profit_pct comes from backtest output as percentage (28.05)
+                # Convert to fraction for consistency
+                profit_pct = float(post_council_profit_pct) / 100.0
 
             bench_pct, bench_win_rate, bench_name = _compute_benchmark_metrics(
                 project_root=project_root,

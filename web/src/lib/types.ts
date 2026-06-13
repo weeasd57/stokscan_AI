@@ -78,4 +78,8 @@ export type PredictResponse = {
   topReasons?: string[];
   councilScore?: number;
   consensusRatio?: string;
+  ai_score?: number;
+  fundamental_score?: number;
+  technical_score?: number;
+  sentiment_score?: number;
 };

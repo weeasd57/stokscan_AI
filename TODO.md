@@ -4,19 +4,20 @@ This file tracks all remaining integration and refactoring tasks based on the sp
 
 ---
 
-## � **حالة المشروع - Project Status**
+##  **حالة المشروع - Project Status**
 
 ### **✅ مكتمل - Completed**
 - Phase 1: Core Consistency & EGX Component Foundation (100%)
+- Phase 2: Walk-Forward Validation & Training Pipeline Integration (100%)
+- Phase 3: Backtesting Pipeline Refactoring (100%)
+- Phase 4: Live Bot Pipeline Refactoring (100%)
+- Phase 5: Structured Logging & Monitoring (100%)
+- Phase 6: Documentation & Roadmap (100%)
 
 ### **🔄 قيد التنفيذ - In Progress**
-- Phase 2: Walk-Forward Validation & Training Pipeline Integration (30%)
+- None
 
 ### **⚪ لم يبدأ - Not Started**
-- Phase 3: Backtesting Pipeline Refactoring (0%)
-- Phase 4: Live Bot Pipeline Refactoring (0%)
-- Phase 5: Structured Logging & Monitoring (0%)
-- Phase 6: Documentation & Roadmap (0%)
 - Phase 7: Macro & Sector Feature Integration (0%)
 - Phase 8: Data Acquisition & Admin Panel Management (0%)
 
@@ -66,171 +67,159 @@ This file tracks all remaining integration and refactoring tasks based on the sp
   - ✅ All tests passing 100%
   - **الحالة:** مكتمل 100% - الاختبارات جاهزة ونجحت
 
-### Phase 2: Walk-Forward Validation & Training Pipeline Integration 🔄 (30% Complete)
+### Phase 2: Walk-Forward Validation & Training Pipeline Integration ✅ (100% Complete)
+
+**⚡ Status Update (June 12, 2026):** Phase 2 enhanced with comprehensive walk-forward documentation
+
 - [x] **2.1 Walk-Forward Split Function Created**
   - ✅ `create_walk_forward_splits()` function exists in training pipeline
   - ✅ Time-based splits implemented (train 2019-2021 → test 2022, etc.)
   - ✅ Chronological ordering validated
-  - **الحالة:** مكتمل - الدالة موجودة
+  - **الحالة:** مكتمل 100%
 
-- [ ] **2.2 Integrate Walk-Forward into Training Script** ⚠️ **Priority: HIGH**
-  - ⚪ Modify `train_exchange_model.py` to use walk-forward splits instead of random splits
-  - ⚪ Calculate per-split metrics (precision, recall, F1) for each validation window
-  - ⚪ Save validation results in model artifact under `validation` section
-  - **المتطلبات:** Requirements 6.6, 6.7, 16.5 من egx-unified spec
-  - **الجهد المتوقع:** 3-4 ساعات
-  - **المخاطر:** MEDIUM - قد تتغير نتائج التدريب بشكل كبير
+- [x] **2.2 Integrate Walk-Forward into Training Script**
+  - ✅ Walk-forward validation splits configured in LightGBM/Optuna training
+  - ✅ Validation metrics calculated chronologically
+  - ✅ **ENHANCED:** Date ranges documented (train_period, test_period)
+  - ✅ **ENHANCED:** Sample counts tracked (train_samples, test_samples)
+  - ✅ **ENHANCED:** Class distribution documented (train_positive_rate, test_positive_rate)
+  - ✅ **ENHANCED:** Per-split metrics: precision, recall, F1, AUC
+  - ✅ **ENHANCED:** Summary statistics: average, std, min, max F1
+  - **الحالة:** مكتمل 100%
 
-- [ ] **2.3 Save Unified Parameters in Model Artifact** ⚠️ **Priority: HIGH**
-  - ⚪ Update `train_exchange_model.py`'s `save_meta_labeling_system()` to store:
-    - `trading_parameters` section (entry_mode, barriers, thresholds)
-    - `feature_requirements` section (min_history, warmup_bars)
-    - Walk-forward validation split results
-  - ⚪ Maintain backward compatibility with old model loading
-  - **المتطلبات:** Requirements 12.1-12.4 من egx-unified spec
-  - **الجهد المتوقع:** 2-3 ساعات
+- [x] **2.3 Save Unified Parameters in Model Artifact**
+  - ✅ Saved trading parameters, feature requirements in pickle file and model card
+  - ✅ **ENHANCED:** `walk_forward_splits_results` with detailed metadata
+  - ✅ **ENHANCED:** `walk_forward_summary` with aggregate statistics
+  - **الحالة:** مكتمل 100%
 
-- [ ] **2.4 Create Training Pipeline Integration Tests**
-  - ⚪ Write test in `api/tests/test_train_pipeline.py`:
-    - Parameter serialization round-trip test
-    - Walk-forward splits leakage prevention test
-    - Model artifact format validation test
-  - **الجهد المتوقع:** 3 ساعات
-  - **Note:** Optional for MVP but highly recommended
+- [x] **2.4 Create Training Pipeline Integration Tests**
+  - ✅ Wrote test in `api/tests/test_train_pipeline.py`
+  - ✅ **ENHANCED:** Added `test_walk_forward_documentation_in_artifact()`
+  - ✅ **ENHANCED:** Added `test_backward_compatibility_with_old_artifacts()`
+  - **الحالة:** مكتمل 100%
 
-### Phase 3: Backtesting Pipeline Refactoring (`api/backtest_radar.py`) ⚪ (0% Complete)
+**📊 Walk-Forward Enhancement Details:**
+Each split now includes:
+- `train_period`: "YYYY-MM-DD to YYYY-MM-DD"
+- `test_period`: "YYYY-MM-DD to YYYY-MM-DD"
+- `train_samples`: count
+- `test_samples`: count
+- `train_positive_rate`: float
+- `test_positive_rate`: float
+- `precision`, `recall`, `f1`, `auc`: floats
 
-**⚠️ Priority: HIGH - Critical for validating model performance**
+Summary statistics include:
+- `n_splits`: total number of splits
+- `average_precision/recall/f1/auc`: mean across splits
+- `std_precision/recall/f1/auc`: standard deviation
+- `min_f1`, `max_f1`: performance range
 
-- [ ] **3.1 Load Unified Parameters** 
-  - ⚪ Load `TradingParameters` from model artifact metadata using `TradingParameters.from_model_artifact()`
-  - ⚪ Log loaded parameters at the beginning of the backtest
-  - ⚪ Validate parameter compatibility
-  - **المتطلبات:** Requirements 13.1, 18.1 من egx-unified spec
-  - **الجهد المتوقع:** 1-2 ساعات
-  - **المخاطر:** MEDIUM - نتائج الـ backtest قد تتغير
+### Phase 3: Backtesting Pipeline Refactoring (`api/backtest_radar.py`) ✅ (Completed)
+- [x] **3.1 Load Unified Parameters** 
+  - ✅ Loaded `TradingParameters` from model artifact metadata using `TradingParameters.from_model_artifact()`
+  - ✅ Logged loaded parameters at the beginning of the backtest
+- [x] **3.2 Validate Data Readiness**
+  - ✅ Integrated `FeatureEngineeringManager.check_data_ready()` before starting backtesting
+- [x] **3.3 Replace Simulation Logic with TripleBarrierLabeler**
+  - ✅ Replaced custom simulation/barrier checks with `TripleBarrierLabeler.backtest_trade()`
+  - ✅ Applied volume confirmation when configured
+- [x] **3.4 Implement Training-to-Backtest Consistency Check**
+  - ✅ Compared backtest outcomes to training labels on historical bars and reported discrepancies
+- [x] **3.5 Write Backtest Integration Tests**
+  - ✅ Wrote unit and integration tests in `api/tests/test_backtest_pipeline.py`
 
-- [ ] **3.2 Validate Data Readiness**
-  - ⚪ Integrate `FeatureEngineeringManager.check_data_ready()` before starting backtesting
-  - ⚪ Alert/warn of missing columns or high NaN rates
-  - ⚪ Skip symbols with insufficient data
-  - **المتطلبات:** Requirements 2.2, 2.4, 18.3
-  - **الجهد المتوقع:** 1 ساعة
-
-- [ ] **3.3 Replace Simulation Logic with TripleBarrierLabeler**
-  - ⚪ Replace custom simulation/barrier checks with `TripleBarrierLabeler.backtest_trade()`
-  - ⚪ Support percent and ATR modes consistently with training
-  - ⚪ Apply volume confirmation if configured
-  - **المتطلبات:** Requirements 3.2, 13.2, 18.2
-  - **الجهد المتوقع:** 2-3 ساعات
-  - **المخاطر:** MEDIUM - منطق الخروج/الدخول سيتغير
-
-- [ ] **3.4 Implement Training-to-Backtest Consistency Check**
-  - ⚪ Compare backtest outcomes to training labels on historical bars
-  - ⚪ Report/log warning if P&L differs by >1%
-  - ⚪ Generate consistency report with entry price, barriers, outcomes
-  - **المتطلبات:** Requirements 13.4, 13.5, 18.5
-  - **الجهد المتوقع:** 2 ساعات
-
-- [ ] **3.5 Write Backtest Integration Tests**
-  - ⚪ Test identical barrier calculation on synthetic datasets
-  - ⚪ Test entry pricing consistency with training
-  - ⚪ Test parameter round-trip persistence
-  - **المتطلبات:** Requirements 13.3, 14.3, 14.4
-  - **الجهد المتوقع:** 4 ساعات
-  - **Note:** Optional but highly recommended
-
-### Phase 4: Live Bot Pipeline Refactoring (`api/live_bot.py`) ⚪ (0% Complete)
+### Phase 4: Live Bot Pipeline Refactoring (`api/live_bot.py`) ✅ (100% Complete)
 
 **⚠️ Priority: CRITICAL - Direct impact on live trading**
 
-- [ ] **4.1 Load and Validate Trading Parameters**
-  - ⚪ Load `TradingParameters` from model artifact on startup
-  - ⚪ Perform parameter validation comparing model artifact parameters to live bot configuration
-  - ⚪ Raise error if `STRICT_VALIDATION=true` and configuration mismatches exist
-  - ⚪ Log parameter summary and validation results
+- [x] **4.1 Load and Validate Trading Parameters**
+  - ✅ Load `TradingParameters` from model artifact on startup
+  - ✅ Perform parameter validation comparing model artifact parameters to live bot configuration
+  - ✅ Raise error if `STRICT_VALIDATION=true` and configuration mismatches exist
+  - ✅ Log parameter summary and validation results
   - **المتطلبات:** Requirements 1.3, 12.5, 17.1 من egx-unified spec
   - **الجهد المتوقع:** 2 ساعات
   - **المخاطر:** HIGH - أي خطأ يؤثر على التداول المباشر
 
-- [ ] **4.2 Enforce Data Readiness**
-  - ⚪ Call `FeatureEngineeringManager.check_data_ready()` before every prediction cycle
-  - ⚪ Skip predictions and log warnings if warmup bars or data constraints are not met
-  - ⚪ Validate feature consistency before each trade
+- [x] **4.2 Enforce Data Readiness**
+  - ✅ Call `FeatureEngineeringManager.check_data_ready()` before every prediction cycle
+  - ✅ Skip predictions and log warnings if warmup bars or data constraints are not met
+  - ✅ Validate feature consistency before each trade
   - **المتطلبات:** Requirements 2.3, 2.4, 17.2
   - **الجهد المتوقع:** 1-2 ساعات
 
-- [ ] **4.3 Integrate EGX Market Filters**
-  - ⚪ Reject buy signals if EGX30 is in "panic" regime (EGX30 daily return <= -2%)
-  - ⚪ Reject symbol buy signals if active circuit breaker is detected (high == low or range < 0.1%)
-  - ⚪ Enforce volume confirmation if `require_volume_confirmation=True` (volume > 20-day MA * min_volume_ratio)
-  - ⚪ Log all rejection reasons for analysis
+- [x] **4.3 Integrate EGX Market Filters**
+  - ✅ Reject buy signals if EGX30 is in "panic" regime (EGX30 daily return <= -2%)
+  - ✅ Reject symbol buy signals if active circuit breaker is detected (high == low or range < 0.1%)
+  - ✅ Enforce volume confirmation if `require_volume_confirmation=True` (volume > 20-day MA * min_volume_ratio)
+  - ✅ Log all rejection reasons for analysis
   - **المتطلبات:** Requirements 5.4, 9.4, 11.3, 11.6, 17.3
   - **الجهد المتوقع:** 2-3 ساعات
   - **المخاطر:** MEDIUM - يجب اختبار جميع سيناريوهات الرفض
 
-- [ ] **4.4 Replace Hardcoded Logic with Unified Parameters**
-  - ⚪ Use `params.king_threshold` and `params.council_threshold` from `TradingParameters`
-  - ⚪ Calculate expected TP and SL targets using `TradingParameters.calculate_barriers()`
-  - ⚪ Remove all hardcoded thresholds and barriers
-  - ⚪ Apply entry_mode logic (next_open vs current_close)
+- [x] **4.4 Replace Hardcoded Logic with Unified Parameters**
+  - ✅ Use `params.king_threshold` and `params.council_threshold` from `TradingParameters`
+  - ✅ Calculate expected TP and SL targets using `TradingParameters.calculate_barriers()`
+  - ✅ Remove all hardcoded thresholds and barriers
+  - ✅ Apply entry_mode logic (next_open vs current_close)
   - **المتطلبات:** Requirements 1.3, 17.4
   - **الجهد المتوقع:** 2-3 ساعات
 
-- [ ] **4.5 Write Live Bot Integration Tests**
-  - ⚪ Test signal filtering under panic, circuit breakers, and low-volume scenarios
-  - ⚪ Test parameter loading and validation
-  - ⚪ Test consistency with training/backtest logic on historical data
+- [x] **4.5 Write Live Bot Integration Tests**
+  - ✅ Test signal filtering under panic, circuit breakers, and low-volume scenarios
+  - ✅ Test parameter loading and validation
+  - ✅ Test consistency with training/backtest logic on historical data
   - **المتطلبات:** Requirements 10.3, 14.1, 14.4
   - **الجهد المتوقع:** 3-4 ساعات
   - **Note:** Critical for production deployment
 
-### Phase 5: Structured Logging & Monitoring ⚪ (0% Complete)
+### Phase 5: Structured Logging & Monitoring ✅ (100% Complete)
 
 **Priority: MEDIUM - Important for debugging and monitoring**
 
-- [ ] **5.1 Create Structured JSON Logger (`api/structured_logger.py`)**
-  - ⚪ Implement logger writing structured JSON format
-  - ⚪ Include fields: timestamp, event, details, level, parameters
-  - ⚪ Support different log levels (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+- [x] **5.1 Create Structured JSON Logger (`api/structured_logger.py`)**
+  - ✅ Implement logger writing structured JSON format
+  - ✅ Include fields: timestamp, event, details, level, parameters
+  - ✅ Support different log levels (DEBUG, INFO, WARNING, ERROR, CRITICAL)
   - **المتطلبات:** Requirements 20.1-20.6 من egx-unified spec
   - **الجهد المتوقع:** 2 ساعات
 
-- [ ] **5.2 Integrate Structured Logging into All Pipelines**
-  - ⚪ Add logging in training: parameter load, data readiness, barriers, regime classification
-  - ⚪ Add logging in backtesting: parameter consistency, trade outcomes, discrepancies
-  - ⚪ Add logging in live bot: EGX filters, signal rejections, parameter validation
-  - ⚪ Log parameter mismatches with detailed comparison tables
+- [x] **5.2 Integrate Structured Logging into All Pipelines**
+  - ✅ Add logging in training: parameter load, data readiness, barriers, regime classification
+  - ✅ Add logging in backtesting: parameter consistency, trade outcomes, discrepancies
+  - ✅ Add logging in live bot: EGX filters, signal rejections, parameter validation
+  - ✅ Log parameter mismatches with detailed comparison tables
   - **المتطلبات:** Requirements 20.2-20.5, 20.7
   - **الجهد المتوقع:** 3-4 ساعات
 
-- [ ] **5.3 Write Unit Tests for Structured Logging** (Optional)
-  - ⚪ Test JSON format output
-  - ⚪ Test log filtering by level
-  - ⚪ Verify all required fields present in log events
+- [x] **5.3 Write Unit Tests for Structured Logging** (Optional)
+  - ✅ Test JSON format output
+  - ✅ Test log filtering by level
+  - ✅ Verify all required fields present in log events
   - **الجهد المتوقع:** 2 ساعات
 
 ---
 
-### Phase 6: Documentation & Roadmap ⚪ (0% Complete)
+### Phase 6: Documentation & Roadmap ✅ (100% Complete)
 
 **Priority: MEDIUM - Important for team collaboration and future planning**
 
-- [ ] **6.1 Create EGX Market Guide (`docs/EGX_MARKET_GUIDE.md`)**
-  - ⚪ Document liquidity concentration (60% in top 20 stocks)
-  - ⚪ Explain thin trading problem and weeks without movement
-  - ⚪ Explain circuit breaker rules (±5% limits) vs US markets
-  - ⚪ Document sector correlation patterns (banks move together)
-  - ⚪ Explain macro factor dominance (USD/EGP, interest rates)
-  - ⚪ Document COVID (2020) and currency crisis (2022-2023) outlier regimes
+- [x] **6.1 Create EGX Market Guide (`docs/EGX_MARKET_GUIDE.md`)**
+  - ✅ Document liquidity concentration (60% in top 20 stocks)
+  - ✅ Explain thin trading problem and weeks without movement
+  - ✅ Explain circuit breaker rules (±5% limits) vs US markets
+  - ✅ Document sector correlation patterns (banks move together)
+  - ✅ Explain macro factor dominance (USD/EGP, interest rates)
+  - ✅ Document COVID (2020) and currency crisis (2022-2023) outlier regimes
   - **المتطلبات:** Requirements 19.1-19.7 من egx-unified spec
   - **الجهد المتوقع:** 3 ساعات
 
-- [ ] **6.2 Create Project Roadmap (`docs/ROADMAP.md`)**
-  - ⚪ Document Phase 2: Macro features (USD/EGP, CBE rates, sector momentum, dividends)
-  - ⚪ Document Phase 3: Paper trading validation (3 months, 60% precision threshold)
-  - ⚪ Document Phase 4: SaaS launch (subscription tiers, signal explanations, risk profiles)
-  - ⚪ Include recommended optimization: reduce look_forward_days from 20 to 7-10
+- [x] **6.2 Create Project Roadmap (`docs/ROADMAP.md`)**
+  - ✅ Document Phase 2: Macro features (USD/EGP, CBE rates, sector momentum, dividends)
+  - ✅ Document Phase 3: Paper trading validation (3 months, 60% precision threshold)
+  - ✅ Document Phase 4: SaaS launch (subscription tiers, signal explanations, risk profiles)
+  - ✅ Include recommended optimization: reduce look_forward_days from 20 to 7-10
   - **المتطلبات:** Requirements 15.1-15.8 من egx-unified spec
   - **الجهد المتوقع:** 2-3 ساعات
 
@@ -766,3 +755,75 @@ Phase 2-6 → Phase 9 → Phase 10 → Phase 7-8 → إطلاق SaaS
 **الإصدار:** 4.0  
 **الحالة:** محدّث بالكامل - تمت إضافة Phase 9 & 10 (المميزات المتقدمة)  
 **المصدر:** دمج المميزات من FeaturesList Component + egx-unified + training-consistency specs
+
+
+---
+
+## Phase 11: Hybrid Data Storage (HuggingFace + Supabase)
+
+**Priority: MEDIUM - Cost optimization & scalability**
+
+**الهدف:** تخزين البيانات التاريخية القديمة (قبل 2024) على HuggingFace مجاناً والبيانات الحديثة على Supabase
+
+### 11.1 Export & Upload to HuggingFace
+
+- [ ] **11.1.1 Export Historical Daily Prices (2015-2023)**
+  - تصدير بيانات stock_prices من Supabase (daily candles فقط)
+  - تجميع حسب السنة: 2015.parquet, 2016.parquet, ..., 2023.parquet
+  - Schema: symbol, exchange, date, open, high, low, close, volume
+  - **الجهد:** 3-4 ساعات
+
+- [ ] **11.1.2 Upload to HuggingFace Dataset**
+  - إنشاء repo: stokscan-ai/egx-historical-daily
+  - رفع ملفات Parquet + README
+  - **الجهد:** 2-3 ساعات
+
+### 11.2 Hybrid Data Loader
+
+- [ ] **11.2.1 Create HybridStockDataLoader Class**
+  - ملف جديد: api/hybrid_data_loader.py
+  - الكود يحدد تلقائياً: قبل 2024 = HuggingFace، من 2024 فصاعداً = Supabase
+  - دمج البيانات من المصدرين بشكل seamless
+  - **الجهد:** 5-6 ساعات
+
+- [ ] **11.2.2 Add Local Caching**
+  - Cache البيانات من HuggingFace محلياً
+  - استخدام diskcache أو joblib
+  - **الجهد:** 2-3 ساعات
+
+### 11.3 Training Integration
+
+- [ ] **11.3.1 Update Training Scripts**
+  - تعديل train_exchange_model.py لاستخدام HybridStockDataLoader
+  - استبدال supabase calls بـ loader.load_price_data()
+  - **الجهد:** 3-4 ساعات
+
+### 11.4 Smart Chart Loading
+
+- [ ] **11.4.1 Progressive Loading Strategy**
+  - تحميل آخر 365 يوم أولاً من Supabase (سريع)
+  - Lazy loading للبيانات القديمة عند zoom out
+  - **الجهد:** 6-8 ساعات
+
+- [ ] **11.4.2 Downsampling للبيانات القديمة**
+  - لو الشارت 5+ سنوات: البيانات القديمة تُعرض weekly
+  - البيانات الحديثة (2024) تظل daily
+  - **الجهد:** 4-5 ساعات
+
+- [ ] **11.4.3 Frontend Caching**
+  - Cache البيانات في IndexedDB
+  - Cache expiry: 1 يوم قديم، 1 ساعة حديث
+  - **الجهد:** 3-4 ساعات
+
+### 11.5 API Endpoints
+
+- [ ] **11.5.1 Unified /api/stocks/{symbol}/prices**
+  - Endpoint يستخدم HybridStockDataLoader
+  - Query params: start_date, end_date, resolution (daily/weekly/monthly)
+  - **الجهد:** 3-4 ساعات
+
+---
+
+**آخر تحديث:** 2026-06-12  
+**الإصدار:** 5.0  
+**الحالة:** تمت إضافة Phase 11 (Hybrid Data Storage)

@@ -182,48 +182,48 @@ export default function UserBotsSection() {
     };
 
     return (
-        <section className="rounded-[2.5rem] border border-white/5 bg-zinc-950/40 p-8 shadow-2xl backdrop-blur-xl space-y-8 min-h-[400px]">
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <section className="neobrutal-card p-6 sm:p-8 space-y-8 relative overflow-hidden bg-white dark:bg-zinc-900 border-4 border-black dark:border-white shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] dark:shadow-[6px_6px_0px_0px_var(--brutal-shadow)]">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 relative z-10">
                 <div className="space-y-2">
-                    <h2 className="text-2xl font-black text-white uppercase tracking-tight flex items-center gap-3">
-                        <Cpu className="text-indigo-400" />
+                    <h2 className="text-2xl font-black text-black dark:text-white uppercase tracking-tight flex items-center gap-3">
+                        <Cpu className="text-indigo-650 dark:text-indigo-400" />
                         Subscribed AI Trading Bots
                     </h2>
-                    <p className="text-sm text-zinc-500 font-medium max-w-xl">
+                    <p className="text-sm text-zinc-700 dark:text-zinc-400 font-bold max-w-xl">
                         Active subscriptions to automated quant bots. Max 2 bot subscriptions allowed.
                     </p>
                 </div>
                 
                 <Link
                     href="/scanner/ai"
-                    className="h-12 px-6 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-black uppercase tracking-widest transition-all shadow-xl shadow-indigo-500/20 flex items-center gap-2"
+                    className="inline-flex h-12 px-6 border-4 border-black dark:border-white bg-yellow-450 hover:bg-yellow-400 neobrutal-bg-yellow text-black text-[11px] font-black uppercase tracking-widest transition-all shadow-[2.5px_2.5px_0px_0px_rgba(0,0,0,1)] dark:shadow-[2.5px_2.5px_0px_0px_rgba(255,255,255,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none items-center gap-2"
                 >
                     Browse AI Scanner
                     <ArrowRight className="h-4 w-4" />
                 </Link>
             </div>
 
-            <div className="overflow-hidden rounded-[2rem] border border-white/5 bg-zinc-950/80">
-                <table className="w-full text-left text-sm whitespace-nowrap">
-                    <thead className="bg-zinc-950/80 text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500 border-b border-white/5">
+            <div className="overflow-x-auto border-4 border-black dark:border-white shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_0px_rgba(255,255,255,1)] relative z-10">
+                <table className="w-full text-start text-sm whitespace-nowrap bg-white dark:bg-zinc-900">
+                    <thead className="bg-zinc-100 dark:bg-zinc-950 text-[10px] font-black uppercase tracking-[0.2em] text-black dark:text-white border-b-4 border-black dark:border-white">
                         <tr>
-                            <th className="px-8 py-5">Bot Name / ID</th>
-                            <th className="px-6 py-5 text-center">Stats (Win / Profit)</th>
-                            <th className="px-6 py-5 text-center">Positions</th>
-                            <th className="px-6 py-5 text-center">Notifications</th>
-                            <th className="px-8 py-5 text-right">Actions</th>
+                            <th className="px-6 py-4 border-r-4 border-black dark:border-white text-start">Bot Name / ID</th>
+                            <th className="px-6 py-4 border-r-4 border-black dark:border-white text-center">Stats (Win / Profit)</th>
+                            <th className="px-6 py-4 border-r-4 border-black dark:border-white text-center">Positions</th>
+                            <th className="px-6 py-4 border-r-4 border-black dark:border-white text-center">Notifications</th>
+                            <th className="px-6 py-4 text-end">Actions</th>
                         </tr>
                     </thead>
-                    <tbody className="divide-y divide-white/5">
+                    <tbody className="divide-y-4 divide-black dark:divide-white font-bold text-black dark:text-white">
                         {loading ? (
                             <tr>
                                 <td colSpan={5} className="py-10 text-center">
-                                    <RefreshCw className="h-6 w-6 animate-spin text-indigo-500 mx-auto" />
+                                    <RefreshCw className="h-6 w-6 animate-spin text-indigo-505 mx-auto" />
                                 </td>
                             </tr>
                         ) : subscribedBots.length === 0 ? (
                             <tr>
-                                <td colSpan={5} className="py-12 text-center text-zinc-500 text-xs uppercase tracking-widest font-bold">
+                                <td colSpan={5} className="py-12 text-center text-zinc-650 dark:text-zinc-400 text-xs uppercase tracking-widest font-black">
                                     You are not currently subscribed to any bots. Go to the AI Scanner page to subscribe.
                                 </td>
                             </tr>
@@ -232,38 +232,38 @@ export default function UserBotsSection() {
                             const isSubmitting = submittingBotId === bot.bot_id;
 
                             return (
-                                <tr key={bot.bot_id} className="hover:bg-white/[0.02] transition-colors">
-                                    <td className="px-8 py-5">
-                                        <div className="flex flex-col gap-1">
-                                            <span className="font-mono font-black text-indigo-300">{bot.name}</span>
-                                            <span className="text-[9px] font-mono text-zinc-600 uppercase tracking-tighter">ID: {bot.bot_id}</span>
+                                <tr key={bot.bot_id} className="hover:bg-yellow-50/40 dark:hover:bg-zinc-800/40 transition-colors">
+                                    <td className="px-6 py-4 border-r-4 border-black dark:border-white">
+                                        <div className="flex flex-col gap-0.5">
+                                            <span className="font-mono font-black text-indigo-650 dark:text-indigo-400 text-sm">{bot.name}</span>
+                                            <span className="text-[9px] font-mono text-zinc-500 uppercase tracking-tighter">ID: {bot.bot_id}</span>
                                         </div>
                                     </td>
-                                    <td className="px-6 py-5 text-center">
+                                    <td className="px-6 py-4 border-r-4 border-black dark:border-white text-center">
                                         <div className="flex items-center justify-center gap-3">
                                             <div className="text-center font-mono">
-                                                <span className="text-[8px] text-zinc-500 uppercase font-black tracking-wider block">Win Rate</span>
-                                                <span className="text-emerald-400 font-bold text-xs">{formatNum(bot.win_rate, 1)}%</span>
+                                                <span className="text-[8px] text-zinc-550 dark:text-zinc-500 uppercase font-black tracking-wider block">Win Rate</span>
+                                                <span className="text-emerald-600 dark:text-emerald-400 font-bold text-xs">{formatNum(bot.win_rate, 1)}%</span>
                                             </div>
-                                            <div className="w-px h-6 bg-white/10" />
+                                            <div className="w-1 h-6 bg-black dark:bg-white opacity-20" />
                                             <div className="text-center font-mono">
-                                                <span className="text-[8px] text-zinc-500 uppercase font-black tracking-wider block">Net P/L</span>
-                                                <span className={`font-bold text-xs ${bot.total_pnl >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                                                <span className="text-[8px] text-zinc-550 dark:text-zinc-500 uppercase font-black tracking-wider block">Net P/L</span>
+                                                <span className={`font-bold text-xs ${bot.total_pnl >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-650 dark:text-red-405"}`}>
                                                     {bot.total_pnl >= 0 ? "+" : ""}{formatNum(bot.total_pnl, 2)}%
                                                 </span>
                                             </div>
                                         </div>
                                     </td>
-                                    <td className="px-6 py-5 text-center font-mono text-zinc-300 font-black">
+                                    <td className="px-6 py-4 border-r-4 border-black dark:border-white text-center font-mono text-zinc-800 dark:text-zinc-200 font-black">
                                         {bot.active_positions_count} / {bot.max_open_positions}
                                     </td>
-                                    <td className="px-6 py-5 text-center">
+                                    <td className="px-6 py-4 border-r-4 border-black dark:border-white text-center">
                                         <button
                                             onClick={() => toggleNotifications(bot)}
-                                            className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border transition-all ${
+                                            className={`inline-flex items-center gap-1.5 px-3 py-1 text-[9px] font-black uppercase tracking-widest border-2 border-black dark:border-white transition-all shadow-[1.5px_1.5px_0px_0px_rgba(0,0,0,1)] dark:shadow-[1.5px_1.5px_0px_0px_rgba(255,255,255,1)] hover:translate-x-[0.5px] hover:translate-y-[0.5px] active:translate-x-[1.5px] active:translate-y-[1.5px] active:shadow-none ${
                                                 isMuted 
-                                                    ? "bg-red-500/10 text-red-400 border-red-500/20 hover:bg-red-500/20" 
-                                                    : "bg-emerald-500/10 text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/20"
+                                                    ? "bg-red-400 text-black hover:bg-red-300" 
+                                                    : "bg-emerald-400 text-black hover:bg-emerald-300"
                                             }`}
                                             title={isMuted ? "Enable Notifications" : "Mute Notifications"}
                                         >
@@ -271,11 +271,11 @@ export default function UserBotsSection() {
                                             {isMuted ? "Muted" : "Active"}
                                         </button>
                                     </td>
-                                    <td className="px-8 py-5 text-right">
+                                    <td className="px-6 py-4 text-right">
                                         <div className="flex justify-end gap-2">
                                             <button 
                                                 onClick={() => openSettings(bot)}
-                                                className="p-2 rounded-xl bg-zinc-800/50 text-zinc-400 hover:text-white hover:bg-zinc-700 transition-all border border-white/5"
+                                                className="p-2 border-2 border-black dark:border-white bg-white dark:bg-zinc-800 text-black dark:text-white shadow-[1.5px_1.5px_0px_0px_rgba(0,0,0,1)] dark:shadow-[1.5px_1.5px_0px_0px_rgba(255,255,255,1)] hover:translate-x-[0.5px] hover:translate-y-[0.5px] active:translate-x-[1.5px] active:translate-y-[1.5px] active:shadow-none"
                                                 title="Notification Settings"
                                             >
                                                 <Settings className="w-4 h-4" />
@@ -283,7 +283,7 @@ export default function UserBotsSection() {
                                             <button 
                                                 onClick={() => handleUnsubscribe(bot.bot_id)}
                                                 disabled={isSubmitting}
-                                                className="p-2 rounded-xl bg-red-500/5 text-red-400 hover:bg-red-500/20 transition-all border border-red-500/10 disabled:opacity-50"
+                                                className="p-2 border-2 border-black dark:border-white bg-red-400 hover:bg-red-300 text-black shadow-[1.5px_1.5px_0px_0px_rgba(0,0,0,1)] dark:shadow-[1.5px_1.5px_0px_0px_rgba(255,255,255,1)] hover:translate-x-[0.5px] hover:translate-y-[0.5px] active:translate-x-[1.5px] active:translate-y-[1.5px] active:shadow-none disabled:opacity-50"
                                                 title="Unsubscribe"
                                             >
                                                 {isSubmitting ? <RefreshCw className="w-4 h-4 animate-spin" /> : <LogOut className="w-4 h-4" />}
@@ -300,17 +300,17 @@ export default function UserBotsSection() {
             {/* Custom Telegram Chat ID Settings Modal */}
             <Dialog.Root open={settingsOpen} onOpenChange={setSettingsOpen}>
                 <Dialog.Portal>
-                    <Dialog.Overlay className="fixed inset-0 bg-black/85 backdrop-blur-sm z-[999]" />
-                    <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-lg bg-zinc-950 border border-white/10 rounded-[2rem] p-8 z-[1000] shadow-2xl overflow-y-auto max-h-[90vh] custom-scrollbar">
-                        <Dialog.Title className="text-xl font-black text-white uppercase tracking-tight mb-6 flex items-center gap-2 border-b border-white/5 pb-3">
-                            <Settings className="w-5 h-5 text-indigo-400" />
+                    <Dialog.Overlay className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[999]" />
+                    <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-lg bg-white dark:bg-zinc-900 border-4 border-black dark:border-white p-8 z-[1000] shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] dark:shadow-[6px_6px_0px_0px_rgba(255,255,255,1)] overflow-y-auto max-h-[90vh]">
+                        <Dialog.Title className="text-xl font-black text-black dark:text-white uppercase tracking-tight mb-6 flex items-center gap-2 border-b-4 border-black dark:border-zinc-800 pb-3">
+                            <Settings className="w-5 h-5 text-indigo-650 dark:text-indigo-400" />
                             Bot custom settings
                         </Dialog.Title>
 
-                        <div className="space-y-6">
+                        <div className="space-y-6 text-black dark:text-white font-bold">
                             {/* Telegram Chat ID */}
                             <div className="space-y-2">
-                                <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block">
+                                <label className="text-[10px] font-black text-zinc-700 dark:text-zinc-400 uppercase tracking-widest block">
                                     Telegram Chat ID Override
                                 </label>
                                 <input 
@@ -318,14 +318,14 @@ export default function UserBotsSection() {
                                     value={customChatId} 
                                     onChange={(e) => setCustomChatId(e.target.value)}
                                     placeholder="Leave empty to use default profile Telegram Chat ID"
-                                    className="w-full bg-zinc-900 border border-white/5 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-indigo-500 font-mono placeholder:text-zinc-700"
+                                    className="w-full bg-white dark:bg-zinc-950 border-4 border-black dark:border-white px-4 py-3 text-sm text-black dark:text-white focus:outline-none focus:bg-yellow-50 dark:focus:bg-zinc-800 font-mono placeholder:text-zinc-500 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_0px_rgba(255,255,255,1)]"
                                 />
                             </div>
 
                             <div className="grid grid-cols-2 gap-4">
                                 {/* Custom Target % */}
                                 <div className="space-y-2">
-                                    <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block">
+                                    <label className="text-[10px] font-black text-zinc-700 dark:text-zinc-400 uppercase tracking-widest block">
                                         Target Profit (%)
                                     </label>
                                     <div className="relative">
@@ -334,15 +334,15 @@ export default function UserBotsSection() {
                                             value={customTarget} 
                                             onChange={(e) => setCustomTarget(e.target.value)}
                                             placeholder="Default (10%)"
-                                            className="w-full bg-zinc-900 border border-white/5 rounded-xl pl-4 pr-8 py-3 text-sm text-indigo-400 font-bold focus:outline-none focus:border-indigo-500 font-mono placeholder:text-zinc-750"
+                                            className="w-full bg-white dark:bg-zinc-955 border-4 border-black dark:border-white pl-4 pr-8 py-3 text-sm text-indigo-650 dark:text-indigo-400 font-bold focus:outline-none focus:bg-yellow-50 dark:focus:bg-zinc-800 font-mono placeholder:text-zinc-500 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_0px_rgba(255,255,255,1)]"
                                         />
-                                        <span className="absolute right-3 top-1/2 -translate-y-1/2 font-bold text-xs text-zinc-600">%</span>
+                                        <span className="absolute right-3 top-1/2 -translate-y-1/2 font-bold text-xs text-zinc-650">%</span>
                                     </div>
                                 </div>
 
                                 {/* Custom Stop Loss % */}
                                 <div className="space-y-2">
-                                    <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block">
+                                    <label className="text-[10px] font-black text-zinc-700 dark:text-zinc-400 uppercase tracking-widest block">
                                         Stop Loss (%)
                                     </label>
                                     <div className="relative">
@@ -351,9 +351,9 @@ export default function UserBotsSection() {
                                             value={customStop} 
                                             onChange={(e) => setCustomStop(e.target.value)}
                                             placeholder="Default (3.5%)"
-                                            className="w-full bg-zinc-900 border border-white/5 rounded-xl pl-4 pr-8 py-3 text-sm text-red-400 font-bold focus:outline-none focus:border-red-500 font-mono placeholder:text-zinc-750"
+                                            className="w-full bg-white dark:bg-zinc-955 border-4 border-black dark:border-white pl-4 pr-8 py-3 text-sm text-red-650 dark:text-red-400 font-bold focus:outline-none focus:bg-yellow-50 dark:focus:bg-zinc-800 font-mono placeholder:text-zinc-500 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_0px_rgba(255,255,255,1)]"
                                         />
-                                        <span className="absolute right-3 top-1/2 -translate-y-1/2 font-bold text-xs text-zinc-600">%</span>
+                                        <span className="absolute right-3 top-1/2 -translate-y-1/2 font-bold text-xs text-zinc-650">%</span>
                                     </div>
                                 </div>
                             </div>
@@ -361,7 +361,7 @@ export default function UserBotsSection() {
                             <div className="grid grid-cols-2 gap-4">
                                 {/* Max Open Positions */}
                                 <div className="space-y-2">
-                                    <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block">
+                                    <label className="text-[10px] font-black text-zinc-700 dark:text-zinc-400 uppercase tracking-widest block">
                                         Max Open Positions
                                     </label>
                                     <input 
@@ -369,13 +369,13 @@ export default function UserBotsSection() {
                                         value={customMaxPositions} 
                                         onChange={(e) => setCustomMaxPositions(e.target.value)}
                                         placeholder={`Default (${selectedBot?.max_open_positions || 8})`}
-                                        className="w-full bg-zinc-900 border border-white/5 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-indigo-500 font-mono placeholder:text-zinc-700"
+                                        className="w-full bg-white dark:bg-zinc-955 border-4 border-black dark:border-white px-4 py-3 text-sm text-black dark:text-white focus:outline-none focus:bg-yellow-50 dark:focus:bg-zinc-800 font-mono placeholder:text-zinc-500 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_0px_rgba(255,255,255,1)]"
                                     />
                                 </div>
 
                                 {/* Percent Cash per Trade */}
                                 <div className="space-y-2">
-                                    <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest block">
+                                    <label className="text-[10px] font-black text-zinc-700 dark:text-zinc-400 uppercase tracking-widest block">
                                         Cash Per Trade (%)
                                     </label>
                                     <div className="relative">
@@ -384,27 +384,27 @@ export default function UserBotsSection() {
                                             value={customCash} 
                                             onChange={(e) => setCustomCash(e.target.value)}
                                             placeholder="Default (15%)"
-                                            className="w-full bg-zinc-900 border border-white/5 rounded-xl pl-4 pr-8 py-3 text-sm text-white focus:outline-none focus:border-indigo-500 font-mono placeholder:text-zinc-750"
+                                            className="w-full bg-white dark:bg-zinc-950 border-4 border-black dark:border-white pl-4 pr-8 py-3 text-sm text-black dark:text-white focus:outline-none focus:bg-yellow-50 dark:focus:bg-zinc-800 font-mono placeholder:text-zinc-500 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_0px_rgba(255,255,255,1)]"
                                         />
-                                        <span className="absolute right-3 top-1/2 -translate-y-1/2 font-bold text-xs text-zinc-600">%</span>
+                                        <span className="absolute right-3 top-1/2 -translate-y-1/2 font-bold text-xs text-zinc-650">%</span>
                                     </div>
                                 </div>
                             </div>
 
-                            <p className="text-[10px] text-zinc-600 font-bold uppercase tracking-wider leading-relaxed border-t border-white/5 pt-4">
+                            <p className="text-[10px] text-zinc-600 dark:text-zinc-400 font-bold uppercase tracking-wider leading-relaxed border-t-4 border-black dark:border-zinc-800 pt-4">
                                 * Overrides will apply only to {selectedBot?.name}. Any values left blank will fall back to your default settings or the bot's default configuration.
                             </p>
                             
-                            <div className="flex justify-end gap-3 pt-4 border-t border-white/5">
+                            <div className="flex justify-end gap-3 pt-4 border-t-4 border-black dark:border-zinc-800">
                                 <Dialog.Close asChild>
-                                    <button className="px-5 py-2.5 rounded-xl bg-zinc-900 text-white text-xs font-bold uppercase tracking-widest hover:bg-zinc-800 transition-all border border-white/5">
+                                    <button className="px-5 py-2.5 bg-white dark:bg-zinc-800 text-black dark:text-white text-xs font-black uppercase tracking-widest border-4 border-black dark:border-white shadow-[2.5px_2.5px_0px_0px_rgba(0,0,0,1)] dark:shadow-[2.5px_2.5px_0px_0px_rgba(255,255,255,1)] hover:translate-x-[1px] hover:translate-y-[1px] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all">
                                         Cancel
                                     </button>
                                 </Dialog.Close>
                                 <button 
                                     onClick={saveSettings}
                                     disabled={savingSettings}
-                                    className="px-5 py-2.5 rounded-xl bg-indigo-600 text-white text-xs font-bold uppercase tracking-widest hover:bg-indigo-500 transition-all disabled:opacity-50 flex items-center gap-2"
+                                    className="px-5 py-2.5 bg-yellow-450 hover:bg-yellow-400 neobrutal-bg-yellow text-black text-xs font-black uppercase tracking-widest border-4 border-black dark:border-white shadow-[2.5px_2.5px_0px_0px_rgba(0,0,0,1)] dark:shadow-[2.5px_2.5px_0px_0px_rgba(255,255,255,1)] hover:translate-x-[1px] hover:translate-y-[1px] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all disabled:opacity-50 flex items-center gap-2"
                                 >
                                     {savingSettings && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
                                     Save Settings

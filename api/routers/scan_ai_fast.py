@@ -483,12 +483,15 @@ def _process_symbol(
             # Calculate AI Scores
             technical_score = _calculate_technical_score(candidate)
             fundamental_score = _calculate_fundamental_score(candidate)
+            sentiment_score = _calculate_sentiment_score(candidate)
+            ai_score = _calculate_ai_score(float(precision), buy_threshold)
             
             return {
                 "symbol": sym,
                 "exchange": ex,
                 "name": name,
                 "precision": float(precision),
+                "ai_score": ai_score,
                 "last_close": last_close,
                 "target_price": round(tp, 2),
                 "stop_loss": round(sl, 2),
@@ -497,6 +500,7 @@ def _process_symbol(
                 "features": features_list,
                 "technical_score": technical_score,
                 "fundamental_score": fundamental_score,
+                "sentiment_score": sentiment_score,
                 "council_score": round(council_score * 100, 1),
                 "consensus_ratio": consensus_ratio,
                 "detailed_votes": detailed_votes,
@@ -513,6 +517,62 @@ def _process_symbol(
         if random.random() < 0.05:
             print(f"DEBUG SCAN ERROR: {sym} | {msg}")
         return None
+
+
+def _calculate_ai_score(prob: float, buy_threshold: float = 0.5) -> int:
+    """Map model prediction probability to a simplified score from 1 to 10."""
+    try:
+        if prob >= buy_threshold:
+            # Scale [buy_threshold, 1.0] -> [6, 10]
+            denom = (1.0 - buy_threshold)
+            if denom <= 0: denom = 0.01
+            scaled = 6 + (prob - buy_threshold) / denom * 4
+            return int(round(min(max(scaled, 6), 10)))
+        else:
+            # Scale [0.0, buy_threshold) -> [1, 5]
+            denom = buy_threshold
+            if denom <= 0: denom = 0.01
+            scaled = 1 + (prob / denom) * 4
+            return int(round(min(max(scaled, 1), 5)))
+    except Exception:
+        return 5
+
+
+def _calculate_sentiment_score(row) -> int:
+    """Calculate sentiment score (1-10) based on momentum and volume indicators."""
+    score = 5 # Neutral start
+    try:
+        r = row.iloc[0] if hasattr(row, 'iloc') else row
+        
+        # Momentum (0-2 points)
+        mom = float(r.get("Momentum", 0)) if "Momentum" in r else 0
+        if mom > 0.02:
+            score += 2
+        elif mom > 0:
+            score += 1
+        elif mom < -0.02:
+            score -= 2
+        elif mom < 0:
+            score -= 1
+
+        # RSI (0-2 points)
+        rsi = float(r.get("RSI", 50)) if "RSI" in r else 50
+        if rsi > 70:
+            score += 1 # Strong trend
+        elif rsi < 30:
+            score -= 2 # Panic selling
+
+        # Relative Volume (0-2 points)
+        r_vol = float(r.get("R_VOL", 1.0)) if "R_VOL" in r else 1.0
+        if r_vol > 2.0:
+            score += 2
+        elif r_vol > 1.2:
+            score += 1
+        elif r_vol < 0.5:
+            score -= 1
+    except Exception:
+        pass
+    return min(10, max(1, score))
 
 
 def _calculate_technical_score(row) -> int:

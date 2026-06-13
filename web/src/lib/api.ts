@@ -147,6 +147,18 @@ export type LocalModelMeta = {
   stop_loss_pct?: number;
   look_forward_days?: number;
   buyThreshold?: number;
+  exchange?: string;
+  featurePreset?: string;
+  learning_rate?: number;
+  bestIteration?: number;
+  n_estimators?: number;
+  num_trees?: number;
+  model_type?: string;
+  meta_threshold?: number;
+  has_meta_labeling?: boolean;
+  uses_fundamentals?: boolean;
+  uses_exchange_index_json?: boolean;
+  training_stats?: Record<string, unknown>;
 };
 
 export type LocalModelsResponse = {
@@ -375,6 +387,10 @@ export type ScanResult = {
   signal: string;
   confidence: string;
   logo_url?: string | null;
+  ai_score?: number;
+  fundamental_score?: number;
+  technical_score?: number;
+  sentiment_score?: number;
   status?: "win" | "loss" | "pending" | "open" | "hit_stop" | "hit_target" | null;
   profit_loss_pct?: number | null;
   top_reasons?: string[];
@@ -385,8 +401,6 @@ export type ScanResult = {
   updated_at?: string;
   exit_price?: number;
   features?: number[] | null;
-  technical_score?: number;
-  fundamental_score?: number;
   council_score?: number;
   consensus_ratio?: string;
 };
@@ -623,6 +637,10 @@ export type TechResult = {
   industry?: string;
   beta?: number;
   logo_url?: string | null;
+  ai_score?: number;
+  fundamental_score?: number;
+  technical_score?: number;
+  sentiment_score?: number;
 };
 
 export type TechResponse = {
@@ -1045,6 +1063,24 @@ export type StrategyTesterModelResult = {
   trades: StrategyTesterTrade[];
   stats: Record<string, any>;
   error?: string;
+  adaptive?: AdaptiveRecommendation | null;
+};
+
+export type AdaptiveRecommendation = {
+  recommended_model: string;
+  recommended_model_path?: string;
+  regime: string;
+  confidence: number;
+  momentum_score: number;
+  volatility_score: number;
+  trend_strength: number;
+  reason: string;
+  candidate_models: string[];
+  candidate_count: number;
+  meets_min_confidence: boolean;
+  min_confidence: number;
+  as_of?: string | null;
+  exchange: string;
 };
 
 export type StrategyTesterResponse = {
@@ -1055,6 +1091,7 @@ export type StrategyTesterResponse = {
   bars: StrategyTesterBar[];
   total_bars: number;
   models: Record<string, StrategyTesterModelResult>;
+  adaptive?: AdaptiveRecommendation | null;
   config: {
     threshold: number;
     target_pct: number;
@@ -1073,6 +1110,9 @@ export type ApiBotConfig = {
   hold_days: number;
   threshold: number;
   bot_mode: string;
+  use_adaptive_model_selector?: boolean;
+  adaptive_model_pool?: string[] | null;
+  adaptive_min_confidence?: number;
 };
 
 export async function runStrategyTest(params: {
@@ -1088,6 +1128,9 @@ export async function runStrategyTest(params: {
   capital?: number;
   bot_mode?: string;
   bots?: ApiBotConfig[];
+  use_adaptive_model_selector?: boolean;
+  adaptive_model_pool?: string[];
+  adaptive_min_confidence?: number;
 }, signal?: AbortSignal): Promise<StrategyTesterResponse> {
   const baseUrl = getProductionApiUrl();
   const url = baseUrl ? `${baseUrl}/backtest/simulate` : `/api/backtest/simulate`;
@@ -1108,6 +1151,9 @@ export async function runStrategyTest(params: {
       capital: params.capital ?? 100000,
       bot_mode: params.bot_mode ?? "normal",
       bots: params.bots ?? null,
+      use_adaptive_model_selector: params.use_adaptive_model_selector ?? false,
+      adaptive_model_pool: params.adaptive_model_pool ?? [],
+      adaptive_min_confidence: params.adaptive_min_confidence ?? 0.55,
     }),
     cache: "no-store",
     signal,
@@ -1123,5 +1169,29 @@ export async function runStrategyTest(params: {
   }
 
   return res.json() as Promise<StrategyTesterResponse>;
+}
+
+export async function getAdaptiveRecommendation(params: {
+  exchange?: string;
+  as_of?: string;
+  model_names?: string[];
+  min_confidence?: number;
+}): Promise<AdaptiveRecommendation> {
+  const baseUrl = getProductionApiUrl();
+  const query = new URLSearchParams();
+  query.set("exchange", params.exchange ?? "EGX");
+  if (params.min_confidence !== undefined) {
+    query.set("min_confidence", String(params.min_confidence));
+  }
+  for (const modelName of params.model_names ?? []) {
+    query.append("model_names", modelName);
+  }
+  if (params.as_of) query.set("as_of", params.as_of);
+  const fetchUrl = `${baseUrl ? `${baseUrl}/adaptive/recommendation` : "/api/adaptive/recommendation"}?${query.toString()}`;
+  const res = await fetch(fetchUrl, { cache: "no-store" });
+  if (!res.ok) {
+    throw new Error(`Failed to fetch adaptive recommendation (${res.status})`);
+  }
+  return res.json() as Promise<AdaptiveRecommendation>;
 }
 

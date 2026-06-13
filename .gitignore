@@ -52,3 +52,7 @@ api/models/*.pkl
 symbols_data/*.json
 p.png
 .vercel
+.agent/
+.kiro/
+web/public/*.png
+web/public/favicon_io/*.png

@@ -3,7 +3,7 @@
 import { useSearchParams, useRouter } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 import TradingViewChart from "@/components/TradingViewChart";
-import { getStockFundamentals, searchSymbols } from "@/lib/api";
+import { getAdaptiveRecommendation, getStockFundamentals, searchSymbols } from "@/lib/api";
 import { 
   Loader2, MousePointer, TrendingUp, Minus, Type, Edit2, 
   Trash2, Compass, Ruler, Landmark, Activity, Sparkles, TrendingDown,
@@ -62,6 +62,8 @@ function ChartContent() {
   const [activeTool, setActiveTool] = useState<string>("cursor");
   const [fundamentals, setFundamentals] = useState<any>(null);
   const [loadingFunds, setLoadingFunds] = useState<boolean>(false);
+  const [adaptiveInfo, setAdaptiveInfo] = useState<any>(null);
+  const [loadingAdaptive, setLoadingAdaptive] = useState<boolean>(false);
   const [rightSidebarOpen, setRightSidebarOpen] = useState<boolean>(true);
   const [rightSidebarWidth, setRightSidebarWidth] = useState<number>(320);
   const [isResizingRightSidebar, setIsResizingRightSidebar] = useState<boolean>(false);
@@ -122,6 +124,17 @@ function ChartContent() {
         setLoadingFunds(false);
       });
   }, [symbol, exchange]);
+
+  useEffect(() => {
+    setLoadingAdaptive(true);
+    getAdaptiveRecommendation({ exchange })
+      .then((data) => setAdaptiveInfo(data))
+      .catch((err) => {
+        console.error("Failed to load adaptive recommendation:", err);
+        setAdaptiveInfo(null);
+      })
+      .finally(() => setLoadingAdaptive(false));
+  }, [exchange]);
 
   useEffect(() => {
     if (!searchQuery.trim()) {
@@ -367,6 +380,49 @@ function ChartContent() {
                       <Star className={`w-4 h-4 ${isSaved(symbol) ? "fill-indigo-400 text-indigo-400" : ""}`} />
                     </button>
                   </div>
+                </div>
+
+                <div className="p-4 rounded-2xl border border-indigo-500/15 bg-indigo-500/[0.03] space-y-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <span className="text-[9px] font-black text-indigo-300 uppercase tracking-widest">Adaptive System</span>
+                      <h4 className="text-sm font-black text-white mt-1">Current Model Recommendation</h4>
+                    </div>
+                    <Sparkles className="w-4 h-4 text-indigo-400 shrink-0" />
+                  </div>
+
+                  {loadingAdaptive ? (
+                    <div className="flex items-center gap-2 text-xs text-zinc-500">
+                      <Loader2 className="w-4 h-4 animate-spin text-indigo-400" />
+                      Loading adaptive state...
+                    </div>
+                  ) : adaptiveInfo ? (
+                    <div className="space-y-2.5">
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="rounded-xl border border-white/5 bg-zinc-900/30 p-3">
+                          <div className="text-[8px] font-black uppercase tracking-wider text-zinc-500">Model</div>
+                          <div className="mt-1 text-xs font-black text-white break-all">{adaptiveInfo.recommended_model?.replace(".pkl", "")}</div>
+                        </div>
+                        <div className="rounded-xl border border-white/5 bg-zinc-900/30 p-3">
+                          <div className="text-[8px] font-black uppercase tracking-wider text-zinc-500">Regime</div>
+                          <div className="mt-1 text-xs font-black text-white">{adaptiveInfo.regime}</div>
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-between text-[10px] font-semibold text-zinc-400">
+                        <span>Confidence</span>
+                        <span className="text-white">{(Number(adaptiveInfo.confidence || 0) * 100).toFixed(1)}%</span>
+                      </div>
+                      <div className="text-[10px] leading-relaxed text-zinc-500">{adaptiveInfo.reason}</div>
+                      <button
+                        onClick={() => router.push(`/backtest?symbol=${encodeURIComponent(symbol)}&exchange=${encodeURIComponent(exchange)}`)}
+                        className="w-full rounded-xl border border-indigo-500/20 bg-indigo-500/10 px-3 py-2 text-[10px] font-black uppercase tracking-wider text-indigo-300 transition-all hover:bg-indigo-500/15"
+                      >
+                        Open Strategy Tester
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="text-xs text-zinc-500">Adaptive recommendation is unavailable right now.</div>
+                  )}
                 </div>
 
                 {/* Company Profile Details */}

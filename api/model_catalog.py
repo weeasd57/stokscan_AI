@@ -12,9 +12,10 @@ def _name_upper(m: Dict[str, Any]) -> str:
 
 
 def select_canonical_model_cards(models: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Return at most KING + THE BRAIN (NANO) models."""
+    """Return at most KING + THE BRAIN (NANO) models, plus any custom models."""
     king_pool = []
     brain_pool = []
+    others = []
 
     for m in models or []:
         n = _name_upper(m)
@@ -25,6 +26,8 @@ def select_canonical_model_cards(models: List[Dict[str, Any]]) -> List[Dict[str,
             king_pool.append(m)
         elif "BRAIN" in n or "NANO" in n or "NEW_MODEL" in n:
             brain_pool.append(m)
+        else:
+            others.append(m)
 
     def _pick(pool: List[Dict[str, Any]], preferred: List[str]) -> Optional[Dict[str, Any]]:
         if not pool:
@@ -49,4 +52,5 @@ def select_canonical_model_cards(models: List[Dict[str, Any]]) -> List[Dict[str,
         picked.append(king)
     if brain:
         picked.append(brain)
+    picked.extend(others)
     return picked

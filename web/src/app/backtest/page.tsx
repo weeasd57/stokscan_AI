@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback, Suspense } from "react";
+import { useEffect, useRef, useState, useCallback, Suspense, useMemo } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useLanguage } from "@/contexts/LanguageContext";
 import {
@@ -13,7 +13,14 @@ import {
   Activity, AlertCircle, Layers, Zap, Clock, DollarSign, Award,
   ArrowUpRight, ArrowDownRight, ChevronLeft, Info, Trash
 } from "lucide-react";
-import { getLocalModels, runStrategyTest, searchSymbols, getStockFundamentals, type StrategyTesterBar, type StrategyTesterTrade, type LocalModelMeta, type ApiBotConfig } from "@/lib/api";
+import { getLocalModels, runStrategyTest, searchSymbols, getStockFundamentals, type StrategyTesterBar, type StrategyTesterTrade, type ApiBotConfig } from "@/lib/api";
+import {
+  filterPrimaryModels,
+  getSuggestedModelSettings,
+  normalizeAdaptiveModels,
+  pickDefaultPrimaryModel,
+  type AdaptiveModelInfo,
+} from "@/lib/adaptiveModels";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const MODEL_COLORS = [
@@ -92,10 +99,13 @@ function StrategyTesterContent() {
   const [endDate, setEndDate] = useState("");
   const [activeBots, setActiveBots] = useState<ActiveBot[]>([]);
   const [capital, setCapital] = useState(100000);
+  const [useAdaptiveSelector, setUseAdaptiveSelector] = useState(false);
+  const [adaptiveMinConfidence, setAdaptiveMinConfidence] = useState(55);
+  const [lastAdaptive, setLastAdaptive] = useState<any>(null);
   const [addBotDropdownOpen, setAddBotDropdownOpen] = useState(false);
 
   // ── Model Picker ──────────────────────────────────────────────────────────
-  const [availableModels, setAvailableModels] = useState<string[]>([]);
+  const [availableModels, setAvailableModels] = useState<AdaptiveModelInfo[]>([]);
   const [loadingModels, setLoadingModels] = useState(true);
   const [modelSearch, setModelSearch] = useState("");
 
@@ -192,51 +202,73 @@ function StrategyTesterContent() {
   const currentBarRef = useRef(0);
   const updateChartRef = useRef<(barIdx: number) => void>(() => {});
 
+  const exchangeAwareModels = useMemo(
+    () => filterPrimaryModels(availableModels, exchange).filter((model) => !model.normalizedName.includes("CRYPTO")),
+    [availableModels, exchange]
+  );
+
+  const filteredAvailableModels = useMemo(() => {
+    const query = modelSearch.trim().toLowerCase();
+    if (!query) return exchangeAwareModels;
+    return exchangeAwareModels.filter((model) =>
+      model.displayName.toLowerCase().includes(query) || model.name.toLowerCase().includes(query)
+    );
+  }, [exchangeAwareModels, modelSearch]);
+
   // ── Load models on mount ──────────────────────────────────────────────────
   useEffect(() => {
     getLocalModels()
       .then((models) => {
-        const names = models.map((m) =>
-          typeof m === "string" ? m : (m as LocalModelMeta).name
-        ).filter(Boolean)
-         .filter(name => !name.toLowerCase().includes("crypto"));
-        setAvailableModels(names);
-        if (names.length > 0) {
-          setActiveBots([{
-            id: `${names[0].replace('.pkl', '')} - 1`,
-            model_name: names[0],
-            target_pct: 10,
-            stop_loss_pct: 5,
-            hold_days: 20,
-            threshold: 50,
-            bot_mode: "normal",
-            isOpen: true
-          }]);
-        }
+        setAvailableModels(normalizeAdaptiveModels(models));
       })
       .catch(() => {})
       .finally(() => setLoadingModels(false));
   }, []);
 
   // ── Bot Configuration Helper Functions ─────────────────────────────────────
-  const addBot = (modelName: string) => {
-    const baseName = modelName.replace('.pkl', '');
+  const addBot = useCallback((model: AdaptiveModelInfo) => {
+    const baseName = model.displayName;
     let nextIndex = 1;
     while (activeBots.some(b => b.id === `${baseName} - ${nextIndex}`)) {
       nextIndex++;
     }
+    const suggested = getSuggestedModelSettings(model);
     const newBot: ActiveBot = {
       id: `${baseName} - ${nextIndex}`,
-      model_name: modelName,
-      target_pct: 10,
-      stop_loss_pct: 5,
-      hold_days: 20,
-      threshold: 50,
+      model_name: model.name,
+      target_pct: suggested.targetPct,
+      stop_loss_pct: suggested.stopLossPct,
+      hold_days: suggested.holdDays,
+      threshold: suggested.thresholdPct,
       bot_mode: "normal",
       isOpen: true
     };
     setActiveBots([...activeBots, newBot]);
-  };
+  }, [activeBots]);
+
+  useEffect(() => {
+    if (loadingModels) return;
+    const eligibleNames = new Set(exchangeAwareModels.map((model) => model.name));
+    setActiveBots((prev) => {
+      const compatibleBots = prev.filter((bot) => eligibleNames.has(bot.model_name));
+      if (compatibleBots.length > 0) return compatibleBots;
+
+      const defaultModel = pickDefaultPrimaryModel(availableModels, exchange);
+      if (!defaultModel) return [];
+
+      const suggested = getSuggestedModelSettings(defaultModel);
+      return [{
+        id: `${defaultModel.displayName} - 1`,
+        model_name: defaultModel.name,
+        target_pct: suggested.targetPct,
+        stop_loss_pct: suggested.stopLossPct,
+        hold_days: suggested.holdDays,
+        threshold: suggested.thresholdPct,
+        bot_mode: "normal",
+        isOpen: true
+      }];
+    });
+  }, [availableModels, exchangeAwareModels, exchange, loadingModels]);
 
   const removeBot = (botId: string) => {
     setActiveBots(activeBots.filter(b => b.id !== botId));
@@ -804,6 +836,7 @@ function StrategyTesterContent() {
     tradesRef.current = [];          // ← مسح فوري للـ ref قبل أي API call
     setModelStats({});
     setSelectedBotFilter("all");
+    setLastAdaptive(null);
     // Clear chart markers immediately to prevent stale arrows from prev run
     if (candleSeriesRef.current) {
       candleSeriesRef.current.setMarkers([]);
@@ -832,6 +865,9 @@ function StrategyTesterContent() {
         hold_days: activeBots[0]?.hold_days || 20,
         threshold: (activeBots[0]?.threshold || 50) / 100,
         bot_mode: activeBots[0]?.bot_mode || "normal",
+        use_adaptive_model_selector: useAdaptiveSelector,
+        adaptive_model_pool: activeBots.map((bot) => bot.model_name),
+        adaptive_min_confidence: adaptiveMinConfidence / 100,
       });
 
       const loadedBars = result.bars;
@@ -879,6 +915,7 @@ function StrategyTesterContent() {
       tradesRef.current = combined;
       setAllTrades(combined);
       setModelStats(stats);
+      setLastAdaptive(result.adaptive || null);
       setHasResult(true);
       hasResultRef.current = true;
 
@@ -904,7 +941,7 @@ function StrategyTesterContent() {
       setLoading(false);
     }
   }, [
-    symbol, exchange, startDate, endDate, activeBots, capital,
+    symbol, exchange, startDate, endDate, activeBots, capital, useAdaptiveSelector, adaptiveMinConfidence,
     stopPlayback, updateChart,
   ]);
 
@@ -950,9 +987,7 @@ function StrategyTesterContent() {
     }
   });
 
-  const filteredModels = availableModels.filter(
-    (m) => !modelSearch || m.toLowerCase().includes(modelSearch.toLowerCase())
-  );
+  const filteredModels = filteredAvailableModels;
 
   // ─── Render ───────────────────────────────────────────────────────────────
   return (
@@ -1102,9 +1137,9 @@ function StrategyTesterContent() {
 
                   {addBotDropdownOpen && (
                     <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-[#131722] border border-[#2a2e39] rounded-xl overflow-hidden shadow-2xl max-h-48 overflow-y-auto p-1.5 space-y-0.5">
-                      {availableModels.map((m) => (
+                      {filteredModels.map((m) => (
                         <button
-                          key={m}
+                          key={m.name}
                           type="button"
                           onClick={() => {
                             addBot(m);
@@ -1112,11 +1147,11 @@ function StrategyTesterContent() {
                           }}
                           className="w-full flex items-center justify-between px-3 py-2.5 hover:bg-indigo-600/10 text-right rounded-lg text-[10px] font-bold text-zinc-300 transition-colors"
                         >
-                          <span>{m.replace('.pkl', '')}</span>
+                          <span>{m.displayName}</span>
                           <span className="text-[8px] bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 px-1.5 py-0.5 rounded uppercase">PICKLE</span>
                         </button>
                       ))}
-                      {availableModels.length === 0 && (
+                      {filteredModels.length === 0 && (
                         <div className="text-center py-3 text-[10px] text-zinc-600 font-bold">{t("backtest.no_models")}</div>
                       )}
                     </div>
@@ -1250,6 +1285,61 @@ function StrategyTesterContent() {
                     </div>
                   )}
                 </div>
+              </div>
+
+              <div className="space-y-3 border-t border-white/5 pt-4">
+                <div className="flex items-center justify-between gap-3 rounded-xl border border-white/5 bg-zinc-950/40 px-3 py-3">
+                  <div className="min-w-0">
+                    <div className="text-[10px] font-black uppercase tracking-wider text-white">Adaptive Selector</div>
+                    <div className="text-[9px] text-zinc-500 font-semibold">
+                      يختار موديلًا من البوتات المضافة حسب نظام السوق ويضيفه كنتيجة مستقلة.
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setUseAdaptiveSelector((prev) => !prev)}
+                    className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase border transition-all ${
+                      useAdaptiveSelector
+                        ? "bg-indigo-600/15 border-indigo-500/40 text-indigo-300"
+                        : "bg-zinc-900 border-white/5 text-zinc-500"
+                    }`}
+                  >
+                    {useAdaptiveSelector ? "On" : "Off"}
+                  </button>
+                </div>
+
+                {useAdaptiveSelector && (
+                  <div className="rounded-xl border border-white/5 bg-zinc-950/30 p-3 space-y-2">
+                    <div className="flex items-center justify-between text-[9px] font-bold text-zinc-500">
+                      <span>Min Confidence</span>
+                      <span className="font-mono text-white">{adaptiveMinConfidence}%</span>
+                    </div>
+                    <input
+                      type="range"
+                      min={30}
+                      max={95}
+                      step={1}
+                      value={adaptiveMinConfidence}
+                      onChange={(e) => setAdaptiveMinConfidence(Number(e.target.value))}
+                      className="w-full h-1 rounded-full appearance-none cursor-pointer"
+                      style={{ accentColor: "#6366f1" }}
+                    />
+                    <div className="text-[9px] text-zinc-600 font-semibold">
+                      Pool: {activeBots.map((bot) => bot.model_name.replace(".pkl", "")).join(", ") || "No models"}
+                    </div>
+                    {lastAdaptive && (
+                      <div className="rounded-lg border border-indigo-500/20 bg-indigo-500/5 p-2.5 text-[10px]">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-black text-indigo-300">{lastAdaptive.recommended_model?.replace(".pkl", "")}</span>
+                          <span className="text-zinc-400">{lastAdaptive.regime}</span>
+                        </div>
+                        <div className="mt-1 text-zinc-500">
+                          Confidence: {(Number(lastAdaptive.confidence || 0) * 100).toFixed(1)}%
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Run Button */}
@@ -1395,6 +1485,16 @@ function StrategyTesterContent() {
                     </button>
                   );
                 })}
+              </div>
+            )}
+
+            {hasResult && lastAdaptive && (
+              <div className="absolute top-3 right-3 z-20 max-w-xs rounded-xl border border-indigo-500/20 bg-[#0d0f17]/90 backdrop-blur px-3 py-2.5 text-left shadow-lg">
+                <div className="text-[9px] font-black uppercase tracking-wider text-indigo-300">Adaptive Pick</div>
+                <div className="mt-1 text-sm font-black text-white">{lastAdaptive.recommended_model?.replace(".pkl", "")}</div>
+                <div className="mt-1 text-[10px] text-zinc-400">
+                  {lastAdaptive.regime} | {(Number(lastAdaptive.confidence || 0) * 100).toFixed(1)}%
+                </div>
               </div>
             )}
           </div>

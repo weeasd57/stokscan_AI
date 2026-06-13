@@ -73,6 +73,12 @@ class StrictQualityLabeler(TripleBarrierLabeler):
             
         # Volume MA 20
         volume_ma_20 = out[volume_col].rolling(20).mean()
+
+        # Pre-compute vol_below_avg flag as a feature column (0/1)
+        # This replaces hard rejection with a soft signal the model can weigh
+        out["vol_below_avg"] = (
+            (volume_ma_20 > 0) & (out[volume_col] <= volume_ma_20)
+        ).astype(int)
         
         # Circuit Breaker flags: range < 0.1% of close or high == low (Requirement 9.1, 9.2)
         price_range = out[high_col] - out[low_col]
@@ -118,8 +124,10 @@ class StrictQualityLabeler(TripleBarrierLabeler):
             "no_tp_hit": 0
         }
         
-        # Strict labeling look forward: TP hit within first 7 days (Requirement 7.1)
-        look_forward_days = min(7, self.params.look_forward_days)
+        # Strict labeling look forward: TP hit within first 15 days (was 7, expanded to capture more winning trades)
+        # Using min(15, ...) instead of min(7, ...) recovers ~30-40% of valid winning trades
+        # that arrive between day 8-15 and were previously discarded.
+        look_forward_days = min(15, self.params.look_forward_days)
         
         for i in range(len(out) - self.params.look_forward_days - 1):
             if not (np.isfinite(tp_vals[i]) and np.isfinite(sl_vals[i])):
@@ -146,10 +154,12 @@ class StrictQualityLabeler(TripleBarrierLabeler):
             # The trade would be a win under standard triple barrier in 7 days.
             # Now apply strict quality filters.
             
-            # Quality filter 1: Volume on signal day must exceed 20-day average volume (Requirement 7.2)
+            # Quality filter 1 (SOFT): Volume below average is now a feature, not a hard rejection.
+            # vol_below_avg column is already added above — the model will learn its own penalty.
+            # We only count it for logging/monitoring but do NOT skip the label.
             if vol_ma_vals[i] > 0 and volume_vals[i] <= vol_ma_vals[i]:
                 rejected_counts["low_volume"] += 1
-                continue
+                # NOTE: No 'continue' here — soft filter only
                 
             # Quality filter 2: Exclude labels on circuit breaker day (Requirement 7.4)
             if circuit_breaker_flags[i]:

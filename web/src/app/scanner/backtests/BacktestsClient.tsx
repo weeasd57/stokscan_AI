@@ -53,6 +53,35 @@ const Egx30Comparison = ({ start, end, botReturn }: { start: string, end: string
     );
 };
 
+const getBacktestProfitPct = (
+    backtest: {
+        profit_pct?: number | null;
+        pre_council_profit_pct?: number | null;
+        post_council_profit_pct?: number | null;
+        net_profit?: number | null;
+    },
+    stage: "pre" | "post" = "post"
+) => {
+    const directPct =
+        stage === "pre"
+            ? backtest.pre_council_profit_pct
+            : backtest.post_council_profit_pct;
+
+    if (directPct !== undefined && directPct !== null) {
+        return Number(directPct);
+    }
+
+    if (backtest.profit_pct !== undefined && backtest.profit_pct !== null) {
+        return Number(backtest.profit_pct) * 100;
+    }
+
+    if (backtest.net_profit !== undefined && backtest.net_profit !== null) {
+        return (Number(backtest.net_profit) / 100000) * 100;
+    }
+
+    return null;
+};
+
 interface LocalModel {
     name: string;
     size_bytes: number;
@@ -555,8 +584,8 @@ export default function AIScannerPage() {
             let valB: any = 0;
 
             if (backtestSortBy === "net_profit") {
-                valA = a.profit_pct ?? a.post_council_profit_pct ?? a.net_profit ?? 0;
-                valB = b.profit_pct ?? b.post_council_profit_pct ?? b.net_profit ?? 0;
+                valA = getBacktestProfitPct(a, "post") ?? 0;
+                valB = getBacktestProfitPct(b, "post") ?? 0;
             } else if (backtestSortBy === "win_rate") {
                 valA = a.win_rate ?? 0;
                 valB = b.win_rate ?? 0;
@@ -591,16 +620,24 @@ export default function AIScannerPage() {
             const isEgypt = (b.is_public === true) && (ex === "EGX" || ex === "EG" || ex === "CA");
             if (!isEgypt) return;
 
-            const nameUpper = (b.model_name || "").toUpperCase();
+            // Normalize model name: strip file extension and any parenthetical suffixes like "(2022-Stress)", "(Adaptive)"
+            const rawName = (b.model_name || "")
+                .replace(/\.pkl$/i, "")
+                .replace(/\s*\(.*?\)\s*/g, "")  // remove (anything) suffixes
+                .trim();
+
+            const nameUpper = rawName.toUpperCase();
             let groupKey = "";
             if (nameUpper.includes("KING")) {
                 groupKey = "KING";
             } else if (nameUpper.includes("NANO") || nameUpper.includes("NEW_MODEL")) {
                 groupKey = "NANO";
-            } else if (nameUpper.includes("THE BOT") || nameUpper.includes("BOT")) {
+            } else if (nameUpper.includes("THE BOT") || nameUpper === "BOT") {
                 groupKey = "THE BOT";
+            } else if (nameUpper.includes("MODEL_EGX") || nameUpper.includes("MODEL EGX")) {
+                groupKey = "MODEL_EGX";
             } else {
-                groupKey = b.model_name.replace(".pkl", "").toUpperCase();
+                groupKey = nameUpper;
             }
 
             if (!stats[groupKey]) {
@@ -614,7 +651,7 @@ export default function AIScannerPage() {
                 };
             }
 
-            const profitPctValue = b.profit_pct ?? b.post_council_profit_pct ?? b.net_profit ?? 0;
+            const profitPctValue = getBacktestProfitPct(b, "post");
             const winRate = b.win_rate ?? 0;
             const trades = b.total_trades ?? 0;
             const avgReturn = b.avg_return_per_trade ?? 0;
@@ -623,7 +660,7 @@ export default function AIScannerPage() {
             entry.totalRuns += 1;
             entry.totalTrades += trades;
             entry.totalWinRate += winRate;
-            entry.totalProfitPct += profitPctValue;
+            if (profitPctValue !== null) entry.totalProfitPct += profitPctValue;
             entry.totalWeightedReturn += avgReturn * trades;
         });
 
@@ -1335,12 +1372,16 @@ export default function AIScannerPage() {
                                 ];
                                 const fallbackTheme = themes[idx % themes.length];
                                     
+                                const isModelEgx = stat.modelName === "MODEL_EGX";
+
                                 const themeClass = isKing 
                                     ? "bg-amber-500/10 border-amber-500/25 text-amber-400" 
                                     : isNano 
                                     ? "bg-indigo-500/10 border-indigo-500/25 text-indigo-400" 
                                     : isTheBot
                                     ? "bg-emerald-500/10 border-emerald-500/25 text-emerald-400"
+                                    : isModelEgx
+                                    ? "bg-sky-500/10 border-sky-500/25 text-sky-400"
                                     : fallbackTheme.bg;
                                     
                                 const badgeClass = isKing 
@@ -1349,9 +1390,21 @@ export default function AIScannerPage() {
                                     ? "bg-indigo-500/20 text-indigo-400 border border-indigo-500/20" 
                                     : isTheBot
                                     ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/20"
+                                    : isModelEgx
+                                    ? "bg-sky-500/20 text-sky-400 border border-sky-500/20"
                                     : fallbackTheme.badge;
                                     
-                                const IconComp = isKing ? Brain : isNano ? Cpu : isTheBot ? Zap : fallbackTheme.icon;
+                                const glowColor = isKing 
+                                    ? "rgba(251,191,36,0.12)" 
+                                    : isNano 
+                                    ? "rgba(99,102,241,0.12)" 
+                                    : isTheBot
+                                    ? "rgba(34,197,94,0.12)"
+                                    : isModelEgx
+                                    ? "rgba(14,165,233,0.12)"
+                                    : "rgba(139,92,246,0.12)";
+
+                                const IconComp = isKing ? Brain : isNano ? Cpu : isTheBot ? Zap : isModelEgx ? LineChart : fallbackTheme.icon;
                                 
                                 const displayName = stat.modelName === "KING"
                                     ? (language === "ar" ? "موديل KING الملكي" : "KING Model")
@@ -1359,95 +1412,122 @@ export default function AIScannerPage() {
                                     ? (language === "ar" ? "موديل NANO الذكي" : "NANO Model")
                                     : stat.modelName === "THE BOT"
                                     ? (language === "ar" ? "موديل THE BOT" : "THE BOT Model")
+                                    : stat.modelName === "MODEL_EGX"
+                                    ? (language === "ar" ? "موديل EGX الذكي" : "Model EGX")
                                     : stat.modelName;
 
                                 const badgeName = isKing 
                                     ? (language === "ar" ? "مميز" : "Premium") 
                                     : isNano 
-                                    ? (language === "ar" ? "لايت" : "Lite") 
+                                    ? (language === "ar" ? "لايت" : "Lite")
+                                    : isModelEgx
+                                    ? (language === "ar" ? "أساسي" : "Standard")
                                     : (language === "ar" ? "أساسي" : "Standard");
                                 
+                                const profitPositive = stat.netProfit >= 0;
+                                const avgReturnPositive = stat.avgReturnPerTrade >= 0;
+
                                 return (
                                     <div 
                                         key={stat.modelName}
-                                        className="app-panel relative overflow-hidden rounded-[2rem] p-6 flex flex-col justify-between group"
+                                        className="relative overflow-hidden rounded-[2rem] p-6 flex flex-col justify-between group transition-all duration-500 hover:-translate-y-1"
+                                        style={{
+                                            background: `linear-gradient(145deg, rgba(10,14,30,0.95) 0%, rgba(8,12,26,0.98) 100%)`,
+                                            border: `1px solid rgba(255,255,255,0.08)`,
+                                            boxShadow: `0 0 0 1px rgba(255,255,255,0.04), 0 20px 60px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.06)`,
+                                        }}
                                     >
+                                        {/* Glow effect */}
+                                        <div 
+                                            className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none rounded-[2rem]"
+                                            style={{ boxShadow: `inset 0 0 80px ${glowColor}` }}
+                                        />
+
                                         {/* Background Logo Layer */}
                                         <div 
-                                            className="absolute inset-0 bg-cover bg-center opacity-[0.05] pointer-events-none transition-transform duration-700 group-hover:scale-105" 
+                                            className="absolute inset-0 bg-cover bg-center opacity-[0.04] group-hover:opacity-[0.07] pointer-events-none transition-all duration-700 group-hover:scale-105 rounded-[2rem]" 
                                             style={{ backgroundImage: `url('${logoUrl}')` }} 
                                         />
+
+                                        {/* Top gradient accent */}
+                                        <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-white/20 to-transparent" />
                                         
                                         {/* Header */}
-                                        <div className="relative z-10 flex items-center justify-between mb-6">
+                                        <div className="relative z-10 flex items-start justify-between mb-6">
                                             <div className="flex items-center gap-3">
-                                                <div className={`p-2.5 rounded-xl border flex items-center justify-center shrink-0 ${themeClass}`}>
+                                                <div className={`p-3 rounded-2xl border flex items-center justify-center shrink-0 ${themeClass} shadow-lg`}>
                                                     <IconComp className="w-5 h-5" />
                                                 </div>
                                                 <div>
-                                                    <h3 className="text-sm md:text-base font-black text-white uppercase tracking-tight flex items-center gap-2">
+                                                    <h3 className="text-base font-black text-white uppercase tracking-tight flex items-center gap-2 flex-wrap">
                                                         {displayName}
-                                                        <span className={`text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-wider ${badgeClass}`}>
+                                                        <span className={`text-[8px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider ${badgeClass}`}>
                                                             {badgeName}
                                                         </span>
                                                     </h3>
-                                                    <p className="text-[9px] text-zinc-500 font-bold uppercase tracking-widest mt-0.5">
-                                                        {language === "ar" ? "إحصائيات الأداء التاريخي التراكمي" : "Cumulative Historical Performance Overview"}
+                                                    <p className="text-[9px] text-zinc-600 font-bold uppercase tracking-widest mt-1">
+                                                        {language === "ar" ? "إحصائيات تراكمية" : "Cumulative Historical Overview"}
                                                     </p>
                                                 </div>
                                             </div>
                                         </div>
 
-                                        {/* Stats Grid */}
-                                        <div className="relative z-10 grid grid-cols-2 sm:grid-cols-5 gap-3 mt-auto">
-                                            {/* Runs */}
-                                            <div className="p-3 rounded-2xl bg-zinc-900/40 border border-white/5 flex flex-col justify-between shadow-inner">
-                                                <span className="text-[8px] font-bold text-zinc-500 uppercase tracking-wider mb-1">
-                                                    {t("backtest.stats.total_runs")}
-                                                </span>
-                                                <span className="font-mono text-sm font-black text-zinc-200">
-                                                    {stat.totalRuns}
-                                                </span>
+                                        {/* Divider */}
+                                        <div className="relative z-10 h-px bg-gradient-to-r from-transparent via-white/8 to-transparent mb-5" />
+
+                                        {/* Stats Grid — 2+3 layout */}
+                                        <div className="relative z-10 space-y-3">
+                                            {/* Row 1: Runs + Trades */}
+                                            <div className="grid grid-cols-2 gap-3">
+                                                <div className="p-3.5 rounded-2xl bg-zinc-900/50 border border-white/5 flex flex-col gap-1">
+                                                    <span className="text-[9px] font-bold text-zinc-600 uppercase tracking-wider">
+                                                        {t("backtest.stats.total_runs")}
+                                                    </span>
+                                                    <span className="font-mono text-2xl font-black text-zinc-100 leading-none">
+                                                        {stat.totalRuns}
+                                                    </span>
+                                                    <span className="text-[8px] text-zinc-700 font-bold uppercase">backtests</span>
+                                                </div>
+                                                <div className="p-3.5 rounded-2xl bg-zinc-900/50 border border-white/5 flex flex-col gap-1">
+                                                    <span className="text-[9px] font-bold text-zinc-600 uppercase tracking-wider">
+                                                        {t("backtest.stats.total_trades")}
+                                                    </span>
+                                                    <span className="font-mono text-2xl font-black text-zinc-100 leading-none">
+                                                        {stat.totalTrades}
+                                                    </span>
+                                                    <span className="text-[8px] text-zinc-700 font-bold uppercase">signals</span>
+                                                </div>
                                             </div>
 
-                                            {/* Trades */}
-                                            <div className="p-3 rounded-2xl bg-zinc-900/40 border border-white/5 flex flex-col justify-between shadow-inner">
-                                                <span className="text-[8px] font-bold text-zinc-500 uppercase tracking-wider mb-1">
-                                                    {t("backtest.stats.total_trades")}
-                                                </span>
-                                                <span className="font-mono text-sm font-black text-zinc-200">
-                                                    {stat.totalTrades}
-                                                </span>
-                                            </div>
-
-                                            {/* Win Rate */}
-                                            <div className="p-3 rounded-2xl bg-zinc-900/40 border border-white/5 flex flex-col justify-between shadow-inner">
-                                                <span className="text-[8px] font-bold text-zinc-500 uppercase tracking-wider mb-1">
-                                                    {t("backtest.stats.win_rate")}
-                                                </span>
-                                                <span className="font-mono text-sm font-black text-emerald-400">
-                                                    {stat.winRate.toFixed(1)}%
-                                                </span>
-                                            </div>
-
-                                            {/* Net Profit */}
-                                            <div className="p-3 rounded-2xl bg-zinc-900/40 border border-white/5 flex flex-col justify-between shadow-inner col-span-1 sm:col-span-1">
-                                                <span className="text-[8px] font-bold text-zinc-500 uppercase tracking-wider mb-1">
-                                                    {t("backtest.stats.avg_profit")}
-                                                </span>
-                                                <span className={`font-mono text-sm font-black ${stat.netProfit >= 0 ? "text-emerald-400" : "text-red-400"}`}>
-                                                    {stat.netProfit >= 0 ? "+" : ""}{stat.netProfit.toFixed(2)}%
-                                                </span>
-                                            </div>
-
-                                            {/* Avg Return */}
-                                            <div className="p-3 rounded-2xl bg-zinc-900/40 border border-white/5 flex flex-col justify-between shadow-inner col-span-2 sm:col-span-1">
-                                                <span className="text-[8px] font-bold text-zinc-500 uppercase tracking-wider mb-1">
-                                                    {t("backtest.stats.avg_return")}
-                                                </span>
-                                                <span className={`font-mono text-sm font-black ${stat.avgReturnPerTrade >= 0 ? "text-emerald-400" : "text-red-400"}`}>
-                                                    {stat.avgReturnPerTrade >= 0 ? "+" : ""}{stat.avgReturnPerTrade.toFixed(2)}%
-                                                </span>
+                                            {/* Row 2: Win Rate + Net Profit + Avg Return */}
+                                            <div className="grid grid-cols-3 gap-3">
+                                                <div className="p-3.5 rounded-2xl bg-emerald-500/5 border border-emerald-500/15 flex flex-col gap-1">
+                                                    <span className="text-[9px] font-bold text-emerald-700 uppercase tracking-wider">
+                                                        {t("backtest.stats.win_rate")}
+                                                    </span>
+                                                    <span className="font-mono text-xl font-black text-emerald-400 leading-none">
+                                                        {stat.winRate.toFixed(1)}%
+                                                    </span>
+                                                    <span className="text-[8px] text-emerald-900 font-bold uppercase">win rate</span>
+                                                </div>
+                                                <div className={`p-3.5 rounded-2xl flex flex-col gap-1 ${stat.netProfit >= 0 ? 'bg-emerald-500/5 border border-emerald-500/15' : 'bg-red-500/5 border border-red-500/15'}`}>
+                                                    <span className={`text-[9px] font-bold uppercase tracking-wider ${stat.netProfit >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>
+                                                        {t("backtest.stats.avg_profit")}
+                                                    </span>
+                                                    <span className={`font-mono text-xl font-black leading-none ${stat.netProfit >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                                                        {stat.netProfit >= 0 ? '+' : ''}{stat.netProfit.toFixed(1)}%
+                                                    </span>
+                                                    <span className={`text-[8px] font-bold uppercase ${stat.netProfit >= 0 ? 'text-emerald-900' : 'text-red-900'}`}>avg profit</span>
+                                                </div>
+                                                <div className={`p-3.5 rounded-2xl flex flex-col gap-1 ${stat.avgReturnPerTrade >= 0 ? 'bg-sky-500/5 border border-sky-500/15' : 'bg-red-500/5 border border-red-500/15'}`}>
+                                                    <span className={`text-[9px] font-bold uppercase tracking-wider ${stat.avgReturnPerTrade >= 0 ? 'text-sky-700' : 'text-red-700'}`}>
+                                                        {t("backtest.stats.avg_return")}
+                                                    </span>
+                                                    <span className={`font-mono text-xl font-black leading-none ${stat.avgReturnPerTrade >= 0 ? 'text-sky-400' : 'text-red-400'}`}>
+                                                        {stat.avgReturnPerTrade >= 0 ? '+' : ''}{stat.avgReturnPerTrade.toFixed(2)}%
+                                                    </span>
+                                                    <span className={`text-[8px] font-bold uppercase ${stat.avgReturnPerTrade >= 0 ? 'text-sky-900' : 'text-red-900'}`}>per trade</span>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
@@ -1485,7 +1565,7 @@ export default function AIScannerPage() {
                                         }`}
                                     >
                                         <TrendingUp className="w-3.5 h-3.5" />
-                                        {language === "ar" ? "متوسط الأرباح" : "Avg Net Profit"}
+                                        {language === "ar" ? "متوسط العائد الكلي" : "Avg Total Return"}
                                     </button>
                                     <button
                                         onClick={() => setSelectedMetric("winRate")}
@@ -1549,7 +1629,7 @@ export default function AIScannerPage() {
                                                                     <div className="w-2 h-2 rounded-full" style={{ backgroundColor: color }} />
                                                                     <span className="text-[10px] text-zinc-400 font-bold uppercase">
                                                                         {selectedMetric === "netProfit" 
-                                                                            ? (language === "ar" ? "متوسط الأرباح" : "Avg Net Profit") 
+                                                                            ? (language === "ar" ? "متوسط العائد الكلي" : "Avg Total Return") 
                                                                             : selectedMetric === "winRate"
                                                                             ? (language === "ar" ? "نسبة النجاح" : "Avg Win Rate")
                                                                             : (language === "ar" ? "العائد/الصفقة" : "Avg Return/Trade")
@@ -1613,7 +1693,7 @@ export default function AIScannerPage() {
                                 className="h-10 px-3 rounded-xl bg-zinc-950/60 border border-white/5 text-xs text-zinc-300 focus:outline-none focus:border-indigo-500/50 cursor-pointer"
                             >
                                 <option value="date">{language === "ar" ? "ترتيب بالتاريخ" : "Sort by Date"}</option>
-                                <option value="net_profit">{language === "ar" ? "ترتيب بصافي الأرباح" : "Sort by Net Profit"}</option>
+                                <option value="net_profit">{language === "ar" ? "ترتيب بالعائد الكلي" : "Sort by Total Return"}</option>
                                 <option value="win_rate">{language === "ar" ? "ترتيب بنسبة النجاح" : "Sort by Win Rate"}</option>
                                 <option value="total_trades">{language === "ar" ? "ترتيب بعدد الصفقات" : "Sort by Total Trades"}</option>
                             </select>
@@ -1665,9 +1745,8 @@ export default function AIScannerPage() {
                     ) : (
                         <div className="space-y-6">
                             {egxBacktests.map((bt) => {
-                                // Calculate profit metrics based on where the backtest comes from
-                                const profitPctValue = bt.profit_pct ?? bt.post_council_profit_pct ?? bt.net_profit;
-                                const cashProfitValue = bt.profit_pct !== undefined || bt.post_council_profit_pct !== undefined ? bt.net_profit : null;
+                                const profitPctValue = getBacktestProfitPct(bt, "post") ?? 0;
+                                const cashProfitValue = bt.net_profit;
                                 
                                 const trades = loadedTrades[bt.id] ?? parseTradesLog(bt.trades_log);
                                 const isLoadingTrades = !!tradesLoadingMap[bt.id];
@@ -1916,8 +1995,8 @@ export default function AIScannerPage() {
                                                                         </div>
                                                                         <div className="space-y-1">
                                                                             <span className="text-[9px] text-zinc-500 font-bold uppercase">{t("backtest.net_profit")}</span>
-                                                                            <div className={`text-lg font-mono font-black ${(Number(bt.pre_council_profit_pct) || Number(bt.profit_pct) || 0) >= 0 ? "text-emerald-400" : "text-red-400"}`}>
-                                                                                {formatPct(bt.pre_council_profit_pct || bt.profit_pct)}
+                                                                            <div className={`text-lg font-mono font-black ${((getBacktestProfitPct(bt, "pre") ?? 0) >= 0) ? "text-emerald-400" : "text-red-400"}`}>
+                                                                                {formatPct(getBacktestProfitPct(bt, "pre") ?? 0)}
                                                                             </div>
                                                                         </div>
                                                                     </div>
@@ -1940,8 +2019,8 @@ export default function AIScannerPage() {
                                                                         </div>
                                                                         <div className="space-y-1">
                                                                             <span className="text-[9px] text-indigo-400/60 font-bold uppercase">{t("backtest.net_profit")}</span>
-                                                                            <div className={`text-lg font-mono font-black ${(Number(bt.post_council_profit_pct) || Number(bt.profit_pct) || 0) >= 0 ? "text-emerald-400" : "text-red-400"}`}>
-                                                                                {formatPct(bt.post_council_profit_pct || bt.profit_pct)}
+                                                                            <div className={`text-lg font-mono font-black ${((getBacktestProfitPct(bt, "post") ?? 0) >= 0) ? "text-emerald-400" : "text-red-400"}`}>
+                                                                                {formatPct(getBacktestProfitPct(bt, "post") ?? 0)}
                                                                             </div>
                                                                         </div>
                                                                     </div>

@@ -51,7 +51,9 @@ class EGX30Fetcher:
         self.supabase = supabase_client
         self.cached_regime: Optional[str] = None
         self.fallback_enabled = True
-        logger.info("EGX30Fetcher initialized")
+        # NOTE: Removed logger.info here — this constructor is called in parallel threads
+        # during training (once per symbol), causing thousands of log spam lines.
+        logger.debug("EGX30Fetcher initialized")
     
     def fetch_daily_ohlcv(
         self, 

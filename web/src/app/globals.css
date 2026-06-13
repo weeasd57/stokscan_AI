@@ -1,6 +1,18 @@
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700;900&family=JetBrains+Mono:wght@400;700;900&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  body {
+    font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+  }
+  .font-mono {
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace !important;
+  }
+}
+
 
 :root {
   color-scheme: dark;
@@ -20,6 +32,17 @@
   --app-text-faint: #64748b;
   --app-shadow: 0 24px 60px rgba(2, 6, 23, 0.28);
   --app-shadow-strong: 0 30px 80px rgba(2, 6, 23, 0.42);
+  --brutal-border: #000000;
+  --brutal-shadow: #000000;
+  --brutal-shadow-offset: 5px;
+  --brutal-bg-card: #ffffff;
+}
+
+html.dark {
+  --brutal-border: #ffffff;
+  --brutal-shadow: #f59e0b;
+  --brutal-shadow-offset: 5px;
+  --brutal-bg-card: #090f1d;
 }
 
 /* Dark mode (default) */
@@ -140,9 +163,17 @@ body::before {
   .app-panel-strong,
   .app-soft-panel,
   .app-hero-panel {
-    border: 1px solid var(--app-border);
-    box-shadow: var(--app-shadow);
-    backdrop-filter: blur(24px);
+    border: 3px solid var(--brutal-border) !important;
+    box-shadow: var(--brutal-shadow-offset) var(--brutal-shadow-offset) 0px 0px var(--brutal-shadow) !important;
+    backdrop-filter: none;
+    transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  }
+
+  .app-panel:hover,
+  .app-panel-strong:hover,
+  .app-hero-panel:hover {
+    transform: translate(-1px, -1px);
+    box-shadow: calc(var(--brutal-shadow-offset) + 1px) calc(var(--brutal-shadow-offset) + 1px) 0px 0px var(--brutal-shadow) !important;
   }
 
   .app-header-surface,
@@ -162,8 +193,6 @@ body::before {
     background:
       linear-gradient(145deg, rgba(255, 255, 255, 0.08), transparent 58%),
       var(--app-surface-strong);
-    border-color: var(--app-border-strong);
-    box-shadow: var(--app-shadow-strong);
   }
 
   .app-soft-panel {
@@ -175,15 +204,18 @@ body::before {
       radial-gradient(circle at top right, rgba(59, 130, 246, 0.12), transparent 30%),
       linear-gradient(145deg, rgba(255, 255, 255, 0.08), transparent 58%),
       var(--app-surface-strong);
-    border-color: var(--app-border-strong);
-    box-shadow: var(--app-shadow-strong);
   }
 
   .app-control {
-    background: var(--app-surface-soft);
-    border: 1px solid var(--app-border);
+    background: var(--brutal-bg-card);
+    border: 3px solid var(--brutal-border) !important;
     color: var(--app-text);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    box-shadow: 2.5px 2.5px 0px 0px var(--brutal-shadow) !important;
+    transition: all 0.15s ease-in-out;
+  }
+
+  html.dark .app-control {
+    background: #0d1222;
   }
 
   .app-control::placeholder {
@@ -192,30 +224,54 @@ body::before {
 
   .app-chip {
     background: rgba(99, 102, 241, 0.12);
-    border: 1px solid rgba(99, 102, 241, 0.22);
+    border: 2px solid var(--brutal-border) !important;
+    box-shadow: 1.5px 1.5px 0px 0px var(--brutal-shadow) !important;
     color: var(--app-text-muted);
   }
 
   .app-icon-button {
-    background: var(--app-surface-soft);
-    border: 1px solid var(--app-border);
+    background: var(--brutal-bg-card);
+    border: 2px solid var(--brutal-border) !important;
     color: var(--app-text-muted);
+    box-shadow: 2px 2px 0px 0px var(--brutal-shadow) !important;
+    transition: all 0.15s ease-in-out;
+  }
+
+  html.dark .app-icon-button {
+    background: #0d1222;
   }
 
   .app-icon-button:hover,
-  .app-control:hover {
-    border-color: var(--app-border-strong);
-    color: var(--app-text);
+  .app-control:hover,
+  .app-control:focus {
+    border-color: var(--brutal-border) !important;
+    color: var(--app-text) !important;
+    transform: translate(0.5px, 0.5px);
+    box-shadow: 1.5px 1.5px 0px 0px var(--brutal-shadow) !important;
   }
 
   .app-primary-action {
-    background: linear-gradient(135deg, #2563eb 0%, #4f46e5 100%);
-    color: #ffffff;
-    box-shadow: 0 20px 40px rgba(79, 70, 229, 0.22);
+    background: #fde047 !important;
+    color: #000000 !important;
+    border: 3px solid var(--brutal-border) !important;
+    box-shadow: 4px 4px 0px 0px var(--brutal-shadow) !important;
+    transition: all 0.15s ease-in-out;
+  }
+
+  html.dark .app-primary-action {
+    background: #ca8a04 !important;
+    color: #ffffff !important;
   }
 
   .app-primary-action:hover {
+    transform: translate(1px, 1px);
+    box-shadow: 3px 3px 0px 0px var(--brutal-shadow) !important;
     filter: brightness(1.05);
+  }
+
+  .app-primary-action:active {
+    transform: translate(3px, 3px);
+    box-shadow: 1px 1px 0px 0px var(--brutal-shadow) !important;
   }
 
   .app-text-primary {
@@ -629,3 +685,100 @@ html.light .comparison-shell [class*="rounded-[2.5rem]"],
 html.light .landing-shell [class*="rounded-3xl"] {
   box-shadow: var(--app-shadow) !important;
 }
+
+/* --- Neo-brutalist design system utilities --- */
+.neobrutal-layout {
+  --brutal-border: #000000;
+  --brutal-shadow: #000000;
+  --brutal-shadow-offset: 6px;
+  --brutal-bg-card: #ffffff;
+}
+
+html.dark .neobrutal-layout {
+  --brutal-border: #ffffff;
+  --brutal-shadow: #f59e0b; /* default bright amber shadow in dark mode */
+  --brutal-shadow-offset: 6px;
+  --brutal-bg-card: #090f1d;
+}
+
+.neobrutal-text-stroke {
+  -webkit-text-stroke: 1px var(--brutal-border);
+  text-shadow: 2px 2px 0px var(--brutal-shadow);
+}
+
+.neobrutal-grid-bg {
+  background-size: 30px 30px;
+  background-image: 
+    linear-gradient(to right, rgba(0, 0, 0, 0.07) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(0, 0, 0, 0.07) 1px, transparent 1px);
+}
+
+html.dark .neobrutal-grid-bg {
+  background-image: 
+    linear-gradient(to right, rgba(255, 255, 255, 0.05) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+}
+
+.neobrutal-card {
+  border: 4px solid var(--brutal-border);
+  background-color: var(--brutal-bg-card);
+  box-shadow: var(--brutal-shadow-offset) var(--brutal-shadow-offset) 0px 0px var(--brutal-shadow);
+  transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  cursor: pointer;
+}
+
+.neobrutal-card:hover {
+  transform: translate(-2px, -2px);
+  box-shadow: calc(var(--brutal-shadow-offset) + 2px) calc(var(--brutal-shadow-offset) + 2px) 0px 0px var(--brutal-shadow);
+}
+
+.neobrutal-btn {
+  border: 4px solid var(--brutal-border);
+  box-shadow: 4px 4px 0px 0px var(--brutal-shadow);
+  transition: all 0.15s ease-in-out;
+  cursor: pointer;
+}
+
+.neobrutal-btn:hover {
+  transform: translate(2px, 2px);
+  box-shadow: 2px 2px 0px 0px var(--brutal-shadow);
+}
+
+.neobrutal-btn:active {
+  transform: translate(4px, 4px);
+  box-shadow: 0px 0px 0px 0px var(--brutal-shadow);
+}
+
+/* Vibrant Accent Colors (Neo-Brutalist standard) */
+.neobrutal-bg-yellow { background-color: #fde047; color: #000000 !important; }
+.neobrutal-bg-cyan { background-color: #22d3ee; color: #000000 !important; }
+.neobrutal-bg-green { background-color: #4ade80; color: #000000 !important; }
+.neobrutal-bg-orange { background-color: #fb923c; color: #000000 !important; }
+.neobrutal-bg-pink { background-color: #f472b6; color: #000000 !important; }
+.neobrutal-bg-purple { background-color: #c084fc; color: #000000 !important; }
+
+html.dark .neobrutal-bg-yellow { background-color: #ca8a04; color: #ffffff !important; }
+html.dark .neobrutal-bg-cyan { background-color: #0891b2; color: #ffffff !important; }
+html.dark .neobrutal-bg-green { background-color: #16a34a; color: #ffffff !important; }
+html.dark .neobrutal-bg-orange { background-color: #ea580c; color: #ffffff !important; }
+html.dark .neobrutal-bg-pink { background-color: #db2777; color: #ffffff !important; }
+html.dark .neobrutal-bg-purple { background-color: #9333ea; color: #ffffff !important; }
+
+/* Custom keyframes for marquee text */
+@keyframes marquee {
+  0% { transform: translateX(0%); }
+  100% { transform: translateX(-50%); }
+}
+
+.animate-marquee-neobrutal {
+  display: inline-flex;
+  white-space: nowrap;
+  animation: marquee 25s linear infinite;
+}
+
+.animate-marquee-neobrutal-rtl {
+  display: inline-flex;
+  white-space: nowrap;
+  animation: marquee 25s linear infinite reverse;
+}
+

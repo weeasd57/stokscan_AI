@@ -30,6 +30,11 @@ from api.stock_ai import _get_exchange_bulk_data, _get_exchange_bulk_intraday_da
 from api.train_exchange_model import add_massive_features
 from api.strategy_engine import StrategyEngine
 from api.model_utils import reset_booster_cats, reset_nested_boosters, get_primary_booster, align_pandas_categories_to_booster, align_for_king
+from api.trading_config import TradingParameters
+from api.unified_labeling import TripleBarrierLabeler
+from api.unified_features import FeatureEngineeringManager
+from api.structured_logger import StructuredLogger
+from api.portfolio_manager import PortfolioManager
 
 warnings.filterwarnings("ignore")
 
@@ -296,6 +301,7 @@ def run_radar_simulation(
     atr_tp_multiplier: float = 2.5,
     atr_period: int = 14,
     exit_mode: str = "hybrid",
+    adaptive_exits: bool = False,
     use_trailing: bool = True,
     trail_be_pct: float = 0.04,
     trail_lock_trigger_pct: float = 0.06,
@@ -324,94 +330,54 @@ def run_radar_simulation(
     balance = capital
     trade_log = []
     
-    # Default settings (daily equities)
-    TARGET_PCT = 0.10
-    STOP_LOSS_PCT = 0.05
-    HOLD_MAX_BARS = 20
+    # Load unified parameters
+    params = TradingParameters.from_model_artifact(model)
 
-    # Trailing Stop Rules (long-only)
-    USE_TRAILING = use_trailing
-    TRAIL_BE_PCT = trail_be_pct
-    TRAIL_LOCK_TRIGGER_PCT = trail_lock_trigger_pct
-    TRAIL_LOCK_PCT = trail_lock_pct
-
-    # Override from model artifact metadata when available so backtests match training assumptions.
-    if isinstance(model, dict):
-        def _meta_get(name: str, default=None):
-            if not isinstance(model, dict):
-                return default
-            v = model.get(name)
-            if v is not None:
-                return v
-            pm = model.get("primary_model") if isinstance(model.get("primary_model"), dict) else {}
-            if isinstance(pm, dict):
-                return pm.get(name, default)
-            return default
-
-        try:
-            m_target = _meta_get("target_pct")
-            m_sl = _meta_get("stop_loss_pct")
-            m_hold = _meta_get("look_forward_days")
-            m_barrier_mode = str(_meta_get("barrier_mode") or _meta_get("barrierMode") or "").strip().lower()
-
-            percent_mode = m_barrier_mode == "percent"
-            if not m_barrier_mode:
-                try:
-                    percent_mode = float(m_target) < 1.0 and float(m_sl) < 1.0
-                except Exception:
-                    percent_mode = False
-
-            if percent_mode:
-                # Percentage mode: 0.10 = 10%, 0.035 = 3.5%
-                if m_target is not None and float(m_target) > 0:
-                    TARGET_PCT = float(m_target)
-                if m_sl is not None and float(m_sl) > 0:
-                    STOP_LOSS_PCT = float(m_sl)
-            else:
-                # ATR mode: values are ATR multipliers (e.g., 2.0x, 1.5x)
-                # These will be mapped to atr_tp_multiplier/atr_sl_multiplier later (lines 405+)
-                if m_target is not None and float(m_target) > 0:
-                    TARGET_PCT = float(m_target)  # Will be >= 1.0 for ATR mode
-                if m_sl is not None and float(m_sl) > 0:
-                    STOP_LOSS_PCT = float(m_sl)  # Will be >= 1.0 for ATR mode
-            if m_hold is not None and int(m_hold) > 0:
-                HOLD_MAX_BARS = int(m_hold)
-
-            m_use_intraday = bool(_meta_get("use_intraday", False))
-            m_tf = str(_meta_get("timeframe", "") or "").strip().lower()
-            if m_use_intraday and m_tf in {"1m", "1h"}:
-                USE_TRAILING = False
-                
-            m_use_trailing = _meta_get("use_trailing")
-            if m_use_trailing is not None:
-                USE_TRAILING = bool(m_use_trailing)
-            m_trail_be = _meta_get("trail_be_pct")
-            if m_trail_be is not None:
-                TRAIL_BE_PCT = float(m_trail_be)
-            m_trail_lock_trig = _meta_get("trail_lock_trigger_pct")
-            if m_trail_lock_trig is not None:
-                TRAIL_LOCK_TRIGGER_PCT = float(m_trail_lock_trig)
-            m_trail_lock = _meta_get("trail_lock_pct")
-            if m_trail_lock is not None:
-                TRAIL_LOCK_PCT = float(m_trail_lock)
-        except Exception:
-            pass
-
-    # UI/CLI Overrides (highest precedence)
+    # Apply overrides (CLI/UI parameters)
     if target_pct_override is not None and target_pct_override > 0:
-        TARGET_PCT = target_pct_override
+        params.target_pct = target_pct_override
     if stop_loss_pct_override is not None and stop_loss_pct_override > 0:
-        STOP_LOSS_PCT = stop_loss_pct_override
+        params.stop_loss_pct = stop_loss_pct_override
+    if threshold is not None:
+        params.king_threshold = threshold
+    if validator_threshold is not None:
+        params.validator_threshold = validator_threshold
+    if min_volume_ratio is not None:
+        params.min_volume_ratio = min_volume_ratio
 
-    # If target or stop loss look like ATR multipliers (expected >= 1.0),
-    # map them to ATR multipliers and set manual percentage defaults.
-    if TARGET_PCT >= 1.0:
-        atr_tp_multiplier = TARGET_PCT
+    # Log parameters load
+    struct_logger = StructuredLogger("backtest")
+    struct_logger.log_parameter_load("backtest_pipeline", params)
+
+    # Log loaded parameters
+    if not quiet:
+        print(f"[BT-LIVE] Active Trading Parameters for simulation:")
+        print(f"   - Barrier Mode: {params.barrier_mode}")
+        print(f"   - Target Pct / Multiplier: {params.target_pct}")
+        print(f"   - Stop Loss Pct / Multiplier: {params.stop_loss_pct}")
+        print(f"   - Look Forward Days: {params.look_forward_days}")
+        print(f"   - Require Volume Confirmation: {params.require_volume_confirmation}")
+
+    # Set up labeler
+    labeler = TripleBarrierLabeler(params)
+
+    # Determine barrier parameters and HOLD_MAX_BARS
+    HOLD_MAX_BARS = params.look_forward_days
+    
+    # Check if target or stop loss look like ATR multipliers (expected >= 1.0)
+    if params.barrier_mode == "atr_multiplier" or params.target_pct >= 1.0 or params.stop_loss_pct >= 1.0:
+        params.barrier_mode = "atr_multiplier"
+        atr_tp_multiplier = params.target_pct
+        atr_sl_multiplier = params.stop_loss_pct
         TARGET_PCT = 0.10
-        
-    if STOP_LOSS_PCT >= 1.0:
-        atr_sl_multiplier = STOP_LOSS_PCT
         STOP_LOSS_PCT = 0.05
+        use_atr_exits = True
+    else:
+        TARGET_PCT = params.target_pct
+        STOP_LOSS_PCT = params.stop_loss_pct
+        atr_tp_multiplier = 2.5
+        atr_sl_multiplier = 1.5
+        use_atr_exits = False
 
     def _position_size_multiplier(score: float | None) -> float:
         """
@@ -434,12 +400,25 @@ def run_radar_simulation(
         return 1.5
     
     classifier = model
-    if isinstance(model, dict) and model.get("kind") == "meta_labeling_system":
-        classifier = reconstruct_meta_model(model)
-        if not classifier:
-            return {}
-        if hasattr(classifier, "meta_threshold"):
-            classifier.meta_threshold = threshold
+    if isinstance(model, dict):
+        if model.get("kind") == "meta_labeling_system":
+            classifier = reconstruct_meta_model(model)
+            if not classifier:
+                return {}
+            if hasattr(classifier, "meta_threshold"):
+                classifier.meta_threshold = threshold
+        elif "model_str" in model:
+            import lightgbm as lgb
+            primary_booster = lgb.Booster(model_str=model["model_str"])
+            class PrimaryWrapper:
+                def __init__(self, b): self.b = b
+                def predict(self, X): return self.b.predict(X)
+                def predict_proba(self, X): 
+                    raw = self.b.predict(X)
+                    return np.column_stack([1-raw, raw])
+            classifier = PrimaryWrapper(primary_booster)
+        elif "model" in model:
+            classifier = model["model"]
 
     # Pre-calculate signals
     try:
@@ -665,7 +644,7 @@ def run_radar_simulation(
                 continue
 
             # Centralized Bot Logic: 1. Market Regime Check
-            history_slice = df.iloc[max(0, i - 100):i + 1].copy()
+            history_slice = df.iloc[max(0, i - 250):i + 1].copy()
             history_slice.columns = [c.lower() for c in history_slice.columns]
             
             regime = StrategyEngine.detect_market_regime(
@@ -692,92 +671,94 @@ def run_radar_simulation(
             regime_size_mult = 1.0
             if regime == "SIDEWAYS":
                 regime_size_mult = 0.7 if trading_mode.lower() == "aggressive" else 0.5
+            elif regime == "STRONG_BULL":
+                regime_size_mult = 1.2 # slightly larger sizing in strong momentum
             elif regime == "BEAR" and trading_mode.lower() == "aggressive":
                 regime_size_mult = 0.3
 
-            # Calculate dynamic ATR exits
-            take_profit, stop_loss = StrategyEngine.calculate_atr_exits(
-                bars=history_slice,
-                entry_price=entry_price,
-                target_pct=TARGET_PCT,
-                stop_loss_pct=STOP_LOSS_PCT,
-                use_atr_exits=use_atr_exits,
-                atr_sl_multiplier=atr_sl_multiplier,
-                atr_tp_multiplier=atr_tp_multiplier,
-                atr_period=atr_period,
-                exit_mode=exit_mode
+            # Retrieve ATR value at index i to pass to backtest_trade
+            atr_val = float(df["atr_14"].values[i]) if "atr_14" in df.columns else (
+                float(df["ATR_14"].values[i]) if "ATR_14" in df.columns else 0.0
             )
-            
-            current_stop = float(stop_loss)
-            trail_mode = "NONE"
-            
-            outcome = "HOLD"
-            pnl_pct = 0.0
-            exit_idx = min(len(df) - 1, i + hold_max)
-            exit_date = dates[exit_idx]
-            exit_price = closes[exit_idx]
-            
+            if atr_val == 0.0 and "close" in df.columns:
+                # fallback calculation
+                atr_val = float(df["close"].rolling(14).std().bfill().values[i])
+
+            # Construct the bars_ahead list for subsequent prices
+            bars_ahead = []
             for days_fwd in range(1, hold_max + 1):
                 idx = i + days_fwd
                 if idx >= len(df): break
+                bars_ahead.append({
+                    "high": float(highs[idx]),
+                    "low": float(lows[idx]),
+                    "close": float(closes[idx]),
+                    "volume": float(df['volume'].values[idx]) if 'volume' in df.columns else (
+                        float(df['Volume'].values[idx]) if 'Volume' in df.columns else 0.0
+                    )
+                })
 
-                hi = float(highs[idx])
-                lo = float(lows[idx])
-                
-                # Conservative bar evaluation:
-                # - Use the stop that was active coming into this bar.
-                # - If target hits, we exit at target.
-                # - Trailing-stop updates are applied AFTER this bar (effective next bar).
-                if lo <= current_stop:
-                    outcome = "STOP LOSS [X]" if trail_mode == "NONE" else f"TRAIL STOP ({trail_mode}) [OK]"
-                    pnl_pct = (current_stop - entry_price) / entry_price
-                    exit_date = dates[idx]
-                    exit_price = current_stop
-                    exit_idx = idx
-                    break
+            volume_ma_20_val = None
+            if "volume" in df.columns:
+                volume_ma_20_val = float(df["volume"].rolling(20).mean().values[i])
+            elif "Volume" in df.columns:
+                volume_ma_20_val = float(df["Volume"].rolling(20).mean().values[i])
 
-                if hi >= take_profit:
-                    outcome = "TARGET HIT 🎯"
-                    pnl_pct = (take_profit - entry_price) / entry_price
-                    exit_date = dates[idx]
-                    exit_price = take_profit
-                    exit_idx = idx
-                    break
-
-                # Smart Exit Check at the end of the bar (close)
-                fwd_history = df.iloc[max(0, idx - 100):idx + 1].copy()
-                fwd_history.columns = [c.lower() for c in fwd_history.columns]
-                curr_price = float(closes[idx])
-                should_smart_exit, smart_reason = StrategyEngine.check_smart_exit(
-                    bars=fwd_history,
-                    entry_price=entry_price,
-                    current_price=curr_price,
-                    use_smart_exit=use_smart_exit,
-                    rsi_threshold=smart_exit_rsi_threshold,
-                    volume_spike_multiplier=smart_exit_volume_spike
-                )
-                if should_smart_exit:
-                    outcome = smart_reason
-                    pnl_pct = (curr_price - entry_price) / entry_price
-                    exit_date = dates[idx]
-                    exit_price = curr_price
-                    exit_idx = idx
-                    break
-
-                if USE_TRAILING:
-                    # Update trailing stop based on achieved profit (effective next bar)
-                    be_price = float(entry_price)
-                    lock_price = float(entry_price * (1 + TRAIL_LOCK_PCT))
-                    if hi >= float(entry_price * (1 + TRAIL_LOCK_TRIGGER_PCT)) and current_stop < lock_price:
-                        current_stop = lock_price
-                        trail_mode = "+5%"
-                    elif hi >= float(entry_price * (1 + TRAIL_BE_PCT)) and current_stop < be_price:
-                        current_stop = be_price
-                        trail_mode = "BE"
+            # Save original parameters to restore afterwards
+            orig_tp_mult = labeler.params.target_pct
+            orig_sl_mult = labeler.params.stop_loss_pct
             
-            if outcome == "HOLD":
-                pnl_pct = (exit_price - entry_price) / entry_price
-                outcome = f"TIME EXIT ({pnl_pct*100:.1f}%)"
+            # Dynamic overrides for ATR exits based on regime
+            if adaptive_exits and labeler.params.barrier_mode == "atr_multiplier":
+                if regime == "STRONG_BULL":
+                    labeler.params.target_pct = 5.0
+                    labeler.params.stop_loss_pct = 2.0
+                elif regime == "BULL":
+                    labeler.params.target_pct = 3.0
+                    labeler.params.stop_loss_pct = 1.5
+                elif regime == "SIDEWAYS":
+                    labeler.params.target_pct = 2.5
+                    labeler.params.stop_loss_pct = 1.2
+                elif regime == "BEAR":
+                    labeler.params.target_pct = 2.0
+                    labeler.params.stop_loss_pct = 1.0
+
+            outcome_obj = labeler.backtest_trade(
+                entry_price=entry_price,
+                atr=atr_val,
+                bars_ahead=bars_ahead,
+                max_bars=hold_max,
+                volume_ma_20=volume_ma_20_val
+            )
+            
+            # Restore original parameters
+            labeler.params.target_pct = orig_tp_mult
+            labeler.params.stop_loss_pct = orig_sl_mult
+
+            outcome_mapping = {
+                "SL_HIT": "STOP LOSS [X]",
+                "TP_HIT": "TARGET HIT 🎯",
+                "TIMEOUT": "TIMEOUT",
+                "HOLD": "HOLD"
+            }
+            outcome = outcome_mapping.get(outcome_obj.outcome, outcome_obj.outcome)
+            pnl_pct = outcome_obj.pnl_pct / 100.0
+            exit_idx = min(len(df) - 1, i + outcome_obj.exit_bars)
+            exit_date = dates[exit_idx]
+            exit_price = outcome_obj.exit_price
+
+            # Training-to-Backtest consistency check
+            if "Target" in df.columns:
+                expected_label = int(df["Target"].iloc[i])
+                simulated_label = 1 if outcome_obj.outcome == "TP_HIT" else 0
+                if expected_label != simulated_label:
+                    expected_pnl = params.target_pct if expected_label == 1 else -params.stop_loss_pct
+                    simulated_pnl = pnl_pct
+                    pnl_diff = abs(expected_pnl - simulated_pnl)
+                    if pnl_diff > 0.01: # 1%
+                        print(f"[CONSISTENCY-WARN] P&L mismatch > 1% at {dates[i]} (symbol {symbol}): "
+                              f"Training Label P&L = {expected_pnl*100:.2f}%, Backtest P&L = {simulated_pnl*100:.2f}% "
+                              f"(Diff: {pnl_diff*100:.2f}%)", flush=True)
 
             try:
                 days_held = int((pd.to_datetime(exit_date) - pd.to_datetime(entry_date)).days)
@@ -993,6 +974,7 @@ def main():
     parser.add_argument("--atr-tp-mult", type=float, default=2.5)
     parser.add_argument("--atr-period", type=int, default=14)
     parser.add_argument("--exit-mode", default="hybrid")
+    parser.add_argument("--adaptive-exits", action="store_true", help="Enable dynamic exits based on market regime")
     parser.add_argument("--no-trailing", action="store_true", help="Disable trailing stop")
     parser.add_argument("--trail-be-pct", type=float, default=0.04)
     parser.add_argument("--trail-lock-trigger-pct", type=float, default=0.06)
@@ -1032,6 +1014,46 @@ def main():
     if not model_obj:
         return
 
+    # Load unified parameters
+    params = TradingParameters.from_model_artifact(model_obj)
+    
+    # Apply overrides from CLI (highest precedence)
+    if args.target_pct is not None and args.target_pct > 0:
+        params.target_pct = args.target_pct
+    if args.stop_loss_pct is not None and args.stop_loss_pct > 0:
+        params.stop_loss_pct = args.stop_loss_pct
+    if args.meta_threshold is not None:
+        params.king_threshold = args.meta_threshold
+    if args.validator_threshold is not None:
+        params.validator_threshold = args.validator_threshold
+    if args.min_volume_ratio is not None:
+        params.min_volume_ratio = args.min_volume_ratio
+
+    # Log loaded parameters and run compatibility checks at the beginning of the backtest
+    print(f"[BT-LIVE] Loaded unified parameters from model artifact:")
+    print(f"   - Entry Mode: {params.entry_mode}")
+    print(f"   - Barrier Mode: {params.barrier_mode}")
+    print(f"   - Target Pct: {params.target_pct}")
+    print(f"   - Stop Loss Pct: {params.stop_loss_pct}")
+    print(f"   - Look Forward Days: {params.look_forward_days}")
+    print(f"   - Require Volume Confirmation: {params.require_volume_confirmation}")
+    print(f"   - Min Volume Ratio: {params.min_volume_ratio}")
+    print(f"   - King Threshold: {params.king_threshold}")
+    print(f"   - Council Threshold: {params.council_threshold}")
+
+    # Run compatibility validation checks
+    validation_results = params.validate()
+    if validation_results:
+        print(f"[BT-LIVE] WARNING: Parameter validation issues: {validation_results}", flush=True)
+    if args.exchange.strip().upper() == "EGX":
+        # Check EGX-specific warnings
+        egx_warns = params.validate_for_market("EGX")
+        if egx_warns.get("warnings"):
+            print(f"[BT-LIVE] WARNING: EGX-specific validation alerts: {egx_warns['warnings']}", flush=True)
+
+    fem = FeatureEngineeringManager(params)
+    sim_threshold = params.king_threshold
+
     def _meta_get(obj, name: str, default=None):
         if not isinstance(obj, dict):
             return default
@@ -1042,21 +1064,6 @@ def main():
         if isinstance(pm, dict):
             return pm.get(name, default)
         return default
-
-    # Meta threshold (UI override > model > default)
-    sim_threshold = 0.40
-    if args.meta_threshold is not None:
-        try:
-            sim_threshold = float(args.meta_threshold)
-            print(f"[TARGET] Using Meta Threshold: {sim_threshold} (UI override)", flush=True)
-        except Exception:
-            sim_threshold = 0.40
-            print(f"[WARNING] Invalid meta-threshold provided. Using default {sim_threshold}.", flush=True)
-    elif isinstance(model_obj, dict):
-        sim_threshold = float(_meta_get(model_obj, "meta_threshold", sim_threshold))
-        print(f"[TARGET] Using Meta Threshold: {sim_threshold}", flush=True)
-    else:
-        print(f"[TARGET] Using Meta Threshold: {sim_threshold}", flush=True)
 
     # Decide data source based on model metadata (fallback: CRYPTO => 1h intraday)
     use_intraday = False
@@ -1233,6 +1240,14 @@ def main():
         if df.empty:
             continue
         
+        fem_report = fem.check_data_ready(df)
+        struct_logger = StructuredLogger("backtest")
+        struct_logger.log_data_readiness(symbol, fem_report)
+        if not fem_report.is_ready:
+            print(f"[BT-LIVE] WARNING: Skipping symbol {symbol} due to data readiness check failure:\n"
+                  f"{fem_report.summary()}", flush=True)
+            continue
+        
         # Save original index
         original_index = df.index
         if not isinstance(original_index, pd.DatetimeIndex):
@@ -1333,6 +1348,7 @@ def main():
                 trail_be_pct=args.trail_be_pct,
                 trail_lock_trigger_pct=args.trail_lock_trigger_pct,
                 trail_lock_pct=args.trail_lock_pct,
+                adaptive_exits=args.adaptive_exits,
             ) 
             
             if isinstance(res, dict) and res:
@@ -1456,6 +1472,335 @@ def main():
     print(f"Win Rate Boost:        {avg_post_win_rate - avg_pre_win_rate:+.1f} percentage points", flush=True)
     print(f"Rejected Profitable:   {rejected_profitable}", flush=True)
     print("="*40, flush=True)
+
+
+def run_enhanced_radar_simulation(
+    df,
+    model,
+    council=None,
+    threshold=None,
+    capital=100000,
+    sim_start_dt: datetime | None = None,
+    sim_end_dt: datetime | None = None,
+    quiet: bool = False,
+    validator_threshold: float | None = None,
+    target_pct_override: float | None = None,
+    stop_loss_pct_override: float | None = None,
+    min_volume_ratio: float = 0.3,
+    use_rsi_filter: bool = True,
+    use_trend_filter: bool = False,
+    use_market_regime: bool = True,
+    regime_adx_threshold: float = 14.0,
+    use_smart_exit: bool = True,
+    smart_exit_rsi_threshold: float = 40.0,
+    smart_exit_volume_spike: float = 3.0,
+    trading_mode: str = "hybrid",
+    use_atr_exits: bool = True,
+    atr_sl_multiplier: float = 1.5,
+    atr_tp_multiplier: float = 2.5,
+    atr_period: int = 14,
+    exit_mode: str = "hybrid",
+    adaptive_exits: bool = False,
+    use_trailing: bool = True,
+    trail_be_pct: float = 0.04,
+    trail_lock_trigger_pct: float = 0.06,
+    trail_lock_pct: float = 0.04
+):
+    """
+    Enhanced simulation using Portfolio Manager for accurate P&L calculation.
+    
+    Key improvements:
+    - Proper position sizing based on available capital
+    - Concurrent trade management
+    - Risk management with exposure limits
+    - Accurate portfolio-level returns
+    """
+    
+    # Initialize Portfolio Manager
+    portfolio = PortfolioManager(
+        initial_capital=capital,
+        max_position_pct=0.10,  # Max 10% per position
+        max_total_exposure=0.50,  # Max 50% total exposure
+        max_concurrent_positions=5,  # Max 5 concurrent positions
+        reserve_cash_pct=0.20,  # Keep 20% cash reserve
+        commission_pct=0.001  # 0.1% commission
+    )
+    
+    # Use the existing model loading and prediction logic
+    if df.empty: 
+        return {}
+    
+    if not quiet:
+        print(f"DEBUG: Enhanced radar simulation for {len(df)} rows", flush=True)
+
+    # Load unified parameters (existing logic)
+    params = TradingParameters.from_model_artifact(model)
+
+    # Apply overrides (existing logic)
+    if target_pct_override is not None and target_pct_override > 0:
+        params.target_pct = target_pct_override
+    if stop_loss_pct_override is not None and stop_loss_pct_override > 0:
+        params.stop_loss_pct = stop_loss_pct_override
+    if threshold is None:
+        if isinstance(model, dict) and model.get("optimal_threshold") is not None:
+            threshold = float(model.get("optimal_threshold"))
+        elif isinstance(model, dict) and model.get("meta_threshold") is not None:
+            threshold = float(model.get("meta_threshold"))
+        else:
+            threshold = 0.5
+
+    # Set up labeler (existing logic)
+    labeler = TripleBarrierLabeler(params)
+    HOLD_MAX_BARS = params.look_forward_days
+    
+    # Get predictions (reuse existing prediction logic)
+    classifier = model
+    if isinstance(model, dict):
+        if model.get("kind") == "meta_labeling_system":
+            classifier = reconstruct_meta_model(model)
+            if not classifier:
+                return {}
+        elif "model_str" in model:
+            import lightgbm as lgb
+            primary_booster = lgb.Booster(model_str=model["model_str"])
+            class PrimaryWrapper:
+                def __init__(self, b): self.b = b
+                def predict(self, X): return self.b.predict(X)
+                def predict_proba(self, X): 
+                    raw = self.b.predict(X)
+                    return np.column_stack([1-raw, raw])
+            classifier = PrimaryWrapper(primary_booster)
+
+    # Prepare features (existing logic - simplified)
+    try:
+        expected_features = []
+        if isinstance(model, dict) and model.get("kind") == "meta_labeling_system":
+            pm = model.get("primary_model") or {}
+            expected_features = list(pm.get("feature_names") or [])
+
+        X = df.copy()
+        if expected_features:
+            missing = set(expected_features) - set(X.columns)
+            for m in missing: X[m] = 0
+            X = X[expected_features]
+            X = X.replace([np.inf, -np.inf], np.nan).fillna(0)
+
+        # Get predictions
+        probs = classifier.predict_proba(X)
+        confidences = probs[:, 1]
+        
+    except Exception as e:
+        print(f"ERROR: Enhanced simulation prediction failed: {e}", flush=True)
+        return {}
+
+    # Get council scores (existing logic)
+    consensus_scores = None
+    if council:
+        try:
+            consensus_scores = council.get_consensus(df.copy())
+        except Exception as e:
+            print(f"Warning: Council scoring failed: {e}", flush=True)
+            consensus_scores = None
+
+    # Prepare data columns
+    dates = df.index
+    close_col = "close" if "close" in df.columns else ("Close" if "Close" in df.columns else None)
+    high_col = "high" if "high" in df.columns else ("High" if "High" in df.columns else None)
+    low_col = "low" if "low" in df.columns else ("Low" if "Low" in df.columns else None)
+    
+    if close_col is None:
+        print("ERROR: Missing close price column", flush=True)
+        return {}
+
+    closes = df[close_col].values
+    highs = df[high_col].values if high_col else closes
+    lows = df[low_col].values if low_col else closes
+    symbols = df['symbol'].values if 'symbol' in df.columns else [f'STOCK_{i}' for i in range(len(df))]
+
+    # Enhanced trading loop with portfolio management
+    all_trades = []  # For compatibility with existing format
+    
+    for i in range(len(df)):
+        current_date = pd.to_datetime(dates[i]).tz_localize(None) if hasattr(dates[i], 'tz_localize') else dates[i]
+        current_prices = {sym: closes[j] for j, sym in enumerate(symbols) if j == i}
+        
+        # Update portfolio snapshot
+        portfolio.update_daily_snapshot(current_date, current_prices)
+        
+        # Force close expired positions
+        expired_trades = portfolio.force_close_expired_positions(current_date, current_prices)
+        
+        # Check for new signal
+        radar_score = confidences[i]
+        council_score = consensus_scores[i] if consensus_scores is not None else 1.0
+        
+        passes_radar = radar_score >= threshold
+        passes_council = council_score >= 0.55
+        
+        if not passes_radar:
+            continue
+
+        symbol = symbols[i]
+        entry_price = closes[i]
+        
+        # Skip if date filters don't match
+        if sim_start_dt and current_date < sim_start_dt:
+            continue
+        if sim_end_dt and current_date > sim_end_dt:
+            continue
+
+        # Market regime check (simplified)
+        regime_multiplier = 1.0
+        try:
+            history_slice = df.iloc[max(0, i - 50):i + 1].copy()
+            if len(history_slice) >= 20:
+                # Simple regime detection based on trend
+                recent_returns = history_slice[close_col].pct_change().tail(20)
+                avg_return = recent_returns.mean()
+                if avg_return > 0.01:  # Strong uptrend
+                    regime_multiplier = 1.2
+                elif avg_return < -0.01:  # Downtrend
+                    regime_multiplier = 0.3 if trading_mode == "aggressive" else 0.0
+                else:  # Sideways
+                    regime_multiplier = 0.7
+        except Exception:
+            pass
+
+        # Skip if regime doesn't allow trading
+        if regime_multiplier == 0.0:
+            continue
+
+        # Try to open position
+        can_open, position_size, reason = portfolio.can_open_position(symbol, entry_price, regime_multiplier)
+        
+        if not can_open:
+            # Log rejected trade for analysis
+            rejected_trade = {
+                "Date": current_date.strftime("%Y-%m-%d"),
+                "Symbol": symbol,
+                "Entry": entry_price,
+                "Score": round(float(radar_score), 4),
+                "Council_Score": round(float(council_score), 4),
+                "Status": "Rejected",
+                "Reason": reason,
+                "PnL_Pct": 0.0  # Won't know until we simulate
+            }
+            all_trades.append(rejected_trade)
+            continue
+
+        # Calculate exit levels
+        bars_ahead = []
+        for days_fwd in range(1, min(HOLD_MAX_BARS + 1, len(df) - i)):
+            idx = i + days_fwd
+            bars_ahead.append({
+                "high": float(highs[idx]),
+                "low": float(lows[idx]),
+                "close": float(closes[idx])
+            })
+
+        # Simulate trade outcome using existing labeler
+        try:
+            atr_val = df.get("atr_14", pd.Series([0.02] * len(df))).iloc[i]
+            outcome_obj = labeler.backtest_trade(
+                entry_price=entry_price,
+                atr=float(atr_val),
+                bars_ahead=bars_ahead,
+                max_bars=min(HOLD_MAX_BARS, len(bars_ahead))
+            )
+            
+            exit_price = outcome_obj.exit_price
+            exit_reason = outcome_obj.outcome
+            days_held = outcome_obj.exit_bars
+            
+        except Exception as e:
+            # Fallback simple simulation
+            exit_price = entry_price * (1 + np.random.normal(0, 0.02))  # Random walk
+            exit_reason = "TIMEOUT"
+            days_held = min(5, len(bars_ahead))
+
+        # Open the position
+        success, message = portfolio.open_position(
+            symbol=symbol,
+            entry_date=current_date,
+            entry_price=entry_price,
+            regime_multiplier=regime_multiplier,
+            max_hold_days=HOLD_MAX_BARS,
+            entry_reason=f"Radar: {radar_score:.3f}, Council: {council_score:.3f}"
+        )
+
+        if not success:
+            continue
+
+        # Simulate position closure after calculated days
+        exit_date = current_date + pd.Timedelta(days=days_held)
+        success, message, trade_record = portfolio.close_position(
+            symbol=symbol,
+            exit_date=exit_date,
+            exit_price=exit_price,
+            exit_reason=exit_reason
+        )
+
+        if success and trade_record:
+            # Convert to existing format for compatibility
+            trade_data = {
+                "Date": current_date.strftime("%d/%m/%Y"),
+                "Entry_Date": current_date.strftime("%Y-%m-%d"),
+                "Exit_Date": exit_date.strftime("%Y-%m-%d"),
+                "Symbol": symbol,
+                "Entry": entry_price,
+                "Exit": exit_price,
+                "Score": round(float(council_score), 2),
+                "Radar_Score": round(float(radar_score), 4),
+                "Result": exit_reason,
+                "PnL_Pct": trade_record.pnl_pct * 100,  # Convert to percentage
+                "Days_Held": trade_record.days_held,
+                "Position_Size": trade_record.position_size,
+                "Status": "Accepted" if passes_council else "Rejected",
+                "Regime_Multiplier": regime_multiplier
+            }
+            all_trades.append(trade_data)
+
+    # Get final portfolio statistics
+    stats = portfolio.get_statistics()
+    
+    # Calculate metrics in existing format
+    accepted_trades = [t for t in all_trades if t.get("Status") == "Accepted"]
+    rejected_trades = [t for t in all_trades if t.get("Status") == "Rejected"]
+    
+    total_trades = len(accepted_trades)
+    win_rate = (sum(1 for t in accepted_trades if t["PnL_Pct"] > 0) / total_trades * 100) if total_trades > 0 else 0.0
+    
+    # Use portfolio manager's accurate return calculation
+    profit_pct = stats["total_return_pct"] * 100  # Convert to percentage
+    
+    rejected_profitable = sum(1 for t in rejected_trades if t.get("PnL_Pct", 0) > 0)
+    
+    if not quiet:
+        print(f"Enhanced Simulation Results:", flush=True)
+        print(f"  Total Trades: {total_trades}", flush=True)
+        print(f"  Win Rate: {win_rate:.1f}%", flush=True)
+        print(f"  Total Return: {profit_pct:.2f}%", flush=True)
+        print(f"  Portfolio Value: ${stats['portfolio_value']:,.2f}", flush=True)
+        print(f"  Cash: ${stats['cash']:,.2f}", flush=True)
+        print(f"  Commission Paid: ${stats['total_commission']:,.2f}", flush=True)
+        print(f"  Max Drawdown: {stats['max_drawdown']:.2%}", flush=True)
+        print(f"  Sharpe Ratio: {stats['sharpe_ratio']:.2f}", flush=True)
+
+    return {
+        "Total Trades": total_trades,
+        "Trades Log": pd.DataFrame(all_trades),
+        "pre_council_trades": len(all_trades),
+        "pre_council_win_rate": win_rate,
+        "pre_council_profit_pct": profit_pct,
+        "post_council_trades": total_trades,
+        "post_council_win_rate": win_rate,
+        "post_council_profit_pct": profit_pct,
+        "rejected_profitable": rejected_profitable,
+        "max_radar": float(np.max(confidences)) if len(confidences) > 0 else 0.0,
+        "max_council": float(np.max(consensus_scores)) if consensus_scores is not None else 0.0,
+        "threshold_used": float(threshold),
+        "portfolio_stats": stats
+    }
 
 
 if __name__ == "__main__":

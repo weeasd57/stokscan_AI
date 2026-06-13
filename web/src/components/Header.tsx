@@ -176,14 +176,22 @@ export default function Header() {
                 e.preventDefault();
                 if (window.innerWidth < 640) {
                     setMobileSearchOpen(true);
+                    setMobileMenuOpen(false);
+                    setTimeout(() => document.getElementById("header-search-input-mobile")?.focus(), 50);
+                } else {
+                    document.getElementById("header-search-input")?.focus();
                 }
-                document.getElementById("header-search-input")?.focus();
             } else if (e.key === "/") {
                 const active = document.activeElement?.tagName.toLowerCase();
                 if (active !== "input" && active !== "textarea") {
                     e.preventDefault();
-                    if (window.innerWidth < 640) setMobileSearchOpen(true);
-                    document.getElementById("header-search-input")?.focus();
+                    if (window.innerWidth < 640) {
+                        setMobileSearchOpen(true);
+                        setMobileMenuOpen(false);
+                        setTimeout(() => document.getElementById("header-search-input-mobile")?.focus(), 50);
+                    } else {
+                        document.getElementById("header-search-input")?.focus();
+                    }
                 }
             } else if (e.key === "Escape") {
                 setSearchFocused(false);
@@ -237,13 +245,13 @@ export default function Header() {
                     {/* Brand */}
                     <div className="flex items-center min-w-0">
                         <Link href="/" className="group flex items-center gap-2 sm:gap-2.5 min-w-0">
-                            <div className="relative transition-all duration-300 group-hover:scale-105 flex-shrink-0">
+                            <div className="relative bg-white p-1 rounded-lg border-2 border-black dark:border-white transition-all duration-300 group-hover:scale-105 flex-shrink-0 flex items-center justify-center">
                                 <Image
-                                    src="/favicon_io/favicon.ico"
+                                    src="/favicon_io/apple-touch-icon.png"
                                     alt="EGX Bots logo"
                                     width={32}
                                     height={32}
-                                    className="object-contain w-8 h-8 sm:w-10 sm:h-10 rounded-lg"
+                                    className="object-contain w-7 h-7 sm:w-8 sm:h-8"
                                     priority
                                 />
                             </div>
@@ -262,9 +270,7 @@ export default function Header() {
                     <div className="header-center min-w-0">
                         <div
                             id="header-search-container"
-                            className={`relative min-w-0 ${
-                                mobileSearchOpen ? "flex w-full max-w-none" : "hidden sm:flex"
-                            } ${searchFocused ? "flex-1 max-w-md lg:max-w-lg" : "w-full max-w-[9rem] md:max-w-[11rem] lg:max-w-[14rem] xl:max-w-xs"} transition-all duration-300`}
+                            className={`relative min-w-0 hidden sm:flex ${searchFocused ? "flex-1 max-w-md lg:max-w-lg" : "w-full max-w-[9rem] md:max-w-[11rem] lg:max-w-[14rem] xl:max-w-xs"} transition-all duration-300`}
                         >
                             <div className="relative flex items-center w-full">
                                 <Search className="absolute left-3 w-4 h-4 text-zinc-500 pointer-events-none" />
@@ -333,7 +339,8 @@ export default function Header() {
                             onClick={() => {
                                 setMobileSearchOpen((v) => !v);
                                 if (!mobileSearchOpen) {
-                                    setTimeout(() => document.getElementById("header-search-input")?.focus(), 50);
+                                    setMobileMenuOpen(false);
+                                    setTimeout(() => document.getElementById("header-search-input-mobile")?.focus(), 50);
                                 }
                             }}
                             className="app-icon-button sm:hidden h-9 w-9 flex items-center justify-center rounded-xl"
@@ -403,7 +410,12 @@ export default function Header() {
                         )}
 
                         <button
-                            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+                            onClick={() => {
+                                setMobileMenuOpen(!mobileMenuOpen);
+                                if (!mobileMenuOpen) {
+                                    setMobileSearchOpen(false);
+                                }
+                            }}
                             className="app-icon-button md:hidden h-9 w-9 flex items-center justify-center rounded-xl hover:bg-white/10 transition-all"
                             aria-label="Toggle menu"
                         >
@@ -419,6 +431,7 @@ export default function Header() {
                             <div className="relative flex items-center">
                                 <Search className="absolute left-3 w-4 h-4 text-zinc-500" />
                                 <input
+                                    id="header-search-input-mobile"
                                     type="text"
                                     placeholder={language === "ar" ? "ابحث عن سهم مصري..." : "Search EGX symbol..."}
                                     value={searchQuery}

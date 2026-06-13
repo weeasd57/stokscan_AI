@@ -331,6 +331,13 @@ class LiveBot:
         # Default config from env or defaults
         self.config = config or self._build_default_config()
 
+    @property
+    def sb(self):
+        import api.stock_ai as stock_ai
+        if not stock_ai.supabase:
+            stock_ai._init_supabase()
+        return stock_ai.supabase
+
         # Models
         self.king_obj = None
         self.king_clf = None
@@ -3256,6 +3263,7 @@ class LiveBot:
         """
         Evaluate and process exits for all active subscriber positions in the database.
         """
+        supabase = self.sb
         if bars is None or bars.empty:
             return
 
@@ -3512,6 +3520,7 @@ class LiveBot:
         Evaluate and process entries (Risk Firewall checks, position creation, Telegram message)
         for all active subscribers when a BUY signal is generated.
         """
+        supabase = self.sb
         for sub_data in subscribers_data:
             user_id = sub_data["user_id"]
             chat_id = sub_data["telegram_chat_id"]

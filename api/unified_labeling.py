@@ -176,6 +176,7 @@ class TripleBarrierLabeler:
         atr: float,
         bars_ahead: List[Dict[str, float]],
         max_bars: Optional[int] = None,
+        volume_ma_20: Optional[float] = None,
     ) -> TradeOutcome:
         """
         Simulate a complete trade from entry to exit.
@@ -187,6 +188,7 @@ class TripleBarrierLabeler:
             atr: ATR value for barrier calculation
             bars_ahead: List of bars with 'high', 'low', 'close', 'volume'
             max_bars: Maximum bars to hold (defaults to look_forward_days)
+            volume_ma_20: 20-bar average volume (for volume confirmation)
             
         Returns:
             TradeOutcome with exit price, reason, and P&L
@@ -231,6 +233,15 @@ class TripleBarrierLabeler:
             
             # Check TP
             if high >= tp:
+                # If volume confirmation required, verify it
+                if self.params.require_volume_confirmation and volume_ma_20 is not None and volume_ma_20 > 0:
+                    vol_vals = [b.get("volume", 0.0) for b in bars_ahead[:bar_idx + 1]]
+                    avg_vol = np.mean(vol_vals) if vol_vals else 0.0
+                    min_req = volume_ma_20 * self.params.min_volume_ratio
+                    if avg_vol < min_req:
+                        # Volume confirmation failed, keep scanning
+                        continue
+                
                 pnl_pct = ((tp - entry_price) / entry_price) * 100
                 return TradeOutcome(
                     outcome="TP_HIT",

@@ -18,6 +18,10 @@ export async function GET() {
     const { controller, id } = withTimeout(15_000);
     const res = await fetch(`${base.replace(/\/$/, "")}/admin/models/list`, {
       method: "GET",
+      headers: {
+        Accept: "application/json",
+        "x-admin-key": process.env.ADMIN_SECRET_KEY || "",
+      },
       cache: "no-store",
       signal: controller.signal,
     }).finally(() => clearTimeout(id));
@@ -39,7 +43,15 @@ export async function GET() {
           try {
             const infoRes = await fetch(
               `${base.replace(/\/$/, "")}/admin/models/${encodeURIComponent(model.name)}/info`,
-              { method: "GET", cache: "no-store", signal: controller.signal }
+              {
+                method: "GET",
+                headers: {
+                  Accept: "application/json",
+                  "x-admin-key": process.env.ADMIN_SECRET_KEY || "",
+                },
+                cache: "no-store",
+                signal: controller.signal,
+              }
             );
             if (infoRes.ok) {
               const info = await infoRes.json();

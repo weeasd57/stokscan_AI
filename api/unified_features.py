@@ -27,7 +27,7 @@ class DataReadinessReport:
     bars_count: int
     min_bars_required: int
     nan_percentage: float = 0.0
-    max_nan_acceptable: float = 0.05
+    max_nan_acceptable: float = 0.25  # Raised from 0.05 — EGX fundamentals columns are often sparse
     missing_columns: List[str] = None
     warnings: List[str] = None
     

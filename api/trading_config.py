@@ -76,6 +76,7 @@ class TradingParameters:
     barrier_mode: str = "percent"  # "percent" | "atr_multiplier"
     target_pct: float = 0.10  # 10% target profit OR ATR multiplier for TP
     stop_loss_pct: float = 0.05  # 5% stop loss OR ATR multiplier for SL
+    use_adaptive_exits: bool = False  # Enable dynamic exits based on market regime
     
     # === Volume Confirmation (EGX specific) ===
     require_volume_confirmation: bool = False  # Enable volume confirmation
@@ -131,6 +132,7 @@ class TradingParameters:
                 params.barrier_mode = trading_params.get("barrier_mode", params.barrier_mode)
                 params.target_pct = trading_params.get("target_pct", params.target_pct)
                 params.stop_loss_pct = trading_params.get("stop_loss_pct", params.stop_loss_pct)
+                params.use_adaptive_exits = trading_params.get("use_adaptive_exits", params.use_adaptive_exits)
                 params.require_volume_confirmation = trading_params.get("require_volume_confirmation", params.require_volume_confirmation)
                 params.min_volume_ratio = trading_params.get("min_volume_ratio", params.min_volume_ratio)
                 params.volume_confirmation_period = trading_params.get("volume_confirmation_period", params.volume_confirmation_period)
@@ -221,6 +223,7 @@ class TradingParameters:
             params.target_pct = get_val("atr_tp_multiplier", params.target_pct)
             params.stop_loss_pct = get_val("atr_sl_multiplier", params.stop_loss_pct)
             
+        params.use_adaptive_exits = get_val("use_adaptive_exits", params.use_adaptive_exits)
         params.king_threshold = get_val("king_threshold", params.king_threshold)
         params.council_threshold = get_val("council_threshold", params.council_threshold)
         params.min_volume_ratio = get_val("min_volume_ratio", params.min_volume_ratio)
@@ -307,6 +310,7 @@ class TradingParameters:
             'barrier_mode': f'{prefix}BARRIER_MODE',
             'target_pct': f'{prefix}TARGET_PCT',
             'stop_loss_pct': f'{prefix}STOP_LOSS_PCT',
+            'use_adaptive_exits': f'{prefix}USE_ADAPTIVE_EXITS',
             'require_volume_confirmation': f'{prefix}REQUIRE_VOLUME_CONFIRMATION',
             'min_volume_ratio': f'{prefix}MIN_VOLUME_RATIO',
             'volume_confirmation_period': f'{prefix}VOLUME_CONFIRMATION_PERIOD',
@@ -327,7 +331,7 @@ class TradingParameters:
                 try:
                     if param_name in ['entry_mode', 'look_forward_mode', 'barrier_mode']:
                         env_overrides[param_name] = str(env_value)
-                    elif param_name in ['require_volume_confirmation']:
+                    elif param_name in ['require_volume_confirmation', 'use_adaptive_exits']:
                         env_overrides[param_name] = env_value.lower() in ('true', '1', 'yes', 'on')
                     elif param_name in ['look_forward_days', 'volume_confirmation_period', 
                                       'min_history_needed', 'warmup_bars', 'feature_lookback', 
