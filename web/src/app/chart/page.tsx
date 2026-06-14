@@ -273,16 +273,7 @@ function ChartContent() {
 
         <div className="flex-1" />
 
-        <button
-          onClick={() => router.push(`/backtest?symbol=${encodeURIComponent(symbol)}&exchange=${encodeURIComponent(exchange)}`)}
-          className="p-2 rounded-xl text-indigo-400 hover:text-indigo-300 hover:bg-indigo-500/10 transition-all duration-200 group relative"
-          title="Strategy Tester"
-        >
-          <ArrowLeftRight className="w-4 h-4" />
-          <span className="absolute left-14 top-1/2 -translate-y-1/2 bg-zinc-950 text-[10px] font-bold text-white px-2 py-1 rounded border border-white/5 whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity z-50 pointer-events-none uppercase tracking-wider">
-            Strategy Tester (الاختبار العكسي)
-          </span>
-        </button>
+        {/* Strategy Tester Button - REMOVED AS PER USER REQUEST */}
 
         <button
           onClick={() => handleToolClick("trash")}

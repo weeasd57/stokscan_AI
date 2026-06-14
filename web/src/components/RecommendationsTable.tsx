@@ -218,7 +218,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                         <button 
                             onClick={() => loadRecommendations(isLandingPage)}
                             disabled={recsLoading}
-                            className="h-10 px-4 border-2 border-black bg-white hover:bg-zinc-100 text-black font-bold uppercase text-xs flex items-center gap-2 shadow-[2px_2px_0px_rgba(0,0,0,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all duration-100"
+                            className="h-10 px-4 border-2 border-black dark:border-white bg-white dark:bg-zinc-900 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-black dark:text-white font-bold uppercase text-xs flex items-center gap-2 shadow-[2px_2px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_rgba(255,255,255,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all duration-100"
                         >
                             <RefreshCw className={`w-3.5 h-3.5 ${recsLoading ? "animate-spin" : ""}`} />
                             {isAr ? "تحديث" : "Refresh"}
@@ -230,7 +230,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
 
             {/* Outdated Warning Panel */}
             {isOutdated && (
-                <div className="p-4 border-4 border-black neobrutal-bg-pink text-black font-bold flex items-center justify-between text-xs shadow-[4px_4px_0px_rgba(0,0,0,1)]">
+                <div className="p-4 border-4 border-black dark:border-white neobrutal-bg-pink text-black dark:text-black font-bold flex items-center justify-between text-xs shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_rgba(255,255,255,1)]">
                     <div className="flex items-center gap-2">
                         <AlertTriangle className="w-4 h-4 shrink-0" />
                         <span>{translate("outdated")}</span>
@@ -257,7 +257,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                             placeholder={translate("searchPlaceholder")}
                             value={searchTerm}
                             onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
-                            className="w-full h-11 pl-10 pr-4 border-2 border-black bg-zinc-50 text-black font-bold text-sm focus:outline-none focus:ring-0"
+                            className="w-full h-11 pl-10 pr-4 border-2 border-black dark:border-white bg-zinc-50 dark:bg-zinc-900 text-black dark:text-white font-bold text-sm focus:outline-none focus:ring-0"
                         />
                     </div>
 
@@ -267,7 +267,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                         <select
                             value={selectedSector}
                             onChange={(e) => { setSelectedSector(e.target.value); setCurrentPage(1); }}
-                            className="w-full h-11 pl-10 pr-8 border-2 border-black bg-zinc-50 text-black font-bold text-sm appearance-none focus:outline-none focus:ring-0"
+                            className="w-full h-11 pl-10 pr-8 border-2 border-black dark:border-white bg-zinc-50 dark:bg-zinc-900 text-black dark:text-white font-bold text-sm appearance-none focus:outline-none focus:ring-0"
                         >
                             <option value="">{translate("allSectors")}</option>
                             {sectors.map(sec => (
@@ -282,7 +282,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                         <select
                             value={selectedSignal}
                             onChange={(e) => { setSelectedSignal(e.target.value); setCurrentPage(1); }}
-                            className="w-full h-11 pl-10 pr-8 border-2 border-black bg-zinc-50 text-black font-bold text-sm appearance-none focus:outline-none focus:ring-0"
+                            className="w-full h-11 pl-10 pr-8 border-2 border-black dark:border-white bg-zinc-50 dark:bg-zinc-900 text-black dark:text-white font-bold text-sm appearance-none focus:outline-none focus:ring-0"
                         >
                             <option value="">{translate("allSignals")}</option>
                             <option value="BUY">{translate("buy")}</option>
@@ -443,14 +443,14 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                         <button
                             onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
                             disabled={currentPage === 1}
-                            className="w-10 h-10 border-2 border-black flex items-center justify-center bg-white text-black hover:bg-zinc-100 disabled:opacity-50 shadow-[2px_2px_0px_rgba(0,0,0,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all duration-100"
+                            className="w-10 h-10 border-2 border-black dark:border-white flex items-center justify-center bg-white dark:bg-zinc-900 text-black dark:text-white hover:bg-zinc-100 dark:hover:bg-zinc-800 disabled:opacity-50 shadow-[2px_2px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_rgba(255,255,255,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all duration-100"
                         >
                             <ChevronLeft className={`w-4 h-4 ${isAr ? "rotate-180" : ""}`} />
                         </button>
                         <button
                             onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
                             disabled={currentPage === totalPages}
-                            className="w-10 h-10 border-2 border-black flex items-center justify-center bg-white text-black hover:bg-zinc-100 disabled:opacity-50 shadow-[2px_2px_0px_rgba(0,0,0,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all duration-100"
+                            className="w-10 h-10 border-2 border-black dark:border-white flex items-center justify-center bg-white dark:bg-zinc-900 text-black dark:text-white hover:bg-zinc-100 dark:hover:bg-zinc-800 disabled:opacity-50 shadow-[2px_2px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_rgba(255,255,255,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all duration-100"
                         >
                             <ChevronRight className={`w-4 h-4 ${isAr ? "rotate-180" : ""}`} />
                         </button>

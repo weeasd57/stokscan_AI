@@ -4,7 +4,6 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 
 import { useAuth } from "@/contexts/AuthContext";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
-import TargetStopModal from "@/components/TargetStopModal";
 
 export interface SavedSymbol {
     id: string;
@@ -34,11 +33,6 @@ export const WatchlistProvider = ({ children }: { children: ReactNode }) => {
 
     const { user } = useAuth();
     const supabase = useMemo(() => createSupabaseBrowserClient(), []);
-
-    // Modal state for target/stop input
-    const [pendingItem, setPendingItem] = useState<Omit<SavedSymbol, "id" | "addedAt"> | null>(null);
-    const [defaultTarget, setDefaultTarget] = useState(10);
-    const [defaultStop, setDefaultStop] = useState(3.5);
 
     // Refs to prevent redundant API calls
     const hasInitializedRef = useRef(false);
@@ -195,15 +189,55 @@ export const WatchlistProvider = ({ children }: { children: ReactNode }) => {
         const suggestedTarget = Number((item as any).targetPct ?? profile?.default_target_pct ?? 10);
         const suggestedStop = Number((item as any).stopPct ?? profile?.default_stop_pct ?? 3.5);
 
-        setDefaultTarget(suggestedTarget);
-        setDefaultStop(suggestedStop);
-        setPendingItem(item);
+        // DIALOG REMOVED - Directly save with default values (no modal)
+        const entryPrice =
+            typeof (item as any).entryPrice === "number"
+                ? (item as any).entryPrice
+                : typeof (item as any).metadata?.price === "number"
+                    ? (item as any).metadata.price
+                    : typeof (item as any).metadata?.last_close === "number"
+                        ? (item as any).metadata.last_close
+                        : null;
+
+        const { data, error } = await supabase
+            .from("positions")
+            .insert({
+                user_id: user.id,
+                symbol: String(item.symbol).toUpperCase(),
+                name: item.name,
+                source: item.source,
+                metadata: item.metadata ?? {},
+                entry_price: entryPrice,
+                entry_at: entryPrice ? new Date().toISOString() : null,
+                target_pct: suggestedTarget,
+                stop_pct: suggestedStop,
+            })
+            .select("id, symbol, name, source, added_at, metadata, target_pct, stop_pct, entry_price, status")
+            .single();
+
+        if (error || !data) return;
+
+        setWatchlist((prev) => [
+            {
+                id: data.id,
+                symbol: String(data.symbol).toUpperCase(),
+                name: data.name,
+                source: data.source,
+                addedAt: data.added_at,
+                metadata: data.metadata ?? {},
+                targetPct: data.target_pct ?? undefined,
+                stopPct: data.stop_pct ?? undefined,
+                entryPrice: data.entry_price ?? null,
+                status: data.status ?? "open",
+            },
+            ...prev,
+        ]);
     }, [user, supabase, isSaved]);
 
-    const confirmSave = useCallback(async (targetPct: number, stopPct: number) => {
-        if (!pendingItem || !user) return;
+    const confirmSave = useCallback(async (targetPct: number, stopPct: number, itemToSave: Omit<SavedSymbol, "id" | "addedAt">) => {
+        if (!itemToSave || !user) return;
 
-        const item = pendingItem;
+        const item = itemToSave;
         const entryPrice =
             typeof (item as any).entryPrice === "number"
                 ? (item as any).entryPrice
@@ -229,8 +263,6 @@ export const WatchlistProvider = ({ children }: { children: ReactNode }) => {
             .select("id, symbol, name, source, added_at, metadata, target_pct, stop_pct, entry_price, status")
             .single();
 
-        setPendingItem(null);
-
         if (error || !data) return;
 
         setWatchlist((prev) => [
@@ -248,7 +280,7 @@ export const WatchlistProvider = ({ children }: { children: ReactNode }) => {
             },
             ...prev,
         ]);
-    }, [pendingItem, user, supabase]);
+    }, [user, supabase]);
 
     const removeSymbol = useCallback((id: string) => {
         if (!user) return;
@@ -271,14 +303,7 @@ export const WatchlistProvider = ({ children }: { children: ReactNode }) => {
     return (
         <WatchlistContext.Provider value={{ watchlist, saveSymbol, removeSymbol, removeSymbolBySymbol, isSaved }}>
             {children}
-            <TargetStopModal
-                isOpen={!!pendingItem}
-                onClose={() => setPendingItem(null)}
-                onConfirm={confirmSave}
-                defaultTarget={defaultTarget}
-                defaultStop={defaultStop}
-                symbolName={pendingItem?.symbol}
-            />
+            {/* TargetStopModal - REMOVED AS PER USER REQUEST */}
         </WatchlistContext.Provider>
     );
 };

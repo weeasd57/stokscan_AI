@@ -34,6 +34,7 @@ interface TradingViewChartProps {
     customMarkers?: CustomMarker[];
     focusTimestamp?: number; // unix seconds — scrolls chart to this candle
     hideIndicators?: boolean;
+    showApiMarkers?: boolean;
 }
 
 export interface ActiveIndicator {
@@ -67,7 +68,8 @@ export default function TradingViewChart({
     onToolDrawComplete,
     customMarkers = DEFAULT_CUSTOM_MARKERS,
     focusTimestamp,
-    hideIndicators = false
+    hideIndicators = false,
+    showApiMarkers = true
 }: TradingViewChartProps) {
     const mainContainerRef = useRef<HTMLDivElement>(null);
     const priceContainerRef = useRef<HTMLDivElement>(null);
@@ -592,7 +594,7 @@ export default function TradingViewChart({
                 return best !== null ? best as UTCTimestamp : null;
             };
 
-            const apiMarkers: SeriesMarker<UTCTimestamp>[] = (markersData || [])
+            const apiMarkers: SeriesMarker<UTCTimestamp>[] = (showApiMarkers && markersData ? markersData : [])
                 .filter(m => candleTimes.has(m.time))
                 .map(m => ({
                     time: m.time as UTCTimestamp,
@@ -937,6 +939,90 @@ export default function TradingViewChart({
                         <span className="text-[10px] text-[#787b86] font-mono">({timeframe})</span>
                     </div>
                     <div className="h-4 w-[1px] bg-[#2a2e39] shrink-0" />
+                    
+                    {/* Drawing Tools Section */}
+                    <div className="flex items-center gap-1 shrink-0">
+                        <span className="text-[10px] text-[#787b86] uppercase tracking-wider font-bold mr-1">Draw:</span>
+                        
+                        {/* Horizontal Line Tool */}
+                        <button 
+                            onClick={() => onToolDrawComplete && onToolDrawComplete()}
+                            className={`h-7 px-2.5 rounded flex items-center gap-1.5 transition-all text-[10px] font-bold uppercase tracking-wide ${
+                                activeTool === "horizontal" 
+                                    ? "bg-indigo-600 text-white" 
+                                    : "bg-[#1c2030] text-[#787b86] hover:bg-[#2a2e39] hover:text-white"
+                            }`}
+                            title="Horizontal Line (Support/Resistance)"
+                        >
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <line x1="3" y1="12" x2="21" y2="12" strokeWidth="2"/>
+                            </svg>
+                            <span>Horizontal</span>
+                        </button>
+
+                        {/* Trend Line Tool */}
+                        <button 
+                            className="h-7 px-2.5 rounded flex items-center gap-1.5 transition-all text-[10px] font-bold uppercase tracking-wide bg-[#1c2030] text-[#787b86] hover:bg-[#2a2e39] hover:text-white opacity-50 cursor-not-allowed"
+                            title="Trend Line (Coming Soon)"
+                            disabled
+                        >
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <line x1="3" y1="18" x2="21" y2="6" strokeWidth="2"/>
+                            </svg>
+                            <span>Trend</span>
+                        </button>
+
+                        {/* Fibonacci Tool */}
+                        <button 
+                            className="h-7 px-2.5 rounded flex items-center gap-1.5 transition-all text-[10px] font-bold uppercase tracking-wide bg-[#1c2030] text-[#787b86] hover:bg-[#2a2e39] hover:text-white opacity-50 cursor-not-allowed"
+                            title="Fibonacci Retracement (Coming Soon)"
+                            disabled
+                        >
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path d="M3 12h18M3 8h18M3 16h18M3 6h18M3 18h18" strokeWidth="1.5"/>
+                            </svg>
+                            <span>Fib</span>
+                        </button>
+
+                        {/* Rectangle Tool */}
+                        <button 
+                            className="h-7 px-2.5 rounded flex items-center gap-1.5 transition-all text-[10px] font-bold uppercase tracking-wide bg-[#1c2030] text-[#787b86] hover:bg-[#2a2e39] hover:text-white opacity-50 cursor-not-allowed"
+                            title="Rectangle (Coming Soon)"
+                            disabled
+                        >
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <rect x="4" y="6" width="16" height="12" strokeWidth="2"/>
+                            </svg>
+                            <span>Rectangle</span>
+                        </button>
+
+                        {/* Clear All Tool */}
+                        <button 
+                            onClick={() => {
+                                if (activeTool === "trash") {
+                                    drawnPriceLevelsRef.current = [];
+                                    priceLinesRef.current.forEach(line => {
+                                        if (chartRefs.current.candlestickSeries) {
+                                            try {
+                                                chartRefs.current.candlestickSeries.removePriceLine(line);
+                                            } catch {}
+                                        }
+                                    });
+                                    priceLinesRef.current = [];
+                                }
+                                onToolDrawComplete && onToolDrawComplete();
+                            }}
+                            className={`h-7 px-2.5 rounded flex items-center gap-1.5 transition-all text-[10px] font-bold uppercase tracking-wide ${
+                                activeTool === "trash" 
+                                    ? "bg-red-600 text-white" 
+                                    : "bg-[#1c2030] text-[#787b86] hover:bg-[#2a2e39] hover:text-red-400"
+                            }`}
+                            title="Clear All Drawings"
+                        >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            <span>Clear</span>
+                        </button>
+                    </div>
                 </div>
 
                 <div className="flex items-center gap-3 shrink-0">

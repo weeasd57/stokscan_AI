@@ -658,6 +658,7 @@ const BacktestAnalysisModal = ({ isOpen, onClose, bt, trades, loading }: { isOpe
                           customMarkers={markers}
                           focusTimestamp={focusTs}
                           hideIndicators={true}
+                          showApiMarkers={false}
                         />
                       );
                     })()}

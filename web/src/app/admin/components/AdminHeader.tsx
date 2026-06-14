@@ -1,5 +1,7 @@
 "use client";
 
+import { Brain, Database, Bot, LineChart, History, Calendar, Sparkles } from "lucide-react";
+
 interface AdminHeaderProps {
     activeMainTab: "data" | "ai" | "backtest" | "bot" | "schedule" | "similarity";
     setActiveMainTab: (tab: "data" | "ai" | "backtest" | "bot" | "schedule" | "similarity") => void;
@@ -7,41 +9,93 @@ interface AdminHeaderProps {
 
 export default function AdminHeader({ activeMainTab, setActiveMainTab }: AdminHeaderProps) {
     const tabs = [
-        { id: "data", label: "DATA MANAGER" },
-        { id: "ai", label: "AI & AUTOMATION" },
-        { id: "bot", label: "LIVE BOT" },
-        { id: "backtest", label: "BACKTEST" },
-        { id: "similarity", label: "HISTORICAL SIMILARITY" },
-        { id: "schedule", label: "OPERATING SCHEDULE" },
+        { id: "data", label: "DATA", icon: Database, color: "cyan" },
+        { id: "ai", label: "AI AUTO", icon: Brain, color: "purple" },
+        { id: "bot", label: "LIVE BOT", icon: Bot, color: "green" },
+        { id: "backtest", label: "BACKTEST", icon: LineChart, color: "yellow" },
+        { id: "similarity", label: "SIMILARITY", icon: History, color: "pink" },
+        { id: "schedule", label: "SCHEDULE", icon: Calendar, color: "orange" },
     ] as const;
 
-    return (
-        <header className="sticky top-[92px] z-50 w-full border-b border-white/5 bg-black/60 backdrop-blur-xl supports-[backdrop-filter]:bg-black/30">
-            <div className="max-w-[1920px] mx-auto">
-                <div className="flex flex-col md:flex-row md:items-center justify-start px-4 md:px-8 py-4 gap-4 md:gap-0">
+    const getTabColorClasses = (color: string, isActive: boolean) => {
+        if (!isActive) return "";
+        
+        const colors = {
+            cyan: "neobrutal-bg-cyan",
+            purple: "neobrutal-bg-purple",
+            green: "neobrutal-bg-green",
+            yellow: "neobrutal-bg-yellow",
+            pink: "neobrutal-bg-pink",
+            orange: "neobrutal-bg-orange"
+        };
+        
+        return colors[color as keyof typeof colors] || "neobrutal-bg-yellow";
+    };
 
-                    {/* Navigation - Scrollable on mobile, Centered pills on desktop */}
-                    <nav className="relative w-full md:flex-1 overflow-x-auto pb-2 md:pb-0 -mx-4 px-4 md:mx-0 md:px-0 scrollbar-hide max-w-full">
-                        <div className="flex items-center gap-1.5 md:gap-2 w-full p-1.5 bg-zinc-900/50 border border-white/5 rounded-2xl backdrop-blur-sm min-w-max md:min-w-0">
+    return (
+        <>
+            {/* Animated Ticker Ribbon */}
+            <div className="sticky top-[92px] z-50 w-full border-y-4 border-black dark:border-white bg-black dark:bg-zinc-950 text-white overflow-hidden py-2 font-mono font-black text-[10px] uppercase tracking-widest flex select-none">
+                <div className="animate-marquee-neobrutal flex gap-8 shrink-0 min-w-full justify-around">
+                    <span className="flex items-center gap-2">
+                        <Sparkles className="w-3 h-3" />
+                        ADMIN CONTROL PANEL
+                    </span>
+                    <span>🎯 DATA SYNC • AI TRAINING • LIVE MONITORING</span>
+                    <span className="flex items-center gap-2">
+                        <Bot className="w-3 h-3" />
+                        AUTOMATED TRADING SYSTEM
+                    </span>
+                    <span>📊 BACKTEST SIMULATOR • PATTERN RECOGNITION</span>
+                </div>
+                <div aria-hidden="true" className="animate-marquee-neobrutal flex gap-8 shrink-0 min-w-full justify-around">
+                    <span className="flex items-center gap-2">
+                        <Sparkles className="w-3 h-3" />
+                        ADMIN CONTROL PANEL
+                    </span>
+                    <span>🎯 DATA SYNC • AI TRAINING • LIVE MONITORING</span>
+                    <span className="flex items-center gap-2">
+                        <Bot className="w-3 h-3" />
+                        AUTOMATED TRADING SYSTEM
+                    </span>
+                    <span>📊 BACKTEST SIMULATOR • PATTERN RECOGNITION</span>
+                </div>
+            </div>
+
+            {/* Main Navigation Header */}
+            <header className="sticky top-[126px] z-40 w-full border-b-4 border-black dark:border-white bg-white dark:bg-zinc-950">
+                <div className="max-w-[1920px] mx-auto px-4 md:px-8 py-4">
+                    
+                    {/* Navigation Tabs */}
+                    <nav className="relative w-full overflow-x-auto pb-2 md:pb-0 -mx-4 px-4 md:mx-0 md:px-0 scrollbar-hide">
+                        <div className="flex items-stretch gap-2 min-w-max md:min-w-0 md:justify-start">
                             {tabs.map((tab) => {
                                 const isActive = activeMainTab === tab.id;
+                                const Icon = tab.icon;
+                                const bgClass = getTabColorClasses(tab.color, isActive);
 
                                 return (
                                     <button
                                         key={tab.id}
                                         onClick={() => setActiveMainTab(tab.id)}
                                         className={`
-                                            relative px-3 md:px-5 py-2.5 rounded-xl transition-all duration-300 flex flex-col items-center justify-center flex-1 min-w-[100px]
+                                            group relative px-4 md:px-6 py-3 border-4 border-black dark:border-white font-black text-[10px] md:text-xs uppercase tracking-widest
+                                            transition-all duration-100
                                             ${isActive
-                                                ? "text-white shadow-[0_0_20px_rgba(99,102,241,0.3)]"
-                                                : "text-zinc-500 hover:text-zinc-300 hover:bg-white/5"
+                                                ? `${bgClass} text-black shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_rgba(255,255,255,1)] translate-x-0 translate-y-0`
+                                                : "bg-white dark:bg-zinc-900 text-black dark:text-white shadow-[2px_2px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_rgba(255,255,255,1)] hover:translate-x-[-1px] hover:translate-y-[-1px] hover:shadow-[3px_3px_0px_rgba(0,0,0,1)] dark:hover:shadow-[3px_3px_0px_rgba(255,255,255,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none"
                                             }
                                         `}
                                     >
+                                        <div className="flex items-center gap-2">
+                                            <Icon className={`w-4 h-4 ${isActive ? 'text-black' : 'text-zinc-600 dark:text-zinc-400 group-hover:text-black dark:group-hover:text-white'}`} />
+                                            <span>{tab.label}</span>
+                                        </div>
+                                        
+                                        {/* Active Indicator Dot */}
                                         {isActive && (
-                                            <div className="absolute inset-0 bg-gradient-to-r from-indigo-600 to-purple-600 rounded-xl -z-10" />
+                                            <div className="absolute -top-1 -right-1 w-3 h-3 bg-black dark:bg-white border-2 border-black dark:border-white rounded-full animate-pulse" />
                                         )}
-                                        <span className="text-[9px] md:text-[10px] font-black tracking-wider uppercase">{tab.label}</span>
                                     </button>
                                 );
                             })}
@@ -49,7 +103,7 @@ export default function AdminHeader({ activeMainTab, setActiveMainTab }: AdminHe
                     </nav>
 
                 </div>
-            </div>
+            </header>
 
             <style jsx>{`
                 .scrollbar-hide::-webkit-scrollbar {
@@ -60,6 +114,6 @@ export default function AdminHeader({ activeMainTab, setActiveMainTab }: AdminHe
                     scrollbar-width: none;
                 }
             `}</style>
-        </header>
+        </>
     );
 }

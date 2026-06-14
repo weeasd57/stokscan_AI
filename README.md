@@ -77,16 +77,9 @@ TOTAL               2864              115,365
 #### 1️⃣ تشغيل السيرفر الخلفي (Python Backend Server)
 لتفعيل البيئة الافتراضية وتشغيل سيرفر FastAPI:
 ```powershell
-# تفعيل البيئة الافتراضية (Windows PowerShell)
-.\venv\Scripts\activate
 
 # تشغيل سيرفر الـ FastAPI
 .\venv\Scripts\python -m uvicorn api.main:app --reload --host 127.0.0.1 --port 8000
-```
-*(أو إذا كنت تستخدم نظام macOS/Linux):*
-```bash
-source venv/bin/activate
-python -m uvicorn api.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
 #### 2️⃣ تشغيل واجهة المستخدم (Next.js Frontend)
@@ -118,12 +111,6 @@ This project uses a **Split Deployment Strategy** to optimize performance and ov
 - **Reason**: Best-in-class performance for Next.js, Edge Network, and SEO.
 - **Configuration**: Uses standard Vercel auto-detection for Next.js in the `web/` directory.
 
-### 2. Backend (Railway)
-- **Hosted on**: [Railway](https://railway.app)
-- **Method**: Docker Container (via `api/Dockerfile`)
-- **Reason**: The Python backend requires significant RAM/Disk for ML models (`scikit-learn`, `pandas`) which exceeds Vercel's Serverless Function limits (250MB). Railway provides a persistent environment perfect for heavy AI workloads.
-- **Docker Config**: Explicitly uses Python 3.12 and installs dependencies from `api/requirements.txt`.
-
 ## 🌍 Supported Markets
 - **US** (NYSE, NASDAQ, AMEX)
 - **Egypt** (EGX)
@@ -139,26 +126,40 @@ This repo also supports training a lightweight validator that learns when a base
 - Use in backtest: `py api/backtest_radar.py --exchange EGX --model "collector 🎁.pkl" --validator "The_Council_Validator.pkl"`
 
 
-## � Deployment (Hugging Face Spaces)
+## 🚀 Deployment Commands (أوامر الرفع للسيرفرات)
 
-The backend is deployed as a Docker container on Hugging Face Spaces. The `api/` folder is the single source of truth.
+تنقسم عملية رفع ونشر المشروع إلى قسمين رئيسيين (الواجهة الأمامية والخلفية):
 
-### How to Deploy Updates
+### 1️⃣ الواجهة الأمامية - Frontend (Vercel)
+يتم رفع الفرونت إند المكتوب بـ Next.js إلى منصة Vercel:
+```powershell
+# 1. الدخول إلى مجلد الويب
+cd web
 
-1. **Navigate to the API folder**:
-   ```powershell
-   cd "C:\Users\MR_CODER\Desktop\AI stocks\api"
-   ```
+# 2. تسجيل الدخول إلى Vercel (لأول مرة فقط)
+npx vercel login
 
-2. **Commit and Push**:
-   ```powershell
-   git add .
-   git commit -m "Update API features"
-   git push hf master:main --force
-   ```
+# 3. رفع نسخة التطوير للتجربة
+npx vercel
+
+# 4. رفع النسخة النهائية للموقع (Production)
+npx vercel --prod
+```
+
+### 3️⃣ السيرفر الخلفي - Backend (Hugging Face Spaces)
+إذا كنت تستخدم Hugging Face كخادم بديل أو أساسي للباكيند (Docker):
+```powershell
+# 1. إضافة الخادم كـ remote للـ Git (لأول مرة فقط)
+git remote add hf https://huggingface.co/spaces/weeasd57/stokscan_AI
+
+# 2. رفع التحديثات مباشرة
+git add .
+git commit -m "Update API features"
+git push hf master:main --force
+```
 
 > [!NOTE]
-> The `AI_BOT` folder was removed to avoid duplication. Always work within the root `api/` directory.
+> مجلد الـ `api/` هو المصدر الأساسي والوحيد للباكيند. تأكد من تفعيل التغييرات فيه قبل الرفع.
 
 
 ## 🤝 Contributing

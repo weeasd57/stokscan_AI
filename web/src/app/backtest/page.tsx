@@ -999,8 +999,8 @@ function StrategyTesterContent() {
       {/* ── Main layout ───────────────────────────────────────────────────── */}
       <div className="flex-1 flex min-h-0 overflow-hidden">
 
-        {/* LEFT: Config Panel */}
-        {settingsOpen && (
+        {/* LEFT: Config Panel - REMOVED AS PER USER REQUEST */}
+        {false && settingsOpen && (
           <aside 
             onMouseDown={(e) => e.stopPropagation()}
             onClick={(e) => e.stopPropagation()}
@@ -1381,8 +1381,8 @@ function StrategyTesterContent() {
             {/* Chart */}
             <div ref={chartContainerRef} className="absolute inset-0" />
 
-            {/* Toggle Settings Button (when closed) */}
-            {!settingsOpen && (
+            {/* Toggle Settings Button (when closed) - REMOVED */}
+            {false && !settingsOpen && (
               <button
                 onClick={() => setSettingsOpen(true)}
                 className="absolute top-3 left-3 z-30 p-2 rounded-xl bg-[#0c0e16]/90 backdrop-blur-md border border-[#1e2130] text-zinc-400 hover:text-white hover:border-zinc-700 transition-all flex items-center gap-1.5 shadow-lg active:scale-95 cursor-pointer font-sans"

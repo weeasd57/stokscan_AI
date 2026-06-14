@@ -3877,7 +3877,10 @@ from api.historical_similarity import (
     run_historical_similarity,
     get_similarity_cases,
     save_similarity_case,
-    delete_similarity_case
+    delete_similarity_case,
+    run_market_wide_similarity_scan,
+    publish_similarity_report,
+    get_published_similarity_report
 )
 
 class SimilarityRunReq(BaseModel):
@@ -3887,7 +3890,7 @@ class SimilarityRunReq(BaseModel):
     forward_days: int = 10
     target_return: float = 0.05
     stop_loss: float = -0.03
-    features: Optional[List[str]] = None
+    features_to_use: Optional[List[str]] = None
     exclusion_window: int = 20
     search_scope: str = "same_symbol"
 
@@ -3895,32 +3898,30 @@ class SimilaritySaveCaseReq(BaseModel):
     id: Optional[str] = None
     name: str
     symbol: str
+    target_date: Optional[str] = None
     k: int = 10
     forward_days: int = 10
     target_return: float = 0.05
     stop_loss: float = -0.03
-    features: List[str]
+    features_to_use: List[str]
+    exclusion_window: int = 20
     search_scope: str = "same_symbol"
 
-@router.post("/historical-similarity/run")
-def api_run_similarity(req: SimilarityRunReq):
-    try:
-        result = run_historical_similarity(
-            symbol=req.symbol,
-            target_date=req.target_date,
-            k=req.k,
-            forward_days=req.forward_days,
-            target_return=req.target_return,
-            stop_loss=req.stop_loss,
-            features_to_use=req.features,
-            exclusion_window=req.exclusion_window,
-            search_scope=req.search_scope
-        )
-        return result
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+class SimilarityMarketScanReq(BaseModel):
+    k: int = 10
+    forward_days: int = 10
+    target_return: float = 0.05
+    stop_loss: float = -0.03
+    features_to_use: Optional[List[str]] = None
+    min_win_rate: float = 0.60
+
+class SimilarityPublishReq(BaseModel):
+    name: str = "Market Similarity Report"
+    scans: List[Dict[str, Any]]
+    k: int = 10
+    forward_days: int = 10
+    target_return: float = 0.05
+    stop_loss: float = -0.03
 
 @router.get("/historical-similarity/cases")
 def api_get_similarity_cases():
@@ -3932,9 +3933,7 @@ def api_get_similarity_cases():
 @router.post("/historical-similarity/cases")
 def api_save_similarity_case(req: SimilaritySaveCaseReq):
     try:
-        profile = req.dict()
-        saved = save_similarity_case(profile)
-        return saved
+        return save_similarity_case(req.dict())
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -3942,10 +3941,47 @@ def api_save_similarity_case(req: SimilaritySaveCaseReq):
 def api_delete_similarity_case(case_id: str):
     try:
         success = delete_similarity_case(case_id)
-        if not success:
-            raise HTTPException(status_code=404, detail="Scan case not found")
-        return {"success": True}
-    except HTTPException as he:
-        raise he
+        return {"success": success}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/historical-similarity/run")
+def api_run_similarity(req: SimilarityRunReq):
+    try:
+        res = run_historical_similarity(
+            symbol=req.symbol,
+            target_date=req.target_date,
+            k=req.k,
+            forward_days=req.forward_days,
+            target_return=req.target_return,
+            stop_loss=req.stop_loss,
+            features_to_use=req.features_to_use,
+            exclusion_window=req.exclusion_window,
+            search_scope=req.search_scope
+        )
+        return res
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/historical-similarity/market-scan")
+def api_market_wide_similarity_scan(req: SimilarityMarketScanReq):
+    try:
+        res = run_market_wide_similarity_scan(
+            k=req.k,
+            forward_days=req.forward_days,
+            target_return=req.target_return,
+            stop_loss=req.stop_loss,
+            features_to_use=req.features_to_use,
+            min_win_rate=req.min_win_rate
+        )
+        return {"scans": res}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/historical-similarity/publish")
+def api_publish_similarity_report(req: SimilarityPublishReq):
+    try:
+        res = publish_similarity_report(req.dict())
+        return res
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

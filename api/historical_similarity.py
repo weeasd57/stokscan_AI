@@ -1,76 +1,178 @@
 import os
 import json
 import uuid
+import math
 import numpy as np
 import pandas as pd
 from datetime import datetime
 from typing import List, Dict, Any, Tuple, Optional
-from api.stock_ai import get_stock_data_eodhd, add_technical_indicators
+from api.stock_ai import add_technical_indicators
+import api.stock_ai as stock_ai
 
-SAVED_CASES_FILE = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    "historical_similarity_cases.json"
-)
+def sanitize_json_floats(obj):
+    if isinstance(obj, dict):
+        return {k: sanitize_json_floats(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [sanitize_json_floats(x) for x in obj]
+    elif isinstance(obj, float):
+        if math.isnan(obj) or math.isinf(obj):
+            return 0.0
+        return obj
+    elif isinstance(obj, np.floating):
+        val = float(obj)
+        if math.isnan(val) or math.isinf(val):
+            return 0.0
+        return val
+    elif isinstance(obj, np.integer):
+        return int(obj)
+    elif isinstance(obj, np.ndarray):
+        return sanitize_json_floats(obj.tolist())
+    return obj
+
+def load_symbol_prices_direct(symbol: str, limit: int = 1500) -> pd.DataFrame:
+    """
+    Directly query Supabase for a single symbol's daily prices.
+    Bypasses the slow bulk exchange loader.
+    Loads up to `limit` most recent prices in a single query.
+    """
+    stock_ai._init_supabase()
+    client = stock_ai.supabase
+    if not client:
+        return pd.DataFrame()
+        
+    s, e = stock_ai._infer_symbol_exchange(symbol, None)
+    if e in ["CC", "CA"]:
+        e = "EGX"
+        
+    res = (
+        client.table("stock_prices")
+        .select("date,open,high,low,close,volume")
+        .eq("symbol", s)
+        .eq("exchange", e)
+        .order("date", desc=True)
+        .limit(limit)
+        .execute()
+    )
+    all_data = res.data or []
+        
+    if not all_data:
+        return pd.DataFrame()
+        
+    df = pd.DataFrame(all_data)
+    df = df.dropna(subset=['close'])
+    if df.empty:
+        return pd.DataFrame()
+    df['date'] = pd.to_datetime(df['date'])
+    df = df.set_index('date')
+    df = df[~df.index.duplicated(keep='last')]
+    df = df.sort_index()
+    df = df.ffill().bfill()
+    return df
 
 def _load_saved_cases() -> List[Dict[str, Any]]:
-    if not os.path.exists(SAVED_CASES_FILE):
-        return []
+    """Load saved similarity cases from Supabase."""
     try:
-        with open(SAVED_CASES_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-            if isinstance(data, list):
-                return data
-            elif isinstance(data, dict) and "cases" in data:
-                return data["cases"]
+        supabase = _get_supabase()
+        if not supabase:
+            print("⚠️ Supabase not initialized")
             return []
+        
+        response = supabase.table("similarity_cases").select("*").execute()
+        cases = response.data if response.data else []
+        return cases
     except Exception as e:
-        print(f"Error loading saved similarity cases: {e}")
+        print(f"❌ Error loading saved similarity cases from Supabase: {e}")
         return []
 
 def _save_saved_cases(cases: List[Dict[str, Any]]):
+    """Save similarity cases to Supabase (utility function for bulk operations)."""
     try:
-        with open(SAVED_CASES_FILE, "w", encoding="utf-8") as f:
-            json.dump({"cases": cases}, f, indent=2, ensure_ascii=False)
+        supabase = _get_supabase()
+        if not supabase:
+            print("⚠️ Supabase not initialized")
+            return
+        
+        # This function is typically called with a single case update, not bulk
+        # Individual saves are handled in save_similarity_case
+        print("💾 Cases updated in Supabase")
     except Exception as e:
-        print(f"Error saving similarity cases: {e}")
+        print(f"❌ Error saving similarity cases to Supabase: {e}")
 
 def get_similarity_cases() -> List[Dict[str, Any]]:
-    """Get all saved similarity scan profiles."""
-    return _load_saved_cases()
+    """Get all saved similarity scan profiles from Supabase."""
+    try:
+        supabase = _get_supabase()
+        if not supabase:
+            print("⚠️ Supabase not initialized")
+            return []
+        
+        response = supabase.table("similarity_cases").select("*").order("created_at", desc=True).execute()
+        return response.data if response.data else []
+    except Exception as e:
+        print(f"❌ Error getting similarity cases from Supabase: {e}")
+        return []
 
 def save_similarity_case(profile: Dict[str, Any]) -> Dict[str, Any]:
-    """Save or update a similarity scan profile."""
-    cases = _load_saved_cases()
-    
-    if not profile.get("id"):
-        profile["id"] = str(uuid.uuid4())
-        profile["created_at"] = datetime.now().isoformat()
-        cases.append(profile)
-    else:
-        # Update existing
-        found = False
-        for i, c in enumerate(cases):
-            if c.get("id") == profile["id"]:
-                profile["created_at"] = c.get("created_at", datetime.now().isoformat())
-                profile["updated_at"] = datetime.now().isoformat()
-                cases[i] = profile
-                found = True
-                break
-        if not found:
-            profile["created_at"] = datetime.now().isoformat()
-            cases.append(profile)
-            
-    _save_saved_cases(cases)
-    return profile
+    """Save or update a similarity scan profile to Supabase."""
+    try:
+        supabase = _get_supabase()
+        if not supabase:
+            print("❌ Supabase not initialized")
+            raise Exception("Supabase client not available")
+        
+        case_id = profile.get("id")
+        
+        # Prepare data for Supabase
+        case_data = {
+            "name": profile.get("name", "Unnamed Case"),
+            "symbol": profile.get("symbol", ""),
+            "k": profile.get("k", 10),
+            "forward_days": profile.get("forward_days", 10),
+            "target_return": profile.get("target_return", 0.05),
+            "stop_loss": profile.get("stop_loss", -0.03),
+            "features": json.dumps(profile.get("features", [])) if isinstance(profile.get("features"), list) else profile.get("features"),
+            "search_scope": profile.get("search_scope", "same_symbol"),
+            "updated_at": datetime.now().isoformat()
+        }
+        
+        if case_id:
+            # Update existing case
+            response = supabase.table("similarity_cases").update(case_data).eq("id", case_id).execute()
+            if response.data:
+                updated_case = response.data[0]
+                profile["id"] = updated_case.get("id")
+                profile["updated_at"] = updated_case.get("updated_at")
+                print(f"✅ Case updated in Supabase (ID: {case_id})")
+        else:
+            # Insert new case
+            case_data["created_at"] = datetime.now().isoformat()
+            response = supabase.table("similarity_cases").insert(case_data).execute()
+            if response.data:
+                new_case = response.data[0]
+                profile["id"] = new_case.get("id")
+                profile["created_at"] = new_case.get("created_at")
+                profile["updated_at"] = new_case.get("updated_at")
+                print(f"✅ Case created in Supabase (ID: {new_case.get('id')})")
+        
+        return profile
+    except Exception as e:
+        print(f"❌ Error saving similarity case to Supabase: {e}")
+        raise e
 
 def delete_similarity_case(case_id: str) -> bool:
-    """Delete a saved similarity scan profile."""
-    cases = _load_saved_cases()
-    initial_len = len(cases)
-    cases = [c for c in cases if c.get("id") != case_id]
-    if len(cases) < initial_len:
-        _save_saved_cases(cases)
+    """Delete a saved similarity scan profile from Supabase."""
+    try:
+        supabase = _get_supabase()
+        if not supabase:
+            print("⚠️ Supabase not initialized")
+            return False
+        
+        response = supabase.table("similarity_cases").delete().eq("id", case_id).execute()
+        print(f"✅ Case deleted from Supabase (ID: {case_id})")
         return True
+    except Exception as e:
+        print(f"❌ Error deleting similarity case from Supabase: {e}")
+        return False
     return False
 
 def compute_similarity_features(df: pd.DataFrame, selected_features: List[str]) -> Tuple[pd.DataFrame, List[str]]:
@@ -186,13 +288,7 @@ def run_historical_similarity(
             sb_exchange = "EGX"
 
     # 2. Fetch target stock historical prices
-    df_target = get_stock_data_eodhd(
-        api=None,
-        ticker=symbol,
-        from_date="2010-01-01",
-        exchange=sb_exchange,
-        force_local=True
-    )
+    df_target = load_symbol_prices_direct(symbol)
     
     if df_target.empty or len(df_target) < 30:
         raise ValueError(f"Insufficient historical data found for {symbol}. Loaded {len(df_target)} bars.")
@@ -234,7 +330,7 @@ def run_historical_similarity(
             
         for s_t in exch_symbols:
             try:
-                df_s = get_stock_data_eodhd(None, s_t, "2010-01-01", exchange=sb_exchange, force_local=True)
+                df_s = load_symbol_prices_direct(s_t)
                 if len(df_s) >= 40:
                     feat_df, cols = compute_similarity_features(df_s, features_to_use)
                     feat_df["symbol_source"] = s_t
@@ -281,14 +377,15 @@ def run_historical_similarity(
     target_vector_std = (target_vector - mean_vec) / std_vec
     search_matrix_std = (search_matrix_raw - mean_vec) / std_vec
     
-    # 7. Apply exclusion window
+    # 7. Apply exclusion window (prevent target date from matching itself)
     exclude_mask = []
     target_symbol_lower = symbol.lower()
     
     for idx, row in combined_feats_clean.iterrows():
         is_same_symbol = row["symbol_source"].lower() == target_symbol_lower
-        is_too_close = abs((idx - target_ts).days) <= exclusion_window
-        if is_same_symbol and is_too_close:
+        is_exact_target_date = (idx == target_ts)
+        # Only exclude the exact target date for the same symbol
+        if is_same_symbol and is_exact_target_date:
             exclude_mask.append(False)
         else:
             exclude_mask.append(True)
@@ -298,7 +395,7 @@ def run_historical_similarity(
     filtered_index_df = combined_feats_clean[exclude_mask]
     
     if len(search_matrix_filtered) == 0:
-        return {
+        return sanitize_json_floats({
             "symbol": symbol,
             "target_date": target_ts.strftime("%Y-%m-%d"),
             "target_values": {
@@ -318,7 +415,7 @@ def run_historical_similarity(
                 "wins": 0,
                 "losses": 0
             }
-        }
+        })
         
     # 8. Compute Cosine Similarity
     target_norm = np.linalg.norm(target_vector_std)
@@ -334,8 +431,35 @@ def run_historical_similarity(
     filtered_index_df = filtered_index_df.copy()
     filtered_index_df["similarity"] = similarities
     
-    # Sort and get top K
-    top_matches_df = filtered_index_df.sort_values(by="similarity", ascending=False).head(k)
+    # Sort and get top K, then apply exclusion window to prevent temporal clustering
+    top_matches_df = filtered_index_df.sort_values(by="similarity", ascending=False)
+    
+    # Apply temporal exclusion: ensure matches are at least exclusion_window days apart
+    final_matches = []
+    excluded_dates = set()
+    
+    for match_ts_candidate, row in top_matches_df.iterrows():
+        # Check if this date is too close to any already selected match
+        is_excluded = False
+        for excluded_date in excluded_dates:
+            if abs((match_ts_candidate - excluded_date).days) <= exclusion_window:
+                is_excluded = True
+                break
+        
+        if not is_excluded:
+            final_matches.append((match_ts_candidate, row))
+            excluded_dates.add(match_ts_candidate)
+            
+            # Stop when we have k matches
+            if len(final_matches) >= k:
+                break
+    
+    # Convert back to DataFrame
+    if final_matches:
+        top_matches_df = pd.DataFrame([row for _, row in final_matches], 
+                                      index=[ts for ts, _ in final_matches])
+    else:
+        top_matches_df = pd.DataFrame()
     
     # 9. Evaluate matches
     matches = []
@@ -459,7 +583,7 @@ def run_historical_similarity(
     profit_factor = (gross_gains / gross_losses) if gross_losses > 0 else (gross_gains if gross_gains > 0 else 1.0)
     expected_value = (win_rate * max(0.0, target_return)) + ((1 - win_rate) * stop_loss)
     
-    return {
+    res = {
         "symbol": symbol,
         "target_date": target_ts.strftime("%Y-%m-%d"),
         "target_values": {
@@ -481,3 +605,210 @@ def run_historical_similarity(
             "losses": int(losses)
         }
     }
+    return sanitize_json_floats(res)
+
+
+# ─── Market Wide Scanner & Publishing Logic ──────────────────────────────
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime
+
+# Initialize Supabase client
+def _get_supabase():
+    """Get Supabase client instance"""
+    from api.stock_ai import _init_supabase, supabase
+    _init_supabase()
+    return supabase
+
+def run_market_wide_similarity_scan(
+    k: int = 10,
+    forward_days: int = 10,
+    target_return: float = 0.05,
+    stop_loss: float = -0.03,
+    features_to_use: Optional[List[str]] = None,
+    min_win_rate: float = 0.0,  # Changed: include all results, no filtering
+    max_workers: int = 35,
+    progress_callback=None
+) -> List[Dict[str, Any]]:
+    """
+    Scans ALL symbols in the exchange concurrently and finds similarity matches.
+    Returns ALL results (no minimum win rate filter) so they can be displayed in UI.
+    
+    Args:
+        k: Number of historical matches to find
+        forward_days: Days to look forward for matching
+        target_return: Target return percentage
+        stop_loss: Stop loss percentage
+        features_to_use: Specific features to use
+        min_win_rate: Minimum win rate filter (0.0 = no filter, include all)
+        max_workers: Number of concurrent workers
+        progress_callback: Callback function for progress updates
+    """
+    from api.stock_ai import get_supabase_symbols
+    
+    print(f"🔄 Starting market-wide similarity scan...")
+    print(f"   K={k}, Forward Days={forward_days}, Target={target_return}, Stop Loss={stop_loss}")
+    
+    # 1. Fetch active EGX symbols
+    try:
+        db_symbols = get_supabase_symbols(country=None)
+    except Exception as e:
+        print(f"❌ Error fetching symbols: {e}")
+        return []
+        
+    exch_symbols = []
+    for s_info in db_symbols:
+        s_symbol = s_info.get("symbol")
+        s_exch = s_info.get("exchange", "EGX")
+        if s_exch == "EGX":
+            exch_symbols.append(f"{s_symbol}.{s_exch}")
+            
+    # Scan all EGX symbols
+    exch_symbols = list(set(exch_symbols))
+    if not exch_symbols:
+        print("❌ No EGX symbols found")
+        return []
+    
+    print(f"📊 Found {len(exch_symbols)} symbols to scan")
+    
+    results = []
+    scanned_count = 0
+    failed_count = 0
+    
+    def scan_one(sym):
+        nonlocal scanned_count, failed_count
+        try:
+            res = run_historical_similarity(
+                symbol=sym,
+                target_date=None,
+                k=k,
+                forward_days=forward_days,
+                target_return=target_return,
+                stop_loss=stop_loss,
+                features_to_use=features_to_use,
+                exclusion_window=20,
+                search_scope="same_symbol"
+            )
+            scanned_count += 1
+            
+            # Include all results (no minimum win rate filter)
+            return res
+            
+        except Exception as e:
+            failed_count += 1
+            print(f"⚠️ Error scanning {sym}: {str(e)[:50]}")
+            pass
+        return None
+
+    print(f"🚀 Running parallel scan with {max_workers} workers...")
+    
+    # Run in parallel with configurable workers
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {executor.submit(scan_one, sym): sym for sym in exch_symbols}
+        completed = 0
+        total = len(futures)
+        
+        for future in as_completed(futures):
+            completed += 1
+            res = future.result()
+            if res:
+                results.append(res)
+            
+            # Progress callback
+            if progress_callback:
+                progress_callback({
+                    "completed": completed,
+                    "total": total,
+                    "percentage": round(completed / total * 100, 1),
+                    "found": len(results)
+                })
+            
+            if completed % 10 == 0:
+                print(f"   Progress: {completed}/{total} ({round(completed/total*100, 1)}%) - Found: {len(results)}")
+    
+    # Sort results by win rate desc, then average return desc
+    results.sort(key=lambda x: (
+        x["stats"].get("win_rate", 0), 
+        x["stats"].get("average_return", 0)
+    ), reverse=True)
+    
+    print(f"✅ Scan completed!")
+    print(f"   Total scanned: {scanned_count}")
+    print(f"   Failed: {failed_count}")
+    print(f"   Results found: {len(results)}")
+    print(f"   Best win rate: {max([r['stats'].get('win_rate', 0) for r in results], default=0) * 100:.1f}%")
+    
+    return results
+
+def get_published_similarity_report() -> Dict[str, Any]:
+    """Get the currently published similarity scan results from Supabase."""
+    try:
+        supabase = _get_supabase()
+        if not supabase:
+            print("⚠️ Supabase not initialized, returning empty report")
+            return {"scans": [], "updated_at": None, "name": "Market Similarity Report"}
+        
+        # Fetch the latest report from similarity_reports table
+        response = supabase.table("similarity_reports").select("*").order("updated_at", desc=True).limit(1).execute()
+        
+        if response.data and len(response.data) > 0:
+            report_row = response.data[0]
+            return {
+                "id": report_row.get("id"),
+                "name": report_row.get("name", "Market Similarity Report"),
+                "scans": json.loads(report_row.get("scans", "[]")) if isinstance(report_row.get("scans"), str) else report_row.get("scans", []),
+                "k": report_row.get("k", 10),
+                "forward_days": report_row.get("forward_days", 10),
+                "target_return": report_row.get("target_return", 0.05),
+                "stop_loss": report_row.get("stop_loss", -0.03),
+                "updated_at": report_row.get("updated_at")
+            }
+        else:
+            print("📝 No published reports found in Supabase")
+            return {"scans": [], "updated_at": None, "name": "Market Similarity Report"}
+            
+    except Exception as e:
+        print(f"❌ Error loading published reports from Supabase: {e}")
+        return {"scans": [], "updated_at": None, "name": "Market Similarity Report"}
+
+def publish_similarity_report(report_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Save/Publish a new similarity scan report to Supabase."""
+    try:
+        supabase = _get_supabase()
+        if not supabase:
+            print("❌ Supabase not initialized, cannot publish report")
+            raise Exception("Supabase client not available")
+        
+        report = {
+            "name": report_data.get("name", "Market Similarity Report"),
+            "scans": json.dumps(report_data.get("scans", [])),  # Convert to JSON string for JSONB storage
+            "k": report_data.get("k", 10),
+            "forward_days": report_data.get("forward_days", 10),
+            "target_return": report_data.get("target_return", 0.05),
+            "stop_loss": report_data.get("stop_loss", -0.03),
+            "updated_at": datetime.now().isoformat()
+        }
+        
+        # Insert into similarity_reports table
+        response = supabase.table("similarity_reports").insert(report).execute()
+        
+        if response.data:
+            published_report = response.data[0]
+            print(f"✅ Report published to Supabase (ID: {published_report.get('id')})")
+            
+            # Return the saved report
+            return {
+                "id": published_report.get("id"),
+                "name": published_report.get("name"),
+                "scans": json.loads(published_report.get("scans")) if isinstance(published_report.get("scans"), str) else published_report.get("scans"),
+                "k": published_report.get("k"),
+                "forward_days": published_report.get("forward_days"),
+                "target_return": published_report.get("target_return"),
+                "stop_loss": published_report.get("stop_loss"),
+                "updated_at": published_report.get("updated_at")
+            }
+        else:
+            raise Exception("No data returned from Supabase insert")
+            
+    except Exception as e:
+        print(f"❌ Error publishing similarity report to Supabase: {e}")
+        raise e

@@ -7,7 +7,7 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { useTheme } from "@/contexts/ThemeContext";
 import {
     Globe, BarChart2, Brain, Activity, Menu, X, User, ChevronDown,
-    Search, Loader2, Sun, Moon,
+    Search, Loader2, Sun, Moon, TrendingUp,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
@@ -38,23 +38,23 @@ function SearchDropdown({
 }) {
     if (!searchQuery.trim()) {
         return (
-            <div className="flex flex-col gap-0.5">
-                <div className="px-3 py-1.5 text-[9px] font-bold text-zinc-500 uppercase tracking-wider">
+            <div className="flex flex-col">
+                <div className="px-4 py-2 text-[10px] font-black text-zinc-500 dark:text-zinc-400 uppercase tracking-widest border-b-2 border-black dark:border-white bg-zinc-100 dark:bg-zinc-900 select-none">
                     {language === "ar" ? "الأسهم المصرية الأكثر شعبية" : "Popular EGX Stocks"}
                 </div>
                 {POPULAR_EGX_STOCKS.map((result) => (
                     <button
                         key={result.symbol}
                         onClick={() => onSelect(result.symbol)}
-                        className="flex items-center justify-between w-full px-3 py-2 rounded-xl text-left hover:bg-white/5 transition-all active:scale-[0.99]"
+                        className="flex items-center justify-between w-full px-4 py-2.5 rounded-none text-left border-b border-black/10 dark:border-white/10 last:border-b-0 hover:bg-[#FFE600] hover:text-black transition-none group/item text-black dark:text-white"
                     >
                         <div className="flex flex-col min-w-0">
-                            <span className="text-xs font-black text-[var(--app-text)]">{result.symbol}</span>
-                            <span className="text-[10px] text-zinc-500 font-semibold truncate max-w-[200px] sm:max-w-[260px]">
+                            <span className="text-xs font-black text-black dark:text-white group-hover/item:text-black">{result.symbol}</span>
+                            <span className="text-[10px] text-zinc-500 dark:text-zinc-400 font-semibold truncate max-w-[200px] sm:max-w-[260px] group-hover/item:text-black/80">
                                 {result.name}
                             </span>
                         </div>
-                        <span className="text-[8px] font-black uppercase tracking-wider px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shrink-0">
+                        <span className="text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-none bg-[#00FF66] text-black border-2 border-black shrink-0">
                             EGX
                         </span>
                     </button>
@@ -74,20 +74,20 @@ function SearchDropdown({
 
     if (searchResults.length > 0) {
         return (
-            <div className="flex flex-col gap-0.5">
+            <div className="flex flex-col">
                 {searchResults.map((result) => (
                     <button
                         key={result.symbol}
                         onClick={() => onSelect(result.symbol)}
-                        className="flex items-center justify-between w-full px-3 py-2 rounded-xl text-left hover:bg-white/5 transition-all active:scale-[0.99]"
+                        className="flex items-center justify-between w-full px-4 py-2.5 rounded-none text-left border-b border-black/10 dark:border-white/10 last:border-b-0 hover:bg-[#FFE600] hover:text-black transition-none group/item text-black dark:text-white"
                     >
                         <div className="flex flex-col min-w-0">
-                            <span className="text-xs font-black text-[var(--app-text)]">{result.symbol}</span>
-                            <span className="text-[10px] text-zinc-500 font-semibold truncate max-w-[200px] sm:max-w-[260px]">
+                            <span className="text-xs font-black text-black dark:text-white group-hover/item:text-black">{result.symbol}</span>
+                            <span className="text-[10px] text-zinc-500 dark:text-zinc-400 font-semibold truncate max-w-[200px] sm:max-w-[260px] group-hover/item:text-black/80">
                                 {result.name}
                             </span>
                         </div>
-                        <span className="text-[8px] font-black uppercase tracking-wider px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shrink-0">
+                        <span className="text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-none bg-[#00FF66] text-black border-2 border-black shrink-0">
                             EGX
                         </span>
                     </button>
@@ -97,7 +97,7 @@ function SearchDropdown({
     }
 
     return (
-        <div className="text-center py-5 text-xs text-zinc-600 font-bold uppercase tracking-wide">
+        <div className="text-center py-6 text-xs text-zinc-500 font-black uppercase tracking-widest border-t-2 border-black bg-zinc-50 dark:bg-zinc-900 dark:border-white">
             {language === "ar" ? "لا توجد نتائج" : "No symbols found"}
         </div>
     );
@@ -218,6 +218,7 @@ export default function Header() {
         { href: "/scanner/backtests?tab=bots", label: t("nav.scanner.ai_trading"), icon: <Brain className="w-4 h-4 shrink-0" />, activePath: "/scanner/backtests", badge: "AI DEMO" },
         { href: "/scanner/technical", label: t("nav.scanner.tech"), icon: <Activity className="w-4 h-4 shrink-0" />, activePath: "/scanner/technical" },
         { href: "/scanner/backtests?tab=backtests", label: t("nav.scanner.backtests"), icon: <BarChart2 className="w-4 h-4 shrink-0" />, activePath: null },
+        { href: "/scanner/backtests?tab=similarity", label: t("nav.scanner.similarity"), icon: <TrendingUp className="w-4 h-4 shrink-0" />, activePath: null },
     ];
 
     const checkActive = (href: string, activePath: string | null) => {
@@ -226,6 +227,9 @@ export default function Header() {
         }
         if (href.includes("?tab=bots")) {
             return pathname === "/scanner/backtests" && currentTab === "bots";
+        }
+        if (href.includes("?tab=similarity")) {
+            return pathname === "/scanner/backtests" && currentTab === "similarity";
         }
         return activePath ? pathname === activePath : pathname === href;
     };
@@ -238,14 +242,17 @@ export default function Header() {
         router.push(`/chart?symbol=${encodeURIComponent(symbol)}&exchange=EGX`);
     };
 
+    if (pathname === "/antigrafity" || pathname?.startsWith("/antigrafity")) {
+        return null;
+    }
+
     return (
-        <header className="fixed top-0 left-0 right-0 z-[100] px-2 sm:px-4 md:px-6 lg:px-8 header-stable">
-            <div ref={shellRef} className="mx-auto max-w-[1800px] w-full pt-2 sm:pt-3 space-y-2">
-                <div className="app-header-surface header-inner rounded-xl sm:rounded-2xl lg:rounded-[2rem] px-2.5 sm:px-4 md:px-5 py-2 sm:py-2.5 ring-1 ring-white/5 transition-all duration-300">
-                    {/* Brand */}
-                    <div className="flex items-center min-w-0">
-                        <Link href="/" className="group flex items-center gap-2 sm:gap-2.5 min-w-0">
-                            <div className="relative bg-white p-1 rounded-lg border-2 border-black dark:border-white transition-all duration-300 group-hover:scale-105 flex-shrink-0 flex items-center justify-center">
+        <header className="fixed top-0 left-0 right-0 z-[100] w-full border-b-4 border-black dark:border-white bg-white dark:bg-zinc-950 header-stable" dir="ltr">
+            <div ref={shellRef} className="mx-auto max-w-[1800px] w-full px-4 md:px-8 py-3 flex items-center justify-between gap-4">
+                {/* Brand */}
+                <div className="flex items-center min-w-0">
+                    <Link href="/" className="group flex items-center gap-2 sm:gap-2.5 min-w-0">
+                        <div className="relative bg-white p-1 rounded-none border-4 border-black dark:border-white transition-all duration-300 group-hover:scale-110 group-hover:rotate-6 flex-shrink-0 flex items-center justify-center shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_0px_rgba(255,255,255,0.5)]">
                                 <Image
                                     src="/favicon_io/apple-touch-icon.png"
                                     alt="EGX Bots logo"
@@ -256,10 +263,10 @@ export default function Header() {
                                 />
                             </div>
                             <div className="hidden min-[420px]:flex flex-col min-w-0 header-title max-w-[120px] sm:max-w-none">
-                                <span className="text-sm sm:text-base font-bold tracking-tight text-[var(--app-text)] leading-tight truncate">
+                                <span className="text-sm sm:text-base font-black tracking-tight text-black dark:text-white leading-tight truncate uppercase animate-in slide-in-from-left-2 duration-700">
                                     {t("app.title")}
                                 </span>
-                                <span className="text-[9px] sm:text-[10px] uppercase tracking-[0.18em] font-bold text-[var(--app-text-muted)] leading-none truncate hidden sm:block">
+                                <span className="text-[9px] sm:text-[10px] uppercase tracking-[0.18em] font-black text-black/70 dark:text-white/70 leading-none truncate hidden sm:block">
                                     {t("header.pro_analysis")}
                                 </span>
                             </div>
@@ -270,10 +277,10 @@ export default function Header() {
                     <div className="header-center min-w-0">
                         <div
                             id="header-search-container"
-                            className={`relative min-w-0 hidden sm:flex ${searchFocused ? "flex-1 max-w-md lg:max-w-lg" : "w-full max-w-[9rem] md:max-w-[11rem] lg:max-w-[14rem] xl:max-w-xs"} transition-all duration-300`}
+                            className={`relative min-w-0 hidden sm:flex ${searchFocused ? "flex-1 max-w-md lg:max-w-lg" : "w-full max-w-[9rem] md:max-w-[11rem] lg:max-w-[14rem] xl:max-w-xs"} transition-all duration-300 animate-in fade-in duration-700 delay-100`}
                         >
                             <div className="relative flex items-center w-full">
-                                <Search className="absolute left-3 w-4 h-4 text-zinc-500 pointer-events-none" />
+                                <Search className="absolute left-3 w-4 h-4 text-black/60 dark:text-white/60 pointer-events-none z-10" />
                                 <input
                                     id="header-search-input"
                                     type="text"
@@ -281,15 +288,15 @@ export default function Header() {
                                     value={searchQuery}
                                     onChange={(e) => setSearchQuery(e.target.value)}
                                     onFocus={() => setSearchFocused(true)}
-                                    className="app-control h-9 w-full rounded-xl pl-9 pr-8 text-xs font-semibold outline-none focus:border-white/20 focus:ring-1 focus:ring-white/5 transition-all"
+                                    className="h-9 w-full rounded-none pl-9 pr-8 text-xs font-black outline-none border-3 border-black bg-white dark:bg-zinc-900 text-black dark:text-white placeholder-black/50 dark:placeholder-white/50 focus:bg-[#FFE600] focus:text-black transition-none"
                                 />
-                                <kbd className="app-chip absolute right-3 px-1.5 py-0.5 rounded text-[9px] font-mono pointer-events-none uppercase hidden md:inline">
+                                <kbd className="absolute right-3 px-1.5 py-0.5 rounded text-[9px] font-mono pointer-events-none uppercase hidden md:inline bg-black/10 dark:bg-white/10 text-black dark:text-white font-black border-2 border-black/20 dark:border-white/20">
                                     /
                                 </kbd>
                             </div>
 
                             {searchFocused && (
-                                <div className="app-panel-strong absolute top-11 left-0 right-0 max-h-72 overflow-y-auto rounded-2xl p-1.5 z-50 animate-in fade-in slide-in-from-top-1 duration-200 custom-scrollbar">
+                                <div className="absolute top-11 left-0 right-0 max-h-72 overflow-y-auto rounded-none p-0 z-50 animate-in fade-in slide-in-from-top-1 duration-200 custom-scrollbar bg-white dark:bg-zinc-950 border-4 border-black dark:border-white shadow-[6px_6px_0px_0px_#FFE600]">
                                     <SearchDropdown
                                         language={language}
                                         searchQuery={searchQuery}
@@ -301,31 +308,32 @@ export default function Header() {
                             )}
                         </div>
 
-                        <nav className="app-soft-panel hidden md:flex items-center gap-0.5 py-1 px-1 rounded-xl shrink-0">
-                            {navItems.map((item) => {
+                        <nav className="hidden md:flex items-center gap-1 py-1 px-1 rounded-xl shrink-0 animate-in fade-in duration-700 delay-200">
+                            {navItems.map((item, idx) => {
                                 const isActive = checkActive(item.href, item.activePath);
                                 return (
                                     <Link
                                         key={item.href}
                                         href={item.href}
-                                        className={`relative flex items-center justify-center gap-1.5 rounded-lg px-2 lg:px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wider transition-all duration-300 whitespace-nowrap ${
+                                        className={`relative flex items-center justify-center gap-1.5 rounded-lg px-2 lg:px-2.5 py-1.5 text-[10px] font-black uppercase tracking-wider transition-all duration-300 whitespace-nowrap border-3 animate-in fade-in duration-500 ${
                                             isActive
-                                                ? "header-nav-link-active bg-zinc-900 text-white shadow-lg shadow-black/10 light:bg-slate-900 light:text-white"
-                                                : "header-nav-link-inactive text-zinc-500 hover:text-zinc-50 hover:bg-white/5"
+                                                ? "bg-black dark:bg-white text-white dark:text-black shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)] dark:shadow-[4px_4px_0px_0px_rgba(255,255,255,0.5)] border-black dark:border-white scale-105"
+                                                : "bg-white dark:bg-zinc-900 text-black dark:text-white border-black/30 dark:border-white/30 hover:scale-105 hover:shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)] dark:hover:shadow-[4px_4px_0px_0px_rgba(255,255,255,0.3)]"
                                         }`}
                                         title={item.label}
+                                        style={{ animationDelay: `${300 + idx * 50}ms` }}
                                     >
                                         {item.icon}
                                         <span className="hidden xl:inline-flex items-center gap-1.5">
                                             {item.label}
                                             {item.badge && (
-                                                <span className="px-1 py-0.5 rounded-[4px] bg-indigo-600 text-white text-[8px] font-black uppercase tracking-normal">
+                                                <span className="px-1 py-0.5 rounded-[4px] bg-[#ff6b6b] text-white text-[8px] font-black uppercase tracking-normal border-2 border-black dark:border-white shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
                                                     {item.badge}
                                                 </span>
                                             )}
                                         </span>
                                         {isActive && (
-                                            <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-blue-500" />
+                                            <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 rounded-full bg-[#ff6b6b] dark:bg-[#4ecdc4] border-2 border-black dark:border-white animate-pulse" />
                                         )}
                                     </Link>
                                 );
@@ -334,7 +342,7 @@ export default function Header() {
                     </div>
 
                     {/* Actions */}
-                    <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
+                    <div className="flex items-center gap-1 sm:gap-1.5 shrink-0 animate-in fade-in duration-700 delay-300">
                         <button
                             onClick={() => {
                                 setMobileSearchOpen((v) => !v);
@@ -343,7 +351,7 @@ export default function Header() {
                                     setTimeout(() => document.getElementById("header-search-input-mobile")?.focus(), 50);
                                 }
                             }}
-                            className="app-icon-button sm:hidden h-9 w-9 flex items-center justify-center rounded-xl"
+                            className="sm:hidden h-9 w-9 flex items-center justify-center rounded-xl bg-white dark:bg-zinc-900 border-3 border-black dark:border-white text-black dark:text-white hover:scale-110 hover:shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] dark:hover:shadow-[4px_4px_0px_0px_rgba(255,255,255,0.3)] transition-all duration-200"
                             aria-label="Search"
                         >
                             <Search className="h-4 w-4" />
@@ -351,15 +359,15 @@ export default function Header() {
 
                         <button
                             onClick={toggleTheme}
-                            className="app-icon-button hidden sm:flex items-center justify-center h-9 w-9 rounded-xl transition-all"
+                            className="hidden sm:flex items-center justify-center h-9 w-9 rounded-xl transition-all bg-white dark:bg-zinc-900 border-3 border-black dark:border-white text-black dark:text-white hover:scale-110 hover:rotate-12 hover:shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] dark:hover:shadow-[4px_4px_0px_0px_rgba(255,255,255,0.3)] duration-200"
                             aria-label="Toggle theme"
                         >
-                            {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+                            {theme === "dark" ? <Sun className="h-4 w-4 animate-spin" style={{ animationDuration: '3s' }} /> : <Moon className="h-4 w-4" />}
                         </button>
 
                         <button
                             onClick={() => setLanguage(language === "ar" ? "en" : "ar")}
-                            className="app-icon-button hidden sm:flex items-center justify-center gap-1.5 h-9 px-2 rounded-xl text-xs font-bold w-9 xl:w-[4.5rem]"
+                            className="hidden sm:flex items-center justify-center gap-1.5 h-9 px-2 rounded-xl text-xs font-black w-9 xl:w-[4.5rem] bg-white dark:bg-zinc-900 border-3 border-black dark:border-white text-black dark:text-white hover:scale-110 hover:shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] dark:hover:shadow-[4px_4px_0px_0px_rgba(255,255,255,0.3)] transition-all duration-200"
                             title={language === "ar" ? "Switch to English" : "تغيير إلى العربية"}
                         >
                             <Globe className="h-4 w-4 shrink-0" />
@@ -422,11 +430,10 @@ export default function Header() {
                             {mobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
                         </button>
                     </div>
-                </div>
 
                 {/* Mobile search row */}
                 {mobileSearchOpen && (
-                    <div className="sm:hidden app-panel-strong rounded-2xl p-2 animate-in slide-in-from-top-1 duration-200">
+                    <div className="sm:hidden rounded-none border-4 border-black dark:border-white bg-white dark:bg-zinc-950 p-2 shadow-[6px_6px_0px_0px_#FFE600] animate-in slide-in-from-top-1 duration-200">
                         <div id="header-search-container-mobile" className="relative">
                             <div className="relative flex items-center">
                                 <Search className="absolute left-3 w-4 h-4 text-zinc-500" />
@@ -437,7 +444,7 @@ export default function Header() {
                                     value={searchQuery}
                                     onChange={(e) => setSearchQuery(e.target.value)}
                                     onFocus={() => setSearchFocused(true)}
-                                    className="app-control h-10 w-full rounded-xl pl-9 pr-3 text-sm font-semibold outline-none"
+                                    className="h-10 w-full rounded-none pl-9 pr-3 text-sm font-black outline-none border-3 border-black bg-white text-black dark:bg-zinc-900 dark:text-white dark:border-white focus:bg-[#FFE600] focus:text-black transition-none"
                                     autoFocus
                                 />
                             </div>

@@ -14,9 +14,19 @@ import { useSearchParams } from "next/navigation";
 import { TradeTimeline } from "@/app/admin/components/TradeTimeline";
 import TradingViewChart from "@/components/TradingViewChart";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
-
-
+import RecommendationsTable from "@/components/RecommendationsTable";
+import { 
+    ResponsiveContainer, 
+    LineChart as RechartsLineChart, 
+    Line, 
+    XAxis, 
+    YAxis, 
+    CartesianGrid, 
+    Tooltip as ChartTooltip, 
+    ReferenceLine,
+    BarChart,
+    Bar
+} from "recharts";
 
 // Helper component to fetch and display EGX30 comparison
 const Egx30Comparison = ({ start, end, botReturn }: { start: string, end: string, botReturn: number }) => {
@@ -289,7 +299,13 @@ export default function AIScannerPage() {
     const { user } = useAuth();
     const { t, language } = useLanguage();
     const searchParams = useSearchParams();
-    const activeTab = searchParams.get("tab") === "backtests" ? "backtests" : "bots";
+    const tabParam = searchParams.get("tab");
+    const activeTab = tabParam === "backtests" ? "backtests" : tabParam === "similarity" ? "similarity" : "bots";
+
+    // States for Similarity tab
+    const [publishedReport, setPublishedReport] = useState<any | null>(null);
+    const [similarityLoading, setSimilarityLoading] = useState(false);
+    const [selectedSimilarityScan, setSelectedSimilarityScan] = useState<any | null>(null);
 
     // SaaS Subscription State
     const [isPro, setIsPro] = useState(false);
@@ -489,6 +505,79 @@ export default function AIScannerPage() {
         fetchModelCards();
         fetchBacktestsList();
     }, [user?.id]);
+
+    useEffect(() => {
+        if (activeTab === "similarity") {
+            setSimilarityLoading(true);
+            fetch("/api/scan/similarity/published")
+                .then(res => res.json())
+                .then(data => {
+                    setPublishedReport(data);
+                    if (data?.scans && data.scans.length > 0) {
+                        setSelectedSimilarityScan(data.scans[0]);
+                    }
+                })
+                .catch(err => console.error("Error loading published report:", err))
+                .finally(() => setSimilarityLoading(false));
+        }
+    }, [activeTab]);
+
+    const transformSimilarityChartData = (scan: any) => {
+        if (!scan || !scan.matches) return [];
+
+        const forwardDays = publishedReport?.forward_days || 10;
+        const daysMap: { [key: number]: any } = {};
+        for (let d = -9; d <= forwardDays; d++) {
+            daysMap[d] = { day: d, dayLabel: d <= 0 ? `T${d}` : `T+${d}` };
+        }
+
+        if (scan.target_path) {
+            scan.target_path.forEach((p: any, idx: number) => {
+                const day = idx - 9;
+                if (daysMap[day]) {
+                    daysMap[day]["Target"] = p.rel_change * 100.0;
+                }
+            });
+        }
+
+        const activeMatches = scan.matches.slice(0, 5);
+        activeMatches.forEach((m: any, matchIdx: number) => {
+            const label = `Match_${matchIdx + 1}_${m.date}`;
+            if (m.before_path) {
+                m.before_path.forEach((p: any, idx: number) => {
+                    const day = idx - 9;
+                    if (daysMap[day]) {
+                        daysMap[day][label] = p.rel_change * 100.0;
+                    }
+                });
+            }
+            if (m.forward_path) {
+                m.forward_path.forEach((p: any) => {
+                    const day = p.day;
+                    if (daysMap[day]) {
+                        daysMap[day][label] = p.return * 100.0;
+                    }
+                });
+            }
+        });
+
+        for (let d = -9; d <= forwardDays; d++) {
+            let sum = 0.0;
+            let count = 0;
+            activeMatches.forEach((m: any, matchIdx: number) => {
+                const label = `Match_${matchIdx + 1}_${m.date}`;
+                if (daysMap[d][label] !== undefined) {
+                    sum += daysMap[d][label];
+                    count++;
+                }
+            });
+            if (count > 0) {
+                daysMap[d]["Average"] = sum / count;
+            }
+        }
+
+        return Object.values(daysMap).sort((a: any, b: any) => a.day - b.day);
+    };
 
 
     // Handle Subscribe
@@ -738,46 +827,46 @@ export default function AIScannerPage() {
     return (
         <div className="backtests-shell app-page-shell mx-auto max-w-[1400px] w-full px-4 py-8 md:px-6 md:py-12 mt-2 min-h-[calc(100vh-200px)]">
             {/* Header Banner */}
-            <div className="backtests-hero app-hero-panel relative overflow-hidden rounded-[2.5rem] p-8 md:p-12 mb-10">
-                <div className="absolute top-1/2 -translate-y-1/2 right-12 opacity-10 pointer-events-none hidden md:block">
+            <div className="backtests-hero relative overflow-hidden rounded-none border-4 border-black dark:border-white bg-[#FFE600] dark:bg-[#FFE600] text-black dark:text-white p-8 md:p-12 mb-10 shadow-[6px_6px_0px_0px_#000000] dark:shadow-[6px_6px_0px_0px_#ffffff]">
+                <div className="absolute top-1/2 -translate-y-1/2 right-12 opacity-15 pointer-events-none hidden md:block">
                     <Image
                         src="/favicon_io/apple-touch-icon.png?v=2"
                         alt="EGX Bots logo"
                         width={200}
                         height={200}
-                        className="object-contain"
+                        className="object-contain filter grayscale brightness-0"
                     />
                 </div>
                 <div className="relative z-10 max-w-2xl space-y-4">
-                    <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/25 text-indigo-400 text-xs font-black uppercase tracking-wider">
-                        <Sparkles className="w-3.5 h-3.5" /> {activeTab === "backtests" ? t("backtest.model_evaluation") : t("backtest.artificial_intelligence")}
+                    <div className="inline-flex items-center gap-2 px-3 py-1 rounded-none bg-black dark:bg-black border-2 border-black dark:border-black text-[#FFE600] dark:text-[#FFE600] text-xs font-black uppercase tracking-wider">
+                        <Sparkles className="w-3.5 h-3.5" /> {activeTab === "backtests" ? t("backtest.model_evaluation") : activeTab === "similarity" ? (language === "ar" ? "تحليل الأنماط التاريخية" : "HISTORICAL PATTERN MATCHING") : (language === "ar" ? "ترتيب السوق اليوم" : "TODAY'S MARKET RANKING")}
                     </div>
-                    <h1 className="text-3xl md:text-5xl font-black app-text-primary tracking-tight leading-none uppercase">
+                    <h1 className="text-3xl md:text-5xl font-black text-black dark:text-white tracking-tight leading-none uppercase">
                         {activeTab === "backtests" ? (
                             language === "ar" ? (
-                                <>
-                                    نتائج <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-indigo-500">الاختبار العكسي</span>
-                                </>
+                                <>نتائج الاختبار العكسي</>
                             ) : (
-                                <>
-                                    Backtest <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-indigo-500">Results</span>
-                                </>
+                                <>Backtest Results</>
+                            )
+                        ) : activeTab === "similarity" ? (
+                            language === "ar" ? (
+                                <>النماذج المتكررة (شبه ده)</>
+                            ) : (
+                                <>Historical Similarity</>
                             )
                         ) : (
                             language === "ar" ? (
-                                <>
-                                    الماسح الذكي <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-indigo-500">للتداول</span>
-                                </>
+                                <>أفضل الأسهم الشعبية تصنيفاً</>
                             ) : (
-                                <>
-                                    AI Trading <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-indigo-500">Scanner</span>
-                                </>
+                                <>Top Ranked Popular Stocks</>
                             )
                         )}
                     </h1>
-                    <p className="app-text-muted font-medium text-sm md:text-base leading-relaxed">
+                    <p className="text-black/80 dark:text-white/80 font-mono text-xs md:text-sm leading-relaxed">
                         {activeTab === "backtests"
                             ? t("backtest.subtitle")
+                            : activeTab === "similarity"
+                            ? (language === "ar" ? "حالات تاريخية متكررة في البورصة تتطابق مع التكوين الحالي للأسهم بنسب نجاح مرتفعة." : "Historical patterns that closely match the current setups of stocks with high win rates.")
                             : t("bots.banner_desc")}
                     </p>
                 </div>
@@ -786,564 +875,212 @@ export default function AIScannerPage() {
             {/* TAB CONTENT: BOTS */}
             {activeTab === "bots" && (
                 <div className="space-y-6">
-                    {botsLoading ? (
+                    <RecommendationsTable />
+                </div>
+            )}
+
+            {/* TAB CONTENT: HISTORICAL SIMILARITY */}
+            {activeTab === "similarity" && (
+                <div className="space-y-8 animate-in fade-in duration-300" dir="ltr" style={{ direction: 'ltr' }}>
+                    {similarityLoading ? (
                         <div className="flex flex-col items-center justify-center py-20 gap-4">
                             <Loader2 className="w-10 h-10 animate-spin text-indigo-500" />
-                            <p className="text-xs font-black text-zinc-500 uppercase tracking-widest">Loading AI Bots...</p>
+                            <p className="text-xs font-mono text-zinc-500">Loading similarity report...</p>
                         </div>
-                    ) : botsError ? (
-                        <div className="p-6 rounded-3xl border border-red-500/10 bg-red-500/5 text-red-400 text-sm text-center">
-                            {botsError}
-                        </div>
-                    ) : bots.length === 0 ? (
-                        <div className="p-12 text-center rounded-[2.5rem] border border-white/5 bg-zinc-950/20 text-zinc-600 font-bold uppercase tracking-wider">
-                            No active AI bots created by Admin yet.
+                    ) : !publishedReport || !publishedReport.scans || publishedReport.scans.length === 0 ? (
+                        <div className="border-4 border-black dark:border-white bg-zinc-950 p-16 shadow-[4px_4px_0px_0px_rgba(255,255,255,0.15)] flex flex-col items-center justify-center gap-6 text-center">
+                            <Activity className="w-12 h-12 text-zinc-600" />
+                            <div className="space-y-2">
+                                <h3 className="text-base font-black text-zinc-300 uppercase tracking-widest">No Active Similarity Signals</h3>
+                                <p className="text-xs text-zinc-500 font-semibold max-w-md">
+                                    There are no active published similarity setups at this time. Check back later for update reports.
+                                </p>
+                            </div>
                         </div>
                     ) : (
-                        <>
-                            {/* Model Artifacts Section */}
-                            <div className="app-panel p-8 rounded-3xl flex flex-col h-full space-y-6">
-                                <div className="flex items-center justify-between">
-                                    <div className="flex items-center gap-4">
-                                        <div className="p-3 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-400">
-                                            <Database className="w-6 h-6" />
-                                        </div>
-                                        <div>
-                                            <h2 className="text-xl font-black app-text-primary">{t("model.artifacts")}</h2>
-                                            <p className="text-xs app-text-muted font-bold uppercase tracking-widest mt-1">{t("model.available")}</p>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div className="flex-1 min-h-[300px]">
-                                    {modelsLoading && modelCards.length === 0 ? (
-                                        <div className="flex flex-col items-center justify-center py-10 gap-4 text-zinc-600 grayscale">
-                                            <Loader2 className="w-8 h-8 animate-spin" />
-                                            <p className="text-xs font-bold uppercase tracking-widest">{t("backtest.loading_models")}</p>
-                                        </div>
-                                    ) : modelCards.length === 0 ? (
-                                        <div className="text-center py-10 text-zinc-500 text-xs font-bold uppercase tracking-wider">
-                                            {t("backtest.no_models_found")}
-                                        </div>
-                                    ) : (
-                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pr-2 custom-scrollbar max-w-4xl">
-                                            {modelCards.map((model) => (
-                                                <div
-                                                    key={model.name}
-                                                    className="model-artifact-card p-6 rounded-3xl bg-zinc-950 border border-zinc-800/50 hover:border-zinc-700/80 light:hover:border-indigo-300/60 transition-all flex flex-col justify-between group h-full space-y-6 relative overflow-hidden"
-                                                >
-                                                    {/* Background Image Layer */}
-                                                    {model.name.toUpperCase().includes("KING") ? (
-                                                        <div 
-                                                            className="absolute inset-0 bg-cover bg-center opacity-[0.08] pointer-events-none transition-transform duration-700 group-hover:scale-105" 
-                                                            style={{ backgroundImage: "url('/king_logo.jpg')" }} 
-                                                        />
-                                                    ) : model.name.toUpperCase().includes("BRAIN") || model.name.toUpperCase().includes("NANO") ? (
-                                                        <div 
-                                                            className="absolute inset-0 bg-cover bg-center opacity-[0.08] pointer-events-none transition-transform duration-700 group-hover:scale-105" 
-                                                            style={{ backgroundImage: "url('/new_model_logo.jpg')" }} 
-                                                        />
-                                                    ) : null}
-
-                                                    {/* Gradient overlay for readability */}
-                                                    <div className="absolute inset-0 model-artifact-fade bg-gradient-to-t from-zinc-950 via-zinc-950/80 to-transparent pointer-events-none" />
-
-                                                    <div className="flex flex-col justify-between h-full space-y-6 relative z-10">
-                                                        <div className="space-y-4">
-                                                            <div className="flex items-center justify-between">
-                                                                 <div className="p-2.5 rounded-xl bg-zinc-900/80 text-zinc-500 border border-white/5 transition-all group-hover:bg-indigo-500/10 group-hover:text-indigo-400 group-hover:border-indigo-500/20">
-                                                                    <Brain className="w-5 h-5" />
-                                                                </div>
-                                                            </div>
-                                                            <div className="min-w-0">
-                                                                <div className="text-base font-black app-text-primary truncate">{model.name}</div>
-                                                                {model.exchange && (
-                                                                    <div className="text-[10px] text-indigo-400 uppercase font-black tracking-widest mt-1">{model.exchange}</div>
-                                                                )}
-                                                            </div>
-                                                            <div className="grid grid-cols-2 gap-2">
-                                                                <div className="model-stat-box p-2.5 rounded-xl bg-zinc-900/50 border border-zinc-800/50">
-                                                                    <div className="text-[10px] app-text-faint uppercase font-bold">{t("model.size")}</div>
-                                                                    <div className="text-xs font-mono app-text-muted">{model.size_mb} MB</div>
-                                                                </div>
-                                                                <div className="model-stat-box p-2.5 rounded-xl bg-zinc-900/50 border border-zinc-800/50">
-                                                                    <div className="text-[10px] app-text-faint uppercase font-bold">{t("model.modified")}</div>
-                                                                    <div className="text-xs app-text-muted">{new Date(model.modified_at).toLocaleDateString()}</div>
-                                                                </div>
-                                                            </div>
-                                                            <div className="flex flex-wrap gap-2">
-                                                                {model.num_features !== undefined && (
-                                                                    <span className="text-[10px] bg-indigo-600/20 text-indigo-300 px-2 py-1 rounded-lg font-bold">
-                                                                        {model.num_features} {t("model.features")}
-                                                                    </span>
-                                                                )}
-                                                                {model.num_parameters !== undefined && model.num_parameters > 0 && (
-                                                                    <span className="text-[10px] bg-amber-600/20 text-amber-300 px-2 py-1 rounded-lg font-bold">
-                                                                        {model.bestIteration ? `${model.bestIteration} ${t("model.trees")}` : `${model.num_parameters} ${t("model.trees")}`}
-                                                                    </span>
-                                                                )}
-                                                                {typeof model.trainingSamples === "number" && model.trainingSamples > 0 && (
-                                                                    <span className="text-[10px] bg-emerald-600/20 text-emerald-300 px-2 py-1 rounded-lg font-bold">
-                                                                        {model.trainingSamples} {t("model.samples")}
-                                                                    </span>
-                                                                )}
-                                                                {model.learning_rate !== undefined && (
-                                                                    <span className="text-[10px] bg-sky-600/20 text-sky-300 px-2 py-1 rounded-lg font-bold">
-                                                                        {t("model.lr")}: {model.learning_rate}
-                                                                    </span>
-                                                                )}
-                                                                {model.uses_exchange_index_json && (
-                                                                    <span className="text-[10px] bg-purple-600/20 text-purple-300 px-2 py-1 rounded-lg font-bold">
-                                                                        {t("model.index_json")}
-                                                                    </span>
-                                                                )}
-                                                                {model.uses_fundamentals && (
-                                                                    <span className="text-[10px] bg-emerald-600/20 text-emerald-300 px-2 py-1 rounded-lg font-bold">
-                                                                        {t("model.fundamentals")}
-                                                                    </span>
-                                                                )}
-                                                                {model.has_meta_labeling && (
-                                                                    <span className="text-[10px] bg-amber-600/20 text-amber-300 px-2 py-1 rounded-lg font-bold">
-                                                                        {t("model.meta_labeling")}
-                                                                    </span>
-                                                                )}
-                                                            </div>
-                                                        </div>
-
-                                                        {(model.precision !== undefined || model.recall !== undefined || model.auc !== undefined) && (
-                                                            <div className="px-4 py-2.5 rounded-2xl bg-zinc-900/10 border border-zinc-800/30 grid grid-cols-4 gap-1">
-                                                                <div className="flex flex-col items-center justify-center">
-                                                                    <span className="text-[8px] text-zinc-600 uppercase font-black">P</span>
-                                                                    <span className={`text-[10px] font-black ${model.precision && model.precision > 0.6 ? 'text-emerald-400' : 'text-zinc-400'}`}>
-                                                                        {model.precision ? (model.precision * 100).toFixed(1) : "0"}%
-                                                                    </span>
-                                                                </div>
-                                                                <div className="flex flex-col items-center justify-center border-l border-zinc-800/50">
-                                                                    <span className="text-[8px] text-zinc-600 uppercase font-black">R</span>
-                                                                    <span className={`text-[10px] font-black ${model.recall && model.recall > 0.6 ? 'text-emerald-400' : 'text-zinc-400'}`}>
-                                                                        {model.recall ? (model.recall * 100).toFixed(1) : "0"}%
-                                                                    </span>
-                                                                </div>
-                                                                <div className="flex flex-col items-center justify-center border-l border-zinc-800/50">
-                                                                    <span className="text-[8px] text-zinc-600 uppercase font-black">F1</span>
-                                                                    <span className="text-[10px] text-zinc-400 font-black">
-                                                                        {model.f1 ? (model.f1 * 100).toFixed(1) : "0"}%
-                                                                    </span>
-                                                                </div>
-                                                                <div className="flex flex-col items-center justify-center border-l border-zinc-800/50">
-                                                                    <span className="text-[8px] text-zinc-600 uppercase font-black">AUC</span>
-                                                                    <span className={`text-[10px] font-black ${model.auc && model.auc > 0.65 ? 'text-indigo-400' : 'text-zinc-400'}`}>
-                                                                        {model.auc ? model.auc.toFixed(2) : "0.5"}
-                                                                    </span>
-                                                                </div>
-                                                            </div>
-                                                        )}
-
-                                                        <div className="pt-4 border-t border-zinc-800/50 grid grid-cols-3 gap-2">
-                                                            {model.target_pct !== undefined && (
-                                                                <div className="text-center">
-                                                                    <div className="text-[9px] text-zinc-600 uppercase font-bold">{t("model.target")}</div>
-                                                                    <div className="text-[11px] text-emerald-400 font-black">{(model.target_pct * 100).toFixed(0)}%</div>
-                                                                </div>
-                                                            )}
-                                                            {model.stop_loss_pct !== undefined && (
-                                                                <div className="text-center">
-                                                                    <div className="text-[9px] text-zinc-600 uppercase font-bold">{t("model.stop")}</div>
-                                                                    <div className="text-[11px] text-rose-400 font-black">{(model.stop_loss_pct * 100).toFixed(0)}%</div>
-                                                                </div>
-                                                            )}
-                                                            {model.look_forward_days !== undefined && (
-                                                                <div className="text-center">
-                                                                    <div className="text-[9px] text-zinc-600 uppercase font-bold">{t("model.days")}</div>
-                                                                    <div className="text-[11px] text-sky-400 font-black">{model.look_forward_days}d</div>
-                                                                </div>
-                                                            )}
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-
-                            {/* Free limit info alert */}
-                            {user && (
-                                <div className={`flex items-center justify-between p-4 rounded-2xl border text-[11px] font-bold uppercase tracking-wider mt-8 ${
-                                    isPro 
-                                        ? "bg-emerald-500/5 border-emerald-500/10 text-emerald-400"
-                                        : "bg-indigo-500/5 border-indigo-500/10 text-indigo-400"
-                                }`}>
-                                    <div className="flex items-center gap-2">
-                                        <ShieldCheck className="w-4.5 h-4.5" />
-                                        <span>
-                                            {isPro 
-                                                ? (language === "ar" ? `اشتراكات البوت النشطة: ${activeSubCount} (خطة برو - اشتراك غير محدود)` : `Active Bot Subscriptions: ${activeSubCount} (Pro Plan - Unlimited)`)
-                                                : t("bots.free_limit").replace("{count}", activeSubCount.toString())
-                                            }
+                        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+                            {/* Left Column: Tickers List (4 cols) */}
+                            <div className="lg:col-span-4 space-y-4">
+                                <div className="border-4 border-black dark:border-white bg-zinc-950 p-5 shadow-[4px_4px_0px_0px_rgba(255,255,255,0.15)] rounded-none">
+                                    <h3 className="text-xs font-black tracking-widest text-zinc-400 uppercase mb-4 flex justify-between items-center font-mono">
+                                        <span>Published Setups</span>
+                                        <span className="text-[9px] bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 px-2 py-0.5 font-bold uppercase">
+                                            {publishedReport.scans.length} Stocks
                                         </span>
-                                    </div>
-                                    {!isPro && activeSubCount >= 2 && (
-                                        <span className="text-amber-400 text-[10px]">{t("bots.limit_reached")}</span>
-                                    )}
-                                </div>
-                            )}
+                                    </h3>
 
-                            {filteredBots.length === 0 ? (
-                                <div className="p-12 text-center rounded-[2.5rem] border border-white/5 bg-zinc-950/20 text-zinc-500 font-bold uppercase tracking-wider text-[11px] min-h-[150px] flex items-center justify-center">
-                                    {t("bots.no_active")}
-                                </div>
-                            ) : (
-                                /* Admin-style Bot Overview Table */
-                                <div className="app-panel relative rounded-3xl overflow-hidden">
-                                    {/* Table Header Bar */}
-                                    <div className="p-6 border-b border-white/5 flex items-center justify-between bg-zinc-950/50 relative z-10">
-                                        <div className="flex items-center gap-4">
-                                            <div className="p-3 bg-indigo-500/10 border border-indigo-500/20 rounded-xl">
-                                                <Layers className="w-5 h-5 text-indigo-400" />
-                                            </div>
-                                            <div>
-                                                <h2 className="text-lg font-black text-white uppercase tracking-wider">{t("bots.title")}</h2>
-                                                <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest mt-0.5">{t("bots.subtitle")}</p>
-                                            </div>
-                                        </div>
-                                        <div className="hidden sm:flex items-center gap-2">
-                                            <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">{filteredBots.length} {language === "ar" ? "بوت" : (filteredBots.length !== 1 ? "Bots" : "Bot")}</span>
-                                        </div>
-                                    </div>
-
-                                    {/* Desktop Table View */}
-                                    <div className="hidden lg:block overflow-x-auto w-full relative z-10 custom-scrollbar">
-                                        <table className="w-full text-left whitespace-nowrap">
-                                            <thead className="bg-zinc-950/80 border-b border-white/5 text-[10px] font-black text-zinc-500 uppercase tracking-widest">
-                                                <tr>
-                                                    <th className="px-6 py-5">{t("bots.table.identity")}</th>
-                                                    <th className="px-6 py-5 text-center">{t("bots.table.status")}</th>
-                                                    <th className="px-6 py-5 text-center">{t("bots.table.mode")}</th>
-                                                    <th className="px-6 py-5 text-center">{t("bots.table.config")}</th>
-                                                    <th className="px-6 py-5 text-center">{t("bots.table.model")}</th>
-                                                    <th className="px-6 py-5 text-center">{t("bots.table.trades")}</th>
-                                                    <th className="px-6 py-5 text-center">{t("bots.table.winrate")}</th>
-                                                    <th className="px-6 py-5 text-right">{t("bots.table.net_pl")}</th>
-                                                    <th className="px-6 py-5 text-right">{t("bots.table.action")}</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody className="divide-y divide-white/5">
-                                                {filteredBots.map((bot) => {
-                                                    const isSubbed = !!bot.is_subscribed;
-                                                    const isLimitReached = !isPro && activeSubCount >= 2;
-                                                    const isLoading = submittingBotId === bot.bot_id;
-                                                    const pnl = bot.total_pnl || 0;
-                                                    const isProfitable = pnl >= 0;
-                                                    const tradingMode = bot.trading_mode || "aggressive";
-                                                    const modeConfig = tradingMode === "defensive"
-                                                        ? { emoji: "🛡️", color: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" }
-                                                        : tradingMode === "hybrid"
-                                                        ? { emoji: "🔄", color: "bg-indigo-500/10 text-indigo-400 border-indigo-500/20" }
-                                                        : { emoji: "⚔️", color: "bg-red-500/10 text-red-400 border-red-500/20" };
-
-                                                    // Determine model name from bot properties
-                                                    const kingModelName = bot.king_model_path
-                                                        ? bot.king_model_path.split("/").pop()?.replace(".pkl", "") ?? "—"
-                                                        : "—";
-
-                                                    return (
-                                                        <tr
-                                                            key={bot.bot_id}
-                                                            className={`transition-colors group ${isSubbed ? "bg-indigo-500/[0.04] hover:bg-indigo-500/[0.08]" : "hover:bg-white/[0.02]"}`}
-                                                        >
-                                                            {/* Bot Identity */}
-                                                            <td className="px-6 py-5">
-                                                                <div className="flex items-center gap-3">
-                                                                    <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center border border-white/10 shadow-lg shadow-blue-500/20 flex-shrink-0">
-                                                                        <Brain className="w-5 h-5 text-white" />
-                                                                    </div>
-                                                                    <div className="flex flex-col gap-0.5">
-                                                                        <div className="flex items-center gap-2">
-                                                                            <span className="text-sm font-black text-zinc-200 tracking-tight uppercase">{bot.name}</span>
-                                                                            {isSubbed && (
-                                                                                <span className="text-[8px] px-1.5 py-0.5 rounded-md bg-indigo-500/20 text-indigo-400 font-bold uppercase tracking-widest border border-indigo-500/20">
-                                                                                    {t("bots.subscribed")}
-                                                                                </span>
-                                                                            )}
-                                                                        </div>
-                                                                        <span className="text-[10px] font-mono text-zinc-600 truncate max-w-[150px]">{bot.bot_id}</span>
-                                                                    </div>
-                                                                </div>
-                                                            </td>
-
-                                                            {/* Status */}
-                                                            <td className="px-6 py-5 text-center">
-                                                                <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border ${bot.status === "running" ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" : "bg-zinc-800 text-zinc-400 border-white/5"}`}>
-                                                                    {bot.status === "running" ? <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> : <span className="w-1.5 h-1.5 rounded-full bg-zinc-600" />}
-                                                                    {bot.status === "running" ? t("bots.status.running") : t("bots.status.stopped")}
-                                                                </span>
-                                                            </td>
-
-                                                            {/* Trading Mode */}
-                                                            <td className="px-6 py-5 text-center">
-                                                                <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border ${modeConfig.color}`}>
-                                                                    <span>{modeConfig.emoji}</span>
-                                                                    {t("bots.mode." + tradingMode)}
-                                                                </span>
-                                                            </td>
-
-                                                            {/* Config */}
-                                                            <td className="px-6 py-5 text-center">
-                                                                <div className="flex flex-col items-center gap-1">
-                                                                    <span className="font-mono text-indigo-400 font-black text-[10px] uppercase bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20">{bot.timeframe || "1Hour"}</span>
-                                                                    <div className="flex items-center gap-1 font-mono text-[9px]">
-                                                                        <span className="text-emerald-400 font-bold">{language === "ar" ? "الهدف" : "T"}:{Math.round((bot.target_pct || 0.10) * 100)}%</span>
-                                                                        <span className="text-zinc-700">|</span>
-                                                                        <span className="text-red-400 font-bold">{language === "ar" ? "الوقف" : "SL"}:{Math.round((bot.stop_loss_pct || 0.035) * 100)}%</span>
-                                                                    </div>
-                                                                    {bot.use_council && (
-                                                                        <span className="text-[8px] text-zinc-500 font-bold">{t("backtest.council")} {bot.council_threshold ?? 0.25}</span>
-                                                                    )}
-                                                                </div>
-                                                            </td>
-
-                                                            {/* Model */}
-                                                            <td className="px-6 py-5 text-center">
-                                                                <div className="flex items-center justify-center gap-2">
-                                                                    {kingModelName.toUpperCase().includes("KING") ? (
-                                                                        <div className="w-5 h-5 rounded-md overflow-hidden border border-white/10 shrink-0">
-                                                                            <img src="/king_logo.jpg" alt="KING" className="w-full h-full object-cover" />
-                                                                        </div>
-                                                                    ) : kingModelName.toUpperCase().includes("NEW_MODEL") ? (
-                                                                        <div className="w-5 h-5 rounded-md overflow-hidden border border-white/10 shrink-0">
-                                                                            <img src="/new_model_logo.jpg" alt="NEW_MODEL" className="w-full h-full object-cover" />
-                                                                        </div>
-                                                                    ) : null}
-                                                                    <span className="text-[10px] font-mono text-zinc-400 bg-zinc-900 px-2 py-1 rounded border border-white/5 truncate max-w-[120px] inline-block">{kingModelName}</span>
-                                                                </div>
-                                                            </td>
-
-                                                            {/* Trades */}
-                                                            <td className="px-6 py-5 text-center">
-                                                                <div className="flex flex-col items-center">
-                                                                    <span className="text-sm font-black text-white font-mono">{bot.trades_count}</span>
-                                                                    {bot.status === "running" && bot.started_at ? (
-                                                                        <span className="text-[9px] font-black text-indigo-400/80 uppercase tracking-widest mt-0.5">
-                                                                            {(() => {
-                                                                                const start = new Date(bot.started_at).getTime();
-                                                                                const diff = new Date().getTime() - start;
-                                                                                const days = Math.ceil(diff / (1000 * 60 * 60 * 24));
-                                                                                return t("bots.active_days").replace("{days}", days.toString());
-                                                                            })()}
-                                                                        </span>
-                                                                    ) : (
-                                                                        <span className="text-[9px] font-black text-zinc-600 uppercase tracking-widest mt-0.5">
-                                                                            {t("bots.inactive")}
-                                                                        </span>
-                                                                    )}
-                                                                </div>
-                                                            </td>
-
-                                                            {/* Win Rate */}
-                                                            <td className="px-6 py-5 text-center">
-                                                                <span className="text-sm font-black font-mono text-emerald-400">
-                                                                    {formatNum(bot.win_rate, 1)}%
-                                                                </span>
-                                                            </td>
-
-                                                            {/* Net P/L */}
-                                                            <td className="px-6 py-5 text-right">
-                                                                <span className={`text-sm font-black font-mono ${pnl === 0 ? "text-zinc-500" : isProfitable ? "text-emerald-400" : "text-red-400"}`}>
-                                                                    {isProfitable ? "+" : ""}{formatNum(pnl, 2)}%
-                                                                </span>
-                                                            </td>
-
-                                                            {/* Action */}
-                                                            <td className="px-6 py-5 text-right">
-                                                                {!user ? (
-                                                                    <Link
-                                                                        href="/login"
-                                                                        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-white/5 border border-white/10 text-white font-black text-[9px] uppercase tracking-widest hover:bg-white/10 transition-all duration-300"
-                                                                    >
-                                                                        <Lock className="w-3 h-3 text-zinc-500" />
-                                                                        {t("bots.btn.login")}
-                                                                    </Link>
-                                                                ) : isSubbed ? (
-                                                                    <button
-                                                                        onClick={() => handleUnsubscribe(bot.bot_id)}
-                                                                        disabled={isLoading}
-                                                                        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 font-black text-[9px] uppercase tracking-widest hover:bg-red-500/20 transition-all duration-300 disabled:opacity-50"
-                                                                    >
-                                                                        {isLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <UserMinus className="w-3 h-3" />}
-                                                                        {t("bots.btn.unsub")}
-                                                                    </button>
-                                                                ) : (
-                                                                    <button
-                                                                        onClick={() => handleSubscribe(bot.bot_id)}
-                                                                        disabled={isLoading || (isLimitReached && !isSubbed)}
-                                                                        className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-xl font-black text-[9px] uppercase tracking-widest transition-all duration-300 ${
-                                                                            isLimitReached && !isSubbed
-                                                                                ? "bg-zinc-800 text-zinc-500 cursor-not-allowed border border-white/5"
-                                                                                : "bg-indigo-600 hover:bg-indigo-500 text-white hover:shadow-lg hover:shadow-indigo-500/15 border border-transparent"
-                                                                        }`}
-                                                                    >
-                                                                        {isLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <UserPlus className="w-3 h-3" />}
-                                                                        {t("bots.btn.subscribe")}
-                                                                    </button>
-                                                                )}
-                                                            </td>
-                                                        </tr>
-                                                    );
-                                                })}
-                                            </tbody>
-                                        </table>
-                                    </div>
-
-                                    {/* Mobile Card View (< lg) */}
-                                    <div className="lg:hidden divide-y divide-white/5">
-                                        {filteredBots.map((bot) => {
-                                            const isSubbed = !!bot.is_subscribed;
-                                            const isLimitReached = !isPro && activeSubCount >= 2;
-                                            const isLoading = submittingBotId === bot.bot_id;
-                                            const pnl = bot.total_pnl || 0;
-                                            const isProfitable = pnl >= 0;
-                                            const tradingMode = bot.trading_mode || "aggressive";
-                                            const modeConfig = tradingMode === "defensive"
-                                                ? { emoji: "🛡️", color: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" }
-                                                : tradingMode === "hybrid"
-                                                ? { emoji: "🔄", color: "bg-indigo-500/10 text-indigo-400 border-indigo-500/20" }
-                                                : { emoji: "⚔️", color: "bg-red-500/10 text-red-400 border-red-500/20" };
-                                            const kingModelName = bot.king_model_path
-                                                ? bot.king_model_path.split("/").pop()?.replace(".pkl", "") ?? "—"
-                                                : "—";
-
+                                    <div className="space-y-2.5 max-h-[500px] overflow-y-auto pr-1">
+                                        {publishedReport.scans.map((scan: any) => {
+                                            const isSelected = selectedSimilarityScan?.symbol === scan.symbol;
                                             return (
-                                                <div key={bot.bot_id} className={`p-6 space-y-5 ${isSubbed ? "bg-indigo-500/[0.04]" : ""}`}>
-                                                    {/* Top: Identity + Status */}
-                                                    <div className="flex items-center justify-between">
-                                                        <div className="flex items-center gap-3">
-                                                            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center border border-white/10 shadow-lg shadow-blue-500/20 flex-shrink-0">
-                                                                <Brain className="w-5 h-5 text-white" />
-                                                            </div>
-                                                            <div>
-                                                                <div className="flex items-center gap-2">
-                                                                    <h3 className="text-sm font-black text-white uppercase tracking-tight">{bot.name}</h3>
-                                                                    {isSubbed && (
-                                                                        <span className="text-[8px] px-1.5 py-0.5 rounded-md bg-indigo-500/20 text-indigo-400 font-bold uppercase border border-indigo-500/20">
-                                                                            {t("bots.subscribed")}
-                                                                        </span>
-                                                                    )}
-                                                                </div>
-                                                                <span className="text-[10px] font-mono text-zinc-600">{bot.bot_id}</span>
-                                                            </div>
+                                                <div
+                                                    key={scan.symbol}
+                                                    onClick={() => setSelectedSimilarityScan(scan)}
+                                                    className={`p-3.5 border-2 transition-all cursor-pointer flex items-center justify-between ${
+                                                        isSelected ? "border-amber-400 bg-zinc-900" : "border-zinc-800 bg-zinc-950 hover:bg-zinc-900/40"
+                                                    }`}
+                                                >
+                                                    <div className="space-y-1">
+                                                        <span className="text-xs font-black text-white font-mono">{scan.symbol}</span>
+                                                        <div className="text-[10px] text-zinc-500 font-mono">
+                                                            Avg Return: <span className={scan.stats.average_return >= 0 ? "text-emerald-500" : "text-red-500"}>
+                                                                {(scan.stats.average_return * 100).toFixed(1)}%
+                                                            </span>
                                                         </div>
-                                                        <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border ${bot.status === "running" ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" : "bg-zinc-800 text-zinc-400 border-white/5"}`}>
-                                                            {bot.status === "running" ? <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> : <span className="w-1.5 h-1.5 rounded-full bg-zinc-600" />}
-                                                            {bot.status === "running" ? t("bots.status.running") : t("bots.status.stopped")}
+                                                    </div>
+                                                    <div className="text-right font-mono">
+                                                        <div className="text-xs font-black text-emerald-400">
+                                                            {(scan.stats.win_rate * 100).toFixed(0)}% Win
+                                                        </div>
+                                                        <span className="text-[9px] text-zinc-600">
+                                                            {scan.stats.wins}W / {scan.stats.losses}L
                                                         </span>
-                                                    </div>
-
-                                                    {/* Badges Row: Mode + TF + Target/SL */}
-                                                    <div className="flex flex-wrap items-center gap-2">
-                                                        <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border ${modeConfig.color}`}>
-                                                            <span>{modeConfig.emoji}</span>{t("bots.mode." + tradingMode)}
-                                                        </span>
-                                                        <span className="font-mono text-indigo-400 font-black text-[10px] uppercase bg-indigo-500/10 px-2.5 py-1 rounded-full border border-indigo-500/20">{bot.timeframe || "1Hour"}</span>
-                                                        <div className="flex items-center gap-1 font-mono text-[9px] bg-zinc-950/50 px-2.5 py-1 rounded-full border border-white/5">
-                                                            <span className="text-emerald-400 font-bold">{language === "ar" ? "الهدف" : "T"}:{Math.round((bot.target_pct || 0.10) * 100)}%</span>
-                                                            <span className="text-zinc-700">|</span>
-                                                            <span className="text-red-400 font-bold">{language === "ar" ? "الوقف" : "SL"}:{Math.round((bot.stop_loss_pct || 0.035) * 100)}%</span>
-                                                        </div>
-                                                        {bot.use_council && (
-                                                            <span className="text-[9px] text-zinc-500 font-bold bg-zinc-900 px-2.5 py-1 rounded-full border border-white/5">{t("backtest.council")} {bot.council_threshold ?? 0.25}</span>
-                                                        )}
-                                                         <div className="flex items-center gap-1.5 bg-zinc-900 px-2 py-1 rounded border border-white/5 w-fit">
-                                                             {kingModelName.toUpperCase().includes("KING") ? (
-                                                                 <div className="w-4 h-4 rounded overflow-hidden border border-white/10 shrink-0">
-                                                                     <img src="/king_logo.jpg" alt="KING" className="w-full h-full object-cover" />
-                                                                 </div>
-                                                             ) : kingModelName.toUpperCase().includes("NEW_MODEL") ? (
-                                                                 <div className="w-4 h-4 rounded overflow-hidden border border-white/10 shrink-0">
-                                                                     <img src="/new_model_logo.jpg" alt="NEW_MODEL" className="w-full h-full object-cover" />
-                                                                 </div>
-                                                             ) : null}
-                                                             <span className="text-[10px] font-mono text-zinc-400 truncate max-w-[110px]">{kingModelName}</span>
-                                                         </div>
-                                                    </div>
-
-                                                    {/* Stats Grid */}
-                                                    <div className="grid grid-cols-3 gap-2 bg-black/20 rounded-2xl p-4 border border-white/5">
-                                                        <div className="text-center">
-                                                            <p className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider mb-1">{t("bots.table.winrate")}</p>
-                                                            <p className="font-mono text-sm font-black text-emerald-400">{formatNum(bot.win_rate, 1)}%</p>
-                                                        </div>
-                                                        <div className="text-center border-x border-white/5">
-                                                            <p className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider mb-1">{t("bots.table.net_pl")}</p>
-                                                            <p className={`font-mono text-sm font-black ${isProfitable ? "text-emerald-400" : "text-red-400"}`}>
-                                                                {isProfitable ? "+" : ""}{formatNum(pnl, 2)}%
-                                                            </p>
-                                                        </div>
-                                                        <div className="text-center">
-                                                            <p className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider mb-1">{t("bots.table.trades")}</p>
-                                                            <p className="font-mono text-sm font-black text-zinc-100">{bot.trades_count}</p>
-                                                            {bot.status === "running" && bot.started_at ? (
-                                                                <p className="text-[8px] font-black text-indigo-400/80 uppercase tracking-widest mt-0.5">
-                                                                    {(() => {
-                                                                        const start = new Date(bot.started_at).getTime();
-                                                                        const diff = new Date().getTime() - start;
-                                                                        const days = Math.ceil(diff / (1000 * 60 * 60 * 24));
-                                                                        return t("bots.active_days").replace("{days}", days.toString());
-                                                                    })()}
-                                                                </p>
-                                                            ) : (
-                                                                <p className="text-[8px] font-black text-zinc-600 uppercase tracking-widest mt-0.5">
-                                                                    {t("bots.inactive")}
-                                                                </p>
-                                                            )}
-                                                        </div>
-                                                    </div>
-
-                                                    {/* Action */}
-                                                    <div>
-                                                        {!user ? (
-                                                            <Link
-                                                                href="/login"
-                                                                className="w-full h-11 flex items-center justify-center rounded-xl bg-white/5 border border-white/10 text-white font-black text-[10px] uppercase tracking-widest hover:bg-white/10 transition-all duration-300"
-                                                            >
-                                                                <Lock className="w-3.5 h-3.5 mr-2 text-zinc-500" />
-                                                                {t("bots.btn.login_to_sub")}
-                                                            </Link>
-                                                        ) : isSubbed ? (
-                                                            <button
-                                                                onClick={() => handleUnsubscribe(bot.bot_id)}
-                                                                disabled={isLoading}
-                                                                className="w-full h-11 flex items-center justify-center rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 font-black text-[10px] uppercase tracking-widest hover:bg-red-500/25 transition-all duration-300 disabled:opacity-50"
-                                                            >
-                                                                {isLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <UserMinus className="w-4 h-4 mr-2" />}
-                                                                {t("bots.btn.unsubscribe")}
-                                                            </button>
-                                                        ) : (
-                                                            <button
-                                                                onClick={() => handleSubscribe(bot.bot_id)}
-                                                                disabled={isLoading || (isLimitReached && !isSubbed)}
-                                                                className={`w-full h-11 flex items-center justify-center rounded-xl font-black text-[10px] uppercase tracking-widest transition-all duration-300 ${
-                                                                    isLimitReached && !isSubbed
-                                                                        ? "bg-zinc-800 text-zinc-500 cursor-not-allowed border border-white/5"
-                                                                        : "bg-indigo-600 hover:bg-indigo-500 text-white hover:shadow-lg hover:shadow-indigo-500/15 border border-transparent"
-                                                                }`}
-                                                            >
-                                                                {isLoading ? (
-                                                                    <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                                                                ) : (
-                                                                    <UserPlus className="w-4 h-4 mr-2" />
-                                                                )}
-                                                                {t("bots.btn.subscribe")}
-                                                            </button>
-                                                        )}
                                                     </div>
                                                 </div>
                                             );
                                         })}
                                     </div>
+                                    <div className="border-t border-zinc-900 mt-4 pt-3 flex justify-between items-center text-[9px] font-mono text-zinc-500">
+                                        <span>Published: {formatDate(publishedReport.updated_at)}</span>
+                                        <span>K: {publishedReport.k || 10}</span>
+                                    </div>
                                 </div>
-                            )}
-                        </>
+                            </div>
+
+                            {/* Right Column: Setup details (8 cols) */}
+                            <div className="lg:col-span-8 space-y-8">
+                                {selectedSimilarityScan && (
+                                    <>
+                                        {/* Stats Cards */}
+                                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                            <div className="border-4 border-black dark:border-white bg-zinc-950 p-5 shadow-[4px_4px_0px_0px_rgba(255,255,255,0.1)]">
+                                                <p className="text-[9px] font-black tracking-widest text-zinc-500 uppercase">Win Rate</p>
+                                                <p className="text-3xl font-black font-mono mt-2 text-emerald-500">
+                                                    {(selectedSimilarityScan.stats.win_rate * 100).toFixed(1)}%
+                                                </p>
+                                                <p className="text-[10px] text-zinc-500 font-mono mt-1">
+                                                    {selectedSimilarityScan.stats.wins} Wins / {selectedSimilarityScan.stats.losses} Losses
+                                                </p>
+                                            </div>
+
+                                            <div className="border-4 border-black dark:border-white bg-zinc-950 p-5 shadow-[4px_4px_0px_0px_rgba(255,255,255,0.1)]">
+                                                <p className="text-[9px] font-black tracking-widest text-zinc-500 uppercase">Avg Return</p>
+                                                <p className={`text-3xl font-black font-mono mt-2 ${selectedSimilarityScan.stats.average_return >= 0 ? "text-emerald-500" : "text-red-500"}`}>
+                                                    {(selectedSimilarityScan.stats.average_return * 100).toFixed(2)}%
+                                                </p>
+                                                <p className="text-[10px] text-zinc-500 font-mono mt-1">
+                                                    Across {selectedSimilarityScan.stats.total_matches} matches
+                                                </p>
+                                            </div>
+
+                                            <div className="border-4 border-black dark:border-white bg-zinc-950 p-5 shadow-[4px_4px_0px_0px_rgba(255,255,255,0.1)]">
+                                                <p className="text-[9px] font-black tracking-widest text-zinc-500 uppercase">Profit Factor</p>
+                                                <p className="text-3xl font-black font-mono mt-2 text-indigo-400">
+                                                    {selectedSimilarityScan.stats.profit_factor.toFixed(2)}
+                                                </p>
+                                                <p className="text-[10px] text-zinc-500 font-mono mt-1">
+                                                    Gross gain/loss ratio
+                                                </p>
+                                            </div>
+
+                                            <div className="border-4 border-black dark:border-white bg-zinc-950 p-5 shadow-[4px_4px_0px_0px_rgba(255,255,255,0.1)]">
+                                                <p className="text-[9px] font-black tracking-widest text-zinc-500 uppercase">Expected Edge</p>
+                                                <p className={`text-3xl font-black font-mono mt-2 ${selectedSimilarityScan.stats.expected_value >= 0 ? "text-emerald-500" : "text-red-500"}`}>
+                                                    {(selectedSimilarityScan.stats.expected_value * 100).toFixed(2)}%
+                                                </p>
+                                                <p className="text-[10px] text-zinc-500 font-mono mt-1">
+                                                    Expected yield per trade
+                                                </p>
+                                            </div>
+                                        </div>
+
+                                        {/* Spaghetti Chart */}
+                                        <div className="border-4 border-black dark:border-white bg-zinc-950 p-6 shadow-[4px_4px_0px_0px_rgba(255,255,255,0.15)] rounded-none">
+                                            <h3 className="text-xs font-black tracking-widest text-zinc-300 uppercase flex items-center gap-2 mb-6 font-mono">
+                                                <TrendingUp className="w-4 h-4 text-amber-400" />
+                                                {selectedSimilarityScan.symbol} Trajectory spaghetti plot
+                                            </h3>
+
+                                            <div className="h-[350px] w-full">
+                                                <ResponsiveContainer width="100%" height="100%">
+                                                    <RechartsLineChart data={transformSimilarityChartData(selectedSimilarityScan)} margin={{ top: 10, right: 30, left: 10, bottom: 10 }}>
+                                                        <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
+                                                        <XAxis dataKey="dayLabel" stroke="#9ca3af" style={{ fontSize: 10, fontFamily: "monospace" }} />
+                                                        <YAxis stroke="#9ca3af" style={{ fontSize: 10, fontFamily: "monospace" }} tickFormatter={(v) => `${v.toFixed(1)}%`} />
+                                                        <ChartTooltip
+                                                            contentStyle={{ backgroundColor: "#09090b", borderColor: "#27272a" }}
+                                                            labelStyle={{ color: "#fff", fontWeight: "bold", fontFamily: "monospace", fontSize: 11 }}
+                                                            itemStyle={{ fontSize: 10, fontFamily: "monospace" }}
+                                                            formatter={(value: any) => [`${parseFloat(value).toFixed(2)}%`]}
+                                                        />
+                                                        <ReferenceLine x="T0" stroke="#ffdc58" strokeWidth={2} strokeDasharray="4 4" />
+                                                        <ReferenceLine y={(publishedReport.target_return || 0.05) * 100} stroke="#10b981" strokeWidth={1} strokeDasharray="3 3" />
+                                                        <ReferenceLine y={(publishedReport.stop_loss || -0.03) * 100} stroke="#ef4444" strokeWidth={1} strokeDasharray="3 3" />
+
+                                                        {selectedSimilarityScan.matches.slice(0, 5).map((m: any, idx: number) => {
+                                                            const key = `Match_${idx + 1}_${m.date}`;
+                                                            return (
+                                                                <Line key={key} type="monotone" dataKey={key} stroke="#6366f1" strokeWidth={1} dot={false} opacity={0.3} name={`Match ${idx + 1} (${m.date})`} />
+                                                            );
+                                                        })}
+                                                        <Line type="monotone" dataKey="Target" stroke="#ffffff" strokeWidth={3} dot={false} name="Target Stock" />
+                                                        <Line type="monotone" dataKey="Average" stroke="#ffdc58" strokeWidth={3} dot={false} name="Average Path" />
+                                                    </RechartsLineChart>
+                                                </ResponsiveContainer>
+                                            </div>
+                                            <div className="flex flex-wrap items-center justify-center gap-6 mt-4 text-[10px] font-mono text-zinc-500">
+                                                <span className="flex items-center gap-1.5"><span className="w-3 h-0.5 bg-white" /> Target Stock Path (Before T0)</span>
+                                                <span className="flex items-center gap-1.5"><span className="w-3 h-0.5 bg-amber-400" /> Avg Matches Path</span>
+                                                <span className="flex items-center gap-1.5"><span className="w-3 h-0.5 bg-indigo-500 opacity-60" /> Individual Historical Occurrences</span>
+                                            </div>
+                                        </div>
+
+                                        {/* Table of Matches */}
+                                        <div className="border-4 border-black dark:border-white bg-zinc-950 p-6 shadow-[4px_4px_0px_0px_rgba(255,255,255,0.15)] rounded-none">
+                                            <h3 className="text-xs font-black tracking-widest text-zinc-300 uppercase flex items-center gap-2 mb-4 font-mono">
+                                                <Clock className="w-4 h-4 text-amber-400" />
+                                                Historical Matching Cases
+                                            </h3>
+
+                                            <div className="overflow-x-auto">
+                                                <table className="w-full text-left text-xs border-collapse font-mono">
+                                                    <thead>
+                                                        <tr className="border-b border-zinc-800 text-[10px] font-black uppercase text-zinc-500 tracking-wider">
+                                                            <th className="py-3 px-2">Date</th>
+                                                            <th className="py-3 px-2">Symbol</th>
+                                                            <th className="py-3 px-2">Similarity</th>
+                                                            <th className="py-3 px-2">Peak Gain (MFE)</th>
+                                                            <th className="py-3 px-2">Max Draw (MAE)</th>
+                                                            <th className="py-3 px-2">End Return</th>
+                                                            <th className="py-3 px-2 text-right">Outcome</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody className="divide-y divide-zinc-900">
+                                                        {selectedSimilarityScan.matches.map((m: any, idx: number) => (
+                                                            <tr key={idx} className="hover:bg-zinc-900/40 transition-colors">
+                                                                <td className="py-3.5 px-2 font-bold text-zinc-200">{m.date}</td>
+                                                                <td className="py-3.5 px-2 font-bold text-amber-400">{m.symbol}</td>
+                                                                <td className="py-3.5 px-2 text-white">{(m.similarity * 100).toFixed(1)}%</td>
+                                                                <td className="py-3.5 px-2 text-emerald-500 font-bold">+{(m.mfe * 100).toFixed(1)}%</td>
+                                                                <td className="py-3.5 px-2 text-red-500 font-bold">{(m.mae * 100).toFixed(1)}%</td>
+                                                                <td className={`py-3.5 px-2 font-black ${m.final_return >= 0 ? "text-emerald-500" : "text-red-500"}`}>
+                                                                    {(m.final_return * 100).toFixed(1)}%
+                                                                </td>
+                                                                <td className="py-3.5 px-2 text-right">
+                                                                    <span className={`px-2 py-0.5 text-[9px] font-black uppercase tracking-wider ${m.outcome === "win" ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" : "bg-red-500/10 text-red-400 border border-red-500/20"}`}>
+                                                                        {m.outcome}
+                                                                    </span>
+                                                                </td>
+                                                            </tr>
+                                                        ))}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        </div>
+                                    </>
+                                )}
+                            </div>
+                        </div>
                     )}
                 </div>
             )}
@@ -1484,9 +1221,9 @@ export default function AIScannerPage() {
                                                         <span className="text-[9px] font-bold text-zinc-600 uppercase tracking-wider truncate">
                                                             {t("backtest.stats.total_runs")}
                                                         </span>
-                                                        <div className="group relative shrink-0">
+                                                        <div className="group/tooltip relative shrink-0">
                                                             <HelpCircle className="w-3 h-3 text-zinc-500 hover:text-zinc-300 transition-colors" />
-                                                            <span className="absolute bottom-full left-0 mb-2 w-48 p-2 text-[10px] bg-zinc-950 text-zinc-400 border border-white/10 rounded-xl shadow-xl opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-50 text-center font-sans font-medium normal-case leading-relaxed">
+                                                            <span className="absolute bottom-full left-0 mb-2 w-48 p-2 text-[10px] bg-zinc-950 text-zinc-400 border border-white/10 rounded-xl shadow-xl opacity-0 pointer-events-none group-hover/tooltip:opacity-100 transition-opacity z-50 text-center font-sans font-medium normal-case leading-relaxed">
                                                                 {language === "ar" ? "عدد دورات المحاكاة الكاملة التي تم تشغيلها لتقييم الموديل." : "Total number of simulation runs executed to evaluate this model."}
                                                             </span>
                                                         </div>
@@ -1501,9 +1238,9 @@ export default function AIScannerPage() {
                                                         <span className="text-[9px] font-bold text-zinc-600 uppercase tracking-wider truncate">
                                                             {t("backtest.stats.total_trades")}
                                                         </span>
-                                                        <div className="group relative shrink-0">
+                                                        <div className="group/tooltip relative shrink-0">
                                                             <HelpCircle className="w-3 h-3 text-zinc-500 hover:text-zinc-300 transition-colors" />
-                                                            <span className="absolute bottom-full right-0 mb-2 w-48 p-2 text-[10px] bg-zinc-950 text-zinc-400 border border-white/10 rounded-xl shadow-xl opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-50 text-center font-sans font-medium normal-case leading-relaxed">
+                                                            <span className="absolute bottom-full right-0 mb-2 w-48 p-2 text-[10px] bg-zinc-950 text-zinc-400 border border-white/10 rounded-xl shadow-xl opacity-0 pointer-events-none group-hover/tooltip:opacity-100 transition-opacity z-50 text-center font-sans font-medium normal-case leading-relaxed">
                                                                 {language === "ar" ? "إجمالي الصفقات (البيع والشراء) التي قام الموديل بتنفيذها." : "Total number of trades (buy and sell) executed by the model."}
                                                             </span>
                                                         </div>
@@ -1522,9 +1259,9 @@ export default function AIScannerPage() {
                                                         <span className="text-[9px] font-bold text-emerald-700 uppercase tracking-wider truncate">
                                                             {t("backtest.stats.win_rate")}
                                                         </span>
-                                                        <div className="group relative shrink-0">
+                                                        <div className="group/tooltip relative shrink-0">
                                                             <HelpCircle className="w-3 h-3 text-emerald-500 hover:text-emerald-300 transition-colors" />
-                                                            <span className="absolute bottom-full left-0 mb-2 w-48 p-2 text-[10px] bg-zinc-950 text-zinc-400 border border-white/10 rounded-xl shadow-xl opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-50 text-center font-sans font-medium normal-case leading-relaxed">
+                                                            <span className="absolute bottom-full left-0 mb-2 w-48 p-2 text-[10px] bg-zinc-950 text-zinc-400 border border-white/10 rounded-xl shadow-xl opacity-0 pointer-events-none group-hover/tooltip:opacity-100 transition-opacity z-50 text-center font-sans font-medium normal-case leading-relaxed">
                                                                 {language === "ar" ? "نسبة الصفقات الرابحة من إجمالي الصفقات التي دخلها الموديل." : "Percentage of winning trades out of total executed trades."}
                                                             </span>
                                                         </div>
@@ -1539,9 +1276,9 @@ export default function AIScannerPage() {
                                                         <span className={`text-[9px] font-bold uppercase tracking-wider truncate ${stat.netProfit >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>
                                                             {t("backtest.stats.avg_profit")}
                                                         </span>
-                                                        <div className="group relative shrink-0">
+                                                        <div className="group/tooltip relative shrink-0">
                                                             <HelpCircle className={`w-3 h-3 transition-colors ${stat.netProfit >= 0 ? 'text-emerald-500 hover:text-emerald-300' : 'text-red-500 hover:text-red-300'}`} />
-                                                            <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-2 text-[10px] bg-zinc-950 text-zinc-400 border border-white/10 rounded-xl shadow-xl opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-50 text-center font-sans font-medium normal-case leading-relaxed">
+                                                            <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-2 text-[10px] bg-zinc-950 text-zinc-400 border border-white/10 rounded-xl shadow-xl opacity-0 pointer-events-none group-hover/tooltip:opacity-100 transition-opacity z-50 text-center font-sans font-medium normal-case leading-relaxed">
                                                                 {language === "ar" ? "متوسط النسبة المئوية للربح المحقق في كل اختبار كامل." : "Average percentage return achieved per complete simulation run."}
                                                             </span>
                                                         </div>
@@ -1556,9 +1293,9 @@ export default function AIScannerPage() {
                                                         <span className={`text-[9px] font-bold uppercase tracking-wider truncate ${stat.avgReturnPerTrade >= 0 ? 'text-sky-700' : 'text-red-700'}`}>
                                                             {t("backtest.stats.avg_return")}
                                                         </span>
-                                                        <div className="group relative shrink-0">
+                                                        <div className="group/tooltip relative shrink-0">
                                                             <HelpCircle className={`w-3 h-3 transition-colors ${stat.avgReturnPerTrade >= 0 ? 'text-sky-500 hover:text-sky-300' : 'text-red-500 hover:text-red-300'}`} />
-                                                            <span className="absolute bottom-full right-0 mb-2 w-48 p-2 text-[10px] bg-zinc-950 text-zinc-400 border border-white/10 rounded-xl shadow-xl opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-50 text-center font-sans font-medium normal-case leading-relaxed">
+                                                            <span className="absolute bottom-full right-0 mb-2 w-48 p-2 text-[10px] bg-zinc-950 text-zinc-400 border border-white/10 rounded-xl shadow-xl opacity-0 pointer-events-none group-hover/tooltip:opacity-100 transition-opacity z-50 text-center font-sans font-medium normal-case leading-relaxed">
                                                                 {language === "ar" ? "متوسط نسبة الربح أو الخسارة المحققة في الصفقة الفردية." : "Average percentage return generated per individual trade."}
                                                             </span>
                                                         </div>
@@ -1656,9 +1393,9 @@ export default function AIScannerPage() {
                                                 tick={{ fontSize: 11, fontWeight: 'bold' }}
                                                 tickFormatter={(val) => `${val.toFixed(1)}%`}
                                             />
-                                            <Tooltip 
+                                            <ChartTooltip 
                                                 cursor={{ fill: 'rgba(255, 255, 255, 0.02)' }}
-                                                content={({ active, payload }) => {
+                                                content={({ active, payload }: any) => {
                                                     if (active && payload && payload.length) {
                                                         const data = payload[0];
                                                         const color = data.payload.fill;
@@ -2153,7 +1890,7 @@ export default function AIScannerPage() {
                                                                         }
 
                                                                         // Radar Score calculation
-                                                                        let radarScore = trade?.Radar_Score ?? trade?.radar_score ?? trade.features?.radar_score ?? trade.features?.ai_score ?? trade.features?.score ?? trade?.score ?? trade?.Score;
+                                                                        let radarScore = trade?.precision ?? trade?.Radar_Score ?? trade?.radar_score ?? trade.features?.radar_score ?? trade.features?.precision ?? trade.features?.ai_score ?? trade.features?.score ?? trade?.score ?? trade?.Score;
                                                                         let radarStr = "—";
                                                                         if (radarScore !== null && radarScore !== undefined && !Number.isNaN(Number(radarScore))) {
                                                                             const n = Number(radarScore);
@@ -2161,7 +1898,7 @@ export default function AIScannerPage() {
                                                                         }
 
                                                                         // Fund Score calculation
-                                                                        let fundScore = trade?.Fund_Score ?? trade?.fund_score ?? trade.features?.fund_score ?? trade.features?.fundamental_score ?? trade?.Validator_Score;
+                                                                        let fundScore = trade?.Fund_Score ?? trade?.fund_score ?? trade.features?.fund_score ?? trade.features?.fundamental_score ?? trade?.Validator_Score ?? trade?.validator_score ?? trade.features?.validator_score;
                                                                         let fundStr = "—";
                                                                         if (fundScore !== null && fundScore !== undefined && !Number.isNaN(Number(fundScore))) {
                                                                             const n = Number(fundScore);
@@ -2328,7 +2065,7 @@ export default function AIScannerPage() {
                                         const focusTs         = toUnix(selEntryDateRaw) ?? undefined;
 
                                         const markers: any[] = [];
-                                        const tradesToMark = symbolTrades.length > 0 ? symbolTrades : [selectedTrade];
+                                        const tradesToMark = [selectedTrade];
 
                                         for (const t of tradesToMark) {
                                             const entryDateRaw = t.features?.entry_date || t.Entry_Date || t.entry_date || t.features?.trade_date || t.date;
@@ -2375,6 +2112,7 @@ export default function AIScannerPage() {
                                                 customMarkers={markers}
                                                 focusTimestamp={focusTs}
                                                 hideIndicators={true}
+                                                showApiMarkers={false}
                                             />
                                         );
                                     })()}
@@ -2433,9 +2171,10 @@ export default function AIScannerPage() {
                                         <span className="text-[9px] text-zinc-500 font-bold uppercase block">تقييم الرادار (Radar Score)</span>
                                         <div className="text-sm font-mono font-black text-white">
                                             {(() => {
-                                                let score = selectedTrade.features?.radar_score ?? selectedTrade.features?.ai_score ?? selectedTrade.features?.score ?? selectedTrade.Radar_Score ?? selectedTrade.Score ?? selectedTrade.score;
-                                                if (score === null || score === undefined) return '—';
-                                                return score <= 1 ? `${(score * 100).toFixed(1)}%` : `${score.toFixed(1)}%`;
+                                                let score = selectedTrade.precision ?? selectedTrade.features?.precision ?? selectedTrade.features?.radar_score ?? selectedTrade.features?.ai_score ?? selectedTrade.features?.score ?? selectedTrade.Radar_Score ?? selectedTrade.Score ?? selectedTrade.score;
+                                                if (score === null || score === undefined || Number.isNaN(Number(score))) return '—';
+                                                const n = Number(score);
+                                                return n <= 1 ? `${(n * 100).toFixed(1)}%` : `${n.toFixed(1)}%`;
                                             })()}
                                         </div>
                                     </div>
@@ -2443,9 +2182,10 @@ export default function AIScannerPage() {
                                         <span className="text-[9px] text-zinc-500 font-bold uppercase block">تقييم الأساسيات (Fund Score)</span>
                                         <div className="text-sm font-mono font-black text-white">
                                             {(() => {
-                                                let score = selectedTrade.features?.fund_score ?? selectedTrade.Fund_Score ?? selectedTrade.fund_score;
-                                                if (score === null || score === undefined) return '—';
-                                                return score <= 1 ? `${(score * 100).toFixed(1)}%` : `${score.toFixed(1)}%`;
+                                                let score = selectedTrade.features?.fund_score ?? selectedTrade.Fund_Score ?? selectedTrade.fund_score ?? selectedTrade.features?.fundamental_score ?? selectedTrade.Validator_Score ?? selectedTrade.validator_score ?? selectedTrade.features?.validator_score;
+                                                if (score === null || score === undefined || Number.isNaN(Number(score))) return '—';
+                                                const n = Number(score);
+                                                return n <= 1 ? `${(n * 100).toFixed(1)}%` : `${n.toFixed(1)}%`;
                                             })()}
                                         </div>
                                     </div>

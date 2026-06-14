@@ -6,6 +6,11 @@ import { useLanguage } from "@/contexts/LanguageContext";
 
 export default function Footer() {
   const { t } = useLanguage();
+  const pathname = usePathname();
+
+  if (pathname === "/antigrafity" || pathname?.startsWith("/antigrafity")) {
+    return null;
+  }
 
   return (
     <footer className="app-footer-surface w-full py-12 mt-20">

@@ -73,12 +73,44 @@ const config: Config = {
           '0%, 100%': { opacity: '1' },
           '50%': { opacity: '0.3' },
         },
+        'fadeInUp': {
+          from: { opacity: '0', transform: 'translateY(30px)' },
+          to: { opacity: '1', transform: 'translateY(0)' },
+        },
+        'bounceIn': {
+          '0%': { opacity: '0', transform: 'scale(0.3) translateY(-30px)' },
+          '50%': { opacity: '1', transform: 'scale(1.05)' },
+          '70%': { transform: 'scale(0.9)' },
+          '100%': { transform: 'scale(1)' },
+        },
+        'slideInRight': {
+          from: { opacity: '0', transform: 'translateX(50px)' },
+          to: { opacity: '1', transform: 'translateX(0)' },
+        },
+        'float': {
+          '0%, 100%': { transform: 'translateY(0px) rotate(2deg)' },
+          '50%': { transform: 'translateY(-10px) rotate(2deg)' },
+        },
+        'countUp': {
+          from: { opacity: '0', transform: 'scale(0.5)' },
+          to: { opacity: '1', transform: 'scale(1)' },
+        },
+        'slideIn': {
+          from: { opacity: '0', transform: 'translateX(-30px)' },
+          to: { opacity: '1', transform: 'translateX(0)' },
+        },
       },
       animation: {
         'accordion-down': 'accordion-down 0.2s ease-out',
         'accordion-up': 'accordion-up 0.2s ease-out',
         'pulse-slow': 'pulse-slow 2s ease-in-out infinite',
         'blink': 'blink 1s ease-in-out infinite',
+        'fadeInUp': 'fadeInUp 0.6s ease-out both',
+        'bounceIn': 'bounceIn 0.8s ease-out',
+        'slideInRight': 'slideInRight 0.8s ease-out',
+        'float': 'float 3s ease-in-out infinite',
+        'countUp': 'countUp 1s ease-out',
+        'slideIn': 'slideIn 0.6s ease-out both',
       },
       direction: {
         'rtl': 'rtl',

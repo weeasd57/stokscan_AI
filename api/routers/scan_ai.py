@@ -231,3 +231,13 @@ async def scan_ai_single(req: SingleScanRequest):
         return None
 
     return None
+
+
+@router.get("/similarity/published")
+async def api_get_published_similarity_report():
+    try:
+        from api.historical_similarity import get_published_similarity_report
+        return get_published_similarity_report()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
