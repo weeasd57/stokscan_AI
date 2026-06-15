@@ -762,9 +762,13 @@ def get_published_similarity_report() -> Dict[str, Any]:
             # Filter out delisted / inactive symbols and remove duplicates
             # ------------------------------------------------------------
             try:
-                # Fetch active symbols from Supabase (only symbols, no extra fields needed)
+                # Fetch active symbols from Supabase (bare tickers, e.g. "ESRS")
                 active_symbols_data = get_supabase_symbols()
-                active_symbols_set: Set[str] = {s.get("symbol") for s in active_symbols_data if s.get("symbol")}
+                active_symbols_set: Set[str] = {
+                    s.get("symbol").split(".")[0].upper()
+                    for s in active_symbols_data
+                    if s.get("symbol")
+                }
             except Exception as e:
                 print(f"⚠️ Could not fetch active symbols for filtering: {e}")
                 active_symbols_set = set()
@@ -775,13 +779,15 @@ def get_published_similarity_report() -> Dict[str, Any]:
                 sym = scan.get("symbol")
                 if not sym:
                     continue
+                sym_base = sym.split(".")[0].upper()
                 # Skip if symbol is not in active set (if we have the set)
-                if active_symbols_set and sym not in active_symbols_set:
+                if active_symbols_set and sym_base not in active_symbols_set:
+                    print(f"🚫 Filtering delisted/inactive symbol from published report: {sym}")
                     continue
                 # Skip duplicates
-                if sym in seen_symbols:
+                if sym_base in seen_symbols:
                     continue
-                seen_symbols.add(sym)
+                seen_symbols.add(sym_base)
                 filtered_scans.append(scan)
 
             return {
@@ -816,7 +822,12 @@ def publish_similarity_report(report_data: Dict[str, Any]) -> Dict[str, Any]:
         raw_scans = report_data.get("scans", [])
         try:
             active_symbols_data = get_supabase_symbols()
-            active_symbols_set: Set[str] = {s.get("symbol") for s in active_symbols_data if s.get("symbol")}
+            # Active symbols come as bare tickers (e.g. "ESRS"); scans use "ESRS.EGX"
+            active_symbols_set: Set[str] = {
+                s.get("symbol").split(".")[0].upper()
+                for s in active_symbols_data
+                if s.get("symbol")
+            }
         except Exception as e:
             print(f"⚠️ Could not fetch active symbols for publishing filter: {e}")
             active_symbols_set = set()
@@ -827,11 +838,13 @@ def publish_similarity_report(report_data: Dict[str, Any]) -> Dict[str, Any]:
             sym = scan.get("symbol")
             if not sym:
                 continue
-            if active_symbols_set and sym not in active_symbols_set:
+            sym_base = sym.split(".")[0].upper()
+            if active_symbols_set and sym_base not in active_symbols_set:
+                print(f"🚫 Filtering delisted/inactive symbol from similarity report: {sym}")
                 continue
-            if sym in seen_symbols:
+            if sym_base in seen_symbols:
                 continue
-            seen_symbols.add(sym)
+            seen_symbols.add(sym_base)
             filtered_scans.append(scan)
 
         report = {
