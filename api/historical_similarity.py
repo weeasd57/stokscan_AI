@@ -5,8 +5,8 @@ import math
 import numpy as np
 import pandas as pd
 from datetime import datetime
-from typing import List, Dict, Any, Tuple, Optional
-from api.stock_ai import add_technical_indicators
+from typing import List, Dict, Any, Tuple, Optional, Set
+from api.stock_ai import add_technical_indicators, get_supabase_symbols
 import api.stock_ai as stock_ai
 
 def sanitize_json_floats(obj):
@@ -755,16 +755,45 @@ def get_published_similarity_report() -> Dict[str, Any]:
         
         if response.data and len(response.data) > 0:
             report_row = response.data[0]
+            # Load raw scans list
+            raw_scans = json.loads(report_row.get("scans", "[]")) if isinstance(report_row.get("scans"), str) else report_row.get("scans", [])
+
+            # ------------------------------------------------------------
+            # Filter out delisted / inactive symbols and remove duplicates
+            # ------------------------------------------------------------
+            try:
+                # Fetch active symbols from Supabase (only symbols, no extra fields needed)
+                active_symbols_data = get_supabase_symbols()
+                active_symbols_set: Set[str] = {s.get("symbol") for s in active_symbols_data if s.get("symbol")}
+            except Exception as e:
+                print(f"⚠️ Could not fetch active symbols for filtering: {e}")
+                active_symbols_set = set()
+
+            filtered_scans: List[Dict[str, Any]] = []
+            seen_symbols: Set[str] = set()
+            for scan in raw_scans:
+                sym = scan.get("symbol")
+                if not sym:
+                    continue
+                # Skip if symbol is not in active set (if we have the set)
+                if active_symbols_set and sym not in active_symbols_set:
+                    continue
+                # Skip duplicates
+                if sym in seen_symbols:
+                    continue
+                seen_symbols.add(sym)
+                filtered_scans.append(scan)
+
             return {
-                "id": report_row.get("id"),
-                "name": report_row.get("name", "Market Similarity Report"),
-                "scans": json.loads(report_row.get("scans", "[]")) if isinstance(report_row.get("scans"), str) else report_row.get("scans", []),
-                "k": report_row.get("k", 10),
-                "forward_days": report_row.get("forward_days", 10),
-                "target_return": report_row.get("target_return", 0.05),
-                "stop_loss": report_row.get("stop_loss", -0.03),
-                "updated_at": report_row.get("updated_at")
-            }
+                    "id": report_row.get("id"),
+                    "name": report_row.get("name", "Market Similarity Report"),
+                    "scans": filtered_scans,
+                    "k": report_row.get("k", 10),
+                    "forward_days": report_row.get("forward_days", 10),
+                    "target_return": report_row.get("target_return", 0.05),
+                    "stop_loss": report_row.get("stop_loss", -0.03),
+                    "updated_at": report_row.get("updated_at")
+                }
         else:
             print("📝 No published reports found in Supabase")
             return {"scans": [], "updated_at": None, "name": "Market Similarity Report"}
