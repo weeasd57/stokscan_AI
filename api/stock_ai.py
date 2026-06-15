@@ -373,7 +373,7 @@ def _init_supabase(force=False):
         key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
         if not key:
             key = os.getenv("NEXT_PUBLIC_SUPABASE_ANON_KEY")
-        # print(f"DEBUG: Init Supabase. URL={url is not None}, KEY={key is not None}")
+        print(f"DEBUG: Init Supabase. URL={'set' if url else 'MISSING'}, KEY={'set' if key else 'MISSING'}")
         if url and key:
             try:
                 try:

@@ -4,6 +4,7 @@ Historical Similarity Admin Tab - Full market scan and display
 from fastapi import APIRouter, HTTPException, BackgroundTasks, Header, Depends, Query
 from typing import List, Dict, Any, Optional
 import json
+import threading
 from datetime import datetime
 from api.historical_similarity import (
     run_market_wide_similarity_scan,
@@ -26,14 +27,45 @@ def _verify_admin_key(x_admin_key: Optional[str] = Header(default=None)):
         raise HTTPException(status_code=403, detail="Forbidden: invalid admin key")
 
 
-# Store for tracking scan progress
-_scan_progress = {
+# Store for tracking scan progress — job-based to prevent race conditions
+_scan_lock = threading.Lock()
+_current_job_id: Optional[str] = None
+_current_scan_progress: Dict[str, Any] = {
     "status": "idle",
     "percentage": 0,
     "found": 0,
     "total": 0,
     "message": ""
 }
+
+
+def _set_scan_progress(patch: Dict[str, Any]) -> None:
+    global _current_scan_progress
+    with _scan_lock:
+        _current_scan_progress.update(patch)
+
+
+def _get_scan_progress() -> Dict[str, Any]:
+    with _scan_lock:
+        return dict(_current_scan_progress)
+
+
+def _acquire_scan_lock(job_id: str) -> bool:
+    global _current_job_id
+    with _scan_lock:
+        if _current_job_id is not None:
+            return False
+        _current_job_id = job_id
+        _current_scan_progress = {"status": "starting", "percentage": 0, "found": 0, "total": 0, "message": "جاري بدء المسح..."}
+        return True
+
+
+def _release_scan_lock(job_id: str) -> None:
+    global _current_job_id
+    with _scan_lock:
+        if _current_job_id == job_id:
+            _current_job_id = None
+            _current_scan_progress = {"status": "idle", "percentage": 0, "found": 0, "total": 0, "message": ""}
 
 
 @router.get("/scan-all")
@@ -91,67 +123,80 @@ async def run_full_market_scan(
     forward_days: int = Query(10, description="عدد أيام المتابعة"),
     target_return: float = Query(0.05, description="العائد المستهدف"),
     stop_loss: float = Query(-0.03, description="وقف الخسارة"),
+    search_scope: str = Query("same_symbol", description="same_symbol أو all_symbols"),
     background_tasks: BackgroundTasks = None,
     admin_key: Optional[str] = Header(default=None)
 ):
     """
     Run a full market-wide similarity scan on ALL symbols
-    This uses the same code that previously generated the 3-stock report
-    Now it scans the entire market and stores results for historical reference
+    Supports same_symbol and cross-symbol (all_symbols) search scope.
     """
     try:
         _verify_admin_key(admin_key)
-        
-        print(f"🚀 Starting full market similarity scan...")
-        print(f"   Parameters: K={k}, Forward Days={forward_days}, Target={target_return}, SL={stop_loss}")
-        
+        import uuid
+        job_id = str(uuid.uuid4())
+
+        if not _acquire_scan_lock(job_id):
+            raise HTTPException(status_code=409, detail="هناك مسح قيد التنفيذ بالفعل.")
+
+        print(f"🚀 Starting full market similarity scan (job={job_id})...")
+        print(f"   Parameters: K={k}, Forward Days={forward_days}, Target={target_return}, SL={stop_loss}, Scope={search_scope}")
+
         def progress_callback(progress_data):
-            global _scan_progress
-            _scan_progress.update(progress_data)
-            _scan_progress["message"] = f"جاري المسح: {progress_data['completed']}/{progress_data['total']}"
-            print(f"   {_scan_progress['message']}")
-        
-        # Run the scan synchronously (it returns results)
-        results = run_market_wide_similarity_scan(
-            k=k,
-            forward_days=forward_days,
-            target_return=target_return,
-            stop_loss=stop_loss,
-            progress_callback=progress_callback
-        )
-        
-        print(f"✅ Scan completed! Found {len(results)} results")
-        
-        if results:
-            # Publish the results
-            report_data = {
-                "name": f"Full Market Scan - {datetime.now().strftime('%Y-%m-%d %H:%M')}",
-                "scans": results,
-                "k": k,
-                "forward_days": forward_days,
-                "target_return": target_return,
-                "stop_loss": stop_loss
-            }
-            
-            published_report = publish_similarity_report(report_data)
-            print(f"✅ Report published: {published_report.get('id')}")
-            
-            return {
-                "status": "success",
-                "message": f"تم مسح السوق بنجاح - وجدنا {len(results)} نتيجة",
-                "report_id": published_report.get('id'),
-                "results_count": len(results),
-                "scans": results[:50]  # Return first 50 in response
-            }
-        else:
-            return {
-                "status": "success",
-                "message": "تم المسح لكن لم يتم العثور على نتائج",
-                "results_count": 0,
-                "scans": []
-            }
-        
+            _set_scan_progress({
+                **progress_data,
+                "message": f"جاري المسح: {progress_data['completed']}/{progress_data['total']}"
+            })
+            print(f"   {_current_scan_progress['message']}")
+
+        try:
+            results = run_market_wide_similarity_scan(
+                k=k,
+                forward_days=forward_days,
+                target_return=target_return,
+                stop_loss=stop_loss,
+                search_scope=search_scope,
+                progress_callback=progress_callback
+            )
+
+            print(f"✅ Scan completed! Found {len(results)} results")
+
+            if results:
+                report_data = {
+                    "name": f"Full Market Scan - {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+                    "scans": results,
+                    "k": k,
+                    "forward_days": forward_days,
+                    "target_return": target_return,
+                    "stop_loss": stop_loss
+                }
+
+                published_report = publish_similarity_report(report_data)
+                print(f"✅ Report published: {published_report.get('id')}")
+                _set_scan_progress({"status": "success", "percentage": 100, "message": f"تم بنجاح - {len(results)} نتيجة"})
+
+                return {
+                    "status": "success",
+                    "message": f"تم مسح السوق بنجاح - وجدنا {len(results)} نتيجة",
+                    "report_id": published_report.get('id'),
+                    "results_count": len(results),
+                    "scans": results[:50]
+                }
+            else:
+                _set_scan_progress({"status": "success", "percentage": 100, "message": "لا توجد نتائج"})
+                return {
+                    "status": "success",
+                    "message": "تم المسح لكن لم يتم العثور على نتائج",
+                    "results_count": 0,
+                    "scans": []
+                }
+        finally:
+            _release_scan_lock(job_id)
+
+    except HTTPException:
+        raise
     except Exception as e:
+        _release_scan_lock(job_id if 'job_id' in dir() else "")
         print(f"❌ Error during scan: {str(e)}")
         raise HTTPException(status_code=500, detail=f"خطأ أثناء المسح: {str(e)}")
 
@@ -161,7 +206,7 @@ async def get_scan_progress(admin_key: Optional[str] = Header(default=None)):
     """Get current scan progress"""
     try:
         _verify_admin_key(admin_key)
-        return _scan_progress
+        return _get_scan_progress()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"خطأ: {str(e)}")
 

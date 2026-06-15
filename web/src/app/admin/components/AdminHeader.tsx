@@ -1,10 +1,10 @@
 "use client";
 
-import { Brain, Database, Bot, LineChart, History, Calendar, Sparkles } from "lucide-react";
+import { Brain, Database, Bot, LineChart, History, Calendar, Sparkles, Clock } from "lucide-react";
 
 interface AdminHeaderProps {
-    activeMainTab: "data" | "ai" | "backtest" | "bot" | "schedule" | "similarity";
-    setActiveMainTab: (tab: "data" | "ai" | "backtest" | "bot" | "schedule" | "similarity") => void;
+    activeMainTab: "data" | "ai" | "backtest" | "bot" | "schedule" | "similarity" | "jobs";
+    setActiveMainTab: (tab: "data" | "ai" | "backtest" | "bot" | "schedule" | "similarity" | "jobs") => void;
 }
 
 export default function AdminHeader({ activeMainTab, setActiveMainTab }: AdminHeaderProps) {
@@ -14,7 +14,8 @@ export default function AdminHeader({ activeMainTab, setActiveMainTab }: AdminHe
         { id: "bot", label: "LIVE BOT", icon: Bot, color: "green" },
         { id: "backtest", label: "BACKTEST", icon: LineChart, color: "yellow" },
         { id: "similarity", label: "SIMILARITY", icon: History, color: "pink" },
-        { id: "schedule", label: "SCHEDULE", icon: Calendar, color: "orange" },
+        { id: "jobs", label: "JOBS", icon: Clock, color: "orange" },
+        { id: "schedule", label: "ALERTS", icon: Calendar, color: "amber" },
     ] as const;
 
     const getTabColorClasses = (color: string, isActive: boolean) => {
@@ -26,7 +27,8 @@ export default function AdminHeader({ activeMainTab, setActiveMainTab }: AdminHe
             green: "neobrutal-bg-green",
             yellow: "neobrutal-bg-yellow",
             pink: "neobrutal-bg-pink",
-            orange: "neobrutal-bg-orange"
+            orange: "neobrutal-bg-orange",
+            amber: "neobrutal-bg-amber"
         };
         
         return colors[color as keyof typeof colors] || "neobrutal-bg-yellow";

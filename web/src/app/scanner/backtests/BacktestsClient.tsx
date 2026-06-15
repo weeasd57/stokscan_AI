@@ -15,6 +15,7 @@ import { TradeTimeline } from "@/app/admin/components/TradeTimeline";
 import TradingViewChart from "@/components/TradingViewChart";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import RecommendationsTable from "@/components/RecommendationsTable";
+import TelegramServiceToggle from "@/components/TelegramServiceToggle";
 import { 
     ResponsiveContainer, 
     LineChart as RechartsLineChart, 
@@ -294,6 +295,191 @@ const getBacktestSettings = (bt: Backtest) => {
         stopLoss: sl !== undefined && sl !== null ? Math.round(sl * 100) : null,
     };
 };
+
+// ── Telegram Notification Card ──────────────────────────────────────────
+function TelegramNotificationCard() {
+    const { user } = useAuth();
+    const { language } = useLanguage();
+    const isAr = language === "ar";
+    const supabase = useMemo(() => createSupabaseBrowserClient(), []);
+
+    const [telegramLinked, setTelegramLinked] = useState(false);
+    const [notificationsEnabled, setNotificationsEnabled] = useState(false);
+    const [loading, setLoading] = useState(true);
+    const [toggling, setToggling] = useState(false);
+    const [chatId, setChatId] = useState<string | null>(null);
+
+    useEffect(() => {
+        if (!user) { setLoading(false); return; }
+        let active = true;
+        async function load() {
+            try {
+                const { data: profile } = await supabase
+                    .from("profiles")
+                    .select("telegram_chat_id")
+                    .eq("id", user!.id)
+                    .maybeSingle();
+
+                if (active && profile?.telegram_chat_id) {
+                    setTelegramLinked(true);
+                    setChatId(profile.telegram_chat_id);
+                }
+
+                // Check if user has any active bot subscriptions with notifications
+                const { data: subs } = await supabase
+                    .from("bot_subscriptions")
+                    .select("notifications_enabled")
+                    .eq("user_id", user!.id)
+                    .limit(1);
+
+                if (active && subs && subs.length > 0) {
+                    setNotificationsEnabled(subs[0].notifications_enabled ?? true);
+                }
+            } catch (e) {
+                console.error("TelegramCard load error:", e);
+            } finally {
+                if (active) setLoading(false);
+            }
+        }
+        load();
+        return () => { active = false; };
+    }, [user, supabase]);
+
+    const toggleNotifications = async () => {
+        if (!user || toggling) return;
+        setToggling(true);
+        const newState = !notificationsEnabled;
+        try {
+            // Upsert into bot_subscriptions
+            const { data: existing } = await supabase
+                .from("bot_subscriptions")
+                .select("id")
+                .eq("user_id", user.id)
+                .limit(1);
+
+            if (existing && existing.length > 0) {
+                await supabase
+                    .from("bot_subscriptions")
+                    .update({ notifications_enabled: newState })
+                    .eq("user_id", user.id);
+            } else {
+                // Create a default subscription entry
+                await supabase
+                    .from("bot_subscriptions")
+                    .insert({
+                        user_id: user.id,
+                        bot_id: "stock_score",
+                        notifications_enabled: newState,
+                        created_at: new Date().toISOString(),
+                    });
+            }
+            setNotificationsEnabled(newState);
+        } catch (e) {
+            console.error("Toggle notifications error:", e);
+        } finally {
+            setToggling(false);
+        }
+    };
+
+    const connectTelegram = () => {
+        const botUsername = "EGXBotsBot"; // Your bot username
+        const userId = user?.id || "";
+        const deepLink = `https://t.me/${botUsername}?start=${userId}`;
+        window.open(deepLink, "_blank");
+    };
+
+    if (loading) {
+        return (
+            <div className="border-4 border-black dark:border-white bg-zinc-950 p-4 shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_rgba(255,255,255,1)] animate-pulse">
+                <div className="h-6 w-48 bg-zinc-800 rounded" />
+            </div>
+        );
+    }
+
+    return (
+        <div className="border-4 border-black dark:border-white bg-zinc-950 p-5 shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_rgba(255,255,255,1)]">
+            <div className="flex items-center justify-between flex-wrap gap-4">
+                <div className="flex items-center gap-3">
+                    <div className={`w-10 h-10 rounded-full flex items-center justify-center border-2 ${telegramLinked ? 'bg-sky-500/20 border-sky-500/30' : 'bg-zinc-800 border-zinc-700'}`}>
+                        {telegramLinked ? (
+                            <svg className="w-5 h-5 text-sky-400" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.562 8.161c-.18 1.897-.962 6.502-1.359 8.627-.168.9-.5 1.201-.82 1.23-.697.064-1.226-.46-1.901-.903-1.056-.692-1.653-1.123-2.678-1.799-1.185-.781-.417-1.21.258-1.911.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.139-5.062 3.345-.479.329-.913.489-1.302.481-.428-.009-1.252-.242-1.865-.441-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.831-2.529 6.998-3.015 3.333-1.386 4.025-1.627 4.476-1.635.099-.002.321.023.465.141.119.098.152.228.168.32.016.092.036.301.02.466z"/>
+                            </svg>
+                        ) : (
+                            <svg className="w-5 h-5 text-zinc-500" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.562 8.161c-.18 1.897-.962 6.502-1.359 8.627-.168.9-.5 1.201-.82 1.23-.697.064-1.226-.46-1.901-.903-1.056-.692-1.653-1.123-2.678-1.799-1.185-.781-.417-1.21.258-1.911.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.139-5.062 3.345-.479.329-.913.489-1.302.481-.428-.009-1.252-.242-1.865-.441-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.831-2.529 6.998-3.015 3.333-1.386 4.025-1.627 4.476-1.635.099-.002.321.023.465.141.119.098.152.228.168.32.016.092.036.301.02.466z"/>
+                            </svg>
+                        )}
+                    </div>
+                    <div>
+                        <h3 className="text-sm font-black text-white uppercase tracking-tight">
+                            {isAr ? "إشعارات تليجرام" : "Telegram Alerts"}
+                        </h3>
+                        <p className="text-[10px] text-zinc-400 font-medium">
+                            {telegramLinked
+                                ? (isAr ? "✅ الحساب مربوط - استلم إشعارات فورية" : "✅ Account linked — receive instant alerts")
+                                : (isAr ? "اربط تليجرام لاستلام إشعارات فورية" : "Connect Telegram for instant alerts")
+                            }
+                        </p>
+                    </div>
+                </div>
+
+                <div className="flex items-center gap-3">
+                    {!telegramLinked ? (
+                        <button
+                            onClick={connectTelegram}
+                            className="h-9 px-4 border-2 border-sky-500 bg-sky-500/10 text-sky-400 hover:bg-sky-500/20 font-bold uppercase text-xs flex items-center gap-2 shadow-[2px_2px_0px_rgba(14,165,233,0.3)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all duration-100"
+                        >
+                            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.562 8.161c-.18 1.897-.962 6.502-1.359 8.627-.168.9-.5 1.201-.82 1.23-.697.064-1.226-.46-1.901-.903-1.056-.692-1.653-1.123-2.678-1.799-1.185-.781-.417-1.21.258-1.911.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.139-5.062 3.345-.479.329-.913.489-1.302.481-.428-.009-1.252-.242-1.865-.441-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.831-2.529 6.998-3.015 3.333-1.386 4.025-1.627 4.476-1.635.099-.002.321.023.465.141.119.098.152.228.168.32.016.092.036.301.02.466z"/>
+                            </svg>
+                            {isAr ? "ربط تليجرام" : "Connect Telegram"}
+                        </button>
+                    ) : (
+                        <>
+                            {/* Notification Toggle */}
+                            <button
+                                onClick={toggleNotifications}
+                                disabled={toggling}
+                                className={`relative h-9 w-16 rounded-full border-2 transition-all duration-200 ${
+                                    notificationsEnabled
+                                        ? 'bg-emerald-500/20 border-emerald-500'
+                                        : 'bg-zinc-800 border-zinc-600'
+                                }`}
+                            >
+                                <div className={`absolute top-1 w-5 h-5 rounded-full bg-white shadow transition-all duration-200 ${
+                                    notificationsEnabled ? 'right-1' : 'left-1'
+                                }`} />
+                            </button>
+                            <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">
+                                {notificationsEnabled
+                                    ? (isAr ? "مفعل" : "ON")
+                                    : (isAr ? "معطل" : "OFF")
+                                }
+                            </span>
+                        </>
+                    )}
+                </div>
+            </div>
+
+            {/* Info about what notifications include */}
+            {telegramLinked && notificationsEnabled && (
+                <div className="mt-4 pt-4 border-t border-white/5 grid grid-cols-1 md:grid-cols-3 gap-3">
+                    {[
+                        { icon: "🟢", textAr: "إشارات شراء جديدة", textEn: "New Buy Signals" },
+                        { icon: "🎯", textAr: "تعديل الأهداف السعرية", textEn: "Target Adjustments" },
+                        { icon: "🛡️", textAr: "تنبيهات وقف الخسارة", textEn: "Stop Loss Alerts" },
+                    ].map((item, i) => (
+                        <div key={i} className="flex items-center gap-2 text-[10px] font-bold text-zinc-400">
+                            <span className="text-sm">{item.icon}</span>
+                            <span>{isAr ? item.textAr : item.textEn}</span>
+                        </div>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+}
 
 export default function AIScannerPage() {
     const { user } = useAuth();
@@ -875,6 +1061,8 @@ export default function AIScannerPage() {
             {/* TAB CONTENT: BOTS */}
             {activeTab === "bots" && (
                 <div className="space-y-6">
+                    {/* ── Telegram Notification Card ── */}
+                    {user && <TelegramNotificationCard />}
                     <RecommendationsTable />
                 </div>
             )}
@@ -882,6 +1070,10 @@ export default function AIScannerPage() {
             {/* TAB CONTENT: HISTORICAL SIMILARITY */}
             {activeTab === "similarity" && (
                 <div className="space-y-8 animate-in fade-in duration-300" dir="ltr" style={{ direction: 'ltr' }}>
+                    <TelegramServiceToggle
+                        serviceType="historical_similarity"
+                        botId="historical_similarity"
+                    />
                     {similarityLoading ? (
                         <div className="flex flex-col items-center justify-center py-20 gap-4">
                             <Loader2 className="w-10 h-10 animate-spin text-indigo-500" />
@@ -1082,6 +1274,105 @@ export default function AIScannerPage() {
                             </div>
                         </div>
                     )}
+
+                    {/* ── Feature Explanation Section ── */}
+                    <div className="border-4 border-black dark:border-white bg-zinc-950 p-8 shadow-[6px_6px_0px_rgba(0,0,0,1)] dark:shadow-[6px_6px_0px_rgba(255,255,255,1)]">
+                        <div className="max-w-4xl mx-auto space-y-8">
+
+                            {/* Header */}
+                            <div className="text-center">
+                                <div className="inline-block border-2 border-black dark:border-white bg-indigo-500/20 text-indigo-400 px-3 py-1 text-[10px] font-black uppercase tracking-widest mb-3">
+                                    {language === "ar" ? "كيف يعمل" : "HOW IT WORKS"}
+                                </div>
+                                <h3 className="text-xl font-black text-white uppercase tracking-tight">
+                                    {language === "ar" ? "محرك الأنماط التاريخية" : "Historical Pattern Matching Engine"}
+                                </h3>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                                {[
+                                    {
+                                        step: "01",
+                                        enTitle: "Pattern Recognition",
+                                        arTitle: "التعرف على الأنماط",
+                                        enDesc: "The engine scans each stock's complete price history and extracts 13 key features: RSI, Bollinger %B, SMA distances, MACD, relative volume, rolling returns, and chart shape vectors.",
+                                        arDesc: "يمسح المحرك التاريخ الكامل لكل سهم ويستخرج 13 ميزة رئيسية: RSI، Bollinger %B، مسافات SMA، MACD، الحجم النسبي، العوائد المتحركة، وشكل الشارت.",
+                                        color: "border-indigo-500/30 bg-indigo-500/5"
+                                    },
+                                    {
+                                        step: "02",
+                                        enTitle: "Cosine Similarity Matching",
+                                        arTitle: "مطابقة تشابه جيب التمام",
+                                        enDesc: "Each day's feature vector is compared against every other day using cosine similarity. The top K most similar historical patterns are selected, spaced at least 20 days apart to prevent clustering.",
+                                        arDesc: "تتم مقارنة متجه الميزات لكل يوم مع كل الأيام الأخرى باستخدام تشابه جيب التمام. يتم اختيار أكثر K نمط تاريخي تشابهاً، مع تباعد 20 يوم على الأقل لمنع التجميع.",
+                                        color: "border-emerald-500/30 bg-emerald-500/5"
+                                    },
+                                    {
+                                        step: "03",
+                                        enTitle: "Forward Path Simulation",
+                                        arTitle: "محاكاة المسار المستقبلي",
+                                        enDesc: "For each matching pattern, the engine simulates holding for N days, tracking the return path. It computes win rate, average return, profit factor, and expected edge against target and stop-loss levels.",
+                                        arDesc: "لكل نمط مطابق، يحاكي المحرك الاحتفاظ بالسهم لمدة N يوم ويتتبع مسار العائد. يحسب نسبة النجاح، متوسط العائد، عامل الربح، والقيمة المتوقعة مقابل الهدف ووقف الخسارة.",
+                                        color: "border-amber-500/30 bg-amber-500/5"
+                                    }
+                                ].map((item, idx) => (
+                                    <div key={idx} className={`${item.color} border rounded p-5 space-y-3`}>
+                                        <div className="text-3xl font-black text-white font-mono opacity-20">{item.step}</div>
+                                        <h4 className="text-sm font-black text-white uppercase tracking-wider">
+                                            {language === "ar" ? item.arTitle : item.enTitle}
+                                        </h4>
+                                        <p className="text-xs text-zinc-400 leading-relaxed font-medium">
+                                            {language === "ar" ? item.arDesc : item.enDesc}
+                                        </p>
+                                    </div>
+                                ))}
+                            </div>
+
+                            <div className="border-t border-white/5 pt-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div className="bg-zinc-900 border border-white/5 rounded p-4">
+                                    <h4 className="text-xs font-black text-zinc-200 uppercase tracking-wider mb-2">
+                                        {language === "ar" ? "الميزات الـ 13 المستخدمة" : "13 Features Analyzed"}
+                                    </h4>
+                                    <div className="grid grid-cols-2 gap-1.5 text-[10px] font-mono">
+                                        {["RSI", "BB %B", "Close/SMA50", "Close/SMA200", "MACD Norm", "R_VOL", "Return 3d", "Return 5d", "Return 10d", "Return 20d", "ChartShape x5", "Z-Score Norm", "Cosine Sim"].map((f, i) => (
+                                            <span key={i} className="text-zinc-400 bg-zinc-800/50 px-2 py-1 rounded flex items-center gap-1.5">
+                                                <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 flex-shrink-0" />
+                                                {f}
+                                            </span>
+                                        ))}
+                                    </div>
+                                </div>
+                                <div className="bg-zinc-900 border border-white/5 rounded p-4">
+                                    <h4 className="text-xs font-black text-zinc-200 uppercase tracking-wider mb-2">
+                                        {language === "ar" ? "كيف تقرأ النتائج" : "How to Read Results"}
+                                    </h4>
+                                    <ul className="space-y-2 text-[10px] font-mono text-zinc-400">
+                                        {[
+                                            { en: "Win Rate = % of historical matches that hit target", ar: "نسبة النجاح = % من المطابقات التاريخية التي حققت الهدف" },
+                                            { en: "Avg Return = average forward return across all matches", ar: "متوسط العائد = متوسط العائد المستقبلي عبر كل المطابقات" },
+                                            { en: "Profit Factor = gross gains / gross losses ratio", ar: "عامل الربح = إجمالي المكاسب / إجمالي الخسائر" },
+                                            { en: "Expected Edge = probability-weighted expected yield per trade", ar: "القيمة المتوقعة = العائد المتوقع لكل صفقة مرجح بالاحتمالات" },
+                                        ].map((item, i) => (
+                                            <li key={i} className="flex items-start gap-2">
+                                                <span className="text-amber-400 mt-0.5">▸</span>
+                                                <span>{language === "ar" ? item.ar : item.en}</span>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </div>
+                            </div>
+
+                            <div className="text-center">
+                                <p className="text-[10px] text-zinc-600 font-mono">
+                                    {language === "ar"
+                                        ? "يتم تحديث البيانات تلقائياً يومياً بعد إغلاق السوق. قد تختلف النتائج السابقة عن الأداء المستقبلي."
+                                        : "Data updates automatically after market close each day. Past results do not guarantee future performance."
+                                    }
+                                </p>
+                            </div>
+
+                        </div>
+                    </div>
                 </div>
             )}
 

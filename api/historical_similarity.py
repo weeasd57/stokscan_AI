@@ -377,15 +377,15 @@ def run_historical_similarity(
     target_vector_std = (target_vector - mean_vec) / std_vec
     search_matrix_std = (search_matrix_raw - mean_vec) / std_vec
     
-    # 7. Apply exclusion window (prevent target date from matching itself)
+    # 7. Apply exclusion window (prevent target date from matching itself or nearby dates)
     exclude_mask = []
     target_symbol_lower = symbol.lower()
-    
+
     for idx, row in combined_feats_clean.iterrows():
         is_same_symbol = row["symbol_source"].lower() == target_symbol_lower
-        is_exact_target_date = (idx == target_ts)
-        # Only exclude the exact target date for the same symbol
-        if is_same_symbol and is_exact_target_date:
+        days_from_target = abs((idx - target_ts).days)
+        # Exclude target date ± exclusion_window days for the same symbol
+        if is_same_symbol and days_from_target <= exclusion_window:
             exclude_mask.append(False)
         else:
             exclude_mask.append(True)
@@ -581,7 +581,8 @@ def run_historical_similarity(
     win_rate = (wins / total_matches) if total_matches > 0 else 0.0
     average_return = (total_return / total_matches) if total_matches > 0 else 0.0
     profit_factor = (gross_gains / gross_losses) if gross_losses > 0 else (gross_gains if gross_gains > 0 else 1.0)
-    expected_value = (win_rate * max(0.0, target_return)) + ((1 - win_rate) * stop_loss)
+    avg_win_return = (total_return / wins) if wins > 0 else target_return
+    expected_value = (win_rate * avg_win_return) + ((1 - win_rate) * stop_loss)
     
     res = {
         "symbol": symbol,
@@ -627,6 +628,7 @@ def run_market_wide_similarity_scan(
     features_to_use: Optional[List[str]] = None,
     min_win_rate: float = 0.0,  # Changed: include all results, no filtering
     max_workers: int = 35,
+    search_scope: str = "same_symbol",
     progress_callback=None
 ) -> List[Dict[str, Any]]:
     """
@@ -641,6 +643,7 @@ def run_market_wide_similarity_scan(
         features_to_use: Specific features to use
         min_win_rate: Minimum win rate filter (0.0 = no filter, include all)
         max_workers: Number of concurrent workers
+        search_scope: 'same_symbol' or 'all_symbols' (cross-symbol similarity)
         progress_callback: Callback function for progress updates
     """
     from api.stock_ai import get_supabase_symbols
@@ -686,7 +689,7 @@ def run_market_wide_similarity_scan(
                 stop_loss=stop_loss,
                 features_to_use=features_to_use,
                 exclusion_window=20,
-                search_scope="same_symbol"
+                search_scope=search_scope
             )
             scanned_count += 1
             

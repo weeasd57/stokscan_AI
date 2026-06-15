@@ -849,10 +849,44 @@ export const AIScannerProvider = ({ children }: { children: ReactNode }) => {
                 });
             }
 
+            const normalizeSymbolKey = (value: string | null | undefined) => (value || "").toUpperCase().split(".")[0];
+            const symbolKeys = Array.from(new Set(scanData.map(r => normalizeSymbolKey(r.symbol)).filter(Boolean)));
+            const positionSymbols = Array.from(new Set(scanData.flatMap(r => {
+                const rawSymbol = (r.symbol || "").toUpperCase();
+                const baseSymbol = normalizeSymbolKey(rawSymbol);
+                return [rawSymbol, baseSymbol].filter(Boolean);
+            })));
+            const openPositionMap: Record<string, any> = {};
+
+            if (user && positionSymbols.length > 0) {
+                const { data: positionData, error: positionErr } = await supabase
+                    .from("positions")
+                    .select("id,symbol,entry_price,entry_at,target_price,stop_price,status,status_price,metadata,updated_at,added_at")
+                    .eq("status", "open")
+                    .in("symbol", positionSymbols);
+
+                if (!positionErr && positionData) {
+                    positionData.forEach(position => {
+                        openPositionMap[normalizeSymbolKey(position.symbol)] = position;
+                    });
+                }
+            }
+
             const mapped = scanData.map(row => {
                 let tech = row.technical_score || 0;
                 let fund = row.fundamental_score || 0;
                 let sentiment = row.sentiment_score || 0;
+                const openPosition = openPositionMap[normalizeSymbolKey(row.symbol)];
+                const positionMeta = openPosition?.metadata || {};
+                const currentPrice = openPosition
+                    ? Number(openPosition.status_price || positionMeta.current_price || row.last_close) || 0
+                    : Number(row.last_close) || 0;
+                const entryPrice = openPosition
+                    ? Number(openPosition.entry_price || positionMeta.entry_price || row.entry_price || row.last_close) || 0
+                    : (row.entry_price ? Number(row.entry_price) : undefined);
+                const positionChangePct = positionMeta.price_change_pct != null
+                    ? Number(positionMeta.price_change_pct)
+                    : (entryPrice && currentPrice ? ((currentPrice - entryPrice) / entryPrice) * 100 : null);
 
                 if (row.features) {
                     try {
@@ -888,15 +922,26 @@ export const AIScannerProvider = ({ children }: { children: ReactNode }) => {
                     signal: row.signal || "BUY",
                     precision: row.precision || 0.5,
                     exchange: row.exchange || "EGX",
-                    last_close: Number(row.last_close) || 0,
-                    target_price: row.target_price ? Number(row.target_price) : undefined,
-                    stop_loss: row.stop_loss ? Number(row.stop_loss) : undefined,
+                    last_close: currentPrice,
+                    target_price: openPosition?.target_price ? Number(openPosition.target_price) : (row.target_price ? Number(row.target_price) : undefined),
+                    stop_loss: openPosition?.stop_price ? Number(openPosition.stop_price) : (row.stop_loss ? Number(row.stop_loss) : undefined),
                     created_at: row.created_at,
                     technical_score: tech,
                     fundamental_score: fund,
                     sentiment_score: sentiment,
                     sector: sectorMap[row.symbol] || "General",
-                    logo_url: row.logo_url
+                    logo_url: row.logo_url,
+                    top_reasons: row.top_reasons || null,
+                    status: openPosition?.status || row.status || "open",
+                    profit_loss_pct: openPosition ? positionChangePct : (row.profit_loss_pct != null ? Number(row.profit_loss_pct) : null),
+                    entry_price: entryPrice,
+                    exit_price: row.exit_price ? Number(row.exit_price) : undefined,
+                    position_id: openPosition?.id,
+                    position_updated_at: openPosition?.updated_at,
+                    latest_price_date: positionMeta.latest_price_date,
+                    latest_volume: positionMeta.latest_volume,
+                    change_pct: row.change_pct != null ? Number(row.change_pct) : null,
+                    updated_at: row.updated_at || row.created_at,
                 };
             });
 

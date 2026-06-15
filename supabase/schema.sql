@@ -267,6 +267,30 @@ create table if not exists public.bot_alerts (
     created_at timestamptz default now()
 );
 
+create table if not exists public.bot_subscriptions (
+    id uuid primary key default gen_random_uuid(),
+    user_id uuid not null references auth.users(id) on delete cascade,
+    bot_id text not null default 'stock_score',
+    service_type text not null default 'stock_score' check (service_type in ('stock_score','historical_similarity','technical_scanner','ai_bot')),
+    notifications_enabled boolean not null default true,
+    telegram_chat_id text,
+    target_pct numeric(6,2),
+    stop_loss_pct numeric(6,2),
+    max_open_positions int,
+    pct_cash_per_trade numeric(6,2),
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now(),
+    unique (user_id, bot_id)
+);
+
+-- Add service_type column if table already existed without it
+alter table public.bot_subscriptions
+    add column if not exists service_type text not null default 'stock_score'
+    check (service_type in ('stock_score','historical_similarity','technical_scanner','ai_bot'));
+
+-- Partial unique index: one subscription per service per user (except ai_bot which uses bot_id)
+create unique index if not exists bot_subscriptions_user_service_unique on public.bot_subscriptions (user_id, service_type) where service_type != 'ai_bot';
+
 -- Scan Results
 create table if not exists public.scan_results (
     id uuid primary key default gen_random_uuid(),
@@ -297,6 +321,47 @@ create table if not exists public.scan_results (
     source text default 'scan',
     created_at timestamptz not null default now(),
     updated_at timestamptz not null default now()
+);
+
+-- Historical Similarity Tables
+create table if not exists public.similarity_cases (
+    id uuid primary key default gen_random_uuid(),
+    name text not null,
+    symbol text not null,
+    k int not null default 10,
+    forward_days int not null default 10,
+    target_return numeric(10,4) default 0.05,
+    stop_loss numeric(10,4) default -0.03,
+    features jsonb default '[]'::jsonb,
+    search_scope text default 'same_symbol',
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now()
+);
+
+create table if not exists public.similarity_reports (
+    id uuid primary key default gen_random_uuid(),
+    name text not null default 'Market Similarity Report',
+    scans jsonb not null default '[]'::jsonb,
+    k int not null default 10,
+    forward_days int not null default 10,
+    target_return numeric(10,4) default 0.05,
+    stop_loss numeric(10,4) default -0.03,
+    updated_at timestamptz not null default now()
+);
+
+-- Daily Job Runs Tracking
+create table if not exists public.daily_job_runs (
+    id uuid primary key default gen_random_uuid(),
+    job_type text not null default 'daily_bot',
+    status text not null default 'running' check (status in ('running', 'completed', 'failed')),
+    started_at timestamptz not null default now(),
+    completed_at timestamptz,
+    steps jsonb not null default '[]'::jsonb,
+    total_symbols int default 0,
+    error text,
+    schedule_time text,
+    trigger text default 'manual' check (trigger in ('manual', 'scheduled', 'cron')),
+    created_at timestamptz not null default now()
 );
 
 -- Triggers for updated_at
@@ -353,5 +418,19 @@ grant all on public.bot_trades to anon, authenticated, service_role;
 grant all on public.bot_logs to anon, authenticated, service_role;
 grant all on public.bot_configs to anon, authenticated, service_role;
 grant all on public.bot_states to anon, authenticated, service_role;
+
+alter table public.similarity_cases enable row level security;
+alter table public.similarity_reports enable row level security;
+alter table public.daily_job_runs enable row level security;
+
+create policy "allow_all_similarity_cases" on public.similarity_cases for all using (true);
+create policy "allow_all_similarity_reports" on public.similarity_reports for all using (true);
+create policy "allow_all_daily_job_runs" on public.daily_job_runs for all using (true);
+
+grant all on public.similarity_cases to anon, authenticated, service_role;
+grant all on public.similarity_reports to anon, authenticated, service_role;
+grant all on public.daily_job_runs to anon, authenticated, service_role;
+
+create index if not exists idx_daily_job_runs_started on public.daily_job_runs(started_at desc);
 
 -- ... [Other policies as needed] ...

@@ -74,7 +74,8 @@ export default function HistoricalSimilarityTab({ dbInventory }: HistoricalSimil
     const [forwardDays, setForwardDays] = useState(10);
     const [targetReturn, setTargetReturn] = useState(5.0);
     const [stopLoss, setStopLoss] = useState(-3.0);
-    
+    const [searchScope, setSearchScope] = useState<string>("same_symbol");
+
     const [selectedFeatures, setSelectedFeatures] = useState<string[]>([
         "RSI", "BB_pB", "Close_to_SMA50", "Close_to_SMA200", "MACD_Norm", "R_VOL", "Return_5d", "ChartShape"
     ]);
@@ -154,7 +155,8 @@ export default function HistoricalSimilarityTab({ dbInventory }: HistoricalSimil
                 k: String(kMatches),
                 forward_days: String(forwardDays),
                 target_return: String(targetReturn / 100.0),
-                stop_loss: String(stopLoss / 100.0)
+                stop_loss: String(stopLoss / 100.0),
+                search_scope: searchScope,
             });
 
             const res = await fetch(`/api/admin/similarity/run-full-market-scan?${params}`, {
@@ -325,6 +327,21 @@ export default function HistoricalSimilarityTab({ dbInventory }: HistoricalSimil
                                     />
                                 </div>
                             </div>
+                        </div>
+
+                        {/* Search Scope */}
+                        <div className="border-t-4 border-black dark:border-white pt-4 space-y-2">
+                            <label className="text-xs font-black uppercase tracking-widest text-zinc-400">
+                                🔍 Search Scope
+                            </label>
+                            <select
+                                value={searchScope}
+                                onChange={(e) => setSearchScope(e.target.value)}
+                                className="w-full h-10 border-2 border-zinc-800 bg-zinc-900/60 px-3 text-xs font-bold text-white outline-none focus:border-amber-400"
+                            >
+                                <option value="same_symbol">Same Symbol (historical patterns of this stock)</option>
+                                <option value="all_symbols">All Symbols (cross-symbol similarity)</option>
+                            </select>
                         </div>
 
                         {/* Features checklist */}

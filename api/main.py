@@ -122,9 +122,25 @@ async def startup_event():
     except Exception as e:
         print(f"DEBUG ERROR: Failed to start Intraday Downloader: {e}")
 
+    # Start Daily Job Scheduler (stock_score + historical similarity)
+    try:
+        from api.daily_job_scheduler import start_daily_job_scheduler
+
+        start_daily_job_scheduler()
+        print("DEBUG: Daily Job Scheduler started successfully.")
+    except Exception as e:
+        print(f"DEBUG ERROR: Failed to start Daily Job Scheduler: {e}")
+
 
 @app.on_event("shutdown")
 async def shutdown_event():
+    # Stop Daily Job Scheduler
+    try:
+        from api.daily_job_scheduler import stop_daily_job_scheduler
+        stop_daily_job_scheduler()
+    except Exception:
+        pass
+
     # Cleanup Telegram Bot
     if hasattr(app.state, "telegram_bridge"):
         try:
@@ -164,7 +180,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
     )
 
 
-from api.routers import admin, bot, payment, scan_ai, scan_ai_fast, scan_tech, similarity_dashboard, similarity_admin
+from api.routers import admin, bot, payment, scan_ai, scan_ai_fast, scan_tech, similarity_admin
 
 app.include_router(scan_ai.router)
 app.include_router(scan_ai_fast.router)
@@ -173,8 +189,14 @@ app.include_router(admin.router)
 app.include_router(bot.router, prefix="/ai_bot")
 app.include_router(bot.router, prefix="/bot")  # Compatibility Alias
 app.include_router(payment.router)
-app.include_router(similarity_dashboard.router)
 app.include_router(similarity_admin.router)
+
+
+@app.post("/api/admin/run-daily-bot")
+async def trigger_daily_bot(background_tasks: BackgroundTasks):
+    from api.daily_bot_run import run_daily_job
+    background_tasks.add_task(run_daily_job)
+    return {"status": "started", "message": "Daily bot run job has been started in the background."}
 
 
 @app.post("/tg-webhook/{token}")

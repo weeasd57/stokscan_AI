@@ -692,18 +692,18 @@ def _calculate_fundamental_score(row) -> int:
 
 @router.get("")
 async def fast_scan(
-    country: str = Query(default="Egypt", description="Country to scan"),
-    limit: int = Query(default=200, ge=1, le=1000, description="Max symbols to scan"),
-    min_precision: float = Query(default=0.5, ge=0.0, le=1.0),
-    model_name: str = Query(..., description="Model file name in api/models"),
-    from_date: str = Query(default=None, description="Start date (YYYY-MM-DD). Defaults to 300 days ago."),
-    to_date: str = Query(default=None, description="End date (YYYY-MM-DD)."),
-    target_pct: float = Query(default=2.0),
-    stop_loss_pct: float = Query(default=1.0),
-    look_forward_days: int = Query(default=20),
-    buy_threshold: float = Query(default=0.60),
-    council_model: Optional[str] = Query(default=None),
-    validator_model: Optional[str] = Query(default=None),
+    country: str = "Egypt",
+    limit: int = 200,
+    min_precision: float = 0.5,
+    model_name: str = "model_EGX.pkl",
+    from_date: str = None,
+    to_date: str = None,
+    target_pct: float = 2.0,
+    stop_loss_pct: float = 1.0,
+    look_forward_days: int = 20,
+    buy_threshold: float = 0.60,
+    council_model: Optional[str] = None,
+    validator_model: Optional[str] = None,
 ):
     start = time.time()
     

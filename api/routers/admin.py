@@ -2,9 +2,11 @@ import json
 import os
 import threading
 import time
+import uuid
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime
+from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Tuple
 
 import joblib
@@ -13,7 +15,7 @@ import pandas as pd
 import requests
 from dotenv import load_dotenv
 from eodhd import APIClient
-from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
@@ -136,6 +138,22 @@ LOCAL_TRAINING_STATE = {
     "last_update": None,
 }
 _local_training_lock = threading.RLock()
+
+LIVE_BOT_ONCE_STATE: Dict[str, Any] = {
+    "running": False,
+    "job_id": None,
+    "started_at": None,
+    "completed_at": None,
+    "error": None,
+    "last_message": "Idle",
+    "phase": "idle",
+    "stats": {},
+    "report_path": None,
+    "markdown": None,
+    "version": 0,
+    "last_update": None,
+}
+_live_bot_once_lock = threading.RLock()
 
 # ----------------------
 # PPO State Tracking
@@ -1491,6 +1509,503 @@ def recalculate_indicators(
         "status": "success",
         "message": f"Recalculation started for {len(symbols)} symbols in background",
     }
+
+
+class LiveBotOnceRequest(BaseModel):
+    exchange: str = "EGX"
+    days: int = 365
+    update_prices: bool = True
+    update_indicators: bool = True
+    unified: bool = True
+    top_n: int = 20
+    min_score: int = 60
+    background: bool = True
+
+
+def _set_live_bot_once_state(patch: Dict[str, Any]) -> None:
+    with _live_bot_once_lock:
+        LIVE_BOT_ONCE_STATE.update(patch)
+        LIVE_BOT_ONCE_STATE["last_update"] = datetime.utcnow().isoformat()
+        LIVE_BOT_ONCE_STATE["version"] = int(LIVE_BOT_ONCE_STATE.get("version", 0)) + 1
+
+
+def _get_live_bot_once_state() -> Dict[str, Any]:
+    with _live_bot_once_lock:
+        return dict(LIVE_BOT_ONCE_STATE)
+
+
+def _normalize_symbol_exchange(symbol: str, exchange: str) -> Tuple[str, str]:
+    raw = (symbol or "").strip().upper()
+    ex = (exchange or "US").strip().upper()
+    if ex in {"CC", "CA"}:
+        ex = "EGX"
+    if "." in raw:
+        base, suffix = raw.split(".", 1)
+        suffix = suffix.upper()
+        if suffix in {"CC", "CA"}:
+            suffix = "EGX"
+        return base, suffix
+    return raw, ex
+
+
+def _format_symbol_exchange(symbol: str, exchange: str) -> str:
+    base, ex = _normalize_symbol_exchange(symbol, exchange)
+    return f"{base}.{ex}"
+
+
+def _fetch_symbols_by_exchange(exchange: str) -> Dict[str, List[str]]:
+    ex = (exchange or "EGX").upper()
+    _init_supabase()
+
+    if ex == "ALL":
+        if not supabase:
+            return {}
+        res = supabase.table("stock_prices").select("symbol, exchange").execute()
+        by_exchange: Dict[str, set] = defaultdict(set)
+        for row in res.data or []:
+            base, row_ex = _normalize_symbol_exchange(row.get("symbol", ""), row.get("exchange", "US"))
+            if base:
+                by_exchange[row_ex].add(base)
+        if not by_exchange:
+            for symbol, row_ex in get_cached_tickers():
+                by_exchange[row_ex.upper()].add(symbol.upper())
+        return {key: sorted(value) for key, value in sorted(by_exchange.items())}
+
+    if ex == "EGX":
+        return {"EGX": sorted(set(_fetch_egx_symbols()))}
+
+    if not supabase:
+        return {}
+
+    res = (
+        supabase.table("stock_prices")
+        .select("symbol")
+        .eq("exchange", ex)
+        .execute()
+    )
+    symbols = sorted(
+        set(_normalize_symbol_exchange(row.get("symbol", ""), ex)[0] for row in res.data or [] if row.get("symbol"))
+    )
+    if symbols:
+        return {ex: symbols}
+
+    cached_symbols = set()
+    for symbol, row_ex in get_cached_tickers():
+        if row_ex.upper() == ex:
+            cached_symbols.add(symbol.upper())
+    return {ex: sorted(cached_symbols)} if cached_symbols else {}
+
+
+def _fetch_price_df_from_supabase(symbol: str, exchange: str, days: int) -> pd.DataFrame:
+    base, ex = _normalize_symbol_exchange(symbol, exchange)
+    start_date = (datetime.utcnow().date() - timedelta(days=int(days) + 90)).isoformat()
+
+    def _fetch(sb):
+        return (
+            sb.table("stock_prices")
+            .select("date,open,high,low,close,volume")
+            .eq("symbol", base)
+            .eq("exchange", ex)
+            .gte("date", start_date)
+            .order("date", desc=False)
+            .execute()
+        )
+
+    res = _supabase_read_with_retry(_fetch, table_name="stock_prices")
+    data = res.data if res and res.data else []
+    if not data:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(data)
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+    df = df.dropna(subset=["date"]).sort_values("date").drop_duplicates("date", keep="last")
+    df = df.set_index("date")
+    return df
+
+
+def _indicator_float(value: Any, default: float = 0.0) -> float:
+    try:
+        out = float(value)
+        if not np.isfinite(out):
+            return float(default)
+        return out
+    except Exception:
+        return float(default)
+
+
+def _score_live_bot_candidate(row: Dict[str, Any]) -> int:
+    close = _indicator_float(row.get("Close") or row.get("close"))
+    sma_50 = _indicator_float(row.get("SMA_50") or row.get("sma_50"), close)
+    sma_200 = _indicator_float(row.get("SMA_200") or row.get("sma_200"), close)
+    rsi = _indicator_float(row.get("RSI") or row.get("rsi"), 50.0)
+    roc = _indicator_float(row.get("ROC_12") or row.get("roc_12"))
+    adx = _indicator_float(row.get("ADX_14") or row.get("adx_14"))
+    r_vol = _indicator_float(row.get("R_VOL") or row.get("r_vol"), 1.0)
+    bb_lower = _indicator_float(row.get("BB_Lower") or row.get("bb_lower"), close)
+    bb_upper = _indicator_float(row.get("BB_Upper") or row.get("bb_upper"), close)
+
+    score = 0
+    if close > sma_50:
+        score += 2
+    if sma_50 > sma_200:
+        score += 2
+    if 35 <= rsi <= 65:
+        score += 2
+    elif 30 <= rsi < 35:
+        score += 1
+    elif rsi > 70:
+        score -= 1
+    if roc > 0:
+        score += 2
+    if roc > 3:
+        score += 1
+    if adx >= 20:
+        score += 1
+    if r_vol >= 1.2:
+        score += 1
+    if close <= bb_lower * 1.02:
+        score += 1
+    if close >= bb_upper * 0.98:
+        score -= 1
+    return max(0, min(10, score))
+
+
+def _fetch_fundamentals(symbol: str, exchange: str) -> Dict[str, Any]:
+    base, ex = _normalize_symbol_exchange(symbol, exchange)
+    try:
+        res = (
+            supabase.table("stock_fundamentals")
+            .select("data")
+            .eq("symbol", base)
+            .eq("exchange", ex)
+            .limit(1)
+            .execute()
+        )
+        data = (res.data or [{}])[0].get("data", {}) or {}
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _candidate_rationale(item: Dict[str, Any]) -> str:
+    close = item["close"]
+    sma_50 = item.get("sma_50", close)
+    sma_200 = item.get("sma_200", close)
+    rsi = item.get("rsi", 50.0)
+    roc = item.get("roc_12", 0.0)
+    r_vol = item.get("r_vol", 1.0)
+
+    if close > sma_50 and sma_50 > sma_200:
+        trend = "صاعد"
+    elif close < sma_50 and sma_50 < sma_200:
+        trend = "هابط"
+    else:
+        trend = "عرضي"
+
+    if rsi < 35:
+        rsi_text = "قريب من تشبع بيعي وقد يدعم ارتداداً فنياً"
+    elif rsi > 70:
+        rsi_text = "مرتفع وقد يحتاج إلى تهدئة قبل دخول جديد"
+    else:
+        rsi_text = "متوازن دون تشبع واضح"
+
+    volume_text = "أعلى من المتوسط" if r_vol >= 1.2 else "قريب من المتوسط"
+    return (
+        f"الاتجاه الفني العام {trend}، السعر {close:.2f} مقابل SMA50 {sma_50:.2f} وSMA200 {sma_200:.2f}. "
+        f"RSI عند {rsi:.1f} وهو {rsi_text}. العائد خلال 12 جلسة {roc:.2f}% والحجم {volume_text}."
+    )
+
+
+def _format_live_bot_once_markdown(
+    job_id: str,
+    exchange: str,
+    total_symbols: int,
+    upserted_count: int,
+    price_results: Dict[str, Any],
+    indicator_results: List[Dict[str, Any]],
+    important: List[Dict[str, Any]],
+) -> str:
+    updated_count = sum(
+        int(result.get("success", 0))
+        for exchange_result in price_results.values()
+        for result in exchange_result.get("results", {}).values()
+    )
+    lines = [
+        f"# تقرير Live Bot - Run Once",
+        "",
+        f"- Job ID: `{job_id}`",
+        f"- التاريخ: `{datetime.utcnow().isoformat()}Z`",
+        f"- البورصة: `{exchange}`",
+        f"- إجمالي الأسهم: `{total_symbols}`",
+        f"- الأسهم المحدثة سعرياً: `{updated_count}`",
+        f"- الأسهم المحدثة لها مؤشرات: `{upserted_count}`",
+        f"- أهم الأسهم المختارة: `{len(important)}`",
+        "",
+        "## ملخص التشغيل",
+        "",
+    ]
+
+    for ex, result in price_results.items():
+        lines.append(f"- {ex}: {result.get('success', 0)}/{result.get('total', 0)} symbols synced")
+    lines.extend(["", "## أهم الأسهم", ""])
+
+    if not important:
+        lines.append("لا توجد أسهم وصلت لحد النتيجة المطلوب.")
+    else:
+        for idx, item in enumerate(important, start=1):
+            lines.extend(
+                [
+                    f"### {idx}. {item['symbol']}.{item['exchange']}",
+                    "",
+                    f"- النتيجة الفنية: **{item['score']}/10**",
+                    f"- السعر: `{item['close']:.2f}`",
+                    f"- RSI: `{item['rsi']:.1f}`",
+                    f"- ROC 12: `{item['roc_12']:.2f}%`",
+                    f"- ADX: `{item['adx_14']:.1f}`",
+                    f"- الحجم النسبي: `{item['r_vol']:.2f}x`",
+                    "",
+                    _candidate_rationale(item),
+                    "",
+                ]
+            )
+
+    lines.extend(["", "## تفاصيل المؤشرات", "", "| الرمز | السعر | RSI | ROC12 | ADX | الحجم | النتيجة |", "|---|---:|---:|---:|---:|---:|---:|"])
+    for item in indicator_results[:50]:
+        lines.append(
+            f"| {item['symbol']}.{item['exchange']} | {item['close']:.2f} | {item['rsi']:.1f} | {item['roc_12']:.2f} | {item['adx_14']:.1f} | {item['r_vol']:.2f} | {item['score']}/10 |"
+        )
+
+    return "\n".join(lines) + "\n"
+
+
+def _save_live_bot_once_markdown(markdown: str, job_id: str) -> str:
+    project_root = Path(__file__).resolve().parents[2]
+    reports_dir = project_root / "reports"
+    reports_dir.mkdir(parents=True, exist_ok=True)
+    path = reports_dir / f"live_bot_once_{job_id}.md"
+    path.write_text(markdown, encoding="utf-8")
+    return str(path.relative_to(project_root)).replace("\\", "/")
+
+
+def _run_live_bot_once_job(payload: Dict[str, Any]) -> Dict[str, Any]:
+    try:
+        return _run_live_bot_once_job_inner(payload)
+    except Exception as exc:
+        job_id = str(payload.get("job_id") or "unknown")
+        _set_live_bot_once_state(
+            {
+                "running": False,
+                "completed_at": datetime.utcnow().isoformat(),
+                "error": str(exc),
+                "last_message": f"Live Bot Once failed: {exc}",
+                "phase": "error",
+            }
+        )
+        return {
+            "status": "error",
+            "job_id": job_id,
+            "error": str(exc),
+        }
+
+
+def _run_live_bot_once_job_inner(payload: Dict[str, Any]) -> Dict[str, Any]:
+    req = LiveBotOnceRequest(**payload)
+    job_id = str(payload.get("job_id") or uuid.uuid4())
+    _set_live_bot_once_state(
+        {
+            "running": True,
+            "job_id": job_id,
+            "started_at": datetime.utcnow().isoformat(),
+            "phase": "starting",
+            "last_message": "Live Bot Once starting",
+        }
+    )
+    _init_supabase()
+    if not supabase:
+        raise RuntimeError("Supabase is not initialized")
+
+    symbols_by_exchange = _fetch_symbols_by_exchange(req.exchange)
+    total_symbols = sum(len(symbols) for symbols in symbols_by_exchange.values())
+    if total_symbols == 0:
+        raise RuntimeError(f"No symbols found for exchange={req.exchange}")
+
+    price_results: Dict[str, Any] = {}
+    indicator_rows: List[Dict[str, Any]] = []
+    upserted_count = 0
+    errors: List[str] = []
+    syncer = get_smart_sync()
+
+    for exchange, symbols in symbols_by_exchange.items():
+        formatted_symbols = [_format_symbol_exchange(symbol, exchange) for symbol in symbols]
+        _set_live_bot_once_state(
+            {
+                "running": True,
+                "job_id": job_id,
+                "phase": f"Updating prices: {exchange}",
+                "last_message": f"Updating {len(formatted_symbols)} symbols for {exchange}",
+                "stats": {"current_exchange": exchange, "current_symbol": None},
+            }
+        )
+
+        if req.update_prices:
+            price_results[exchange] = syncer.sync_exchange_prices(
+                exchange, formatted_symbols, max_days=req.days, unified_dates=req.unified
+            )
+        else:
+            price_results[exchange] = {
+                "exchange": exchange,
+                "total": len(formatted_symbols),
+                "success": 0,
+                "results": {symbol: {"success": True, "message": "Skipped"} for symbol in formatted_symbols},
+                "unified": req.unified,
+            }
+
+        if not req.update_indicators:
+            continue
+
+        _set_live_bot_once_state(
+            {
+                "phase": f"Updating indicators: {exchange}",
+                "last_message": f"Calculating indicators for {exchange}",
+            }
+        )
+
+        for symbol in formatted_symbols:
+            base, ex = _normalize_symbol_exchange(symbol, exchange)
+            try:
+                df = _fetch_price_df_from_supabase(base, ex, req.days)
+                if df.empty or len(df) < 30:
+                    errors.append(f"{symbol}: insufficient price data")
+                    continue
+
+                df_tech = add_technical_indicators(df)
+                if df_tech.empty:
+                    errors.append(f"{symbol}: indicator calculation returned empty")
+                    continue
+
+                last = df_tech.iloc[-1]
+                close = _indicator_float(last.get("Close", 0.0))
+                if close <= 0:
+                    continue
+
+                indicators = last.to_dict()
+                indicators["VOL_SMA20"] = _indicator_float(indicators.get("VOL_SMA20"), 0.0)
+                prev_close = _indicator_float(df_tech.iloc[-2].get("Close", close), close)
+                indicators["change_p"] = ((close - prev_close) / prev_close * 100) if prev_close else 0.0
+                ok, msg = upsert_technical_indicators(
+                    symbol=base,
+                    exchange=ex,
+                    date=df_tech.index[-1].strftime("%Y-%m-%d"),
+                    close=close,
+                    volume=int(_indicator_float(last.get("Volume", 0))),
+                    indicators=indicators,
+                )
+                if not ok:
+                    errors.append(f"{symbol}: {msg}")
+                    continue
+                upserted_count += 1
+
+                score = _score_live_bot_candidate(indicators)
+                if score < req.min_score:
+                    continue
+
+                indicator_rows.append(
+                    {
+                        "symbol": base,
+                        "exchange": ex,
+                        "date": df_tech.index[-1].strftime("%Y-%m-%d"),
+                        "close": close,
+                        "rsi": _indicator_float(indicators.get("RSI"), 50.0),
+                        "roc_12": _indicator_float(indicators.get("ROC_12"), 0.0),
+                        "adx_14": _indicator_float(indicators.get("ADX_14"), 0.0),
+                        "r_vol": _indicator_float(indicators.get("R_VOL"), 1.0),
+                        "sma_50": _indicator_float(indicators.get("SMA_50"), close),
+                        "sma_200": _indicator_float(indicators.get("SMA_200"), close),
+                        "score": score,
+                    }
+                )
+                _set_live_bot_once_state(
+                    {
+                        "last_message": f"Calculated indicators for {symbol} score={score}/10",
+                        "stats": {
+                            "current_exchange": exchange,
+                            "current_symbol": symbol,
+                            "indicator_count": len(indicator_rows),
+                        },
+                    }
+                )
+            except Exception as exc:
+                errors.append(f"{symbol}: {exc}")
+                continue
+
+    indicator_rows.sort(key=lambda x: x["score"], reverse=True)
+    important = indicator_rows[: req.top_n]
+    markdown = _format_live_bot_once_markdown(
+        job_id=job_id,
+        exchange=req.exchange,
+        total_symbols=total_symbols,
+        upserted_count=upserted_count,
+        price_results=price_results,
+        indicator_results=indicator_rows,
+        important=important,
+    )
+    report_path = _save_live_bot_once_markdown(markdown, job_id)
+
+    result = {
+        "status": "completed",
+        "job_id": job_id,
+        "exchange": req.exchange,
+        "total_symbols": total_symbols,
+        "price_results": price_results,
+        "upserted_indicator_count": upserted_count,
+        "indicator_count": len(indicator_rows),
+        "important_count": len(important),
+        "errors": errors[:50],
+        "report_path": report_path,
+        "markdown": markdown,
+    }
+    _set_live_bot_once_state(
+        {
+            "running": False,
+            "completed_at": datetime.utcnow().isoformat(),
+            "error": None,
+            "last_message": "Live Bot Once completed",
+            "phase": "completed",
+            "stats": result,
+            "report_path": report_path,
+            "markdown": markdown,
+        }
+    )
+    return result
+
+
+@router.post("/live-bot-once")
+def run_live_bot_once(req: LiveBotOnceRequest, background_tasks: BackgroundTasks):
+    if _get_live_bot_once_state().get("running"):
+        raise HTTPException(status_code=409, detail="Live Bot Once is already running")
+
+    payload = req.dict()
+    payload["job_id"] = str(uuid.uuid4())
+
+    _set_live_bot_once_state(
+        {
+            "running": True,
+            "job_id": payload["job_id"],
+            "phase": "queued",
+            "last_message": f"Queued Live Bot Once for {req.exchange}",
+        }
+    )
+
+    if not req.background:
+        return _run_live_bot_once_job(payload)
+
+    background_tasks.add_task(_run_live_bot_once_job, payload)
+    return {"status": "queued", "job_id": payload["job_id"], "exchange": req.exchange}
+
+
+@router.get("/live-bot-once/status")
+def live_bot_once_status():
+    return _get_live_bot_once_state()
 
 
 class AISimulateRequest(BaseModel):
@@ -3539,6 +4054,98 @@ def get_adaptive_results(
         return []
 
 
+# ─── Daily Job Scheduler Endpoints ────────────────────────────────────
+
+@router.get("/daily-jobs/history")
+def get_daily_job_history(
+    limit: int = Query(20, description="عدد السجلات"),
+    job_type: Optional[str] = Query("daily_bot", description="نوع المهمة")
+):
+    try:
+        _init_supabase()
+        res = (
+            supabase.table("daily_job_runs")
+            .select("*")
+            .eq("job_type", job_type)
+            .order("started_at", desc=True)
+            .limit(limit)
+            .execute()
+        )
+        data = res.data or []
+        for row in data:
+            if isinstance(row.get("steps"), str):
+                row["steps"] = json.loads(row["steps"])
+        return {"status": "success", "total": len(data), "runs": data}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/daily-jobs/status")
+def get_daily_job_status():
+    try:
+        _init_supabase()
+        res = (
+            supabase.table("daily_job_runs")
+            .select("*")
+            .eq("job_type", "daily_bot")
+            .order("started_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+        latest = (res.data or [None])[0]
+        if latest and isinstance(latest.get("steps"), str):
+            latest["steps"] = json.loads(latest["steps"])
+        return {"status": "success", "latest_run": latest}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/daily-jobs/trigger")
+async def trigger_daily_job(
+    background_tasks: BackgroundTasks,
+    skip_sync: bool = Query(False, description="تخطي مزامنة الأسعار")
+):
+    try:
+        from api.daily_bot_run import run_daily_job
+        import uuid
+        job_id = str(uuid.uuid4())
+
+        async def _tracked_run():
+            try:
+                await run_daily_job(skip_sync=skip_sync, trigger="manual")
+            except Exception as e:
+                print(f"[DAILY-JOB-API] Manual trigger failed: {e}")
+
+        background_tasks.add_task(_tracked_run)
+        return {
+            "status": "started",
+            "job_id": job_id,
+            "message": "Daily bot job has been started in the background."
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/daily-jobs/schedule")
+def get_daily_job_schedule():
+    try:
+        from api.daily_job_scheduler import get_scheduler_state
+        return get_scheduler_state()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/daily-jobs/schedule")
+def update_daily_job_schedule(payload: dict):
+    try:
+        from api.daily_job_scheduler import update_scheduler_config
+        return update_scheduler_config(payload)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ─── Alert Scheduler Endpoints ───────────────────────────────────────
+
 @router.get("/alert-scheduler/state")
 def get_alert_scheduler_state():
     try:
@@ -3872,116 +4479,4 @@ def update_intraday_batch(req: IntradayBatchUpdateRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# ─── Historical Similarity Endpoints ─────────────────────────────────────
-from api.historical_similarity import (
-    run_historical_similarity,
-    get_similarity_cases,
-    save_similarity_case,
-    delete_similarity_case,
-    run_market_wide_similarity_scan,
-    publish_similarity_report,
-    get_published_similarity_report
-)
-
-class SimilarityRunReq(BaseModel):
-    symbol: str
-    target_date: Optional[str] = None
-    k: int = 10
-    forward_days: int = 10
-    target_return: float = 0.05
-    stop_loss: float = -0.03
-    features_to_use: Optional[List[str]] = None
-    exclusion_window: int = 20
-    search_scope: str = "same_symbol"
-
-class SimilaritySaveCaseReq(BaseModel):
-    id: Optional[str] = None
-    name: str
-    symbol: str
-    target_date: Optional[str] = None
-    k: int = 10
-    forward_days: int = 10
-    target_return: float = 0.05
-    stop_loss: float = -0.03
-    features_to_use: List[str]
-    exclusion_window: int = 20
-    search_scope: str = "same_symbol"
-
-class SimilarityMarketScanReq(BaseModel):
-    k: int = 10
-    forward_days: int = 10
-    target_return: float = 0.05
-    stop_loss: float = -0.03
-    features_to_use: Optional[List[str]] = None
-    min_win_rate: float = 0.60
-
-class SimilarityPublishReq(BaseModel):
-    name: str = "Market Similarity Report"
-    scans: List[Dict[str, Any]]
-    k: int = 10
-    forward_days: int = 10
-    target_return: float = 0.05
-    stop_loss: float = -0.03
-
-@router.get("/historical-similarity/cases")
-def api_get_similarity_cases():
-    try:
-        return get_similarity_cases()
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@router.post("/historical-similarity/cases")
-def api_save_similarity_case(req: SimilaritySaveCaseReq):
-    try:
-        return save_similarity_case(req.dict())
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@router.delete("/historical-similarity/cases/{case_id}")
-def api_delete_similarity_case(case_id: str):
-    try:
-        success = delete_similarity_case(case_id)
-        return {"success": success}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@router.post("/historical-similarity/run")
-def api_run_similarity(req: SimilarityRunReq):
-    try:
-        res = run_historical_similarity(
-            symbol=req.symbol,
-            target_date=req.target_date,
-            k=req.k,
-            forward_days=req.forward_days,
-            target_return=req.target_return,
-            stop_loss=req.stop_loss,
-            features_to_use=req.features_to_use,
-            exclusion_window=req.exclusion_window,
-            search_scope=req.search_scope
-        )
-        return res
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@router.post("/historical-similarity/market-scan")
-def api_market_wide_similarity_scan(req: SimilarityMarketScanReq):
-    try:
-        res = run_market_wide_similarity_scan(
-            k=req.k,
-            forward_days=req.forward_days,
-            target_return=req.target_return,
-            stop_loss=req.stop_loss,
-            features_to_use=req.features_to_use,
-            min_win_rate=req.min_win_rate
-        )
-        return {"scans": res}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@router.post("/historical-similarity/publish")
-def api_publish_similarity_report(req: SimilarityPublishReq):
-    try:
-        res = publish_similarity_report(req.dict())
-        return res
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+# ─── Historical Similarity Endpoints (moved to similarity_admin.py) ──────

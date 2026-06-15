@@ -589,7 +589,18 @@ class TelegramBot:
         self.thread.start()
 
 
+# ── Global bot reference ─────────────────────────────────────────────
+_telegram_bot_instance: Optional[TelegramBot] = None
+
+
+def get_telegram_bot() -> Optional[TelegramBot]:
+    """Get the global TelegramBot instance (if initialized)."""
+    return _telegram_bot_instance
+
+
 def start_telegram_bridge(token: str, bot_instance):
+    global _telegram_bot_instance
     bridge = TelegramBot(token, bot_instance)
     bridge.start_in_thread()
+    _telegram_bot_instance = bridge
     return bridge

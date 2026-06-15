@@ -241,15 +241,71 @@ def fetch_tradingview_prices(
         print(f"TV FETCH: {upper} | interval={timeframe} | n_bars={n_bars}")
 
         # Fetch historical data
-        df = tv.get_hist(
-            symbol=tv_symbol,
-            exchange=tv_exchange,
-            interval=tv_interval,
-            n_bars=n_bars
-        )
+        # Define Yahoo Finance fallback function inside the fetch function
+        def try_yahoo_fallback() -> Tuple[bool, str]:
+            if timeframe.lower() not in ["1d", "1day", "daily"]:
+                return False, "Yahoo fallback only supports daily data"
+            yf_ticker = upper
+            if upper.endswith(".US"):
+                yf_ticker = upper.replace(".US", "")
+            elif upper.endswith(".EGX"):
+                yf_ticker = f"{base_symbol}.CA"
+            try:
+                print(f"TV FETCH FAILED/EMPTY. TRYING YAHOO FINANCE FALLBACK FOR {upper} ({yf_ticker})...")
+                import yfinance as yf
+                # Calculate start date based on max_days
+                from_date = (dt.date.today() - dt.timedelta(days=max_days + 30)).strftime("%Y-%m-%d")
+                yf_df = yf.download(yf_ticker, start=from_date, progress=False, auto_adjust=True)
+                if yf_df is None or yf_df.empty:
+                    return False, f"No data found on Yahoo Finance for {yf_ticker}"
+                
+                if isinstance(yf_df.columns, pd.MultiIndex):
+                    yf_df.columns = yf_df.columns.get_level_values(0)
+                
+                yf_df = yf_df.rename(columns={
+                    "Open": "open", 
+                    "High": "high", 
+                    "Low": "low", 
+                    "Close": "close", 
+                    "Volume": "volume"
+                })
+                df_new = yf_df.reset_index().rename(columns={'Date': 'ts'})
+                if 'ts' not in df_new.columns and 'Datetime' in df_new.columns:
+                    df_new = df_new.rename(columns={'Datetime': 'ts'})
+                
+                # Filter by start_date and end_date if provided
+                if start_date or end_date:
+                    df_new['ts'] = pd.to_datetime(df_new['ts'])
+                    if start_date:
+                        df_new = df_new[df_new['ts'].dt.date >= start_date]
+                    if end_date:
+                        df_new = df_new[df_new['ts'].dt.date <= end_date]
+                
+                if df_new.empty:
+                    return True, f"No new data on Yahoo within the filtered range ({start_date} to {end_date})"
+                    
+                ok_sync, sync_msg = sync_df_to_supabase(upper, df_new, timeframe=timeframe)
+                return ok_sync, f"OK (yahoo fallback) - {sync_msg}"
+            except Exception as yf_err:
+                return False, f"Yahoo fallback failed: {yf_err}"
+
+        # Fetch historical data
+        df = None
+        try:
+            df = tv.get_hist(
+                symbol=tv_symbol,
+                exchange=tv_exchange,
+                interval=tv_interval,
+                n_bars=n_bars
+            )
+        except Exception as tv_fetch_err:
+            print(f"tvDatafeed get_hist raised exception for {upper}: {tv_fetch_err}")
         
         if df is None or df.empty:
-            return False, f"No data found for {symbol} on {tv_exchange} at {timeframe}"
+            ok_fall, msg_fall = try_yahoo_fallback()
+            if ok_fall:
+                return ok_fall, msg_fall
+            return False, f"No data found for {symbol} on {tv_exchange} at {timeframe} (Yahoo fallback: {msg_fall})"
         
         # Prepare data
         df_new = df.reset_index()
@@ -273,10 +329,57 @@ def fetch_tradingview_prices(
         
     except Exception as e:
         error_msg = str(e)
+        # Fallback helper function is defined inside try, but if initialization fails:
+        # we can define/call a simple fallback here too.
+        try:
+            import datetime as dt
+            import pandas as pd
+            def try_yahoo_fallback_outer() -> Tuple[bool, str]:
+                if timeframe.lower() not in ["1d", "1day", "daily"]:
+                    return False, "Yahoo fallback only supports daily data"
+                yf_ticker = upper
+                if upper.endswith(".US"):
+                    yf_ticker = upper.replace(".US", "")
+                elif upper.endswith(".EGX"):
+                    yf_ticker = f"{base_symbol}.CA"
+                try:
+                    print(f"TV INITIALIZATION FAILED. TRYING YAHOO FINANCE FALLBACK FOR {upper} ({yf_ticker})...")
+                    import yfinance as yf
+                    from_date = (dt.date.today() - dt.timedelta(days=max_days + 30)).strftime("%Y-%m-%d")
+                    yf_df = yf.download(yf_ticker, start=from_date, progress=False, auto_adjust=True)
+                    if yf_df is None or yf_df.empty:
+                        return False, f"No data found on Yahoo Finance for {yf_ticker}"
+                    if isinstance(yf_df.columns, pd.MultiIndex):
+                        yf_df.columns = yf_df.columns.get_level_values(0)
+                    yf_df = yf_df.rename(columns={"Open": "open", "High": "high", "Low": "low", "Close": "close", "Volume": "volume"})
+                    df_new = yf_df.reset_index().rename(columns={'Date': 'ts'})
+                    if 'ts' not in df_new.columns and 'Datetime' in df_new.columns:
+                        df_new = df_new.rename(columns={'Datetime': 'ts'})
+                    if start_date or end_date:
+                        df_new['ts'] = pd.to_datetime(df_new['ts'])
+                        if start_date:
+                            df_new = df_new[df_new['ts'].dt.date >= start_date]
+                        if end_date:
+                            df_new = df_new[df_new['ts'].dt.date <= end_date]
+                    if df_new.empty:
+                        return True, f"No new data on Yahoo within the filtered range ({start_date} to {end_date})"
+                    from api.stock_ai import sync_df_to_supabase
+                    ok_sync, sync_msg = sync_df_to_supabase(upper, df_new, timeframe=timeframe)
+                    return ok_sync, f"OK (yahoo fallback) - {sync_msg}"
+                except Exception as yf_err:
+                    return False, f"Yahoo fallback failed: {yf_err}"
+            
+            ok_fall, msg_fall = try_yahoo_fallback_outer()
+            if ok_fall:
+                return ok_fall, msg_fall
+            error_msg += f" (Yahoo fallback: {msg_fall})"
+        except Exception:
+            pass
+
         if "symbol not found" in error_msg.lower():
-            return False, f"Symbol {base_symbol} not found on {tv_exchange}"
+            return False, f"Symbol {base_symbol} not found on {tv_exchange} ({error_msg})"
         elif "invalid exchange" in error_msg.lower():
-            return False, f"Invalid exchange: {tv_exchange}"
+            return False, f"Invalid exchange: {tv_exchange} ({error_msg})"
         else:
             return False, f"TradingView error: {error_msg}"
 

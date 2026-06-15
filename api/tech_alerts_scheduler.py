@@ -467,8 +467,8 @@ def _check_and_trigger_alerts() -> list:
                 msg += f"• *{sym}*\n"
                 
             msg += f"\nإجمالي الأسهم المطابقة حالياً: {len(matched_symbols)}"
-            
-            # Send using bot_manager's bridge queue if available to preserve ordering/retries
+
+            # Send to this alert's owner AND to all technical_scanner service subscribers
             from api.live_bot import bot_manager
             bridge = getattr(bot_manager, "_telegram_bridge", None)
             if bridge:
@@ -482,6 +482,13 @@ def _check_and_trigger_alerts() -> list:
                     _log(f"[ALERTS SCHEDULER] Sent direct telegram alert to {chat_id}")
                 except Exception as ex:
                     _log(f"[ALERTS SCHEDULER] Direct Telegram post failed: {ex}")
+
+            # Also broadcast to technical_scanner service subscribers
+            try:
+                from api.daily_bot_run import _notify_service_subscribers
+                _notify_service_subscribers("technical_scanner", msg)
+            except Exception as e:
+                _log(f"[ALERTS SCHEDULER] Service subscriber notify failed: {e}")
                     
             # Update database with matches and trigger timestamp
             supabase.table("technical_alerts").update({

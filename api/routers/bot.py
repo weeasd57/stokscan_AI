@@ -190,10 +190,12 @@ class SubscribeRequest(BaseModel):
     bot_id: str
     user_id: str
     telegram_chat_id: Optional[str] = None
+    service_type: Optional[str] = "ai_bot"  # ai_bot | stock_score | historical_similarity | technical_scanner
 
 class UnsubscribeRequest(BaseModel):
     bot_id: str
     user_id: str
+    service_type: Optional[str] = "ai_bot"
 
 class SubscriptionUpdateRequest(BaseModel):
     bot_id: str
@@ -204,6 +206,7 @@ class SubscriptionUpdateRequest(BaseModel):
     stop_loss_pct: Optional[float] = None
     max_open_positions: Optional[int] = None
     pct_cash_per_trade: Optional[float] = None
+    service_type: Optional[str] = "ai_bot"
 
 @router.post("/subscribe")
 def subscribe_to_bot(req: SubscribeRequest):
@@ -238,11 +241,12 @@ def subscribe_to_bot(req: SubscribeRequest):
         payload = {
             "user_id": req.user_id,
             "bot_id": req.bot_id,
+            "service_type": req.service_type or "ai_bot",
             "notifications_enabled": True
         }
         if req.telegram_chat_id:
             payload["telegram_chat_id"] = req.telegram_chat_id
-            
+
         res = supabase.table("bot_subscriptions").insert(payload).execute()
         return {"status": "subscribed", "data": res.data[0] if res.data else {}}
     except HTTPException:
@@ -260,7 +264,10 @@ def unsubscribe_from_bot(req: UnsubscribeRequest):
         if not supabase:
             raise HTTPException(status_code=500, detail="Supabase client not initialized")
             
-        res = supabase.table("bot_subscriptions").delete().eq("user_id", req.user_id).eq("bot_id", req.bot_id).execute()
+        q = supabase.table("bot_subscriptions").delete().eq("user_id", req.user_id).eq("bot_id", req.bot_id)
+        if req.service_type:
+            q = q.eq("service_type", req.service_type)
+        res = q.execute()
         return {"status": "unsubscribed"}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -289,7 +296,10 @@ def update_subscription(req: SubscriptionUpdateRequest):
         if not updates:
             return {"status": "no_change"}
             
-        res = supabase.table("bot_subscriptions").update(updates).eq("user_id", req.user_id).eq("bot_id", req.bot_id).execute()
+        q = supabase.table("bot_subscriptions").update(updates).eq("user_id", req.user_id).eq("bot_id", req.bot_id)
+        if req.service_type:
+            q = q.eq("service_type", req.service_type)
+        res = q.execute()
         return {"status": "updated", "data": res.data[0] if res.data else {}}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))

@@ -19,6 +19,7 @@ import type { TechResult } from "@/lib/api";
 import StockLogo from "@/components/StockLogo";
 import ScannerTemplates, { type ScannerTemplateId } from "@/components/ScannerTemplates";
 import TradingViewChart from "@/components/TradingViewChart";
+import TelegramServiceToggle from "@/components/TelegramServiceToggle";
 
 const DEFAULT_PILLS = ["price", "rsi", "marketcap", "sector"];
 
@@ -1450,6 +1451,14 @@ export default function TechnicalScannerPage() {
                         <AddFilterPopover onClose={() => setShowAddFilterMenu(false)} />
                     </div>
                 )}
+            </div>
+
+            {/* Telegram Subscription Toggle */}
+            <div className="px-4 pt-4">
+                <TelegramServiceToggle
+                    serviceType="technical_scanner"
+                    botId="technical_scanner"
+                />
             </div>
 
             {/* --- Main Workspace (Vertical Split Screen Layout: Chart on Top, Table below) --- */}

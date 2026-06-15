@@ -1,12 +1,19 @@
 "use client";
 
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useAIScanner } from "@/contexts/AIScannerContext";
 import StockLogo from "./StockLogo";
-import { Search, Filter, AlertTriangle, RefreshCw, ChevronLeft, ChevronRight, TrendingUp, TrendingDown, Layers, Info, CheckCircle2 } from "lucide-react";
+import TradingViewChart from "./TradingViewChart";
+import TelegramServiceToggle from "./TelegramServiceToggle";
+import {
+    Search, Filter, AlertTriangle, RefreshCw, ChevronLeft, ChevronRight,
+    TrendingUp, TrendingDown, Layers, Info, CheckCircle2, X, BarChart2,
+    Target, ShieldAlert, Cpu, BookOpen, TrendingUp as Bullish, Calendar,
+    Award, ArrowUpRight, ArrowDownRight, Minus, ExternalLink
+} from "lucide-react";
 
 interface RecommendationsTableProps {
     isLandingPage?: boolean;
@@ -18,12 +25,15 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
     const { language } = useLanguage();
     const router = useRouter();
     const isAr = language === "ar";
-    
+
     // Use AIScannerContext for caching data
     const { recommendations, recsLoading, recsError, loadRecommendations } = useAIScanner();
 
     // Outdated warning retry state
     const [isOutdated, setIsOutdated] = useState(false);
+
+    // Detail dialog state
+    const [selectedRow, setSelectedRow] = useState<any>(null);
 
     // Interactive Filters (Scanner or Authenticated Landing Page)
     const [searchTerm, setSearchTerm] = useState("");
@@ -59,6 +69,8 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
         next: { en: "Next", ar: "التالي" },
         pageInfo: { en: "Page {page} of {pages}", ar: "صفحة {page} من {pages}" },
         totalRows: { en: "Total Stocks: {count}", ar: "إجمالي الأسهم: {count}" },
+        status: { en: "Status", ar: "الحالة" },
+        return: { en: "Return", ar: "العائد" },
     };
 
     const translate = (key: keyof typeof tDict) => {
@@ -82,6 +94,15 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
         }
     }, [recsError, loadRecommendations, isLandingPage]);
 
+    // Close dialog on ESC key
+    useEffect(() => {
+        const handleEsc = (e: KeyboardEvent) => {
+            if (e.key === "Escape") setSelectedRow(null);
+        };
+        window.addEventListener("keydown", handleEsc);
+        return () => window.removeEventListener("keydown", handleEsc);
+    }, []);
+
     // Handle Landing Page Clicks Redirection for unauthenticated users
     const handleLandingClick = (e: React.MouseEvent) => {
         if (isLandingPage && !user) {
@@ -91,11 +112,11 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
         }
     };
 
-    const handleStockClick = (symbol: string, exchange: string) => {
+    const handleStockClick = (row: any) => {
         if (isLandingPage && !user) {
             router.push("/scanner/backtests");
         } else {
-            router.push(`/chart?symbol=${encodeURIComponent(symbol.toUpperCase())}&exchange=${encodeURIComponent(exchange || "EGX")}`);
+            setSelectedRow(row);
         }
     };
 
@@ -103,43 +124,31 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
     const processedRows = useMemo(() => {
         let items = [...recommendations];
 
-        // 1. Search by stock name or symbol
         if (searchTerm.trim()) {
             const q = searchTerm.toLowerCase();
-            items = items.filter(r => 
-                r.name.toLowerCase().includes(q) || 
+            items = items.filter(r =>
+                r.name.toLowerCase().includes(q) ||
                 r.symbol.toLowerCase().includes(q)
             );
         }
-
-        // 2. Filter by sector
         if (selectedSector) {
             items = items.filter(r => r.sector === selectedSector);
         }
-
-        // 3. Filter by signal
         if (selectedSignal) {
             items = items.filter(r => r.signal.toUpperCase() === selectedSignal.toUpperCase());
         }
 
-        // 4. Default sort by AI Score (precision) descending
         items.sort((a, b) => b.precision - a.precision);
-
         return items;
     }, [recommendations, searchTerm, selectedSector, selectedSignal]);
 
-    // Apply Limit (used for landing page preview)
-    const limitedRows = useMemo(() => {
-        return processedRows.slice(0, limit);
-    }, [processedRows, limit]);
+    const limitedRows = useMemo(() => processedRows.slice(0, limit), [processedRows, limit]);
 
-    // Unique sectors for filter dropdown
     const sectors = useMemo(() => {
         const list = Array.from(new Set(recommendations.map(m => m.sector || "General")));
         return list.filter(s => s && s !== "General").sort();
     }, [recommendations]);
 
-    // Pagination (Only applied when no limit is set)
     const displayRows = useMemo(() => {
         if (limit !== Infinity) return limitedRows;
         const start = (currentPage - 1) * itemsPerPage;
@@ -157,7 +166,6 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
         } else if (rounded >= 5) {
             colorClass = "border-amber-500 text-amber-500 bg-amber-500/5";
         }
-
         return (
             <div className="flex flex-col items-center justify-center gap-1">
                 <div className={`w-10 h-10 rounded-full border-2 flex items-center justify-center font-black font-mono text-sm ${colorClass}`}>
@@ -168,43 +176,447 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
         );
     };
 
-    // Country flag helper
     const getCountryFlag = (country: string | undefined | null, ex: string | undefined | null) => {
-        const normCountry = (country || "").toLowerCase();
         const normEx = (ex || "").toLowerCase();
-        if (normCountry === "egypt" || normEx === "egx" || normEx === "eg" || normEx === "ca") {
+        if (normEx === "egx" || normEx === "eg" || normEx === "ca") {
             return { flag: "🇪🇬", name: isAr ? "مصر" : "Egypt" };
         }
         return { flag: "🇺🇸", name: isAr ? "أمريكا" : "USA" };
     };
 
-    // Volume formatter
     const formatVolume = (row: any) => {
         let rawVol = 0;
         if (row.features && Array.isArray(row.features) && row.features.length > 1) {
             rawVol = Number(row.features[1]);
         }
         if (!rawVol || isNaN(rawVol)) return "-";
-        
         if (rawVol >= 1e9) return (rawVol / 1e9).toFixed(2) + "B";
         if (rawVol >= 1e6) return (rawVol / 1e6).toFixed(2) + "M";
         if (rawVol >= 1e3) return (rawVol / 1e3).toFixed(1) + "K";
         return rawVol.toLocaleString();
     };
 
-    // Low risk score generator (based on SL distance)
     const getLowRiskScore = (row: any) => {
         if (!row.stop_loss || !row.last_close) return 5;
         const distPct = Math.abs((row.last_close - row.stop_loss) / row.last_close);
-        const score = Math.round(10 - distPct * 20); // smaller distance = lower risk (higher score)
+        const score = Math.round(10 - distPct * 20);
         return Math.max(1, Math.min(10, score));
     };
 
+    const getStatusBadge = (status: string, plPct: number | null) => {
+        if (status === "win") {
+            return (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-black bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                    <ArrowUpRight className="w-3 h-3" />
+                    {isAr ? "ربح" : "WIN"}
+                    {plPct != null && ` +${plPct.toFixed(1)}%`}
+                </span>
+            );
+        }
+        if (status === "loss") {
+            return (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-black bg-rose-500/10 text-rose-400 border border-rose-500/20">
+                    <ArrowDownRight className="w-3 h-3" />
+                    {isAr ? "خسارة" : "LOSS"}
+                    {plPct != null && ` ${plPct.toFixed(1)}%`}
+                </span>
+            );
+        }
+        return (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-black bg-sky-500/10 text-sky-400 border border-sky-500/20">
+                <Minus className="w-3 h-3" />
+                {isAr ? "مفتوح" : "OPEN"}
+                {plPct != null && ` ${plPct >= 0 ? "+" : ""}${plPct.toFixed(1)}%`}
+            </span>
+        );
+    };
+
+    // ─── Details Dialog ───────────────────────────────────────────────────────
+    const renderDialog = () => {
+        if (!selectedRow) return null;
+        const row = selectedRow;
+        const richDetails = row.top_reasons && typeof row.top_reasons === "object" && !Array.isArray(row.top_reasons) ? row.top_reasons : null;
+        const legacyReasons = Array.isArray(row.top_reasons) ? row.top_reasons : [];
+        const aiScoreNum = Math.round((row.precision || 0) * 10);
+        const cInfo = getCountryFlag(null, row.exchange);
+
+        // ── Computed values ──
+        const entryPrice = row.entry_price || row.last_close || 0;
+        const targetPrice = row.target_price || 0;
+        const stopLoss = row.stop_loss || 0;
+        const hasTarget2 = !!richDetails?.target_2;
+        const target2 = hasTarget2 ? Number(richDetails.target_2) : 0;
+        const currentPrice = row.last_close || 0;
+        const plPct = row.profit_loss_pct ?? null;
+        const isWin = row.status === "win";
+        const isLoss = row.status === "loss";
+        const isClosed = isWin || isLoss;
+
+        const risk = entryPrice && stopLoss ? Math.abs(entryPrice - stopLoss) : 0;
+        const reward = entryPrice && targetPrice ? Math.abs(targetPrice - entryPrice) : 0;
+        const rrRatio = risk > 0 ? (reward / risk) : 0;
+        const potReturn = currentPrice && targetPrice ? ((targetPrice - currentPrice) / currentPrice) * 100 : 0;
+        const adjustments: any[] = row.adjustments || [];
+        const changePct = row.change_pct ?? null;
+        const lastUpdated = row.updated_at || row.created_at || null;
+
+        const formatDate = (ts: string) => new Date(ts).toLocaleDateString(isAr ? "ar-EG" : "en-US", { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+
+        const scoreColor = (v: number, max: number) => {
+            const pct = v / max;
+            return pct >= 0.7 ? "text-emerald-400" : pct >= 0.5 ? "text-amber-400" : "text-rose-400";
+        };
+
+        const scoreBarColor = (v: number, max: number) => {
+            const pct = v / max;
+            return pct >= 0.7 ? "bg-emerald-500" : pct >= 0.5 ? "bg-amber-500" : "bg-rose-500";
+        };
+
+        return (
+            <div className="fixed inset-0 z-[2147483647] flex flex-col bg-zinc-950/95 backdrop-blur-md animate-in fade-in duration-200" dir={isAr ? "rtl" : "ltr"} onClick={() => setSelectedRow(null)}>
+                {/* Top floating control bar */}
+                <div className="flex items-center justify-between gap-4 px-4 sm:px-8 py-4 border-b-2 border-white/10 bg-zinc-950/90 backdrop-blur-md flex-shrink-0" onClick={e => e.stopPropagation()}>
+                    <div className="flex items-center gap-3 min-w-0">
+                        <StockLogo symbol={row.symbol} logoUrl={row.logo_url} size="md" />
+                        <div className="min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                                <h2 className="text-xl sm:text-2xl font-black text-white uppercase tracking-tight">{row.symbol}</h2>
+                                <span className="text-[10px] font-bold text-zinc-400 bg-zinc-800 px-2 py-0.5 border border-white/5">{row.exchange}</span>
+                                <span className="text-base">{cInfo.flag}</span>
+                                {row.signal?.toUpperCase() === "BUY" ? (
+                                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-emerald-500 text-zinc-950 font-black text-[10px]">
+                                        <TrendingUp className="w-3 h-3" /> {isAr ? "شراء" : "BUY"}
+                                    </span>
+                                ) : (
+                                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-rose-500 text-zinc-950 font-black text-[10px]">
+                                        <TrendingDown className="w-3 h-3" /> {isAr ? "بيع" : "SELL"}
+                                    </span>
+                                )}
+                                {getStatusBadge(row.status, row.profit_loss_pct)}
+                            </div>
+                            <p className="text-xs sm:text-sm text-zinc-400 font-medium truncate mt-0.5">{row.name}</p>
+                        </div>
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                        <button
+                            onClick={() => router.push(`/chart?symbol=${encodeURIComponent(row.symbol.toUpperCase())}&exchange=${encodeURIComponent(row.exchange || "EGX")}`)}
+                            className="h-9 px-3 bg-white text-zinc-950 hover:bg-zinc-200 text-xs font-black flex items-center gap-1.5 transition-colors active:scale-95"
+                        >
+                            <ExternalLink className="w-3.5 h-3.5" />
+                            {isAr ? "الشارت" : "Chart"}
+                        </button>
+                        <button
+                            onClick={() => setSelectedRow(null)}
+                            className="h-10 px-4 flex items-center gap-2 bg-rose-600 hover:bg-rose-500 text-white text-sm font-black transition-colors active:scale-95"
+                            aria-label={isAr ? "إغلاق" : "Close"}
+                        >
+                            <X className="w-5 h-5" />
+                            {isAr ? "إغلاق" : "Close"}
+                        </button>
+                    </div>
+                </div>
+
+                {/* Scrollable content */}
+                <div className="relative z-10 flex-1 overflow-y-auto" style={{ scrollbarWidth: "thin" }}>
+                    <div className="max-w-6xl mx-auto p-4 sm:p-8 space-y-8" onClick={e => e.stopPropagation()}>
+
+                        {/* ── Hero Price Card ── */}
+                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                            <div className="lg:col-span-2 bg-gradient-to-br from-indigo-600/20 to-violet-600/10 border-2 border-indigo-500/20 p-6 sm:p-8 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6">
+                                <div>
+                                    <p className="text-xs font-bold uppercase tracking-widest text-indigo-300 mb-1">{isAr ? "السعر الحالي" : "Current Price"}</p>
+                                    <div className="flex items-baseline gap-3">
+                                        <span className="text-4xl sm:text-5xl font-black text-white">{currentPrice ? `${currentPrice.toFixed(2)}` : "—"}</span>
+                                        <span className="text-sm font-bold text-zinc-400">EGP</span>
+                                    </div>
+                                    <div className="flex items-center gap-2 mt-2 flex-wrap">
+                                        {plPct != null && (
+                                            <div className={`inline-flex items-center gap-1.5 px-3 py-1 text-sm font-black ${plPct >= 0 ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" : "bg-rose-500/10 text-rose-400 border border-rose-500/20"}`}>
+                                                {plPct >= 0 ? <ArrowUpRight className="w-4 h-4" /> : <ArrowDownRight className="w-4 h-4" />}
+                                                {plPct >= 0 ? "+" : ""}{plPct.toFixed(2)}%
+                                            </div>
+                                        )}
+                                        {changePct != null && (
+                                            <div className={`inline-flex items-center gap-1 px-2.5 py-1 text-xs font-bold ${changePct >= 0 ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" : "bg-rose-500/10 text-rose-400 border border-rose-500/20"}`}>
+                                                {changePct >= 0 ? "▲" : "▼"} {changePct >= 0 ? "+" : ""}{changePct.toFixed(2)}%
+                                                <span className="text-zinc-500 font-medium">{isAr ? "تغير" : "chg"}</span>
+                                            </div>
+                                        )}
+                                    </div>
+                                    {lastUpdated && (
+                                        <p className="text-[10px] text-zinc-500 mt-1.5 flex items-center gap-1">
+                                            <span className="w-1.5 h-1.5 rounded-full bg-zinc-500 inline-block" />
+                                            {isAr ? "آخر تحديث" : "Last updated"}: {formatDate(lastUpdated)}
+                                        </p>
+                                    )}
+                                </div>
+                                <div className="flex flex-col gap-2 text-sm min-w-[140px]">
+                                    <div className="flex justify-between gap-4">
+                                        <span className="text-zinc-400">{isAr ? "الهدف" : "Target"}</span>
+                                        <span className="font-black text-emerald-400">{targetPrice ? targetPrice.toFixed(2) : "—"}</span>
+                                    </div>
+                                    <div className="flex justify-between gap-4">
+                                        <span className="text-zinc-400">{isAr ? "وقف الخسارة" : "Stop Loss"}</span>
+                                        <span className="font-black text-rose-400">{stopLoss ? stopLoss.toFixed(2) : "—"}</span>
+                                    </div>
+                                    {hasTarget2 && (
+                                        <div className="flex justify-between gap-4">
+                                            <span className="text-zinc-400">{isAr ? "الهدف 2" : "Target 2"}</span>
+                                            <span className="font-black text-amber-400">{target2.toFixed(2)}</span>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* AI Score Big Card */}
+                            <div className="bg-zinc-900 border-2 border-white/10 p-6 flex flex-col items-center justify-center gap-3">
+                                <div className="relative w-28 h-28">
+                                    <svg className="w-full h-full -rotate-90" viewBox="0 0 100 100">
+                                        <circle cx="50" cy="50" r="42" fill="none" stroke="rgb(255 255 255 / 0.06)" strokeWidth="8" />
+                                        <circle
+                                            cx="50" cy="50" r="42" fill="none"
+                                            stroke={aiScoreNum >= 7 ? "#22c55e" : aiScoreNum >= 5 ? "#f59e0b" : "#f43f5e"}
+                                            strokeWidth="8" strokeLinecap="round"
+                                            strokeDasharray={2 * Math.PI * 42}
+                                            strokeDashoffset={2 * Math.PI * 42 - (aiScoreNum / 10) * (2 * Math.PI * 42)}
+                                            className="transition-all duration-1000 ease-out"
+                                        />
+                                    </svg>
+                                    <div className="absolute inset-0 flex flex-col items-center justify-center">
+                                        <span className={`text-3xl font-black ${scoreColor(aiScoreNum, 10)}`}>{aiScoreNum}</span>
+                                        <span className="text-[10px] font-bold text-zinc-500 uppercase">/10</span>
+                                    </div>
+                                </div>
+                                <span className="text-xs font-black uppercase tracking-widest text-zinc-400">{isAr ? "تقييم الذكاء" : "AI Score"}</span>
+                            </div>
+                        </div>
+
+                        {/* ── Sub Scores ── */}
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            {[
+                                { label: isAr ? "الفني" : "Technical", val: row.technical_score || 5, color: "sky" },
+                                { label: isAr ? "الأساسي" : "Fundamental", val: row.fundamental_score || 5, color: "violet" },
+                                { label: isAr ? "نسبة النجاح" : "Win Rate", val: richDetails?.expected_win_pct || Math.round(row.precision * 100), max: 100, suffix: "%", color: "emerald" },
+                            ].map((item, idx) => {
+                                const max = item.max || 10;
+                                const pct = Math.min(100, (item.val / max) * 100);
+                                return (
+                                    <div key={idx} className="bg-zinc-900/50 border border-white/5 p-4 space-y-3">
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-xs font-bold uppercase tracking-widest text-zinc-400">{item.label}</span>
+                                            <span className={`text-xl font-black ${scoreColor(item.val, max)}`}>{item.val}{item.suffix || ""}</span>
+                                        </div>
+                                        <div className="w-full h-2 bg-white/5 overflow-hidden">
+                                            <div className={`h-full ${scoreBarColor(item.val, max)} transition-all duration-700`} style={{ width: `${pct}%` }} />
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+
+                        {/* ── Rationale ── */}
+                        {richDetails && (
+                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                                {richDetails.brief_rationale && (
+                                    <div className="lg:col-span-2 bg-indigo-500/[0.05] border-l-4 border-indigo-500 p-5">
+                                        <h3 className="text-xs font-black uppercase tracking-widest text-indigo-400 mb-3 flex items-center gap-2">
+                                            <Info className="w-3.5 h-3.5" />
+                                            {isAr ? "لماذا هذا السهم؟" : "Why This Stock?"}
+                                        </h3>
+                                        <p className="text-sm sm:text-base text-zinc-200 leading-relaxed font-medium" dir="rtl">
+                                            {richDetails.brief_rationale}
+                                        </p>
+                                    </div>
+                                )}
+                                {richDetails.technical_rationale && (
+                                    <div className="bg-zinc-900/50 border border-white/5 p-5">
+                                        <h4 className="text-xs font-black uppercase tracking-widest text-sky-400 mb-3 flex items-center gap-2">
+                                            <BarChart2 className="w-3.5 h-3.5" />
+                                            {isAr ? "التحليل الفني" : "Technical Analysis"}
+                                        </h4>
+                                        <p className="text-sm text-zinc-300 leading-relaxed" dir="rtl">
+                                            {richDetails.technical_rationale}
+                                        </p>
+                                    </div>
+                                )}
+                                {richDetails.fundamental_rationale && (
+                                    <div className="bg-zinc-900/50 border border-white/5 p-5">
+                                        <h4 className="text-xs font-black uppercase tracking-widest text-amber-400 mb-3 flex items-center gap-2">
+                                            <BookOpen className="w-3.5 h-3.5" />
+                                            {isAr ? "التحليل الأساسي" : "Fundamental Analysis"}
+                                        </h4>
+                                        <p className="text-sm text-zinc-300 leading-relaxed" dir="rtl">
+                                            {richDetails.fundamental_rationale}
+                                        </p>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {/* ── Legacy Reasons ── */}
+                        {legacyReasons.length > 0 && (
+                            <div className="bg-zinc-900/50 border border-white/5 p-5">
+                                <h3 className="text-xs font-black uppercase tracking-widest text-zinc-300 mb-4 flex items-center gap-2">
+                                    <Layers className="w-3.5 h-3.5" />
+                                    {isAr ? "أسباب الاختيار" : "Selection Reasons"}
+                                </h3>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                    {legacyReasons.map((reason: string, i: number) => (
+                                        <div key={i} className="flex items-start gap-3 p-3 bg-zinc-950/50 border border-white/5">
+                                            <span className="w-6 h-6 flex items-center justify-center bg-indigo-600/20 text-indigo-400 text-xs font-black flex-shrink-0">{i + 1}</span>
+                                            <span className="text-sm text-zinc-300">{reason}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* ── No details fallback ── */}
+                        {!richDetails && legacyReasons.length === 0 && (
+                            <div className="border-2 border-dashed border-zinc-700 bg-zinc-900/30 p-8 text-center">
+                                <Info className="w-10 h-10 text-zinc-600 mx-auto mb-4" />
+                                <p className="text-sm text-zinc-400 font-medium">
+                                    {isAr ? "لا توجد تفاصيل إضافية متاحة." : "No additional details available."}
+                                </p>
+                            </div>
+                        )}
+
+                        {/* ── Adjustments Timeline ── */}
+                        {adjustments.length > 0 && (
+                            <div className="bg-amber-500/[0.05] border border-amber-500/20 p-5">
+                                <h3 className="text-xs font-black uppercase tracking-widest text-amber-400 mb-5 flex items-center gap-2">
+                                    <RefreshCw className="w-3.5 h-3.5" />
+                                    {isAr ? "سجل التعديلات الذكية" : "Smart Adjustments"}
+                                </h3>
+                                <div className="space-y-3">
+                                    {adjustments.map((adj: any, i: number) => {
+                                        const isTargetRaise = adj.type === "target_raised";
+                                        const isStopRaise = adj.type === "stop_raised";
+                                        const adjColor = isTargetRaise ? "emerald" : isStopRaise ? "rose" : "amber";
+                                        const AdjIcon = isTargetRaise ? TrendingUp : isStopRaise ? ShieldAlert : RefreshCw;
+                                        return (
+                                            <div key={i} className="flex items-start gap-4 p-4 bg-zinc-950/60 border border-white/5">
+                                                <div className={`w-10 h-10 flex items-center justify-center flex-shrink-0 bg-${adjColor}-500/10 border border-${adjColor}-500/20`}>
+                                                    <AdjIcon className={`w-4 h-4 text-${adjColor}-400`} />
+                                                </div>
+                                                <div className="flex-1 min-w-0">
+                                                    <div className="flex items-center justify-between gap-2 flex-wrap mb-1">
+                                                        <span className={`text-xs font-black uppercase text-${adjColor}-400`}>
+                                                            {isTargetRaise ? (isAr ? "رفع الهدف" : "Target Raised") : isStopRaise ? (isAr ? "تضييق وقف الخسارة" : "Stop Tightened") : (adj.reason_en || adj.type)}
+                                                        </span>
+                                                        {adj.timestamp && <span className="text-[10px] text-zinc-500">{formatDate(adj.timestamp)}</span>}
+                                                    </div>
+                                                    <p className="text-xs text-zinc-400 mb-2" dir="rtl">{adj.reason_ar || adj.reason_en || ""}</p>
+                                                    <div className="flex flex-wrap gap-3 text-[10px]">
+                                                        {adj.old_target && adj.new_target && (
+                                                            <span className="bg-zinc-900 px-2 py-1 text-zinc-300">
+                                                                🎯 {isAr ? "الهدف" : "Target"}: <span className="line-through text-zinc-500">{Number(adj.old_target).toFixed(2)}</span> → <span className="text-emerald-400 font-bold">{Number(adj.new_target).toFixed(2)}</span>
+                                                            </span>
+                                                        )}
+                                                        {adj.old_stop && adj.new_stop && (
+                                                            <span className="bg-zinc-900 px-2 py-1 text-zinc-300">
+                                                                🛡️ SL: <span className="line-through text-zinc-500">{Number(adj.old_stop).toFixed(2)}</span> → <span className="text-rose-400 font-bold">{Number(adj.new_stop).toFixed(2)}</span>
+                                                            </span>
+                                                        )}
+                                                        {adj.pl_pct != null && (
+                                                            <span className={`px-2 py-1 font-bold ${adj.pl_pct >= 0 ? "bg-emerald-500/10 text-emerald-400" : "bg-rose-500/10 text-rose-400"}`}>
+                                                                {adj.pl_pct >= 0 ? "+" : ""}{Number(adj.pl_pct).toFixed(1)}%
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* ── Trade Details & Chart ── */}
+                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                            <div className="lg:col-span-1 bg-zinc-900/50 border border-white/5 p-5 space-y-4 h-fit">
+                                <h4 className="text-xs font-black uppercase tracking-widest text-zinc-400 mb-2 flex items-center gap-2">
+                                    <Calendar className="w-3.5 h-3.5" />
+                                    {isAr ? "تفاصيل الصفقة" : "Trade Details"}
+                                </h4>
+                                {[
+                                    { label: isAr ? "سعر الدخول" : "Entry Price", value: entryPrice ? `${entryPrice.toFixed(2)} EGP` : "—", color: "text-white" },
+                                    { label: isAr ? "الهدف الأول" : "Target 1", value: targetPrice ? `${targetPrice.toFixed(2)} EGP` : "—", color: "text-emerald-400" },
+                                    { label: isAr ? "وقف الخسارة" : "Stop Loss", value: stopLoss ? `${stopLoss.toFixed(2)} EGP` : "—", color: "text-rose-400" },
+                                    { label: isAr ? "نسبة المخاطرة/العائد" : "Risk/Reward", value: rrRatio > 0 ? `1:${rrRatio.toFixed(1)}` : "—", color: "text-indigo-400" },
+                                    { label: isAr ? "تاريخ التوصية" : "Rec. Date", value: row.created_at ? formatDate(row.created_at) : "—", color: "text-zinc-300" },
+                                    ...(isClosed && row.exit_price ? [{ label: isAr ? "سعر الخروج" : "Exit Price", value: `${row.exit_price.toFixed(2)} EGP`, color: isWin ? "text-emerald-400" : "text-rose-400" }] : []),
+                                ].map((item, idx) => (
+                                    <div key={idx} className="flex items-center justify-between py-2 border-b border-white/5 last:border-0">
+                                        <span className="text-xs text-zinc-500">{item.label}</span>
+                                        <span className={`text-sm font-black ${item.color}`}>{item.value}</span>
+                                    </div>
+                                ))}
+                            </div>
+
+                            <div className="lg:col-span-2 border-2 border-white/5 overflow-hidden bg-zinc-950">
+                                <div className="bg-zinc-900 px-4 py-3 border-b border-white/5 flex items-center justify-between">
+                                    <span className="text-xs font-black uppercase tracking-widest text-zinc-300 flex items-center gap-2">
+                                        <BarChart2 className="w-3.5 h-3.5" />
+                                        {isAr ? "الشارت التفاعلي" : "Interactive Chart"}
+                                    </span>
+                                    <span className="text-xs font-bold text-zinc-500">{row.symbol}</span>
+                                </div>
+                                <div style={{ height: 420 }}>
+                                    <TradingViewChart
+                                        symbol={row.symbol}
+                                        exchange={row.exchange}
+                                        theme="dark"
+                                        showApiMarkers={true}
+                                        customMarkers={
+                                            row.entry_price && row.created_at
+                                                ? [{
+                                                    time: Math.floor(new Date(row.created_at).getTime() / 1000),
+                                                    position: "belowBar" as const,
+                                                    color: "#22c55e",
+                                                    shape: "arrowUp" as const,
+                                                    text: isAr ? "توصية" : "Signal",
+                                                    size: 2
+                                                }]
+                                                : []
+                                        }
+                                    />
+                                </div>
+                            </div>
+                        </div>
+
+                        {richDetails?.news_source && (
+                            <p className="text-xs text-zinc-500 text-right" dir="rtl">
+                                📑 {richDetails.news_source}
+                            </p>
+                        )}
+
+                        {/* ── Bottom close button ── */}
+                        <div className="flex justify-center pt-4 pb-8">
+                            <button
+                                onClick={() => setSelectedRow(null)}
+                                className="h-12 px-8 bg-rose-600 hover:bg-rose-500 text-white text-sm font-black flex items-center gap-2 transition-colors active:scale-95"
+                            >
+                                <X className="w-5 h-5" />
+                                {isAr ? "إغلاق التفاصيل" : "Close Details"}
+                            </button>
+                        </div>
+
+                    </div>
+                </div>
+            </div>
+        );
+    };
+
+    // ─── Main Table ────────────────────────────────────────────────────────────
     return (
-        <div 
+        <div
             onClick={handleLandingClick}
             className={`w-full max-w-6xl mx-auto flex flex-col space-y-6 select-none ${isLandingPage && !user ? "cursor-pointer" : ""}`}
         >
+            {/* Dialog */}
+            {renderDialog()}
+
             {/* Header Content Info Box */}
             <div className="flex flex-col gap-3 p-8 border-4 border-black dark:border-white bg-zinc-950 text-white shadow-[6px_6px_0px_rgba(0,0,0,1)] dark:shadow-[6px_6px_0px_rgba(255,255,255,1)]">
                 <div className="flex items-center justify-between flex-wrap gap-4">
@@ -215,7 +627,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                         <h2 className="text-2xl font-black uppercase tracking-tight">{translate("title")}</h2>
                     </div>
                     {limit === Infinity && (
-                        <button 
+                        <button
                             onClick={() => loadRecommendations(isLandingPage)}
                             disabled={recsLoading}
                             className="h-10 px-4 border-2 border-black dark:border-white bg-white dark:bg-zinc-900 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-black dark:text-white font-bold uppercase text-xs flex items-center gap-2 shadow-[2px_2px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_rgba(255,255,255,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all duration-100"
@@ -226,6 +638,14 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                     )}
                 </div>
                 <p className="text-xs font-bold leading-relaxed text-zinc-400 max-w-3xl">{translate("subtitle")}</p>
+
+                {!isLandingPage && (
+                    <TelegramServiceToggle
+                        serviceType="stock_score"
+                        botId="stock_score"
+                        className="mt-4"
+                    />
+                )}
             </div>
 
             {/* Outdated Warning Panel */}
@@ -236,7 +656,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                         <span>{translate("outdated")}</span>
                     </div>
                     {limit === Infinity && (
-                        <button 
+                        <button
                             onClick={() => loadRecommendations(isLandingPage)}
                             className="underline font-black uppercase tracking-wider"
                         >
@@ -246,10 +666,9 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                 </div>
             )}
 
-            {/* Interactive Filters (Scanner or Authenticated Landing Page) */}
+            {/* Interactive Filters */}
             {limit === Infinity && (!isLandingPage || user) && (
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 border-4 border-black dark:border-white bg-white dark:bg-zinc-950 text-black dark:text-white shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_rgba(255,255,255,1)]">
-                    {/* Search Input */}
                     <div className="relative flex items-center">
                         <Search className="absolute left-3 w-4 h-4 text-zinc-500" />
                         <input
@@ -260,8 +679,6 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                             className="w-full h-11 pl-10 pr-4 border-2 border-black dark:border-white bg-zinc-50 dark:bg-zinc-900 text-black dark:text-white font-bold text-sm focus:outline-none focus:ring-0"
                         />
                     </div>
-
-                    {/* Sector dropdown */}
                     <div className="relative flex items-center">
                         <Filter className="absolute left-3 w-4 h-4 text-zinc-500" />
                         <select
@@ -275,8 +692,6 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                             ))}
                         </select>
                     </div>
-
-                    {/* Signal dropdown */}
                     <div className="relative flex items-center">
                         <Filter className="absolute left-3 w-4 h-4 text-zinc-500" />
                         <select
@@ -295,13 +710,39 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
             {/* Table wrapper */}
             <div className="border-4 border-black dark:border-white bg-white dark:bg-zinc-950 text-black dark:text-white shadow-[6px_6px_0px_rgba(0,0,0,1)] dark:shadow-[6px_6px_0px_rgba(255,255,255,1)] overflow-hidden">
                 {recsLoading ? (
-                    <div className="flex flex-col items-center justify-center py-20 gap-4 text-zinc-500">
-                        <div className="w-8 h-8 animate-spin rounded-full border-4 border-black border-t-transparent dark:border-white" />
-                        <p className="text-xs font-black uppercase tracking-widest">{isAr ? "جاري تحميل التوصيات..." : "Loading recommendations..."}</p>
+                    <div className="p-6 space-y-3">
+                        {Array.from({ length: 8 }).map((_, i) => (
+                            <div key={i} className="flex items-center gap-4 p-3 animate-pulse">
+                                <div className="w-8 h-8 rounded-full bg-zinc-200 dark:bg-zinc-800" />
+                                <div className="flex-1 space-y-2">
+                                    <div className="h-4 w-24 bg-zinc-200 dark:bg-zinc-800 rounded" />
+                                    <div className="h-3 w-40 bg-zinc-100 dark:bg-zinc-800/50 rounded" />
+                                </div>
+                                <div className="w-10 h-10 rounded-full bg-zinc-200 dark:bg-zinc-800" />
+                                <div className="h-6 w-16 bg-zinc-200 dark:bg-zinc-800 rounded" />
+                                <div className="w-10 h-10 rounded-full bg-zinc-200 dark:bg-zinc-800" />
+                                <div className="w-10 h-10 rounded-full bg-zinc-200 dark:bg-zinc-800" />
+                                <div className="w-10 h-10 rounded-full bg-zinc-200 dark:bg-zinc-800" />
+                                <div className="w-10 h-10 rounded-full bg-zinc-200 dark:bg-zinc-800" />
+                                <div className="h-6 w-20 bg-zinc-200 dark:bg-zinc-800 rounded" />
+                                <div className="h-4 w-24 bg-zinc-200 dark:bg-zinc-800 rounded" />
+                            </div>
+                        ))}
                     </div>
                 ) : displayRows.length === 0 ? (
-                    <div className="p-12 text-center text-zinc-500 font-bold uppercase tracking-wider text-xs">
-                        {translate("noResults")}
+                    <div className="flex flex-col items-center justify-center py-16 gap-4 text-zinc-400">
+                        <div className="w-16 h-16 rounded-full bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center">
+                            <Search className="w-8 h-8 text-zinc-400" />
+                        </div>
+                        <p className="text-sm font-black uppercase tracking-widest">{translate("noResults")}</p>
+                        {(searchTerm || selectedSector || selectedSignal) && (
+                            <button
+                                onClick={() => { setSearchTerm(""); setSelectedSector(""); setSelectedSignal(""); }}
+                                className="text-xs font-bold text-indigo-400 hover:text-indigo-300 underline underline-offset-2"
+                            >
+                                {isAr ? "مسح الفلاتر" : "Clear Filters"}
+                            </button>
+                        )}
                     </div>
                 ) : (
                     <div className="overflow-x-auto w-full">
@@ -313,8 +754,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                     <th className="px-6 py-4 w-24 text-center">{translate("country")}</th>
                                     <th className="px-4 py-4 w-24 text-center">{translate("aiScore")}</th>
                                     <th className="px-4 py-4 w-24 text-center">{translate("signal")}</th>
-                                    
-                                    {/* Registered User Circular Badges */}
+
                                     {user && (
                                         <>
                                             <th className="px-4 py-4 w-24 text-center">{translate("techScore")}</th>
@@ -324,7 +764,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                     )}
 
                                     <th className="px-4 py-4 w-24 text-center">{translate("lowRisk")}</th>
-                                    <th className="px-6 py-4 w-24 text-center">{translate("volume")}</th>
+                                    <th className="px-4 py-4 w-28 text-center">{isAr ? "الحالة" : "Status"}</th>
                                     <th className="px-6 py-4">{translate("sector")}</th>
                                 </tr>
                             </thead>
@@ -335,9 +775,15 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                     const aiScoreNum = Number((row.precision * 10).toFixed(0));
 
                                     return (
-                                        <tr 
-                                            key={row.id} 
-                                            className="hover:bg-zinc-50 dark:hover:bg-zinc-900 transition-colors duration-100 text-sm"
+                                        <tr
+                                            key={row.id}
+                                            className="group hover:bg-zinc-50 dark:hover:bg-zinc-900 hover:scale-[1.005] transition-all duration-150 text-sm cursor-pointer"
+                                            onClick={(e) => {
+                                                if (!isLandingPage || user) {
+                                                    e.stopPropagation();
+                                                    handleStockClick(row);
+                                                }
+                                            }}
                                         >
                                             {/* Rank */}
                                             <td className="px-4 py-4 text-center font-black font-mono text-zinc-500">
@@ -348,15 +794,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                             <td className="px-6 py-4 font-black">
                                                 <div className="flex items-center gap-3">
                                                     <StockLogo symbol={row.symbol} logoUrl={row.logo_url} size="md" />
-                                                    <div 
-                                                        onClick={(e) => {
-                                                            if (!isLandingPage || user) {
-                                                                e.stopPropagation();
-                                                                handleStockClick(row.symbol, row.exchange);
-                                                            }
-                                                        }}
-                                                        className="flex flex-col cursor-pointer"
-                                                    >
+                                                    <div className="flex flex-col">
                                                         <span className="text-base text-indigo-600 dark:text-indigo-400 hover:underline">{row.symbol}</span>
                                                         <span className="text-[10px] text-zinc-500 dark:text-zinc-400 font-medium truncate max-w-[220px]" title={row.name}>
                                                             {row.name}
@@ -373,7 +811,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                                 </div>
                                             </td>
 
-                                            {/* AI Score (danelfin circular score) */}
+                                            {/* AI Score */}
                                             <td className="px-4 py-4 text-center">
                                                 {renderCircularScore(aiScoreNum, "AI")}
                                             </td>
@@ -393,7 +831,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                                 )}
                                             </td>
 
-                                            {/* Technical, Fundamental, Sentiment Circular Badges (Registered only) */}
+                                            {/* Technical, Fundamental, Sentiment (Registered only) */}
                                             {user && (
                                                 <>
                                                     <td className="px-4 py-4 text-center">
@@ -413,9 +851,9 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                                 {renderCircularScore(getLowRiskScore(row), "Risk")}
                                             </td>
 
-                                            {/* Volume */}
-                                            <td className="px-6 py-4 text-center font-mono font-bold text-zinc-700 dark:text-zinc-300">
-                                                {formatVolume(row)}
+                                            {/* Status */}
+                                            <td className="px-4 py-4 text-center">
+                                                {getStatusBadge(row.status || "open", row.profit_loss_pct)}
                                             </td>
 
                                             {/* Sector */}
@@ -431,7 +869,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                 )}
             </div>
 
-            {/* Pagination Controls (Scanner or Authenticated Landing Page) */}
+            {/* Pagination */}
             {limit === Infinity && (!isLandingPage || user) && processedRows.length > itemsPerPage && (
                 <div className="flex items-center justify-between p-4 border-4 border-black dark:border-white bg-white dark:bg-zinc-950 shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_rgba(255,255,255,1)] text-black dark:text-white font-bold text-xs">
                     <span>
