@@ -810,9 +810,33 @@ def publish_similarity_report(report_data: Dict[str, Any]) -> Dict[str, Any]:
             print("❌ Supabase not initialized, cannot publish report")
             raise Exception("Supabase client not available")
         
+        # ------------------------------------------------------------
+        # Prepare scans: filter out delisted/inactive symbols and remove duplicates
+        # ------------------------------------------------------------
+        raw_scans = report_data.get("scans", [])
+        try:
+            active_symbols_data = get_supabase_symbols()
+            active_symbols_set: Set[str] = {s.get("symbol") for s in active_symbols_data if s.get("symbol")}
+        except Exception as e:
+            print(f"⚠️ Could not fetch active symbols for publishing filter: {e}")
+            active_symbols_set = set()
+
+        filtered_scans: List[Dict[str, Any]] = []
+        seen_symbols: Set[str] = set()
+        for scan in raw_scans:
+            sym = scan.get("symbol")
+            if not sym:
+                continue
+            if active_symbols_set and sym not in active_symbols_set:
+                continue
+            if sym in seen_symbols:
+                continue
+            seen_symbols.add(sym)
+            filtered_scans.append(scan)
+
         report = {
             "name": report_data.get("name", "Market Similarity Report"),
-            "scans": json.dumps(report_data.get("scans", [])),  # Convert to JSON string for JSONB storage
+            "scans": json.dumps(filtered_scans),  # Store filtered scans only
             "k": report_data.get("k", 10),
             "forward_days": report_data.get("forward_days", 10),
             "target_return": report_data.get("target_return", 0.05),
