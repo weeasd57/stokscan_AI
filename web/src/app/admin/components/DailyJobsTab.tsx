@@ -154,7 +154,7 @@ export default function DailyJobsTab() {
         }
     };
 
-    const formatTime = (iso: string | null) => {
+    const formatTime = (iso: string | null | undefined) => {
         if (!iso) return "—";
         const d = new Date(iso);
         return d.toLocaleString("en-EG", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" });
