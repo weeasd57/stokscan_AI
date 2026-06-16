@@ -5,7 +5,7 @@ import datetime
 import random
 import pandas as pd
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, HTTPException, Query
 
@@ -309,6 +309,42 @@ class _BoosterWrapper:
         return np.column_stack([1 - probs, probs])
 
 
+def _is_stock_active(df: pd.DataFrame, max_stale_days: int = 30) -> Tuple[bool, str]:
+    """
+    Check if a stock is still actively trading based on recent price data.
+    Returns (is_active, reason).
+    """
+    if df is None or df.empty:
+        return False, "No price data"
+
+    last_row = df.iloc[-1]
+    last_close = float(last_row.get("Close", last_row.get("close", 0)))
+    if last_close <= 0:
+        return False, f"Last close is zero ({last_close})"
+
+    # Check last date
+    last_date = None
+    if isinstance(df.index, pd.DatetimeIndex):
+        last_date = df.index[-1]
+    elif "date" in df.columns:
+        last_date = pd.to_datetime(df["date"].iloc[-1], errors="coerce")
+    elif "timestamp" in df.columns:
+        last_date = pd.to_datetime(df["timestamp"].iloc[-1], errors="coerce")
+
+    if last_date is not None:
+        days_since = (pd.Timestamp.now() - last_date).days
+        if days_since > max_stale_days:
+            return False, f"Last data {days_since} days ago (>{max_stale_days})"
+
+    # Check recent volume (last 5 days)
+    recent_volume = df.tail(5).get("Volume", df.tail(5).get("volume", pd.Series([0])))
+    recent_volume = pd.to_numeric(recent_volume, errors="coerce").fillna(0)
+    if recent_volume.sum() == 0:
+        return False, "Zero trading volume in last 5 days"
+
+    return True, "Active"
+
+
 def _process_symbol(
     sym: str,
     ex: str,
@@ -332,6 +368,11 @@ def _process_symbol(
         raw = df
         if len(raw) > 500:
             raw = raw.iloc[-500:].copy()
+
+        # 🚫 Skip delisted/suspended stocks
+        is_active, reason = _is_stock_active(raw)
+        if not is_active:
+            return None
         
         # 1. Technical Indicators (Fast + Massive) - Using Cached Versions
         feat = _get_data_with_indicators_cached(sym, ex or "EGX", raw, add_technical_indicators)

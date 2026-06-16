@@ -2060,3 +2060,4 @@
 {"timestamp": "2026-06-13T21:04:06.891421", "level": "INFO", "logger": "live_bot_primary", "event": "data_validation", "symbol": "EEII", "is_ready": true, "bars_count": 199, "nan_percentage": 0.0, "warnings": []}
 {"timestamp": "2026-06-13T21:04:08.868263", "level": "INFO", "logger": "live_bot_primary", "event": "data_validation", "symbol": "EFIC", "is_ready": true, "bars_count": 199, "nan_percentage": 0.0, "warnings": []}
 {"timestamp": "2026-06-13T21:04:10.471591", "level": "INFO", "logger": "live_bot_primary", "event": "data_validation", "symbol": "EFID", "is_ready": true, "bars_count": 199, "nan_percentage": 0.0, "warnings": []}
+{"timestamp": "2026-06-16T00:15:47.911992", "level": "INFO", "logger": "backtest", "event": "parameters_loaded", "source": "backtest_pipeline", "entry_mode": "next_open", "barrier_mode": "percent", "target_pct": 0.05, "stop_loss_pct": 0.02, "king_threshold": 0.5}

@@ -6,7 +6,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useAIScanner } from "@/contexts/AIScannerContext";
 import StockLogo from "./StockLogo";
-import TradingViewChart from "./TradingViewChart";
+import TradingViewChart from "./TradingViewChartDynamic";
 import TelegramServiceToggle from "./TelegramServiceToggle";
 import {
     Search, Filter, AlertTriangle, RefreshCw, ChevronLeft, ChevronRight,

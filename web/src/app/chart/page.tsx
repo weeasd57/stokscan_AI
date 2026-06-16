@@ -2,28 +2,17 @@
 
 import { useSearchParams, useRouter } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
-import TradingViewChart from "@/components/TradingViewChart";
+import TradingViewChart from "@/components/TradingViewChartDynamic";
 import { getAdaptiveRecommendation, getStockFundamentals, searchSymbols } from "@/lib/api";
 import { 
   Loader2, MousePointer, TrendingUp, Minus, Type, Edit2, 
   Trash2, Compass, Ruler, Landmark, Activity, Sparkles, TrendingDown,
   PieChart, Coins, HelpCircle, ChevronRight, ChevronLeft, Globe, Search, Star,
-  ArrowLeftRight
+  ArrowLeftRight, Plus, ExternalLink
 } from "lucide-react";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useWatchlist } from "@/contexts/WatchlistContext";
-
-// Recommended Watchlist symbols grouped by category
-const WATCHLIST = [
-  { group: "الأسهم المصرية (EGX)", items: [
-    { symbol: "COMI", exchange: "EGX", name: "البنك التجاري الدولي (CIB)" },
-    { symbol: "EAST", exchange: "EGX", name: "الشرقية - إيسترن كومباني" },
-    { symbol: "TMGH", exchange: "EGX", name: "مجموعة طلعت مصطفى (TMG)" },
-    { symbol: "FWRY", exchange: "EGX", name: "فوري لتكنولوجيا البنوك" },
-    { symbol: "AALR", exchange: "EGX", name: "العامة لاستصلاح الأراضي" }
-  ]}
-];
 
 function ChartContent() {
   const searchParams = useSearchParams();
@@ -52,6 +41,7 @@ function ChartContent() {
         metadata: {
           price: fundamentals?.last_close ?? fundamentals?.close,
           name: fundamentals?.name,
+          exchange,
         },
         entryPrice: fundamentals?.last_close ?? fundamentals?.close ?? null,
       });
@@ -194,15 +184,15 @@ function ChartContent() {
         </button>
 
         <button
-          onClick={() => handleToolClick("trendline")}
+          onClick={() => handleToolClick("trend")}
           className={`p-2 rounded-xl transition-all duration-200 group relative ${
-            activeTool === "trendline" ? "bg-indigo-600 text-white" : "text-[#787b86] hover:text-white hover:bg-zinc-800"
+            activeTool === "trend" ? "bg-emerald-600 text-white" : "text-[#787b86] hover:text-white hover:bg-zinc-800"
           }`}
           title="Trend Line"
         >
           <TrendingUp className="w-4 h-4" />
           <span className="absolute left-14 top-1/2 -translate-y-1/2 bg-zinc-950 text-[10px] font-bold text-white px-2 py-1 rounded border border-white/5 whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity z-50 pointer-events-none uppercase tracking-wider">
-            Trendline (Mock)
+            Trend Line
           </span>
         </button>
 
@@ -233,41 +223,30 @@ function ChartContent() {
         </button>
 
         <button
+          onClick={() => handleToolClick("rectangle")}
+          className={`p-2 rounded-xl transition-all duration-200 group relative ${
+            activeTool === "rectangle" ? "bg-sky-600 text-white" : "text-[#787b86] hover:text-white hover:bg-zinc-800"
+          }`}
+          title="Rectangle Zone"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <rect x="4" y="6" width="16" height="12" strokeWidth="2"/>
+          </svg>
+          <span className="absolute left-14 top-1/2 -translate-y-1/2 bg-zinc-950 text-[10px] font-bold text-white px-2 py-1 rounded border border-white/5 whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity z-50 pointer-events-none uppercase tracking-wider">
+            Rectangle Zone
+          </span>
+        </button>
+
+        <button
           onClick={() => handleToolClick("fib")}
           className={`p-2 rounded-xl transition-all duration-200 group relative ${
-            activeTool === "fib" ? "bg-indigo-600 text-white" : "text-[#787b86] hover:text-white hover:bg-zinc-800"
+            activeTool === "fib" ? "bg-amber-600 text-white" : "text-[#787b86] hover:text-white hover:bg-zinc-800"
           }`}
           title="Fibonacci Retracement"
         >
           <Compass className="w-4 h-4" />
           <span className="absolute left-14 top-1/2 -translate-y-1/2 bg-zinc-950 text-[10px] font-bold text-white px-2 py-1 rounded border border-white/5 whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity z-50 pointer-events-none uppercase tracking-wider">
-            Fibonacci (Mock)
-          </span>
-        </button>
-
-        <button
-          onClick={() => handleToolClick("brush")}
-          className={`p-2 rounded-xl transition-all duration-200 group relative ${
-            activeTool === "brush" ? "bg-indigo-600 text-white" : "text-[#787b86] hover:text-white hover:bg-zinc-800"
-          }`}
-          title="Brush Draw"
-        >
-          <Edit2 className="w-4 h-4" />
-          <span className="absolute left-14 top-1/2 -translate-y-1/2 bg-zinc-950 text-[10px] font-bold text-white px-2 py-1 rounded border border-white/5 whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity z-50 pointer-events-none uppercase tracking-wider">
-            Brush Draw (Mock)
-          </span>
-        </button>
-
-        <button
-          onClick={() => handleToolClick("ruler")}
-          className={`p-2 rounded-xl transition-all duration-200 group relative ${
-            activeTool === "ruler" ? "bg-indigo-600 text-white" : "text-[#787b86] hover:text-white hover:bg-zinc-800"
-          }`}
-          title="Measure Distance"
-        >
-          <Ruler className="w-4 h-4" />
-          <span className="absolute left-14 top-1/2 -translate-y-1/2 bg-zinc-950 text-[10px] font-bold text-white px-2 py-1 rounded border border-white/5 whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity z-50 pointer-events-none uppercase tracking-wider">
-            Measure Range (Mock)
+            Fibonacci
           </span>
         </button>
 
@@ -497,86 +476,84 @@ function ChartContent() {
             {/* TAB CONTENT: WATCHLIST */}
             {activeTab === "watchlist" && (
               <div className="space-y-4 animate-fade-in h-full flex flex-col min-h-0">
-                <div className="grid grid-cols-2 gap-3 flex-1 overflow-hidden min-h-0">
-                  {/* Column 1: Watchlist (قائمتي) */}
-                  <div className="flex flex-col min-h-0 h-full">
-                    <span className="text-[10px] font-black text-zinc-500 uppercase tracking-wider block border-b border-[#2a2e39] pb-1.5 mb-2 text-right">
-                      قائمتي
-                    </span>
-                    <div className="flex-1 flex flex-col gap-2 overflow-y-auto no-scrollbar pb-6">
-                      {!user ? (
-                        <div className="text-center py-4 px-2 rounded-xl bg-zinc-950/20 border border-dashed border-white/5 space-y-2">
-                          <p className="text-[9px] text-zinc-500 leading-normal">قم بتسجيل الدخول لمشاهدة قائمة المراقبة</p>
+                <div className="flex items-center justify-between gap-3 border-b border-[#2a2e39] pb-3">
+                  <div className="text-right">
+                    <span className="text-[10px] font-black text-zinc-500 uppercase tracking-wider block">قائمة المراقبة</span>
+                    <span className="text-[10px] text-zinc-600 font-semibold">{user ? `${watchlist.length} سهم محفوظ` : "سجل الدخول للمزامنة"}</span>
+                  </div>
+                  <button
+                    onClick={handleWatchlistToggle}
+                    className={`h-9 w-9 rounded-xl border flex items-center justify-center transition-all active:scale-95 ${
+                      isSaved(symbol)
+                        ? "bg-indigo-600/15 border-indigo-500/30 text-indigo-300"
+                        : "bg-zinc-900/40 border-white/10 text-zinc-400 hover:text-white hover:bg-zinc-800"
+                    }`}
+                    title={isSaved(symbol) ? "إزالة السهم الحالي" : "إضافة السهم الحالي"}
+                  >
+                    {isSaved(symbol) ? <Star className="w-4 h-4 fill-indigo-300" /> : <Plus className="w-4 h-4" />}
+                  </button>
+                </div>
+
+                <div className="flex-1 flex flex-col gap-2 overflow-y-auto no-scrollbar pb-6 min-h-0">
+                  {!user ? (
+                    <div className="text-center py-8 px-4 rounded-xl bg-zinc-950/25 border border-dashed border-white/10 space-y-3">
+                      <Landmark className="w-6 h-6 text-zinc-600 mx-auto" />
+                      <p className="text-xs text-zinc-500 leading-relaxed">قم بتسجيل الدخول لمشاهدة وتعديل قائمة المراقبة الحقيقية الخاصة بك.</p>
+                      <button
+                        onClick={() => router.push(`/login?redirect=/chart?symbol=${encodeURIComponent(symbol)}&exchange=${encodeURIComponent(exchange)}`)}
+                        className="w-full py-2 text-[10px] font-black bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors uppercase tracking-wider"
+                      >
+                        تسجيل الدخول
+                      </button>
+                    </div>
+                  ) : watchlist.length === 0 ? (
+                    <div className="text-center py-8 px-4 rounded-xl bg-zinc-950/25 border border-dashed border-white/10 space-y-3">
+                      <Star className="w-6 h-6 text-zinc-600 mx-auto" />
+                      <p className="text-xs text-zinc-500 leading-relaxed">القائمة فارغة. اضغط زر النجمة لإضافة السهم الحالي.</p>
+                    </div>
+                  ) : (
+                    watchlist.map((item) => (
+                      <div
+                        key={item.id}
+                        className={`group relative p-3 rounded-xl border transition-all active:scale-[0.99] ${
+                          symbol.toLowerCase() === item.symbol.toLowerCase()
+                            ? "bg-indigo-600/10 border-indigo-500/30 text-white"
+                            : "bg-zinc-900/20 border-white/5 hover:bg-zinc-900/50 text-zinc-400"
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-2">
                           <button
-                            onClick={() => router.push(`/login?redirect=/chart?symbol=${encodeURIComponent(symbol)}&exchange=${encodeURIComponent(exchange)}`)}
-                            className="w-full py-1.5 text-[9px] font-bold bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors uppercase tracking-wider"
+                            onClick={() => selectSymbol(item.symbol, item.metadata?.exchange || exchange || "EGX")}
+                            className="flex-1 text-right flex flex-col min-w-0"
                           >
-                            تسجيل الدخول
+                            <span className="text-sm font-black text-white uppercase">{item.symbol}</span>
+                            <span className="text-[10px] text-zinc-500 font-semibold truncate w-full mt-0.5">
+                              {item.name || item.symbol}
+                            </span>
                           </button>
-                        </div>
-                      ) : watchlist.length === 0 ? (
-                        <div className="text-center py-6 px-2 rounded-xl bg-zinc-950/20 border border-dashed border-white/5">
-                          <p className="text-[9px] text-zinc-500 leading-normal">القائمة فارغة. أضف أسهم لمراقبتها.</p>
-                        </div>
-                      ) : (
-                        watchlist.map((item) => (
-                          <div
-                            key={item.id}
-                            className={`group relative flex items-center justify-between w-full p-2.5 rounded-xl border transition-all active:scale-[0.99] ${
-                              symbol.toLowerCase() === item.symbol.toLowerCase()
-                                ? "bg-indigo-600/10 border-indigo-500/30 text-white"
-                                : "bg-zinc-900/10 border-white/5 hover:bg-zinc-900/40 text-zinc-400"
-                            }`}
-                          >
+                          <div className="flex items-center gap-1">
                             <button
-                              onClick={() => selectSymbol(item.symbol, item.metadata?.exchange || "EGX")}
-                              className="flex-1 text-right flex flex-col min-w-0"
+                              onClick={() => router.push("/profile")}
+                              className="text-zinc-500 hover:text-indigo-300 p-1.5 rounded-lg hover:bg-white/5 transition-all"
+                              title="تعديل من البروفايل"
                             >
-                              <span className="text-xs font-black text-white">{item.symbol}</span>
-                              <span className="text-[9px] text-zinc-500 font-semibold truncate w-full mt-0.5">
-                                {item.name}
-                              </span>
+                              <ExternalLink className="w-3.5 h-3.5" />
                             </button>
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
                                 removeSymbol(item.id);
                               }}
-                              className="opacity-0 group-hover:opacity-100 text-zinc-500 hover:text-red-400 p-1 rounded hover:bg-white/5 transition-all ml-1"
+                              className="text-zinc-500 hover:text-red-400 p-1.5 rounded-lg hover:bg-white/5 transition-all"
                               title="إزالة"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
                             </button>
                           </div>
-                        ))
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Column 2: Trending (الشائع) */}
-                  <div className="flex flex-col min-h-0 h-full border-r border-[#2a2e39] pr-1 mr-[-4px] pl-2">
-                    <span className="text-[10px] font-black text-zinc-500 uppercase tracking-wider block border-b border-[#2a2e39] pb-1.5 mb-2 text-right">
-                      الشائع / التريند
-                    </span>
-                    <div className="flex-1 flex flex-col gap-2 overflow-y-auto no-scrollbar pb-6">
-                      {WATCHLIST[0].items.map((item) => (
-                        <button
-                          key={item.symbol}
-                          onClick={() => selectSymbol(item.symbol, item.exchange)}
-                          className={`flex flex-col items-start w-full p-2.5 rounded-xl border text-right transition-all active:scale-[0.99] ${
-                            symbol.toLowerCase() === item.symbol.toLowerCase()
-                              ? "bg-indigo-600/10 border-indigo-500/30 text-white"
-                              : "bg-zinc-900/10 border-white/5 hover:bg-zinc-900/40 text-zinc-400"
-                          }`}
-                        >
-                          <span className="text-xs font-black text-white">{item.symbol}</span>
-                          <span className="text-[9px] text-zinc-500 font-semibold truncate w-full mt-0.5 block">
-                            {item.name}
-                          </span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
+                        </div>
+                      </div>
+                    ))
+                  )}
                 </div>
               </div>
             )}

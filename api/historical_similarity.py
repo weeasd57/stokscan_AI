@@ -2,9 +2,10 @@ import os
 import json
 import uuid
 import math
+from functools import lru_cache
 import numpy as np
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Dict, Any, Tuple, Optional, Set
 from api.stock_ai import add_technical_indicators, get_supabase_symbols
 import api.stock_ai as stock_ai
@@ -620,6 +621,78 @@ def _get_supabase():
     _init_supabase()
     return supabase
 
+
+@lru_cache(maxsize=1)
+def _get_recent_active_symbol_bases(max_stale_days: int = 30) -> Set[str]:
+    """Return symbols that still have recent daily price data."""
+    supabase = _get_supabase()
+    if not supabase:
+        return set()
+
+    cutoff_date = (datetime.utcnow() - timedelta(days=max_stale_days)).date().isoformat()
+    response = (
+        supabase.table("stock_prices")
+        .select("symbol,date")
+        .gte("date", cutoff_date)
+        .order("date", desc=True)
+        .limit(50000)
+        .execute()
+    )
+
+    recent_symbols: Set[str] = set()
+    for row in response.data or []:
+        symbol_value = row.get("symbol")
+        if symbol_value:
+            recent_symbols.add(symbol_value.split(".")[0].upper())
+    return recent_symbols
+
+
+def _filter_report_scans(scans: List[Dict[str, Any]], max_stale_days: int = 30) -> List[Dict[str, Any]]:
+    """Keep one scan per symbol and require recent market data."""
+    try:
+        active_symbols_data = get_supabase_symbols(country=None)
+        active_symbols_set: Set[str] = {
+            s.get("symbol").split(".")[0].upper()
+            for s in active_symbols_data
+            if s.get("symbol")
+        }
+    except Exception as e:
+        print(f"⚠️ Could not fetch active symbols for similarity filtering: {e}")
+        active_symbols_set = set()
+
+    try:
+        recent_symbols_set = _get_recent_active_symbol_bases(max_stale_days=max_stale_days)
+    except Exception as e:
+        print(f"⚠️ Could not fetch recent price symbols for similarity filtering: {e}")
+        recent_symbols_set = set()
+
+    filtered_scans: List[Dict[str, Any]] = []
+    seen_symbols: Set[str] = set()
+
+    for scan in scans:
+        sym = scan.get("symbol")
+        if not sym:
+            continue
+
+        sym_base = sym.split(".")[0].upper()
+
+        if active_symbols_set and sym_base not in active_symbols_set:
+            print(f"🚫 Filtering inactive symbol from similarity report: {sym}")
+            continue
+
+        if recent_symbols_set and sym_base not in recent_symbols_set:
+            print(f"🚫 Filtering stale symbol with no recent prices from similarity report: {sym}")
+            continue
+
+        if sym_base in seen_symbols:
+            continue
+
+        seen_symbols.add(sym_base)
+        filtered_scans.append(scan)
+
+    return filtered_scans
+
+
 def run_market_wide_similarity_scan(
     k: int = 10,
     forward_days: int = 10,
@@ -755,40 +828,8 @@ def get_published_similarity_report() -> Dict[str, Any]:
         
         if response.data and len(response.data) > 0:
             report_row = response.data[0]
-            # Load raw scans list
             raw_scans = json.loads(report_row.get("scans", "[]")) if isinstance(report_row.get("scans"), str) else report_row.get("scans", [])
-
-            # ------------------------------------------------------------
-            # Filter out delisted / inactive symbols and remove duplicates
-            # ------------------------------------------------------------
-            try:
-                # Fetch active symbols from Supabase (bare tickers, e.g. "ESRS")
-                active_symbols_data = get_supabase_symbols()
-                active_symbols_set: Set[str] = {
-                    s.get("symbol").split(".")[0].upper()
-                    for s in active_symbols_data
-                    if s.get("symbol")
-                }
-            except Exception as e:
-                print(f"⚠️ Could not fetch active symbols for filtering: {e}")
-                active_symbols_set = set()
-
-            filtered_scans: List[Dict[str, Any]] = []
-            seen_symbols: Set[str] = set()
-            for scan in raw_scans:
-                sym = scan.get("symbol")
-                if not sym:
-                    continue
-                sym_base = sym.split(".")[0].upper()
-                # Skip if symbol is not in active set (if we have the set)
-                if active_symbols_set and sym_base not in active_symbols_set:
-                    print(f"🚫 Filtering delisted/inactive symbol from published report: {sym}")
-                    continue
-                # Skip duplicates
-                if sym_base in seen_symbols:
-                    continue
-                seen_symbols.add(sym_base)
-                filtered_scans.append(scan)
+            filtered_scans = _filter_report_scans(raw_scans)
 
             return {
                     "id": report_row.get("id"),
@@ -816,36 +857,8 @@ def publish_similarity_report(report_data: Dict[str, Any]) -> Dict[str, Any]:
             print("❌ Supabase not initialized, cannot publish report")
             raise Exception("Supabase client not available")
         
-        # ------------------------------------------------------------
-        # Prepare scans: filter out delisted/inactive symbols and remove duplicates
-        # ------------------------------------------------------------
         raw_scans = report_data.get("scans", [])
-        try:
-            active_symbols_data = get_supabase_symbols()
-            # Active symbols come as bare tickers (e.g. "ESRS"); scans use "ESRS.EGX"
-            active_symbols_set: Set[str] = {
-                s.get("symbol").split(".")[0].upper()
-                for s in active_symbols_data
-                if s.get("symbol")
-            }
-        except Exception as e:
-            print(f"⚠️ Could not fetch active symbols for publishing filter: {e}")
-            active_symbols_set = set()
-
-        filtered_scans: List[Dict[str, Any]] = []
-        seen_symbols: Set[str] = set()
-        for scan in raw_scans:
-            sym = scan.get("symbol")
-            if not sym:
-                continue
-            sym_base = sym.split(".")[0].upper()
-            if active_symbols_set and sym_base not in active_symbols_set:
-                print(f"🚫 Filtering delisted/inactive symbol from similarity report: {sym}")
-                continue
-            if sym_base in seen_symbols:
-                continue
-            seen_symbols.add(sym_base)
-            filtered_scans.append(scan)
+        filtered_scans = _filter_report_scans(raw_scans)
 
         report = {
             "name": report_data.get("name", "Market Similarity Report"),

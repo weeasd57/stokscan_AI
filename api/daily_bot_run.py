@@ -53,7 +53,22 @@ def calculate_and_save_indicators(symbol: str, exchange: str = "EGX"):
     df = pd.DataFrame(data)
     df["date"] = pd.to_datetime(df["date"])
     df.set_index("date", inplace=True)
-    
+
+    # 🚫 Skip delisted/suspended stocks
+    last_close_val = float(df["close"].iloc[-1]) if not df["close"].empty else 0.0
+    last_date_val = df.index[-1]
+    days_since = (pd.Timestamp.now() - last_date_val).days
+    recent_vol = pd.to_numeric(df["volume"].tail(5), errors="coerce").fillna(0).sum()
+    if last_close_val <= 0:
+        print(f"[INDICATORS] Skipping {symbol}.{exchange} — last close is zero (delisted/suspended)")
+        return
+    if days_since > 30:
+        print(f"[INDICATORS] Skipping {symbol}.{exchange} — last data {days_since} days ago (stale)")
+        return
+    if recent_vol == 0:
+        print(f"[INDICATORS] Skipping {symbol}.{exchange} — zero volume in last 5 days (suspended)")
+        return
+
     close = pd.to_numeric(df["close"], errors="coerce").fillna(0.0)
     volume = pd.to_numeric(df["volume"], errors="coerce").fillna(0.0)
     high = pd.to_numeric(df["high"], errors="coerce").fillna(close) if "high" in df.columns else close
@@ -361,9 +376,22 @@ def evaluate_old_recommendations():
         if not prices:
             continue
 
+        # 🚫 Skip delisted/suspended stocks
+        latest_close = float(prices[-1]["close"])
+        latest_price_date = prices[-1].get("date", "")
+        if latest_close <= 0:
+            print(f"[EVALUATE] Skipping {symbol}.{exchange} — last close is zero (delisted)")
+            continue
+        try:
+            days_since = (dt.datetime.now() - dt.datetime.strptime(latest_price_date[:10], "%Y-%m-%d")).days
+            if days_since > 30:
+                print(f"[EVALUATE] Skipping {symbol}.{exchange} — last data {days_since} days ago (stale)")
+                continue
+        except Exception:
+            pass
+
         # Get technical snapshot for smart logic
         tech = _fetch_technical_snapshot(symbol, exchange)
-        latest_close = float(prices[-1]["close"])
         pl_pct = ((latest_close - entry_price) / entry_price) * 100
 
         # Load existing adjustments
@@ -600,6 +628,16 @@ def update_open_portfolio_positions():
         if current_price <= 0.0:
             print(f"[POSITIONS] Latest close <= 0 for {full_symbol}. Skipping.")
             continue
+
+        # 🚫 Skip delisted/suspended stocks
+        latest_price_date = latest.get("date", "")
+        try:
+            days_since = (dt.datetime.now() - dt.datetime.strptime(str(latest_price_date)[:10], "%Y-%m-%d")).days
+            if days_since > 30:
+                print(f"[POSITIONS] Skipping {full_symbol} — last data {days_since} days ago (stale/delisted)")
+                continue
+        except Exception:
+            pass
 
         entry_val = pos.get("entry_price")
         entry_price = float(entry_val) if entry_val is not None else current_price

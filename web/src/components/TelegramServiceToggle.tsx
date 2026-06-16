@@ -17,7 +17,7 @@ interface TelegramServiceToggleProps {
     className?: string;
 }
 
-const BOT_USERNAME = "EGXBotsBot";
+const DEFAULT_BOT_USERNAME = "egxbots_bot";
 
 export default function TelegramServiceToggle({
     serviceType,
@@ -36,6 +36,7 @@ export default function TelegramServiceToggle({
     const [telegramLinked, setTelegramLinked] = useState(false);
     const [notificationsEnabled, setNotificationsEnabled] = useState(false);
     const [chatId, setChatId] = useState<string | null>(null);
+    const [botUsername, setBotUsername] = useState(DEFAULT_BOT_USERNAME);
 
     const defaultTitle = {
         stock_score: { en: "Stocks Score Alerts", ar: "تنبيهات تقييم الأسهم" },
@@ -53,6 +54,17 @@ export default function TelegramServiceToggle({
 
     const tTitle = title || (isAr ? defaultTitle.ar : defaultTitle.en);
     const tDesc = description || (isAr ? defaultDesc.ar : defaultDesc.en);
+
+    useEffect(() => {
+        fetch("/api/ai_bot/telegram/bot_username")
+            .then((res) => res.json())
+            .then((data) => {
+                if (typeof data?.username === "string" && data.username.trim()) {
+                    setBotUsername(data.username.trim());
+                }
+            })
+            .catch((err) => console.error("Error fetching bot username:", err));
+    }, []);
 
     useEffect(() => {
         if (!user) {
@@ -96,13 +108,13 @@ export default function TelegramServiceToggle({
 
     const connectTelegramApp = () => {
         const userId = user?.id || "";
-        window.open(`https://t.me/${BOT_USERNAME}?start=${userId}`, "_blank");
+        window.open(`https://t.me/${botUsername}?start=${userId}`, "_blank");
     };
 
     const connectTelegramWeb = () => {
         const userId = user?.id || "";
         window.open(
-            `https://web.telegram.org/a/#?tgaddr=tg%3A%2F%2Fresolve%3Fdomain%3D${BOT_USERNAME}%26start%3D${userId}`,
+            `https://web.telegram.org/a/#?tgaddr=tg%3A%2F%2Fresolve%3Fdomain%3D${botUsername}%26start%3D${userId}`,
             "_blank"
         );
     };

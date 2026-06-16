@@ -4,7 +4,7 @@ const nextConfig = {
   i18n: {
     locales: ['en', 'ar'],
     defaultLocale: 'en',
-    localeDetection: true,
+    localeDetection: false,
   },
   async rewrites() {
     console.log("Using Python Path:", process.env.PYTHON_PATH || "Default System Python");

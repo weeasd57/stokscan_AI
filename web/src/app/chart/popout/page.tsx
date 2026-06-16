@@ -1,7 +1,7 @@
 "use client";
 
 import { useSearchParams } from "next/navigation";
-import TradingViewChart from "@/components/TradingViewChart";
+import TradingViewChart from "@/components/TradingViewChartDynamic";
 import { Loader2 } from "lucide-react";
 import { Suspense } from "react";
 

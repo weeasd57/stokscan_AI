@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
-import { Loader2, Save, Send, MessageSquare, CheckCircle2, AlertCircle, RefreshCw, Globe } from "lucide-react";
+import { useWatchlist, type SavedSymbol } from "@/contexts/WatchlistContext";
+import { Loader2, Save, Send, MessageSquare, CheckCircle2, AlertCircle, RefreshCw, Globe, Star, Trash2, Edit3, X, Check, ExternalLink, Target, Shield, Bell, BellOff, Brain, Activity, BarChart3, TrendingUp } from "lucide-react";
 
 type ProfileRow = {
   username: string | null;
@@ -18,6 +19,7 @@ export default function ProfilePage() {
   const router = useRouter();
   const { user, loading } = useAuth();
   const { t, language } = useLanguage();
+  const { watchlist, updateSymbol, removeSymbol } = useWatchlist();
   const isAr = language === "ar";
   const supabase = useMemo(() => createSupabaseBrowserClient(), []);
 
@@ -27,6 +29,11 @@ export default function ProfilePage() {
   const channelLoadedRef = useRef(false);
   const [savingDefaults, setSavingDefaults] = useState(false);
   const [botUsername, setBotUsername] = useState("egxbots_bot");
+  const [editingSymbolId, setEditingSymbolId] = useState<string | null>(null);
+  const [watchlistDraft, setWatchlistDraft] = useState({ name: "" });
+  const [subscriptions, setSubscriptions] = useState<Record<string, boolean>>({});
+  const [subsLoading, setSubsLoading] = useState(true);
+  const [togglingSub, setTogglingSub] = useState<string | null>(null);
 
   useEffect(() => {
     if (!loading && !user) router.replace("/login");
@@ -58,6 +65,21 @@ export default function ProfilePage() {
         channelLoadedRef.current = true;
       }
     }
+
+    // Load per-service subscriptions
+    setSubsLoading(true);
+    const { data: subs } = await supabase
+      .from("bot_subscriptions")
+      .select("service_type, notifications_enabled")
+      .eq("user_id", user.id);
+    const subMap: Record<string, boolean> = {};
+    if (subs) {
+      for (const s of subs) {
+        if (s.service_type) subMap[s.service_type] = s.notifications_enabled ?? true;
+      }
+    }
+    setSubscriptions(subMap);
+    setSubsLoading(false);
   }, [supabase, user]);
 
   useEffect(() => {
@@ -80,6 +102,54 @@ export default function ProfilePage() {
     } finally {
       setSavingDefaults(false);
     }
+  }
+
+  async function toggleSubscription(serviceType: string) {
+    if (!user || togglingSub === serviceType) return;
+    setTogglingSub(serviceType);
+    const newState = !subscriptions[serviceType];
+    try {
+      const { data: existing } = await supabase
+        .from("bot_subscriptions")
+        .select("id")
+        .eq("user_id", user.id)
+        .eq("service_type", serviceType)
+        .maybeSingle();
+
+      if (existing) {
+        await supabase
+          .from("bot_subscriptions")
+          .update({ notifications_enabled: newState })
+          .eq("user_id", user.id)
+          .eq("service_type", serviceType);
+      } else {
+        await supabase.from("bot_subscriptions").insert({
+          user_id: user.id,
+          bot_id: serviceType,
+          service_type: serviceType,
+          notifications_enabled: newState,
+          created_at: new Date().toISOString(),
+        });
+      }
+      setSubscriptions((prev) => ({ ...prev, [serviceType]: newState }));
+    } catch (e) {
+      console.error("Toggle subscription error:", e);
+    } finally {
+      setTogglingSub(null);
+    }
+  }
+
+  function beginEditWatchlistItem(item: SavedSymbol) {
+    setEditingSymbolId(item.id);
+    setWatchlistDraft({ name: item.name || item.symbol });
+  }
+
+  async function saveWatchlistItem(item: SavedSymbol) {
+    const ok = await updateSymbol(item.id, {
+      name: watchlistDraft.name.trim() || item.symbol,
+    });
+
+    if (ok) setEditingSymbolId(null);
   }
 
   if (loading) {
@@ -348,6 +418,199 @@ export default function ProfilePage() {
         </div>
 
       </div>
+
+      {/* ── Per-Service Notification Subscriptions ── */}
+      <section className="relative z-10 neobrutal-card p-6 sm:p-8 space-y-6 bg-white dark:bg-zinc-900 border-4 border-black dark:border-white shadow-[6px_6px_0px_rgba(0,0,0,1)] dark:shadow-[6px_6px_0px_rgba(255,255,255,1)]">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between border-b-4 border-black dark:border-zinc-800 pb-5">
+          <div>
+            <div className="flex items-center gap-3 mb-2">
+              <div className="h-10 w-10 border-4 border-black dark:border-white bg-sky-500 text-white flex items-center justify-center shadow-[3px_3px_0px_rgba(0,0,0,1)] dark:shadow-[3px_3px_0px_rgba(255,255,255,1)]">
+                <Bell className="h-5 w-5" />
+              </div>
+              <h2 className="text-2xl font-black text-black dark:text-white uppercase tracking-tight">
+                {isAr ? "الخدمات والتنبيهات" : "Services & Alerts"}
+              </h2>
+            </div>
+            <p className="text-xs text-zinc-600 dark:text-zinc-400 font-black uppercase tracking-widest leading-relaxed">
+              {isAr ? "تحكم في تفعيل التنبيهات لكل خدمة على حدة" : "Enable or disable Telegram alerts per service"}
+            </p>
+          </div>
+          <div className="inline-flex items-center justify-center gap-2 h-10 px-4 border-4 border-black dark:border-white bg-zinc-100 dark:bg-zinc-950 text-black dark:text-white font-black text-xs uppercase tracking-widest shadow-[2px_2px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_rgba(255,255,255,1)]">
+            {Object.values(subscriptions).filter(Boolean).length} / {Object.keys(subscriptions).length} {isAr ? "مفعلة" : "Active"}
+          </div>
+        </div>
+
+        {subsLoading ? (
+          <div className="flex items-center justify-center py-12">
+            <Loader2 className="w-6 h-6 animate-spin text-sky-500" />
+          </div>
+        ) : !defaultTelegramChatId ? (
+          <div className="min-h-[120px] border-4 border-dashed border-black/40 dark:border-white/30 bg-zinc-50 dark:bg-zinc-950/30 flex flex-col items-center justify-center gap-4 text-center p-8">
+            <MessageSquare className="h-8 w-8 text-zinc-400" />
+            <p className="max-w-md text-sm font-bold text-zinc-600 dark:text-zinc-400">
+              {isAr ? "يرجى ربط تليجرام أولاً من إعدادات التنبيهات أعلاه" : "Please link Telegram first from the alert settings above"}
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {[
+              { key: "technical_scanner", labelEn: "Technical Scanner", labelAr: "الماسح الفني", icon: <Activity className="w-5 h-5" />, color: "border-l-cyan-500" },
+              { key: "stock_score", labelEn: "Stocks Score", labelAr: "تقييم الأسهم", icon: <BarChart3 className="w-5 h-5" />, color: "border-l-emerald-500" },
+              { key: "historical_similarity", labelEn: "Historical Similarity", labelAr: "التشابه التاريخي", icon: <TrendingUp className="w-5 h-5" />, color: "border-l-purple-500" },
+              { key: "ai_bot", labelEn: "AI Bot Signals", labelAr: "إشارات البوت الذكي", icon: <Brain className="w-5 h-5" />, color: "border-l-amber-500" },
+            ].map((svc) => {
+              const enabled = subscriptions[svc.key] ?? false;
+              const toggling = togglingSub === svc.key;
+              return (
+                <div
+                  key={svc.key}
+                  className={`border-4 border-black dark:border-white bg-zinc-50 dark:bg-zinc-950/35 p-4 sm:p-5 shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_rgba(255,255,255,1)] flex items-center justify-between gap-4 ${svc.color} border-l-8`}
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className={`w-10 h-10 flex items-center justify-center border-2 ${enabled ? "bg-sky-500/20 border-sky-500/30" : "bg-zinc-800 border-zinc-700"}`}>
+                      {svc.icon}
+                    </div>
+                    <div className="min-w-0">
+                      <h3 className="text-sm font-black text-black dark:text-white uppercase tracking-tight">
+                        {isAr ? svc.labelAr : svc.labelEn}
+                      </h3>
+                      <p className="text-[10px] text-zinc-500 dark:text-zinc-400 font-medium">
+                        {enabled
+                          ? (isAr ? "التنبيهات مفعلة" : "Alerts enabled")
+                          : (isAr ? "التنبيهات متوقفة" : "Alerts disabled")}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => toggleSubscription(svc.key)}
+                    disabled={toggling}
+                    className={`w-10 h-10 flex items-center justify-center border-4 border-black dark:border-white transition-all shadow-[2px_2px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_rgba(255,255,255,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none ${
+                      enabled
+                        ? "bg-emerald-400 text-black"
+                        : "bg-zinc-800 text-zinc-500 hover:bg-zinc-700"
+                    }`}
+                    title={enabled ? (isAr ? "إيقاف التنبيهات" : "Disable alerts") : (isAr ? "تفعيل التنبيهات" : "Enable alerts")}
+                  >
+                    {toggling ? (
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                    ) : enabled ? (
+                      <Bell className="w-5 h-5" />
+                    ) : (
+                      <BellOff className="w-5 h-5" />
+                    )}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
+      <section className="relative z-10 neobrutal-card p-6 sm:p-8 space-y-6 bg-white dark:bg-zinc-900 border-4 border-black dark:border-white shadow-[6px_6px_0px_rgba(0,0,0,1)] dark:shadow-[6px_6px_0px_rgba(255,255,255,1)]">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between border-b-4 border-black dark:border-zinc-800 pb-5">
+          <div>
+            <div className="flex items-center gap-3 mb-2">
+              <div className="h-10 w-10 border-4 border-black dark:border-white bg-indigo-500 text-white flex items-center justify-center shadow-[3px_3px_0px_rgba(0,0,0,1)] dark:shadow-[3px_3px_0px_rgba(255,255,255,1)]">
+                <Star className="h-5 w-5 fill-white" />
+              </div>
+              <h2 className="text-2xl font-black text-black dark:text-white uppercase tracking-tight">
+                {isAr ? "قائمة المراقبة" : "Watchlist"}
+              </h2>
+            </div>
+            <p className="text-xs text-zinc-600 dark:text-zinc-400 font-black uppercase tracking-widest leading-relaxed">
+              {isAr ? "القائمة الحقيقية المحفوظة على حسابك ويمكن تعديلها من هنا" : "Your real saved symbols, synced to your account and editable here"}
+            </p>
+          </div>
+          <div className="inline-flex items-center justify-center gap-2 h-10 px-4 border-4 border-black dark:border-white bg-zinc-100 dark:bg-zinc-950 text-black dark:text-white font-black text-xs uppercase tracking-widest shadow-[2px_2px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_rgba(255,255,255,1)]">
+            {watchlist.length} {isAr ? "سهم" : "Symbols"}
+          </div>
+        </div>
+
+        {watchlist.length === 0 ? (
+          <div className="min-h-[180px] border-4 border-dashed border-black/40 dark:border-white/30 bg-zinc-50 dark:bg-zinc-950/30 flex flex-col items-center justify-center gap-4 text-center p-8">
+            <Star className="h-8 w-8 text-zinc-400" />
+            <p className="max-w-md text-sm font-bold text-zinc-600 dark:text-zinc-400">
+              {isAr ? "لا توجد أسهم محفوظة حتى الآن. افتح صفحة الشارت واضغط النجمة لإضافة سهم لقائمتك." : "No saved symbols yet. Open the chart page and press the star to add a symbol to your list."}
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
+            {watchlist.map((item) => {
+              const isEditing = editingSymbolId === item.id;
+              const exchange = item.metadata?.exchange || "EGX";
+
+              return (
+                <article key={item.id} className="border-4 border-black dark:border-white bg-zinc-50 dark:bg-zinc-950/35 p-4 sm:p-5 shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_rgba(255,255,255,1)]">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-xl font-black text-black dark:text-white uppercase tracking-tight">{item.symbol}</span>
+                        <span className="border-2 border-black dark:border-white bg-indigo-100 dark:bg-indigo-500/20 px-2 py-0.5 text-[10px] font-black text-indigo-700 dark:text-indigo-300 uppercase tracking-widest">{exchange}</span>
+                      </div>
+
+                      {isEditing ? (
+                        <input
+                          value={watchlistDraft.name}
+                          onChange={(e) => setWatchlistDraft((prev) => ({ ...prev, name: e.target.value }))}
+                          className="mt-3 h-10 w-full border-4 border-black dark:border-white bg-white dark:bg-zinc-900 px-3 text-sm font-black text-black dark:text-white outline-none shadow-[2px_2px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_rgba(255,255,255,1)]"
+                        />
+                      ) : (
+                        <p className="mt-1 truncate text-sm font-bold text-zinc-700 dark:text-zinc-300">{item.name || item.symbol}</p>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0">
+                      {isEditing ? (
+                        <>
+                          <button
+                            onClick={() => saveWatchlistItem(item)}
+                            className="h-9 w-9 border-4 border-black dark:border-white bg-emerald-400 text-black flex items-center justify-center shadow-[2px_2px_0px_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none"
+                            title={isAr ? "حفظ" : "Save"}
+                          >
+                            <Check className="h-4 w-4" />
+                          </button>
+                          <button
+                            onClick={() => setEditingSymbolId(null)}
+                            className="h-9 w-9 border-4 border-black dark:border-white bg-white dark:bg-zinc-800 text-black dark:text-white flex items-center justify-center shadow-[2px_2px_0px_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none"
+                            title={isAr ? "إلغاء" : "Cancel"}
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button
+                            onClick={() => router.push(`/chart?symbol=${encodeURIComponent(item.symbol)}&exchange=${encodeURIComponent(exchange)}`)}
+                            className="h-9 w-9 border-4 border-black dark:border-white bg-white dark:bg-zinc-800 text-black dark:text-white flex items-center justify-center shadow-[2px_2px_0px_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none"
+                            title={isAr ? "فتح الشارت" : "Open chart"}
+                          >
+                            <ExternalLink className="h-4 w-4" />
+                          </button>
+                          <button
+                            onClick={() => beginEditWatchlistItem(item)}
+                            className="h-9 w-9 border-4 border-black dark:border-white bg-amber-300 text-black flex items-center justify-center shadow-[2px_2px_0px_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none"
+                            title={isAr ? "تعديل" : "Edit"}
+                          >
+                            <Edit3 className="h-4 w-4" />
+                          </button>
+                          <button
+                            onClick={() => removeSymbol(item.id)}
+                            className="h-9 w-9 border-4 border-black dark:border-white bg-red-400 text-black flex items-center justify-center shadow-[2px_2px_0px_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none"
+                            title={isAr ? "حذف" : "Delete"}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </section>
     </div>
   );
 }

@@ -21,6 +21,7 @@ export interface SavedSymbol {
 interface WatchlistContextType {
     watchlist: SavedSymbol[];
     saveSymbol: (item: Omit<SavedSymbol, "id" | "addedAt">) => void;
+    updateSymbol: (id: string, updates: Partial<Pick<SavedSymbol, "name" | "targetPct" | "stopPct" | "entryPrice" | "metadata">>) => Promise<boolean>;
     removeSymbol: (id: string) => void;
     removeSymbolBySymbol: (symbol: string) => void;
     isSaved: (symbol: string) => boolean;
@@ -81,6 +82,7 @@ export const WatchlistProvider = ({ children }: { children: ReactNode }) => {
                 const { data: existing } = await supabase
                     .from("positions")
                     .select("symbol")
+                    .eq("user_id", user.id)
                     .eq("status", "open");
 
                 const existingSymbols = new Set((existing ?? []).map((r: any) => String(r.symbol).toUpperCase()));
@@ -131,6 +133,7 @@ export const WatchlistProvider = ({ children }: { children: ReactNode }) => {
             const { data, error } = await supabase
                 .from("positions")
                 .select("id, symbol, name, source, added_at, metadata, target_pct, stop_pct, entry_price, status")
+                .eq("user_id", user.id)
                 .eq("status", "open")
                 .order("added_at", { ascending: false });
 
@@ -282,10 +285,46 @@ export const WatchlistProvider = ({ children }: { children: ReactNode }) => {
         ]);
     }, [user, supabase]);
 
+    const updateSymbol = useCallback(async (id: string, updates: Partial<Pick<SavedSymbol, "name" | "targetPct" | "stopPct" | "entryPrice" | "metadata">>) => {
+        if (!user) return false;
+
+        const patch: Record<string, any> = {};
+        if (updates.name !== undefined) patch.name = updates.name;
+        if (updates.targetPct !== undefined) patch.target_pct = updates.targetPct;
+        if (updates.stopPct !== undefined) patch.stop_pct = updates.stopPct;
+        if (updates.entryPrice !== undefined) patch.entry_price = updates.entryPrice;
+        if (updates.metadata !== undefined) patch.metadata = updates.metadata;
+
+        const { data, error } = await supabase
+            .from("positions")
+            .update(patch)
+            .eq("id", id)
+            .eq("user_id", user.id)
+            .select("id, symbol, name, source, added_at, metadata, target_pct, stop_pct, entry_price, status")
+            .single();
+
+        if (error || !data) return false;
+
+        setWatchlist((prev) => prev.map((item) => item.id === id ? {
+            id: data.id,
+            symbol: String(data.symbol).toUpperCase(),
+            name: data.name,
+            source: data.source,
+            addedAt: data.added_at,
+            metadata: data.metadata ?? {},
+            targetPct: data.target_pct ?? undefined,
+            stopPct: data.stop_pct ?? undefined,
+            entryPrice: data.entry_price ?? null,
+            status: data.status ?? "open",
+        } : item));
+
+        return true;
+    }, [user, supabase]);
+
     const removeSymbol = useCallback((id: string) => {
         if (!user) return;
         void (async () => {
-            const { error } = await supabase.from("positions").delete().eq("id", id);
+            const { error } = await supabase.from("positions").delete().eq("id", id).eq("user_id", user.id);
             if (error) return;
             setWatchlist((prev) => prev.filter((item) => item.id !== id));
         })();
@@ -301,7 +340,7 @@ export const WatchlistProvider = ({ children }: { children: ReactNode }) => {
     }, [user, watchlist, removeSymbol]);
 
     return (
-        <WatchlistContext.Provider value={{ watchlist, saveSymbol, removeSymbol, removeSymbolBySymbol, isSaved }}>
+        <WatchlistContext.Provider value={{ watchlist, saveSymbol, updateSymbol, removeSymbol, removeSymbolBySymbol, isSaved }}>
             {children}
             {/* TargetStopModal - REMOVED AS PER USER REQUEST */}
         </WatchlistContext.Provider>

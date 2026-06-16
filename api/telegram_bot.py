@@ -77,14 +77,24 @@ class TelegramBot:
             except Exception:
                 pass
 
-    def _call_api(self, method: str, payload: dict = None) -> dict:
+    def _call_api(self, method: str, payload: dict = None, timeout: int = 30) -> dict:
         """Single Telegram Bot API call — no retries, fast fail."""
         url = f"{self.API}/bot{self.token}/{method}"
         try:
-            resp = requests.post(url, json=payload or {}, timeout=30)
-            return resp.json()
+            resp = requests.post(url, json=payload or {}, timeout=timeout)
+            data = resp.json()
+            # Some Telegram errors return {"ok":false} without "description"
+            if not data.get("ok") and "description" not in data:
+                data["description"] = f"HTTP {resp.status_code} — empty response"
+            return data
+        except requests.exceptions.Timeout:
+            return {"ok": False, "description": f"Timeout after {timeout}s"}
+        except requests.exceptions.ConnectionError as e:
+            return {"ok": False, "description": f"ConnectionError: {e}"}
+        except json.JSONDecodeError:
+            return {"ok": False, "description": "Non-JSON response from Telegram"}
         except Exception as e:
-            return {"ok": False, "error": str(e)}
+            return {"ok": False, "description": str(e)}
 
     # ── DNS fix ──────────────────────────────────────────────────────
 
@@ -193,8 +203,11 @@ class TelegramBot:
     def _polling_loop(self):
         """Background loop: poll getUpdates when no webhook is configured."""
         self._log("Long-polling started.")
+        consecutive_errors = 0
         while self._polling:
             try:
+                # Client timeout MUST be longer than the long-poll timeout
+                # to avoid racing: Telegram waits up to 30s, we wait up to 35s
                 result = self._call_api(
                     "getUpdates",
                     {
@@ -202,8 +215,10 @@ class TelegramBot:
                         "timeout": 30,
                         "allowed_updates": ["message"],
                     },
+                    timeout=35,
                 )
                 if result.get("ok"):
+                    consecutive_errors = 0
                     updates = result.get("result", [])
                     for update in updates:
                         self._poll_offset = update["update_id"] + 1
@@ -213,12 +228,14 @@ class TelegramBot:
                         if chat_id and text:
                             self._dispatch_command(chat_id, text, msg)
                 else:
+                    consecutive_errors += 1
                     err = result.get("description", result.get("error", "unknown"))
-                    self._log(f"Polling error: {err}")
-                    time.sleep(5)
+                    self._log(f"Polling error ({consecutive_errors}): {err}")
+                    time.sleep(min(consecutive_errors * 2, 30))
             except Exception as e:
-                self._log(f"Polling exception: {e}")
-                time.sleep(5)
+                consecutive_errors += 1
+                self._log(f"Polling exception ({consecutive_errors}): {e}")
+                time.sleep(min(consecutive_errors * 2, 30))
 
     # ── webhook update handling ──────────────────────────────────────
 

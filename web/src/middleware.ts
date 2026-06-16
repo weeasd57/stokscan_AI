@@ -7,6 +7,14 @@ export async function middleware(request: NextRequest) {
   const requestHeaders = new Headers(request.headers);
   requestHeaders.set("ngrok-skip-browser-warning", "true");
 
+  const pathParts = request.nextUrl.pathname.split("/");
+  const localePrefix = pathParts[1];
+  if ((localePrefix === "ar" || localePrefix === "en") && !request.nextUrl.pathname.startsWith("/api/")) {
+    const url = request.nextUrl.clone();
+    url.pathname = `/${pathParts.slice(2).join("/")}` || "/";
+    return NextResponse.redirect(url);
+  }
+
   // ─── Inject Admin Key for backend admin API proxy calls ───────────────────
   // The Next.js rewrite forwards /api/admin/* → backend /admin/*.
   // We add X-Admin-Key server-side so the secret is never exposed to the browser.
@@ -64,6 +72,8 @@ export async function middleware(request: NextRequest) {
 export const config = {
   matcher: [
     "/admin/:path*",
+    "/ar/:path*",
+    "/en/:path*",
     "/api/:path*",
     "/backtest",
     "/backtests/:path*",

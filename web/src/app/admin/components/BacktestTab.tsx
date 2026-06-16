@@ -9,7 +9,7 @@ import { toast } from "sonner";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import { TradeTimeline } from "./TradeTimeline";
 import Egx30MonthlyChart from "./Egx30MonthlyChart";
-import TradingViewChart from "@/components/TradingViewChart";
+import TradingViewChart from "@/components/TradingViewChartDynamic";
 import {
   LineChart as RLineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
   BarChart, Bar, ScatterChart, Scatter, Cell, ReferenceLine

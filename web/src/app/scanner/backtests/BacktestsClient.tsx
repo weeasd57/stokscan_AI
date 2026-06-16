@@ -12,7 +12,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { useSearchParams } from "next/navigation";
 import { TradeTimeline } from "@/app/admin/components/TradeTimeline";
-import TradingViewChart from "@/components/TradingViewChart";
+import TradingViewChart from "@/components/TradingViewChartDynamic";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import RecommendationsTable from "@/components/RecommendationsTable";
 import TelegramServiceToggle from "@/components/TelegramServiceToggle";
