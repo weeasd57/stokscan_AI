@@ -258,6 +258,7 @@ export default function TradingViewChart({
     null,
   );
   const drawingStartPointRef = useRef<ChartPoint | null>(null);
+  const [drawingStartPoint, setDrawingStartPoint] = useState<ChartPoint | null>(null);
   const activeToolRef = useRef(activeTool);
   activeToolRef.current = activeTool;
 
@@ -265,17 +266,35 @@ export default function TradingViewChart({
     `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
   const buildChartPoint = (param: any): ChartPoint | null => {
-    if (!param?.point || !param?.time || !chartRefs.current.candlestickSeries)
+    if (!param?.point) {
+      console.log("[DRAW] buildChartPoint: no param.point");
       return null;
+    }
+    if (!chartRefs.current.candlestickSeries) {
+      console.log("[DRAW] buildChartPoint: no candlestickSeries");
+      return null;
+    }
+    if (!chartRefs.current.priceChart) {
+      console.log("[DRAW] buildChartPoint: no priceChart");
+      return null;
+    }
     const price = chartRefs.current.candlestickSeries.coordinateToPrice(
       param.point.y,
     );
-    if (price === null || price === undefined) return null;
+    if (price === null || price === undefined) {
+      console.log("[DRAW] buildChartPoint: coordinateToPrice returned null for y:", param.point.y);
+      return null;
+    }
+    const time = chartRefs.current.priceChart.timeScale().coordinateToTime(param.point.x);
+    if (time === null || time === undefined) {
+      console.log("[DRAW] buildChartPoint: coordinateToTime returned null for x:", param.point.x);
+      return null;
+    }
     return {
       x: param.point.x,
       y: param.point.y,
       price,
-      time: Number(param.time),
+      time: Number(time),
     };
   };
 
@@ -931,6 +950,13 @@ export default function TradingViewChart({
 
     // --- Setup drawing interactions ---
     priceChart.subscribeClick((param) => {
+      console.log("[DRAW] subscribeClick fired", {
+        hasPoint: !!param.point,
+        hasSeries: !!candlestickSeries,
+        tool: activeToolRef.current,
+        point: param.point,
+      });
+
       if (!param.point || !candlestickSeries) return;
 
       const tool = activeToolRef.current;
@@ -962,27 +988,34 @@ export default function TradingViewChart({
       }
 
       if (!["trend", "rectangle", "fib"].includes(tool)) {
+        console.log("[DRAW] tool not a two-point tool, skipping:", tool);
         return;
       }
 
       const point = buildChartPoint(param);
+      console.log("[DRAW] buildChartPoint result:", { point, hasStartPoint: !!drawingStartPointRef.current });
       if (!point) return;
 
       if (!drawingStartPointRef.current) {
+        console.log("[DRAW] First point set:", point);
         drawingStartPointRef.current = point;
+        setDrawingStartPoint(point);
         setDrawingPreview(null);
         return;
       }
 
+      console.log("[DRAW] Second point, finalizing:", { tool, start: drawingStartPointRef.current, end: point });
       const nextDrawing = finalizeTwoPointDrawing(
         tool,
         drawingStartPointRef.current,
         point,
       );
       drawingStartPointRef.current = null;
+      setDrawingStartPoint(null);
       setDrawingPreview(null);
 
       if (nextDrawing) {
+        console.log("[DRAW] Drawing added:", nextDrawing);
         setDrawings((prev) => [...prev, nextDrawing]);
         if (onToolDrawComplete) {
           onToolDrawComplete();
@@ -1182,6 +1215,7 @@ export default function TradingViewChart({
     if (activeTool === "trash") {
       drawnPriceLevelsRef.current = [];
       drawingStartPointRef.current = null;
+      setDrawingStartPoint(null);
       setDrawingPreview(null);
       setDrawings([]);
       priceLinesRef.current.forEach((line) => {
@@ -1199,6 +1233,7 @@ export default function TradingViewChart({
 
     if (!["trend", "rectangle", "fib"].includes(activeTool)) {
       drawingStartPointRef.current = null;
+      setDrawingStartPoint(null);
       setDrawingPreview(null);
     }
   }, [activeTool, onToolDrawComplete]);
@@ -1759,13 +1794,25 @@ export default function TradingViewChart({
             ref={priceContainerRef}
             className="absolute inset-0 overflow-hidden"
           />
-          <svg className="absolute inset-0 w-full h-full pointer-events-none overflow-visible">
+          <svg className="absolute inset-0 w-full h-full pointer-events-none overflow-visible z-10">
             {drawings
               .filter((d) => d.type !== "horizontal")
               .map((d) => renderSingleDrawing(d))}
             {drawingPreview &&
               drawingPreview.type !== "horizontal" &&
               renderSingleDrawing(drawingPreview, true)}
+            {/* First-point indicator */}
+            {drawingStartPoint && (
+              <circle
+                cx={drawingStartPoint.x}
+                cy={drawingStartPoint.y}
+                r="5"
+                fill="#fbbf24"
+                stroke="#f59e0b"
+                strokeWidth="2"
+                className="animate-pulse"
+              />
+            )}
           </svg>
         </div>
 

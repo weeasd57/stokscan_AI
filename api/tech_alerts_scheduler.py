@@ -11,7 +11,8 @@ from collections import deque
 from api.stock_ai import supabase, _init_supabase
 from api.routers.scan_tech import TechFilter
 from api.symbols_local import load_symbols_for_country
-from api.stock_ai import is_ticker_synced, get_stock_data_eodhd, add_technical_indicators, get_company_fundamentals
+from api.stock_ai import is_ticker_synced
+from api.daily_bot_run import calculate_and_save_indicators
 
 # ─── EGX Market Schedule ──────────────────────────────────────────────────────
 # Egyptian Exchange (EGX): Sunday–Thursday, 10:00–14:30 Cairo time
@@ -164,7 +165,8 @@ def _alerts_worker_loop():
             _log(f"[SCHEDULER] === Cycle #{_scan_cycle_count} started ===")
             run_start = time.monotonic()
 
-            refreshed, errors = _refresh_closing_prices_for_alerts()
+            candidate_symbols = _collect_scheduler_candidate_symbols()
+            refreshed, errors = _refresh_closing_prices_for_alerts(candidate_symbols)
             new_matches = _check_and_trigger_alerts()
 
             duration = round(time.monotonic() - run_start, 1)
@@ -205,33 +207,57 @@ def _alerts_worker_loop():
         time.sleep(interval * 60)
 
 
-def _refresh_closing_prices_for_alerts() -> tuple:
+def _build_candidate_symbols_for_alert(f: TechFilter) -> list[tuple[str, str]]:
+    try:
+        symbols_data = load_symbols_for_country(f.country)
+    except Exception as e:
+        _log(f"[ALERTS SCHEDULER] Failed to load symbols for country {f.country}: {e}")
+        return []
+
+    allowed_symbols = {str(s).strip().upper() for s in (f.symbols or []) if str(s).strip()}
+    candidate_symbols = []
+
+    for row in symbols_data:
+        sym = str(row.get("Code", row.get("Symbol", ""))).strip()
+        ex = str(row.get("Exchange", "")).strip()
+        sector = str(row.get("Sector", "")).strip()
+        industry = str(row.get("Industry", "")).strip()
+
+        if not sym or not ex:
+            continue
+        if allowed_symbols and sym.upper() not in allowed_symbols:
+            continue
+        if f.exchange and ex.upper() != str(f.exchange).strip().upper():
+            continue
+        if f.sector and sector.lower() != str(f.sector).strip().lower():
+            continue
+        if f.industry and industry.lower() != str(f.industry).strip().lower():
+            continue
+        if not is_ticker_synced(sym, ex):
+            continue
+
+        candidate_symbols.append((sym, ex))
+
+    return candidate_symbols
+
+
+def _refresh_closing_prices_for_alerts(candidate_symbols: list[tuple[str, str]]) -> tuple:
     """
     Returns (refreshed_count, error_count)
     """
     _init_supabase()
 
-    try:
-        from api.symbols_local import load_symbols_for_country
-        symbols_data = load_symbols_for_country("Egypt")
-    except Exception as e:
-        _log(f"[REFRESH] Failed to load Egyptian symbols: {e}")
-        return 0, 1
-
-    synced = [
-        (str(r.get("Code", r.get("Symbol", ""))), str(r.get("Exchange", "")))
-        for r in symbols_data
-        if is_ticker_synced(str(r.get("Code", r.get("Symbol", ""))), str(r.get("Exchange", "")))
-    ]
+    synced = [(symbol, exchange) for symbol, exchange in candidate_symbols if symbol and exchange]
 
     if not synced:
-        _log("[REFRESH] No synced tickers found")
+        _log("[REFRESH] No candidate tickers found")
         return 0, 0
 
     today = dt.date.today()
     refreshed = 0
     already_uptodate = 0
     errors = 0
+    indicator_updates = 0
 
     try:
         from api.tradingview_integration import fetch_tradingview_prices
@@ -242,36 +268,52 @@ def _refresh_closing_prices_for_alerts() -> tuple:
         r, e2 = _refresh_closing_prices_eodhd_fallback(synced)
         return r, e2
 
-    _log(f"[REFRESH] Refreshing {len(synced)} tickers via TradingView (last trading: {last_trading})")
+    _log(f"[REFRESH] Refreshing {len(synced)} candidate tickers via TradingView (last trading: {last_trading})")
 
     for symbol, exchange in synced:
-        if not symbol:
-            continue
         full_ticker = f"{symbol}.{exchange}"
         try:
             info = _get_supabase_info(full_ticker)
             last_date = info.get("last_date")
+            did_refresh = False
+
             if last_date and last_date >= last_trading:
                 already_uptodate += 1
-                continue
-            ok, msg = fetch_tradingview_prices(
-                symbol=full_ticker, max_days=365, timeframe="1d"
-            )
-            if ok:
-                refreshed += 1
             else:
-                errors += 1
-                _log(f"[REFRESH] TV failed for {full_ticker}: {msg}")
+                ok, msg = fetch_tradingview_prices(
+                    symbol=full_ticker, max_days=365, timeframe="1d"
+                )
+                if ok:
+                    refreshed += 1
+                    did_refresh = True
+                else:
+                    errors += 1
+                    _log(f"[REFRESH] TV failed for {full_ticker}: {msg}")
+                    time.sleep(0.3)
+                    continue
+
+            if did_refresh or last_date:
+                try:
+                    calculate_and_save_indicators(symbol, exchange)
+                    indicator_updates += 1
+                except Exception as e:
+                    errors += 1
+                    _log(f"[REFRESH] Indicator update failed for {full_ticker}: {e}")
+
             time.sleep(0.3)
         except Exception as e:
             errors += 1
+            _log(f"[REFRESH] Unexpected error for {full_ticker}: {e}")
             continue
 
-    _log(f"[REFRESH] Done: {refreshed} updated, {already_uptodate} up-to-date, {errors} errors / {len(synced)} total")
-    return refreshed, errors
+    _log(
+        f"[REFRESH] Done: {refreshed} prices updated, {indicator_updates} indicators updated, "
+        f"{already_uptodate} up-to-date, {errors} errors / {len(synced)} total"
+    )
+    return refreshed + indicator_updates, errors
 
 
-def _refresh_closing_prices_eodhd_fallback(synced: list) -> tuple:
+def _refresh_closing_prices_eodhd_fallback(synced: list[tuple[str, str]]) -> tuple:
     """
     Fallback EODHD refresh. Returns (refreshed, errors).
     """
@@ -284,10 +326,9 @@ def _refresh_closing_prices_eodhd_fallback(synced: list) -> tuple:
     api = APIClient(api_key)
     refreshed = 0
     errors = 0
+    indicator_updates = 0
 
     for symbol, exchange in synced:
-        if not symbol:
-            continue
         full_ticker = f"{symbol}.{exchange}"
         try:
             ok, msg = update_stock_data(api, full_ticker, source="eodhd", max_days=365)
@@ -295,146 +336,134 @@ def _refresh_closing_prices_eodhd_fallback(synced: list) -> tuple:
                 refreshed += 1
             else:
                 errors += 1
-        except Exception:
-            errors += 1
+                _log(f"[REFRESH] EODHD failed for {full_ticker}: {msg}")
+                continue
 
-    _log(f"[REFRESH] EODHD fallback: {refreshed} updated, {errors} errors")
-    return refreshed, errors
+            try:
+                calculate_and_save_indicators(symbol, exchange)
+                indicator_updates += 1
+            except Exception as e:
+                errors += 1
+                _log(f"[REFRESH] Indicator update failed for {full_ticker}: {e}")
+        except Exception as e:
+            errors += 1
+            _log(f"[REFRESH] Unexpected EODHD error for {full_ticker}: {e}")
+
+    _log(f"[REFRESH] EODHD fallback: {refreshed} prices updated, {indicator_updates} indicators updated, {errors} errors")
+    return refreshed + indicator_updates, errors
+
+def _collect_scheduler_candidate_symbols() -> list[tuple[str, str]]:
+    _init_supabase()
+    if not supabase:
+        return []
+
+    res = supabase.table("technical_alerts").select("filters").eq("is_active", True).execute()
+    if not res.data:
+        return []
+
+    candidate_set: set[tuple[str, str]] = set()
+
+    for row in res.data:
+        filters_dict = row.get("filters") or {}
+        try:
+            if "country" not in filters_dict:
+                filters_dict["country"] = "Egypt"
+            f = TechFilter(**filters_dict)
+        except Exception:
+            continue
+
+        for symbol_pair in _build_candidate_symbols_for_alert(f):
+            candidate_set.add(symbol_pair)
+
+    return sorted(candidate_set)
+
 
 def _check_and_trigger_alerts() -> list:
+    """
+    Scan all active technical_alerts using the same Supabase stock_technical_indicators
+    table and shared filter_tech_row() function as the /scan/technical API endpoint.
+    """
     _init_supabase()
     if not supabase:
         _log("[ALERTS SCHEDULER] Supabase client not initialized")
         return []
-        
+
     # Get active alerts
     res = supabase.table("technical_alerts").select("*").eq("is_active", True).execute()
     if not res.data:
         return []
-        
+
     alerts = res.data
     api_key = os.getenv("EODHD_API_KEY")
-    if not api_key:
-        _log("[ALERTS SCHEDULER] EODHD API Key not set")
-        return []
-        
     tg_token = os.getenv("ARTORO_AI_BOT")
     if not tg_token:
         _log("[ALERTS SCHEDULER] ARTORO_AI_BOT token not configured, cannot send Telegram alerts.")
         return []
-        
-    api = APIClient(api_key)
+
+    from api.routers.scan_tech import filter_tech_row, _fetch_latest_technical_indicators, _fetch_company_fundamentals
+
     all_new_matches = []
-    
+
     for alert in alerts:
         alert_id = alert["id"]
         user_id = alert["user_id"]
         alert_name = alert["name"]
         filters_dict = alert["filters"]
         last_triggered_matches = alert.get("last_triggered_matches") or []
-        
+
         # Get user's telegram_chat_id from profiles
         prof_res = supabase.table("profiles").select("telegram_chat_id").eq("id", user_id).execute()
         if not prof_res.data or not prof_res.data[0].get("telegram_chat_id"):
-            # User hasn't set up Telegram chat id
             continue
-            
+
         chat_id = prof_res.data[0]["telegram_chat_id"]
-        
+
         # Build TechFilter
         try:
-            # Backend expects country, limit, etc. Default country is Egypt.
             if "country" not in filters_dict:
                 filters_dict["country"] = "Egypt"
             f = TechFilter(**filters_dict)
         except Exception as e:
             _log(f"[ALERTS SCHEDULER] Invalid filters for alert {alert_id}: {e}")
             continue
-            
-        try:
-            symbols_data = load_symbols_for_country(f.country)
-        except Exception as e:
-            _log(f"[ALERTS SCHEDULER] Failed to load symbols for country {f.country}: {e}")
-            continue
-            
-        cached_candidates = []
-        others = []
-        for row in symbols_data:
-            sym = str(row.get("Code", row.get("Symbol", "")))
-            ex = str(row.get("Exchange", ""))
-            if is_ticker_synced(sym, ex):
-                cached_candidates.append(row)
-            else:
-                others.append(row)
-                
-        sorted_candidates = cached_candidates + others
-        candidates = sorted_candidates[:f.limit]
-        
-        matched_symbols = []
-        
-        for row in candidates:
-            symbol = str(row.get("Code", row.get("Symbol", "")))
-            exchange = str(row.get("Exchange", ""))
-            if not symbol or not is_ticker_synced(symbol, exchange):
-                continue
-                
-            try:
-                # Use local data (already refreshed above by _refresh_closing_prices_for_alerts)
-                # force_local=True here is safe — fresh data was pulled in the refresh step
-                df = get_stock_data_eodhd(api, symbol, from_date="2023-01-01", tolerance_days=5, exchange=exchange, force_local=True)
-                if df is None or df.empty:
-                    continue
-                df = add_technical_indicators(df)
-                if df is None or df.empty:
-                    continue
-                last = df.iloc[-1]
-                
-                close = float(last.get("Close", 0))
-                rsi = float(last.get("RSI", 0))
-                ema50 = float(last.get("EMA_50", 0))
-                ema200 = float(last.get("EMA_200", 0))
-                volume = float(last.get("Volume", 0))
-                momentum = float(last.get("Momentum", 0))
-                atr14 = float(last.get("ATR_14", 0))
-                adx14 = float(last.get("ADX_14", 0))
-                stoch_k = float(last.get("STOCH_K", 0))
-                roc12 = float(last.get("ROC_12", 0))
-                vol_sma20 = float(last.get("VOL_SMA20", 0))
-                vwap20 = float(last.get("VWAP_20", 0))
-                
-                # Apply filters
-                if f.min_price and close < f.min_price: continue
-                if f.rsi_min and rsi < f.rsi_min: continue
-                if f.rsi_max and rsi > f.rsi_max: continue
-                if f.above_ema50 and close <= ema50: continue
-                if f.below_ema50 and close >= ema50: continue
-                if f.above_ema200 and close <= ema200: continue
-                if f.adx_min and adx14 < f.adx_min: continue
-                if f.adx_max and adx14 > f.adx_max: continue
-                if f.atr_min and atr14 < f.atr_min: continue
-                if f.atr_max and atr14 > f.atr_max: continue
-                if f.stoch_k_min and stoch_k < f.stoch_k_min: continue
-                if f.stoch_k_max and stoch_k > f.stoch_k_max: continue
-                if f.roc_min and roc12 < f.roc_min: continue
-                if f.roc_max and roc12 > f.roc_max: continue
-                if f.above_vwap20 and close <= vwap20: continue
-                if f.volume_above_sma20 and volume <= vol_sma20: continue
-                if f.golden_cross and ema50 <= ema200: continue
-                
-                # Fundamentals if needed
-                if f.market_cap_min or f.market_cap_max or f.sector or f.industry:
-                    funds = get_company_fundamentals(symbol) or {}
-                    m_cap = funds.get("marketCap")
-                    sec = funds.get("sector")
-                    ind = funds.get("industry")
-                    
-                    if f.market_cap_min and (m_cap or 0) < f.market_cap_min: continue
-                    if f.market_cap_max and (m_cap or 0) > f.market_cap_max: continue
-                    if f.sector and f.sector.lower() not in (sec or "").lower(): continue
-                    if f.industry and f.industry.lower() not in (ind or "").lower(): continue
 
-                # AI Filter
-                if f.use_ai_filter:
+        candidate_symbols = _build_candidate_symbols_for_alert(f)
+        if not candidate_symbols:
+            continue
+
+        candidate_limit = min(len(candidate_symbols), max(f.limit * 3, 100))
+        candidate_slice = candidate_symbols[:candidate_limit]
+
+        # Fetch from Supabase stock_technical_indicators (same as scan API)
+        tech_rows = _fetch_latest_technical_indicators(candidate_slice)
+        if not tech_rows:
+            _log(f"[ALERTS SCHEDULER] No technical indicators in Supabase for alert {alert_id}")
+            continue
+
+        fundamentals_map = _fetch_company_fundamentals(
+            [tuple(key.split("|", 1)) for key in tech_rows.keys()]
+        )
+
+        matched_symbols = []
+
+        for symbol, exchange in candidate_slice:
+            key = f"{symbol}|{exchange}"
+            tech = tech_rows.get(key)
+            if not tech:
+                continue
+            if tech.get("rsi_14") is None or tech.get("close") is None:
+                continue
+
+            funds = fundamentals_map.get(key) or {}
+
+            if not filter_tech_row(tech, f, funds):
+                continue
+
+            # AI Filter
+            if f.use_ai_filter:
+                if not api_key:
+                    continue
+                try:
                     from api.stock_ai import run_pipeline
                     prediction = run_pipeline(
                         api_key=api_key,
@@ -443,39 +472,36 @@ def _check_and_trigger_alerts() -> list:
                         include_fundamentals=False,
                         tolerance_days=5,
                         exchange=exchange,
-                        force_local=True
+                        force_local=True,
                     )
-                    if prediction["tomorrowPrediction"] != 1: continue
-                    if prediction["precision"] < f.min_ai_precision: continue
+                    if prediction.get("tomorrowPrediction") != 1:
+                        continue
+                    if prediction.get("precision", 0) < f.min_ai_precision:
+                        continue
+                except Exception:
+                    continue
 
-                # If passed all filters, it's a match!
-                matched_symbols.append(symbol)
-            except Exception as e:
-                # _log(f"[ALERTS SCHEDULER] Error processing symbol {symbol}: {e}")
-                continue
-                
+            matched_symbols.append(symbol)
+
         # Compare with last triggered matches
         new_matches = [s for s in matched_symbols if s not in last_triggered_matches]
         if new_matches:
             all_new_matches.extend(new_matches)
-            # We have new matches! Send Telegram notification
             msg = (
                 f"🔔 *تنبيه الفاحص الفني: {alert_name}* 🔔\n\n"
-                f"تم رصد أسهم جديدة تطابق شروط الفلتر الخاصة بك في سوق مصر:\n"
+                f"تم رصد أسهم جديدة تطابق شروط الفلتر الخاصة بك:\n"
             )
             for sym in new_matches:
                 msg += f"• *{sym}*\n"
-                
             msg += f"\nإجمالي الأسهم المطابقة حالياً: {len(matched_symbols)}"
 
-            # Send to this alert's owner AND to all technical_scanner service subscribers
+            # Send Telegram
             from api.live_bot import bot_manager
             bridge = getattr(bot_manager, "_telegram_bridge", None)
             if bridge:
                 bridge._queue.append({"chat_id": int(chat_id), "text": msg, "parse_mode": "Markdown"})
                 _log(f"[ALERTS SCHEDULER] Queued telegram alert to bridge for {chat_id}")
             else:
-                # Fallback to direct requests call
                 url = f"https://api.telegram.org/bot{tg_token}/sendMessage"
                 try:
                     requests.post(url, json={"chat_id": int(chat_id), "text": msg, "parse_mode": "Markdown"}, timeout=15)
@@ -483,23 +509,20 @@ def _check_and_trigger_alerts() -> list:
                 except Exception as ex:
                     _log(f"[ALERTS SCHEDULER] Direct Telegram post failed: {ex}")
 
-            # Also broadcast to technical_scanner service subscribers
+            # Broadcast to service subscribers
             try:
                 from api.daily_bot_run import _notify_service_subscribers
                 _notify_service_subscribers("technical_scanner", msg)
             except Exception as e:
                 _log(f"[ALERTS SCHEDULER] Service subscriber notify failed: {e}")
-                    
-            # Update database with matches and trigger timestamp
+
             supabase.table("technical_alerts").update({
                 "last_triggered_at": dt.datetime.now().isoformat(),
-                "last_triggered_matches": matched_symbols
+                "last_triggered_matches": matched_symbols,
             }).eq("id", alert_id).execute()
         elif set(matched_symbols) != set(last_triggered_matches):
-            # If the matched list decreased or changed but has no NEW matches, we still update the DB
-            # but don't notify to avoid spamming the user
             supabase.table("technical_alerts").update({
-                "last_triggered_matches": matched_symbols
+                "last_triggered_matches": matched_symbols,
             }).eq("id", alert_id).execute()
 
     return list(set(all_new_matches))

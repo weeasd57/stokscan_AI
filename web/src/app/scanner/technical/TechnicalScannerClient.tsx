@@ -6,13 +6,14 @@ import {
     ChevronLeft, ChevronRight, 
     BarChart3, PieChart, Landmark, Coins, Scale, Percent, Minus, Plus, 
     Info, LayoutTemplate, Settings2, ChevronDown, ChevronUp, Star, ExternalLink, Brain,
-    Bell
+    Bell, Save
 } from "lucide-react";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useWatchlist } from "@/contexts/WatchlistContext";
 import { useAppState } from "@/contexts/AppStateContext";
 import { useTechnicalScanner } from "@/contexts/TechnicalScannerContext";
 import { useAuth } from "@/contexts/AuthContext";
+import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import type { TechResult } from "@/lib/api";
 import StockLogo from "@/components/StockLogo";
 import ScannerTemplates, { type ScannerTemplateId } from "@/components/ScannerTemplates";
@@ -64,9 +65,68 @@ export default function TechnicalScannerPage() {
         error,
     } = useTechnicalScanner();
 
-    // Alert state: sends scan results as Telegram alert
+    // Alert state: save scanner config & send Telegram alert
     const { user } = useAuth();
+    const supabase = useMemo(() => createSupabaseBrowserClient(), []);
     const [alertSending, setAlertSending] = useState(false);
+    const [showAlertModal, setShowAlertModal] = useState(false);
+    const [alertName, setAlertName] = useState("");
+    const [alertSaveError, setAlertSaveError] = useState("");
+
+    const handleSaveAlert = async () => {
+        if (!user || !alertName.trim()) {
+            setAlertSaveError("Please enter a name for the alert");
+            return;
+        }
+        setAlertSending(true);
+        setAlertSaveError("");
+        try {
+            const filters = {
+                country,
+                limit: 100,
+                rsi_min: rsiMin || undefined,
+                rsi_max: rsiMax || undefined,
+                min_price: minPrice || undefined,
+                above_ema50: aboveEma50,
+                above_ema200: aboveEma200,
+                adx_min: adxMin || undefined,
+                adx_max: adxMax || undefined,
+                atr_min: atrMin || undefined,
+                atr_max: atrMax || undefined,
+                stoch_k_min: stochKMin || undefined,
+                stoch_k_max: stochKMax || undefined,
+                roc_min: rocMin || undefined,
+                roc_max: rocMax || undefined,
+                above_vwap20: aboveVwap20,
+                volume_above_sma20: volumeAboveSma20,
+                market_cap_min: marketCapMin || undefined,
+                market_cap_max: marketCapMax || undefined,
+                sector: sector || undefined,
+                industry: industry || undefined,
+                golden_cross: goldenCross,
+                use_ai_filter: useAiFilter,
+                min_ai_precision: minAiPrecision || undefined,
+            };
+            const { error: upsertErr } = await supabase
+                .from("technical_alerts")
+                .upsert({
+                    user_id: user.id,
+                    name: alertName.trim(),
+                    filters,
+                    is_active: true,
+                    last_triggered_at: null,
+                    last_triggered_matches: [],
+                }, { onConflict: "user_id,name" });
+            if (upsertErr) throw upsertErr;
+            setShowAlertModal(false);
+            setAlertName("");
+        } catch (e: any) {
+            console.error("Save alert error:", e);
+            setAlertSaveError(e?.message || "Failed to save alert");
+        } finally {
+            setAlertSending(false);
+        }
+    };
 
     // Resizable Panels States
     const [sidebarWidth, setSidebarWidth] = useState<number>(320);
@@ -1284,36 +1344,18 @@ export default function TechnicalScannerPage() {
                             )}
                         </div>
 
-                        {/* Alert Button: runs scan & sends Telegram alert */}
+                        {/* Alert Button: opens modal to name & save alert */}
                         {user && (
                             <button
-                                onClick={async () => {
-                                    setAlertSending(true);
-                                    try {
-                                        await runTechScan({ force: true });
-                                        await fetch("/api/ai_bot/telegram/send_alert", {
-                                            method: "POST",
-                                            headers: { "Content-Type": "application/json" },
-                                            body: JSON.stringify({
-                                                service_type: "technical_scanner",
-                                                user_id: user.id,
-                                            }),
-                                        });
-                                    } catch (e) {
-                                        console.error("Alert error:", e);
-                                    } finally {
-                                        setAlertSending(false);
-                                    }
+                                onClick={() => {
+                                    setAlertName("");
+                                    setAlertSaveError("");
+                                    setShowAlertModal(true);
                                 }}
-                                disabled={alertSending}
                                 className="flex items-center gap-1.5 px-2.5 h-8 text-[11px] font-bold rounded transition-colors active:scale-95 uppercase tracking-wider border bg-amber-500/20 border-amber-500/40 text-amber-400 hover:bg-amber-500/30"
-                                title="Run scan & send Telegram alert"
+                                title="Save scanner alert"
                             >
-                                {alertSending ? (
-                                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                ) : (
-                                    <Bell className="w-3.5 h-3.5" />
-                                )}
+                                <Bell className="w-3.5 h-3.5" />
                                 <span className="hidden xs:inline">Alert</span>
                             </button>
                         )}
@@ -1865,6 +1907,75 @@ export default function TechnicalScannerPage() {
                     )}
                 </div>
             </div>
+
+            {/* ── Save Alert Modal ── */}
+            {showAlertModal && (
+                <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+                    <div className="w-full max-w-md border-4 border-black dark:border-white bg-white dark:bg-zinc-900 shadow-[8px_8px_0px_rgba(0,0,0,1)] dark:shadow-[8px_8px_0px_rgba(255,255,255,1)] p-6 space-y-5">
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                                <div className="h-10 w-10 border-4 border-black dark:border-white bg-amber-400 text-black flex items-center justify-center shadow-[3px_3px_0px_rgba(0,0,0,1)] dark:shadow-[3px_3px_0px_rgba(255,255,255,1)]">
+                                    <Bell className="h-5 w-5" />
+                                </div>
+                                <h2 className="text-xl font-black text-black dark:text-white uppercase tracking-tight">
+                                    {language === "ar" ? "حفظ تنبيه الماسح" : "Save Scanner Alert"}
+                                </h2>
+                            </div>
+                            <button
+                                onClick={() => setShowAlertModal(false)}
+                                className="w-8 h-8 flex items-center justify-center border-2 border-black dark:border-white bg-zinc-100 dark:bg-zinc-800 hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors"
+                            >
+                                <X className="w-4 h-4" />
+                            </button>
+                        </div>
+
+                        <p className="text-xs text-zinc-600 dark:text-zinc-400 font-medium">
+                            {language === "ar"
+                                ? "سيتم حفظ إعدادات الماسح الحالية وتشغيلها يومياً. عند ظهور نتائج جديدة سيتم إرسال تنبيه إلى تليجرام."
+                                : "Your current scanner settings will be saved and run daily. New matches will be sent as a Telegram alert."}
+                        </p>
+
+                        <div>
+                            <label className="block text-xs font-black text-black dark:text-white uppercase tracking-widest mb-2">
+                                {language === "ar" ? "اسم التنبيه" : "Alert Name"}
+                            </label>
+                            <input
+                                type="text"
+                                value={alertName}
+                                onChange={(e) => { setAlertName(e.target.value); setAlertSaveError(""); }}
+                                onKeyDown={(e) => { if (e.key === "Enter") handleSaveAlert(); }}
+                                placeholder={language === "ar" ? "مثال: أسهم oversold" : "e.g. Oversold stocks"}
+                                className="w-full h-12 px-4 border-4 border-black dark:border-white bg-zinc-50 dark:bg-zinc-950 text-black dark:text-white font-bold text-sm placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-amber-400 shadow-[3px_3px_0px_rgba(0,0,0,1)] dark:shadow-[3px_3px_0px_rgba(255,255,255,1)]"
+                                autoFocus
+                            />
+                            {alertSaveError && (
+                                <p className="mt-2 text-xs font-bold text-red-500">{alertSaveError}</p>
+                            )}
+                        </div>
+
+                        <div className="flex gap-3 pt-2">
+                            <button
+                                onClick={() => setShowAlertModal(false)}
+                                className="flex-1 h-12 border-4 border-black dark:border-white bg-zinc-100 dark:bg-zinc-800 text-black dark:text-white font-black text-sm uppercase tracking-widest hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors shadow-[3px_3px_0px_rgba(0,0,0,1)] dark:shadow-[3px_3px_0px_rgba(255,255,255,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none"
+                            >
+                                {language === "ar" ? "إلغاء" : "Cancel"}
+                            </button>
+                            <button
+                                onClick={handleSaveAlert}
+                                disabled={alertSending || !alertName.trim()}
+                                className="flex-1 h-12 border-4 border-black dark:border-white bg-amber-400 text-black font-black text-sm uppercase tracking-widest hover:bg-amber-300 transition-colors shadow-[3px_3px_0px_rgba(0,0,0,1)] dark:shadow-[3px_3px_0px_rgba(255,255,255,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                            >
+                                {alertSending ? (
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                ) : (
+                                    <Save className="w-4 h-4" />
+                                )}
+                                {language === "ar" ? "حفظ" : "Save"}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

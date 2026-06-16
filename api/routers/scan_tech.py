@@ -154,6 +154,77 @@ class TechFilter(BaseModel):
     use_ai_filter: bool = False
     min_ai_precision: float = 0.6
 
+
+def filter_tech_row(tech: dict, f: TechFilter, fundamentals: dict | None = None) -> bool:
+    """
+    Shared filter function used by both the scan API and the alerts scheduler.
+    Returns True if the row passes all filters.
+    """
+    close = _safe_float(tech.get("close"))
+    rsi = _safe_float(tech.get("rsi_14"))
+    ema50 = _safe_float(tech.get("ema_50"))
+    ema200 = _safe_float(tech.get("ema_200"))
+    volume = _safe_float(tech.get("volume"))
+    atr14 = _safe_float(tech.get("atr_14"))
+    adx14 = _safe_float(tech.get("adx_14"))
+    stoch_k = _safe_float(tech.get("stoch_k"))
+    roc12 = _safe_float(tech.get("roc_12"))
+    vol_sma20 = _safe_float(tech.get("vol_sma20"))
+    vwap20 = _safe_float(tech.get("vwap_20"))
+
+    if f.min_price is not None and close < f.min_price:
+        return False
+    if f.rsi_min is not None and rsi < f.rsi_min:
+        return False
+    if f.rsi_max is not None and rsi > f.rsi_max:
+        return False
+    if f.above_ema50 and close <= ema50:
+        return False
+    if f.below_ema50 and close >= ema50:
+        return False
+    if f.above_ema200 and close <= ema200:
+        return False
+    if f.adx_min is not None and adx14 < f.adx_min:
+        return False
+    if f.adx_max is not None and adx14 > f.adx_max:
+        return False
+    if f.atr_min is not None and atr14 < f.atr_min:
+        return False
+    if f.atr_max is not None and atr14 > f.atr_max:
+        return False
+    if f.stoch_k_min is not None and stoch_k < f.stoch_k_min:
+        return False
+    if f.stoch_k_max is not None and stoch_k > f.stoch_k_max:
+        return False
+    if f.roc_min is not None and roc12 < f.roc_min:
+        return False
+    if f.roc_max is not None and roc12 > f.roc_max:
+        return False
+    if f.above_vwap20 and close <= vwap20:
+        return False
+    if f.volume_above_sma20 and volume <= vol_sma20:
+        return False
+    if f.golden_cross and ema50 <= ema200:
+        return False
+
+    # Fundamentals
+    if f.market_cap_min is not None or f.market_cap_max is not None or f.sector or f.industry:
+        funds = fundamentals or {}
+        m_cap = funds.get("marketCap")
+        sec = funds.get("sector")
+        ind = funds.get("industry")
+        if f.market_cap_min is not None and (m_cap or 0) < f.market_cap_min:
+            return False
+        if f.market_cap_max is not None and (m_cap or 0) > f.market_cap_max:
+            return False
+        if f.sector and f.sector.lower() not in (sec or "").lower():
+            return False
+        if f.industry and f.industry.lower() not in (ind or "").lower():
+            return False
+
+    return True
+
+
 class TechResult(BaseModel):
     symbol: str
     name: str
@@ -293,48 +364,7 @@ async def scan_technical(
             ind = funds.get("industry")
             beta_val = funds.get("beta")
 
-            if f.market_cap_min is not None and (m_cap or 0) < f.market_cap_min:
-                continue
-            if f.market_cap_max is not None and (m_cap or 0) > f.market_cap_max:
-                continue
-            if f.sector and f.sector.lower() not in (sec or "").lower():
-                continue
-            if f.industry and f.industry.lower() not in (ind or "").lower():
-                continue
-
-            if f.min_price is not None and close < f.min_price:
-                continue
-            if f.rsi_min is not None and rsi < f.rsi_min:
-                continue
-            if f.rsi_max is not None and rsi > f.rsi_max:
-                continue
-            if f.above_ema50 and close <= ema50:
-                continue
-            if f.below_ema50 and close >= ema50:
-                continue
-            if f.above_ema200 and close <= ema200:
-                continue
-            if f.adx_min is not None and adx14 < f.adx_min:
-                continue
-            if f.adx_max is not None and adx14 > f.adx_max:
-                continue
-            if f.atr_min is not None and atr14 < f.atr_min:
-                continue
-            if f.atr_max is not None and atr14 > f.atr_max:
-                continue
-            if f.stoch_k_min is not None and stoch_k < f.stoch_k_min:
-                continue
-            if f.stoch_k_max is not None and stoch_k > f.stoch_k_max:
-                continue
-            if f.roc_min is not None and roc12 < f.roc_min:
-                continue
-            if f.roc_max is not None and roc12 > f.roc_max:
-                continue
-            if f.above_vwap20 and close <= vwap20:
-                continue
-            if f.volume_above_sma20 and volume <= vol_sma20:
-                continue
-            if f.golden_cross and ema50 <= ema200:
+            if not filter_tech_row(tech, f, funds):
                 continue
 
             ai_prec = None
