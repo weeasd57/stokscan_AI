@@ -31,6 +31,75 @@ from api.intraday_downloader import _fetch_egx_symbols
 from api.routers.scan_ai_fast import fast_scan
 
 
+def _filter_active_symbols(symbols_list: List[str]) -> List[str]:
+    """
+    Dynamically identify and exclude delisted/suspended/stale stocks.
+    A stock is considered delisted/suspended if it exists in the database
+    but has no recent trading activity:
+      - Latest close price is <= 0.
+      - Latest price date is > 30 days old.
+      - Latest trading volume is 0.
+    If a stock has no records in the database at all, it is allowed so
+    that we can sync its history for the first time.
+    """
+    print("[ACTIVE_FILTER] Dynamically filtering active symbols...")
+    all_data = []
+    page = 0
+    page_size = 1000
+    while len(all_data) < 30000:
+        try:
+            res = (
+                supabase.table("stock_prices")
+                .select("symbol,close,date,volume")
+                .eq("exchange", "EGX")
+                .order("date", desc=True)
+                .range(page * page_size, (page + 1) * page_size - 1)
+                .execute()
+            )
+            if not res.data:
+                break
+            all_data.extend(res.data)
+            if len(res.data) < page_size:
+                break
+            page += 1
+        except Exception as e:
+            print(f"[ACTIVE_FILTER] Error fetching page {page}: {e}")
+            break
+
+    if not all_data:
+        print("[ACTIVE_FILTER] No price data found, using original symbols list.")
+        return symbols_list
+
+    try:
+        df = pd.DataFrame(all_data)
+        df["date"] = pd.to_datetime(df["date"])
+        
+        # Get the latest record for each symbol
+        latest_per_symbol = df.sort_values("date").groupby("symbol").last()
+        
+        now = pd.Timestamp.now()
+        latest_per_symbol["days_since"] = (now - latest_per_symbol["date"]).dt.days
+        
+        # Identify inactive symbols (exist in DB but have stale/invalid data)
+        inactive_mask = (
+            (latest_per_symbol["close"] <= 0) |
+            (latest_per_symbol["days_since"] > 30) |
+            (latest_per_symbol["volume"] == 0)
+        )
+        inactive_symbols_set = set(latest_per_symbol[inactive_mask].index)
+        
+        filtered_symbols = [sym for sym in symbols_list if sym not in inactive_symbols_set]
+        excluded = [sym for sym in symbols_list if sym in inactive_symbols_set]
+        if excluded:
+            print(f"[ACTIVE_FILTER] Excluded {len(excluded)} inactive/delisted symbols: {excluded}")
+        print(f"[ACTIVE_FILTER] Active symbols: {len(filtered_symbols)} / {len(symbols_list)}")
+        return filtered_symbols
+    except Exception as e:
+        print(f"[ACTIVE_FILTER] Error during filtering: {e}")
+        return symbols_list
+
+
+
 def calculate_indicators_for_symbol(symbol: str, exchange: str = "EGX") -> List[Dict[str, Any]]:
     """
     Calculate 20+ technical indicators for a given symbol.
@@ -393,19 +462,37 @@ def evaluate_old_recommendations():
         if not prices:
             continue
 
-        # 🚫 Skip delisted/suspended stocks
+        # 🚫 Handle delisted/suspended stocks by closing them
         latest_close = float(prices[-1]["close"])
         latest_price_date = prices[-1].get("date", "")
+        
+        is_delisted_or_stale = False
+        reason = ""
+        
         if latest_close <= 0:
-            print(f"[EVALUATE] Skipping {symbol}.{exchange} — last close is zero (delisted)")
+            is_delisted_or_stale = True
+            reason = "last close is zero (delisted)"
+        else:
+            try:
+                days_since = (dt.datetime.now() - dt.datetime.strptime(latest_price_date[:10], "%Y-%m-%d")).days
+                if days_since > 30:
+                    is_delisted_or_stale = True
+                    reason = f"last data {days_since} days ago (stale)"
+            except Exception:
+                pass
+
+        if is_delisted_or_stale:
+            print(f"[EVALUATE] Closing stale/delisted recommendation for {symbol}.{exchange} — {reason}")
+            try:
+                supabase.table("scan_results").update({
+                    "status": "stale",
+                    "exit_price": latest_close if latest_close > 0 else None,
+                    "updated_at": dt.datetime.utcnow().isoformat(),
+                    "closed_at": dt.datetime.utcnow().isoformat()
+                }).eq("id", rec["id"]).execute()
+            except Exception as upd_err:
+                print(f"[EVALUATE] Failed to close stale recommendation for {symbol}: {upd_err}")
             continue
-        try:
-            days_since = (dt.datetime.now() - dt.datetime.strptime(latest_price_date[:10], "%Y-%m-%d")).days
-            if days_since > 30:
-                print(f"[EVALUATE] Skipping {symbol}.{exchange} — last data {days_since} days ago (stale)")
-                continue
-        except Exception:
-            pass
 
         # Get technical snapshot for smart logic
         tech = _fetch_technical_snapshot(symbol, exchange)
@@ -965,6 +1052,7 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
             print("\n>>> STEP 1: Syncing daily prices from TradingView...")
             try:
                 symbols_raw = _fetch_egx_symbols()
+                symbols_raw = _filter_active_symbols(symbols_raw)
                 symbols = [f"{sym}.EGX" for sym in symbols_raw if sym]
                 total_symbols = len(symbols)
                 print(f"[SYNC] Found {total_symbols} symbols to sync.")
@@ -982,6 +1070,7 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
         print("\n>>> STEP 2: Calculating technical indicators (parallel)...")
         if not symbols_raw:
             symbols_raw = _fetch_egx_symbols()
+            symbols_raw = _filter_active_symbols(symbols_raw)
             if not total_symbols:
                 total_symbols = len(symbols_raw)
         ind_success = 0
