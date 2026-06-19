@@ -217,7 +217,6 @@ export default function Header() {
     const navItems = [
         { href: "/scanner/backtests?tab=bots", label: t("nav.scanner.ai_trading"), icon: <Brain className="w-4 h-4 shrink-0" />, activePath: "/scanner/backtests", badge: "AI DEMO" },
         { href: "/scanner/technical", label: t("nav.scanner.tech"), icon: <Activity className="w-4 h-4 shrink-0" />, activePath: "/scanner/technical" },
-        { href: "/scanner/backtests?tab=backtests", label: t("nav.scanner.backtests"), icon: <BarChart2 className="w-4 h-4 shrink-0" />, activePath: null },
         { href: "/scanner/backtests?tab=similarity", label: t("nav.scanner.similarity"), icon: <TrendingUp className="w-4 h-4 shrink-0" />, activePath: null },
     ];
 
@@ -239,7 +238,8 @@ export default function Header() {
         setSearchFocused(false);
         setMobileSearchOpen(false);
         setMobileMenuOpen(false);
-        router.push(`/chart?symbol=${encodeURIComponent(symbol)}&exchange=EGX`);
+        const baseSym = symbol.split('.')[0].toLowerCase();
+        router.push(`/stocks/${baseSym}`);
     };
 
     if (pathname === "/antigrafity" || pathname?.startsWith("/antigrafity")) {

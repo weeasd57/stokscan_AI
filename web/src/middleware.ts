@@ -75,7 +75,6 @@ export const config = {
     "/ar/:path*",
     "/en/:path*",
     "/api/:path*",
-    "/backtest",
     "/backtests/:path*",
     "/symbols/:path*",
     "/scan/:path*",

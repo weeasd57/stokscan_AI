@@ -18,7 +18,8 @@ import type { TechResult } from "@/lib/api";
 import StockLogo from "@/components/StockLogo";
 import ScannerTemplates, { type ScannerTemplateId } from "@/components/ScannerTemplates";
 import TradingViewChart from "@/components/TradingViewChartDynamic";
-const DEFAULT_PILLS = ["price", "rsi", "marketcap", "sector"];
+import { isShariaCompliant } from "@/lib/shariaStocks";
+const DEFAULT_PILLS = ["price", "rsi", "marketcap", "sector", "sharia"];
 
 export default function TechnicalScannerPage() {
     const { t, language } = useLanguage();
@@ -56,6 +57,7 @@ export default function TechnicalScannerPage() {
             minPrice,
             useAiFilter,
             minAiPrecision,
+            shariaOnly,
             activeSymbol,
             chartHeight,
         },
@@ -248,6 +250,9 @@ export default function TechnicalScannerPage() {
             const low = searchTerm.toLowerCase();
             res = res.filter(r => r.symbol.toLowerCase().includes(low) || r.name.toLowerCase().includes(low));
         }
+        if (shariaOnly) {
+            res = res.filter(r => isShariaCompliant(r.symbol));
+        }
 
         if (sortBy) {
             res.sort((a, b) => {
@@ -274,7 +279,7 @@ export default function TechnicalScannerPage() {
         }
 
         return res;
-    }, [searchTerm, results, sortBy, sortOrder]);
+    }, [searchTerm, results, sortBy, sortOrder, shariaOnly]);
 
     // Reset page on search or new results
     useEffect(() => {
@@ -334,6 +339,7 @@ export default function TechnicalScannerPage() {
             industry: "",
             useAiFilter: false,
             minAiPrecision: "0.6",
+            shariaOnly: false,
         });
         setVisibleFilters(DEFAULT_PILLS);
         setActiveFilterPopover(null);
@@ -365,6 +371,7 @@ export default function TechnicalScannerPage() {
             industry: "",
             useAiFilter: false,
             minAiPrecision: "0.6",
+            shariaOnly: false,
         };
 
         const presets: Record<ScannerTemplateId, Partial<typeof baseUpdate>> = {
@@ -1099,6 +1106,55 @@ export default function TechnicalScannerPage() {
                         </div>
                     )
                 };
+            case "sharia":
+                return {
+                    label: language === "ar" ? "متوافقة شرعياً" : "Sharia",
+                    valueDisplay: shariaOnly ? (language === "ar" ? "مفعّل" : "On") : "Off",
+                    isActive: shariaOnly,
+                    onReset: () => {
+                        setTechScanner({ shariaOnly: false });
+                        removeFilterIfNonDefault("sharia");
+                    },
+                    renderPopover: () => (
+                        <div className="space-y-3">
+                            <h4 className="text-xs font-bold text-[#787b86] uppercase">
+                                {language === "ar" ? "الأسهم المتوافقة مع الشريعة الإسلامية" : "Sharia-Compliant Stocks"}
+                            </h4>
+                            <p className="text-[10px] text-[#787b86] leading-relaxed">
+                                {language === "ar"
+                                    ? "عرض أسهم البورصة المصرية المتوافقة شرعياً فقط (يستثني البنوك والتأمين والكحول والتبغ ولحم الخنزير)."
+                                    : "Show only EGX stocks screened for Sharia compliance (excludes banks, insurance, alcohol, tobacco & pork)."}
+                            </p>
+                            <label className="flex items-center gap-2.5 text-xs text-[#d1d4dc] cursor-pointer select-none">
+                                <input
+                                    type="checkbox"
+                                    checked={shariaOnly}
+                                    onChange={(e) => setTechScanner({ shariaOnly: e.target.checked })}
+                                    className="rounded border-[#2a2e39] bg-[#1c2030] text-[#2962ff] focus:ring-0 focus:ring-offset-0 h-4 w-4"
+                                />
+                                <span>{language === "ar" ? "المتوافقة شرعياً فقط" : "Sharia-Compliant Only"}</span>
+                            </label>
+                            <div className="flex gap-2 pt-1">
+                                <button
+                                    onClick={() => {
+                                        setTechScanner({ shariaOnly: false });
+                                        removeFilterIfNonDefault("sharia");
+                                        setActiveFilterPopover(null);
+                                    }}
+                                    className="flex-1 h-7 text-[10px] font-bold text-[#b2b5be] hover:text-white bg-[#1c2030] border border-[#2a2e39] rounded"
+                                >
+                                    Reset
+                                </button>
+                                <button
+                                    onClick={() => { setActiveFilterPopover(null); }}
+                                    className="flex-1 h-7 text-[10px] font-bold bg-[#2962ff] hover:bg-[#1a4eff] text-white rounded"
+                                >
+                                    Done
+                                </button>
+                            </div>
+                        </div>
+                    )
+                };
             default:
                 return null;
         }
@@ -1121,8 +1177,9 @@ export default function TechnicalScannerPage() {
         if (atrMin || atrMax) count++;
         if (rocMin || rocMax) count++;
         if (useAiFilter) count++;
+        if (shariaOnly) count++;
         return count;
-    }, [minPrice, rsiMin, rsiMax, marketCapMin, marketCapMax, sector, industry, aboveEma50, aboveEma200, goldenCross, volumeAboveSma20, aboveVwap20, adxMin, adxMax, atrMin, atrMax, rocMin, rocMax, useAiFilter]);
+    }, [minPrice, rsiMin, rsiMax, marketCapMin, marketCapMax, sector, industry, aboveEma50, aboveEma200, goldenCross, volumeAboveSma20, aboveVwap20, adxMin, adxMax, atrMin, atrMax, rocMin, rocMax, useAiFilter, shariaOnly]);
 
     const hasAnyActiveFilter = activeFiltersCount > 0;
 
@@ -1153,7 +1210,8 @@ export default function TechnicalScannerPage() {
             { id: "adx", label: "Average Directional Index (ADX)", desc: "Trend strength indicator", cat: "technical" },
             { id: "atr", label: "Average True Range (ATR)", desc: "Market volatility indicator", cat: "technical" },
             { id: "roc", label: "Rate of Change (ROC)", desc: "12-period speed momentum indicator", cat: "technical" },
-            { id: "ai", label: "Random Forest AI Filter", desc: "Machine Learning trade prediction filter", cat: "ai" }
+            { id: "ai", label: "Random Forest AI Filter", desc: "Machine Learning trade prediction filter", cat: "ai" },
+            { id: "sharia", label: "Sharia-Compliant Stocks", desc: "Show only EGX stocks screened for Islamic Sharia compliance", cat: "security" }
         ];
 
         const filteredList = ALL_FILTERS.filter(item => {
@@ -1747,7 +1805,14 @@ export default function TechnicalScannerPage() {
                                                 <div className="flex items-center gap-2">
                                                     <StockLogo symbol={r.symbol} logoUrl={r.logo_url} size="sm" />
                                                     <div className="flex flex-col min-w-0">
-                                                        <span className="font-bold text-white text-xs group-hover:text-[#2962ff] transition-colors uppercase tracking-tight">{r.symbol}</span>
+                                                        <div className="flex items-center gap-1">
+                                                            <span className="font-bold text-white text-xs group-hover:text-[#2962ff] transition-colors uppercase tracking-tight">{r.symbol}</span>
+                                                            {isShariaCompliant(r.symbol) && (
+                                                                <span className="inline-flex items-center px-1 py-0.5 bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-[8px] font-black uppercase tracking-wider rounded-sm" title={language === "ar" ? "سهم متوافق شرعياً" : "Sharia-compliant stock"}>
+                                                                    {language === "ar" ? "حلال" : "Halal"}
+                                                                </span>
+                                                            )}
+                                                        </div>
                                                         <span className="text-[9px] text-[#787b86] font-semibold uppercase tracking-wider truncate max-w-[80px]">{r.name || 'Unknown'}</span>
                                                     </div>
                                                 </div>
@@ -1782,44 +1847,56 @@ export default function TechnicalScannerPage() {
 
                                                     {/* Fundamental Score (1-10) */}
                                                     <td className="px-4 py-2 text-center">
-                                                        <div className={`
-                                                            inline-flex items-center justify-center w-7 h-7 rounded-lg text-xs font-black border
-                                                            ${(r.fundamental_score ?? 0) >= 7 
-                                                                ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" 
-                                                                : (r.fundamental_score ?? 0) >= 4 
-                                                                ? "bg-amber-500/10 text-amber-400 border-amber-500/20" 
-                                                                : "bg-red-500/10 text-red-400 border-red-500/20"}
-                                                        `}>
-                                                            {r.fundamental_score ?? "—"}
-                                                        </div>
+                                                        {r.fundamental_score !== undefined && r.fundamental_score !== null ? (
+                                                            <div className={`
+                                                                inline-flex items-center justify-center w-7 h-7 rounded-lg text-xs font-black border
+                                                                ${r.fundamental_score >= 7 
+                                                                    ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" 
+                                                                    : r.fundamental_score >= 4 
+                                                                    ? "bg-amber-500/10 text-amber-400 border-amber-500/20" 
+                                                                    : "bg-red-500/10 text-red-400 border-red-500/20"}
+                                                            `}>
+                                                                {r.fundamental_score}
+                                                            </div>
+                                                        ) : (
+                                                            <span className="text-[#787b86] font-bold text-xs">—</span>
+                                                        )}
                                                     </td>
 
                                                     {/* Technical Score (1-10) */}
                                                     <td className="px-4 py-2 text-center">
-                                                        <div className={`
-                                                            inline-flex items-center justify-center w-7 h-7 rounded-lg text-xs font-black border
-                                                            ${(r.technical_score ?? 0) >= 7 
-                                                                ? "bg-emerald-500/10 text-emerald-400 border-[#26a69a]/20" 
-                                                                : (r.technical_score ?? 0) >= 4 
-                                                                ? "bg-amber-500/10 text-amber-400 border-amber-500/20" 
-                                                                : "bg-red-500/10 text-red-400 border-red-500/20"}
-                                                        `}>
-                                                            {r.technical_score ?? "—"}
-                                                        </div>
+                                                        {r.technical_score !== undefined && r.technical_score !== null ? (
+                                                            <div className={`
+                                                                inline-flex items-center justify-center w-7 h-7 rounded-lg text-xs font-black border
+                                                                ${r.technical_score >= 7 
+                                                                    ? "bg-emerald-500/10 text-emerald-400 border-[#26a69a]/20" 
+                                                                    : r.technical_score >= 4 
+                                                                    ? "bg-amber-500/10 text-amber-400 border-amber-500/20" 
+                                                                    : "bg-red-500/10 text-red-400 border-red-500/20"}
+                                                            `}>
+                                                                {r.technical_score}
+                                                            </div>
+                                                        ) : (
+                                                            <span className="text-[#787b86] font-bold text-xs">—</span>
+                                                        )}
                                                     </td>
 
                                                     {/* Sentiment Score (1-10) */}
                                                     <td className="px-4 py-2 text-center">
-                                                        <div className={`
-                                                            inline-flex items-center justify-center w-7 h-7 rounded-lg text-xs font-black border
-                                                            ${(r.sentiment_score ?? 0) >= 7 
-                                                                ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" 
-                                                                : (r.sentiment_score ?? 0) >= 4 
-                                                                ? "bg-amber-500/10 text-amber-400 border-amber-500/20" 
-                                                                : "bg-red-500/10 text-red-400 border-red-500/20"}
-                                                        `}>
-                                                            {r.sentiment_score ?? "—"}
-                                                        </div>
+                                                        {r.sentiment_score !== undefined && r.sentiment_score !== null ? (
+                                                            <div className={`
+                                                                inline-flex items-center justify-center w-7 h-7 rounded-lg text-xs font-black border
+                                                                ${r.sentiment_score >= 7 
+                                                                    ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" 
+                                                                    : r.sentiment_score >= 4 
+                                                                    ? "bg-amber-500/10 text-amber-400 border-amber-500/20" 
+                                                                    : "bg-red-500/10 text-red-400 border-red-500/20"}
+                                                            `}>
+                                                                {r.sentiment_score}
+                                                            </div>
+                                                        ) : (
+                                                            <span className="text-[#787b86] font-bold text-xs">—</span>
+                                                        )}
                                                     </td>
 
                                                     {/* Industry */}

@@ -51,6 +51,7 @@ export type TechScannerState = {
   minPrice: string;
   useAiFilter: boolean;
   minAiPrecision: string;
+  shariaOnly: boolean;
   activeSymbol: string | null;
   chartHeight: number;
 };
@@ -101,6 +102,7 @@ const DEFAULT_STATE: TechScannerState = {
   minPrice: "",
   useAiFilter: false,
   minAiPrecision: "0.6",
+  shariaOnly: false,
   activeSymbol: null,
   chartHeight: 450,
 };
@@ -198,6 +200,15 @@ export function TechnicalScannerProvider({ children }: { children: ReactNode }) 
       const raw = sessionStorage.getItem(SESSION_KEY);
       if (raw) {
         const parsed = JSON.parse(raw) as Partial<TechScannerState>;
+        // Invalidate old cache if results don't contain score data
+        const hasScoreData = Array.isArray(parsed.results) && parsed.results.length > 0 &&
+          parsed.results[0].fundamental_score !== undefined;
+        if (!hasScoreData && Array.isArray(parsed.results) && parsed.results.length > 0) {
+          // Old cache without scores — clear it to force a fresh scan
+          sessionStorage.removeItem(SESSION_KEY);
+          setIsLoaded(true);
+          return;
+        }
         setState((prev) => ({
           ...prev,
           ...parsed,
@@ -212,6 +223,7 @@ export function TechnicalScannerProvider({ children }: { children: ReactNode }) 
       setIsLoaded(true);
     }
   }, []);
+
 
   useEffect(() => {
     stateRef.current = state;

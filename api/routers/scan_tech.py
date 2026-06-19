@@ -391,6 +391,55 @@ async def scan_technical(
                 except Exception:
                     continue
 
+            # Calculate technical score (1-10)
+            t_score = 0
+            if 30 <= rsi <= 70: t_score += 2
+            elif 20 <= rsi < 30 or 70 < rsi <= 80: t_score += 1
+            if close > ema50 > ema200 > 0: t_score += 2
+            elif close > ema50 > 0 or close > ema200 > 0: t_score += 1
+            if adx14 > 25: t_score += 2
+            elif adx14 > 15: t_score += 1
+            if vol_sma20 > 0 and volume > vol_sma20: t_score += 2
+            elif vol_sma20 > 0 and volume > vol_sma20 * 0.7: t_score += 1
+            t_score = min(10, max(1, t_score))
+
+            # Calculate fundamental score (1-10)
+            f_score = 0
+            if pe and 0 < pe <= 15: f_score += 3
+            elif pe and 15 < pe <= 25: f_score += 2
+            elif pe and 25 < pe <= 40: f_score += 1
+            if eps_val and eps_val > 1: f_score += 3
+            elif eps_val and eps_val > 0: f_score += 2
+            elif eps_val and eps_val > -0.5: f_score += 1
+            if div_y and div_y > 3: f_score += 2
+            elif div_y and div_y > 1: f_score += 1
+            if m_cap and m_cap > 10_000_000_000: f_score += 2
+            elif m_cap and m_cap > 1_000_000_000: f_score += 1
+            f_score = min(10, max(1, f_score))
+
+            # Calculate sentiment score (1-10)
+            s_score = 5
+            if momentum > 0.02: s_score += 2
+            elif momentum > 0: s_score += 1
+            elif momentum < -0.02: s_score -= 2
+            elif momentum < 0: s_score -= 1
+            if rsi > 70: s_score += 1
+            elif rsi < 30: s_score -= 2
+            r_vol = volume / vol_sma20 if vol_sma20 and vol_sma20 > 0 else 1.0
+            if r_vol > 2.0: s_score += 2
+            elif r_vol > 1.2: s_score += 1
+            elif r_vol < 0.5: s_score -= 1
+            s_score = min(10, max(1, s_score))
+
+            # Calculate overall AI Score (1-10) if we have ai_prec
+            ai_scr = None
+            if ai_prec is not None:
+                bt = f.min_ai_precision if f.min_ai_precision else 0.5
+                denom = (1.0 - bt)
+                if denom <= 0: denom = 0.01
+                scaled = 6 + (ai_prec - bt) / denom * 4
+                ai_scr = int(round(min(max(scaled, 6), 10)))
+
             results.append(TechResult(
                 symbol=symbol,
                 name=name,
@@ -419,10 +468,15 @@ async def scan_technical(
                 ai_precision=ai_prec,
                 ai_signal=ai_sig,
                 logo_url=funds.get("logoUrl"),
+                ai_score=ai_scr,
+                fundamental_score=f_score,
+                technical_score=t_score,
+                sentiment_score=s_score,
             ))
 
             if len(results) >= f.limit:
                 break
+
 
         return TechResponse(results=results, scanned_count=scanned_count)
 

@@ -160,7 +160,7 @@ export default function ProPage() {
                     // Fetch profile to prefill payment billing details
                     const { data: profileRow } = await supabase
                         .from("profiles")
-                        .select("display_name, whatsapp_number")
+                        .select("display_name")
                         .eq("id", user.id)
                         .maybeSingle();
 

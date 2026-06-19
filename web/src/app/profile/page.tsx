@@ -7,12 +7,18 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useWatchlist, type SavedSymbol } from "@/contexts/WatchlistContext";
 import { Loader2, Save, Send, MessageSquare, CheckCircle2, AlertCircle, RefreshCw, Globe, Star, Trash2, Edit3, X, Check, ExternalLink, Target, Shield, Bell, BellOff, Brain, Activity, BarChart3, TrendingUp } from "lucide-react";
+import { toast } from "sonner";
 
 type ProfileRow = {
   username: string | null;
   display_name: string | null;
   telegram_chat_id: string | null;
   notification_channel: "telegram" | null;
+  default_target_pct: number | string | null;
+  default_stop_pct: number | string | null;
+  gemini_api_key: string | null;
+  openrouter_api_key: string | null;
+  custom_ai_rules: string | null;
 };
 
 export default function ProfilePage() {
@@ -25,6 +31,11 @@ export default function ProfilePage() {
 
   const [profile, setProfile] = useState<ProfileRow | null>(null);
   const [defaultTelegramChatId, setDefaultTelegramChatId] = useState("");
+  const [defaultTargetPct, setDefaultTargetPct] = useState("10.00");
+  const [defaultStopPct, setDefaultStopPct] = useState("3.50");
+  const [geminiApiKey, setGeminiApiKey] = useState("");
+  const [openrouterApiKey, setOpenrouterApiKey] = useState("");
+  const [customAiRules, setCustomAiRules] = useState("");
   const [notificationChannel, setNotificationChannel] = useState<"telegram" | null>(null);
   const channelLoadedRef = useRef(false);
   const [savingDefaults, setSavingDefaults] = useState(false);
@@ -53,13 +64,18 @@ export default function ProfilePage() {
 
     const { data: profileRow } = await supabase
       .from("profiles")
-      .select("username, display_name, telegram_chat_id, notification_channel")
+      .select("username, display_name, telegram_chat_id, notification_channel, default_target_pct, default_stop_pct, gemini_api_key, openrouter_api_key, custom_ai_rules")
       .eq("id", user.id)
       .maybeSingle();
 
     if (profileRow) {
       setProfile(profileRow as ProfileRow);
       setDefaultTelegramChatId((profileRow as any).telegram_chat_id || "");
+      setDefaultTargetPct(String((profileRow as any).default_target_pct ?? "10.00"));
+      setDefaultStopPct(String((profileRow as any).default_stop_pct ?? "3.50"));
+      setGeminiApiKey((profileRow as any).gemini_api_key || "");
+      setOpenrouterApiKey((profileRow as any).openrouter_api_key || "");
+      setCustomAiRules((profileRow as any).custom_ai_rules || "");
       if (!channelLoadedRef.current) {
         setNotificationChannel(((profileRow as any).notification_channel as "telegram") || null);
         channelLoadedRef.current = true;
@@ -87,18 +103,29 @@ export default function ProfilePage() {
     void reloadAll();
   }, [reloadAll, user]);
 
-  async function saveTelegramSettings() {
+  async function saveProfileSettings() {
     if (!user) return;
     setSavingDefaults(true);
     try {
-      await supabase
+      const { error } = await supabase
         .from("profiles")
         .update({ 
           telegram_chat_id: defaultTelegramChatId.trim() || null,
-          notification_channel: notificationChannel
+          notification_channel: notificationChannel,
+          default_target_pct: defaultTargetPct ? parseFloat(defaultTargetPct) : 10.00,
+          default_stop_pct: defaultStopPct ? parseFloat(defaultStopPct) : 3.50,
+          gemini_api_key: geminiApiKey.trim() || null,
+          openrouter_api_key: openrouterApiKey.trim() || null,
+          custom_ai_rules: customAiRules.trim() || null,
         })
         .eq("id", user.id);
+
+      if (error) throw error;
       await reloadAll();
+      toast.success(isAr ? "تم حفظ الإعدادات بنجاح" : "Settings saved successfully");
+    } catch (e: any) {
+      console.error(e);
+      toast.error(isAr ? `فشل حفظ الإعدادات: ${e.message}` : `Failed to save settings: ${e.message}`);
     } finally {
       setSavingDefaults(false);
     }
@@ -175,8 +202,8 @@ export default function ProfilePage() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 relative z-10">
         
-        {/* Account Info Card (Column 1) */}
-        <div className="lg:col-span-1 space-y-4">
+        {/* Account Info Card & AI Settings (Column 1) */}
+        <div className="lg:col-span-1 space-y-6">
           <div className="neobrutal-card p-6 bg-white dark:bg-zinc-900 border-4 border-black dark:border-white shadow-[6px_6px_0px_rgba(0,0,0,1)] dark:shadow-[6px_6px_0px_rgba(255,255,255,1)] space-y-4">
             <h2 className="text-xl font-black text-black dark:text-white uppercase tracking-tight border-b-4 border-black dark:border-zinc-800 pb-2">
               {isAr ? "معلومات الحساب" : "Account Information"}
@@ -192,16 +219,18 @@ export default function ProfilePage() {
               </div>
             </div>
           </div>
+
+
         </div>
 
-        {/* Telegram Alerts settings (Column 2-3) */}
+        {/* Alerts settings (Column 2-3) */}
         <div className="lg:col-span-2">
           <section className="neobrutal-card p-6 sm:p-8 space-y-8 relative overflow-hidden bg-white dark:bg-zinc-900 border-4 border-black dark:border-white shadow-[6px_6px_0px_rgba(0,0,0,1)] dark:shadow-[6px_6px_0px_rgba(255,255,255,1)]">
             <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-600/5 blur-[100px] rounded-full -translate-y-1/2 translate-x-1/2 pointer-events-none" />
 
             <div className="relative">
               <h2 className="text-2xl font-black text-black dark:text-white uppercase tracking-tight mb-2">
-                {isAr ? "إعدادات تنبيهات تليجرام" : "Telegram Alert Settings"}
+                {isAr ? "إعدادات تنبيهات الهاتف" : "Alert Settings"}
               </h2>
               <p className="text-xs text-zinc-500 dark:text-zinc-400 font-black uppercase tracking-widest leading-relaxed">
                 {isAr ? "ربط الحساب وتلقي إشارات التداول الفورية مباشرة على هاتفك" : "Link account and receive real-time trading signals directly on your phone"}
@@ -213,7 +242,7 @@ export default function ProfilePage() {
               <div className="space-y-6">
                 <div className="space-y-3">
                   <label className="text-[10px] font-black text-black dark:text-white uppercase tracking-[0.2em] ml-1">
-                    {isAr ? "قناة الإشعارات" : "Alert Channel"}
+                    {isAr ? "تنبيهات تليجرام" : "Telegram Alerts"}
                   </label>
                   
                   <div className="flex gap-4">
@@ -227,7 +256,7 @@ export default function ProfilePage() {
                       }`}
                     >
                       <Send className="w-4 h-4" />
-                      Telegram
+                      {isAr ? "تفعيل التنبيهات" : "Enable Telegram"}
                     </button>
                     {notificationChannel !== null && (
                       <button
@@ -251,7 +280,7 @@ export default function ProfilePage() {
                       <span className={`w-2 h-2 rounded-full ${
                         notificationChannel === "telegram" ? "bg-black" : "bg-zinc-600"
                       }`} />
-                      {notificationChannel === "telegram" ? (language === "ar" ? "Telegram مفعّل" : "Telegram Enabled") : (language === "ar" ? "لا يوجد قناة" : "No Channel")}
+                      {notificationChannel === "telegram" ? (language === "ar" ? "Telegram مفعّل" : "Telegram Enabled") : (language === "ar" ? "لا يوجد تنبيهات" : "No Alerts")}
                     </div>
 
                     <button
@@ -287,7 +316,7 @@ export default function ProfilePage() {
                   <div className="p-6 border-4 border-dashed border-black dark:border-zinc-700 bg-zinc-950/5 dark:bg-zinc-950/20 flex flex-col items-center justify-center gap-3 text-center min-h-[140px]">
                     <MessageSquare className="w-6 h-6 text-zinc-500" />
                     <p className="text-xs text-zinc-600 dark:text-zinc-400 font-bold uppercase tracking-wider">
-                      {isAr ? "اختر قناة تليجرام لتفعيل الإشعارات" : "Select Telegram channel to enable alerts"}
+                      {isAr ? "قم بتفعيل قناة تليجرام لتلقي التنبيهات" : "Enable Telegram to receive alerts"}
                     </p>
                   </div>
                 )}
@@ -356,7 +385,7 @@ export default function ProfilePage() {
                           value={defaultTelegramChatId}
                           onChange={(e) => setDefaultTelegramChatId(e.target.value)}
                           placeholder="e.g. 987654321"
-                          className="h-10 w-full border-4 border-black dark:border-white bg-white dark:bg-zinc-955 px-4 text-xs font-black text-black dark:text-white outline-none focus:bg-yellow-50 dark:focus:bg-zinc-800 transition-all font-mono shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_0px_rgba(255,255,255,1)]"
+                          className="h-10 w-full border-4 border-black dark:border-white bg-white dark:bg-zinc-950 px-4 text-xs font-black text-black dark:text-white outline-none focus:bg-yellow-50 dark:focus:bg-zinc-800 transition-all font-mono shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_0px_rgba(255,255,255,1)]"
                         />
                       </div>
                     </div>
@@ -384,8 +413,8 @@ export default function ProfilePage() {
                         <div className="text-emerald-400 font-bold">🟢 NEW BUY SIGNAL</div>
                         <div>💎 Symbol: <span className="text-white">COMI</span></div>
                         <div>💰 Entry Price: <span className="text-white">124.50</span></div>
-                        <div>🎯 Target (10%): <span className="text-white">136.95</span></div>
-                        <div>🛡️ Stop Loss (3.5%): <span className="text-white">120.14</span></div>
+                        <div>🎯 Target ({defaultTargetPct}%): <span className="text-white">{(124.50 * (1 + parseFloat(defaultTargetPct || "10") / 100)).toFixed(2)}</span></div>
+                        <div>🛡️ Stop Loss ({defaultStopPct}%): <span className="text-white">{(124.50 * (1 - parseFloat(defaultStopPct || "3.5") / 100)).toFixed(2)}</span></div>
                       </div>
                     </div>
                   ) : (
@@ -394,7 +423,7 @@ export default function ProfilePage() {
                         <MessageSquare className="w-6 h-6 text-zinc-500" />
                       </div>
                       <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">
-                        {isAr ? "اختر قناة تليجرام لمعاينة التنبيهات" : "Choose Telegram to preview alert"}
+                        {isAr ? "قم بتفعيل الإشعارات لمعاينة التنبيهات" : "Enable alerts to preview message"}
                       </p>
                     </div>
                   )}
@@ -407,12 +436,12 @@ export default function ProfilePage() {
             </div>
 
             <button
-              onClick={saveTelegramSettings}
+              onClick={saveProfileSettings}
               disabled={savingDefaults}
               className="h-14 w-full neobrutal-btn neobrutal-bg-yellow font-black text-sm uppercase tracking-[0.2em] text-black flex items-center justify-center gap-3 relative overflow-hidden group"
             >
               {savingDefaults ? <Loader2 className="h-5 w-5 animate-spin" /> : <Save className="h-5 w-5 group-hover:scale-110 transition-transform" />}
-              {isAr ? "حفظ إعدادات تليجرام" : "Save Telegram Settings"}
+              {isAr ? "حفظ الإعدادات" : "Save Settings"}
             </button>
           </section>
         </div>

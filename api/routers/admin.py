@@ -4525,5 +4525,328 @@ def get_data_growth(days: int = 14):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ─── User Management Endpoints ──────────────────────────────────────────────
+
+
+@router.get("/users")
+def list_users(page: int = 0, page_size: int = 50, search: str = ""):
+    _reload_env()
+    _init_supabase()
+    if not stock_ai.supabase:
+        raise HTTPException(status_code=503, detail="Supabase not initialized")
+
+    try:
+        query = stock_ai.supabase.table("profiles").select(
+            "id, username, display_name, avatar_url, language, telegram_chat_id, notification_channel, default_target_pct, default_stop_pct, gemini_api_key, openrouter_api_key, custom_ai_rules, created_at, updated_at",
+            count="exact"
+        )
+
+        if search:
+            query = query.or_(f"username.ilike.%{search}%,display_name.ilike.%{search}%,telegram_chat_id.ilike.%{search}%")
+
+        query = query.range(page * page_size, (page + 1) * page_size - 1).order("created_at", desc=True)
+        res = query.execute()
+
+        users = res.data or []
+        total = res.count if hasattr(res, "count") and res.count is not None else len(users)
+
+        enriched = []
+        for u in users:
+            uid = u.get("id")
+            sub_res = stock_ai.supabase.table("subscriptions").select("plan_id, status, current_period_end").eq("user_id", uid).maybe_single().execute()
+            sub = sub_res.data if (sub_res and sub_res.data) else None
+
+            bot_res = stock_ai.supabase.table("bot_subscriptions").select("service_type, notifications_enabled").eq("user_id", uid).execute()
+            bots = bot_res.data or []
+
+            enriched.append({
+                **u,
+                "subscription": sub,
+                "bot_subscriptions": bots,
+                "bot_count": len(bots),
+            })
+
+        return {"users": enriched, "total": total, "page": page, "page_size": page_size}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/users/{user_id}")
+def get_user_detail(user_id: str):
+    _reload_env()
+    _init_supabase()
+    if not stock_ai.supabase:
+        raise HTTPException(status_code=503, detail="Supabase not initialized")
+
+    try:
+        profile_res = stock_ai.supabase.table("profiles").select("*").eq("id", user_id).maybe_single().execute()
+        if not (profile_res and profile_res.data):
+            raise HTTPException(status_code=404, detail="User not found")
+        profile = profile_res.data
+
+        sub_res = stock_ai.supabase.table("subscriptions").select("*").eq("user_id", user_id).maybe_single().execute()
+        subscription = sub_res.data if (sub_res and sub_res.data) else None
+
+        bot_res = stock_ai.supabase.table("bot_subscriptions").select("*").eq("user_id", user_id).execute()
+        bot_subs = bot_res.data or []
+
+        pos_res = stock_ai.supabase.table("positions").select("symbol, exchange, status, entry_price, status_price, created_at").eq("user_id", user_id).eq("status", "open").execute()
+        open_positions = pos_res.data or []
+
+        scan_res = stock_ai.supabase.table("scan_results").select("symbol, signal, status, precision, created_at").eq("user_id", user_id).limit(10).order("created_at", desc=True).execute()
+        recent_scans = scan_res.data or []
+
+        return {
+            "profile": profile,
+            "subscription": subscription,
+            "bot_subscriptions": bot_subs,
+            "open_positions": open_positions,
+            "recent_scans": recent_scans,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class UserUpdateRequest(BaseModel):
+    display_name: Optional[str] = None
+    language: Optional[str] = None
+    telegram_chat_id: Optional[str] = None
+    notification_channel: Optional[str] = None
+    default_target_pct: Optional[float] = None
+    default_stop_pct: Optional[float] = None
+    gemini_api_key: Optional[str] = None
+    openrouter_api_key: Optional[str] = None
+    custom_ai_rules: Optional[str] = None
+
+
+@router.patch("/users/{user_id}")
+def update_user(user_id: str, body: UserUpdateRequest):
+    _reload_env()
+    _init_supabase()
+    if not stock_ai.supabase:
+        raise HTTPException(status_code=503, detail="Supabase not initialized")
+
+    updates = {}
+    if body.display_name is not None:
+        updates["display_name"] = body.display_name
+    if body.language is not None:
+        updates["language"] = body.language
+    if body.telegram_chat_id is not None:
+        updates["telegram_chat_id"] = body.telegram_chat_id
+    if body.notification_channel is not None:
+        updates["notification_channel"] = body.notification_channel
+    if body.default_target_pct is not None:
+        updates["default_target_pct"] = body.default_target_pct
+    if body.default_stop_pct is not None:
+        updates["default_stop_pct"] = body.default_stop_pct
+    if body.gemini_api_key is not None:
+        updates["gemini_api_key"] = body.gemini_api_key
+    if body.openrouter_api_key is not None:
+        updates["openrouter_api_key"] = body.openrouter_api_key
+    if body.custom_ai_rules is not None:
+        updates["custom_ai_rules"] = body.custom_ai_rules
+
+    if not updates:
+        raise HTTPException(status_code=400, detail="No fields to update")
+
+    updates["updated_at"] = datetime.utcnow().isoformat()
+
+    try:
+        res = stock_ai.supabase.table("profiles").update(updates).eq("id", user_id).execute()
+        if not res.data:
+            raise HTTPException(status_code=404, detail="User not found")
+        return res.data[0]
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/users/{user_id}")
+def delete_user(user_id: str):
+    _reload_env()
+    _init_supabase()
+    if not stock_ai.supabase:
+        raise HTTPException(status_code=503, detail="Supabase not initialized")
+
+    try:
+        stock_ai.supabase.table("bot_subscriptions").delete().eq("user_id", user_id).execute()
+        stock_ai.supabase.table("positions").delete().eq("user_id", user_id).execute()
+        stock_ai.supabase.table("scan_results").delete().eq("user_id", user_id).execute()
+        stock_ai.supabase.table("subscriptions").delete().eq("user_id", user_id).execute()
+        stock_ai.supabase.table("user_settings").delete().eq("user_id", user_id).execute()
+        stock_ai.supabase.table("chart_drawings").delete().eq("user_id", user_id).execute()
+        stock_ai.supabase.table("profiles").delete().eq("id", user_id).execute()
+        return {"ok": True, "deleted": user_id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ─── Article Management Endpoints ───────────────────────────────────────────
+
+
+class ArticleCreateRequest(BaseModel):
+    title_en: str
+    title_ar: str
+    excerpt_en: str
+    excerpt_ar: str
+    content_en: str
+    content_ar: str
+    category_en: Optional[str] = "General"
+    category_ar: Optional[str] = "عام"
+    author: Optional[str] = "EGX Bots Team"
+    image_url: Optional[str] = None
+    slug: Optional[str] = None
+    is_published: Optional[bool] = True
+
+
+class ArticleUpdateRequest(BaseModel):
+    title_en: Optional[str] = None
+    title_ar: Optional[str] = None
+    excerpt_en: Optional[str] = None
+    excerpt_ar: Optional[str] = None
+    content_en: Optional[str] = None
+    content_ar: Optional[str] = None
+    category_en: Optional[str] = None
+    category_ar: Optional[str] = None
+    author: Optional[str] = None
+    image_url: Optional[str] = None
+    slug: Optional[str] = None
+    is_published: Optional[bool] = None
+
+
+@router.get("/articles")
+def list_admin_articles(page: int = 0, page_size: int = 50, search: str = ""):
+    _reload_env()
+    _init_supabase()
+    if not stock_ai.supabase:
+        raise HTTPException(status_code=503, detail="Supabase not initialized")
+
+    try:
+        query = stock_ai.supabase.table("articles").select("*", count="exact")
+        if search:
+            query = query.or_(f"title_en.ilike.%{search}%,title_ar.ilike.%{search}%,category_en.ilike.%{search}%,category_ar.ilike.%{search}%")
+        
+        query = query.range(page * page_size, (page + 1) * page_size - 1).order("created_at", desc=True)
+        res = query.execute()
+        
+        articles = res.data or []
+        total = res.count if hasattr(res, "count") and res.count is not None else len(articles)
+        
+        return {"articles": articles, "total": total, "page": page, "page_size": page_size}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/articles")
+def create_article(body: ArticleCreateRequest):
+    _reload_env()
+    _init_supabase()
+    if not stock_ai.supabase:
+        raise HTTPException(status_code=503, detail="Supabase not initialized")
+
+    # Generate slug if empty
+    slug_val = body.slug
+    if not slug_val:
+        import re
+        slug_val = body.title_en.lower().strip()
+        slug_val = re.sub(r"[^\w\s-]", "", slug_val)
+        slug_val = re.sub(r"[\s_-]+", "-", slug_val)
+        
+    if slug_val:
+        slug_val = f"{slug_val}-{str(uuid.uuid4())[:8]}"
+
+    data = {
+        "title_en": body.title_en,
+        "title_ar": body.title_ar,
+        "excerpt_en": body.excerpt_en,
+        "excerpt_ar": body.excerpt_ar,
+        "content_en": body.content_en,
+        "content_ar": body.content_ar,
+        "category_en": body.category_en or "General",
+        "category_ar": body.category_ar or "عام",
+        "author": body.author or "EGX Bots Team",
+        "image_url": body.image_url,
+        "slug": slug_val,
+        "is_published": body.is_published if body.is_published is not None else True,
+        "created_at": datetime.utcnow().isoformat(),
+        "updated_at": datetime.utcnow().isoformat()
+    }
+
+    try:
+        res = stock_ai.supabase.table("articles").insert(data).execute()
+        if not res.data:
+            raise HTTPException(status_code=500, detail="Failed to create article")
+        return res.data[0]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.patch("/articles/{article_id}")
+def update_article(article_id: str, body: ArticleUpdateRequest):
+    _reload_env()
+    _init_supabase()
+    if not stock_ai.supabase:
+        raise HTTPException(status_code=503, detail="Supabase not initialized")
+
+    updates = {}
+    if body.title_en is not None:
+        updates["title_en"] = body.title_en
+    if body.title_ar is not None:
+        updates["title_ar"] = body.title_ar
+    if body.excerpt_en is not None:
+        updates["excerpt_en"] = body.excerpt_en
+    if body.excerpt_ar is not None:
+        updates["excerpt_ar"] = body.excerpt_ar
+    if body.content_en is not None:
+        updates["content_en"] = body.content_en
+    if body.content_ar is not None:
+        updates["content_ar"] = body.content_ar
+    if body.category_en is not None:
+        updates["category_en"] = body.category_en
+    if body.category_ar is not None:
+        updates["category_ar"] = body.category_ar
+    if body.author is not None:
+        updates["author"] = body.author
+    if body.image_url is not None:
+        updates["image_url"] = body.image_url
+    if body.slug is not None:
+        updates["slug"] = body.slug
+    if body.is_published is not None:
+        updates["is_published"] = body.is_published
+
+    if not updates:
+        raise HTTPException(status_code=400, detail="No fields to update")
+
+    updates["updated_at"] = datetime.utcnow().isoformat()
+
+    try:
+        res = stock_ai.supabase.table("articles").update(updates).eq("id", article_id).execute()
+        if not res.data:
+            raise HTTPException(status_code=404, detail="Article not found")
+        return res.data[0]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/articles/{article_id}")
+def delete_article(article_id: str):
+    _reload_env()
+    _init_supabase()
+    if not stock_ai.supabase:
+        raise HTTPException(status_code=503, detail="Supabase not initialized")
+
+    try:
+        res = stock_ai.supabase.table("articles").delete().eq("id", article_id).execute()
+        if not res.data:
+            raise HTTPException(status_code=404, detail="Article not found")
+        return {"ok": True, "deleted": article_id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ─── Historical Similarity Endpoints (moved to similarity_admin.py) ──────
+
 

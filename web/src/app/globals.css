@@ -775,6 +775,9 @@ html.dark .neobrutal-grid-bg {
 .neobrutal-bg-orange { background-color: #fb923c; color: #000000 !important; }
 .neobrutal-bg-pink { background-color: #f472b6; color: #000000 !important; }
 .neobrutal-bg-purple { background-color: #c084fc; color: #000000 !important; }
+.neobrutal-bg-amber { background-color: #fbbf24; color: #000000 !important; }
+.neobrutal-bg-blue { background-color: #60a5fa; color: #000000 !important; }
+.neobrutal-bg-teal { background-color: #2dd4bf; color: #000000 !important; }
 
 html.dark .neobrutal-bg-yellow { background-color: #ca8a04; color: #ffffff !important; }
 html.dark .neobrutal-bg-cyan { background-color: #0891b2; color: #ffffff !important; }
@@ -782,6 +785,9 @@ html.dark .neobrutal-bg-green { background-color: #16a34a; color: #ffffff !impor
 html.dark .neobrutal-bg-orange { background-color: #ea580c; color: #ffffff !important; }
 html.dark .neobrutal-bg-pink { background-color: #db2777; color: #ffffff !important; }
 html.dark .neobrutal-bg-purple { background-color: #9333ea; color: #ffffff !important; }
+html.dark .neobrutal-bg-amber { background-color: #d97706; color: #ffffff !important; }
+html.dark .neobrutal-bg-blue { background-color: #2563eb; color: #ffffff !important; }
+html.dark .neobrutal-bg-teal { background-color: #0d9488; color: #ffffff !important; }
 
 /* Custom keyframes for marquee text */
 @keyframes marquee {

@@ -12,8 +12,9 @@ import {
     Search, Filter, AlertTriangle, RefreshCw, ChevronLeft, ChevronRight,
     TrendingUp, TrendingDown, Layers, Info, CheckCircle2, X, BarChart2,
     Target, ShieldAlert, Cpu, BookOpen, TrendingUp as Bullish, Calendar,
-    Award, ArrowUpRight, ArrowDownRight, Minus, ExternalLink
+    Award, ArrowUpRight, ArrowDownRight, Minus, ExternalLink, ShieldCheck
 } from "lucide-react";
+import { isShariaCompliant } from "@/lib/shariaStocks";
 
 interface RecommendationsTableProps {
     isLandingPage?: boolean;
@@ -39,6 +40,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
     const [searchTerm, setSearchTerm] = useState("");
     const [selectedSector, setSelectedSector] = useState("");
     const [selectedSignal, setSelectedSignal] = useState("");
+    const [shariaOnly, setShariaOnly] = useState(false);
     const [currentPage, setCurrentPage] = useState(1);
     const itemsPerPage = 50;
 
@@ -71,6 +73,9 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
         totalRows: { en: "Total Stocks: {count}", ar: "إجمالي الأسهم: {count}" },
         status: { en: "Status", ar: "الحالة" },
         return: { en: "Return", ar: "العائد" },
+        shariaOnly: { en: "Sharia-Compliant Only", ar: "المتوافقة شرعياً فقط" },
+        shariaHint: { en: "Show only EGX stocks screened for Sharia compliance (excludes banks, insurance, alcohol, tobacco & pork).", ar: "عرض أسهم البورصة المصرية المتوافقة شرعياً فقط (يستثني البنوك والتأمين والكحول والتبغ ولحم الخنزير)." },
+        halal: { en: "Halal", ar: "حلال" },
     };
 
     const translate = (key: keyof typeof tDict) => {
@@ -137,10 +142,13 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
         if (selectedSignal) {
             items = items.filter(r => r.signal.toUpperCase() === selectedSignal.toUpperCase());
         }
+        if (shariaOnly) {
+            items = items.filter(r => isShariaCompliant(r.symbol));
+        }
 
         items.sort((a, b) => b.precision - a.precision);
         return items;
-    }, [recommendations, searchTerm, selectedSector, selectedSignal]);
+    }, [recommendations, searchTerm, selectedSector, selectedSignal, shariaOnly]);
 
     const limitedRows = useMemo(() => processedRows.slice(0, limit), [processedRows, limit]);
 
@@ -298,6 +306,16 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                         </div>
                     </div>
                     <div className="flex items-center gap-2 flex-shrink-0">
+                        <button
+                            onClick={() => {
+                                const baseSym = row.symbol.split('.')[0].toLowerCase();
+                                router.push(`/stocks/${baseSym}`);
+                            }}
+                            className="h-9 px-3 bg-teal-400 text-zinc-950 hover:bg-teal-300 text-xs font-black flex items-center gap-1.5 transition-colors active:scale-95 border-2 border-black"
+                        >
+                            <BarChart2 className="w-3.5 h-3.5" />
+                            {isAr ? "التحليل" : "Analysis"}
+                        </button>
                         <button
                             onClick={() => router.push(`/chart?symbol=${encodeURIComponent(row.symbol.toUpperCase())}&exchange=${encodeURIComponent(row.exchange || "EGX")}`)}
                             className="h-9 px-3 bg-white text-zinc-950 hover:bg-zinc-200 text-xs font-black flex items-center gap-1.5 transition-colors active:scale-95"
@@ -668,7 +686,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
 
             {/* Interactive Filters */}
             {limit === Infinity && (!isLandingPage || user) && (
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 border-4 border-black dark:border-white bg-white dark:bg-zinc-950 text-black dark:text-white shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_rgba(255,255,255,1)]">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 p-4 border-4 border-black dark:border-white bg-white dark:bg-zinc-950 text-black dark:text-white shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_rgba(255,255,255,1)]">
                     <div className="relative flex items-center">
                         <Search className="absolute left-3 w-4 h-4 text-zinc-500" />
                         <input
@@ -704,6 +722,19 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                             <option value="SELL">{translate("sell")}</option>
                         </select>
                     </div>
+                    <button
+                        onClick={() => { setShariaOnly(prev => !prev); setCurrentPage(1); }}
+                        title={translate("shariaHint")}
+                        className={`h-11 px-4 border-2 border-black dark:border-white font-black text-sm flex items-center justify-center gap-2 transition-all duration-100 shadow-[2px_2px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_rgba(255,255,255,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none cursor-pointer ${
+                            shariaOnly
+                                ? "neobrutal-bg-green text-black"
+                                : "bg-zinc-50 dark:bg-zinc-900 text-black dark:text-white hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                        }`}
+                        aria-pressed={shariaOnly}
+                    >
+                        <ShieldCheck className="w-4 h-4 shrink-0" />
+                        <span className="truncate">{translate("shariaOnly")}</span>
+                    </button>
                 </div>
             )}
 
@@ -735,9 +766,9 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                             <Search className="w-8 h-8 text-zinc-400" />
                         </div>
                         <p className="text-sm font-black uppercase tracking-widest">{translate("noResults")}</p>
-                        {(searchTerm || selectedSector || selectedSignal) && (
+                        {(searchTerm || selectedSector || selectedSignal || shariaOnly) && (
                             <button
-                                onClick={() => { setSearchTerm(""); setSelectedSector(""); setSelectedSignal(""); }}
+                                onClick={() => { setSearchTerm(""); setSelectedSector(""); setSelectedSignal(""); setShariaOnly(false); }}
                                 className="text-xs font-bold text-indigo-400 hover:text-indigo-300 underline underline-offset-2"
                             >
                                 {isAr ? "مسح الفلاتر" : "Clear Filters"}
@@ -795,7 +826,18 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                                 <div className="flex items-center gap-3">
                                                     <StockLogo symbol={row.symbol} logoUrl={row.logo_url} size="md" />
                                                     <div className="flex flex-col">
-                                                        <span className="text-base text-indigo-600 dark:text-indigo-400 hover:underline">{row.symbol}</span>
+                                                        <div className="flex items-center gap-1.5">
+                                                            <span className="text-base text-indigo-600 dark:text-indigo-400 hover:underline">{row.symbol}</span>
+                                                            {isShariaCompliant(row.symbol) && (
+                                                                <span
+                                                                    className="inline-flex items-center gap-0.5 px-1.5 py-0.5 border border-black dark:border-white bg-emerald-400 text-black text-[8px] font-black uppercase tracking-wider shadow-[1px_1px_0px_rgba(0,0,0,1)] dark:shadow-[1px_1px_0px_rgba(255,255,255,1)]"
+                                                                    title={translate("shariaHint")}
+                                                                >
+                                                                    <ShieldCheck className="w-2.5 h-2.5" />
+                                                                    {translate("halal")}
+                                                                </span>
+                                                            )}
+                                                        </div>
                                                         <span className="text-[10px] text-zinc-500 dark:text-zinc-400 font-medium truncate max-w-[220px]" title={row.name}>
                                                             {row.name}
                                                         </span>

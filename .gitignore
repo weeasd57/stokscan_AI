@@ -38,6 +38,8 @@ yarn-debug.log*
 yarn-error.log*
 api/*.log
 council_debug.log
+logs/structured.json
+api/intraday_sync_state.json
 
 # TypeScript build info
 web/tsconfig.tsbuildinfo

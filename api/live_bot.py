@@ -2340,13 +2340,25 @@ class LiveBot:
                 v = king_art.get(name)
                 if v is not None:
                     return v
+                tp = king_art.get("trading_parameters") or king_art.get("tradingParameters")
+                if isinstance(tp, dict):
+                    v = tp.get(name)
+                    if v is not None:
+                        return v
                 pm = (
                     king_art.get("primary_model")
                     if isinstance(king_art.get("primary_model"), dict)
                     else {}
                 )
                 if isinstance(pm, dict):
-                    return pm.get(name, default)
+                    v = pm.get(name)
+                    if v is not None:
+                        return v
+                    pm_tp = pm.get("trading_parameters") or pm.get("tradingParameters")
+                    if isinstance(pm_tp, dict):
+                        v = pm_tp.get(name)
+                        if v is not None:
+                            return v
                 return default
 
             m_target = _meta_get("target_pct")
@@ -2420,6 +2432,9 @@ class LiveBot:
         if king_clf is None:
             # Fallback if it's already a classifier
             king_clf = king_art
+
+        from api.trading_config import TradingParameters
+        self.trading_params = TradingParameters.from_model_artifact(king_art)
 
         council_path = (
             str(self.config.council_model_path)
@@ -3338,26 +3353,26 @@ class LiveBot:
                     prof_res = (
                         supabase.table("profiles")
                         .select(
-                            "default_target_pct, default_stop_pct, telegram_chat_id, language, notification_channel, whatsapp_number"
+                            "default_target_pct, default_stop_pct, telegram_chat_id, language, notification_channel"
                         )
                         .eq("id", user_id)
                         .maybe_single()
                         .execute()
                     )
-                    prof = prof_res.data or {}
+                    prof = prof_res.data if (prof_res and prof_res.data) else {}
                     sub = {}
                 else:
                     sub = sub_res.data[0]
                     prof_res = (
                         supabase.table("profiles")
                         .select(
-                            "default_target_pct, default_stop_pct, telegram_chat_id, language, notification_channel, whatsapp_number"
+                            "default_target_pct, default_stop_pct, telegram_chat_id, language, notification_channel"
                         )
                         .eq("id", user_id)
                         .maybe_single()
                         .execute()
                     )
-                    prof = prof_res.data or {}
+                    prof = prof_res.data if (prof_res and prof_res.data) else {}
 
                 # Resolve parameters
                 target_pct = float(
@@ -3391,9 +3406,6 @@ class LiveBot:
                     prof.get("notification_channel")
                     if prof.get("notification_channel")
                     else "telegram"
-                )
-                whatsapp_number = (
-                    prof.get("whatsapp_number") if prof.get("whatsapp_number") else None
                 )
                 lang = prof.get("language", "en")
 
@@ -3688,7 +3700,6 @@ class LiveBot:
                         )
 
                     channel = sub_data.get("notification_channel", "telegram")
-                    whatsapp_number = sub_data.get("whatsapp_number")
 
                     if self.telegram_bridge and chat_id:
                         self.telegram_bridge.send_notification(msg, chat_id=chat_id)
@@ -4047,9 +4058,6 @@ class LiveBot:
                                     )
                                     if prof.get("notification_channel")
                                     else "telegram",
-                                    "whatsapp_number": prof.get("whatsapp_number")
-                                    if prof.get("whatsapp_number")
-                                    else None,
                                     "language": prof.get("language", "en"),
                                 }
                             )

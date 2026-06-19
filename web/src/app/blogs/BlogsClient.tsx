@@ -10,7 +10,8 @@ import {
   Sparkles,
   Send,
 } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect, useMemo } from "react";
+import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 
 type Language = "en" | "ar";
 
@@ -32,6 +33,57 @@ export default function BlogsPage() {
   const { t, language } = useLanguage();
   const [selectedPost, setSelectedPost] = useState<Post | null>(null);
   const isAr = language === "ar";
+  const supabase = useMemo(() => createSupabaseBrowserClient(), []);
+
+  const [dbPosts, setDbPosts] = useState<Post[]>([]);
+  const [dbLoading, setDbLoading] = useState(true);
+
+  useEffect(() => {
+    async function fetchArticles() {
+      try {
+        const { data, error } = await supabase
+          .from("articles")
+          .select("*")
+          .eq("is_published", true)
+          .order("created_at", { ascending: false });
+        
+        if (error) throw error;
+        
+        if (data) {
+          const mapped: Post[] = data.map((art: any) => ({
+            title: {
+              en: art.title_en,
+              ar: art.title_ar,
+            },
+            excerpt: {
+              en: art.excerpt_en,
+              ar: art.excerpt_ar,
+            },
+            date: new Date(art.created_at).toLocaleDateString(language === "ar" ? "ar-EG" : "en-US", {
+              year: "numeric",
+              month: "long",
+              day: "numeric",
+            }),
+            author: art.author || "EGX Bots Team",
+            category: {
+              en: art.category_en,
+              ar: art.category_ar,
+            },
+            content: {
+              en: <div className="space-y-6 text-zinc-850 dark:text-zinc-200 text-sm sm:text-base leading-relaxed" dangerouslySetInnerHTML={{ __html: art.content_en }} />,
+              ar: <div className="space-y-6 text-zinc-850 dark:text-zinc-200 text-sm sm:text-base leading-relaxed" dangerouslySetInnerHTML={{ __html: art.content_ar }} />,
+            }
+          }));
+          setDbPosts(mapped);
+        }
+      } catch (err) {
+        console.error("Error fetching articles:", err);
+      } finally {
+        setDbLoading(false);
+      }
+    }
+    fetchArticles();
+  }, [supabase, language]);
 
   const posts: Post[] = [
     {
@@ -390,8 +442,8 @@ export default function BlogsPage() {
 
     {
       title: {
-        en: "The Real Test: How Our AI Models Survived Egypt's Hardest Market Year (2022)",
-        ar: "الاختبار الحقيقي: كيف نجا ذكاؤنا الاصطناعي من أصعب سنة في السوق المصري (2022)",
+        en: "🔥 The Real Test: How Our AI Models Survived Egypt's Hardest Market Year (2022)",
+        ar: "الاختبار الحقيقي: كيف نجا ذكاؤنا الاصطناعي من أصعب سنة في السوق المصري (2022) 🔥",
       },
       excerpt: {
         en: "When the Egyptian pound collapsed and EGX30 bled, did our AI models preserve capital? We ran the stress test — and the results are surprising.",
@@ -731,6 +783,8 @@ export default function BlogsPage() {
     setSelectedPost(post);
   };
 
+  const allPosts = [...dbPosts, ...posts];
+
   return (
     <div className="neobrutal-layout flex flex-col gap-12 pb-20 pt-2 relative -mx-3 sm:-mx-6 md:-mx-8 px-4 md:px-8 min-h-screen neobrutal-grid-bg">
       {/* Header section */}
@@ -749,7 +803,12 @@ export default function BlogsPage() {
 
       {/* Blogs Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-        {posts.map((post, i) => (
+        {dbLoading && dbPosts.length === 0 && (
+          <div className="lg:col-span-3 flex justify-center py-8">
+            <div className="w-8 h-8 border-4 border-black dark:border-white border-t-transparent dark:border-t-transparent rounded-full animate-spin"></div>
+          </div>
+        )}
+        {allPosts.map((post, i) => (
           <div
             key={i}
             onClick={() => openPost(post)}

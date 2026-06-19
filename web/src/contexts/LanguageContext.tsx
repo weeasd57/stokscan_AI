@@ -360,53 +360,6 @@ const translations: Record<string, Record<Language, string>> = {
     "profile.notification.telegram.btn": { en: "Connect Telegram Bot", ar: "ربط حساب تليجرام" },
     "profile.notification.telegram.status": { en: "Telegram Status", ar: "حالة تليجرام" },
     "profile.notification.channel.select": { en: "Select Channel", ar: "اختر طريقة استلام الإشعارات" },
-    // Strategy Tester page
-    "backtest.tester.title": { en: "Strategy Tester", ar: "مختبر الاستراتيجية" },
-    "backtest.hide": { en: "Hide", ar: "إخفاء" },
-    "backtest.ticker": { en: "Ticker / Stock", ar: "السهم" },
-    "backtest.search_placeholder": { en: "Search stock...", ar: "ابحث عن سهم..." },
-    "backtest.date_range": { en: "Date Range", ar: "الفترة الزمنية" },
-    "backtest.from": { en: "From", ar: "من" },
-    "backtest.to": { en: "To", ar: "إلى" },
-    "backtest.capital": { en: "Shared Capital", ar: "رأس المال المشترك" },
-    "backtest.add_bot": { en: "Add new bot", ar: "إضافة بوت جديد" },
-    "backtest.select_model": { en: "Select model to add...", ar: "اختر الموديل لإضافته..." },
-    "backtest.no_models": { en: "No models available", ar: "لا توجد موديلات متاحة" },
-    "backtest.active_bots": { en: "Active bots for testing", ar: "البوتات النشطة للاختبار" },
-    "backtest.delete_bot": { en: "Delete Bot", ar: "حذف البوت" },
-    "backtest.exec_mode": { en: "Execution Mode", ar: "نمط التشغيل" },
-    "backtest.mode.conservative": { en: "Conservative", ar: "محافظ" },
-    "backtest.mode.normal": { en: "Normal", ar: "عادي" },
-    "backtest.mode.aggressive": { en: "Aggressive", ar: "جرئ" },
-    "backtest.add_bot_warning": { en: "Please add at least one bot to run the backtest.", ar: "يرجى إضافة بوت واحد على الأقل لتشغيل الاختبار العكسي." },
-    "backtest.run_btn": { en: "Run Backtest", ar: "تشغيل الاختبار" },
-    "backtest.run_loading": { en: "Testing...", ar: "جاري الاختبار..." },
-    "backtest.show_settings": { en: "Show Settings", ar: "إظهار إعدادات الاختبار" },
-    "backtest.settings": { en: "Settings", ar: "إعدادات" },
-    "backtest.start_point": { en: "Start Point", ar: "نقطة البداية" },
-    "backtest.loading_chart": { en: "Loading chart...", ar: "تحميل الشارت..." },
-    "backtest.running_test": { en: "Running backtest...", ar: "جاري تشغيل الاختبار..." },
-    "backtest.running_test_sub": { en: "Loading data and running models", ar: "تحميل البيانات وتشغيل الموديلات" },
-    "backtest.stats_tab": { en: "Statistics", ar: "إحصائيات" },
-    "backtest.trades_tab": { en: "Trades ({count})", ar: "الصفقات ({count})" },
-    "backtest.comparison_tab": { en: "Bot Comparison", ar: "مقارنة البوتات" },
-    "backtest.filter_bot": { en: "Bot Filter:", ar: "تصفية البوت:" },
-    "backtest.all": { en: "All", ar: "الكل" },
-    "backtest.comparison.table_title": { en: "Comparison & Performance Table", ar: "جدول المقارنة والأداء" },
-    "backtest.comparison.col_bot": { en: "Bot", ar: "البوت" },
-    "backtest.comparison.col_net_pnl": { en: "Net P/L", ar: "صافي الأرباح" },
-    "backtest.comparison.col_winrate": { en: "Win Rate", ar: "نسبة النجاح" },
-    "backtest.comparison.col_trades": { en: "Trades", ar: "الصفقات" },
-    "backtest.comparison.col_pl": { en: "Profit / Loss", ar: "الربح / الخسارة" },
-    "backtest.comparison.chart_title": { en: "Profitability Comparison Chart (%)", ar: "مخطط مقارنة الربحية (%)" },
-    "backtest.trade.open": { en: "Open", ar: "مفتوح" },
-    "backtest.trade.empty": { en: "No trades yet — progress playback to see trades", ar: "لا توجد صفقات بعد — تقدم في التشغيل لرؤية الصفقات" },
-    "backtest.table.model": { en: "Model", ar: "موديل" },
-    "backtest.table.entry_price": { en: "Entry Price", ar: "سعر الدخول" },
-    "backtest.table.exit_price": { en: "Exit Price", ar: "سعر الخروج" },
-    "backtest.table.result": { en: "Result", ar: "نتيجة" },
-    "backtest.table.confidence": { en: "Confidence", ar: "ثقة" },
-
     // Auth (Login / Signup)
     "auth.login.title": { en: "Login", ar: "تسجيل الدخول" },
     "auth.login.subtitle": { en: "Sign in to sync your watchlist and settings.", ar: "سجل الدخول لمزامنة قائمة المراقبة والإعدادات." },
@@ -426,6 +379,27 @@ const translations: Record<string, Record<Language, string>> = {
     "auth.creating_btn": { en: "Creating...", ar: "جاري الإنشاء..." },
     "auth.signup.have_account": { en: "Already have an account?", ar: "لديك حساب بالفعل؟" },
     "auth.signup.login": { en: "Login", ar: "تسجيل الدخول" },
+    // Footer
+    "footer.tagline": {
+        en: "EGX stock analysis platform with AI score, technical scanner, historical similarity, and backtests.",
+        ar: "منصة تحليل أسهم البورصة المصرية بتقييم الذكاء الاصطناعي، الماسح الفني، النماذج التاريخية، والمحاكاة التاريخية."
+    },
+    "footer.platform": { en: "Platform", ar: "المنصة" },
+    "footer.resources": { en: "Resources", ar: "الموارد" },
+    "footer.blogs": { en: "Market Blogs", ar: "مدونات السوق" },
+    "footer.faq": { en: "FAQ", ar: "الأسئلة الشائعة" },
+    "footer.copyright": {
+        en: "© 2026 EGX BOTS. Built for EGX analysis.",
+        ar: "© 2026 EGX BOTS. صُمم لتحليل البورصة المصرية."
+    },
+    // Sharia-compliant filter
+    "filter.sharia": { en: "Sharia Compliant", ar: "متوافقة شرعياً" },
+    "filter.sharia_only": { en: "Sharia-Compliant Only", ar: "المتوافقة شرعياً فقط" },
+    "filter.sharia_hint": {
+        en: "Show only EGX stocks screened for Sharia compliance (excludes banks, insurance, alcohol, tobacco & pork).",
+        ar: "عرض أسهم البورصة المصرية المتوافقة شرعياً فقط (يستثني البنوك والتأمين والكحول والتبغ ولحم الخنزير)."
+    },
+    "filter.sharia_badge": { en: "Halal", ar: "حلال" },
 };
 
 export function LanguageProvider({ children }: { children: ReactNode }) {

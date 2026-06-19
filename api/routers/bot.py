@@ -1674,7 +1674,7 @@ def get_telegram_bot_username():
 
 
 class TestNotificationRequest(BaseModel):
-    channel: str          # "telegram" or "whatsapp"
+    channel: str          # "telegram"
     user_id: Optional[str] = None
 
 
@@ -1687,8 +1687,8 @@ def send_test_channel_notification(req: TestNotificationRequest):
     _init_supabase()
 
     channel = (req.channel or "").lower().strip()
-    if channel not in ("telegram", "whatsapp"):
-        raise HTTPException(status_code=400, detail="channel must be 'telegram' or 'whatsapp'")
+    if channel != "telegram":
+        raise HTTPException(status_code=400, detail="channel must be 'telegram'")
 
     # ── Telegram test ──────────────────────────────────────────────────
     if channel == "telegram":

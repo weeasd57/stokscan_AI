@@ -1580,46 +1580,22 @@ export default function AIScannerPage() {
                                     ? "/new_model_logo.jpg" 
                                     : "/bot_logo.jpg";
                                     
-                                const themes = [
-                                    { bg: "bg-purple-500/10 border-purple-500/25 text-purple-400", badge: "bg-purple-500/20 text-purple-400 border border-purple-500/20", icon: Sparkles },
-                                    { bg: "bg-pink-500/10 border-pink-500/25 text-pink-400", badge: "bg-pink-500/20 text-pink-400 border border-pink-500/20", icon: Activity },
-                                    { bg: "bg-blue-500/10 border-blue-500/25 text-blue-400", badge: "bg-blue-500/20 text-blue-400 border border-blue-500/20", icon: LineChart },
-                                ];
-                                const fallbackTheme = themes[idx % themes.length];
-                                    
                                 const isModelEgx = stat.modelName === "MODEL_EGX";
 
-                                const themeClass = isKing 
-                                    ? "bg-amber-500/10 border-amber-500/25 text-amber-400" 
-                                    : isNano 
-                                    ? "bg-indigo-500/10 border-indigo-500/25 text-indigo-400" 
-                                    : isTheBot
-                                    ? "bg-emerald-500/10 border-emerald-500/25 text-emerald-400"
-                                    : isModelEgx
-                                    ? "bg-sky-500/10 border-sky-500/25 text-sky-400"
-                                    : fallbackTheme.bg;
+                                const fallbackColors = ["#a855f7", "#ec4899", "#3b82f6", "#f43f5e", "#06b6d4"];
+                                const fallbackIcons = [Sparkles, Activity, LineChart, BarChart2, TrendingUp];
                                     
-                                const badgeClass = isKing 
-                                    ? "bg-amber-500/20 text-amber-400 border border-amber-500/20" 
+                                const modelColor = isKing 
+                                    ? "#f59e0b" 
                                     : isNano 
-                                    ? "bg-indigo-500/20 text-indigo-400 border border-indigo-500/20" 
+                                    ? "#6366f1" 
                                     : isTheBot
-                                    ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/20"
+                                    ? "#10b981"
                                     : isModelEgx
-                                    ? "bg-sky-500/20 text-sky-400 border border-sky-500/20"
-                                    : fallbackTheme.badge;
-                                    
-                                const glowColor = isKing 
-                                    ? "rgba(251,191,36,0.12)" 
-                                    : isNano 
-                                    ? "rgba(99,102,241,0.12)" 
-                                    : isTheBot
-                                    ? "rgba(34,197,94,0.12)"
-                                    : isModelEgx
-                                    ? "rgba(14,165,233,0.12)"
-                                    : "rgba(139,92,246,0.12)";
+                                    ? "#0ea5e9"
+                                    : fallbackColors[idx % fallbackColors.length];
 
-                                const IconComp = isKing ? Brain : isNano ? Cpu : isTheBot ? Zap : isModelEgx ? LineChart : fallbackTheme.icon;
+                                const IconComp = isKing ? Brain : isNano ? Cpu : isTheBot ? Zap : isModelEgx ? LineChart : fallbackIcons[idx % fallbackIcons.length];
                                 
                                 const displayName = stat.modelName === "KING"
                                     ? (language === "ar" ? "موديل KING الملكي" : "KING Model")
@@ -1639,48 +1615,42 @@ export default function AIScannerPage() {
                                     ? (language === "ar" ? "أساسي" : "Standard")
                                     : (language === "ar" ? "أساسي" : "Standard");
                                 
-                                const profitPositive = stat.netProfit >= 0;
-                                const avgReturnPositive = stat.avgReturnPerTrade >= 0;
-
                                 return (
                                     <div 
                                         key={stat.modelName}
-                                        className="relative overflow-hidden rounded-[2rem] p-6 flex flex-col justify-between group transition-all duration-500 hover:-translate-y-1"
-                                        style={{
-                                            background: `linear-gradient(145deg, rgba(10,14,30,0.95) 0%, rgba(8,12,26,0.98) 100%)`,
-                                            border: `1px solid rgba(255,255,255,0.08)`,
-                                            boxShadow: `0 0 0 1px rgba(255,255,255,0.04), 0 20px 60px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.06)`,
-                                        }}
+                                        className="app-panel-strong relative overflow-hidden flex flex-col justify-between group"
                                     >
-                                        {/* Glow effect */}
-                                        <div 
-                                            className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none rounded-[2rem]"
-                                            style={{ boxShadow: `inset 0 0 80px ${glowColor}` }}
-                                        />
-
                                         {/* Background Logo Layer */}
                                         <div 
-                                            className="absolute inset-0 bg-cover bg-center opacity-[0.04] group-hover:opacity-[0.07] pointer-events-none transition-all duration-700 group-hover:scale-105 rounded-[2rem]" 
+                                            className="absolute inset-0 bg-cover bg-center opacity-[0.03] group-hover:opacity-[0.05] pointer-events-none transition-opacity duration-500" 
                                             style={{ backgroundImage: `url('${logoUrl}')` }} 
                                         />
-
-                                        {/* Top gradient accent */}
-                                        <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-white/20 to-transparent" />
                                         
                                         {/* Header */}
-                                        <div className="relative z-10 flex items-start justify-between mb-6">
+                                        <div className="relative z-10 flex items-start justify-between mb-4 p-6 pb-0">
                                             <div className="flex items-center gap-3">
-                                                <div className={`p-3 rounded-2xl border flex items-center justify-center shrink-0 ${themeClass} shadow-lg`}>
+                                                <div 
+                                                    className="p-3 border-2 flex items-center justify-center shrink-0"
+                                                    style={{ 
+                                                        color: modelColor, 
+                                                        borderColor: modelColor, 
+                                                        backgroundColor: `${modelColor}15`,
+                                                        boxShadow: `2px 2px 0px 0px ${modelColor}`
+                                                    }}
+                                                >
                                                     <IconComp className="w-5 h-5" />
                                                 </div>
                                                 <div>
-                                                    <h3 className="text-base font-black text-white uppercase tracking-tight flex items-center gap-2 flex-wrap">
+                                                    <h3 className="text-base font-black text-[var(--app-text)] uppercase tracking-tight flex items-center gap-2 flex-wrap">
                                                         {displayName}
-                                                        <span className={`text-[8px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider ${badgeClass}`}>
+                                                        <span 
+                                                            className="text-[8px] font-black px-2 py-0.5 rounded-none uppercase tracking-wider border-2"
+                                                            style={{ color: modelColor, borderColor: modelColor, backgroundColor: `${modelColor}15` }}
+                                                        >
                                                             {badgeName}
                                                         </span>
                                                     </h3>
-                                                    <p className="text-[9px] text-zinc-600 font-bold uppercase tracking-widest mt-1">
+                                                    <p className="text-[9px] text-[var(--app-text-faint)] font-bold uppercase tracking-widest mt-1">
                                                         {language === "ar" ? "إحصائيات تراكمية" : "Cumulative Historical Overview"}
                                                     </p>
                                                 </div>
@@ -1688,100 +1658,100 @@ export default function AIScannerPage() {
                                         </div>
 
                                         {/* Divider */}
-                                        <div className="relative z-10 h-px bg-gradient-to-r from-transparent via-white/8 to-transparent mb-5" />
+                                        <div className="relative z-10 h-px bg-[var(--app-border)] mx-6" />
 
                                         {/* Stats Grid — 2+3 layout */}
-                                        <div className="relative z-10 space-y-3">
+                                        <div className="relative z-10 space-y-3 p-6 pt-4">
                                             {/* Row 1: Runs + Trades */}
                                             <div className="grid grid-cols-2 gap-3">
-                                                <div className="p-3.5 rounded-2xl bg-zinc-900/50 border border-white/5 flex flex-col gap-1">
+                                                <div className="p-3 border-2 border-black dark:border-white bg-[var(--app-surface)] flex flex-col gap-1 shadow-[2px_2px_0px_0px_var(--brutal-shadow)]">
                                                     <div className="flex items-center justify-between gap-1 w-full">
-                                                        <span className="text-[9px] font-bold text-zinc-600 uppercase tracking-wider truncate">
+                                                        <span className="text-[9px] font-bold text-[var(--app-text-faint)] uppercase tracking-wider truncate">
                                                             {t("backtest.stats.total_runs")}
                                                         </span>
                                                         <div className="group/tooltip relative shrink-0">
-                                                            <HelpCircle className="w-3 h-3 text-zinc-500 hover:text-zinc-300 transition-colors" />
-                                                            <span className="absolute bottom-full left-0 mb-2 w-48 p-2 text-[10px] bg-zinc-950 text-zinc-400 border border-white/10 rounded-xl shadow-xl opacity-0 pointer-events-none group-hover/tooltip:opacity-100 transition-opacity z-50 text-center font-sans font-medium normal-case leading-relaxed">
+                                                            <HelpCircle className="w-3 h-3 text-[var(--app-text-faint)] hover:text-[var(--app-text)] transition-colors" />
+                                                            <span className="absolute bottom-full left-0 mb-2 w-48 p-2 text-[10px] bg-[var(--app-surface-strong)] text-[var(--app-text)] border-2 border-black dark:border-white shadow-[3px_3px_0px_0px_var(--brutal-shadow)] opacity-0 pointer-events-none group-hover/tooltip:opacity-100 transition-opacity z-50 text-center font-sans font-medium normal-case leading-relaxed">
                                                                 {language === "ar" ? "عدد دورات المحاكاة الكاملة التي تم تشغيلها لتقييم الموديل." : "Total number of simulation runs executed to evaluate this model."}
                                                             </span>
                                                         </div>
                                                     </div>
-                                                    <span className="font-mono text-2xl font-black text-zinc-100 leading-none">
+                                                    <span className="font-mono text-2xl font-black text-[var(--app-text)] leading-none">
                                                         {stat.totalRuns}
                                                     </span>
-                                                    <span className="text-[8px] text-zinc-700 font-bold uppercase">{language === "ar" ? "اختبارات" : "backtests"}</span>
+                                                    <span className="text-[8px] text-[var(--app-text-faint)] font-bold uppercase">{language === "ar" ? "اختبارات" : "backtests"}</span>
                                                 </div>
-                                                <div className="p-3.5 rounded-2xl bg-zinc-900/50 border border-white/5 flex flex-col gap-1">
+                                                <div className="p-3 border-2 border-black dark:border-white bg-[var(--app-surface)] flex flex-col gap-1 shadow-[2px_2px_0px_0px_var(--brutal-shadow)]">
                                                     <div className="flex items-center justify-between gap-1 w-full">
-                                                        <span className="text-[9px] font-bold text-zinc-600 uppercase tracking-wider truncate">
+                                                        <span className="text-[9px] font-bold text-[var(--app-text-faint)] uppercase tracking-wider truncate">
                                                             {t("backtest.stats.total_trades")}
                                                         </span>
                                                         <div className="group/tooltip relative shrink-0">
-                                                            <HelpCircle className="w-3 h-3 text-zinc-500 hover:text-zinc-300 transition-colors" />
-                                                            <span className="absolute bottom-full right-0 mb-2 w-48 p-2 text-[10px] bg-zinc-950 text-zinc-400 border border-white/10 rounded-xl shadow-xl opacity-0 pointer-events-none group-hover/tooltip:opacity-100 transition-opacity z-50 text-center font-sans font-medium normal-case leading-relaxed">
+                                                            <HelpCircle className="w-3 h-3 text-[var(--app-text-faint)] hover:text-[var(--app-text)] transition-colors" />
+                                                            <span className="absolute bottom-full right-0 mb-2 w-48 p-2 text-[10px] bg-[var(--app-surface-strong)] text-[var(--app-text)] border-2 border-black dark:border-white shadow-[3px_3px_0px_0px_var(--brutal-shadow)] opacity-0 pointer-events-none group-hover/tooltip:opacity-100 transition-opacity z-50 text-center font-sans font-medium normal-case leading-relaxed">
                                                                 {language === "ar" ? "إجمالي الصفقات (البيع والشراء) التي قام الموديل بتنفيذها." : "Total number of trades (buy and sell) executed by the model."}
                                                             </span>
                                                         </div>
                                                     </div>
-                                                    <span className="font-mono text-2xl font-black text-zinc-100 leading-none">
+                                                    <span className="font-mono text-2xl font-black text-[var(--app-text)] leading-none">
                                                         {stat.totalTrades}
                                                     </span>
-                                                    <span className="text-[8px] text-zinc-700 font-bold uppercase">{language === "ar" ? "إشارات" : "signals"}</span>
+                                                    <span className="text-[8px] text-[var(--app-text-faint)] font-bold uppercase">{language === "ar" ? "إشارات" : "signals"}</span>
                                                 </div>
                                             </div>
 
                                             {/* Row 2: Win Rate + Net Profit + Avg Return */}
                                             <div className="grid grid-cols-3 gap-3">
-                                                <div className="p-3.5 rounded-2xl bg-emerald-500/5 border border-emerald-500/15 flex flex-col gap-1">
+                                                <div className="p-3 border-2 border-black dark:border-white bg-[var(--app-surface)] flex flex-col gap-1 shadow-[2px_2px_0px_0px_var(--brutal-shadow)]">
                                                     <div className="flex items-center justify-between gap-1 w-full">
-                                                        <span className="text-[9px] font-bold text-emerald-700 uppercase tracking-wider truncate">
+                                                        <span className="text-[9px] font-bold text-[var(--app-text-faint)] uppercase tracking-wider truncate">
                                                             {t("backtest.stats.win_rate")}
                                                         </span>
                                                         <div className="group/tooltip relative shrink-0">
-                                                            <HelpCircle className="w-3 h-3 text-emerald-500 hover:text-emerald-300 transition-colors" />
-                                                            <span className="absolute bottom-full left-0 mb-2 w-48 p-2 text-[10px] bg-zinc-950 text-zinc-400 border border-white/10 rounded-xl shadow-xl opacity-0 pointer-events-none group-hover/tooltip:opacity-100 transition-opacity z-50 text-center font-sans font-medium normal-case leading-relaxed">
+                                                            <HelpCircle className="w-3 h-3 text-[var(--app-text-faint)] hover:text-[var(--app-text)] transition-colors" />
+                                                            <span className="absolute bottom-full left-0 mb-2 w-48 p-2 text-[10px] bg-[var(--app-surface-strong)] text-[var(--app-text)] border-2 border-black dark:border-white shadow-[3px_3px_0px_0px_var(--brutal-shadow)] opacity-0 pointer-events-none group-hover/tooltip:opacity-100 transition-opacity z-50 text-center font-sans font-medium normal-case leading-relaxed">
                                                                 {language === "ar" ? "نسبة الصفقات الرابحة من إجمالي الصفقات التي دخلها الموديل." : "Percentage of winning trades out of total executed trades."}
                                                             </span>
                                                         </div>
                                                     </div>
-                                                    <span className="font-mono text-xl font-black text-emerald-400 leading-none">
+                                                    <span className="font-mono text-xl font-black text-[#10b981] leading-none">
                                                         {stat.winRate.toFixed(1)}%
                                                     </span>
-                                                    <span className="text-[8px] text-emerald-900/60 font-bold uppercase">{language === "ar" ? "نسبة النجاح" : "win rate"}</span>
+                                                    <span className="text-[8px] text-[var(--app-text-faint)] font-bold uppercase">{language === "ar" ? "نسبة النجاح" : "win rate"}</span>
                                                 </div>
-                                                <div className={`p-3.5 rounded-2xl flex flex-col gap-1 ${stat.netProfit >= 0 ? 'bg-emerald-500/5 border border-emerald-500/15' : 'bg-red-500/5 border border-red-500/15'}`}>
+                                                <div className="p-3 border-2 border-black dark:border-white bg-[var(--app-surface)] flex flex-col gap-1 shadow-[2px_2px_0px_0px_var(--brutal-shadow)]">
                                                     <div className="flex items-center justify-between gap-1 w-full">
-                                                        <span className={`text-[9px] font-bold uppercase tracking-wider truncate ${stat.netProfit >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>
+                                                        <span className="text-[9px] font-bold text-[var(--app-text-faint)] uppercase tracking-wider truncate">
                                                             {t("backtest.stats.avg_profit")}
                                                         </span>
                                                         <div className="group/tooltip relative shrink-0">
-                                                            <HelpCircle className={`w-3 h-3 transition-colors ${stat.netProfit >= 0 ? 'text-emerald-500 hover:text-emerald-300' : 'text-red-500 hover:text-red-300'}`} />
-                                                            <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-2 text-[10px] bg-zinc-950 text-zinc-400 border border-white/10 rounded-xl shadow-xl opacity-0 pointer-events-none group-hover/tooltip:opacity-100 transition-opacity z-50 text-center font-sans font-medium normal-case leading-relaxed">
+                                                            <HelpCircle className="w-3 h-3 text-[var(--app-text-faint)] hover:text-[var(--app-text)] transition-colors" />
+                                                            <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-2 text-[10px] bg-[var(--app-surface-strong)] text-[var(--app-text)] border-2 border-black dark:border-white shadow-[3px_3px_0px_0px_var(--brutal-shadow)] opacity-0 pointer-events-none group-hover/tooltip:opacity-100 transition-opacity z-50 text-center font-sans font-medium normal-case leading-relaxed">
                                                                 {language === "ar" ? "متوسط النسبة المئوية للربح المحقق في كل اختبار كامل." : "Average percentage return achieved per complete simulation run."}
                                                             </span>
                                                         </div>
                                                     </div>
-                                                    <span className={`font-mono text-xl font-black leading-none ${stat.netProfit >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                                                    <span className="font-mono text-xl font-black leading-none" style={{ color: stat.netProfit >= 0 ? "#10b981" : "#ef4444" }}>
                                                         {stat.netProfit >= 0 ? '+' : ''}{stat.netProfit.toFixed(1)}%
                                                     </span>
-                                                    <span className={`text-[8px] font-bold uppercase ${stat.netProfit >= 0 ? 'text-emerald-900/60' : 'text-red-900/60'}`}>{language === "ar" ? "متوسط العائد" : "avg profit"}</span>
+                                                    <span className="text-[8px] text-[var(--app-text-faint)] font-bold uppercase">{language === "ar" ? "متوسط العائد" : "avg profit"}</span>
                                                 </div>
-                                                <div className={`p-3.5 rounded-2xl flex flex-col gap-1 ${stat.avgReturnPerTrade >= 0 ? 'bg-sky-500/5 border border-sky-500/15' : 'bg-red-500/5 border border-red-500/15'}`}>
+                                                <div className="p-3 border-2 border-black dark:border-white bg-[var(--app-surface)] flex flex-col gap-1 shadow-[2px_2px_0px_0px_var(--brutal-shadow)]">
                                                     <div className="flex items-center justify-between gap-1 w-full">
-                                                        <span className={`text-[9px] font-bold uppercase tracking-wider truncate ${stat.avgReturnPerTrade >= 0 ? 'text-sky-700' : 'text-red-700'}`}>
+                                                        <span className="text-[9px] font-bold text-[var(--app-text-faint)] uppercase tracking-wider truncate">
                                                             {t("backtest.stats.avg_return")}
                                                         </span>
                                                         <div className="group/tooltip relative shrink-0">
-                                                            <HelpCircle className={`w-3 h-3 transition-colors ${stat.avgReturnPerTrade >= 0 ? 'text-sky-500 hover:text-sky-300' : 'text-red-500 hover:text-red-300'}`} />
-                                                            <span className="absolute bottom-full right-0 mb-2 w-48 p-2 text-[10px] bg-zinc-950 text-zinc-400 border border-white/10 rounded-xl shadow-xl opacity-0 pointer-events-none group-hover/tooltip:opacity-100 transition-opacity z-50 text-center font-sans font-medium normal-case leading-relaxed">
+                                                            <HelpCircle className="w-3 h-3 text-[var(--app-text-faint)] hover:text-[var(--app-text)] transition-colors" />
+                                                            <span className="absolute bottom-full right-0 mb-2 w-48 p-2 text-[10px] bg-[var(--app-surface-strong)] text-[var(--app-text)] border-2 border-black dark:border-white shadow-[3px_3px_0px_0px_var(--brutal-shadow)] opacity-0 pointer-events-none group-hover/tooltip:opacity-100 transition-opacity z-50 text-center font-sans font-medium normal-case leading-relaxed">
                                                                 {language === "ar" ? "متوسط نسبة الربح أو الخسارة المحققة في الصفقة الفردية." : "Average percentage return generated per individual trade."}
                                                             </span>
                                                         </div>
                                                     </div>
-                                                    <span className={`font-mono text-xl font-black leading-none ${stat.avgReturnPerTrade >= 0 ? 'text-sky-400' : 'text-red-400'}`}>
+                                                    <span className="font-mono text-xl font-black leading-none" style={{ color: stat.avgReturnPerTrade >= 0 ? "#10b981" : "#ef4444" }}>
                                                         {stat.avgReturnPerTrade >= 0 ? '+' : ''}{stat.avgReturnPerTrade.toFixed(2)}%
                                                     </span>
-                                                    <span className={`text-[8px] font-bold uppercase ${stat.avgReturnPerTrade >= 0 ? 'text-sky-900/60' : 'text-red-900/60'}`}>{language === "ar" ? "للصفقة" : "per trade"}</span>
+                                                    <span className="text-[8px] text-[var(--app-text-faint)] font-bold uppercase">{language === "ar" ? "للصفقة" : "per trade"}</span>
                                                 </div>
                                             </div>
                                         </div>

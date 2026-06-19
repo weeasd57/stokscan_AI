@@ -441,6 +441,8 @@ export default function TradingViewChart({
     startY: 0,
   });
   const panelResizeStartRef = useRef<{ mouseX: number; startYWidth: number }>({ mouseX: 0, startYWidth: 0 });
+  const isDraggingPanelRef = useRef(false);
+  const isResizingPanelRef = useRef(false);
 
   const persistPropsPanelState = (pos: { x: number; y: number; width: number }) => {
     if (typeof window === "undefined") return;
@@ -615,27 +617,24 @@ export default function TradingViewChart({
   const selectedDrawing = selectedDrawingId
     ? drawings.find((d) => d.id === selectedDrawingId)
     : null;
-
   const startDrawingDrag = (
     drawing: ChartDrawing,
-    e: React.PointerEvent<SVGElement>,
+    e: React.MouseEvent<SVGElement>,
     mode: "move" | "start" | "end" | "point" = "move",
   ) => {
     if (activeTool !== "cursor") return;
     if (e.button !== 0) return;
 
-    // Cancel any drag already in progress.
-    stopDrawingDragRef.current?.();
-
     setSelectedDrawingId(drawing.id);
     setDrawingStyle(cloneStyle(drawing.style));
+    setIsDraggingDrawing(true);
+
     dragStateRef.current = {
       drawingId: drawing.id,
       mode,
       lastX: e.clientX,
       lastY: e.clientY,
     };
-    setIsDraggingDrawing(true);
 
     document.body.style.cursor = mode === "move" ? "grabbing" : "crosshair";
     document.body.style.userSelect = "none";
@@ -869,7 +868,7 @@ export default function TradingViewChart({
         }
       : {
           gridColor: "#1f222e",
-          backgroundColor: "#131722",
+          backgroundColor: "#050816",
           textColor: "#d1d4dc",
           borderColor: "#2a2e39",
           crosshairColor: "#2962ff",
@@ -1697,10 +1696,10 @@ export default function TradingViewChart({
 
   const renderSingleDrawing = (drawing: ChartDrawing, preview = false) => {
     const className = preview ? "opacity-70" : "opacity-100";
+    const isSelected = selectedDrawingId === drawing.id && !preview;
     const strokeDasharray = lineStyleToSvgDash(drawing.style.lineStyle);
-    const isSelected = !preview && selectedDrawingId === drawing.id;
-    const selectedStroke = isSelected ? "#ffffff" : drawing.style.color;
-    const selectedWidth = isSelected ? drawing.style.lineWidth + 1 : drawing.style.lineWidth;
+    const selectedStroke = drawing.style.color;
+    const selectedWidth = drawing.style.lineWidth;
     const chartWidth = getCurrentChartWidth();
 
     if (drawing.type === "horizontal") {
@@ -1717,11 +1716,6 @@ export default function TradingViewChart({
             strokeWidth={selectedWidth}
             strokeDasharray={strokeDasharray}
           />
-          {isSelected && (
-            <>
-              <circle cx={chartWidth - 10} cy={point.y} r="5" fill={drawing.style.color} stroke="white" strokeWidth="2" />
-            </>
-          )}
           <text
             x={Math.max(12, chartWidth - 88)}
             y={point.y - 6}
@@ -1749,18 +1743,6 @@ export default function TradingViewChart({
           >
             {drawing.text}
           </text>
-          {isSelected && (
-            <rect
-              x={point.x - 4}
-              y={point.y - 12}
-              width={drawing.text.length * 8 + 8}
-              height="16"
-              fill="transparent"
-              stroke="white"
-              strokeWidth="1.5"
-              strokeDasharray="4 3"
-            />
-          )}
         </g>
       );
     }
@@ -1803,12 +1785,6 @@ export default function TradingViewChart({
             strokeWidth={selectedWidth}
             strokeDasharray={strokeDasharray}
           />
-          {isSelected && (
-            <>
-              <circle cx={start.x} cy={start.y} r="5" fill={drawing.style.color} stroke="white" strokeWidth="2" />
-              <circle cx={end.x} cy={end.y} r="5" fill={drawing.style.color} stroke="white" strokeWidth="2" />
-            </>
-          )}
         </g>
       );
     }
@@ -1933,9 +1909,9 @@ export default function TradingViewChart({
             x2={chartWidth}
             y2={point.y}
             stroke="rgba(0,0,0,0.001)"
-            strokeWidth={Math.max(drawing.style.lineWidth, 12)}
+            strokeWidth={Math.max(drawing.style.lineWidth, 16)}
             style={{ pointerEvents: "stroke" }}
-            onPointerDown={(e) => startDrawingDrag(drawing, e)}
+            onMouseDown={(e) => startDrawingDrag(drawing, e)}
           />
           {isSelected && (
             <circle
@@ -1944,7 +1920,7 @@ export default function TradingViewChart({
               r="8"
               fill="rgba(255,255,255,0.001)"
               style={{ cursor: "ns-resize", pointerEvents: "fill" }}
-              onPointerDown={(e) => startDrawingDrag(drawing, e, "point")}
+              onMouseDown={(e) => startDrawingDrag(drawing, e, "point")}
             />
           )}
         </g>
@@ -1964,7 +1940,7 @@ export default function TradingViewChart({
             height="18"
             fill="rgba(0,0,0,0.001)"
             style={{ pointerEvents: "fill" }}
-            onPointerDown={(e) => startDrawingDrag(drawing, e)}
+            onMouseDown={(e) => startDrawingDrag(drawing, e)}
           />
           {isSelected && (
             <circle
@@ -1973,7 +1949,7 @@ export default function TradingViewChart({
               r="8"
               fill="rgba(255,255,255,0.001)"
               style={{ cursor: "move", pointerEvents: "fill" }}
-              onPointerDown={(e) => startDrawingDrag(drawing, e, "point")}
+              onMouseDown={(e) => startDrawingDrag(drawing, e, "point")}
             />
           )}
         </g>
@@ -2002,9 +1978,9 @@ export default function TradingViewChart({
             x2={x2}
             y2={y2}
             stroke="rgba(0,0,0,0.001)"
-            strokeWidth={Math.max(drawing.style.lineWidth, 12)}
+            strokeWidth={Math.max(drawing.style.lineWidth, 16)}
             style={{ pointerEvents: "stroke" }}
-            onPointerDown={(e) => startDrawingDrag(drawing, e)}
+            onMouseDown={(e) => startDrawingDrag(drawing, e)}
           />
           {isSelected && (
             <>
@@ -2014,7 +1990,7 @@ export default function TradingViewChart({
                 r="8"
                 fill="rgba(255,255,255,0.001)"
                 style={{ cursor: "crosshair", pointerEvents: "fill" }}
-                onPointerDown={(e) => startDrawingDrag(drawing, e, "start")}
+                onMouseDown={(e) => startDrawingDrag(drawing, e, "start")}
               />
               <circle
                 cx={end.x}
@@ -2022,7 +1998,7 @@ export default function TradingViewChart({
                 r="8"
                 fill="rgba(255,255,255,0.001)"
                 style={{ cursor: "crosshair", pointerEvents: "fill" }}
-                onPointerDown={(e) => startDrawingDrag(drawing, e, "end")}
+                onMouseDown={(e) => startDrawingDrag(drawing, e, "end")}
               />
             </>
           )}
@@ -2047,7 +2023,7 @@ export default function TradingViewChart({
             height={h}
             fill="rgba(0,0,0,0.001)"
             style={{ pointerEvents: "fill" }}
-            onPointerDown={(e) => startDrawingDrag(drawing, e)}
+            onMouseDown={(e) => startDrawingDrag(drawing, e)}
           />
           {isSelected && (
             <>
@@ -2057,7 +2033,7 @@ export default function TradingViewChart({
                 r="8"
                 fill="rgba(255,255,255,0.001)"
                 style={{ cursor: "nwse-resize", pointerEvents: "fill" }}
-                onPointerDown={(e) => startDrawingDrag(drawing, e, "start")}
+                onMouseDown={(e) => startDrawingDrag(drawing, e, "start")}
               />
               <circle
                 cx={end.x}
@@ -2065,7 +2041,7 @@ export default function TradingViewChart({
                 r="8"
                 fill="rgba(255,255,255,0.001)"
                 style={{ cursor: "nwse-resize", pointerEvents: "fill" }}
-                onPointerDown={(e) => startDrawingDrag(drawing, e, "end")}
+                onMouseDown={(e) => startDrawingDrag(drawing, e, "end")}
               />
             </>
           )}
@@ -2087,10 +2063,10 @@ export default function TradingViewChart({
             x={minX}
             y={topY}
             width={w}
-            height={h}
+            height={Math.max(h, 12)}
             fill="rgba(0,0,0,0.001)"
             style={{ pointerEvents: "fill" }}
-            onPointerDown={(e) => startDrawingDrag(drawing, e)}
+            onMouseDown={(e) => startDrawingDrag(drawing, e)}
           />
           {isSelected && (
             <>
@@ -2100,7 +2076,7 @@ export default function TradingViewChart({
                 r="8"
                 fill="rgba(255,255,255,0.001)"
                 style={{ cursor: "crosshair", pointerEvents: "fill" }}
-                onPointerDown={(e) => startDrawingDrag(drawing, e, "start")}
+                onMouseDown={(e) => startDrawingDrag(drawing, e, "start")}
               />
               <circle
                 cx={end.x}
@@ -2108,7 +2084,7 @@ export default function TradingViewChart({
                 r="8"
                 fill="rgba(255,255,255,0.001)"
                 style={{ cursor: "crosshair", pointerEvents: "fill" }}
-                onPointerDown={(e) => startDrawingDrag(drawing, e, "end")}
+                onMouseDown={(e) => startDrawingDrag(drawing, e, "end")}
               />
             </>
           )}
@@ -2117,7 +2093,7 @@ export default function TradingViewChart({
     }
 
     return null;
-  };
+  };;
 
   // --- Scroll chart to focusTimestamp when it changes (e.g. navigating between trades) ---
   useEffect(() => {
@@ -2225,61 +2201,78 @@ export default function TradingViewChart({
 
   // --- Properties panel drag & resize effects ---
   useEffect(() => {
-    if (!isDraggingPanel) return;
-    const handleMouseMove = (e: MouseEvent) => {
-      setPropsPanelPos((prev) => {
-        const container = priceContainerRef.current;
-        const maxX = Math.max(0, (container?.clientWidth || window.innerWidth) - prev.width - 8);
-        const maxY = Math.max(0, (container?.clientHeight || window.innerHeight) - 80);
-        const next = {
-          x: Math.max(0, Math.min(maxX, panelDragOffsetRef.current.startX + e.clientX - panelDragOffsetRef.current.mouseX)),
-          y: Math.max(0, Math.min(maxY, panelDragOffsetRef.current.startY + e.clientY - panelDragOffsetRef.current.mouseY)),
-          width: prev.width,
-        };
-        persistPropsPanelState(next);
-        return next;
-      });
-    };
-    const handleMouseUp = () => {
-      setIsDraggingPanel(false);
-      document.body.style.cursor = "default";
-      document.body.style.userSelect = "auto";
-    };
-    document.body.style.cursor = "grabbing";
-    document.body.style.userSelect = "none";
-    window.addEventListener("mousemove", handleMouseMove);
-    window.addEventListener("mouseup", handleMouseUp);
-    return () => {
-      window.removeEventListener("mousemove", handleMouseMove);
-      window.removeEventListener("mouseup", handleMouseUp);
-    };
-  }, [isDraggingPanel]);
+    const handleMove = (e: PointerEvent | MouseEvent) => {
+      // 1. Panel Dragging
+      if (isDraggingPanelRef.current) {
+        // If left click is released, stop dragging immediately
+        if ((e.buttons & 1) !== 1) {
+          stopAll();
+          return;
+        }
+        setPropsPanelPos((prev) => {
+          const container = priceContainerRef.current;
+          const maxX = Math.max(0, (container?.clientWidth || window.innerWidth) - prev.width - 8);
+          const maxY = Math.max(0, (container?.clientHeight || window.innerHeight) - 80);
+          const next = {
+            x: Math.max(0, Math.min(maxX, panelDragOffsetRef.current.startX + e.clientX - panelDragOffsetRef.current.mouseX)),
+            y: Math.max(0, Math.min(maxY, panelDragOffsetRef.current.startY + e.clientY - panelDragOffsetRef.current.mouseY)),
+            width: prev.width,
+          };
+          persistPropsPanelState(next);
+          return next;
+        });
+      }
 
-  useEffect(() => {
-    if (!isResizingPanel) return;
-    const handleMouseMove = (e: MouseEvent) => {
-      setPropsPanelPos((prev) => {
-        const newWidth = Math.max(220, Math.min(420, prev.width + (e.clientX - panelResizeStartRef.current.mouseX)));
-        panelResizeStartRef.current.mouseX = e.clientX;
-        const next = { ...prev, width: newWidth };
-        persistPropsPanelState(next);
-        return next;
-      });
+      // 2. Panel Resizing
+      if (isResizingPanelRef.current) {
+        // If left click is released, stop resizing immediately
+        if ((e.buttons & 1) !== 1) {
+          stopAll();
+          return;
+        }
+        setPropsPanelPos((prev) => {
+          const newWidth = Math.max(220, Math.min(420, prev.width + (e.clientX - panelResizeStartRef.current.mouseX)));
+          panelResizeStartRef.current.mouseX = e.clientX;
+          const next = { ...prev, width: newWidth };
+          persistPropsPanelState(next);
+          return next;
+        });
+      }
     };
-    const handleMouseUp = () => {
-      setIsResizingPanel(false);
-      document.body.style.cursor = "default";
-      document.body.style.userSelect = "auto";
+
+    const stopAll = () => {
+      if (isDraggingPanelRef.current || isResizingPanelRef.current) {
+        isDraggingPanelRef.current = false;
+        isResizingPanelRef.current = false;
+        setIsDraggingPanel(false);
+        setIsResizingPanel(false);
+        document.body.style.cursor = "default";
+        document.body.style.userSelect = "auto";
+      }
     };
-    document.body.style.cursor = "ew-resize";
-    document.body.style.userSelect = "none";
-    window.addEventListener("mousemove", handleMouseMove);
-    window.addEventListener("mouseup", handleMouseUp);
+
+    const onLeave = (ev: MouseEvent) => {
+      if (!ev.relatedTarget) stopAll();
+    };
+
+    window.addEventListener("pointermove", handleMove, true);
+    window.addEventListener("pointerup", stopAll, true);
+    window.addEventListener("pointercancel", stopAll, true);
+    window.addEventListener("mouseup", stopAll, true);
+    window.addEventListener("blur", stopAll);
+    document.addEventListener("mouseleave", onLeave, true);
+    document.addEventListener("visibilitychange", stopAll);
+
     return () => {
-      window.removeEventListener("mousemove", handleMouseMove);
-      window.removeEventListener("mouseup", handleMouseUp);
+      window.removeEventListener("pointermove", handleMove, true);
+      window.removeEventListener("pointerup", stopAll, true);
+      window.removeEventListener("pointercancel", stopAll, true);
+      window.removeEventListener("mouseup", stopAll, true);
+      window.removeEventListener("blur", stopAll);
+      document.removeEventListener("mouseleave", onLeave, true);
+      document.removeEventListener("visibilitychange", stopAll);
     };
-  }, [isResizingPanel]);
+  }, []);
 
   // Add new indicator instance
   const addIndicator = (type: string) => {
@@ -2369,7 +2362,7 @@ export default function TradingViewChart({
 
   if (loading) {
     return (
-      <div className="w-full h-full flex flex-col items-center justify-center bg-zinc-50 text-zinc-500 gap-3 dark:bg-[#131722] dark:text-[#787b86]">
+      <div className="w-full h-full flex flex-col items-center justify-center bg-zinc-50 text-zinc-500 gap-3 dark:bg-[#050816] dark:text-[#787b86]">
         <Loader2 className="w-8 h-8 animate-spin text-indigo-500 dark:text-[#2962ff]" />
         <span className="text-xs font-bold uppercase tracking-wider">
           Retrieving Candle Data...
@@ -2380,7 +2373,7 @@ export default function TradingViewChart({
 
   if (error) {
     return (
-      <div className="w-full h-full flex flex-col items-center justify-center bg-zinc-50 text-red-500 p-6 gap-3 text-center dark:bg-[#131722] dark:text-[#ef5350]">
+      <div className="w-full h-full flex flex-col items-center justify-center bg-zinc-50 text-red-500 p-6 gap-3 text-center dark:bg-[#050816] dark:text-[#ef5350]">
         <AlertCircle className="w-8 h-8 text-[#ef5350]/60" />
         <span className="text-xs font-bold uppercase tracking-wider">
           {error}
@@ -2395,7 +2388,7 @@ export default function TradingViewChart({
   return (
     <div
       ref={mainContainerRef}
-      className="w-full h-full flex flex-col bg-zinc-50 dark:bg-[#131722] relative select-none overflow-hidden"
+      className="w-full h-full flex flex-col bg-zinc-50 dark:bg-[#050816] relative select-none overflow-hidden"
       style={{ touchAction: "none" }}
       onWheel={(e) => {
         // ✅ Stop wheel events from bubbling to the page scroller
@@ -2412,194 +2405,6 @@ export default function TradingViewChart({
             <span className="text-[10px] text-zinc-500 dark:text-[#787b86] font-mono">
               ({timeframe})
             </span>
-          </div>
-          <div className="h-4 w-[1px] bg-zinc-200 dark:bg-[#2a2e39] shrink-0" />
-
-          {/* Drawing Tools Section */}
-          <div className="flex items-center gap-1 shrink-0">
-            <span className="text-[10px] text-zinc-500 dark:text-[#787b86] uppercase tracking-wider font-bold mr-1">
-              Draw:
-            </span>
-
-            {/* Horizontal Line Tool */}
-            <button
-              className={`h-7 px-2.5 rounded flex items-center gap-1.5 transition-all text-[10px] font-bold uppercase tracking-wide ${
-                activeTool === "horizontal"
-                  ? "bg-indigo-600 text-white"
-                  : "bg-zinc-100 text-zinc-500 hover:bg-zinc-200 hover:text-zinc-950 dark:bg-[#1c2030] dark:text-[#787b86] dark:hover:bg-[#2a2e39] dark:hover:text-white"
-              }`}
-              title="Horizontal Line (Support/Resistance)"
-            >
-              <svg
-                className="w-3.5 h-3.5"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <line x1="3" y1="12" x2="21" y2="12" strokeWidth="2" />
-              </svg>
-              <span>Horizontal</span>
-            </button>
-
-            {/* Trend Line Tool */}
-            <button
-              className={`h-7 px-2.5 rounded flex items-center gap-1.5 transition-all text-[10px] font-bold uppercase tracking-wide ${
-                activeTool === "trend"
-                  ? "bg-emerald-600 text-white"
-                  : "bg-zinc-100 text-zinc-500 hover:bg-zinc-200 hover:text-zinc-950 dark:bg-[#1c2030] dark:text-[#787b86] dark:hover:bg-[#2a2e39] dark:hover:text-white"
-              }`}
-              title="Trend Line"
-            >
-              <svg
-                className="w-3.5 h-3.5"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <line x1="3" y1="18" x2="21" y2="6" strokeWidth="2" />
-              </svg>
-              <span>Trend</span>
-            </button>
-
-            {(activeTool === "horizontal" ||
-              activeTool === "trend" ||
-              activeTool === "rectangle" ||
-              activeTool === "fib" ||
-              activeTool === "ray" ||
-              activeTool === "extendedLine" ||
-              activeTool === "text") && (
-              <div className="ml-2 flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-2 py-1 shadow-sm dark:border-white/10 dark:bg-[#0c0d12]/80 dark:shadow-none">
-                <input
-                  type="color"
-                  value={drawingStyle.color}
-                  onChange={(e) =>
-                    setDrawingStyle((prev) => ({
-                      ...prev,
-                      color: e.target.value,
-                      fillColor:
-                        activeTool === "rectangle" || activeTool === "fib"
-                          ? withAlpha(e.target.value, activeTool === "fib" ? 0.08 : 0.15)
-                          : prev.fillColor,
-                    }))
-                  }
-                  className="h-6 w-6 cursor-pointer rounded border border-zinc-200 bg-transparent p-0 dark:border-white/10"
-                  title="Line Color"
-                />
-                <select
-                  value={String(drawingStyle.lineWidth)}
-                  onChange={(e) =>
-                    setDrawingStyle((prev) => ({
-                      ...prev,
-                      lineWidth: Number(e.target.value),
-                    }))
-                  }
-                  className="h-7 rounded bg-zinc-50 px-2 text-[10px] font-bold text-zinc-950 outline-none dark:bg-[#131722] dark:text-white"
-                >
-                  <option value="1">1px</option>
-                  <option value="2">2px</option>
-                  <option value="3">3px</option>
-                  <option value="4">4px</option>
-                </select>
-                <select
-                  value={drawingStyle.lineStyle}
-                  onChange={(e) =>
-                    setDrawingStyle((prev) => ({
-                      ...prev,
-                      lineStyle: e.target.value as DrawingLineStyle,
-                    }))
-                  }
-                  className="h-7 rounded bg-zinc-50 px-2 text-[10px] font-bold text-zinc-950 outline-none dark:bg-[#131722] dark:text-white"
-                >
-                  <option value="solid">Solid</option>
-                  <option value="dashed">Dashed</option>
-                  <option value="dotted">Dotted</option>
-                </select>
-                <input
-                  type="text"
-                  value={drawingStyle.label || ""}
-                  onChange={(e) =>
-                    setDrawingStyle((prev) => ({
-                      ...prev,
-                      label: e.target.value,
-                    }))
-                  }
-                  placeholder="Label"
-                  className="h-7 w-24 rounded bg-zinc-50 px-2 text-[10px] font-bold text-zinc-950 placeholder:text-zinc-400 outline-none dark:bg-[#131722] dark:text-white dark:placeholder:text-[#787b86]"
-                />
-              </div>
-            )}
-
-            {/* Fibonacci Tool */}
-            <button
-              className={`h-7 px-2.5 rounded flex items-center gap-1.5 transition-all text-[10px] font-bold uppercase tracking-wide ${
-                activeTool === "fib"
-                  ? "bg-amber-600 text-white"
-                  : "bg-zinc-100 text-zinc-500 hover:bg-zinc-200 hover:text-zinc-950 dark:bg-[#1c2030] dark:text-[#787b86] dark:hover:bg-[#2a2e39] dark:hover:text-white"
-              }`}
-              title="Fibonacci Retracement"
-            >
-              <svg
-                className="w-3.5 h-3.5"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  d="M3 12h18M3 8h18M3 16h18M3 6h18M3 18h18"
-                  strokeWidth="1.5"
-                />
-              </svg>
-              <span>Fib</span>
-            </button>
-
-            {/* Rectangle Tool */}
-            <button
-              className={`h-7 px-2.5 rounded flex items-center gap-1.5 transition-all text-[10px] font-bold uppercase tracking-wide ${
-                activeTool === "rectangle"
-                  ? "bg-sky-600 text-white"
-                  : "bg-zinc-100 text-zinc-500 hover:bg-zinc-200 hover:text-zinc-950 dark:bg-[#1c2030] dark:text-[#787b86] dark:hover:bg-[#2a2e39] dark:hover:text-white"
-              }`}
-              title="Rectangle Zone"
-            >
-              <svg
-                className="w-3.5 h-3.5"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <rect x="4" y="6" width="16" height="12" strokeWidth="2" />
-              </svg>
-              <span>Rectangle</span>
-            </button>
-
-            {/* Clear All Tool */}
-            <button
-              onClick={() => {
-                if (activeTool === "trash") {
-                  drawnPriceLevelsRef.current = [];
-                  priceLinesRef.current.forEach((line) => {
-                    if (chartRefs.current.candlestickSeries) {
-                      try {
-                        chartRefs.current.candlestickSeries.removePriceLine(
-                          line,
-                        );
-                      } catch {}
-                    }
-                  });
-                  priceLinesRef.current = [];
-                }
-                onToolDrawComplete && onToolDrawComplete();
-              }}
-              className={`h-7 px-2.5 rounded flex items-center gap-1.5 transition-all text-[10px] font-bold uppercase tracking-wide ${
-                activeTool === "trash"
-                  ? "bg-red-600 text-white"
-                  : "bg-zinc-100 text-zinc-500 hover:bg-red-50 hover:text-red-500 dark:bg-[#1c2030] dark:text-[#787b86] dark:hover:bg-[#2a2e39] dark:hover:text-red-400"
-              }`}
-              title="Clear All Drawings"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-              <span>Clear</span>
-            </button>
           </div>
         </div>
 
@@ -2748,7 +2553,7 @@ export default function TradingViewChart({
       </div>
 
       {/* Containers for Price and Lower Pane charts */}
-      <div className="flex-1 flex flex-col min-h-0 bg-zinc-50 dark:bg-[#131722] p-1 overflow-hidden">
+      <div className="flex-1 flex flex-col min-h-0 bg-zinc-50 dark:bg-[#050816] p-1 overflow-hidden">
         {/* 1. Candlestick Chart */}
         <div
           className="flex-1 w-full min-h-0 overflow-hidden relative"
@@ -2805,7 +2610,10 @@ export default function TradingViewChart({
                 onPointerDown={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
+                  isResizingPanelRef.current = true;
                   setIsResizingPanel(true);
+                  document.body.style.cursor = "ew-resize";
+                  document.body.style.userSelect = "none";
                   panelResizeStartRef.current = { mouseX: e.clientX, startYWidth: propsPanelPos.width };
                 }}
                 className="absolute left-0 top-0 bottom-0 w-1.5 cursor-ew-resize hover:bg-indigo-500/40 transition-all z-50"
@@ -2816,7 +2624,10 @@ export default function TradingViewChart({
                 onPointerDown={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
+                  isDraggingPanelRef.current = true;
                   setIsDraggingPanel(true);
+                  document.body.style.cursor = "grabbing";
+                  document.body.style.userSelect = "none";
                   panelDragOffsetRef.current = {
                     mouseX: e.clientX,
                     mouseY: e.clientY,

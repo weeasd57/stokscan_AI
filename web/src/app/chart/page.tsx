@@ -169,7 +169,7 @@ function ChartContent() {
   };
 
   return (
-    <div className="fixed inset-x-0 bottom-0 page-below-header z-40 bg-zinc-50 text-zinc-900 dark:bg-[#131722] dark:text-[#d1d4dc] flex overflow-hidden select-none font-sans">
+    <div className="fixed inset-x-0 bottom-0 page-below-header z-40 bg-zinc-50 text-zinc-900 dark:bg-[#050816] dark:text-[#d1d4dc] flex overflow-hidden select-none font-sans">
       {/* 1. LEFT TOOLBAR (Drawing tools) */}
       <aside className="w-12 border-r border-zinc-200 bg-white/85 dark:border-[#2a2e39] dark:bg-[#1c2030]/20 flex flex-col items-center py-4 gap-4 shrink-0 z-10 select-none shadow-[4px_0_0_rgba(0,0,0,0.04)] dark:shadow-none">
         <button
@@ -280,8 +280,6 @@ function ChartContent() {
 
         <div className="flex-1" />
 
-        {/* Strategy Tester Button - REMOVED AS PER USER REQUEST */}
-
         <button
           onClick={() => handleToolClick("trash")}
           className="p-2 rounded-xl text-[#ef5350] hover:text-red-400 hover:bg-red-500/10 transition-all duration-200 group relative"
@@ -295,7 +293,7 @@ function ChartContent() {
       </aside>
 
       {/* 2. MAIN CENTER WORKSPACE */}
-      <main className="flex-1 min-w-0 h-full bg-zinc-50 dark:bg-[#131722] flex flex-col relative">
+      <main className="flex-1 min-w-0 h-full bg-zinc-50 dark:bg-[#050816] flex flex-col relative">
         <div className="flex-1 min-h-0 w-full relative">
           <TradingViewChart 
             symbol={symbol} 
@@ -411,12 +409,6 @@ function ChartContent() {
                         <span className="text-zinc-950 dark:text-white">{(Number(adaptiveInfo.confidence || 0) * 100).toFixed(1)}%</span>
                       </div>
                       <div className="text-[10px] leading-relaxed text-zinc-500">{adaptiveInfo.reason}</div>
-                      <button
-                        onClick={() => router.push(`/backtest?symbol=${encodeURIComponent(symbol)}&exchange=${encodeURIComponent(exchange)}`)}
-                        className="w-full rounded-xl border border-indigo-500/20 bg-indigo-500/10 px-3 py-2 text-[10px] font-black uppercase tracking-wider text-indigo-300 transition-all hover:bg-indigo-500/15"
-                      >
-                        Open Strategy Tester
-                      </button>
                     </div>
                   ) : (
                     <div className="text-xs text-zinc-500">Adaptive recommendation is unavailable right now.</div>
@@ -595,7 +587,7 @@ function ChartContent() {
 export default function ChartPage() {
   return (
     <Suspense fallback={
-      <div className="w-screen h-screen flex flex-col items-center justify-center bg-zinc-50 text-zinc-500 dark:bg-[#131722] dark:text-[#787b86]">
+      <div className="w-screen h-screen flex flex-col items-center justify-center bg-zinc-50 text-zinc-500 dark:bg-[#050816] dark:text-[#787b86]">
         <Loader2 className="w-8 h-8 animate-spin text-[#2962ff] mb-2" />
         <span className="text-xs font-bold uppercase tracking-wider">Loading Trading Workspace...</span>
       </div>

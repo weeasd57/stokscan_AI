@@ -171,6 +171,7 @@ class TestPortfolioManager(unittest.TestCase):
     
     def test_exposure_limit(self):
         """Test total exposure limit"""
+        self.portfolio.max_concurrent_positions = 10
         # Open positions that approach the exposure limit
         positions = [
             ("AAPL", 100.0, 1.0),   # 10% * 1.0 = 10%
@@ -438,6 +439,7 @@ class TestPortfolioManagerEdgeCases(unittest.TestCase):
     def test_minimum_position_size(self):
         """Test minimum position size rejection"""
         # Try to open tiny position
+        self.portfolio.max_position_pct = 0.05
         can_open, size, reason = self.portfolio.can_open_position(
             "EXPENSIVE", 50000.0, 0.1  # Very expensive stock, small multiplier
         )

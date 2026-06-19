@@ -1034,38 +1034,6 @@ export async function getStockFundamentals(ticker: string): Promise<any> {
   }
 }
 
-// ── Strategy Tester ───────────────────────────────────────────────────────────
-
-export type StrategyTesterBar = {
-  time: number;   // unix timestamp
-  open: number;
-  high: number;
-  low: number;
-  close: number;
-  volume: number;
-};
-
-export type StrategyTesterTrade = {
-  Date: string;
-  Entry_Date: string;
-  Exit_Date: string;
-  Entry: number;
-  Exit: number;
-  PnL_Pct: number;
-  Result: string;
-  Score: number;
-  Radar_Score: number;
-  Days_Held: number;
-  Status: string;
-};
-
-export type StrategyTesterModelResult = {
-  trades: StrategyTesterTrade[];
-  stats: Record<string, any>;
-  error?: string;
-  adaptive?: AdaptiveRecommendation | null;
-};
-
 export type AdaptiveRecommendation = {
   recommended_model: string;
   recommended_model_path?: string;
@@ -1082,94 +1050,6 @@ export type AdaptiveRecommendation = {
   as_of?: string | null;
   exchange: string;
 };
-
-export type StrategyTesterResponse = {
-  symbol: string;
-  exchange: string;
-  start_date: string;
-  end_date: string;
-  bars: StrategyTesterBar[];
-  total_bars: number;
-  models: Record<string, StrategyTesterModelResult>;
-  adaptive?: AdaptiveRecommendation | null;
-  config: {
-    threshold: number;
-    target_pct: number;
-    stop_loss_pct: number;
-    hold_days: number;
-    bot_mode: string;
-    capital: number;
-  };
-};
-
-export type ApiBotConfig = {
-  id: string;
-  model_name: string;
-  target_pct: number;
-  stop_loss_pct: number;
-  hold_days: number;
-  threshold: number;
-  bot_mode: string;
-  use_adaptive_model_selector?: boolean;
-  adaptive_model_pool?: string[] | null;
-  adaptive_min_confidence?: number;
-};
-
-export async function runStrategyTest(params: {
-  symbol: string;
-  exchange?: string;
-  start_date: string;
-  end_date?: string;
-  models?: string[];
-  target_pct?: number;
-  stop_loss_pct?: number;
-  hold_days?: number;
-  threshold?: number;
-  capital?: number;
-  bot_mode?: string;
-  bots?: ApiBotConfig[];
-  use_adaptive_model_selector?: boolean;
-  adaptive_model_pool?: string[];
-  adaptive_min_confidence?: number;
-}, signal?: AbortSignal): Promise<StrategyTesterResponse> {
-  const baseUrl = getProductionApiUrl();
-  const url = baseUrl ? `${baseUrl}/backtest/simulate` : `/api/backtest/simulate`;
-
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      symbol: params.symbol,
-      exchange: params.exchange ?? "EGX",
-      start_date: params.start_date,
-      end_date: params.end_date ?? null,
-      models: params.models ?? [],
-      target_pct: params.target_pct ?? 0.10,
-      stop_loss_pct: params.stop_loss_pct ?? 0.05,
-      hold_days: params.hold_days ?? 20,
-      threshold: params.threshold ?? 0.45,
-      capital: params.capital ?? 100000,
-      bot_mode: params.bot_mode ?? "normal",
-      bots: params.bots ?? null,
-      use_adaptive_model_selector: params.use_adaptive_model_selector ?? false,
-      adaptive_model_pool: params.adaptive_model_pool ?? [],
-      adaptive_min_confidence: params.adaptive_min_confidence ?? 0.55,
-    }),
-    cache: "no-store",
-    signal,
-  });
-
-  if (!res.ok) {
-    let msg = `Strategy test failed (${res.status})`;
-    try {
-      const data = await res.json() as { detail?: string };
-      if (data?.detail) msg = typeof data.detail === "string" ? data.detail : JSON.stringify(data.detail);
-    } catch { /* ignore */ }
-    throw new Error(msg);
-  }
-
-  return res.json() as Promise<StrategyTesterResponse>;
-}
 
 export async function getAdaptiveRecommendation(params: {
   exchange?: string;

@@ -146,16 +146,24 @@ npx vercel
 npx vercel --prod
 ```
 
-### 3️⃣ السيرفر الخلفي - Backend (Hugging Face Spaces)
-إذا كنت تستخدم Hugging Face كخادم بديل أو أساسي للباكيند (Docker):
+### 2️⃣ السيرفر الخلفي - Backend (GitHub + Hugging Face)
+
+> ⚠️ **ملاحظة مهمة:** ملفات الموديلات (`*.pkl`) مطلوبة على Hugging Face فقط لتشغيل السيرفر، ولا يتم رفعها على GitHub بسبب حد LFS.
+
+#### GitHub (بدون موديلات)
+```powershell
+# رفع الكود فقط — ملفات *.pkl يتم تجاهلها (GIT_LFS_SKIP_PUSH)
+$env:GIT_LFS_SKIP_PUSH = "1"
+git push origin main
+```
+
+#### Hugging Face Spaces (مع الموديلات)
 ```powershell
 # 1. إضافة الخادم كـ remote للـ Git (لأول مرة فقط)
 git remote add hf https://huggingface.co/spaces/weeasd57/stokscan_AI
 
-# 2. رفع التحديثات مباشرة
-git add .
-git commit -m "Update API features"
-git push hf master:main --force
+# 2. رفع التحديثات مع الموديلات (ملفات *.pkl مرفوعة كاملة)
+git push hf main:main --force
 ```
 
 > [!NOTE]

@@ -387,16 +387,6 @@ export default function HomePage() {
                         ))}
                     </div>
 
-                    {/* 15m Intraday Data badge */}
-                    <div className="flex justify-center mb-10">
-                        <div className="inline-flex items-center gap-3 border-4 border-black dark:border-white neobrutal-bg-cyan px-5 py-3 shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_rgba(255,255,255,1)]">
-                            <Activity className="w-5 h-5 text-black dark:text-white" />
-                            <span className="font-black text-black dark:text-white text-sm uppercase tracking-wider">
-                                {isAr ? "بيانات لحظية كل 15 دقيقة" : "15m Intraday Data"}
-                            </span>
-                        </div>
-                    </div>
-
                     {/* Embedding RecommendationsTable limited to 3 rows */}
                     <div className="mb-10">
                         <RecommendationsTable isLandingPage={true} limit={3} />

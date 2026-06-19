@@ -310,7 +310,7 @@ class TelegramBot:
                     .maybe_single()
                     .execute()
                 )
-                profile = profile_res.data or {}
+                profile = profile_res.data if (profile_res and profile_res.data) else {}
                 display_name = (
                     profile.get("display_name") or profile.get("username") or "المستثمر"
                 )
