@@ -11,6 +11,29 @@ import time
 import pandas as pd
 from typing import List, Dict, Any, Optional, Tuple
 from collections import defaultdict
+import threading
+
+# Module-level shared HTTP session for Yahoo Finance fallback (thread-safe)
+_yahoo_session = None
+_yahoo_session_lock = threading.Lock()
+
+def _get_yahoo_session():
+    """Get or create a shared requests.Session with connection pooling."""
+    global _yahoo_session
+    if _yahoo_session is None:
+        with _yahoo_session_lock:
+            if _yahoo_session is None:
+                import requests
+                s = requests.Session()
+                s.headers.update({
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                })
+                # Connection pooling: keep up to 20 connections alive
+                adapter = requests.adapters.HTTPAdapter(pool_connections=20, pool_maxsize=20)
+                s.mount("https://", adapter)
+                s.mount("http://", adapter)
+                _yahoo_session = s
+    return _yahoo_session
 
 
 # Professional Exchange Configuration Mapping
@@ -155,7 +178,6 @@ def _try_yahoo_direct_fallback(
         yf_ticker = f"{base_symbol}.CA"
         
     try:
-        import requests
         import pandas as pd
         from api.stock_ai import sync_df_to_supabase
         
@@ -176,11 +198,9 @@ def _try_yahoo_direct_fallback(
             r_range = "5y"
             
         url = f"https://query1.finance.yahoo.com/v8/finance/chart/{yf_ticker}?range={r_range}&interval=1d"
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        }
         
-        r = requests.get(url, headers=headers, timeout=15)
+        session = _get_yahoo_session()
+        r = session.get(url, timeout=15)
         if r.status_code != 200:
             return False, f"Yahoo API returned HTTP {r.status_code}"
             
@@ -314,7 +334,7 @@ def fetch_tradingview_prices(
     
     # Throttle slightly
     try:
-        delay = float(os.getenv("TRADINGVIEW_REQUEST_DELAY", "1.5"))
+        delay = float(os.getenv("TRADINGVIEW_REQUEST_DELAY", "0.3"))
         if delay > 0:
             time.sleep(delay)
     except Exception:

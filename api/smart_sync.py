@@ -1,18 +1,22 @@
 import os
 import time
+import threading
 import pandas as pd
 import numpy as np
 from datetime import datetime, date, timedelta
 from typing import List, Dict, Any, Optional, Tuple
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from api.tradingview_integration import fetch_tradingview_prices, get_tradingview_exchange
 from api.stock_ai import sync_df_to_supabase, _init_supabase, supabase
 
 class SmartSync:
-    def __init__(self, max_retries: int = 3, retry_delay: int = 10, throttle_delay: int = 1):
+    def __init__(self, max_retries: int = 3, retry_delay: int = 10, throttle_delay: float = 0.3,
+                 max_workers: int = 10):
         self.max_retries = max_retries
         self.retry_delay = retry_delay
         self.throttle_delay = throttle_delay
         self.max_bars_per_request = 5000
+        self.max_workers = int(os.getenv("SMART_SYNC_MAX_WORKERS", str(max_workers)))
 
     def sync_symbol_prices(self, symbol: str, max_days: int = 365, force_days: bool = False) -> Tuple[bool, str]:
         """
@@ -48,33 +52,52 @@ class SmartSync:
 
         return False, f"Failed after {self.max_retries} retries. Last error: {last_error}"
 
+    def _sync_one(self, symbol: str, max_days: int, semaphore: threading.Semaphore) -> Tuple[str, bool, str]:
+        """Sync a single symbol with semaphore-based throttling for concurrent use."""
+        with semaphore:
+            # Small stagger to avoid thundering herd
+            time.sleep(self.throttle_delay)
+            success, msg = self.sync_symbol_prices(symbol, max_days=max_days)
+            return symbol, success, msg
+
     def sync_exchange_prices(self, exchange: str, symbols: List[str], max_days: int = 365, unified_dates: bool = False) -> Dict[str, Any]:
         """
-        Syncs multiple symbols for an exchange.
+        Syncs multiple symbols for an exchange using concurrent threads.
+        Uses ThreadPoolExecutor with a semaphore to control parallelism.
         """
         results = {}
         processed_count = 0
         success_count = 0
+        lock = threading.Lock()
+        semaphore = threading.Semaphore(self.max_workers)
         
-        print(f"Starting Smart Sync for {exchange} ({len(symbols)} symbols, unified_dates={unified_dates})")
+        print(f"Starting Smart Sync for {exchange} ({len(symbols)} symbols, workers={self.max_workers}, unified_dates={unified_dates})")
         
-        # If unified_dates is true, we might want to fetch a broad range for everyone first
-        # OR just rely on the fact that max_days is the same for all.
-        
-        for symbol in symbols:
-            # Respect throttling
-            if processed_count > 0:
-                time.sleep(self.throttle_delay)
-                
-            success, msg = self.sync_symbol_prices(symbol, max_days=max_days)
-            results[symbol] = {"success": success, "message": msg}
-            
-            if success:
-                success_count += 1
-            
-            processed_count += 1
-            if processed_count % 10 == 0:
-                print(f"Progress: {processed_count}/{len(symbols)} symbols synced...")
+        def _on_done(future):
+            nonlocal processed_count, success_count
+            try:
+                sym, ok, msg = future.result()
+                with lock:
+                    results[sym] = {"success": ok, "message": msg}
+                    if ok:
+                        success_count += 1
+                    processed_count += 1
+                    if processed_count % 20 == 0 or processed_count == len(symbols):
+                        print(f"Progress: {processed_count}/{len(symbols)} symbols synced ({success_count} ok)...")
+            except Exception as e:
+                with lock:
+                    processed_count += 1
+                    print(f"[SYNC] Unhandled error in future: {e}")
+
+        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+            futures = []
+            for symbol in symbols:
+                fut = executor.submit(self._sync_one, symbol, max_days, semaphore)
+                fut.add_done_callback(_on_done)
+                futures.append(fut)
+            # Wait for all futures to complete
+            for fut in futures:
+                fut.result()  # propagate any uncaught exceptions
 
         return {
             "exchange": exchange,

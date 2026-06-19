@@ -31,43 +31,40 @@ from api.intraday_downloader import _fetch_egx_symbols
 from api.routers.scan_ai_fast import fast_scan
 
 
-def calculate_and_save_indicators(symbol: str, exchange: str = "EGX"):
+def calculate_indicators_for_symbol(symbol: str, exchange: str = "EGX") -> List[Dict[str, Any]]:
     """
-    Calculate 20+ technical indicators for a given symbol and upsert them
-    to the stock_technical_indicators table.
+    Calculate 20+ technical indicators for a given symbol.
+    Returns a list of indicator records (for batch upsert) instead of
+    upserting individually. Returns empty list on skip/error.
     """
-    # Fetch latest 250 daily bars from stock_prices
+    # Fetch latest 300 daily bars from stock_prices (enough for 200-day SMA)
     res = (
         supabase.table("stock_prices")
         .select("date,open,high,low,close,volume")
         .eq("symbol", f"{symbol}.{exchange}")
-        .order("date", desc=False)
+        .order("date", desc=True)
+        .limit(300)
         .execute()
     )
     
     data = res.data
     if not data or len(data) < 20:
-        print(f"[INDICATORS] Not enough daily data for {symbol}.{exchange} (found {len(data) if data else 0} rows)")
-        return
+        return []
+    
+    # Data comes in descending order from the query, reverse it
+    data.reverse()
         
     df = pd.DataFrame(data)
     df["date"] = pd.to_datetime(df["date"])
     df.set_index("date", inplace=True)
 
-    # 🚫 Skip delisted/suspended stocks
+    # Skip delisted/suspended stocks
     last_close_val = float(df["close"].iloc[-1]) if not df["close"].empty else 0.0
     last_date_val = df.index[-1]
     days_since = (pd.Timestamp.now() - last_date_val).days
     recent_vol = pd.to_numeric(df["volume"].tail(5), errors="coerce").fillna(0).sum()
-    if last_close_val <= 0:
-        print(f"[INDICATORS] Skipping {symbol}.{exchange} — last close is zero (delisted/suspended)")
-        return
-    if days_since > 30:
-        print(f"[INDICATORS] Skipping {symbol}.{exchange} — last data {days_since} days ago (stale)")
-        return
-    if recent_vol == 0:
-        print(f"[INDICATORS] Skipping {symbol}.{exchange} — zero volume in last 5 days (suspended)")
-        return
+    if last_close_val <= 0 or days_since > 30 or recent_vol == 0:
+        return []
 
     close = pd.to_numeric(df["close"], errors="coerce").fillna(0.0)
     volume = pd.to_numeric(df["volume"], errors="coerce").fillna(0.0)
@@ -163,7 +160,9 @@ def calculate_and_save_indicators(symbol: str, exchange: str = "EGX"):
     vol_sma20 = volume.rolling(20, min_periods=1).mean().fillna(0.0)
     r_vol = (volume / vol_sma20.replace(0.0, np.nan)).fillna(1.0)
     
-    # Upsert indicators for the last 5 days
+    # Build records for the last 5 days (returned for batch upsert)
+    records = []
+    calc_ts = dt.datetime.utcnow().isoformat()
     last_indices = df.index[-5:]
     for idx in last_indices:
         date_str = idx.strftime("%Y-%m-%d")
@@ -200,10 +199,28 @@ def calculate_and_save_indicators(symbol: str, exchange: str = "EGX"):
             "r_vol": float(r_vol.loc[idx]) if not pd.isna(r_vol.loc[idx]) else None,
             "cci_20": float(cci_20.loc[idx]) if not pd.isna(cci_20.loc[idx]) else None,
             "change_pct": float(change_pct.loc[idx]) if not pd.isna(change_pct.loc[idx]) else None,
-            "calculated_at": dt.datetime.utcnow().isoformat()
+            "calculated_at": calc_ts
         }
-        supabase.table("stock_technical_indicators").upsert(record).execute()
-    print(f"[INDICATORS] Upserted technical indicators for {symbol}.{exchange} (last 5 days)")
+        records.append(record)
+    return records
+
+
+def _batch_upsert_indicators(all_records: List[Dict[str, Any]], batch_size: int = 200):
+    """Upsert indicator records in large batches to minimize HTTP requests."""
+    if not all_records:
+        return
+    for i in range(0, len(all_records), batch_size):
+        batch = all_records[i:i + batch_size]
+        try:
+            supabase.table("stock_technical_indicators").upsert(batch).execute()
+        except Exception as e:
+            print(f"[INDICATORS] Batch upsert failed for batch {i//batch_size}: {e}")
+            # Fallback: upsert individually
+            for rec in batch:
+                try:
+                    supabase.table("stock_technical_indicators").upsert(rec).execute()
+                except Exception as e2:
+                    print(f"[INDICATORS] Individual upsert failed for {rec.get('symbol')}: {e2}")
 
 
 def _fetch_technical_snapshot(symbol: str, exchange: str) -> dict:
@@ -961,23 +978,41 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
             print("\n>>> STEP 1: Skipping price sync (--skip-sync).")
             _record_step("sync_prices", True, "Skipped", 0)
 
-        # 2. Calculate technical indicators
-        print("\n>>> STEP 2: Calculating technical indicators...")
+        # 2. Calculate technical indicators (parallel + batch upsert)
+        print("\n>>> STEP 2: Calculating technical indicators (parallel)...")
         if not symbols_raw:
             symbols_raw = _fetch_egx_symbols()
             if not total_symbols:
                 total_symbols = len(symbols_raw)
         ind_success = 0
         ind_fail = 0
+        all_indicator_records = []
         try:
-            for sym in symbols_raw:
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+            
+            def _calc_one(sym):
                 try:
-                    calculate_and_save_indicators(sym, "EGX")
-                    ind_success += 1
+                    return sym, calculate_indicators_for_symbol(sym, "EGX"), None
                 except Exception as e:
-                    ind_fail += 1
-                    print(f"[INDICATORS] Error for {sym}: {e}")
-            _record_step("calculate_indicators", ind_fail == 0, f"{ind_success} success, {ind_fail} failed", ind_success + ind_fail)
+                    return sym, [], e
+
+            with ThreadPoolExecutor(max_workers=15) as executor:
+                futures = {executor.submit(_calc_one, sym): sym for sym in symbols_raw}
+                for future in as_completed(futures):
+                    sym, records, err = future.result()
+                    if err:
+                        ind_fail += 1
+                        print(f"[INDICATORS] Error for {sym}: {err}")
+                    else:
+                        ind_success += 1
+                        all_indicator_records.extend(records)
+            
+            # Batch upsert all records at once
+            if all_indicator_records:
+                print(f"[INDICATORS] Batch upserting {len(all_indicator_records)} records...")
+                _batch_upsert_indicators(all_indicator_records, batch_size=200)
+            
+            _record_step("calculate_indicators", ind_fail == 0, f"{ind_success} success, {ind_fail} failed, {len(all_indicator_records)} records", ind_success + ind_fail)
         except Exception as e:
             _record_step("calculate_indicators", False, str(e)[:200], 0)
             print(f"[INDICATORS] Error: {e}")
