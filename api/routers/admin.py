@@ -1558,9 +1558,9 @@ def _fetch_symbols_by_exchange(exchange: str) -> Dict[str, List[str]]:
     _init_supabase()
 
     if ex == "ALL":
-        if not supabase:
+        if not stock_ai.supabase:
             return {}
-        res = supabase.table("stock_prices").select("symbol, exchange").execute()
+        res = stock_ai.supabase.table("stock_prices").select("symbol, exchange").execute()
         by_exchange: Dict[str, set] = defaultdict(set)
         for row in res.data or []:
             base, row_ex = _normalize_symbol_exchange(row.get("symbol", ""), row.get("exchange", "US"))
@@ -1574,11 +1574,11 @@ def _fetch_symbols_by_exchange(exchange: str) -> Dict[str, List[str]]:
     if ex == "EGX":
         return {"EGX": sorted(set(_fetch_egx_symbols()))}
 
-    if not supabase:
+    if not stock_ai.supabase:
         return {}
 
     res = (
-        supabase.table("stock_prices")
+        stock_ai.supabase.table("stock_prices")
         .select("symbol")
         .eq("exchange", ex)
         .execute()
@@ -1674,7 +1674,7 @@ def _fetch_fundamentals(symbol: str, exchange: str) -> Dict[str, Any]:
     base, ex = _normalize_symbol_exchange(symbol, exchange)
     try:
         res = (
-            supabase.table("stock_fundamentals")
+            stock_ai.supabase.table("stock_fundamentals")
             .select("data")
             .eq("symbol", base)
             .eq("exchange", ex)
@@ -1821,7 +1821,7 @@ def _run_live_bot_once_job_inner(payload: Dict[str, Any]) -> Dict[str, Any]:
         }
     )
     _init_supabase()
-    if not supabase:
+    if not stock_ai.supabase:
         raise RuntimeError("Supabase is not initialized")
 
     symbols_by_exchange = _fetch_symbols_by_exchange(req.exchange)
@@ -4080,7 +4080,7 @@ def get_daily_job_history(
             return []
 
         res = (
-            supabase.table("daily_job_runs")
+            stock_ai.supabase.table("daily_job_runs")
             .select("*")
             .eq("job_type", job_type)
             .order("started_at", desc=True)
@@ -4100,7 +4100,7 @@ def get_daily_job_status():
     try:
         _init_supabase()
         res = (
-            supabase.table("daily_job_runs")
+            stock_ai.supabase.table("daily_job_runs")
             .select("*")
             .eq("job_type", "daily_bot")
             .order("started_at", desc=True)
@@ -4506,4 +4506,24 @@ def update_intraday_batch(req: IntradayBatchUpdateRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/data-growth")
+def get_data_growth(days: int = 14):
+    """
+    Get daily stock price data growth statistics.
+    Calls get_daily_data_growth RPC in Supabase.
+    """
+    _reload_env()
+    _init_supabase()
+    if not stock_ai.supabase:
+        raise HTTPException(status_code=500, detail="Supabase not initialized")
+    
+    try:
+        res = stock_ai.supabase.rpc("get_daily_data_growth", {"p_days": days}).execute()
+        return res.data or []
+    except Exception as e:
+        print(f"Failed to fetch data growth stats: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ─── Historical Similarity Endpoints (moved to similarity_admin.py) ──────
+

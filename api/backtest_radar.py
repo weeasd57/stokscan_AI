@@ -137,8 +137,9 @@ def load_egx30_index(start_date: str = None, end_date: str = None):
     if df is None or df.empty:
         print("DEBUG: Fetching EGX30 index data from Supabase...", flush=True)
         try:
-            from api.stock_ai import _init_supabase, supabase
-            _init_supabase()
+            from api import stock_ai
+            stock_ai._init_supabase()
+            supabase = stock_ai.supabase
             if supabase:
                 offset = 0
                 limit = 1000
@@ -1103,9 +1104,9 @@ def main():
 
     # Context & Fundamentals
     from api.train_exchange_model import add_market_context, fetch_fundamentals_for_exchange
-    from api.stock_ai import _init_supabase, supabase
-
-    _init_supabase()
+    from api import stock_ai
+    stock_ai._init_supabase()
+    supabase = stock_ai.supabase
 
     market_df = None
     if args.exchange == "EGX":

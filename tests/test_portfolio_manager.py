@@ -245,14 +245,14 @@ class TestPortfolioManager(unittest.TestCase):
         entry_price = 200.0
         exit_price = 180.0  # 10% loss
         
+        initial_cash = self.portfolio.cash
+        
         # Open position
         self.portfolio.open_position(
             symbol=symbol,
             entry_date=self.test_date,
             entry_price=entry_price
         )
-        
-        initial_cash = self.portfolio.cash
         
         # Close position
         success, message, trade = self.portfolio.close_position(

@@ -1,0 +1,126 @@
+2026-06-19 17:48:45 [INFO] daily_bot_job: ============================================================
+2026-06-19 17:48:45 [INFO] daily_bot_job: 🚀 Daily Bot Job Started
+2026-06-19 17:48:45 [INFO] daily_bot_job:    Dry run: False
+2026-06-19 17:48:45 [INFO] daily_bot_job:    Model filter: ALL
+2026-06-19 17:48:45 [INFO] daily_bot_job:    Skip sync: False
+2026-06-19 17:48:45 [INFO] daily_bot_job:    Log file: C:\Users\MR__CODER__\Desktop\stokscan_AI\logs\daily_bot_20260619_144837.log
+2026-06-19 17:48:45 [INFO] daily_bot_job: ============================================================
+2026-06-19 17:48:47 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.AALR&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:48:49 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:48:51 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22date%22%2C%22volume%22%2C%22low%22%2C%22adjusted_close%22%2C%22exchange%22%2C%22symbol%22%2C%22high%22%2C%22close%22%2C%22open%22 "HTTP/2 200 OK"
+2026-06-19 17:48:53 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.ABUK&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:48:54 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:48:55 [ERROR] tvDatafeed.main: Connection to remote host was lost.
+2026-06-19 17:48:55 [ERROR] tvDatafeed.main: no data, please check the exchange and symbol
+2026-06-19 17:49:00 [ERROR] yfinance: Failed to get ticker 'ABUK.CA' reason: Expecting value: line 1 column 1 (char 0)
+2026-06-19 17:49:00 [ERROR] yfinance: 
+1 Failed download:
+2026-06-19 17:49:00 [ERROR] yfinance: ['ABUK.CA']: Exception('%ticker%: No timezone found, symbol may be delisted')
+2026-06-19 17:49:02 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.ACAMD&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:49:03 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:49:04 [ERROR] tvDatafeed.main: Connection to remote host was lost.
+2026-06-19 17:49:04 [ERROR] tvDatafeed.main: no data, please check the exchange and symbol
+2026-06-19 17:49:06 [ERROR] yfinance: Failed to get ticker 'ACAMD.CA' reason: Expecting value: line 1 column 1 (char 0)
+2026-06-19 17:49:06 [ERROR] yfinance: 
+1 Failed download:
+2026-06-19 17:49:06 [ERROR] yfinance: ['ACAMD.CA']: Exception('%ticker%: No timezone found, symbol may be delisted')
+2026-06-19 17:49:07 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.ACAP&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:49:09 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:49:10 [ERROR] tvDatafeed.main: Connection to remote host was lost.
+2026-06-19 17:49:10 [ERROR] tvDatafeed.main: no data, please check the exchange and symbol
+2026-06-19 17:49:11 [ERROR] yfinance: Failed to get ticker 'ACAP.CA' reason: Expecting value: line 1 column 1 (char 0)
+2026-06-19 17:49:11 [ERROR] yfinance: 
+1 Failed download:
+2026-06-19 17:49:11 [ERROR] yfinance: ['ACAP.CA']: Exception('%ticker%: No timezone found, symbol may be delisted')
+2026-06-19 17:49:13 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.ACGC&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:49:14 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:49:16 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22date%22%2C%22volume%22%2C%22low%22%2C%22adjusted_close%22%2C%22exchange%22%2C%22symbol%22%2C%22high%22%2C%22close%22%2C%22open%22 "HTTP/2 200 OK"
+2026-06-19 17:49:17 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.ACRO&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:49:18 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:49:24 [ERROR] tvDatafeed.main: Connection timed out
+2026-06-19 17:49:24 [ERROR] tvDatafeed.main: no data, please check the exchange and symbol
+2026-06-19 17:49:26 [ERROR] yfinance: Failed to get ticker 'ACRO.CA' reason: Expecting value: line 1 column 1 (char 0)
+2026-06-19 17:49:26 [ERROR] yfinance: 
+1 Failed download:
+2026-06-19 17:49:26 [ERROR] yfinance: ['ACRO.CA']: Exception('%ticker%: No timezone found, symbol may be delisted')
+2026-06-19 17:49:27 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.ACTF&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:49:29 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:49:30 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22date%22%2C%22volume%22%2C%22low%22%2C%22adjusted_close%22%2C%22exchange%22%2C%22symbol%22%2C%22high%22%2C%22close%22%2C%22open%22 "HTTP/2 200 OK"
+2026-06-19 17:49:31 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.ADCI&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:49:33 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:49:34 [ERROR] tvDatafeed.main: Connection to remote host was lost.
+2026-06-19 17:49:34 [ERROR] tvDatafeed.main: no data, please check the exchange and symbol
+2026-06-19 17:49:35 [ERROR] yfinance: Failed to get ticker 'ADCI.CA' reason: Expecting value: line 1 column 1 (char 0)
+2026-06-19 17:49:35 [ERROR] yfinance: 
+1 Failed download:
+2026-06-19 17:49:35 [ERROR] yfinance: ['ADCI.CA']: Exception('%ticker%: No timezone found, symbol may be delisted')
+2026-06-19 17:49:37 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.ADIB&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:49:38 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:49:40 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22date%22%2C%22volume%22%2C%22low%22%2C%22adjusted_close%22%2C%22exchange%22%2C%22symbol%22%2C%22high%22%2C%22close%22%2C%22open%22 "HTTP/2 200 OK"
+2026-06-19 17:49:41 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.ADPC&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:49:42 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:49:44 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22date%22%2C%22volume%22%2C%22low%22%2C%22adjusted_close%22%2C%22exchange%22%2C%22symbol%22%2C%22high%22%2C%22close%22%2C%22open%22 "HTTP/2 200 OK"
+2026-06-19 17:49:45 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.AFDI&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:49:46 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:49:47 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22date%22%2C%22volume%22%2C%22low%22%2C%22adjusted_close%22%2C%22exchange%22%2C%22symbol%22%2C%22high%22%2C%22close%22%2C%22open%22 "HTTP/2 200 OK"
+2026-06-19 17:49:49 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.AFMC&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:49:50 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:49:51 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22date%22%2C%22volume%22%2C%22low%22%2C%22adjusted_close%22%2C%22exchange%22%2C%22symbol%22%2C%22high%22%2C%22close%22%2C%22open%22 "HTTP/2 200 OK"
+2026-06-19 17:49:53 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.AGIG&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 200 OK"
+2026-06-19 17:49:54 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:50:00 [ERROR] tvDatafeed.main: Connection timed out
+2026-06-19 17:50:00 [ERROR] tvDatafeed.main: no data, please check the exchange and symbol
+2026-06-19 17:50:02 [ERROR] yfinance: Failed to get ticker 'AGIG.CA' reason: Expecting value: line 1 column 1 (char 0)
+2026-06-19 17:50:02 [ERROR] yfinance: 
+1 Failed download:
+2026-06-19 17:50:02 [ERROR] yfinance: ['AGIG.CA']: Exception('%ticker%: No timezone found, symbol may be delisted')
+2026-06-19 17:50:03 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.AIDC&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:50:05 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:50:07 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22date%22%2C%22volume%22%2C%22low%22%2C%22adjusted_close%22%2C%22exchange%22%2C%22symbol%22%2C%22high%22%2C%22close%22%2C%22open%22 "HTTP/2 200 OK"
+2026-06-19 17:50:07 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22date%22%2C%22volume%22%2C%22low%22%2C%22adjusted_close%22%2C%22exchange%22%2C%22symbol%22%2C%22high%22%2C%22close%22%2C%22open%22 "HTTP/2 200 OK"
+2026-06-19 17:50:07 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22date%22%2C%22volume%22%2C%22low%22%2C%22adjusted_close%22%2C%22exchange%22%2C%22symbol%22%2C%22high%22%2C%22close%22%2C%22open%22 "HTTP/2 200 OK"
+2026-06-19 17:50:08 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.AIND&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:50:10 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:50:16 [ERROR] tvDatafeed.main: Connection timed out
+2026-06-19 17:50:16 [ERROR] tvDatafeed.main: no data, please check the exchange and symbol
+2026-06-19 17:50:18 [ERROR] yfinance: Failed to get ticker 'AIND.CA' reason: Expecting value: line 1 column 1 (char 0)
+2026-06-19 17:50:18 [ERROR] yfinance: 
+1 Failed download:
+2026-06-19 17:50:18 [ERROR] yfinance: ['AIND.CA']: Exception('%ticker%: No timezone found, symbol may be delisted')
+2026-06-19 17:50:19 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.AITG&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 200 OK"
+2026-06-19 17:50:21 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:50:22 [ERROR] tvDatafeed.main: Connection to remote host was lost.
+2026-06-19 17:50:22 [ERROR] tvDatafeed.main: no data, please check the exchange and symbol
+2026-06-19 17:50:23 [ERROR] yfinance: Failed to get ticker 'AITG.CA' reason: Expecting value: line 1 column 1 (char 0)
+2026-06-19 17:50:23 [ERROR] yfinance: 
+1 Failed download:
+2026-06-19 17:50:23 [ERROR] yfinance: ['AITG.CA']: Exception('%ticker%: No timezone found, symbol may be delisted')
+2026-06-19 17:50:24 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.AIVCB&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 200 OK"
+2026-06-19 17:50:26 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:50:32 [ERROR] tvDatafeed.main: Connection timed out
+2026-06-19 17:50:32 [ERROR] tvDatafeed.main: no data, please check the exchange and symbol
+2026-06-19 17:50:34 [ERROR] yfinance: Failed to get ticker 'AIVCB.CA' reason: Expecting value: line 1 column 1 (char 0)
+2026-06-19 17:50:34 [ERROR] yfinance: 
+1 Failed download:
+2026-06-19 17:50:34 [ERROR] yfinance: ['AIVCB.CA']: Exception('%ticker%: No timezone found, symbol may be delisted')
+2026-06-19 17:50:35 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.AJWA&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:50:37 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:50:38 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22date%22%2C%22volume%22%2C%22low%22%2C%22adjusted_close%22%2C%22exchange%22%2C%22symbol%22%2C%22high%22%2C%22close%22%2C%22open%22 "HTTP/2 200 OK"
+2026-06-19 17:50:39 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.ALCN&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:50:41 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:50:42 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22date%22%2C%22volume%22%2C%22low%22%2C%22adjusted_close%22%2C%22exchange%22%2C%22symbol%22%2C%22high%22%2C%22close%22%2C%22open%22 "HTTP/2 200 OK"
+2026-06-19 17:50:43 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.ALEX&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:50:45 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:50:46 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22date%22%2C%22volume%22%2C%22low%22%2C%22adjusted_close%22%2C%22exchange%22%2C%22symbol%22%2C%22high%22%2C%22close%22%2C%22open%22 "HTTP/2 200 OK"
+2026-06-19 17:50:47 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.ALRA&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 200 OK"
+2026-06-19 17:50:49 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:50:55 [ERROR] tvDatafeed.main: Connection timed out
+2026-06-19 17:50:55 [ERROR] tvDatafeed.main: no data, please check the exchange and symbol
+2026-06-19 17:50:56 [ERROR] yfinance: Failed to get ticker 'ALRA.CA' reason: Expecting value: line 1 column 1 (char 0)
+2026-06-19 17:50:56 [ERROR] yfinance: 
+1 Failed download:
+2026-06-19 17:50:56 [ERROR] yfinance: ['ALRA.CA']: Exception('%ticker%: No timezone found, symbol may be delisted')
+2026-06-19 17:50:58 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.ALUM&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:50:59 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:51:00 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22date%22%2C%22volume%22%2C%22low%22%2C%22adjusted_close%22%2C%22exchange%22%2C%22symbol%22%2C%22high%22%2C%22close%22%2C%22open%22 "HTTP/2 200 OK"
+2026-06-19 17:51:02 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.AMER&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"

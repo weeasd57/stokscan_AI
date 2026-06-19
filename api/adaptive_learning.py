@@ -5,7 +5,16 @@ import pandas as pd
 from datetime import datetime, timedelta
 import joblib
 import lightgbm as lgb
-from api.stock_ai import _init_supabase, supabase
+from api import stock_ai
+from api.stock_ai import _init_supabase
+
+class SupabaseWrapper:
+    def __getattr__(self, name):
+        return getattr(stock_ai.supabase, name)
+    def __bool__(self):
+        return stock_ai.supabase is not None
+
+supabase = SupabaseWrapper()
 
 # Global constants often used
 PREDICTORS = ["open", "high", "low", "close", "volume"] # Fallback

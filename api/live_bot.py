@@ -992,20 +992,36 @@ class LiveBot:
 
     # ── Feature 3: Dynamic ATR-based TP/SL ──────────────────────────────
     def _calculate_atr_exits(
-        self, bars: pd.DataFrame, entry_price: float
+        self, bars: pd.DataFrame, entry_price: float, regime: Optional[str] = None
     ) -> tuple[float, float]:
         """
         Calculate dynamic TP/SL based on ATR and exit_mode.
+        Supports adaptive multipliers depending on the market regime if use_adaptive_exits is enabled.
         Returns (take_profit_price, stop_loss_price).
         """
+        use_adaptive = getattr(self.config, "use_adaptive_exits", False)
+        
+        tp_mult = self.config.atr_tp_multiplier
+        sl_mult = self.config.atr_sl_multiplier
+
+        if use_adaptive:
+            # If regime is not passed, try to detect it from the bars
+            current_regime = regime or self._detect_market_regime(bars)
+            if current_regime == "STRONG_BULL":
+                tp_mult = 5.0
+                sl_mult = 2.0
+            elif current_regime == "BEAR":
+                tp_mult = 2.0
+                sl_mult = 1.0
+
         tp, sl = StrategyEngine.calculate_atr_exits(
             bars=bars,
             entry_price=entry_price,
             target_pct=self.config.target_pct,
             stop_loss_pct=self.config.stop_loss_pct,
             use_atr_exits=self.config.use_atr_exits,
-            atr_sl_multiplier=self.config.atr_sl_multiplier,
-            atr_tp_multiplier=self.config.atr_tp_multiplier,
+            atr_sl_multiplier=sl_mult,
+            atr_tp_multiplier=tp_mult,
             atr_period=self.config.atr_period,
             exit_mode=getattr(self.config, "exit_mode", "hybrid"),
         )
@@ -2354,6 +2370,22 @@ class LiveBot:
                     percent_mode = float(m_target) < 1.0 and float(m_sl) < 1.0
                 except Exception:
                     percent_mode = False
+
+            # Strict validation check
+            is_strict = os.getenv("STRICT_VALIDATION", "False").lower() in ("true", "1")
+            if is_strict:
+                mismatches = []
+                if percent_mode:
+                    if m_target is not None and float(m_target) > 0 and abs(self.config.target_pct - float(m_target)) > 1e-5:
+                        mismatches.append(f"target_pct (config: {self.config.target_pct}, model: {m_target})")
+                    if m_sl is not None and float(m_sl) > 0 and abs(self.config.stop_loss_pct - float(m_sl)) > 1e-5:
+                        mismatches.append(f"stop_loss_pct (config: {self.config.stop_loss_pct}, model: {m_sl})")
+                if m_hold is not None and int(m_hold) > 0 and int(m_hold) != self.config.hold_max_bars:
+                    mismatches.append(f"hold_max_bars (config: {self.config.hold_max_bars}, model: {m_hold})")
+                if m_thresh is not None and float(m_thresh) > 0 and abs(self.config.king_threshold - float(m_thresh)) > 1e-5:
+                    mismatches.append(f"king_threshold (config: {self.config.king_threshold}, model: {m_thresh})")
+                if mismatches:
+                    raise ValueError(f"STRICT VALIDATION ERROR: Mismatches found: {', '.join(mismatches)}")
 
             if percent_mode:
                 if m_target is not None and float(m_target) > 0:

@@ -5,9 +5,10 @@ import time
 import asyncio
 import json
 import uuid
+import urllib.request
 import pandas as pd
 import numpy as np
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any, Tuple, Optional, Set
 
 # Set project root path
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -31,18 +32,172 @@ from api.intraday_downloader import _fetch_egx_symbols
 from api.routers.scan_ai_fast import fast_scan
 
 
+def _sync_latest_egx_inventory_from_eodhd() -> Tuple[bool, List[str], str]:
+    api_key = os.getenv("EODHD_API_KEY")
+    if not api_key:
+        return False, [], "EODHD_API_KEY not set"
+
+    base_dir = os.path.join(project_root, "symbols_data")
+    os.makedirs(base_dir, exist_ok=True)
+    url = f"https://eodhd.com/api/exchange-symbol-list/EGX?api_token={api_key}&fmt=json"
+
+    try:
+        with urllib.request.urlopen(url, timeout=60) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+
+        normalized_syms = []
+        active_symbols: List[str] = []
+        seen: Set[str] = set()
+        for row in payload or []:
+            sym = str(row.get("Code") or "").strip().upper()
+            if not sym or sym in seen:
+                continue
+            seen.add(sym)
+            active_symbols.append(sym)
+            normalized_syms.append({
+                "Symbol": sym,
+                "Name": row.get("Name"),
+                "Exchange": "EGX",
+                "Country": "Egypt",
+                "Type": row.get("Type"),
+                "Currency": row.get("Currency"),
+                "Isin": row.get("Isin"),
+            })
+
+        timestamp = dt.datetime.now().strftime("%Y%m%d_%H%M%S")
+        for name in os.listdir(base_dir):
+            if name.startswith("Egypt_all_symbols_") and name.endswith(".json"):
+                try:
+                    os.remove(os.path.join(base_dir, name))
+                except Exception:
+                    pass
+
+        out_path = os.path.join(base_dir, f"Egypt_all_symbols_{timestamp}.json")
+        with open(out_path, "w", encoding="utf-8") as f:
+            json.dump(normalized_syms, f, indent=2, ensure_ascii=False)
+
+        return True, active_symbols, f"Updated Egypt inventory with {len(active_symbols)} symbols"
+    except Exception as e:
+        return False, [], str(e)
+
+
+def _mark_non_listed_egx_symbols(active_symbols: List[str]) -> Tuple[bool, str, int]:
+    active_set = {str(sym).strip().upper() for sym in (active_symbols or []) if str(sym).strip()}
+    if not active_set:
+        return False, "No active EGX symbols provided", 0
+
+    marked = 0
+    page = 0
+    page_size = 1000
+    try:
+        while True:
+            res = (
+                supabase.table("stock_fundamentals")
+                .select("symbol,data")
+                .eq("exchange", "EGX")
+                .range(page * page_size, (page + 1) * page_size - 1)
+                .execute()
+            )
+            rows = res.data or []
+            if not rows:
+                break
+
+            updates = []
+            for row in rows:
+                symbol = str(row.get("symbol") or "").strip().upper()
+                if not symbol:
+                    continue
+                is_listed = symbol in active_set
+                data = row.get("data") if isinstance(row.get("data"), dict) else {}
+                prev_listed = data.get("isListed")
+                prev_status = data.get("listingStatus")
+                next_status = "listed" if is_listed else "delisted"
+                if prev_listed is is_listed and prev_status == next_status:
+                    continue
+                new_data = dict(data)
+                new_data["isListed"] = is_listed
+                new_data["listingStatus"] = next_status
+                new_data["listingCheckedAt"] = dt.datetime.utcnow().isoformat()
+                updates.append({
+                    "symbol": symbol,
+                    "exchange": "EGX",
+                    "data": new_data,
+                    "updated_at": dt.datetime.utcnow().isoformat(),
+                })
+
+            if updates:
+                marked += len(updates)
+                supabase.table("stock_fundamentals").upsert(updates, on_conflict="symbol,exchange").execute()
+
+            if len(rows) < page_size:
+                break
+            page += 1
+
+        return True, f"Marked {marked} EGX fundamentals rows against current listing", marked
+    except Exception as e:
+        return False, str(e), marked
+
+
+def _refresh_egx_fundamentals_from_tradingview(symbols_raw: List[str], chunk_size: int = 50) -> Tuple[bool, str, int]:
+    if not symbols_raw:
+        return False, "No EGX symbols to refresh fundamentals", 0
+
+    try:
+        from api.tradingview_integration import fetch_tradingview_fundamentals_bulk
+
+        total_updated = 0
+        tickers = [f"{sym}.EGX" for sym in symbols_raw if sym]
+        for i in range(0, len(tickers), chunk_size):
+            chunk = tickers[i:i + chunk_size]
+            result = fetch_tradingview_fundamentals_bulk(chunk)
+            total_updated += len(result or {})
+            time.sleep(1)
+        return True, f"Refreshed fundamentals for {total_updated} symbols from TradingView", total_updated
+    except Exception as e:
+        return False, str(e), 0
+
+
+def _should_run_weekly_inventory(trigger: str = "manual") -> bool:
+    if str(trigger or "").strip().lower() != "scheduled":
+        return True
+    return dt.datetime.utcnow().weekday() == 6
+
+
 def _filter_active_symbols(symbols_list: List[str]) -> List[str]:
     """
     Dynamically identify and exclude delisted/suspended/stale stocks.
-    A stock is considered delisted/suspended if it exists in the database
-    but has no recent trading activity:
-      - Latest close price is <= 0.
-      - Latest price date is > 30 days old.
-      - Latest trading volume is 0.
+    Priority order:
+      1. If stock_fundamentals has listing status and isListed=false, exclude it.
+      2. Otherwise, fall back to price staleness checks.
     If a stock has no records in the database at all, it is allowed so
     that we can sync its history for the first time.
     """
     print("[ACTIVE_FILTER] Dynamically filtering active symbols...")
+    fundamentals_map: Dict[str, Dict[str, Any]] = {}
+    fund_page = 0
+    fund_page_size = 1000
+    try:
+        while True:
+            fund_res = (
+                supabase.table("stock_fundamentals")
+                .select("symbol,data")
+                .eq("exchange", "EGX")
+                .range(fund_page * fund_page_size, (fund_page + 1) * fund_page_size - 1)
+                .execute()
+            )
+            fund_rows = fund_res.data or []
+            if not fund_rows:
+                break
+            for row in fund_rows:
+                sym = str(row.get("symbol") or "").strip().upper()
+                if sym:
+                    fundamentals_map[sym] = row.get("data") if isinstance(row.get("data"), dict) else {}
+            if len(fund_rows) < fund_page_size:
+                break
+            fund_page += 1
+    except Exception as e:
+        print(f"[ACTIVE_FILTER] Fundamentals listing fetch failed: {e}")
+
     all_data = []
     page = 0
     page_size = 1000
@@ -66,30 +221,41 @@ def _filter_active_symbols(symbols_list: List[str]) -> List[str]:
             print(f"[ACTIVE_FILTER] Error fetching page {page}: {e}")
             break
 
-    if not all_data:
-        print("[ACTIVE_FILTER] No price data found, using original symbols list.")
+    if not all_data and not fundamentals_map:
+        print("[ACTIVE_FILTER] No price/fundamental data found, using original symbols list.")
         return symbols_list
 
     try:
-        df = pd.DataFrame(all_data)
-        df["date"] = pd.to_datetime(df["date"])
-        
-        # Get the latest record for each symbol
-        latest_per_symbol = df.sort_values("date").groupby("symbol").last()
-        
-        now = pd.Timestamp.now()
-        latest_per_symbol["days_since"] = (now - latest_per_symbol["date"]).dt.days
-        
-        # Identify inactive symbols (exist in DB but have stale/invalid data)
-        inactive_mask = (
-            (latest_per_symbol["close"] <= 0) |
-            (latest_per_symbol["days_since"] > 30) |
-            (latest_per_symbol["volume"] == 0)
-        )
-        inactive_symbols_set = set(latest_per_symbol[inactive_mask].index)
-        
-        filtered_symbols = [sym for sym in symbols_list if sym not in inactive_symbols_set]
-        excluded = [sym for sym in symbols_list if sym in inactive_symbols_set]
+        inactive_symbols_set: Set[str] = set()
+
+        for sym, data in fundamentals_map.items():
+            if data.get("isListed") is False or str(data.get("listingStatus") or "").strip().lower() == "delisted":
+                inactive_symbols_set.add(sym)
+
+        if all_data:
+            df = pd.DataFrame(all_data)
+            df["date"] = pd.to_datetime(df["date"])
+
+            # Get the latest record for each symbol
+            latest_per_symbol = df.sort_values("date").groupby("symbol").last()
+
+            now = pd.Timestamp.now()
+            latest_per_symbol["days_since"] = (now - latest_per_symbol["date"]).dt.days
+
+            stale_mask = (
+                (latest_per_symbol["close"] <= 0) |
+                (latest_per_symbol["days_since"] > 30) |
+                (latest_per_symbol["volume"] == 0)
+            )
+            stale_symbols_set = set(str(sym).upper() for sym in latest_per_symbol[stale_mask].index)
+
+            for sym in stale_symbols_set:
+                data = fundamentals_map.get(sym)
+                if not isinstance(data, dict) or data.get("isListed") is not True:
+                    inactive_symbols_set.add(sym)
+
+        filtered_symbols = [sym for sym in symbols_list if str(sym).strip().upper() not in inactive_symbols_set]
+        excluded = [sym for sym in symbols_list if str(sym).strip().upper() in inactive_symbols_set]
         if excluded:
             print(f"[ACTIVE_FILTER] Excluded {len(excluded)} inactive/delisted symbols: {excluded}")
         print(f"[ACTIVE_FILTER] Active symbols: {len(filtered_symbols)} / {len(symbols_list)}")
@@ -926,17 +1092,115 @@ def generate_arabic_rationale(result: dict) -> dict:
     }
 
 
-async def generate_daily_recommendations():
+async def generate_daily_recommendations(model_name: Optional[str] = None):
     """
     Run fast_scan ML model for Egypt, select the top 10 speculative stocks,
     generate rich detailed Arabic reports, and insert them into scan_results.
     """
-    print("[RECOMMENDATIONS] Running ML fast scan for EGX stocks...")
+    from typing import Optional
+    resolved_model = "model_EGX.pkl"
+    
+    if model_name:
+        model_lower = model_name.lower().strip()
+        if model_lower == "adaptive":
+            print("[RECOMMENDATIONS] Resolving model using AdaptiveModelSelector...")
+            try:
+                from api.adaptive_model_selector import AdaptiveModelSelector
+                
+                market_df = None
+                # Load EGX30 index data
+                base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                index_path = os.path.join(base_dir, "symbols_data", "EGX30-INDEX.json")
+                if os.path.exists(index_path):
+                    try:
+                        with open(index_path, "r") as f:
+                            idx_data = json.load(f)
+                        market_df = pd.DataFrame(idx_data)
+                        market_df['date'] = pd.to_datetime(market_df['date'])
+                        market_df.set_index('date', inplace=True)
+                        print("[RECOMMENDATIONS] Market context (EGX30) loaded from JSON.")
+                    except Exception as json_err:
+                        print(f"[WARNING] Failed to load EGX30 index from JSON: {json_err}")
+
+                # Fallback to Supabase
+                if market_df is None or market_df.empty:
+                    print("[RECOMMENDATIONS] Loading EGX30 index from Supabase...")
+                    try:
+                        offset = 0
+                        limit = 1000
+                        all_data = []
+                        while True:
+                            idx_res = (
+                                supabase.table("stock_prices")
+                                .select("date, close, open, high, low, volume")
+                                .eq("symbol", "EGX30")
+                                .eq("exchange", "INDX")
+                                .order("date", desc=False)
+                                .range(offset, offset + limit - 1)
+                                .execute()
+                            )
+                            if not idx_res.data:
+                                break
+                            all_data.extend(idx_res.data)
+                            if len(idx_res.data) < limit:
+                                break
+                            offset += limit
+                        
+                        if all_data:
+                            market_df = pd.DataFrame(all_data)
+                            market_df["date"] = pd.to_datetime(market_df["date"])
+                            market_df = market_df.set_index("date").sort_index()
+                            print(f"[RECOMMENDATIONS] Loaded {len(market_df)} EGX30 index rows from Supabase.")
+                    except Exception as db_err:
+                        print(f"[WARNING] Failed to load EGX30 index from Supabase: {db_err}")
+
+                if market_df is not None and not market_df.empty:
+                    # Normalize columns to Capitalized for AdaptiveModelSelector
+                    rename_map = {}
+                    for src, dst in {
+                        "close": "Close",
+                        "high": "High",
+                        "low": "Low",
+                        "volume": "Volume",
+                        "open": "Open",
+                    }.items():
+                        if src in market_df.columns:
+                            rename_map[src] = dst
+                    if rename_map:
+                        market_df = market_df.rename(columns=rename_map)
+
+                    # Ensure standard columns exist
+                    if "Close" in market_df.columns:
+                        if "High" not in market_df.columns:
+                            market_df["High"] = market_df["Close"]
+                        if "Low" not in market_df.columns:
+                            market_df["Low"] = market_df["Close"]
+                        if "Volume" not in market_df.columns:
+                            market_df["Volume"] = 0.0
+
+                        selector = AdaptiveModelSelector()
+                        regime_info = selector.detect_market_regime(market_df)
+                        recommended_path = regime_info.recommended_model
+                        resolved_model = os.path.basename(recommended_path)
+                        print(f"[RECOMMENDATIONS] Adaptive selector detected regime: {regime_info.regime} (confidence: {regime_info.confidence:.2f}) -> Selected: {resolved_model}")
+                    else:
+                        print(f"[WARNING] Close column missing in index data. Falling back to default model: {resolved_model}")
+                else:
+                    print(f"[WARNING] Could not obtain EGX30 index data. Falling back to default model: {resolved_model}")
+            except Exception as e:
+                print(f"[WARNING] Error running AdaptiveModelSelector: {e}. Falling back to default model: {resolved_model}")
+        else:
+            if not model_lower.endswith(".pkl"):
+                resolved_model = f"{model_name}.pkl"
+            else:
+                resolved_model = model_name
+
+    print(f"[RECOMMENDATIONS] Running ML fast scan for EGX stocks using model: {resolved_model}...")
     scan_resp = await fast_scan(
         country="Egypt",
         limit=200,
         min_precision=0.5,
-        model_name="model_EGX.pkl"
+        model_name=resolved_model
     )
     
     results = scan_resp.get("results", [])
@@ -1047,11 +1311,31 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
             print(f"[JOB] Failed to persist job run: {e}")
 
     try:
+        # 0. Refresh EGX inventory weekly only for scheduled runs
+        if _should_run_weekly_inventory(trigger):
+            print("\n>>> STEP 0: Refreshing EGX listed symbols inventory from EODHD...")
+            try:
+                inv_ok, inv_symbols, inv_msg = _sync_latest_egx_inventory_from_eodhd()
+                _record_step("sync_inventory", inv_ok, inv_msg, len(inv_symbols))
+                print(f"[INVENTORY] {inv_msg}")
+
+                if inv_ok and inv_symbols:
+                    mark_ok, mark_msg, mark_count = _mark_non_listed_egx_symbols(inv_symbols)
+                    _record_step("mark_non_listed", mark_ok, mark_msg, mark_count)
+                    print(f"[LISTING] {mark_msg}")
+            except Exception as e:
+                _record_step("sync_inventory", False, str(e)[:200], 0)
+                print(f"[INVENTORY] Error: {e}")
+        else:
+            _record_step("sync_inventory", True, "Skipped - weekly scheduled refresh only", 0)
+            print("\n>>> STEP 0: Skipping EGX inventory refresh today (weekly scheduled run only).")
+
         # 1. Sync prices
         if not skip_sync:
             print("\n>>> STEP 1: Syncing daily prices from TradingView...")
             try:
-                symbols_raw = _fetch_egx_symbols()
+                if not symbols_raw:
+                    symbols_raw = _fetch_egx_symbols()
                 symbols_raw = _filter_active_symbols(symbols_raw)
                 symbols = [f"{sym}.EGX" for sym in symbols_raw if sym]
                 total_symbols = len(symbols)
@@ -1127,8 +1411,8 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
         # 5. Generate new recommendations
         print("\n>>> STEP 5: Generating new speculative recommendations...")
         try:
-            await generate_daily_recommendations()
-            _record_step("generate_recommendations", True, "Top 10 generated", 10)
+            await generate_daily_recommendations(model_name=model_filter)
+            _record_step("generate_recommendations", True, f"Top 10 generated using {model_filter or 'default'}", 10)
         except Exception as e:
             _record_step("generate_recommendations", False, str(e)[:200], 0)
             print(f"[RECOMMENDATIONS] Error: {e}")

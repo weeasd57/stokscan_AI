@@ -14,6 +14,7 @@ import {
 import { useEffect, useState, useMemo } from "react";
 import { toast } from "sonner";
 import IntradaySyncTab from "./IntradaySyncTab";
+import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts";
 
 interface DataManagerTabProps {
     selectedCountry: string;
@@ -133,6 +134,29 @@ export default function DataManagerTab({
     }>({ key: "bars", dir: "desc" });
     const [cryptoFilter, setCryptoFilter] = useState("USDT");
     const [dataManagerView, setDataManagerView] = useState<"manager" | "intraday">("manager");
+
+    const [dataGrowth, setDataGrowth] = useState<{ update_day: string; row_count: number }[]>([]);
+    const [loadingGrowth, setLoadingGrowth] = useState(false);
+    const [growthDays, setGrowthDays] = useState(14);
+
+    const fetchGrowthStats = async () => {
+        setLoadingGrowth(true);
+        try {
+            const res = await fetch(`/api/admin/data-growth?days=${growthDays}`);
+            const data = await res.json();
+            if (Array.isArray(data)) {
+                setDataGrowth(data);
+            }
+        } catch (e) {
+            console.error("Failed to fetch data growth stats:", e);
+        } finally {
+            setLoadingGrowth(false);
+        }
+    };
+
+    useEffect(() => {
+        fetchGrowthStats();
+    }, [growthDays]);
 
     const fetchCryptoSupabaseStats = async () => {
         try {
@@ -936,6 +960,87 @@ export default function DataManagerTab({
                         </div>
 
                         <div className="flex-1 p-8 space-y-12">
+                            {/* Data Growth Chart Section */}
+                            <div className="space-y-4">
+                                <div className="flex items-center justify-between">
+                                    <h3 className="text-xs font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-2">
+                                        <BarChart3 className="w-4 h-4 text-indigo-400" />
+                                        Daily Stock Prices Data Growth
+                                    </h3>
+                                    <div className="flex items-center gap-2">
+                                        {[7, 14, 30].map(d => (
+                                            <button
+                                                key={d}
+                                                onClick={() => setGrowthDays(d)}
+                                                className={`text-[9px] font-bold px-2 py-1 rounded border transition-all ${
+                                                    growthDays === d
+                                                        ? 'bg-indigo-600 border-indigo-600 text-white shadow-[0_0_15px_rgba(99,102,241,0.3)]'
+                                                        : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-zinc-200'
+                                                }`}
+                                            >
+                                                {d} DAYS
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                                
+                                <div className="w-full h-[250px] bg-zinc-950/40 border border-zinc-800/80 rounded-2xl p-4 flex items-center justify-center relative overflow-hidden">
+                                    {loadingGrowth ? (
+                                        <div className="flex items-center gap-2 text-zinc-500 text-xs font-bold">
+                                            <Loader2 className="w-4 h-4 animate-spin text-indigo-500" />
+                                            Loading growth stats...
+                                        </div>
+                                    ) : dataGrowth.length === 0 ? (
+                                        <div className="text-zinc-500 text-xs font-bold">No data growth recorded in this period.</div>
+                                    ) : (
+                                        <ResponsiveContainer width="100%" height="100%">
+                                            <BarChart data={dataGrowth} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                                                <defs>
+                                                    <linearGradient id="growthGrad" x1="0" y1="0" x2="0" y2="1">
+                                                        <stop offset="0%" stopColor="#6366f1" stopOpacity={0.85}/>
+                                                        <stop offset="100%" stopColor="#6366f1" stopOpacity={0.25}/>
+                                                    </linearGradient>
+                                                </defs>
+                                                <CartesianGrid strokeDasharray="3 3" stroke="#27272a" vertical={false} />
+                                                <XAxis 
+                                                    dataKey="update_day" 
+                                                    stroke="#71717a" 
+                                                    fontSize={9} 
+                                                    fontWeight="bold"
+                                                    tickFormatter={(v) => {
+                                                        try {
+                                                            return new Date(v).toLocaleDateString(undefined, {month: 'short', day: 'numeric'});
+                                                        } catch {
+                                                            return v;
+                                                        }
+                                                    }}
+                                                />
+                                                <YAxis stroke="#71717a" fontSize={9} fontWeight="bold" />
+                                                <Tooltip 
+                                                    contentStyle={{ 
+                                                        backgroundColor: '#09090b', 
+                                                        borderColor: '#27272a',
+                                                        borderRadius: '12px',
+                                                        fontSize: '11px',
+                                                        fontWeight: 'bold',
+                                                        color: '#f4f4f5'
+                                                    }}
+                                                    labelFormatter={(label) => `Date: ${label}`}
+                                                    formatter={(val) => [`+${val} rows`, 'Data Increase']}
+                                                    cursor={{ fill: 'rgba(99, 102, 241, 0.05)' }}
+                                                />
+                                                <Bar 
+                                                    dataKey="row_count" 
+                                                    fill="url(#growthGrad)" 
+                                                    radius={[4, 4, 0, 0]}
+                                                    maxBarSize={45}
+                                                />
+                                            </BarChart>
+                                        </ResponsiveContainer>
+                                    )}
+                                </div>
+                            </div>
+
                             {/* Inventory Summary Row */}
                             <div className="space-y-4">
                                 <div className="flex items-center justify-between">

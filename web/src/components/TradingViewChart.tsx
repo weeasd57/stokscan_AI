@@ -411,12 +411,15 @@ export default function TradingViewChart({
 
   // Drag-to-move drawing state
   const [isDraggingDrawing, setIsDraggingDrawing] = useState(false);
-  const dragStartRef = useRef<{
-    x: number;
-    y: number;
-    drawing: ChartDrawing;
+  const dragStateRef = useRef<{
+    drawingId: string;
     mode: "move" | "start" | "end" | "point";
+    lastX: number;
+    lastY: number;
   } | null>(null);
+  const moveDrawingRef = useRef<(id: string, dx: number, dy: number) => void>(() => {});
+  const moveDrawingHandleRef = useRef<(id: string, mode: "start" | "end" | "point", dx: number, dy: number) => void>(() => {});
+  const stopDrawingDragRef = useRef<(() => void) | null>(null);
 
   // Properties panel position/size state (persisted to localStorage)
   const PROPS_PANEL_STORAGE_KEY = "chart_props_panel_state";
@@ -606,22 +609,37 @@ export default function TradingViewChart({
     nudgeOverlay();
   };
 
+  moveDrawingRef.current = moveDrawing;
+  moveDrawingHandleRef.current = moveDrawingHandle;
+
   const selectedDrawing = selectedDrawingId
     ? drawings.find((d) => d.id === selectedDrawingId)
     : null;
 
   const startDrawingDrag = (
     drawing: ChartDrawing,
-    e: React.MouseEvent<SVGElement>,
+    e: React.PointerEvent<SVGElement>,
     mode: "move" | "start" | "end" | "point" = "move",
   ) => {
     if (activeTool !== "cursor") return;
+    if (e.button !== 0) return;
+
+    // Cancel any drag already in progress.
+    stopDrawingDragRef.current?.();
+
     setSelectedDrawingId(drawing.id);
     setDrawingStyle(cloneStyle(drawing.style));
+    dragStateRef.current = {
+      drawingId: drawing.id,
+      mode,
+      lastX: e.clientX,
+      lastY: e.clientY,
+    };
     setIsDraggingDrawing(true);
-    dragStartRef.current = { x: e.clientX, y: e.clientY, drawing, mode };
+
     document.body.style.cursor = mode === "move" ? "grabbing" : "crosshair";
     document.body.style.userSelect = "none";
+
     e.stopPropagation();
     e.preventDefault();
   };
@@ -839,30 +857,45 @@ export default function TradingViewChart({
       height - activeLowerPanesCount * paneHeight - 45,
     );
 
-    // Chart styling colors (Dark theme replication)
-    const gridColor = "#1f222e";
-    const backgroundColor = "#131722";
-    const textColor = "#d1d4dc";
+    const chartTheme = theme === "light"
+      ? {
+          gridColor: "#e4e4e7",
+          backgroundColor: "#fafafa",
+          textColor: "#18181b",
+          borderColor: "#d4d4d8",
+          crosshairColor: "#4f46e5",
+          volumeUp: "#16a34a33",
+          volumeDown: "#dc262633",
+        }
+      : {
+          gridColor: "#1f222e",
+          backgroundColor: "#131722",
+          textColor: "#d1d4dc",
+          borderColor: "#2a2e39",
+          crosshairColor: "#2962ff",
+          volumeUp: "#26a69a40",
+          volumeDown: "#ef535040",
+        };
 
     // Create main Price Chart
     const priceChart = createChart(priceContainerRef.current!, {
       width: width,
       height: priceHeight,
       layout: {
-        background: { type: ColorType.Solid, color: backgroundColor },
-        textColor: textColor,
+        background: { type: ColorType.Solid, color: chartTheme.backgroundColor },
+        textColor: chartTheme.textColor,
       },
       grid: {
-        vertLines: { color: gridColor },
-        horzLines: { color: gridColor },
+        vertLines: { color: chartTheme.gridColor },
+        horzLines: { color: chartTheme.gridColor },
       },
       crosshair: {
         mode: 1, // Magnet mode
-        vertLine: { labelBackgroundColor: "#2962ff" },
-        horzLine: { labelBackgroundColor: "#2962ff" },
+        vertLine: { labelBackgroundColor: chartTheme.crosshairColor },
+        horzLine: { labelBackgroundColor: chartTheme.crosshairColor },
       },
       timeScale: {
-        borderColor: "#2a2e39",
+        borderColor: chartTheme.borderColor,
         timeVisible: true,
         secondsVisible: false,
         rightOffset: 30,
@@ -870,7 +903,7 @@ export default function TradingViewChart({
         fixRightEdge: false,
       },
       rightPriceScale: {
-        borderColor: "#2a2e39",
+        borderColor: chartTheme.borderColor,
         minimumWidth: 80,
       },
       handleScroll: {
@@ -916,7 +949,7 @@ export default function TradingViewChart({
 
     // Add Volume Overlay on Price Chart (scaled at bottom)
     const volumeSeries = priceChart.addHistogramSeries({
-      color: "#26a69a30",
+      color: chartTheme.volumeUp,
       priceFormat: { type: "volume" },
       priceScaleId: "", // Overlay
     });
@@ -929,7 +962,7 @@ export default function TradingViewChart({
     const volumeData = candlesData.map((c) => ({
       time: c.time as UTCTimestamp,
       value: c.volume || 0,
-      color: c.close >= c.open ? "#26a69a40" : "#ef535040",
+      color: c.close >= c.open ? chartTheme.volumeUp : chartTheme.volumeDown,
     }));
     volumeSeries.setData(volumeData);
     chartRefs.current.volumeSeries = volumeSeries;
@@ -1072,23 +1105,23 @@ export default function TradingViewChart({
         width: width,
         height: paneHeight,
         layout: {
-          background: { type: ColorType.Solid, color: backgroundColor },
-          textColor: textColor,
+          background: { type: ColorType.Solid, color: chartTheme.backgroundColor },
+          textColor: chartTheme.textColor,
         },
         grid: {
-          vertLines: { color: gridColor },
-          horzLines: { color: gridColor },
+          vertLines: { color: chartTheme.gridColor },
+          horzLines: { color: chartTheme.gridColor },
         },
         crosshair: { mode: 1 },
         timeScale: {
-          borderColor: "#2a2e39",
+          borderColor: chartTheme.borderColor,
           visible: false, // hide time scale, sync with price chart
           rightOffset: 30,
           fixLeftEdge: false,
           fixRightEdge: false,
         },
         rightPriceScale: {
-          borderColor: "#2a2e39",
+          borderColor: chartTheme.borderColor,
           entireTextOnly: true,
           minimumWidth: 80,
         },
@@ -1639,6 +1672,7 @@ export default function TradingViewChart({
     markersData,
     lowerPaneIndicators,
     customMarkers,
+    theme,
   ]);
 
   useEffect(() => {
@@ -1901,7 +1935,7 @@ export default function TradingViewChart({
             stroke="rgba(0,0,0,0.001)"
             strokeWidth={Math.max(drawing.style.lineWidth, 12)}
             style={{ pointerEvents: "stroke" }}
-            onMouseDown={(e) => startDrawingDrag(drawing, e)}
+            onPointerDown={(e) => startDrawingDrag(drawing, e)}
           />
           {isSelected && (
             <circle
@@ -1910,7 +1944,7 @@ export default function TradingViewChart({
               r="8"
               fill="rgba(255,255,255,0.001)"
               style={{ cursor: "ns-resize", pointerEvents: "fill" }}
-              onMouseDown={(e) => startDrawingDrag(drawing, e, "point")}
+              onPointerDown={(e) => startDrawingDrag(drawing, e, "point")}
             />
           )}
         </g>
@@ -1930,7 +1964,7 @@ export default function TradingViewChart({
             height="18"
             fill="rgba(0,0,0,0.001)"
             style={{ pointerEvents: "fill" }}
-            onMouseDown={(e) => startDrawingDrag(drawing, e)}
+            onPointerDown={(e) => startDrawingDrag(drawing, e)}
           />
           {isSelected && (
             <circle
@@ -1939,7 +1973,7 @@ export default function TradingViewChart({
               r="8"
               fill="rgba(255,255,255,0.001)"
               style={{ cursor: "move", pointerEvents: "fill" }}
-              onMouseDown={(e) => startDrawingDrag(drawing, e, "point")}
+              onPointerDown={(e) => startDrawingDrag(drawing, e, "point")}
             />
           )}
         </g>
@@ -1970,7 +2004,7 @@ export default function TradingViewChart({
             stroke="rgba(0,0,0,0.001)"
             strokeWidth={Math.max(drawing.style.lineWidth, 12)}
             style={{ pointerEvents: "stroke" }}
-            onMouseDown={(e) => startDrawingDrag(drawing, e)}
+            onPointerDown={(e) => startDrawingDrag(drawing, e)}
           />
           {isSelected && (
             <>
@@ -1980,7 +2014,7 @@ export default function TradingViewChart({
                 r="8"
                 fill="rgba(255,255,255,0.001)"
                 style={{ cursor: "crosshair", pointerEvents: "fill" }}
-                onMouseDown={(e) => startDrawingDrag(drawing, e, "start")}
+                onPointerDown={(e) => startDrawingDrag(drawing, e, "start")}
               />
               <circle
                 cx={end.x}
@@ -1988,7 +2022,7 @@ export default function TradingViewChart({
                 r="8"
                 fill="rgba(255,255,255,0.001)"
                 style={{ cursor: "crosshair", pointerEvents: "fill" }}
-                onMouseDown={(e) => startDrawingDrag(drawing, e, "end")}
+                onPointerDown={(e) => startDrawingDrag(drawing, e, "end")}
               />
             </>
           )}
@@ -2013,7 +2047,7 @@ export default function TradingViewChart({
             height={h}
             fill="rgba(0,0,0,0.001)"
             style={{ pointerEvents: "fill" }}
-            onMouseDown={(e) => startDrawingDrag(drawing, e)}
+            onPointerDown={(e) => startDrawingDrag(drawing, e)}
           />
           {isSelected && (
             <>
@@ -2023,7 +2057,7 @@ export default function TradingViewChart({
                 r="8"
                 fill="rgba(255,255,255,0.001)"
                 style={{ cursor: "nwse-resize", pointerEvents: "fill" }}
-                onMouseDown={(e) => startDrawingDrag(drawing, e, "start")}
+                onPointerDown={(e) => startDrawingDrag(drawing, e, "start")}
               />
               <circle
                 cx={end.x}
@@ -2031,7 +2065,7 @@ export default function TradingViewChart({
                 r="8"
                 fill="rgba(255,255,255,0.001)"
                 style={{ cursor: "nwse-resize", pointerEvents: "fill" }}
-                onMouseDown={(e) => startDrawingDrag(drawing, e, "end")}
+                onPointerDown={(e) => startDrawingDrag(drawing, e, "end")}
               />
             </>
           )}
@@ -2056,7 +2090,7 @@ export default function TradingViewChart({
             height={h}
             fill="rgba(0,0,0,0.001)"
             style={{ pointerEvents: "fill" }}
-            onMouseDown={(e) => startDrawingDrag(drawing, e)}
+            onPointerDown={(e) => startDrawingDrag(drawing, e)}
           />
           {isSelected && (
             <>
@@ -2066,7 +2100,7 @@ export default function TradingViewChart({
                 r="8"
                 fill="rgba(255,255,255,0.001)"
                 style={{ cursor: "crosshair", pointerEvents: "fill" }}
-                onMouseDown={(e) => startDrawingDrag(drawing, e, "start")}
+                onPointerDown={(e) => startDrawingDrag(drawing, e, "start")}
               />
               <circle
                 cx={end.x}
@@ -2074,7 +2108,7 @@ export default function TradingViewChart({
                 r="8"
                 fill="rgba(255,255,255,0.001)"
                 style={{ cursor: "crosshair", pointerEvents: "fill" }}
-                onMouseDown={(e) => startDrawingDrag(drawing, e, "end")}
+                onPointerDown={(e) => startDrawingDrag(drawing, e, "end")}
               />
             </>
           )}
@@ -2129,39 +2163,65 @@ export default function TradingViewChart({
     ts.setVisibleLogicalRange({ from, to });
   }, [focusTimestamp, candlesData]);
 
-  // --- Drawing drag (move) effect ---
+  // --- Drawing drag (move) lifecycle ---
+  // Permanent global listeners so the drag ends reliably on pointer/mouse up,
+  // blur, tab switch, or pointer leaving the document — even if the up event is
+  // swallowed by the chart canvas. Movement only happens while the primary
+  // button is held; the moment it is released the drawing drops.
   useEffect(() => {
-    if (!isDraggingDrawing) return;
-    const handleMouseMove = (e: MouseEvent) => {
-      if (!dragStartRef.current) return;
-      const deltaX = e.clientX - dragStartRef.current.x;
-      const deltaY = e.clientY - dragStartRef.current.y;
-      dragStartRef.current.x = e.clientX;
-      dragStartRef.current.y = e.clientY;
-      if (dragStartRef.current.mode === "move") {
-        moveDrawing(dragStartRef.current.drawing.id, deltaX, deltaY);
-      } else {
-        moveDrawingHandle(
-          dragStartRef.current.drawing.id,
-          dragStartRef.current.mode,
-          deltaX,
-          deltaY,
-        );
-      }
-    };
-    const handleMouseUp = () => {
+    const stopDrag = () => {
+      if (!dragStateRef.current) return;
+      dragStateRef.current = null;
       setIsDraggingDrawing(false);
-      dragStartRef.current = null;
       document.body.style.cursor = "default";
       document.body.style.userSelect = "auto";
     };
-    window.addEventListener("mousemove", handleMouseMove);
-    window.addEventListener("mouseup", handleMouseUp);
-    return () => {
-      window.removeEventListener("mousemove", handleMouseMove);
-      window.removeEventListener("mouseup", handleMouseUp);
+    stopDrawingDragRef.current = stopDrag;
+
+    const onMove = (ev: PointerEvent | MouseEvent) => {
+      const st = dragStateRef.current;
+      if (!st) return;
+      // Primary button no longer pressed -> drop immediately.
+      if ((ev.buttons & 1) !== 1) {
+        stopDrag();
+        return;
+      }
+      const deltaX = ev.clientX - st.lastX;
+      const deltaY = ev.clientY - st.lastY;
+      st.lastX = ev.clientX;
+      st.lastY = ev.clientY;
+      if (deltaX === 0 && deltaY === 0) return;
+
+      if (st.mode === "move") {
+        moveDrawingRef.current(st.drawingId, deltaX, deltaY);
+      } else {
+        moveDrawingHandleRef.current(st.drawingId, st.mode, deltaX, deltaY);
+      }
     };
-  }, [isDraggingDrawing]);
+
+    const onLeave = (ev: MouseEvent) => {
+      if (!ev.relatedTarget) stopDrag();
+    };
+
+    window.addEventListener("pointermove", onMove, true);
+    window.addEventListener("pointerup", stopDrag, true);
+    window.addEventListener("pointercancel", stopDrag, true);
+    window.addEventListener("mouseup", stopDrag, true);
+    window.addEventListener("blur", stopDrag);
+    document.addEventListener("mouseleave", onLeave, true);
+    document.addEventListener("visibilitychange", stopDrag);
+
+    return () => {
+      window.removeEventListener("pointermove", onMove, true);
+      window.removeEventListener("pointerup", stopDrag, true);
+      window.removeEventListener("pointercancel", stopDrag, true);
+      window.removeEventListener("mouseup", stopDrag, true);
+      window.removeEventListener("blur", stopDrag);
+      document.removeEventListener("mouseleave", onLeave, true);
+      document.removeEventListener("visibilitychange", stopDrag);
+      stopDrawingDragRef.current = null;
+    };
+  }, []);
 
   // --- Properties panel drag & resize effects ---
   useEffect(() => {
@@ -2309,8 +2369,8 @@ export default function TradingViewChart({
 
   if (loading) {
     return (
-      <div className="w-full h-full flex flex-col items-center justify-center bg-[#131722] text-[#787b86] gap-3">
-        <Loader2 className="w-8 h-8 animate-spin text-[#2962ff]" />
+      <div className="w-full h-full flex flex-col items-center justify-center bg-zinc-50 text-zinc-500 gap-3 dark:bg-[#131722] dark:text-[#787b86]">
+        <Loader2 className="w-8 h-8 animate-spin text-indigo-500 dark:text-[#2962ff]" />
         <span className="text-xs font-bold uppercase tracking-wider">
           Retrieving Candle Data...
         </span>
@@ -2320,12 +2380,12 @@ export default function TradingViewChart({
 
   if (error) {
     return (
-      <div className="w-full h-full flex flex-col items-center justify-center bg-[#131722] text-[#ef5350] p-6 gap-3 text-center">
+      <div className="w-full h-full flex flex-col items-center justify-center bg-zinc-50 text-red-500 p-6 gap-3 text-center dark:bg-[#131722] dark:text-[#ef5350]">
         <AlertCircle className="w-8 h-8 text-[#ef5350]/60" />
         <span className="text-xs font-bold uppercase tracking-wider">
           {error}
         </span>
-        <p className="text-[10px] text-[#787b86]">
+        <p className="text-[10px] text-zinc-500 dark:text-[#787b86]">
           Please select another stock ticker or verify database price logs.
         </p>
       </div>
@@ -2335,7 +2395,7 @@ export default function TradingViewChart({
   return (
     <div
       ref={mainContainerRef}
-      className="w-full h-full flex flex-col bg-[#131722] relative select-none overflow-hidden"
+      className="w-full h-full flex flex-col bg-zinc-50 dark:bg-[#131722] relative select-none overflow-hidden"
       style={{ touchAction: "none" }}
       onWheel={(e) => {
         // ✅ Stop wheel events from bubbling to the page scroller
@@ -2343,21 +2403,21 @@ export default function TradingViewChart({
       }}
     >
       {/* Custom Interactive Toolbar */}
-      <div className="h-10 border-b border-[#2a2e39] bg-[#1c2030]/30 px-3 flex items-center justify-between text-xs text-[#d1d4dc] z-30 select-none">
+      <div className="h-10 border-b border-zinc-200 bg-white/90 px-3 flex items-center justify-between text-xs text-zinc-700 z-30 select-none shadow-sm dark:border-[#2a2e39] dark:bg-[#1c2030]/30 dark:text-[#d1d4dc] dark:shadow-none">
         <div className="flex items-center gap-3 overflow-x-auto no-scrollbar flex-1 mr-2">
           <div className="flex items-center gap-1.5 shrink-0">
-            <span className="font-bold text-white uppercase tracking-tight">
+            <span className="font-bold text-zinc-950 dark:text-white uppercase tracking-tight">
               {symbol}
             </span>
-            <span className="text-[10px] text-[#787b86] font-mono">
+            <span className="text-[10px] text-zinc-500 dark:text-[#787b86] font-mono">
               ({timeframe})
             </span>
           </div>
-          <div className="h-4 w-[1px] bg-[#2a2e39] shrink-0" />
+          <div className="h-4 w-[1px] bg-zinc-200 dark:bg-[#2a2e39] shrink-0" />
 
           {/* Drawing Tools Section */}
           <div className="flex items-center gap-1 shrink-0">
-            <span className="text-[10px] text-[#787b86] uppercase tracking-wider font-bold mr-1">
+            <span className="text-[10px] text-zinc-500 dark:text-[#787b86] uppercase tracking-wider font-bold mr-1">
               Draw:
             </span>
 
@@ -2366,7 +2426,7 @@ export default function TradingViewChart({
               className={`h-7 px-2.5 rounded flex items-center gap-1.5 transition-all text-[10px] font-bold uppercase tracking-wide ${
                 activeTool === "horizontal"
                   ? "bg-indigo-600 text-white"
-                  : "bg-[#1c2030] text-[#787b86] hover:bg-[#2a2e39] hover:text-white"
+                  : "bg-zinc-100 text-zinc-500 hover:bg-zinc-200 hover:text-zinc-950 dark:bg-[#1c2030] dark:text-[#787b86] dark:hover:bg-[#2a2e39] dark:hover:text-white"
               }`}
               title="Horizontal Line (Support/Resistance)"
             >
@@ -2386,7 +2446,7 @@ export default function TradingViewChart({
               className={`h-7 px-2.5 rounded flex items-center gap-1.5 transition-all text-[10px] font-bold uppercase tracking-wide ${
                 activeTool === "trend"
                   ? "bg-emerald-600 text-white"
-                  : "bg-[#1c2030] text-[#787b86] hover:bg-[#2a2e39] hover:text-white"
+                  : "bg-zinc-100 text-zinc-500 hover:bg-zinc-200 hover:text-zinc-950 dark:bg-[#1c2030] dark:text-[#787b86] dark:hover:bg-[#2a2e39] dark:hover:text-white"
               }`}
               title="Trend Line"
             >
@@ -2408,7 +2468,7 @@ export default function TradingViewChart({
               activeTool === "ray" ||
               activeTool === "extendedLine" ||
               activeTool === "text") && (
-              <div className="ml-2 flex items-center gap-2 rounded-xl border border-white/10 bg-[#0c0d12]/80 px-2 py-1">
+              <div className="ml-2 flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-2 py-1 shadow-sm dark:border-white/10 dark:bg-[#0c0d12]/80 dark:shadow-none">
                 <input
                   type="color"
                   value={drawingStyle.color}
@@ -2422,7 +2482,7 @@ export default function TradingViewChart({
                           : prev.fillColor,
                     }))
                   }
-                  className="h-6 w-6 cursor-pointer rounded border border-white/10 bg-transparent p-0"
+                  className="h-6 w-6 cursor-pointer rounded border border-zinc-200 bg-transparent p-0 dark:border-white/10"
                   title="Line Color"
                 />
                 <select
@@ -2433,7 +2493,7 @@ export default function TradingViewChart({
                       lineWidth: Number(e.target.value),
                     }))
                   }
-                  className="h-7 rounded bg-[#131722] px-2 text-[10px] font-bold text-white outline-none"
+                  className="h-7 rounded bg-zinc-50 px-2 text-[10px] font-bold text-zinc-950 outline-none dark:bg-[#131722] dark:text-white"
                 >
                   <option value="1">1px</option>
                   <option value="2">2px</option>
@@ -2448,7 +2508,7 @@ export default function TradingViewChart({
                       lineStyle: e.target.value as DrawingLineStyle,
                     }))
                   }
-                  className="h-7 rounded bg-[#131722] px-2 text-[10px] font-bold text-white outline-none"
+                  className="h-7 rounded bg-zinc-50 px-2 text-[10px] font-bold text-zinc-950 outline-none dark:bg-[#131722] dark:text-white"
                 >
                   <option value="solid">Solid</option>
                   <option value="dashed">Dashed</option>
@@ -2464,7 +2524,7 @@ export default function TradingViewChart({
                     }))
                   }
                   placeholder="Label"
-                  className="h-7 w-24 rounded bg-[#131722] px-2 text-[10px] font-bold text-white placeholder:text-[#787b86] outline-none"
+                  className="h-7 w-24 rounded bg-zinc-50 px-2 text-[10px] font-bold text-zinc-950 placeholder:text-zinc-400 outline-none dark:bg-[#131722] dark:text-white dark:placeholder:text-[#787b86]"
                 />
               </div>
             )}
@@ -2474,7 +2534,7 @@ export default function TradingViewChart({
               className={`h-7 px-2.5 rounded flex items-center gap-1.5 transition-all text-[10px] font-bold uppercase tracking-wide ${
                 activeTool === "fib"
                   ? "bg-amber-600 text-white"
-                  : "bg-[#1c2030] text-[#787b86] hover:bg-[#2a2e39] hover:text-white"
+                  : "bg-zinc-100 text-zinc-500 hover:bg-zinc-200 hover:text-zinc-950 dark:bg-[#1c2030] dark:text-[#787b86] dark:hover:bg-[#2a2e39] dark:hover:text-white"
               }`}
               title="Fibonacci Retracement"
             >
@@ -2497,7 +2557,7 @@ export default function TradingViewChart({
               className={`h-7 px-2.5 rounded flex items-center gap-1.5 transition-all text-[10px] font-bold uppercase tracking-wide ${
                 activeTool === "rectangle"
                   ? "bg-sky-600 text-white"
-                  : "bg-[#1c2030] text-[#787b86] hover:bg-[#2a2e39] hover:text-white"
+                  : "bg-zinc-100 text-zinc-500 hover:bg-zinc-200 hover:text-zinc-950 dark:bg-[#1c2030] dark:text-[#787b86] dark:hover:bg-[#2a2e39] dark:hover:text-white"
               }`}
               title="Rectangle Zone"
             >
@@ -2533,7 +2593,7 @@ export default function TradingViewChart({
               className={`h-7 px-2.5 rounded flex items-center gap-1.5 transition-all text-[10px] font-bold uppercase tracking-wide ${
                 activeTool === "trash"
                   ? "bg-red-600 text-white"
-                  : "bg-[#1c2030] text-[#787b86] hover:bg-[#2a2e39] hover:text-red-400"
+                  : "bg-zinc-100 text-zinc-500 hover:bg-red-50 hover:text-red-500 dark:bg-[#1c2030] dark:text-[#787b86] dark:hover:bg-[#2a2e39] dark:hover:text-red-400"
               }`}
               title="Clear All Drawings"
             >
@@ -2570,26 +2630,26 @@ export default function TradingViewChart({
       </div>
 
       {/* Sub-Legend containing exact Candlestick metrics and Overlay Indicator values */}
-      <div className="absolute top-12 left-4 z-20 flex flex-wrap gap-x-3 gap-y-1 text-[10px] font-mono text-[#787b86] max-w-[90%] pointer-events-none">
+      <div className="absolute top-12 left-4 z-20 flex flex-wrap gap-x-3 gap-y-1 text-[10px] font-mono text-zinc-500 dark:text-[#787b86] max-w-[90%] pointer-events-none">
         {hoverData ? (
           <>
-            <span className="text-[#d1d4dc] shrink-0 font-bold uppercase tracking-tighter">
-              O: <span className="text-white">{hoverData.open.toFixed(2)}</span>
+            <span className="text-zinc-700 dark:text-[#d1d4dc] shrink-0 font-bold uppercase tracking-tighter">
+              O: <span className="text-zinc-950 dark:text-white">{hoverData.open.toFixed(2)}</span>
             </span>
-            <span className="text-[#d1d4dc] shrink-0 font-bold uppercase tracking-tighter">
-              H: <span className="text-white">{hoverData.high.toFixed(2)}</span>
+            <span className="text-zinc-700 dark:text-[#d1d4dc] shrink-0 font-bold uppercase tracking-tighter">
+              H: <span className="text-zinc-950 dark:text-white">{hoverData.high.toFixed(2)}</span>
             </span>
-            <span className="text-[#d1d4dc] shrink-0 font-bold uppercase tracking-tighter">
-              L: <span className="text-white">{hoverData.low.toFixed(2)}</span>
+            <span className="text-zinc-700 dark:text-[#d1d4dc] shrink-0 font-bold uppercase tracking-tighter">
+              L: <span className="text-zinc-950 dark:text-white">{hoverData.low.toFixed(2)}</span>
             </span>
-            <span className="text-[#d1d4dc] shrink-0 font-bold uppercase tracking-tighter">
+            <span className="text-zinc-700 dark:text-[#d1d4dc] shrink-0 font-bold uppercase tracking-tighter">
               C:{" "}
-              <span className="text-white">{hoverData.close.toFixed(2)}</span>
+              <span className="text-zinc-950 dark:text-white">{hoverData.close.toFixed(2)}</span>
             </span>
             {hoverData.volume !== undefined && (
-              <span className="text-[#d1d4dc] shrink-0 font-bold uppercase tracking-tighter">
+              <span className="text-zinc-700 dark:text-[#d1d4dc] shrink-0 font-bold uppercase tracking-tighter">
                 V:{" "}
-                <span className="text-white">
+                <span className="text-zinc-950 dark:text-white">
                   {hoverData.volume.toLocaleString()}
                 </span>
               </span>
@@ -2614,7 +2674,7 @@ export default function TradingViewChart({
                     className="shrink-0 font-bold"
                   >
                     {ind.type}({ind.params.period}):{" "}
-                    <span className="text-white">{val.toFixed(2)}</span>
+                    <span className="text-zinc-950 dark:text-white">{val.toFixed(2)}</span>
                   </span>
                 );
               }
@@ -2626,11 +2686,11 @@ export default function TradingViewChart({
                     className="shrink-0 font-bold"
                   >
                     BB({ind.params.period},{ind.params.stdDev}):{" "}
-                    <span className="text-white">
+                    <span className="text-zinc-950 dark:text-white">
                       U {val.upper?.toFixed(2)}
                     </span>{" "}
                     M {val.middle?.toFixed(2)}{" "}
-                    <span className="text-white">
+                    <span className="text-zinc-950 dark:text-white">
                       L {val.lower?.toFixed(2)}
                     </span>
                   </span>
@@ -2640,7 +2700,7 @@ export default function TradingViewChart({
             })}
           </>
         ) : (
-          <span className="text-[#787b86] italic tracking-wide">
+          <span className="text-zinc-500 dark:text-[#787b86] italic tracking-wide">
             Hover crosshair over candles for OHLCV & Indicator metrics
           </span>
         )}
@@ -2651,22 +2711,22 @@ export default function TradingViewChart({
         {activeIndicators.map((ind) => (
           <div
             key={ind.id}
-            className="pointer-events-auto flex items-center justify-between gap-3 bg-[#0c0d12]/80 backdrop-blur-md px-2.5 py-1.5 rounded-xl border border-white/5 text-[10px] text-zinc-300 font-mono font-bold select-none hover:border-zinc-700 transition-all"
+            className="pointer-events-auto flex items-center justify-between gap-3 bg-white/90 backdrop-blur-md px-2.5 py-1.5 rounded-xl border border-zinc-200 text-[10px] text-zinc-700 font-mono font-bold select-none hover:border-zinc-300 transition-all shadow-sm dark:bg-[#0c0d12]/80 dark:border-white/5 dark:text-zinc-300 dark:hover:border-zinc-700 dark:shadow-none"
           >
             <div className="flex items-center gap-2">
               <span
-                className="w-2 h-2 rounded-full border border-white/10 shrink-0"
+                className="w-2 h-2 rounded-full border border-zinc-200 shrink-0 dark:border-white/10"
                 style={{ backgroundColor: ind.color }}
               />
-              <span className="text-white tracking-tight">
+              <span className="text-zinc-950 dark:text-white tracking-tight">
                 {ind.type} ({Object.values(ind.params).join(", ")})
               </span>
             </div>
 
-            <div className="flex items-center gap-1.5 border-l border-white/10 pl-2">
+            <div className="flex items-center gap-1.5 border-l border-zinc-200 pl-2 dark:border-white/10">
               <button
                 onClick={() => toggleIndicatorVisibility(ind.id)}
-                className="text-zinc-500 hover:text-white transition-colors p-0.5 rounded hover:bg-white/5"
+                className="text-zinc-500 hover:text-zinc-950 transition-colors p-0.5 rounded hover:bg-zinc-100 dark:hover:text-white dark:hover:bg-white/5"
                 title={ind.visible ? "Hide" : "Show"}
               >
                 {ind.visible ? (
@@ -2677,7 +2737,7 @@ export default function TradingViewChart({
               </button>
               <button
                 onClick={() => removeIndicator(ind.id)}
-                className="text-zinc-500 hover:text-red-400 transition-colors p-0.5 rounded hover:bg-white/5"
+                className="text-zinc-500 hover:text-red-500 transition-colors p-0.5 rounded hover:bg-zinc-100 dark:hover:text-red-400 dark:hover:bg-white/5"
                 title="Remove"
               >
                 <Trash2 className="w-3.5 h-3.5" />
@@ -2688,7 +2748,7 @@ export default function TradingViewChart({
       </div>
 
       {/* Containers for Price and Lower Pane charts */}
-      <div className="flex-1 flex flex-col min-h-0 bg-[#131722] p-1 overflow-hidden">
+      <div className="flex-1 flex flex-col min-h-0 bg-zinc-50 dark:bg-[#131722] p-1 overflow-hidden">
         {/* 1. Candlestick Chart */}
         <div
           className="flex-1 w-full min-h-0 overflow-hidden relative"
@@ -2737,7 +2797,7 @@ export default function TradingViewChart({
           {/* Drawing Properties Panel (TradingView-like floating editor) */}
           {selectedDrawing && activeTool === "cursor" && (
             <div
-              className="absolute z-40 bg-[#1c2030]/95 backdrop-blur-xl border border-[#2a2e39] rounded-2xl shadow-2xl select-none overflow-hidden animate-fade-in"
+              className="absolute z-40 bg-white/95 backdrop-blur-xl border border-zinc-200 rounded-2xl shadow-2xl select-none overflow-hidden animate-fade-in dark:bg-[#1c2030]/95 dark:border-[#2a2e39]"
               style={{ left: propsPanelPos.x, top: propsPanelPos.y, width: propsPanelPos.width }}
             >
               {/* Resize handle */}
@@ -2752,7 +2812,7 @@ export default function TradingViewChart({
               />
 
               <div
-                className="px-3 py-2.5 border-b border-[#2a2e39] flex items-center justify-between cursor-grab active:cursor-grabbing"
+                className="px-3 py-2.5 border-b border-zinc-200 flex items-center justify-between cursor-grab active:cursor-grabbing dark:border-[#2a2e39]"
                 onPointerDown={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
@@ -2767,7 +2827,7 @@ export default function TradingViewChart({
               >
                 <div className="flex items-center gap-2">
                   <span className="w-2 h-2 rounded-full" style={{ backgroundColor: drawingStyle.color }} />
-                  <span className="text-[11px] font-black text-white uppercase tracking-wider">
+                  <span className="text-[11px] font-black text-zinc-950 dark:text-white uppercase tracking-wider">
                     {selectedDrawing.type === "horizontal" ? "Horizontal Line" :
                      selectedDrawing.type === "trend" ? "Trend Line" :
                      selectedDrawing.type === "rectangle" ? "Rectangle" :
@@ -2787,7 +2847,7 @@ export default function TradingViewChart({
                   </button>
                   <button
                     onClick={() => setSelectedDrawingId(null)}
-                    className="p-1 rounded hover:bg-[#2a2e39] text-[#787b86] hover:text-white transition-all"
+                    className="p-1 rounded hover:bg-zinc-100 text-zinc-500 hover:text-zinc-950 transition-all dark:hover:bg-[#2a2e39] dark:text-[#787b86] dark:hover:text-white"
                     title="Close"
                   >
                     <X className="w-3.5 h-3.5" />
@@ -2798,7 +2858,7 @@ export default function TradingViewChart({
               <div className="px-3 py-3 space-y-3">
                 {/* Line Color */}
                 <div className="flex items-center justify-between gap-3">
-                  <span className="text-[10px] font-bold text-[#787b86] uppercase tracking-wider shrink-0">Color</span>
+                  <span className="text-[10px] font-bold text-zinc-500 dark:text-[#787b86] uppercase tracking-wider shrink-0">Color</span>
                   <div className="flex items-center gap-2">
                     <input
                       type="color"
@@ -2815,7 +2875,7 @@ export default function TradingViewChart({
                         setDrawingStyle(newStyle);
                         updateDrawingStyle(selectedDrawing.id, newStyle);
                       }}
-                      className="h-7 w-7 cursor-pointer rounded border border-white/10 bg-transparent p-0"
+                      className="h-7 w-7 cursor-pointer rounded border border-zinc-200 bg-transparent p-0 dark:border-white/10"
                     />
                     {(["#ef5350","#26a69a","#6366f1","#38bdf8","#f59e0b","#a855f7","#f97316","#22c55e","#e91e63","#2196f3","#ffffff","#787b86"] as const).map((preset) => (
                       <button
@@ -2832,7 +2892,7 @@ export default function TradingViewChart({
                           updateDrawingStyle(selectedDrawing.id, newStyle);
                         }}
                         className={`w-5 h-5 rounded-full border-2 transition-all hover:scale-125 active:scale-110 ${
-                          drawingStyle.color === preset ? "border-white scale-110" : "border-white/20"
+                          drawingStyle.color === preset ? "border-zinc-950 scale-110 dark:border-white" : "border-zinc-300 dark:border-white/20"
                         }`}
                         style={{ backgroundColor: preset }}
                       />
@@ -2842,7 +2902,7 @@ export default function TradingViewChart({
 
                 {/* Line Width */}
                 <div className="flex items-center justify-between gap-3">
-                  <span className="text-[10px] font-bold text-[#787b86] uppercase tracking-wider shrink-0">Width</span>
+                  <span className="text-[10px] font-bold text-zinc-500 dark:text-[#787b86] uppercase tracking-wider shrink-0">Width</span>
                   <div className="flex items-center gap-1.5">
                     {[1, 2, 3, 4, 5].map((w) => (
                       <button
@@ -2853,7 +2913,7 @@ export default function TradingViewChart({
                           updateDrawingStyle(selectedDrawing.id, newStyle);
                         }}
                         className={`h-7 w-7 rounded-lg border transition-all flex items-center justify-center ${
-                          drawingStyle.lineWidth === w ? "border-indigo-500 bg-indigo-500/20 text-white" : "border-white/10 bg-[#131722] text-[#787b86] hover:border-white/30 hover:text-white"
+                          drawingStyle.lineWidth === w ? "border-indigo-500 bg-indigo-500/20 text-zinc-950 dark:text-white" : "border-zinc-200 bg-zinc-50 text-zinc-500 hover:border-zinc-400 hover:text-zinc-950 dark:border-white/10 dark:bg-[#131722] dark:text-[#787b86] dark:hover:border-white/30 dark:hover:text-white"
                         }`}
                       >
                         <div
@@ -2871,7 +2931,7 @@ export default function TradingViewChart({
 
                 {/* Line Style */}
                 <div className="flex items-center justify-between gap-3">
-                  <span className="text-[10px] font-bold text-[#787b86] uppercase tracking-wider shrink-0">Style</span>
+                  <span className="text-[10px] font-bold text-zinc-500 dark:text-[#787b86] uppercase tracking-wider shrink-0">Style</span>
                   <div className="flex items-center gap-1.5">
                     {(["solid", "dashed", "dotted"] as DrawingLineStyle[]).map((s) => (
                       <button
@@ -2882,7 +2942,7 @@ export default function TradingViewChart({
                           updateDrawingStyle(selectedDrawing.id, newStyle);
                         }}
                         className={`h-7 px-3 rounded-lg border transition-all text-[10px] font-bold uppercase tracking-wider ${
-                          drawingStyle.lineStyle === s ? "border-indigo-500 bg-indigo-500/20 text-white" : "border-white/10 bg-[#131722] text-[#787b86] hover:border-white/30 hover:text-white"
+                          drawingStyle.lineStyle === s ? "border-indigo-500 bg-indigo-500/20 text-zinc-950 dark:text-white" : "border-zinc-200 bg-zinc-50 text-zinc-500 hover:border-zinc-400 hover:text-zinc-950 dark:border-white/10 dark:bg-[#131722] dark:text-[#787b86] dark:hover:border-white/30 dark:hover:text-white"
                         }`}
                       >
                         <svg className="w-12 h-3" viewBox="0 0 48 6">
@@ -2901,7 +2961,7 @@ export default function TradingViewChart({
                 {/* Fill Color (for rectangle & fib only) */}
                 {(selectedDrawing.type === "rectangle" || selectedDrawing.type === "fib") && (
                   <div className="flex items-center justify-between gap-3">
-                    <span className="text-[10px] font-bold text-[#787b86] uppercase tracking-wider shrink-0">Fill</span>
+                    <span className="text-[10px] font-bold text-zinc-500 dark:text-[#787b86] uppercase tracking-wider shrink-0">Fill</span>
                     <input
                       type="color"
                       value={(() => {
@@ -2925,10 +2985,10 @@ export default function TradingViewChart({
                         setDrawingStyle(newStyle);
                         updateDrawingStyle(selectedDrawing.id, newStyle);
                       }}
-                      className="h-7 w-7 cursor-pointer rounded border border-white/10 bg-transparent p-0"
+                      className="h-7 w-7 cursor-pointer rounded border border-zinc-200 bg-transparent p-0 dark:border-white/10"
                     />
                     <div className="flex items-center gap-1.5 flex-1">
-                      <span className="text-[10px] text-[#787b86] font-bold shrink-0">Opacity</span>
+                      <span className="text-[10px] text-zinc-500 dark:text-[#787b86] font-bold shrink-0">Opacity</span>
                       <input
                         type="range"
                         min="0"
@@ -2963,7 +3023,7 @@ export default function TradingViewChart({
 
                 {/* Label */}
                 <div className="flex items-center justify-between gap-3">
-                  <span className="text-[10px] font-bold text-[#787b86] uppercase tracking-wider shrink-0">Label</span>
+                  <span className="text-[10px] font-bold text-zinc-500 dark:text-[#787b86] uppercase tracking-wider shrink-0">Label</span>
                   <input
                     type="text"
                     value={drawingStyle.label || ""}
@@ -2973,14 +3033,14 @@ export default function TradingViewChart({
                       updateDrawingStyle(selectedDrawing.id, newStyle);
                     }}
                     placeholder="Label..."
-                    className="h-7 w-[140px] rounded-lg bg-[#131722] border border-white/10 px-2 text-[10px] font-bold text-white placeholder:text-[#787b86] outline-none focus:border-indigo-500 transition-all"
+                    className="h-7 w-[140px] rounded-lg bg-zinc-50 border border-zinc-200 px-2 text-[10px] font-bold text-zinc-950 placeholder:text-zinc-400 outline-none focus:border-indigo-500 transition-all dark:bg-[#131722] dark:border-white/10 dark:text-white dark:placeholder:text-[#787b86]"
                   />
                 </div>
 
                 {/* Text Color (for drawings with text) */}
                 {(selectedDrawing.type === "horizontal" || selectedDrawing.type === "fib" || selectedDrawing.type === "text" || selectedDrawing.type === "rectangle") && (
                   <div className="flex items-center justify-between gap-3">
-                    <span className="text-[10px] font-bold text-[#787b86] uppercase tracking-wider shrink-0">Text</span>
+                    <span className="text-[10px] font-bold text-zinc-500 dark:text-[#787b86] uppercase tracking-wider shrink-0">Text</span>
                     <input
                       type="color"
                       value={drawingStyle.textColor || drawingStyle.color}
@@ -2989,7 +3049,7 @@ export default function TradingViewChart({
                         setDrawingStyle(newStyle);
                         updateDrawingStyle(selectedDrawing.id, newStyle);
                       }}
-                      className="h-7 w-7 cursor-pointer rounded border border-white/10 bg-transparent p-0"
+                      className="h-7 w-7 cursor-pointer rounded border border-zinc-200 bg-transparent p-0 dark:border-white/10"
                     />
                   </div>
                 )}
@@ -3002,9 +3062,9 @@ export default function TradingViewChart({
         {lowerPaneIndicators.map((ind) => (
           <div
             key={ind.id}
-            className="w-full h-[120px] relative border-t border-[#2a2e39] mt-1 shrink-0 overflow-hidden"
+            className="w-full h-[120px] relative border-t border-zinc-200 dark:border-[#2a2e39] mt-1 shrink-0 overflow-hidden"
           >
-            <div className="absolute top-1.5 left-4 z-20 pointer-events-none text-[9px] font-mono font-bold text-[#787b86] uppercase tracking-wider flex items-center gap-1.5">
+            <div className="absolute top-1.5 left-4 z-20 pointer-events-none text-[9px] font-mono font-bold text-zinc-500 dark:text-[#787b86] uppercase tracking-wider flex items-center gap-1.5">
               <span
                 className="w-1.5 h-1.5 rounded-full"
                 style={{ backgroundColor: ind.color }}
@@ -3080,10 +3140,10 @@ export default function TradingViewChart({
         document.body &&
         createPortal(
           <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-[99999] p-4 select-none">
-            <div className="bg-[#131722] border border-[#2a2e39] rounded-2xl w-full max-w-2xl shadow-2xl flex flex-col overflow-hidden max-h-[85vh]">
+            <div className="bg-white border border-zinc-200 rounded-2xl w-full max-w-2xl shadow-2xl flex flex-col overflow-hidden max-h-[85vh] dark:bg-[#131722] dark:border-[#2a2e39]">
               {/* Header */}
-              <div className="px-5 py-4 border-b border-[#2a2e39] flex items-center justify-between">
-                <span className="text-sm font-bold text-white uppercase tracking-wider">
+              <div className="px-5 py-4 border-b border-zinc-200 flex items-center justify-between dark:border-[#2a2e39]">
+                <span className="text-sm font-bold text-zinc-950 dark:text-white uppercase tracking-wider">
                   Indicators Workspace
                 </span>
                 <button
@@ -3091,29 +3151,29 @@ export default function TradingViewChart({
                     setShowIndicatorModal(false);
                     setIndicatorSearchQuery("");
                   }}
-                  className="p-1.5 rounded hover:bg-[#1c2030] text-[#b2b5be] hover:text-white transition-colors"
+                  className="p-1.5 rounded hover:bg-zinc-100 text-zinc-500 hover:text-zinc-950 transition-colors dark:hover:bg-[#1c2030] dark:text-[#b2b5be] dark:hover:text-white"
                 >
                   <X className="w-4 h-4" />
                 </button>
               </div>
 
               {/* Search Input */}
-              <div className="px-5 py-3 border-b border-[#2a2e39] bg-[#1c2030]/20 relative">
+              <div className="px-5 py-3 border-b border-zinc-200 bg-zinc-50 relative dark:border-[#2a2e39] dark:bg-[#1c2030]/20">
                 <input
                   type="text"
                   placeholder="Search indicators..."
                   value={indicatorSearchQuery}
                   onChange={(e) => setIndicatorSearchQuery(e.target.value)}
-                  className="w-full h-9 pl-9 pr-4 rounded bg-[#1c2030] border border-[#2a2e39] text-white text-xs placeholder-[#787b86] focus:outline-none focus:border-[#2962ff] transition-all"
+                  className="w-full h-9 pl-9 pr-4 rounded bg-white border border-zinc-200 text-zinc-950 text-xs placeholder-zinc-400 focus:outline-none focus:border-indigo-500 transition-all dark:bg-[#1c2030] dark:border-[#2a2e39] dark:text-white dark:placeholder-[#787b86] dark:focus:border-[#2962ff]"
                   autoFocus
                 />
-                <Search className="absolute left-8 top-5 w-4 h-4 text-[#787b86]" />
+                <Search className="absolute left-8 top-5 w-4 h-4 text-zinc-400 dark:text-[#787b86]" />
               </div>
 
               <div className="flex-1 overflow-y-auto custom-scrollbar p-5 space-y-6 min-h-0">
                 {/* Catalog indicators catalog grid list */}
                 <div className="space-y-3">
-                  <h4 className="text-[10px] font-black text-zinc-500 uppercase tracking-widest border-b border-[#2a2e39] pb-1.5">
+                  <h4 className="text-[10px] font-black text-zinc-500 uppercase tracking-widest border-b border-zinc-200 dark:border-[#2a2e39] pb-1.5">
                     Catalog (Click to add indicator)
                   </h4>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -3121,18 +3181,18 @@ export default function TradingViewChart({
                       <button
                         key={ind.type}
                         onClick={() => addIndicator(ind.type)}
-                        className="p-3.5 rounded-xl border border-white/5 bg-[#1c2030]/20 hover:bg-[#1c2030]/60 hover:border-zinc-700 transition-all text-left flex flex-col justify-between h-24 group relative overflow-hidden active:scale-[0.98]"
+                        className="p-3.5 rounded-xl border border-zinc-200 bg-white hover:bg-zinc-50 hover:border-zinc-300 transition-all text-left flex flex-col justify-between h-24 group relative overflow-hidden active:scale-[0.98] dark:border-white/5 dark:bg-[#1c2030]/20 dark:hover:bg-[#1c2030]/60 dark:hover:border-zinc-700"
                       >
                         <div className="space-y-1 z-10 relative">
-                          <div className="text-[11px] font-black text-white uppercase group-hover:text-indigo-400 transition-colors">
+                          <div className="text-[11px] font-black text-zinc-950 dark:text-white uppercase group-hover:text-indigo-500 dark:group-hover:text-indigo-400 transition-colors">
                             {ind.name}
                           </div>
-                          <div className="text-[9px] text-[#787b86] font-semibold leading-snug line-clamp-2">
+                          <div className="text-[9px] text-zinc-500 dark:text-[#787b86] font-semibold leading-snug line-clamp-2">
                             {ind.desc}
                           </div>
                         </div>
                         <div className="z-10 relative flex justify-between items-center w-full">
-                          <span className="text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded bg-zinc-800 text-[#787b86] border border-white/5">
+                          <span className="text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-500 border border-zinc-200 dark:bg-zinc-800 dark:text-[#787b86] dark:border-white/5">
                             {ind.category}
                           </span>
                           <span className="text-[9px] font-black text-indigo-400 group-hover:translate-x-1 transition-transform uppercase tracking-wider flex items-center gap-0.5">

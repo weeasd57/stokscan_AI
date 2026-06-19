@@ -40,6 +40,12 @@ class Position:
     def shares(self) -> float:
         return self.position_size / self.entry_price if self.entry_price > 0 else 0.0
 
+    def unrealized_pnl(self, current_price: float) -> float:
+        return self.shares * (current_price - self.entry_price) if self.entry_price > 0 else 0.0
+
+    def unrealized_pnl_pct(self, current_price: float) -> float:
+        return (current_price - self.entry_price) / self.entry_price if self.entry_price > 0 else 0.0
+
 @dataclass
 class Trade:
     symbol: str

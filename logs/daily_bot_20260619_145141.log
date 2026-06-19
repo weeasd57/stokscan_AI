@@ -1,0 +1,837 @@
+2026-06-19 17:51:46 [INFO] daily_bot_job: ============================================================
+2026-06-19 17:51:46 [INFO] daily_bot_job: 🚀 Daily Bot Job Started
+2026-06-19 17:51:46 [INFO] daily_bot_job:    Dry run: False
+2026-06-19 17:51:46 [INFO] daily_bot_job:    Model filter: ALL
+2026-06-19 17:51:46 [INFO] daily_bot_job:    Skip sync: False
+2026-06-19 17:51:46 [INFO] daily_bot_job:    Log file: C:\Users\MR__CODER__\Desktop\stokscan_AI\logs\daily_bot_20260619_145141.log
+2026-06-19 17:51:46 [INFO] daily_bot_job: ============================================================
+2026-06-19 17:51:48 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.AALR&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:51:49 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:51:51 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:51:52 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.ABUK&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:51:53 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:51:55 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:51:56 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.ACAMD&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:51:57 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:51:59 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:52:00 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.ACAP&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:52:01 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:52:03 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:52:05 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.ACGC&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:52:06 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:52:08 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:52:09 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.ACRO&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:52:11 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:52:17 [ERROR] tvDatafeed.main: Connection timed out
+2026-06-19 17:52:17 [ERROR] tvDatafeed.main: no data, please check the exchange and symbol
+2026-06-19 17:52:21 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:52:22 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 201 Created"
+2026-06-19 17:52:23 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.ACTF&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:52:25 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:52:27 [ERROR] tvDatafeed.main: Connection to remote host was lost.
+2026-06-19 17:52:27 [ERROR] tvDatafeed.main: no data, please check the exchange and symbol
+2026-06-19 17:52:30 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.ADCI&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:52:31 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:52:33 [ERROR] tvDatafeed.main: Connection to remote host was lost.
+2026-06-19 17:52:33 [ERROR] tvDatafeed.main: no data, please check the exchange and symbol
+2026-06-19 17:52:35 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:52:36 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:52:36 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 201 Created"
+2026-06-19 17:52:38 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.ADIB&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:52:39 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:52:42 [ERROR] tvDatafeed.main: Connection to remote host was lost.
+2026-06-19 17:52:42 [ERROR] tvDatafeed.main: no data, please check the exchange and symbol
+2026-06-19 17:52:46 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:52:47 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:52:47 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:52:49 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.ADPC&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:52:50 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:52:54 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:52:55 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.AFDI&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:52:57 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:53:00 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:53:02 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.AFMC&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:53:04 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:53:07 [ERROR] tvDatafeed.main: Connection to remote host was lost.
+2026-06-19 17:53:07 [ERROR] tvDatafeed.main: no data, please check the exchange and symbol
+2026-06-19 17:53:11 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:53:11 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:53:12 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 201 Created"
+2026-06-19 17:53:15 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.AGIG&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 200 OK"
+2026-06-19 17:53:17 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:53:19 [ERROR] tvDatafeed.main: Connection to remote host was lost.
+2026-06-19 17:53:19 [ERROR] tvDatafeed.main: no data, please check the exchange and symbol
+2026-06-19 17:53:23 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.AIDC&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:53:25 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:53:27 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:53:27 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:53:27 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:53:28 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.AIND&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:53:30 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:53:35 [ERROR] tvDatafeed.main: Connection timed out
+2026-06-19 17:53:35 [ERROR] tvDatafeed.main: no data, please check the exchange and symbol
+2026-06-19 17:53:39 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.AITG&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 200 OK"
+2026-06-19 17:53:40 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:53:47 [ERROR] tvDatafeed.main: Connection timed out
+2026-06-19 17:53:47 [ERROR] tvDatafeed.main: no data, please check the exchange and symbol
+2026-06-19 17:53:51 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.AIVCB&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 200 OK"
+2026-06-19 17:53:53 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:53:56 [ERROR] tvDatafeed.main: Connection to remote host was lost.
+2026-06-19 17:53:56 [ERROR] tvDatafeed.main: no data, please check the exchange and symbol
+2026-06-19 17:53:59 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.AJWA&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:54:00 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:54:03 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:54:05 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.ALCN&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:54:07 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:54:08 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:54:10 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.ALEX&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:54:11 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:54:13 [ERROR] tvDatafeed.main: Connection to remote host was lost.
+2026-06-19 17:54:13 [ERROR] tvDatafeed.main: no data, please check the exchange and symbol
+2026-06-19 17:54:14 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.ALRA&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 200 OK"
+2026-06-19 17:54:16 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:54:22 [ERROR] tvDatafeed.main: Connection timed out
+2026-06-19 17:54:22 [ERROR] tvDatafeed.main: no data, please check the exchange and symbol
+2026-06-19 17:54:23 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.ALUM&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:54:25 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:54:26 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:54:27 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.AMER&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:54:29 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:54:30 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:54:31 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.AMES&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:54:33 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:54:34 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:54:36 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.AMIA&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:54:37 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:54:38 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:54:39 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.AMOC&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:54:41 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:54:42 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:54:43 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.APPC&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:54:45 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:54:46 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:54:47 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.APSW&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:54:49 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:54:50 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:54:51 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.ARAB&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:54:52 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:54:53 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:54:55 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.ARCC&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:54:56 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:54:57 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:54:58 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.AREH&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:55:00 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:55:01 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:55:02 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.AREHA&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 200 OK"
+2026-06-19 17:55:03 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:55:09 [ERROR] tvDatafeed.main: Connection timed out
+2026-06-19 17:55:09 [ERROR] tvDatafeed.main: no data, please check the exchange and symbol
+2026-06-19 17:55:11 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.ARVA&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:55:13 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:55:14 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:55:15 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.ASCM&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:55:17 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:55:18 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:55:19 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.ASPI&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:55:21 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:55:22 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:55:23 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.ATLC&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:55:25 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:55:26 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:55:28 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.ATQA&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:55:29 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:55:30 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:55:32 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.AUTO&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 200 OK"
+2026-06-19 17:55:33 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:55:39 [ERROR] tvDatafeed.main: Connection timed out
+2026-06-19 17:55:39 [ERROR] tvDatafeed.main: no data, please check the exchange and symbol
+2026-06-19 17:55:41 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.AXPH&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:55:42 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:55:44 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:55:45 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.BINV&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:55:47 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:55:48 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:55:49 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.BIOC&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:55:51 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:55:52 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:55:54 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.BONY&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:55:55 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:55:57 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:55:57 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:55:57 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:55:58 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.BTFH&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:56:00 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:56:01 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:56:02 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.CAED&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:56:04 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:56:05 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:56:06 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.CANA&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:56:08 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:56:09 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:56:10 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.CCAP&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:56:12 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:56:13 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:56:14 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.CCRS&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:56:15 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:56:16 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:56:17 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.CEFM&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:56:19 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:56:20 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:56:21 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.CERA&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:56:23 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:56:24 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:56:25 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.CFGH&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:56:27 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:56:28 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:56:29 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.CICH&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:56:30 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:56:31 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:56:33 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.CIEB&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:56:34 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:56:35 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:56:36 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.CIRA&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:56:38 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:56:39 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:56:40 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.CIRF&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 200 OK"
+2026-06-19 17:56:42 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:56:48 [ERROR] tvDatafeed.main: Connection timed out
+2026-06-19 17:56:48 [ERROR] tvDatafeed.main: no data, please check the exchange and symbol
+2026-06-19 17:56:49 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.CLHO&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:56:51 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:56:52 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:56:53 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.CNFN&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:56:55 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:56:56 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:56:57 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.COMI&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:56:58 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:57:00 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:57:01 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.COPR&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:57:02 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:57:03 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:57:05 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.COSG&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:57:06 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:57:07 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:57:08 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.CPCI&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:57:10 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:57:11 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:57:12 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.CPME&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:57:14 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:57:15 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:57:16 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.CRST&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:57:18 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:57:19 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:57:20 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.CSAG&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:57:22 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:57:23 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:57:24 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.DAPH&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:57:26 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:57:27 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:57:28 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.DCRC&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:57:30 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:57:31 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:57:32 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.DEIN&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:57:33 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:57:35 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:57:36 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.DGTZ&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:57:37 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:57:39 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:57:40 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.DOMT&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:57:41 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:57:43 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:57:44 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.DSCW&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:57:45 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:57:46 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:57:48 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.DTPP&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:57:49 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:57:50 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:57:51 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.EALR&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:57:53 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:57:54 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:57:55 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.EASB&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:57:57 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:57:58 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:57:59 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.EAST&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:58:01 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:58:02 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:58:03 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.EBSC&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:58:05 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:58:07 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:58:08 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.ECAP&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:58:09 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:58:11 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:58:12 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.EDBM&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 200 OK"
+2026-06-19 17:58:13 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:58:20 [ERROR] tvDatafeed.main: Connection timed out
+2026-06-19 17:58:20 [ERROR] tvDatafeed.main: no data, please check the exchange and symbol
+2026-06-19 17:58:21 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 201 Created"
+2026-06-19 17:58:21 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 201 Created"
+2026-06-19 17:58:21 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 201 Created"
+2026-06-19 17:58:22 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.EDFM&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:58:24 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:58:26 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:58:27 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.EEII&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:58:28 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:58:30 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:58:31 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.EFIC&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:58:32 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:58:34 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:58:35 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.EFID&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:58:36 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:58:38 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:58:39 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.EFIH&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:58:41 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:58:42 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:58:43 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.EFMP&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 200 OK"
+2026-06-19 17:58:45 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:58:51 [ERROR] tvDatafeed.main: Connection timed out
+2026-06-19 17:58:51 [ERROR] tvDatafeed.main: no data, please check the exchange and symbol
+2026-06-19 17:58:53 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.EGAL&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:58:54 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:58:55 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:58:57 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.EGAS&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:58:58 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:58:59 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:59:01 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.EGBE&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:59:02 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:59:03 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:59:05 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.EGCH&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:59:06 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:59:07 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:59:08 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.EGREF&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:59:10 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:59:11 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:59:12 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.EGSA&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:59:14 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:59:15 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:59:16 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.EGTS&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:59:18 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:59:19 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:59:20 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.EHDR&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:59:22 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:59:23 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:59:24 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.EITP&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:59:25 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:59:27 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:59:27 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:59:27 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:59:29 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.ELEC&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:59:30 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:59:31 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:59:32 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.ELKA&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:59:34 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:59:35 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:59:36 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.ELNA&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:59:38 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:59:39 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:59:40 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.ELSH&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:59:42 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:59:43 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:59:44 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.EMFD&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:59:45 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:59:46 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 17:59:48 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.EMRI&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 200 OK"
+2026-06-19 17:59:49 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 17:59:55 [ERROR] tvDatafeed.main: Connection timed out
+2026-06-19 17:59:55 [ERROR] tvDatafeed.main: no data, please check the exchange and symbol
+2026-06-19 17:59:57 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.ENGC&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 17:59:59 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:00:00 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:00:01 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.EOSB&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:00:03 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:00:04 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:00:05 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.EPCO&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:00:07 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:00:08 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:00:09 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.EPPK&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:00:11 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:00:12 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:00:13 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.ESGI&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 200 OK"
+2026-06-19 18:00:14 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:00:21 [ERROR] tvDatafeed.main: Connection timed out
+2026-06-19 18:00:21 [ERROR] tvDatafeed.main: no data, please check the exchange and symbol
+2026-06-19 18:00:23 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.ETEL&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:00:24 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:00:27 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:00:28 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.ETRS&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:00:30 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:00:32 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:00:33 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.EXPA&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:00:34 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:00:36 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:00:38 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.FAIT&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:00:39 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:00:41 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:00:42 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.FAITA&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:00:44 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:00:45 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:00:47 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.FERC&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:00:48 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:00:50 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:00:50 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:00:52 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.FWRY&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:00:53 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:00:55 [ERROR] tvDatafeed.main: Connection to remote host was lost.
+2026-06-19 18:00:55 [ERROR] tvDatafeed.main: no data, please check the exchange and symbol
+2026-06-19 18:00:56 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:00:56 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:00:56 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 201 Created"
+2026-06-19 18:00:57 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.GBCO&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:00:59 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:01:00 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:01:02 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.GDWA&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:01:03 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:01:05 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:01:06 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.GGCC&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:01:07 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:01:09 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:01:10 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.GGRN&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:01:12 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:01:14 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:01:14 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:01:14 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:01:15 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:01:16 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.GIHD&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:01:18 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:01:20 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:01:21 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.GMCI&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:01:22 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:01:26 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:01:28 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.GOCO&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:01:29 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:01:36 [ERROR] tvDatafeed.main: Connection timed out
+2026-06-19 18:01:36 [ERROR] tvDatafeed.main: no data, please check the exchange and symbol
+2026-06-19 18:01:37 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:01:39 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.GOUR&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:01:40 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:01:43 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:01:45 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.GPIM&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:01:46 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:01:48 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:01:49 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.GPPL&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:01:51 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:01:53 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:01:55 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.GRCA&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:01:56 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:01:58 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:02:00 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.GSSC&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:02:01 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:02:03 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:02:05 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.GTEX&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:02:06 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:02:08 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:02:10 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.GTHE&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:02:11 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:02:13 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:02:15 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.GTWL&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:02:16 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:02:18 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:02:20 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.HDBK&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:02:21 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:02:23 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:02:24 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.HELI&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:02:26 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:02:27 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:02:29 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.HRHO&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:02:30 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:02:31 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:02:33 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.ICAL&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 200 OK"
+2026-06-19 18:02:34 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:02:40 [ERROR] tvDatafeed.main: Connection timed out
+2026-06-19 18:02:40 [ERROR] tvDatafeed.main: no data, please check the exchange and symbol
+2026-06-19 18:02:43 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.ICFC&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:02:45 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:02:46 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:02:48 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.ICID&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:02:49 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:02:51 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:02:53 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.ICLE&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:02:54 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:02:56 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:02:57 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:02:58 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.IDHC&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 200 OK"
+2026-06-19 18:03:00 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:03:06 [ERROR] tvDatafeed.main: Connection timed out
+2026-06-19 18:03:06 [ERROR] tvDatafeed.main: no data, please check the exchange and symbol
+2026-06-19 18:03:08 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.IDRE&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:03:10 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:03:12 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:03:13 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.IEEC&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:03:14 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:03:17 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:03:18 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.IFAP&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:03:20 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:03:23 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:03:24 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.INFI&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:03:26 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:03:27 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:03:29 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.IPPM&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 200 OK"
+2026-06-19 18:03:30 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:03:37 [ERROR] tvDatafeed.main: Connection timed out
+2026-06-19 18:03:37 [ERROR] tvDatafeed.main: no data, please check the exchange and symbol
+2026-06-19 18:03:41 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.IRAX&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:03:43 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:03:46 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:03:47 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.IRON&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:03:48 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:03:50 [ERROR] tvDatafeed.main: Connection to remote host was lost.
+2026-06-19 18:03:50 [ERROR] tvDatafeed.main: no data, please check the exchange and symbol
+2026-06-19 18:03:51 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:03:51 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:03:51 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 201 Created"
+2026-06-19 18:03:53 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.ISMA&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:03:54 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:03:56 [ERROR] tvDatafeed.main: Connection to remote host was lost.
+2026-06-19 18:03:56 [ERROR] tvDatafeed.main: no data, please check the exchange and symbol
+2026-06-19 18:03:57 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:03:57 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:03:57 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 201 Created"
+2026-06-19 18:03:59 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.ISMQ&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:04:00 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:04:02 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:04:03 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.ISPH&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:04:05 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:04:07 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:04:09 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.JUFO&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:04:10 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:04:12 [ERROR] tvDatafeed.main: Connection to remote host was lost.
+2026-06-19 18:04:12 [ERROR] tvDatafeed.main: no data, please check the exchange and symbol
+2026-06-19 18:04:13 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:04:13 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:04:14 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 201 Created"
+2026-06-19 18:04:15 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.KABO&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:04:16 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:04:18 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:04:19 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.KASABF&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:04:21 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:04:24 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:04:25 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:04:25 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:04:26 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.KRDI&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:04:28 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:04:29 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:04:31 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.KWIN&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:04:32 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:04:34 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:04:36 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.KZPC&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:04:37 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:04:39 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:04:41 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.LCSW&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:04:42 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:04:44 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:04:45 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.LUTS&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:04:47 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:04:50 [ERROR] tvDatafeed.main: Connection to remote host was lost.
+2026-06-19 18:04:50 [ERROR] tvDatafeed.main: no data, please check the exchange and symbol
+2026-06-19 18:04:51 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:04:51 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:04:52 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 201 Created"
+2026-06-19 18:04:54 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.MAAL&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:04:55 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:04:57 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:04:58 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.MASR&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:05:00 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:05:01 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:05:02 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.MATD&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 200 OK"
+2026-06-19 18:05:04 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:05:05 [ERROR] tvDatafeed.main: Connection to remote host was lost.
+2026-06-19 18:05:05 [ERROR] tvDatafeed.main: no data, please check the exchange and symbol
+2026-06-19 18:05:07 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.MBEG&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:05:09 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:05:10 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:05:12 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.MBSC&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:05:14 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:05:15 [ERROR] tvDatafeed.main: Connection to remote host was lost.
+2026-06-19 18:05:15 [ERROR] tvDatafeed.main: no data, please check the exchange and symbol
+2026-06-19 18:05:17 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:05:18 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:05:18 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 201 Created"
+2026-06-19 18:05:19 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.MCQE&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:05:21 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:05:23 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:05:24 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.MCRO&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:05:26 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:05:27 [ERROR] tvDatafeed.main: Connection to remote host was lost.
+2026-06-19 18:05:27 [ERROR] tvDatafeed.main: no data, please check the exchange and symbol
+2026-06-19 18:05:28 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:05:29 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:05:29 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 201 Created"
+2026-06-19 18:05:30 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.MEDP&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 200 OK"
+2026-06-19 18:05:31 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:05:38 [ERROR] tvDatafeed.main: Connection timed out
+2026-06-19 18:05:38 [ERROR] tvDatafeed.main: no data, please check the exchange and symbol
+2026-06-19 18:05:40 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.MEGM&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:05:41 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:05:46 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:05:47 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.MENA&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:05:48 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:05:50 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:05:51 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.MEPA&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:05:53 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:05:55 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:05:56 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.MFIN&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 200 OK"
+2026-06-19 18:05:57 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:06:03 [ERROR] tvDatafeed.main: Connection timed out
+2026-06-19 18:06:03 [ERROR] tvDatafeed.main: no data, please check the exchange and symbol
+2026-06-19 18:06:06 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.MFPC&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:06:07 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:06:08 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:06:09 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.MFSC&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:06:11 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:06:13 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:06:14 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.MHOT&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:06:16 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:06:17 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:06:19 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.MICH&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:06:20 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:06:21 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:06:22 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.MILS&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:06:24 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:06:26 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:06:27 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.MIPH&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:06:29 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:06:30 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:06:32 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.MOED&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:06:33 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:06:35 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:06:36 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.MOIL&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:06:38 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:06:39 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:06:40 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.MOIN&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:06:42 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:06:44 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:06:45 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.MOSC&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:06:47 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:06:48 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:06:49 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.MPCI&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:06:51 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:06:52 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:06:53 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.MPCO&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:06:54 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:06:56 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:06:57 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.MPRC&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:06:58 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:07:00 [ERROR] tvDatafeed.main: Connection to remote host was lost.
+2026-06-19 18:07:00 [ERROR] tvDatafeed.main: no data, please check the exchange and symbol
+2026-06-19 18:07:01 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:07:01 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:07:01 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 201 Created"
+2026-06-19 18:07:03 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.MRCO&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 200 OK"
+2026-06-19 18:07:04 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:07:11 [ERROR] tvDatafeed.main: Connection timed out
+2026-06-19 18:07:11 [ERROR] tvDatafeed.main: no data, please check the exchange and symbol
+2026-06-19 18:07:13 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.MTIE&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:07:15 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:07:16 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:07:18 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.NAHO&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:07:19 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:07:21 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:07:22 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.NAPR&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 200 OK"
+2026-06-19 18:07:23 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:07:29 [ERROR] tvDatafeed.main: Connection timed out
+2026-06-19 18:07:29 [ERROR] tvDatafeed.main: no data, please check the exchange and symbol
+2026-06-19 18:07:32 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.NARE&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:07:33 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:07:36 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:07:37 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.NASR&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 200 OK"
+2026-06-19 18:07:38 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:07:45 [ERROR] tvDatafeed.main: Connection timed out
+2026-06-19 18:07:45 [ERROR] tvDatafeed.main: no data, please check the exchange and symbol
+2026-06-19 18:07:47 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.NBKE&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:07:48 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:07:51 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:07:51 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:07:51 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:07:51 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:07:52 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.NCCW&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:07:54 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:07:55 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:07:56 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.NCEM&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 200 OK"
+2026-06-19 18:07:58 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:08:04 [ERROR] tvDatafeed.main: Connection timed out
+2026-06-19 18:08:04 [ERROR] tvDatafeed.main: no data, please check the exchange and symbol
+2026-06-19 18:08:06 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.NCGC&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:08:07 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:08:09 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:08:10 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.NCIN&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 200 OK"
+2026-06-19 18:08:11 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:08:17 [ERROR] tvDatafeed.main: Connection timed out
+2026-06-19 18:08:17 [ERROR] tvDatafeed.main: no data, please check the exchange and symbol
+2026-06-19 18:08:19 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.NCMP&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 200 OK"
+2026-06-19 18:08:21 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:08:27 [ERROR] tvDatafeed.main: Connection timed out
+2026-06-19 18:08:27 [ERROR] tvDatafeed.main: no data, please check the exchange and symbol
+2026-06-19 18:08:30 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.NDRL&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:08:31 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:08:34 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:08:35 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.NEDA&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:08:37 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:08:38 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:08:40 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.NHPS&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:08:41 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:08:42 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:08:44 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.NINH&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:08:45 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:08:47 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:08:48 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.NIPH&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:08:50 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:08:51 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:08:52 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.NOAF&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 200 OK"
+2026-06-19 18:08:54 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:09:00 [ERROR] tvDatafeed.main: Connection timed out
+2026-06-19 18:09:00 [ERROR] tvDatafeed.main: no data, please check the exchange and symbol
+2026-06-19 18:09:02 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.NULL&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:09:03 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:09:09 [ERROR] tvDatafeed.main: Connection timed out
+2026-06-19 18:09:09 [ERROR] tvDatafeed.main: no data, please check the exchange and symbol
+2026-06-19 18:09:12 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.OBRI&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:09:13 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:09:15 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:09:17 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.OCDI&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:09:18 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:09:20 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:09:21 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.OCPH&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:09:23 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:09:25 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:09:26 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.ODHN&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 200 OK"
+2026-06-19 18:09:28 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:09:34 [ERROR] tvDatafeed.main: Connection timed out
+2026-06-19 18:09:34 [ERROR] tvDatafeed.main: no data, please check the exchange and symbol
+2026-06-19 18:09:36 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.ODID&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 200 OK"
+2026-06-19 18:09:38 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:09:44 [ERROR] tvDatafeed.main: Connection timed out
+2026-06-19 18:09:44 [ERROR] tvDatafeed.main: no data, please check the exchange and symbol
+2026-06-19 18:09:46 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.ODIN&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:09:47 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:09:49 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:09:50 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.OFH&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:09:52 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:09:53 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:09:54 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.OIH&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:09:56 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:09:58 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:09:59 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.OLFI&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:10:00 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:10:02 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:10:03 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.ORAS&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:10:05 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:10:07 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:10:08 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.OREG&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 200 OK"
+2026-06-19 18:10:09 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:10:16 [ERROR] tvDatafeed.main: Connection timed out
+2026-06-19 18:10:16 [ERROR] tvDatafeed.main: no data, please check the exchange and symbol
+2026-06-19 18:10:18 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.ORHD&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:10:20 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:10:22 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:10:23 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.ORMT&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 200 OK"
+2026-06-19 18:10:25 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:10:31 [ERROR] tvDatafeed.main: Connection timed out
+2026-06-19 18:10:31 [ERROR] tvDatafeed.main: no data, please check the exchange and symbol
+2026-06-19 18:10:34 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.ORWE&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:10:35 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:10:37 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:10:38 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.PACH&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:10:40 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:10:42 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:10:44 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.PHAR&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:10:45 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:10:47 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:10:49 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.PHDC&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:10:50 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:10:53 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:10:55 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.PHGC&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 200 OK"
+2026-06-19 18:10:56 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:11:02 [ERROR] tvDatafeed.main: Connection timed out
+2026-06-19 18:11:02 [ERROR] tvDatafeed.main: no data, please check the exchange and symbol
+2026-06-19 18:11:05 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.PHTV&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:11:06 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:11:07 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:11:09 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.PIOH&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 200 OK"
+2026-06-19 18:11:10 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:11:16 [ERROR] tvDatafeed.main: Connection timed out
+2026-06-19 18:11:16 [ERROR] tvDatafeed.main: no data, please check the exchange and symbol
+2026-06-19 18:11:18 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.POUL&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:11:20 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:11:21 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:11:22 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.PRCL&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:11:23 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:11:25 [ERROR] tvDatafeed.main: Connection to remote host was lost.
+2026-06-19 18:11:25 [ERROR] tvDatafeed.main: no data, please check the exchange and symbol
+2026-06-19 18:11:25 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:11:26 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:11:26 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 201 Created"
+2026-06-19 18:11:28 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.PRDC&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:11:29 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:11:30 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:11:31 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.PRMH&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:11:33 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:11:34 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:11:35 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.QNBA&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 200 OK"
+2026-06-19 18:11:37 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:11:43 [ERROR] tvDatafeed.main: Connection timed out
+2026-06-19 18:11:43 [ERROR] tvDatafeed.main: no data, please check the exchange and symbol
+2026-06-19 18:11:46 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.QNBE&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:11:47 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:11:49 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:11:50 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.RACC&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:11:51 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:11:52 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:11:54 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.RAKT&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:11:55 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:11:57 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:11:58 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.RAYA&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:12:00 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:12:02 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:12:03 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.RMDA&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:12:04 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:12:07 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:12:08 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.RMTV&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 200 OK"
+2026-06-19 18:12:10 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:12:12 [ERROR] tvDatafeed.main: no data, please check the exchange and symbol
+2026-06-19 18:12:14 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.ROTO&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:12:15 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:12:17 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:12:19 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.RREI&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:12:20 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:12:21 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:12:23 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.RTVC&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:12:24 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:12:26 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:12:28 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.RUBX&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:12:29 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:12:31 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:12:32 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.SAIB&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:12:34 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:12:37 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:12:37 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:12:38 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.SAUD&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:12:40 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:12:42 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:12:43 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.SBAG&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 200 OK"
+2026-06-19 18:12:44 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:12:51 [ERROR] tvDatafeed.main: Connection timed out
+2026-06-19 18:12:51 [ERROR] tvDatafeed.main: no data, please check the exchange and symbol
+2026-06-19 18:12:53 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.SCEM&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:12:54 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:12:56 [ERROR] tvDatafeed.main: Connection to remote host was lost.
+2026-06-19 18:12:56 [ERROR] tvDatafeed.main: no data, please check the exchange and symbol
+2026-06-19 18:12:57 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:12:57 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:12:57 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 201 Created"
+2026-06-19 18:12:58 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.SCFM&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:13:00 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:13:01 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:13:03 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.SCTS&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:13:04 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:13:06 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:13:07 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.SDTI&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:13:09 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:13:11 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:13:13 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.SEIG&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 206 Partial Content"
+2026-06-19 18:13:14 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:13:17 [INFO] httpx: HTTP Request: POST https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?on_conflict=symbol%2Cexchange%2Cdate&columns=%22low%22%2C%22adjusted_close%22%2C%22open%22%2C%22volume%22%2C%22exchange%22%2C%22high%22%2C%22date%22%2C%22close%22%2C%22symbol%22 "HTTP/2 200 OK"
+2026-06-19 18:13:18 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.SEIGA&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 200 OK"
+2026-06-19 18:13:19 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:13:23 [INFO] httpx: HTTP Request: GET https://gfcmaxbtscmizsakarvc.supabase.co/rest/v1/stock_prices?select=date&symbol=eq.SIMO&exchange=eq.EGX&order=date.desc&limit=1 "HTTP/2 200 OK"
+2026-06-19 18:13:24 [WARNING] tvDatafeed.main: you are using nologin method, data you access may be limited
+2026-06-19 18:13:31 [ERROR] tvDatafeed.main: Connection timed out
+2026-06-19 18:13:31 [ERROR] tvDatafeed.main: no data, please check the exchange and symbol

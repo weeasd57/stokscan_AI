@@ -26,7 +26,10 @@ import {
     Tooltip as ChartTooltip, 
     ReferenceLine,
     BarChart,
-    Bar
+    Bar,
+    AreaChart,
+    Area,
+    Cell
 } from "recharts";
 
 // Helper component to fetch and display EGX30 comparison
@@ -765,6 +768,46 @@ export default function AIScannerPage() {
         return Object.values(daysMap).sort((a: any, b: any) => a.day - b.day);
     };
 
+    const similarityDashboard = useMemo(() => {
+        const scans = publishedReport?.scans || [];
+        const selectedMatches = selectedSimilarityScan?.matches || [];
+        const rankedSetups = scans
+            .map((scan: any) => ({
+                symbol: scan.symbol,
+                winRate: (scan.stats?.win_rate || 0) * 100,
+                avgReturn: (scan.stats?.average_return || 0) * 100,
+                expectedEdge: (scan.stats?.expected_value || 0) * 100,
+                profitFactor: scan.stats?.profit_factor || 0,
+                matches: scan.stats?.total_matches || scan.matches?.length || 0,
+            }))
+            .sort((a: any, b: any) => b.expectedEdge - a.expectedEdge)
+            .slice(0, 8);
+
+        const outcomeData = [
+            { name: language === "ar" ? "رابحة" : "Wins", value: selectedSimilarityScan?.stats?.wins || 0, fill: "#10b981" },
+            { name: language === "ar" ? "خاسرة" : "Losses", value: selectedSimilarityScan?.stats?.losses || 0, fill: "#ef4444" },
+        ];
+
+        const matchQuality = selectedMatches.slice(0, 10).map((match: any, idx: number) => ({
+            name: `${idx + 1}`,
+            date: match.date,
+            similarity: (match.similarity || 0) * 100,
+            finalReturn: (match.final_return || 0) * 100,
+            mfe: (match.mfe || 0) * 100,
+            mae: (match.mae || 0) * 100,
+        }));
+
+        const strongestSetup = rankedSetups[0];
+        const avgWinRate = scans.length
+            ? scans.reduce((sum: number, scan: any) => sum + ((scan.stats?.win_rate || 0) * 100), 0) / scans.length
+            : 0;
+        const avgExpectedEdge = scans.length
+            ? scans.reduce((sum: number, scan: any) => sum + ((scan.stats?.expected_value || 0) * 100), 0) / scans.length
+            : 0;
+
+        return { rankedSetups, outcomeData, matchQuality, strongestSetup, avgWinRate, avgExpectedEdge };
+    }, [publishedReport, selectedSimilarityScan, language]);
+
 
     // Handle Subscribe
     const handleSubscribe = async (botId: string) => {
@@ -1186,6 +1229,100 @@ export default function AIScannerPage() {
                                             </div>
                                         </div>
 
+                                        {/* Similarity Intelligence Dashboard */}
+                                        <div className="grid grid-cols-1 xl:grid-cols-12 gap-5">
+                                            <div className="xl:col-span-7 border-4 border-black dark:border-white bg-zinc-950 p-5 shadow-[4px_4px_0px_0px_rgba(255,255,255,0.15)] rounded-none">
+                                                <div className="flex flex-wrap items-start justify-between gap-3 mb-5">
+                                                    <div>
+                                                        <h3 className="text-xs font-black tracking-widest text-zinc-300 uppercase flex items-center gap-2 font-mono">
+                                                            <BarChart2 className="w-4 h-4 text-emerald-400" />
+                                                            {language === "ar" ? "ترتيب أفضل الإشارات" : "Best Setups Ranking"}
+                                                        </h3>
+                                                        <p className="text-[10px] text-zinc-500 font-mono mt-1">
+                                                            {language === "ar" ? "مرتبة حسب القيمة المتوقعة لكل سهم منشور." : "Ranked by expected edge across published similarity signals."}
+                                                        </p>
+                                                    </div>
+                                                    <div className="grid grid-cols-2 gap-2 text-right font-mono">
+                                                        <div className="border border-zinc-800 bg-zinc-900 px-3 py-2">
+                                                            <p className="text-[8px] text-zinc-500 uppercase">Avg Win</p>
+                                                            <p className="text-sm font-black text-emerald-400">{similarityDashboard.avgWinRate.toFixed(1)}%</p>
+                                                        </div>
+                                                        <div className="border border-zinc-800 bg-zinc-900 px-3 py-2">
+                                                            <p className="text-[8px] text-zinc-500 uppercase">Avg Edge</p>
+                                                            <p className={`text-sm font-black ${similarityDashboard.avgExpectedEdge >= 0 ? "text-emerald-400" : "text-red-400"}`}>{similarityDashboard.avgExpectedEdge.toFixed(2)}%</p>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div className="h-[260px] w-full">
+                                                    <ResponsiveContainer width="100%" height="100%">
+                                                        <BarChart data={similarityDashboard.rankedSetups} layout="vertical" margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
+                                                            <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" horizontal={false} />
+                                                            <XAxis type="number" stroke="#9ca3af" style={{ fontSize: 10, fontFamily: "monospace" }} tickFormatter={(v) => `${Number(v).toFixed(1)}%`} />
+                                                            <YAxis type="category" dataKey="symbol" stroke="#9ca3af" width={64} style={{ fontSize: 10, fontFamily: "monospace", fontWeight: 800 }} />
+                                                            <ChartTooltip
+                                                                cursor={{ fill: "rgba(255,255,255,0.04)" }}
+                                                                contentStyle={{ backgroundColor: "#09090b", borderColor: "#27272a" }}
+                                                                labelStyle={{ color: "#fff", fontWeight: "bold", fontFamily: "monospace", fontSize: 11 }}
+                                                                itemStyle={{ fontSize: 10, fontFamily: "monospace" }}
+                                                                formatter={(value: any, name: any) => [`${parseFloat(value).toFixed(2)}%`, name === "expectedEdge" ? "Expected Edge" : name]}
+                                                            />
+                                                            <ReferenceLine x={0} stroke="#71717a" strokeDasharray="3 3" />
+                                                            <Bar dataKey="expectedEdge" name="Expected Edge" radius={[0, 4, 4, 0]}>
+                                                                {similarityDashboard.rankedSetups.map((entry: any) => (
+                                                                    <Cell key={entry.symbol} fill={entry.expectedEdge >= 0 ? "#10b981" : "#ef4444"} />
+                                                                ))}
+                                                            </Bar>
+                                                        </BarChart>
+                                                    </ResponsiveContainer>
+                                                </div>
+                                            </div>
+
+                                            <div className="xl:col-span-5 grid grid-cols-1 gap-5">
+                                                <div className="border-4 border-black dark:border-white bg-zinc-950 p-5 shadow-[4px_4px_0px_0px_rgba(255,255,255,0.15)] rounded-none">
+                                                    <h3 className="text-xs font-black tracking-widest text-zinc-300 uppercase flex items-center gap-2 mb-4 font-mono">
+                                                        <Target className="w-4 h-4 text-amber-400" />
+                                                        {language === "ar" ? "توزيع النتائج" : "Outcome Split"}
+                                                    </h3>
+                                                    <div className="h-[160px] w-full">
+                                                        <ResponsiveContainer width="100%" height="100%">
+                                                            <BarChart data={similarityDashboard.outcomeData} margin={{ top: 10, right: 10, left: 0, bottom: 5 }}>
+                                                                <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" vertical={false} />
+                                                                <XAxis dataKey="name" stroke="#9ca3af" style={{ fontSize: 10, fontFamily: "monospace" }} />
+                                                                <YAxis allowDecimals={false} stroke="#9ca3af" style={{ fontSize: 10, fontFamily: "monospace" }} />
+                                                                <ChartTooltip contentStyle={{ backgroundColor: "#09090b", borderColor: "#27272a" }} itemStyle={{ fontSize: 10, fontFamily: "monospace" }} />
+                                                                <Bar dataKey="value" name="Matches" radius={[4, 4, 0, 0]}>
+                                                                    {similarityDashboard.outcomeData.map((entry: any) => (
+                                                                        <Cell key={entry.name} fill={entry.fill} />
+                                                                    ))}
+                                                                </Bar>
+                                                            </BarChart>
+                                                        </ResponsiveContainer>
+                                                    </div>
+                                                </div>
+
+                                                <div className="border-4 border-black dark:border-white bg-zinc-950 p-5 shadow-[4px_4px_0px_0px_rgba(255,255,255,0.15)] rounded-none">
+                                                    <h3 className="text-xs font-black tracking-widest text-zinc-300 uppercase flex items-center gap-2 mb-3 font-mono">
+                                                        <Sparkles className="w-4 h-4 text-indigo-400" />
+                                                        {language === "ar" ? "أقوى فرصة الآن" : "Strongest Setup Now"}
+                                                    </h3>
+                                                    <div className="grid grid-cols-2 gap-3 font-mono">
+                                                        <div className="col-span-2 border border-emerald-500/20 bg-emerald-500/5 p-3">
+                                                            <p className="text-[9px] text-zinc-500 uppercase">{language === "ar" ? "السهم الأعلى ترتيبا" : "Top Ranked Symbol"}</p>
+                                                            <p className="text-2xl font-black text-white mt-1">{similarityDashboard.strongestSetup?.symbol || "—"}</p>
+                                                        </div>
+                                                        <div className="border border-zinc-800 bg-zinc-900 p-3">
+                                                            <p className="text-[8px] text-zinc-500 uppercase">Win Rate</p>
+                                                            <p className="text-lg font-black text-emerald-400">{(similarityDashboard.strongestSetup?.winRate || 0).toFixed(1)}%</p>
+                                                        </div>
+                                                        <div className="border border-zinc-800 bg-zinc-900 p-3">
+                                                            <p className="text-[8px] text-zinc-500 uppercase">Profit Factor</p>
+                                                            <p className="text-lg font-black text-indigo-400">{(similarityDashboard.strongestSetup?.profitFactor || 0).toFixed(2)}</p>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+
                                         {/* Spaghetti Chart */}
                                         <div className="border-4 border-black dark:border-white bg-zinc-950 p-6 shadow-[4px_4px_0px_0px_rgba(255,255,255,0.15)] rounded-none">
                                             <h3 className="text-xs font-black tracking-widest text-zinc-300 uppercase flex items-center gap-2 mb-6 font-mono">
@@ -1224,6 +1361,56 @@ export default function AIScannerPage() {
                                                 <span className="flex items-center gap-1.5"><span className="w-3 h-0.5 bg-white" /> Target Stock Path (Before T0)</span>
                                                 <span className="flex items-center gap-1.5"><span className="w-3 h-0.5 bg-amber-400" /> Avg Matches Path</span>
                                                 <span className="flex items-center gap-1.5"><span className="w-3 h-0.5 bg-indigo-500 opacity-60" /> Individual Historical Occurrences</span>
+                                            </div>
+                                        </div>
+
+                                        {/* Match Quality Chart */}
+                                        <div className="border-4 border-black dark:border-white bg-zinc-950 p-6 shadow-[4px_4px_0px_0px_rgba(255,255,255,0.15)] rounded-none">
+                                            <div className="flex flex-wrap items-start justify-between gap-3 mb-6">
+                                                <div>
+                                                    <h3 className="text-xs font-black tracking-widest text-zinc-300 uppercase flex items-center gap-2 font-mono">
+                                                        <Activity className="w-4 h-4 text-cyan-400" />
+                                                        {language === "ar" ? "جودة المطابقات التاريخية" : "Historical Match Quality"}
+                                                    </h3>
+                                                    <p className="text-[10px] text-zinc-500 font-mono mt-1">
+                                                        {language === "ar" ? "يقارن درجة التشابه مع العائد النهائي وأقصى صعود/هبوط." : "Compares similarity score with final return, max favorable move, and drawdown."}
+                                                    </p>
+                                                </div>
+                                                <div className="text-[10px] text-zinc-500 font-mono uppercase">
+                                                    {language === "ar" ? "أول 10 حالات" : "Top 10 matches"}
+                                                </div>
+                                            </div>
+
+                                            <div className="h-[280px] w-full">
+                                                <ResponsiveContainer width="100%" height="100%">
+                                                    <AreaChart data={similarityDashboard.matchQuality} margin={{ top: 10, right: 30, left: 10, bottom: 10 }}>
+                                                        <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
+                                                        <XAxis dataKey="name" stroke="#9ca3af" style={{ fontSize: 10, fontFamily: "monospace" }} />
+                                                        <YAxis yAxisId="left" stroke="#9ca3af" style={{ fontSize: 10, fontFamily: "monospace" }} tickFormatter={(v) => `${Number(v).toFixed(0)}%`} />
+                                                        <YAxis yAxisId="right" orientation="right" stroke="#9ca3af" style={{ fontSize: 10, fontFamily: "monospace" }} domain={[0, 100]} tickFormatter={(v) => `${Number(v).toFixed(0)}%`} />
+                                                        <ChartTooltip
+                                                            contentStyle={{ backgroundColor: "#09090b", borderColor: "#27272a" }}
+                                                            labelStyle={{ color: "#fff", fontWeight: "bold", fontFamily: "monospace", fontSize: 11 }}
+                                                            itemStyle={{ fontSize: 10, fontFamily: "monospace" }}
+                                                            formatter={(value: any, name: any) => [`${parseFloat(value).toFixed(2)}%`, name]}
+                                                            labelFormatter={(label: any) => {
+                                                                const row = similarityDashboard.matchQuality.find((item: any) => item.name === label);
+                                                                return row?.date ? `Match ${label} - ${row.date}` : `Match ${label}`;
+                                                            }}
+                                                        />
+                                                        <ReferenceLine yAxisId="left" y={0} stroke="#71717a" strokeDasharray="3 3" />
+                                                        <Area yAxisId="left" type="monotone" dataKey="mfe" name="Peak Gain" stroke="#10b981" fill="#10b981" fillOpacity={0.08} strokeWidth={2} />
+                                                        <Area yAxisId="left" type="monotone" dataKey="mae" name="Max Draw" stroke="#ef4444" fill="#ef4444" fillOpacity={0.08} strokeWidth={2} />
+                                                        <Line yAxisId="left" type="monotone" dataKey="finalReturn" name="End Return" stroke="#ffdc58" strokeWidth={3} dot={{ r: 3 }} />
+                                                        <Line yAxisId="right" type="monotone" dataKey="similarity" name="Similarity" stroke="#38bdf8" strokeWidth={2} strokeDasharray="4 4" dot={false} />
+                                                    </AreaChart>
+                                                </ResponsiveContainer>
+                                            </div>
+                                            <div className="flex flex-wrap items-center justify-center gap-5 mt-4 text-[10px] font-mono text-zinc-500">
+                                                <span className="flex items-center gap-1.5"><span className="w-3 h-0.5 bg-emerald-500" /> Peak Gain</span>
+                                                <span className="flex items-center gap-1.5"><span className="w-3 h-0.5 bg-red-500" /> Drawdown</span>
+                                                <span className="flex items-center gap-1.5"><span className="w-3 h-0.5 bg-[#ffdc58]" /> End Return</span>
+                                                <span className="flex items-center gap-1.5"><span className="w-3 h-0.5 bg-sky-400 border-t border-dashed border-sky-400" /> Similarity</span>
                                             </div>
                                         </div>
 

@@ -8,7 +8,7 @@ from datetime import datetime
 
 from api.live_bot import bot_manager
 from api import stock_ai
-from api.stock_ai import get_cached_tickers, _supabase_read_with_retry, supabase, _init_supabase
+from api.stock_ai import get_cached_tickers, _supabase_read_with_retry, _init_supabase
 
 router = APIRouter(tags=["AI_BOT"])
 
@@ -113,8 +113,8 @@ def list_bots(user_id: Optional[str] = None, subscribed_only: bool = False):
     if user_id:
         try:
             _init_supabase()
-            if supabase:
-                res = supabase.table("bot_subscriptions").select("*").eq("user_id", user_id).execute()
+            if stock_ai.supabase:
+                res = stock_ai.supabase.table("bot_subscriptions").select("*").eq("user_id", user_id).execute()
                 subscriptions = {r["bot_id"]: r for r in (res.data or [])}
         except Exception as e:
             print(f"Error fetching bot subscriptions for user {user_id}: {e}")
@@ -212,13 +212,13 @@ class SubscriptionUpdateRequest(BaseModel):
 def subscribe_to_bot(req: SubscribeRequest):
     try:
         _init_supabase()
-        if not supabase:
+        if not stock_ai.supabase:
             raise HTTPException(status_code=500, detail="Supabase client not initialized")
             
         # Check SaaS subscription (Pro status)
         is_pro = False
         try:
-            saas_res = supabase.table("subscriptions").select("plan_id, status").eq("user_id", req.user_id).execute()
+            saas_res = stock_ai.supabase.table("subscriptions").select("plan_id, status").eq("user_id", req.user_id).execute()
             if saas_res.data:
                 sub = saas_res.data[0]
                 plan_id = str(sub.get("plan_id", "")).lower()
@@ -230,7 +230,7 @@ def subscribe_to_bot(req: SubscribeRequest):
 
         # 1. Enforce max 2 active subscriptions per user ONLY for Free users
         if not is_pro:
-            subs_res = supabase.table("bot_subscriptions").select("id").eq("user_id", req.user_id).execute()
+            subs_res = stock_ai.supabase.table("bot_subscriptions").select("id").eq("user_id", req.user_id).execute()
             if len(subs_res.data or []) >= 2:
                 raise HTTPException(
                     status_code=400,
@@ -247,7 +247,7 @@ def subscribe_to_bot(req: SubscribeRequest):
         if req.telegram_chat_id:
             payload["telegram_chat_id"] = req.telegram_chat_id
 
-        res = supabase.table("bot_subscriptions").insert(payload).execute()
+        res = stock_ai.supabase.table("bot_subscriptions").insert(payload).execute()
         return {"status": "subscribed", "data": res.data[0] if res.data else {}}
     except HTTPException:
         raise
@@ -261,10 +261,10 @@ def subscribe_to_bot(req: SubscribeRequest):
 def unsubscribe_from_bot(req: UnsubscribeRequest):
     try:
         _init_supabase()
-        if not supabase:
+        if not stock_ai.supabase:
             raise HTTPException(status_code=500, detail="Supabase client not initialized")
             
-        q = supabase.table("bot_subscriptions").delete().eq("user_id", req.user_id).eq("bot_id", req.bot_id)
+        q = stock_ai.supabase.table("bot_subscriptions").delete().eq("user_id", req.user_id).eq("bot_id", req.bot_id)
         if req.service_type:
             q = q.eq("service_type", req.service_type)
         res = q.execute()
@@ -276,7 +276,7 @@ def unsubscribe_from_bot(req: UnsubscribeRequest):
 def update_subscription(req: SubscriptionUpdateRequest):
     try:
         _init_supabase()
-        if not supabase:
+        if not stock_ai.supabase:
             raise HTTPException(status_code=500, detail="Supabase client not initialized")
             
         updates = {}
@@ -296,7 +296,7 @@ def update_subscription(req: SubscriptionUpdateRequest):
         if not updates:
             return {"status": "no_change"}
             
-        q = supabase.table("bot_subscriptions").update(updates).eq("user_id", req.user_id).eq("bot_id", req.bot_id)
+        q = stock_ai.supabase.table("bot_subscriptions").update(updates).eq("user_id", req.user_id).eq("bot_id", req.bot_id)
         if req.service_type:
             q = q.eq("service_type", req.service_type)
         res = q.execute()
@@ -355,15 +355,15 @@ def save_live_bot_history_to_backtest(bot):
     Saves the live bot trade history to the backtests table.
     """
     try:
-        from api.stock_ai import _init_supabase, supabase
+        from api.stock_ai import _init_supabase
         _init_supabase()
-        if not supabase:
+        if not stock_ai.supabase:
             print("Supabase client is not available. Cannot save bot history to backtests.")
             return
 
         # Fetch all trades for this bot from database
         try:
-            res = supabase.table("bot_trades").select("*").eq("bot_id", bot.bot_id).order("timestamp", asc=True).execute()
+            res = stock_ai.supabase.table("bot_trades").select("*").eq("bot_id", bot.bot_id).order("timestamp", asc=True).execute()
             db_trades = res.data if (res and res.data) else []
         except Exception as e:
             print(f"Error fetching trades from database: {e}")
@@ -471,7 +471,7 @@ def save_live_bot_history_to_backtest(bot):
         }
 
         # Insert to database
-        supabase.table("backtests").insert(insert_payload).execute()
+        stock_ai.supabase.table("backtests").insert(insert_payload).execute()
         print(f"Successfully saved live bot run history to backtests for bot {bot.bot_id}", flush=True)
 
         # Fallback local copy
@@ -882,10 +882,10 @@ def get_bot_performance(bot_id: str = "primary"):
     try:
         # Try to fetch from Supabase first
         _init_supabase()
-        if supabase:
+        if stock_ai.supabase:
             try:
                 # Query bot_trades table for this bot
-                response = supabase.table("bot_trades").select("*").eq("bot_id", bot_id).order("timestamp", desc=True).execute()
+                response = stock_ai.supabase.table("bot_trades").select("*").eq("bot_id", bot_id).order("timestamp", desc=True).execute()
                 trades = response.data or []
                 
                 print(f"[Performance] Fetched {len(trades)} total trades for bot {bot_id}")
@@ -1282,7 +1282,7 @@ def get_candles(symbol: str, bot_id: str = "primary", limit: int = 150, exchange
                 return cached_data
 
         _init_supabase()
-        if not supabase:
+        if not stock_ai.supabase:
             raise HTTPException(status_code=503, detail="Supabase not available")
 
         bot = get_bot_or_404(bot_id)
@@ -1594,21 +1594,21 @@ def get_supabase_stats():
     
     try:
         # Get count of intraday bars
-        intraday_res = stock_ai.supabase.table("stock_bars_intraday").select("*", count="exact").limit(1).execute()
+        intraday_res = stock_ai.stock_ai.supabase.table("stock_bars_intraday").select("*", count="exact").limit(1).execute()
         intraday_total = intraday_res.count if intraday_res else 0
         
         # Get count of daily prices
-        prices_res = stock_ai.supabase.table("stock_prices").select("*", count="exact").limit(1).execute()
+        prices_res = stock_ai.stock_ai.supabase.table("stock_prices").select("*", count="exact").limit(1).execute()
         prices_total = prices_res.count if prices_res else 0
         
         # Breakdown by timeframe for intraday
         tf_stats = {}
         for tf in ["1m", "1h", "1d"]:
-            res = stock_ai.supabase.table("stock_bars_intraday").select("*", count="exact").eq("timeframe", tf).limit(1).execute()
+            res = stock_ai.stock_ai.supabase.table("stock_bars_intraday").select("*", count="exact").eq("timeframe", tf).limit(1).execute()
             tf_stats[tf] = res.count if res else 0
             
         # Last daily price date
-        last_daily = stock_ai.supabase.table("stock_prices").select("date").order("date", desc=True).limit(1).execute()
+        last_daily = stock_ai.stock_ai.supabase.table("stock_prices").select("date").order("date", desc=True).limit(1).execute()
         last_date = last_daily.data[0]["date"] if last_daily.data else "n/a"
 
         return {
@@ -1698,9 +1698,9 @@ def send_test_channel_notification(req: TestNotificationRequest):
 
         # Try to find the chat_id for this user from Supabase
         chat_id = None
-        if req.user_id and supabase:
+        if req.user_id and stock_ai.supabase:
             try:
-                row = supabase.table("profiles") \
+                row = stock_ai.supabase.table("profiles") \
                     .select("telegram_chat_id") \
                     .eq("id", req.user_id) \
                     .maybe_single().execute()

@@ -15,6 +15,7 @@ _scheduler_state: Dict[str, Any] = {
     "run_time": "16:00",  # Cairo time — after market close
     "timezone": "Africa/Cairo",
     "active_days": [0, 1, 2, 3, 4],  # Sun-Thu
+    "model_filter": "adaptive",
     "status": "idle",
     "next_run_at": None,
     "last_run_at": None,
@@ -48,6 +49,7 @@ def _save_config():
                 "enabled": _scheduler_state["enabled"],
                 "run_time": _scheduler_state["run_time"],
                 "active_days": _scheduler_state["active_days"],
+                "model_filter": _scheduler_state.get("model_filter", "adaptive"),
             }, f, indent=2)
     except Exception:
         pass
@@ -141,14 +143,15 @@ def _scheduler_worker():
             if is_active_day and run_minutes <= current_minutes < run_minutes + 5:
                 with _scheduler_lock:
                     _scheduler_state["status"] = "running"
+                    model_filter = _scheduler_state.get("model_filter", "adaptive")
 
-                print(f"[DAILY-JOB-SCHEDULER] Triggering daily job at {now_cairo}")
+                print(f"[DAILY-JOB-SCHEDULER] Triggering daily job at {now_cairo} with model: {model_filter}")
                 try:
                     import asyncio
                     from api.daily_bot_run import run_daily_job
                     loop = asyncio.new_event_loop()
                     asyncio.set_event_loop(loop)
-                    loop.run_until_complete(run_daily_job(trigger="scheduled"))
+                    loop.run_until_complete(run_daily_job(trigger="scheduled", model_filter=model_filter))
                     loop.close()
                     _record_run("scheduled", "completed")
                 except Exception as e:

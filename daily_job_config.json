@@ -1,0 +1,12 @@
+{
+  "enabled": true,
+  "run_time": "16:00",
+  "active_days": [
+    0,
+    1,
+    2,
+    3,
+    4
+  ],
+  "model_filter": "adaptive"
+}
