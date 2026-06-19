@@ -1,3 +1,2 @@
-*.pkl filter=lfs diff=lfs merge=lfs -text
 api/models/*.pkl !text !filter !merge !diff
 api/symbols_data/*.json !text !filter !merge !diff
