@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState, useMemo } from "react";
 import { createPortal } from "react-dom";
+import { useAuth } from "@/contexts/AuthContext";
+import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import {
   createChart,
   IChartApi,
@@ -41,40 +43,178 @@ interface ChartPoint {
   time: number;
 }
 
+type DrawingLineStyle = "solid" | "dashed" | "dotted";
+
+interface DrawingStyle {
+  color: string;
+  lineWidth: number;
+  lineStyle: DrawingLineStyle;
+  fillColor?: string;
+  textColor?: string;
+  label?: string;
+}
+
+interface StoredChartPoint {
+  price: number;
+  time: number;
+}
+
 interface HorizontalDrawing {
   id: string;
   type: "horizontal";
-  price: number;
+  point: StoredChartPoint;
+  style: DrawingStyle;
 }
 
 interface TrendDrawing {
   id: string;
   type: "trend";
-  start: ChartPoint;
-  end: ChartPoint;
+  start: StoredChartPoint;
+  end: StoredChartPoint;
+  style: DrawingStyle;
 }
 
 interface RectangleDrawing {
   id: string;
   type: "rectangle";
-  start: ChartPoint;
-  end: ChartPoint;
+  start: StoredChartPoint;
+  end: StoredChartPoint;
+  style: DrawingStyle;
 }
 
 interface FibDrawing {
   id: string;
   type: "fib";
-  start: ChartPoint;
-  end: ChartPoint;
+  start: StoredChartPoint;
+  end: StoredChartPoint;
+  style: DrawingStyle;
+}
+
+interface RayDrawing {
+  id: string;
+  type: "ray";
+  start: StoredChartPoint;
+  end: StoredChartPoint;
+  style: DrawingStyle;
+}
+
+interface ExtendedLineDrawing {
+  id: string;
+  type: "extendedLine";
+  start: StoredChartPoint;
+  end: StoredChartPoint;
+  style: DrawingStyle;
+}
+
+interface TextDrawing {
+  id: string;
+  type: "text";
+  point: StoredChartPoint;
+  style: DrawingStyle;
+  text: string;
 }
 
 type ChartDrawing =
   | HorizontalDrawing
   | TrendDrawing
   | RectangleDrawing
-  | FibDrawing;
+  | FibDrawing
+  | RayDrawing
+  | ExtendedLineDrawing
+  | TextDrawing;
+
+interface DrawingCollectionRow {
+  id: string;
+  drawings: ChartDrawing[];
+}
 
 const FIB_LEVELS = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1];
+
+const DEFAULT_DRAWING_STYLE: DrawingStyle = {
+  color: "#22c55e",
+  lineWidth: 2,
+  lineStyle: "solid",
+  fillColor: "rgba(34,197,94,0.14)",
+  textColor: "#f8fafc",
+  label: "",
+};
+
+const TOOL_DEFAULT_STYLES: Record<string, DrawingStyle> = {
+  horizontal: {
+    color: "#6366f1",
+    lineWidth: 2,
+    lineStyle: "dashed",
+    textColor: "#c7d2fe",
+    label: "S/R",
+  },
+  trend: {
+    color: "#22c55e",
+    lineWidth: 2,
+    lineStyle: "solid",
+    textColor: "#dcfce7",
+    label: "Trend",
+  },
+  rectangle: {
+    color: "#38bdf8",
+    lineWidth: 2,
+    lineStyle: "solid",
+    fillColor: "rgba(56,189,248,0.15)",
+    textColor: "#e0f2fe",
+    label: "Zone",
+  },
+  fib: {
+    color: "#f59e0b",
+    lineWidth: 2,
+    lineStyle: "dashed",
+    fillColor: "rgba(245,158,11,0.08)",
+    textColor: "#fde68a",
+    label: "Fib",
+  },
+  ray: {
+    color: "#f97316",
+    lineWidth: 2,
+    lineStyle: "solid",
+    textColor: "#ffedd5",
+    label: "Ray",
+  },
+  extendedLine: {
+    color: "#a855f7",
+    lineWidth: 2,
+    lineStyle: "dotted",
+    textColor: "#f3e8ff",
+    label: "Ext",
+  },
+  text: {
+    color: "#f8fafc",
+    lineWidth: 1,
+    lineStyle: "solid",
+    textColor: "#f8fafc",
+    label: "Note",
+  },
+};
+
+const DRAWINGS_STORAGE_KEY = "chart_drawings_guest";
+
+function lineStyleToSvgDash(lineStyle: DrawingLineStyle) {
+  if (lineStyle === "dashed") return "8 6";
+  if (lineStyle === "dotted") return "3 5";
+  return undefined;
+}
+
+function withAlpha(hexColor: string, alpha: number) {
+  if (!hexColor.startsWith("#") || (hexColor.length !== 7 && hexColor.length !== 4)) {
+    return hexColor;
+  }
+
+  const hex =
+    hexColor.length === 4
+      ? `#${hexColor[1]}${hexColor[1]}${hexColor[2]}${hexColor[2]}${hexColor[3]}${hexColor[3]}`
+      : hexColor;
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
 
 export interface CustomMarker {
   time: number; // unix timestamp (seconds)
@@ -179,6 +319,8 @@ export default function TradingViewChart({
   hideIndicators = false,
   showApiMarkers = true,
 }: TradingViewChartProps) {
+  const { user } = useAuth();
+  const supabase = useMemo(() => createSupabaseBrowserClient(), []);
   const mainContainerRef = useRef<HTMLDivElement>(null);
   const priceContainerRef = useRef<HTMLDivElement>(null);
   const paneContainersRef = useRef<Map<string, HTMLDivElement>>(new Map());
@@ -259,37 +401,257 @@ export default function TradingViewChart({
   );
   const drawingStartPointRef = useRef<ChartPoint | null>(null);
   const [drawingStartPoint, setDrawingStartPoint] = useState<ChartPoint | null>(null);
+  const [selectedDrawingId, setSelectedDrawingId] = useState<string | null>(null);
+  const [drawingStyle, setDrawingStyle] = useState<DrawingStyle>(
+    TOOL_DEFAULT_STYLES[activeTool] ?? DEFAULT_DRAWING_STYLE,
+  );
+  const [overlayVersion, setOverlayVersion] = useState(0);
   const activeToolRef = useRef(activeTool);
   activeToolRef.current = activeTool;
+
+  // Drag-to-move drawing state
+  const [isDraggingDrawing, setIsDraggingDrawing] = useState(false);
+  const dragStartRef = useRef<{
+    x: number;
+    y: number;
+    drawing: ChartDrawing;
+    mode: "move" | "start" | "end" | "point";
+  } | null>(null);
+
+  // Properties panel position/size state (persisted to localStorage)
+  const PROPS_PANEL_STORAGE_KEY = "chart_props_panel_state";
+  const loadPropsPanelState = () => {
+    if (typeof window === "undefined") return { x: 10, y: 10, width: 260 };
+    try {
+      const raw = localStorage.getItem(PROPS_PANEL_STORAGE_KEY);
+      if (raw) return JSON.parse(raw);
+    } catch {}
+    return { x: 10, y: 10, width: 260 };
+  };
+  const [propsPanelPos, setPropsPanelPos] = useState<{ x: number; y: number; width: number }>(loadPropsPanelState);
+  const [isDraggingPanel, setIsDraggingPanel] = useState(false);
+  const [isResizingPanel, setIsResizingPanel] = useState(false);
+  const panelDragOffsetRef = useRef<{ mouseX: number; mouseY: number; startX: number; startY: number }>({
+    mouseX: 0,
+    mouseY: 0,
+    startX: 0,
+    startY: 0,
+  });
+  const panelResizeStartRef = useRef<{ mouseX: number; startYWidth: number }>({ mouseX: 0, startYWidth: 0 });
+
+  const persistPropsPanelState = (pos: { x: number; y: number; width: number }) => {
+    if (typeof window === "undefined") return;
+    try { localStorage.setItem(PROPS_PANEL_STORAGE_KEY, JSON.stringify(pos)); } catch {}
+  };
 
   const createDrawingId = () =>
     `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
+  const getDrawingStorageScope = () =>
+    `${String(exchange || "").toUpperCase()}::${String(symbol || "").toUpperCase()}`;
+
+  const toStoredPoint = (point: ChartPoint): StoredChartPoint => ({
+    price: point.price,
+    time: point.time,
+  });
+
+  const cloneStyle = (style: DrawingStyle): DrawingStyle => ({
+    ...style,
+    fillColor:
+      style.fillColor ??
+      withAlpha(style.color, style.lineStyle === "dotted" ? 0.08 : 0.14),
+    textColor: style.textColor ?? style.color,
+    label: style.label ?? "",
+  });
+
+  const persistGuestDrawings = (nextDrawings: ChartDrawing[]) => {
+    if (typeof window === "undefined") return;
+    try {
+      const raw = localStorage.getItem(DRAWINGS_STORAGE_KEY);
+      const parsed = raw ? (JSON.parse(raw) as Record<string, ChartDrawing[]>) : {};
+      parsed[getDrawingStorageScope()] = nextDrawings;
+      localStorage.setItem(DRAWINGS_STORAGE_KEY, JSON.stringify(parsed));
+    } catch {}
+  };
+
+  const saveDrawings = async (nextDrawings: ChartDrawing[]) => {
+    persistGuestDrawings(nextDrawings);
+    if (!user) return;
+
+    await supabase.from("chart_drawings").upsert(
+      {
+        user_id: user.id,
+        symbol: String(symbol).toUpperCase(),
+        exchange: String(exchange || "EGX").toUpperCase(),
+        drawings: nextDrawings,
+      },
+      { onConflict: "user_id,symbol,exchange" },
+    );
+  };
+
+  const updateDrawings = (updater: (prev: ChartDrawing[]) => ChartDrawing[]) => {
+    setDrawings((prev) => {
+      const next = updater(prev);
+      void saveDrawings(next);
+      return next;
+    });
+  };
+
+  const updateDrawingStyle = (drawingId: string, newStyle: DrawingStyle) => {
+    updateDrawings((prev) =>
+      prev.map((d) =>
+        d.id === drawingId ? { ...d, style: newStyle } : d,
+      ),
+    );
+    nudgeOverlay();
+  };
+
+  const deleteDrawing = (drawingId: string) => {
+    updateDrawings((prev) => prev.filter((d) => d.id !== drawingId));
+    setSelectedDrawingId(null);
+    nudgeOverlay();
+  };
+
+  const moveDrawing = (drawingId: string, deltaX: number, deltaY: number) => {
+    const chart = chartRefs.current.priceChart;
+    const series = chartRefs.current.candlestickSeries;
+    if (!chart || !series) return;
+
+    updateDrawings((prev) =>
+      prev.map((d) => {
+        if (d.id !== drawingId) return d;
+
+        if (d.type === "horizontal" || d.type === "text") {
+          const point = d.type === "horizontal" ? d.point : d.point;
+          const currentY = series.priceToCoordinate(point.price);
+          if (currentY === null) return d;
+          const newPrice = series.coordinateToPrice(currentY + deltaY);
+          if (newPrice === null) return d;
+          const newTime = chart.timeScale().coordinateToTime(
+            chart.timeScale().timeToCoordinate(point.time as UTCTimestamp)! + deltaX
+          );
+          if (newTime === null) return d;
+          return {
+            ...d,
+            point: { price: newPrice, time: Number(newTime) },
+          };
+        }
+
+        // Two-point drawings
+        const startY = series.priceToCoordinate(d.start.price);
+        const endY = series.priceToCoordinate(d.end.price);
+        const startX = chart.timeScale().timeToCoordinate(d.start.time as UTCTimestamp);
+        const endX = chart.timeScale().timeToCoordinate(d.end.time as UTCTimestamp);
+        if (startY === null || endY === null || startX === null || endX === null) return d;
+
+        const newStartPrice = series.coordinateToPrice(startY + deltaY);
+        const newEndPrice = series.coordinateToPrice(endY + deltaY);
+        const newStartTime = chart.timeScale().coordinateToTime(startX + deltaX);
+        const newEndTime = chart.timeScale().coordinateToTime(endX + deltaX);
+        if (newStartPrice === null || newEndPrice === null || newStartTime === null || newEndTime === null) return d;
+
+        return {
+          ...d,
+          start: { price: newStartPrice, time: Number(newStartTime) },
+          end: { price: newEndPrice, time: Number(newEndTime) },
+        };
+      }),
+    );
+    nudgeOverlay();
+  };
+
+  const moveDrawingHandle = (
+    drawingId: string,
+    handle: "start" | "end" | "point",
+    deltaX: number,
+    deltaY: number,
+  ) => {
+    const chart = chartRefs.current.priceChart;
+    const series = chartRefs.current.candlestickSeries;
+    if (!chart || !series) return;
+
+    const movePoint = (point: StoredChartPoint): StoredChartPoint | null => {
+      const currentX = chart.timeScale().timeToCoordinate(point.time as UTCTimestamp);
+      const currentY = series.priceToCoordinate(point.price);
+      if (currentX === null || currentY === null) return null;
+      const newTime = chart.timeScale().coordinateToTime(currentX + deltaX);
+      const newPrice = series.coordinateToPrice(currentY + deltaY);
+      if (newTime === null || newPrice === null) return null;
+      return { time: Number(newTime), price: newPrice };
+    };
+
+    updateDrawings((prev) =>
+      prev.map((d) => {
+        if (d.id !== drawingId) return d;
+
+        if ((d.type === "horizontal" || d.type === "text") && handle === "point") {
+          const nextPoint = movePoint(d.point);
+          return nextPoint ? { ...d, point: nextPoint } : d;
+        }
+
+        if (d.type !== "horizontal" && d.type !== "text") {
+          if (handle === "start") {
+            const nextStart = movePoint(d.start);
+            return nextStart ? { ...d, start: nextStart } : d;
+          }
+          if (handle === "end") {
+            const nextEnd = movePoint(d.end);
+            return nextEnd ? { ...d, end: nextEnd } : d;
+          }
+        }
+
+        return d;
+      }),
+    );
+    nudgeOverlay();
+  };
+
+  const selectedDrawing = selectedDrawingId
+    ? drawings.find((d) => d.id === selectedDrawingId)
+    : null;
+
+  const startDrawingDrag = (
+    drawing: ChartDrawing,
+    e: React.MouseEvent<SVGElement>,
+    mode: "move" | "start" | "end" | "point" = "move",
+  ) => {
+    if (activeTool !== "cursor") return;
+    setSelectedDrawingId(drawing.id);
+    setDrawingStyle(cloneStyle(drawing.style));
+    setIsDraggingDrawing(true);
+    dragStartRef.current = { x: e.clientX, y: e.clientY, drawing, mode };
+    document.body.style.cursor = mode === "move" ? "grabbing" : "crosshair";
+    document.body.style.userSelect = "none";
+    e.stopPropagation();
+    e.preventDefault();
+  };
+
+  const toCanvasPoint = (point: StoredChartPoint): ChartPoint | null => {
+    const chart = chartRefs.current.priceChart;
+    const series = chartRefs.current.candlestickSeries;
+    if (!chart || !series) return null;
+
+    const x = chart.timeScale().timeToCoordinate(point.time as UTCTimestamp);
+    const y = series.priceToCoordinate(point.price);
+    if (x === null || y === null) return null;
+
+    return { x, y, price: point.price, time: point.time };
+  };
+
+  const getCurrentChartWidth = () => priceContainerRef.current?.clientWidth || 0;
+
+  const nudgeOverlay = () => setOverlayVersion((prev) => prev + 1);
+
   const buildChartPoint = (param: any): ChartPoint | null => {
-    if (!param?.point) {
-      console.log("[DRAW] buildChartPoint: no param.point");
-      return null;
-    }
-    if (!chartRefs.current.candlestickSeries) {
-      console.log("[DRAW] buildChartPoint: no candlestickSeries");
-      return null;
-    }
-    if (!chartRefs.current.priceChart) {
-      console.log("[DRAW] buildChartPoint: no priceChart");
+    if (!param?.point || !chartRefs.current.candlestickSeries || !chartRefs.current.priceChart) {
       return null;
     }
     const price = chartRefs.current.candlestickSeries.coordinateToPrice(
       param.point.y,
     );
-    if (price === null || price === undefined) {
-      console.log("[DRAW] buildChartPoint: coordinateToPrice returned null for y:", param.point.y);
-      return null;
-    }
+    if (price === null || price === undefined) return null;
     const time = chartRefs.current.priceChart.timeScale().coordinateToTime(param.point.x);
-    if (time === null || time === undefined) {
-      console.log("[DRAW] buildChartPoint: coordinateToTime returned null for x:", param.point.x);
-      return null;
-    }
+    if (time === null || time === undefined) return null;
     return {
       x: param.point.x,
       y: param.point.y,
@@ -304,17 +666,78 @@ export default function TradingViewChart({
     end: ChartPoint,
   ): ChartDrawing | null => {
     const id = createDrawingId();
+    const style = cloneStyle(drawingStyle);
     if (tool === "trend") {
-      return { id, type: "trend", start, end };
+      return { id, type: "trend", start: toStoredPoint(start), end: toStoredPoint(end), style };
     }
     if (tool === "rectangle") {
-      return { id, type: "rectangle", start, end };
+      return {
+        id,
+        type: "rectangle",
+        start: toStoredPoint(start),
+        end: toStoredPoint(end),
+        style: {
+          ...style,
+          fillColor: style.fillColor ?? withAlpha(style.color, 0.15),
+        },
+      };
     }
     if (tool === "fib") {
-      return { id, type: "fib", start, end };
+      return { id, type: "fib", start: toStoredPoint(start), end: toStoredPoint(end), style };
+    }
+    if (tool === "ray") {
+      return { id, type: "ray", start: toStoredPoint(start), end: toStoredPoint(end), style };
+    }
+    if (tool === "extendedLine") {
+      return { id, type: "extendedLine", start: toStoredPoint(start), end: toStoredPoint(end), style };
     }
     return null;
   };
+
+  useEffect(() => {
+    setDrawingStyle((prev) => {
+      const defaults = TOOL_DEFAULT_STYLES[activeTool];
+      return defaults ? { ...defaults, color: prev.color ?? defaults.color } : prev;
+    });
+  }, [activeTool]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadSavedDrawings() {
+      if (typeof window === "undefined") return;
+
+      const scope = getDrawingStorageScope();
+      let guestDrawings: ChartDrawing[] = [];
+      try {
+        const raw = localStorage.getItem(DRAWINGS_STORAGE_KEY);
+        const parsed = raw ? (JSON.parse(raw) as Record<string, ChartDrawing[]>) : {};
+        guestDrawings = parsed[scope] ?? [];
+      } catch {}
+
+      if (!user) {
+        if (!cancelled) setDrawings(guestDrawings);
+        return;
+      }
+
+      const { data } = await supabase
+        .from("chart_drawings")
+        .select("id, drawings")
+        .eq("user_id", user.id)
+        .eq("symbol", String(symbol).toUpperCase())
+        .eq("exchange", String(exchange || "EGX").toUpperCase())
+        .maybeSingle<DrawingCollectionRow>();
+
+      if (cancelled) return;
+      const next = data?.drawings && Array.isArray(data.drawings) ? data.drawings : guestDrawings;
+      setDrawings(next);
+    }
+
+    void loadSavedDrawings();
+    return () => {
+      cancelled = true;
+    };
+  }, [exchange, supabase, symbol, user]);
 
   // 1. Fetch OHLCV candles data from our FastAPI backend
   useEffect(() => {
@@ -490,20 +913,6 @@ export default function TradingViewChart({
         onToolDrawComplete();
       }
     }
-
-    // Redraw existing S/R levels
-    priceLinesRef.current = [];
-    drawnPriceLevelsRef.current.forEach((priceVal) => {
-      const line = candlestickSeries.createPriceLine({
-        price: priceVal,
-        color: "#6366f1",
-        lineWidth: 2,
-        lineStyle: 2, // Dotted
-        axisLabelVisible: true,
-        title: "S/R Level",
-      });
-      priceLinesRef.current.push(line);
-    });
 
     // Add Volume Overlay on Price Chart (scaled at bottom)
     const volumeSeries = priceChart.addHistogramSeries({
@@ -816,7 +1225,6 @@ export default function TradingViewChart({
         ] of chartRefs.current.lowerCharts.entries()) {
           if (lowerChart === chart) return id;
         }
-        return null;
       };
 
       for (let i = 0; i < activeCharts.length; i++) {
@@ -825,6 +1233,7 @@ export default function TradingViewChart({
 
         chartA.timeScale().subscribeVisibleLogicalRangeChange((range) => {
           if (!range) return;
+          nudgeOverlay();
 
           // Only sync if the range change is originating from the chart currently being hovered/touched
           if (activeChartIdRef.current !== chartAId) {
@@ -950,61 +1359,78 @@ export default function TradingViewChart({
 
     // --- Setup drawing interactions ---
     priceChart.subscribeClick((param) => {
-      console.log("[DRAW] subscribeClick fired", {
-        hasPoint: !!param.point,
-        hasSeries: !!candlestickSeries,
-        tool: activeToolRef.current,
-        point: param.point,
-      });
-
       if (!param.point || !candlestickSeries) return;
 
       const tool = activeToolRef.current;
+
+      if (tool === "cursor") {
+        setSelectedDrawingId(null);
+        return;
+      }
 
       if (tool === "horizontal") {
         const clickedPrice = candlestickSeries.coordinateToPrice(param.point.y);
         if (clickedPrice === null || clickedPrice === undefined) return;
 
-        drawnPriceLevelsRef.current.push(clickedPrice);
-        setDrawings((prev) => [
+        const point = buildChartPoint(param);
+        if (!point) return;
+        updateDrawings((prev) => [
           ...prev,
-          { id: createDrawingId(), type: "horizontal", price: clickedPrice },
+          {
+            id: createDrawingId(),
+            type: "horizontal",
+            point: toStoredPoint(point),
+            style: cloneStyle(drawingStyle),
+          },
         ]);
-
-        const line = candlestickSeries.createPriceLine({
-          price: clickedPrice,
-          color: "#6366f1",
-          lineWidth: 2,
-          lineStyle: 2,
-          axisLabelVisible: true,
-          title: "S/R Level",
-        });
-        priceLinesRef.current.push(line);
 
         if (onToolDrawComplete) {
           onToolDrawComplete();
         }
+        nudgeOverlay();
         return;
       }
 
-      if (!["trend", "rectangle", "fib"].includes(tool)) {
-        console.log("[DRAW] tool not a two-point tool, skipping:", tool);
+      if (tool === "text") {
+        const point = buildChartPoint(param);
+        if (!point) return;
+
+        const nextLabel = window.prompt("Text label", drawingStyle.label || "Note");
+        if (!nextLabel) return;
+
+        updateDrawings((prev) => [
+          ...prev,
+          {
+            id: createDrawingId(),
+            type: "text",
+            point: toStoredPoint(point),
+            text: nextLabel,
+            style: { ...cloneStyle(drawingStyle), label: nextLabel },
+          },
+        ]);
+
+        if (onToolDrawComplete) {
+          onToolDrawComplete();
+        }
+        nudgeOverlay();
+        return;
+      }
+
+      if (!["trend", "rectangle", "fib", "ray", "extendedLine"].includes(tool)) {
         return;
       }
 
       const point = buildChartPoint(param);
-      console.log("[DRAW] buildChartPoint result:", { point, hasStartPoint: !!drawingStartPointRef.current });
       if (!point) return;
 
       if (!drawingStartPointRef.current) {
-        console.log("[DRAW] First point set:", point);
         drawingStartPointRef.current = point;
         setDrawingStartPoint(point);
         setDrawingPreview(null);
+        nudgeOverlay();
         return;
       }
 
-      console.log("[DRAW] Second point, finalizing:", { tool, start: drawingStartPointRef.current, end: point });
       const nextDrawing = finalizeTwoPointDrawing(
         tool,
         drawingStartPointRef.current,
@@ -1015,11 +1441,11 @@ export default function TradingViewChart({
       setDrawingPreview(null);
 
       if (nextDrawing) {
-        console.log("[DRAW] Drawing added:", nextDrawing);
-        setDrawings((prev) => [...prev, nextDrawing]);
+        updateDrawings((prev) => [...prev, nextDrawing]);
         if (onToolDrawComplete) {
           onToolDrawComplete();
         }
+        nudgeOverlay();
       }
     });
 
@@ -1027,10 +1453,9 @@ export default function TradingViewChart({
     priceChart.subscribeCrosshairMove((param) => {
       const tool = activeToolRef.current;
       if (
-        ["trend", "rectangle", "fib"].includes(tool) &&
+        ["trend", "rectangle", "fib", "ray", "extendedLine"].includes(tool) &&
         drawingStartPointRef.current &&
-        param.point &&
-        param.time
+        param.point
       ) {
         const point = buildChartPoint(param);
         if (point) {
@@ -1041,6 +1466,7 @@ export default function TradingViewChart({
               point,
             ),
           );
+          nudgeOverlay();
         }
       }
 
@@ -1121,6 +1547,10 @@ export default function TradingViewChart({
     if (mainContainerRef.current) {
       resizeObserver.observe(mainContainerRef.current);
     }
+
+    priceChart.timeScale().subscribeVisibleTimeRangeChange(() => {
+      nudgeOverlay();
+    });
 
     // Initial resize and scale sync
     handleResize();
@@ -1217,21 +1647,14 @@ export default function TradingViewChart({
       drawingStartPointRef.current = null;
       setDrawingStartPoint(null);
       setDrawingPreview(null);
-      setDrawings([]);
-      priceLinesRef.current.forEach((line) => {
-        if (chartRefs.current.candlestickSeries) {
-          try {
-            chartRefs.current.candlestickSeries.removePriceLine(line);
-          } catch {}
-        }
-      });
-      priceLinesRef.current = [];
+      setSelectedDrawingId(null);
+      updateDrawings(() => []);
       if (onToolDrawComplete) {
         onToolDrawComplete();
       }
     }
 
-    if (!["trend", "rectangle", "fib"].includes(activeTool)) {
+    if (!["trend", "rectangle", "fib", "ray", "extendedLine"].includes(activeTool)) {
       drawingStartPointRef.current = null;
       setDrawingStartPoint(null);
       setDrawingPreview(null);
@@ -1240,56 +1663,176 @@ export default function TradingViewChart({
 
   const renderSingleDrawing = (drawing: ChartDrawing, preview = false) => {
     const className = preview ? "opacity-70" : "opacity-100";
+    const strokeDasharray = lineStyleToSvgDash(drawing.style.lineStyle);
+    const isSelected = !preview && selectedDrawingId === drawing.id;
+    const selectedStroke = isSelected ? "#ffffff" : drawing.style.color;
+    const selectedWidth = isSelected ? drawing.style.lineWidth + 1 : drawing.style.lineWidth;
+    const chartWidth = getCurrentChartWidth();
 
-    if (drawing.type === "trend") {
+    if (drawing.type === "horizontal") {
+      const point = toCanvasPoint(drawing.point);
+      if (!point) return null;
       return (
-        <line
-          key={drawing.id}
-          x1={drawing.start.x}
-          y1={drawing.start.y}
-          x2={drawing.end.x}
-          y2={drawing.end.y}
-          stroke="#22c55e"
-          strokeWidth="2"
-          className={className}
-        />
+        <g key={drawing.id} className={className}>
+          <line
+            x1={0}
+            y1={point.y}
+            x2={chartWidth}
+            y2={point.y}
+            stroke={selectedStroke}
+            strokeWidth={selectedWidth}
+            strokeDasharray={strokeDasharray}
+          />
+          {isSelected && (
+            <>
+              <circle cx={chartWidth - 10} cy={point.y} r="5" fill={drawing.style.color} stroke="white" strokeWidth="2" />
+            </>
+          )}
+          <text
+            x={Math.max(12, chartWidth - 88)}
+            y={point.y - 6}
+            fill={drawing.style.textColor || drawing.style.color}
+            fontSize="10"
+            fontWeight="700"
+          >
+            {drawing.style.label || `${drawing.point.price.toFixed(2)}`}
+          </text>
+        </g>
+      );
+    }
+
+    if (drawing.type === "text") {
+      const point = toCanvasPoint(drawing.point);
+      if (!point) return null;
+      return (
+        <g key={drawing.id} className={className}>
+          <text
+            x={point.x}
+            y={point.y}
+            fill={drawing.style.textColor || drawing.style.color}
+            fontSize="12"
+            fontWeight="700"
+          >
+            {drawing.text}
+          </text>
+          {isSelected && (
+            <rect
+              x={point.x - 4}
+              y={point.y - 12}
+              width={drawing.text.length * 8 + 8}
+              height="16"
+              fill="transparent"
+              stroke="white"
+              strokeWidth="1.5"
+              strokeDasharray="4 3"
+            />
+          )}
+        </g>
+      );
+    }
+
+    if (drawing.type === "trend" || drawing.type === "ray" || drawing.type === "extendedLine") {
+      const start = toCanvasPoint(drawing.start);
+      const end = toCanvasPoint(drawing.end);
+      if (!start || !end) return null;
+
+      let x1 = start.x;
+      let y1 = start.y;
+      let x2 = end.x;
+      let y2 = end.y;
+
+      if (drawing.type === "ray" || drawing.type === "extendedLine") {
+        const dx = end.x - start.x;
+        const dy = end.y - start.y;
+        if (Math.abs(dx) > 0.001) {
+          const slope = dy / dx;
+          if (drawing.type === "ray") {
+            x2 = chartWidth + 120;
+            y2 = start.y + slope * (x2 - start.x);
+          } else {
+            x1 = -120;
+            y1 = start.y + slope * (x1 - start.x);
+            x2 = chartWidth + 120;
+            y2 = start.y + slope * (x2 - start.x);
+          }
+        }
+      }
+
+      return (
+        <g key={drawing.id} className={className}>
+          <line
+            x1={x1}
+            y1={y1}
+            x2={x2}
+            y2={y2}
+            stroke={selectedStroke}
+            strokeWidth={selectedWidth}
+            strokeDasharray={strokeDasharray}
+          />
+          {isSelected && (
+            <>
+              <circle cx={start.x} cy={start.y} r="5" fill={drawing.style.color} stroke="white" strokeWidth="2" />
+              <circle cx={end.x} cy={end.y} r="5" fill={drawing.style.color} stroke="white" strokeWidth="2" />
+            </>
+          )}
+        </g>
       );
     }
 
     if (drawing.type === "rectangle") {
-      const x = Math.min(drawing.start.x, drawing.end.x);
-      const y = Math.min(drawing.start.y, drawing.end.y);
-      const width = Math.abs(drawing.end.x - drawing.start.x);
-      const height = Math.abs(drawing.end.y - drawing.start.y);
+      const start = toCanvasPoint(drawing.start);
+      const end = toCanvasPoint(drawing.end);
+      if (!start || !end) return null;
+
+      const x = Math.min(start.x, end.x);
+      const y = Math.min(start.y, end.y);
+      const width = Math.abs(end.x - start.x);
+      const height = Math.abs(end.y - start.y);
       return (
-        <rect
-          key={drawing.id}
-          x={x}
-          y={y}
-          width={width}
-          height={height}
-          fill="rgba(99,102,241,0.12)"
-          stroke="#818cf8"
-          strokeWidth="2"
-          className={className}
-        />
+        <g key={drawing.id} className={className}>
+          <rect
+            x={x}
+            y={y}
+            width={width}
+            height={height}
+            fill={drawing.style.fillColor || withAlpha(drawing.style.color, 0.14)}
+            stroke={selectedStroke}
+            strokeWidth={selectedWidth}
+            strokeDasharray={strokeDasharray}
+          />
+          {(drawing.style.label || "") && (
+            <text
+              x={x + 8}
+              y={y + 16}
+              fill={drawing.style.textColor || drawing.style.color}
+              fontSize="10"
+              fontWeight="700"
+            >
+              {drawing.style.label}
+            </text>
+          )}
+          {isSelected && (
+            <>
+              <circle cx={start.x} cy={start.y} r="5" fill={drawing.style.color} stroke="white" strokeWidth="2" />
+              <circle cx={end.x} cy={end.y} r="5" fill={drawing.style.color} stroke="white" strokeWidth="2" />
+            </>
+          )}
+        </g>
       );
     }
 
     if (drawing.type === "fib") {
-      const minX = Math.min(drawing.start.x, drawing.end.x);
-      const width = Math.max(40, Math.abs(drawing.end.x - drawing.start.x));
+      const start = toCanvasPoint(drawing.start);
+      const end = toCanvasPoint(drawing.end);
+      if (!start || !end) return null;
+
+      const minX = Math.min(start.x, end.x);
+      const width = Math.max(40, Math.abs(end.x - start.x));
       const high = Math.max(drawing.start.price, drawing.end.price);
       const low = Math.min(drawing.start.price, drawing.end.price);
       const range = high - low || 1;
-      const topY =
-        drawing.start.price >= drawing.end.price
-          ? drawing.start.y
-          : drawing.end.y;
-      const bottomY =
-        drawing.start.price >= drawing.end.price
-          ? drawing.end.y
-          : drawing.start.y;
+      const topY = drawing.start.price >= drawing.end.price ? start.y : end.y;
+      const bottomY = drawing.start.price >= drawing.end.price ? end.y : start.y;
 
       return (
         <g key={drawing.id} className={className}>
@@ -1298,14 +1841,13 @@ export default function TradingViewChart({
             y={Math.min(topY, bottomY)}
             width={width}
             height={Math.abs(bottomY - topY)}
-            fill="rgba(245,158,11,0.05)"
-            stroke="rgba(245,158,11,0.25)"
+            fill={drawing.style.fillColor || withAlpha(drawing.style.color, 0.08)}
+            stroke={withAlpha(drawing.style.color, 0.3)}
             strokeWidth="1"
           />
           {FIB_LEVELS.map((level) => {
             const price = high - range * level;
-            const y =
-              drawing.start.y + (drawing.end.y - drawing.start.y) * level;
+            const y = start.y + (end.y - start.y) * level;
             return (
               <g key={`${drawing.id}-${level}`}>
                 <line
@@ -1313,14 +1855,14 @@ export default function TradingViewChart({
                   y1={y}
                   x2={minX + width}
                   y2={y}
-                  stroke="#f59e0b"
-                  strokeWidth="1.5"
-                  strokeDasharray={level === 0 || level === 1 ? "0" : "4 4"}
+                  stroke={drawing.style.color}
+                  strokeWidth={level === 0 || level === 1 ? selectedWidth : Math.max(1, selectedWidth - 0.5)}
+                  strokeDasharray={level === 0 || level === 1 ? undefined : strokeDasharray || "5 4"}
                 />
                 <text
                   x={minX + width + 6}
                   y={y + 3}
-                  fill="#fbbf24"
+                  fill={drawing.style.textColor || drawing.style.color}
                   fontSize="10"
                   fontWeight="700"
                 >
@@ -1329,6 +1871,213 @@ export default function TradingViewChart({
               </g>
             );
           })}
+          {isSelected && (
+            <>
+              <circle cx={start.x} cy={start.y} r="5" fill={drawing.style.color} stroke="white" strokeWidth="2" />
+              <circle cx={end.x} cy={end.y} r="5" fill={drawing.style.color} stroke="white" strokeWidth="2" />
+            </>
+          )}
+        </g>
+      );
+    }
+
+    return null;
+  };
+
+  const renderDrawingHitArea = (drawing: ChartDrawing) => {
+    const chartWidth = getCurrentChartWidth();
+    const isSelected = selectedDrawingId === drawing.id;
+
+    if (drawing.type === "horizontal") {
+      const point = toCanvasPoint(drawing.point);
+      if (!point) return null;
+      return (
+        <g key={`hit-${drawing.id}`} data-drawing-id={drawing.id} style={{ cursor: isSelected ? "grab" : "pointer" }}>
+          <line
+            x1={0}
+            y1={point.y}
+            x2={chartWidth}
+            y2={point.y}
+            stroke="rgba(0,0,0,0.001)"
+            strokeWidth={Math.max(drawing.style.lineWidth, 12)}
+            style={{ pointerEvents: "stroke" }}
+            onMouseDown={(e) => startDrawingDrag(drawing, e)}
+          />
+          {isSelected && (
+            <circle
+              cx={chartWidth - 10}
+              cy={point.y}
+              r="8"
+              fill="rgba(255,255,255,0.001)"
+              style={{ cursor: "ns-resize", pointerEvents: "fill" }}
+              onMouseDown={(e) => startDrawingDrag(drawing, e, "point")}
+            />
+          )}
+        </g>
+      );
+    }
+
+    if (drawing.type === "text") {
+      const point = toCanvasPoint(drawing.point);
+      if (!point) return null;
+      const estW = drawing.text.length * 8 + 12;
+      return (
+        <g key={`hit-${drawing.id}`} data-drawing-id={drawing.id} style={{ cursor: isSelected ? "grab" : "pointer" }}>
+          <rect
+            x={point.x - 6}
+            y={point.y - 14}
+            width={estW}
+            height="18"
+            fill="rgba(0,0,0,0.001)"
+            style={{ pointerEvents: "fill" }}
+            onMouseDown={(e) => startDrawingDrag(drawing, e)}
+          />
+          {isSelected && (
+            <circle
+              cx={point.x}
+              cy={point.y}
+              r="8"
+              fill="rgba(255,255,255,0.001)"
+              style={{ cursor: "move", pointerEvents: "fill" }}
+              onMouseDown={(e) => startDrawingDrag(drawing, e, "point")}
+            />
+          )}
+        </g>
+      );
+    }
+
+    if (drawing.type === "trend" || drawing.type === "ray" || drawing.type === "extendedLine") {
+      const start = toCanvasPoint(drawing.start);
+      const end = toCanvasPoint(drawing.end);
+      if (!start || !end) return null;
+      let x1 = start.x, y1 = start.y, x2 = end.x, y2 = end.y;
+      if (drawing.type === "ray" || drawing.type === "extendedLine") {
+        const dx = end.x - start.x;
+        const dy = end.y - start.y;
+        if (Math.abs(dx) > 0.001) {
+          const slope = dy / dx;
+          if (drawing.type === "ray") { x2 = chartWidth + 120; y2 = start.y + slope * (x2 - start.x); }
+          else { x1 = -120; y1 = start.y + slope * (x1 - start.x); x2 = chartWidth + 120; y2 = start.y + slope * (x2 - start.x); }
+        }
+      }
+      return (
+        <g key={`hit-${drawing.id}`} data-drawing-id={drawing.id} style={{ cursor: isSelected ? "grab" : "pointer" }}>
+          <line
+            x1={x1}
+            y1={y1}
+            x2={x2}
+            y2={y2}
+            stroke="rgba(0,0,0,0.001)"
+            strokeWidth={Math.max(drawing.style.lineWidth, 12)}
+            style={{ pointerEvents: "stroke" }}
+            onMouseDown={(e) => startDrawingDrag(drawing, e)}
+          />
+          {isSelected && (
+            <>
+              <circle
+                cx={start.x}
+                cy={start.y}
+                r="8"
+                fill="rgba(255,255,255,0.001)"
+                style={{ cursor: "crosshair", pointerEvents: "fill" }}
+                onMouseDown={(e) => startDrawingDrag(drawing, e, "start")}
+              />
+              <circle
+                cx={end.x}
+                cy={end.y}
+                r="8"
+                fill="rgba(255,255,255,0.001)"
+                style={{ cursor: "crosshair", pointerEvents: "fill" }}
+                onMouseDown={(e) => startDrawingDrag(drawing, e, "end")}
+              />
+            </>
+          )}
+        </g>
+      );
+    }
+
+    if (drawing.type === "rectangle") {
+      const start = toCanvasPoint(drawing.start);
+      const end = toCanvasPoint(drawing.end);
+      if (!start || !end) return null;
+      const x = Math.min(start.x, end.x);
+      const y = Math.min(start.y, end.y);
+      const w = Math.abs(end.x - start.x);
+      const h = Math.abs(end.y - start.y);
+      return (
+        <g key={`hit-${drawing.id}`} data-drawing-id={drawing.id} style={{ cursor: isSelected ? "grab" : "pointer" }}>
+          <rect
+            x={x}
+            y={y}
+            width={w}
+            height={h}
+            fill="rgba(0,0,0,0.001)"
+            style={{ pointerEvents: "fill" }}
+            onMouseDown={(e) => startDrawingDrag(drawing, e)}
+          />
+          {isSelected && (
+            <>
+              <circle
+                cx={start.x}
+                cy={start.y}
+                r="8"
+                fill="rgba(255,255,255,0.001)"
+                style={{ cursor: "nwse-resize", pointerEvents: "fill" }}
+                onMouseDown={(e) => startDrawingDrag(drawing, e, "start")}
+              />
+              <circle
+                cx={end.x}
+                cy={end.y}
+                r="8"
+                fill="rgba(255,255,255,0.001)"
+                style={{ cursor: "nwse-resize", pointerEvents: "fill" }}
+                onMouseDown={(e) => startDrawingDrag(drawing, e, "end")}
+              />
+            </>
+          )}
+        </g>
+      );
+    }
+
+    if (drawing.type === "fib") {
+      const start = toCanvasPoint(drawing.start);
+      const end = toCanvasPoint(drawing.end);
+      if (!start || !end) return null;
+      const minX = Math.min(start.x, end.x);
+      const w = Math.max(40, Math.abs(end.x - start.x));
+      const topY = Math.min(start.y, end.y);
+      const h = Math.abs(end.y - start.y);
+      return (
+        <g key={`hit-${drawing.id}`} data-drawing-id={drawing.id} style={{ cursor: isSelected ? "grab" : "pointer" }}>
+          <rect
+            x={minX}
+            y={topY}
+            width={w}
+            height={h}
+            fill="rgba(0,0,0,0.001)"
+            style={{ pointerEvents: "fill" }}
+            onMouseDown={(e) => startDrawingDrag(drawing, e)}
+          />
+          {isSelected && (
+            <>
+              <circle
+                cx={start.x}
+                cy={start.y}
+                r="8"
+                fill="rgba(255,255,255,0.001)"
+                style={{ cursor: "crosshair", pointerEvents: "fill" }}
+                onMouseDown={(e) => startDrawingDrag(drawing, e, "start")}
+              />
+              <circle
+                cx={end.x}
+                cy={end.y}
+                r="8"
+                fill="rgba(255,255,255,0.001)"
+                style={{ cursor: "crosshair", pointerEvents: "fill" }}
+                onMouseDown={(e) => startDrawingDrag(drawing, e, "end")}
+              />
+            </>
+          )}
         </g>
       );
     }
@@ -1379,6 +2128,98 @@ export default function TradingViewChart({
     const to = Math.min(candlesData.length - 1, targetIndex + half);
     ts.setVisibleLogicalRange({ from, to });
   }, [focusTimestamp, candlesData]);
+
+  // --- Drawing drag (move) effect ---
+  useEffect(() => {
+    if (!isDraggingDrawing) return;
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!dragStartRef.current) return;
+      const deltaX = e.clientX - dragStartRef.current.x;
+      const deltaY = e.clientY - dragStartRef.current.y;
+      dragStartRef.current.x = e.clientX;
+      dragStartRef.current.y = e.clientY;
+      if (dragStartRef.current.mode === "move") {
+        moveDrawing(dragStartRef.current.drawing.id, deltaX, deltaY);
+      } else {
+        moveDrawingHandle(
+          dragStartRef.current.drawing.id,
+          dragStartRef.current.mode,
+          deltaX,
+          deltaY,
+        );
+      }
+    };
+    const handleMouseUp = () => {
+      setIsDraggingDrawing(false);
+      dragStartRef.current = null;
+      document.body.style.cursor = "default";
+      document.body.style.userSelect = "auto";
+    };
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [isDraggingDrawing]);
+
+  // --- Properties panel drag & resize effects ---
+  useEffect(() => {
+    if (!isDraggingPanel) return;
+    const handleMouseMove = (e: MouseEvent) => {
+      setPropsPanelPos((prev) => {
+        const container = priceContainerRef.current;
+        const maxX = Math.max(0, (container?.clientWidth || window.innerWidth) - prev.width - 8);
+        const maxY = Math.max(0, (container?.clientHeight || window.innerHeight) - 80);
+        const next = {
+          x: Math.max(0, Math.min(maxX, panelDragOffsetRef.current.startX + e.clientX - panelDragOffsetRef.current.mouseX)),
+          y: Math.max(0, Math.min(maxY, panelDragOffsetRef.current.startY + e.clientY - panelDragOffsetRef.current.mouseY)),
+          width: prev.width,
+        };
+        persistPropsPanelState(next);
+        return next;
+      });
+    };
+    const handleMouseUp = () => {
+      setIsDraggingPanel(false);
+      document.body.style.cursor = "default";
+      document.body.style.userSelect = "auto";
+    };
+    document.body.style.cursor = "grabbing";
+    document.body.style.userSelect = "none";
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [isDraggingPanel]);
+
+  useEffect(() => {
+    if (!isResizingPanel) return;
+    const handleMouseMove = (e: MouseEvent) => {
+      setPropsPanelPos((prev) => {
+        const newWidth = Math.max(220, Math.min(420, prev.width + (e.clientX - panelResizeStartRef.current.mouseX)));
+        panelResizeStartRef.current.mouseX = e.clientX;
+        const next = { ...prev, width: newWidth };
+        persistPropsPanelState(next);
+        return next;
+      });
+    };
+    const handleMouseUp = () => {
+      setIsResizingPanel(false);
+      document.body.style.cursor = "default";
+      document.body.style.userSelect = "auto";
+    };
+    document.body.style.cursor = "ew-resize";
+    document.body.style.userSelect = "none";
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [isResizingPanel]);
 
   // Add new indicator instance
   const addIndicator = (type: string) => {
@@ -1559,6 +2400,74 @@ export default function TradingViewChart({
               </svg>
               <span>Trend</span>
             </button>
+
+            {(activeTool === "horizontal" ||
+              activeTool === "trend" ||
+              activeTool === "rectangle" ||
+              activeTool === "fib" ||
+              activeTool === "ray" ||
+              activeTool === "extendedLine" ||
+              activeTool === "text") && (
+              <div className="ml-2 flex items-center gap-2 rounded-xl border border-white/10 bg-[#0c0d12]/80 px-2 py-1">
+                <input
+                  type="color"
+                  value={drawingStyle.color}
+                  onChange={(e) =>
+                    setDrawingStyle((prev) => ({
+                      ...prev,
+                      color: e.target.value,
+                      fillColor:
+                        activeTool === "rectangle" || activeTool === "fib"
+                          ? withAlpha(e.target.value, activeTool === "fib" ? 0.08 : 0.15)
+                          : prev.fillColor,
+                    }))
+                  }
+                  className="h-6 w-6 cursor-pointer rounded border border-white/10 bg-transparent p-0"
+                  title="Line Color"
+                />
+                <select
+                  value={String(drawingStyle.lineWidth)}
+                  onChange={(e) =>
+                    setDrawingStyle((prev) => ({
+                      ...prev,
+                      lineWidth: Number(e.target.value),
+                    }))
+                  }
+                  className="h-7 rounded bg-[#131722] px-2 text-[10px] font-bold text-white outline-none"
+                >
+                  <option value="1">1px</option>
+                  <option value="2">2px</option>
+                  <option value="3">3px</option>
+                  <option value="4">4px</option>
+                </select>
+                <select
+                  value={drawingStyle.lineStyle}
+                  onChange={(e) =>
+                    setDrawingStyle((prev) => ({
+                      ...prev,
+                      lineStyle: e.target.value as DrawingLineStyle,
+                    }))
+                  }
+                  className="h-7 rounded bg-[#131722] px-2 text-[10px] font-bold text-white outline-none"
+                >
+                  <option value="solid">Solid</option>
+                  <option value="dashed">Dashed</option>
+                  <option value="dotted">Dotted</option>
+                </select>
+                <input
+                  type="text"
+                  value={drawingStyle.label || ""}
+                  onChange={(e) =>
+                    setDrawingStyle((prev) => ({
+                      ...prev,
+                      label: e.target.value,
+                    }))
+                  }
+                  placeholder="Label"
+                  className="h-7 w-24 rounded bg-[#131722] px-2 text-[10px] font-bold text-white placeholder:text-[#787b86] outline-none"
+                />
+              </div>
+            )}
 
             {/* Fibonacci Tool */}
             <button
@@ -1794,13 +2703,12 @@ export default function TradingViewChart({
             ref={priceContainerRef}
             className="absolute inset-0 overflow-hidden"
           />
-          <svg className="absolute inset-0 w-full h-full pointer-events-none overflow-visible z-10">
-            {drawings
-              .filter((d) => d.type !== "horizontal")
-              .map((d) => renderSingleDrawing(d))}
-            {drawingPreview &&
-              drawingPreview.type !== "horizontal" &&
-              renderSingleDrawing(drawingPreview, true)}
+          <svg
+            className="absolute inset-0 w-full h-full overflow-visible z-10"
+            style={{ pointerEvents: "none" }}
+          >
+            {drawings.map((d) => renderSingleDrawing(d))}
+            {drawingPreview && renderSingleDrawing(drawingPreview, true)}
             {/* First-point indicator */}
             {drawingStartPoint && (
               <circle
@@ -1811,9 +2719,283 @@ export default function TradingViewChart({
                 stroke="#f59e0b"
                 strokeWidth="2"
                 className="animate-pulse"
+                style={{ pointerEvents: "none" }}
               />
             )}
           </svg>
+
+          {/* Invisible interaction overlay for drawing click/drag detection */}
+          {activeTool === "cursor" && (
+            <svg
+              className="absolute inset-0 w-full h-full overflow-visible z-20"
+              style={{ pointerEvents: "none" }}
+            >
+              {drawings.map((d) => renderDrawingHitArea(d))}
+            </svg>
+          )}
+
+          {/* Drawing Properties Panel (TradingView-like floating editor) */}
+          {selectedDrawing && activeTool === "cursor" && (
+            <div
+              className="absolute z-40 bg-[#1c2030]/95 backdrop-blur-xl border border-[#2a2e39] rounded-2xl shadow-2xl select-none overflow-hidden animate-fade-in"
+              style={{ left: propsPanelPos.x, top: propsPanelPos.y, width: propsPanelPos.width }}
+            >
+              {/* Resize handle */}
+              <div
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setIsResizingPanel(true);
+                  panelResizeStartRef.current = { mouseX: e.clientX, startYWidth: propsPanelPos.width };
+                }}
+                className="absolute left-0 top-0 bottom-0 w-1.5 cursor-ew-resize hover:bg-indigo-500/40 transition-all z-50"
+              />
+
+              <div
+                className="px-3 py-2.5 border-b border-[#2a2e39] flex items-center justify-between cursor-grab active:cursor-grabbing"
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setIsDraggingPanel(true);
+                  panelDragOffsetRef.current = {
+                    mouseX: e.clientX,
+                    mouseY: e.clientY,
+                    startX: propsPanelPos.x,
+                    startY: propsPanelPos.y,
+                  };
+                }}
+              >
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full" style={{ backgroundColor: drawingStyle.color }} />
+                  <span className="text-[11px] font-black text-white uppercase tracking-wider">
+                    {selectedDrawing.type === "horizontal" ? "Horizontal Line" :
+                     selectedDrawing.type === "trend" ? "Trend Line" :
+                     selectedDrawing.type === "rectangle" ? "Rectangle" :
+                     selectedDrawing.type === "fib" ? "Fibonacci" :
+                     selectedDrawing.type === "ray" ? "Ray" :
+                     selectedDrawing.type === "extendedLine" ? "Extended Line" :
+                     selectedDrawing.type === "text" ? "Text" : "Drawing"}
+                  </span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => deleteDrawing(selectedDrawing.id)}
+                    className="p-1 rounded hover:bg-red-500/20 text-[#787b86] hover:text-red-400 transition-all"
+                    title="Delete Drawing"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    onClick={() => setSelectedDrawingId(null)}
+                    className="p-1 rounded hover:bg-[#2a2e39] text-[#787b86] hover:text-white transition-all"
+                    title="Close"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+
+              <div className="px-3 py-3 space-y-3">
+                {/* Line Color */}
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-[10px] font-bold text-[#787b86] uppercase tracking-wider shrink-0">Color</span>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="color"
+                      value={drawingStyle.color}
+                      onChange={(e) => {
+                        const newColor = e.target.value;
+                        const newStyle: DrawingStyle = {
+                          ...drawingStyle,
+                          color: newColor,
+                          fillColor: (selectedDrawing.type === "rectangle" || selectedDrawing.type === "fib")
+                            ? withAlpha(newColor, selectedDrawing.type === "fib" ? 0.08 : 0.15)
+                            : drawingStyle.fillColor,
+                        };
+                        setDrawingStyle(newStyle);
+                        updateDrawingStyle(selectedDrawing.id, newStyle);
+                      }}
+                      className="h-7 w-7 cursor-pointer rounded border border-white/10 bg-transparent p-0"
+                    />
+                    {(["#ef5350","#26a69a","#6366f1","#38bdf8","#f59e0b","#a855f7","#f97316","#22c55e","#e91e63","#2196f3","#ffffff","#787b86"] as const).map((preset) => (
+                      <button
+                        key={preset}
+                        onClick={() => {
+                          const newStyle: DrawingStyle = {
+                            ...drawingStyle,
+                            color: preset,
+                            fillColor: (selectedDrawing.type === "rectangle" || selectedDrawing.type === "fib")
+                              ? withAlpha(preset, selectedDrawing.type === "fib" ? 0.08 : 0.15)
+                              : drawingStyle.fillColor,
+                          };
+                          setDrawingStyle(newStyle);
+                          updateDrawingStyle(selectedDrawing.id, newStyle);
+                        }}
+                        className={`w-5 h-5 rounded-full border-2 transition-all hover:scale-125 active:scale-110 ${
+                          drawingStyle.color === preset ? "border-white scale-110" : "border-white/20"
+                        }`}
+                        style={{ backgroundColor: preset }}
+                      />
+                    ))}
+                  </div>
+                </div>
+
+                {/* Line Width */}
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-[10px] font-bold text-[#787b86] uppercase tracking-wider shrink-0">Width</span>
+                  <div className="flex items-center gap-1.5">
+                    {[1, 2, 3, 4, 5].map((w) => (
+                      <button
+                        key={w}
+                        onClick={() => {
+                          const newStyle: DrawingStyle = { ...drawingStyle, lineWidth: w };
+                          setDrawingStyle(newStyle);
+                          updateDrawingStyle(selectedDrawing.id, newStyle);
+                        }}
+                        className={`h-7 w-7 rounded-lg border transition-all flex items-center justify-center ${
+                          drawingStyle.lineWidth === w ? "border-indigo-500 bg-indigo-500/20 text-white" : "border-white/10 bg-[#131722] text-[#787b86] hover:border-white/30 hover:text-white"
+                        }`}
+                      >
+                        <div
+                          className="rounded-full"
+                          style={{
+                            width: `${w * 2 + 2}px`,
+                            height: `${w}px`,
+                            backgroundColor: drawingStyle.color,
+                          }}
+                        />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Line Style */}
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-[10px] font-bold text-[#787b86] uppercase tracking-wider shrink-0">Style</span>
+                  <div className="flex items-center gap-1.5">
+                    {(["solid", "dashed", "dotted"] as DrawingLineStyle[]).map((s) => (
+                      <button
+                        key={s}
+                        onClick={() => {
+                          const newStyle: DrawingStyle = { ...drawingStyle, lineStyle: s };
+                          setDrawingStyle(newStyle);
+                          updateDrawingStyle(selectedDrawing.id, newStyle);
+                        }}
+                        className={`h-7 px-3 rounded-lg border transition-all text-[10px] font-bold uppercase tracking-wider ${
+                          drawingStyle.lineStyle === s ? "border-indigo-500 bg-indigo-500/20 text-white" : "border-white/10 bg-[#131722] text-[#787b86] hover:border-white/30 hover:text-white"
+                        }`}
+                      >
+                        <svg className="w-12 h-3" viewBox="0 0 48 6">
+                          <line
+                            x1="0" y1="3" x2="48" y2="3"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeDasharray={s === "dashed" ? "8 4" : s === "dotted" ? "2 4" : undefined}
+                          />
+                        </svg>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Fill Color (for rectangle & fib only) */}
+                {(selectedDrawing.type === "rectangle" || selectedDrawing.type === "fib") && (
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-[10px] font-bold text-[#787b86] uppercase tracking-wider shrink-0">Fill</span>
+                    <input
+                      type="color"
+                      value={(() => {
+                        const fc = drawingStyle.fillColor || withAlpha(drawingStyle.color, 0.15);
+                        if (fc.startsWith("rgba")) {
+                          const match = fc.match(/rgba\((\d+),(\d+),(\d+),([\d.]+)\)/);
+                          if (match) {
+                            const r = parseInt(match[1]).toString(16).padStart(2, "0");
+                            const g = parseInt(match[2]).toString(16).padStart(2, "0");
+                            const b = parseInt(match[3]).toString(16).padStart(2, "0");
+                            return `#${r}${g}${b}`;
+                          }
+                        }
+                        return fc.startsWith("#") ? fc.slice(0, 7) : "#000000";
+                      })()}
+                      onChange={(e) => {
+                        const newStyle: DrawingStyle = {
+                          ...drawingStyle,
+                          fillColor: withAlpha(e.target.value, selectedDrawing.type === "fib" ? 0.08 : 0.15),
+                        };
+                        setDrawingStyle(newStyle);
+                        updateDrawingStyle(selectedDrawing.id, newStyle);
+                      }}
+                      className="h-7 w-7 cursor-pointer rounded border border-white/10 bg-transparent p-0"
+                    />
+                    <div className="flex items-center gap-1.5 flex-1">
+                      <span className="text-[10px] text-[#787b86] font-bold shrink-0">Opacity</span>
+                      <input
+                        type="range"
+                        min="0"
+                        max="100"
+                        value={(() => {
+                          const fc = drawingStyle.fillColor || withAlpha(drawingStyle.color, 0.15);
+                          if (fc.startsWith("rgba")) {
+                            const match = fc.match(/rgba\(\d+,\d+,\d+,([\d.]+)\)/);
+                            if (match) return Math.round(parseFloat(match[1]) * 100);
+                          }
+                          return 15;
+                        })()}
+                        onChange={(e) => {
+                          const opacity = parseInt(e.target.value) / 100;
+                          const baseColor = (() => {
+                            const fc = drawingStyle.fillColor || withAlpha(drawingStyle.color, 0.15);
+                            if (fc.startsWith("rgba")) {
+                              const match = fc.match(/rgba\((\d+),(\d+),(\d+)/);
+                              if (match) return `#${parseInt(match[1]).toString(16).padStart(2,"0")}${parseInt(match[2]).toString(16).padStart(2,"0")}${parseInt(match[3]).toString(16).padStart(2,"0")}`;
+                            }
+                            return drawingStyle.color;
+                          })();
+                          const newStyle: DrawingStyle = { ...drawingStyle, fillColor: withAlpha(baseColor, opacity) };
+                          setDrawingStyle(newStyle);
+                          updateDrawingStyle(selectedDrawing.id, newStyle);
+                        }}
+                        className="flex-1 h-1.5 accent-indigo-500"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* Label */}
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-[10px] font-bold text-[#787b86] uppercase tracking-wider shrink-0">Label</span>
+                  <input
+                    type="text"
+                    value={drawingStyle.label || ""}
+                    onChange={(e) => {
+                      const newStyle: DrawingStyle = { ...drawingStyle, label: e.target.value };
+                      setDrawingStyle(newStyle);
+                      updateDrawingStyle(selectedDrawing.id, newStyle);
+                    }}
+                    placeholder="Label..."
+                    className="h-7 w-[140px] rounded-lg bg-[#131722] border border-white/10 px-2 text-[10px] font-bold text-white placeholder:text-[#787b86] outline-none focus:border-indigo-500 transition-all"
+                  />
+                </div>
+
+                {/* Text Color (for drawings with text) */}
+                {(selectedDrawing.type === "horizontal" || selectedDrawing.type === "fib" || selectedDrawing.type === "text" || selectedDrawing.type === "rectangle") && (
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-[10px] font-bold text-[#787b86] uppercase tracking-wider shrink-0">Text</span>
+                    <input
+                      type="color"
+                      value={drawingStyle.textColor || drawingStyle.color}
+                      onChange={(e) => {
+                        const newStyle: DrawingStyle = { ...drawingStyle, textColor: e.target.value };
+                        setDrawingStyle(newStyle);
+                        updateDrawingStyle(selectedDrawing.id, newStyle);
+                      }}
+                      className="h-7 w-7 cursor-pointer rounded border border-white/10 bg-transparent p-0"
+                    />
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Dynamic Lower Panes */}

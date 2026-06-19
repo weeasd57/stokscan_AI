@@ -4063,6 +4063,22 @@ def get_daily_job_history(
 ):
     try:
         _init_supabase()
+        def _parse_steps(value):
+            if isinstance(value, list):
+                return value
+            if isinstance(value, dict):
+                return [value]
+            if isinstance(value, str):
+                try:
+                    parsed = json.loads(value)
+                    if isinstance(parsed, list):
+                        return parsed
+                    if isinstance(parsed, dict):
+                        return [parsed]
+                except Exception:
+                    return []
+            return []
+
         res = (
             supabase.table("daily_job_runs")
             .select("*")
@@ -4073,8 +4089,7 @@ def get_daily_job_history(
         )
         data = res.data or []
         for row in data:
-            if isinstance(row.get("steps"), str):
-                row["steps"] = json.loads(row["steps"])
+            row["steps"] = _parse_steps(row.get("steps"))
         return {"status": "success", "total": len(data), "runs": data}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -4093,8 +4108,20 @@ def get_daily_job_status():
             .execute()
         )
         latest = (res.data or [None])[0]
-        if latest and isinstance(latest.get("steps"), str):
-            latest["steps"] = json.loads(latest["steps"])
+        if latest:
+            steps = latest.get("steps")
+            if isinstance(steps, list):
+                latest["steps"] = steps
+            elif isinstance(steps, dict):
+                latest["steps"] = [steps]
+            elif isinstance(steps, str):
+                try:
+                    parsed = json.loads(steps)
+                    latest["steps"] = parsed if isinstance(parsed, list) else ([parsed] if isinstance(parsed, dict) else [])
+                except Exception:
+                    latest["steps"] = []
+            else:
+                latest["steps"] = []
         return {"status": "success", "latest_run": latest}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

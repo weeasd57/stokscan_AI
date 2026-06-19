@@ -16,7 +16,7 @@ const TechnicalScannerClient = dynamic(
 
 export const metadata = {
   title: "Technical Stock Screener | EGX Bots",
-  description: "Advanced technical stock screener for the Egyptian Stock Exchange (EGX). Filter and scan stocks in real-time using RSI, MACD, EMA crossover, and AI predictions.",
+  description: "Technical stock screener for the Egyptian Stock Exchange (EGX) using RSI, MACD, EMA crossover, VWAP, and volume filters.",
 };
 
 export default function TechnicalScannerPage() {

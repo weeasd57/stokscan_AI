@@ -5,10 +5,10 @@ import { Suspense, useEffect, useState } from "react";
 import TradingViewChart from "@/components/TradingViewChartDynamic";
 import { getAdaptiveRecommendation, getStockFundamentals, searchSymbols } from "@/lib/api";
 import { 
-  Loader2, MousePointer, TrendingUp, Minus, Type, Edit2, 
-  Trash2, Compass, Ruler, Landmark, Activity, Sparkles, TrendingDown,
-  PieChart, Coins, HelpCircle, ChevronRight, ChevronLeft, Globe, Search, Star,
-  ArrowLeftRight, Plus, ExternalLink
+  Loader2, MousePointer, TrendingUp, Minus, Type,
+  Trash2, Compass, Landmark, Activity, Sparkles,
+  ChevronRight, ChevronLeft, Search, Star,
+  ExternalLink, ArrowRightLeft, Plus
 } from "lucide-react";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useAuth } from "@/contexts/AuthContext";
@@ -247,6 +247,32 @@ function ChartContent() {
           <Compass className="w-4 h-4" />
           <span className="absolute left-14 top-1/2 -translate-y-1/2 bg-zinc-950 text-[10px] font-bold text-white px-2 py-1 rounded border border-white/5 whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity z-50 pointer-events-none uppercase tracking-wider">
             Fibonacci
+          </span>
+        </button>
+
+        <button
+          onClick={() => handleToolClick("ray")}
+          className={`p-2 rounded-xl transition-all duration-200 group relative ${
+            activeTool === "ray" ? "bg-orange-600 text-white" : "text-[#787b86] hover:text-white hover:bg-zinc-800"
+          }`}
+          title="Ray"
+        >
+          <TrendingUp className="w-4 h-4" />
+          <span className="absolute left-14 top-1/2 -translate-y-1/2 bg-zinc-950 text-[10px] font-bold text-white px-2 py-1 rounded border border-white/5 whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity z-50 pointer-events-none uppercase tracking-wider">
+            Ray
+          </span>
+        </button>
+
+        <button
+          onClick={() => handleToolClick("extendedLine")}
+          className={`p-2 rounded-xl transition-all duration-200 group relative ${
+            activeTool === "extendedLine" ? "bg-fuchsia-600 text-white" : "text-[#787b86] hover:text-white hover:bg-zinc-800"
+          }`}
+          title="Extended Line"
+        >
+          <ArrowRightLeft className="w-4 h-4" />
+          <span className="absolute left-14 top-1/2 -translate-y-1/2 bg-zinc-950 text-[10px] font-bold text-white px-2 py-1 rounded border border-white/5 whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity z-50 pointer-events-none uppercase tracking-wider">
+            Extended Line
           </span>
         </button>
 

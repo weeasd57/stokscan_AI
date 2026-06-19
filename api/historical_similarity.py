@@ -822,13 +822,29 @@ def get_published_similarity_report() -> Dict[str, Any]:
         if not supabase:
             print("⚠️ Supabase not initialized, returning empty report")
             return {"scans": [], "updated_at": None, "name": "Market Similarity Report"}
+
+        def _parse_scans(value: Any) -> List[Dict[str, Any]]:
+            if isinstance(value, list):
+                return value
+            if isinstance(value, dict):
+                return [value]
+            if isinstance(value, str):
+                try:
+                    parsed = json.loads(value)
+                    if isinstance(parsed, list):
+                        return parsed
+                    if isinstance(parsed, dict):
+                        return [parsed]
+                except Exception:
+                    return []
+            return []
         
         # Fetch the latest report from similarity_reports table
         response = supabase.table("similarity_reports").select("*").order("updated_at", desc=True).limit(1).execute()
         
         if response.data and len(response.data) > 0:
             report_row = response.data[0]
-            raw_scans = json.loads(report_row.get("scans", "[]")) if isinstance(report_row.get("scans"), str) else report_row.get("scans", [])
+            raw_scans = _parse_scans(report_row.get("scans", []))
             filtered_scans = _filter_report_scans(raw_scans)
 
             return {

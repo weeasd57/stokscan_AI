@@ -54,6 +54,17 @@ create table if not exists public.user_settings (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists public.chart_drawings (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  symbol text not null,
+  exchange text not null,
+  drawings jsonb not null default '[]'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (user_id, symbol, exchange)
+);
+
 create table if not exists public.pricing_plans (
   id text primary key,
   name text not null,
@@ -367,6 +378,7 @@ create table if not exists public.daily_job_runs (
 -- Triggers for updated_at
 create trigger trg_profiles_updated_at before update on public.profiles for each row execute function public.set_updated_at();
 create trigger trg_user_settings_updated_at before update on public.user_settings for each row execute function public.set_updated_at();
+create trigger trg_chart_drawings_updated_at before update on public.chart_drawings for each row execute function public.set_updated_at();
 create trigger trg_pricing_plans_updated_at before update on public.pricing_plans for each row execute function public.set_updated_at();
 create trigger trg_subscriptions_updated_at before update on public.subscriptions for each row execute function public.set_updated_at();
 create trigger trg_positions_updated_at before update on public.positions for each row execute function public.set_updated_at();
@@ -376,6 +388,7 @@ create trigger trg_bot_daily_performance_updated_at before update on public.bot_
 
 -- Indexes
 create index if not exists idx_bot_trades_bot_id on public.bot_trades(bot_id);
+create index if not exists idx_chart_drawings_user_symbol_exchange on public.chart_drawings(user_id, symbol, exchange);
 create index if not exists idx_bot_trades_symbol on public.bot_trades(symbol);
 create index if not exists idx_bot_trades_timestamp on public.bot_trades("timestamp" desc);
 create index if not exists idx_bot_logs_bot_id on public.bot_logs(bot_id);
@@ -393,6 +406,7 @@ create index if not exists idx_bot_alerts_timestamp on public.bot_alerts(timesta
 -- RLS Policies
 alter table public.profiles enable row level security;
 alter table public.user_settings enable row level security;
+alter table public.chart_drawings enable row level security;
 alter table public.pricing_plans enable row level security;
 alter table public.subscriptions enable row level security;
 alter table public.positions enable row level security;
@@ -413,6 +427,23 @@ create policy "allow_all_trades" on public.bot_trades for all using (true);
 create policy "allow_all_logs" on public.bot_logs for all using (true);
 create policy "allow_all_configs" on public.bot_configs for all using (true);
 create policy "allow_all_states" on public.bot_states for all using (true);
+
+create policy "users_manage_own_chart_drawings_select" on public.chart_drawings
+for select to authenticated
+using (auth.uid() = user_id);
+
+create policy "users_manage_own_chart_drawings_insert" on public.chart_drawings
+for insert to authenticated
+with check (auth.uid() = user_id);
+
+create policy "users_manage_own_chart_drawings_update" on public.chart_drawings
+for update to authenticated
+using (auth.uid() = user_id)
+with check (auth.uid() = user_id);
+
+create policy "users_manage_own_chart_drawings_delete" on public.chart_drawings
+for delete to authenticated
+using (auth.uid() = user_id);
 
 grant all on public.bot_trades to anon, authenticated, service_role;
 grant all on public.bot_logs to anon, authenticated, service_role;

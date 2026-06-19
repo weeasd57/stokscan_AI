@@ -23,12 +23,6 @@ export default function sitemap(): MetadataRoute.Sitemap {
       priority: 0.8,
     },
     {
-      url: `${baseUrl}/scanner/ai`,
-      lastModified: new Date(),
-      changeFrequency: 'daily',
-      priority: 0.8,
-    },
-    {
       url: `${baseUrl}/scanner/comparison`,
       lastModified: new Date(),
       changeFrequency: 'weekly',

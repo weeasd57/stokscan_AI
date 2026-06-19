@@ -15,7 +15,7 @@ from api.historical_similarity import (
 )
 import os
 
-router = APIRouter(prefix="/api/admin/similarity", tags=["admin-similarity"])
+router = APIRouter(prefix="/admin/similarity", tags=["admin-similarity"])
 
 
 def _verify_admin_key(x_admin_key: Optional[str] = Header(default=None)):

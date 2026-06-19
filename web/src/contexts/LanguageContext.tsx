@@ -49,7 +49,7 @@ const translations: Record<string, Record<Language, string>> = {
     "nav.profile": { en: "Profile", ar: "الملف الشخصي" },
     "auth.login": { en: "Login", ar: "تسجيل الدخول" },
     "auth.logout": { en: "Logout", ar: "تسجيل الخروج" },
-    "header.pro_analysis": { en: "Pro Analysis", ar: "التحليل الاحترافي" },
+    "header.pro_analysis": { en: "Analysis", ar: "التحليل" },
     "account.label": { en: "Account", ar: "الحساب" },
     "compare.symbol": { en: "Symbol", ar: "الرمز" },
     "compare.precision": { en: "AI Precision", ar: "دقة الذكاء الاصطناعي" },

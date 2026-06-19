@@ -20,6 +20,12 @@ from dotenv import load_dotenv
 project_root = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, project_root)
 
+# Force UTF-8 encoding on standard output and error to prevent UnicodeEncodeError under Windows console
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8")
+
 # Load environment variables
 load_dotenv(os.path.join(project_root, ".env"))
 

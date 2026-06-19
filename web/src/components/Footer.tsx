@@ -21,8 +21,7 @@ export default function Footer() {
               {t("app.title")}
             </h3>
             <p className="text-sm text-zinc-500 dark:text-zinc-500 light:text-gray-600 max-w-xs leading-relaxed">
-              Advanced AI-driven stock analysis platform. Combining RandomForest
-              models with multi-source fundamentals to give you the edge.
+              EGX stock analysis platform with AI score, technical scanner, historical similarity, and backtests.
             </p>
           </div>
 
@@ -69,7 +68,7 @@ export default function Footer() {
 
         <div className="border-t border-white/5 dark:border-white/5 light:border-gray-300 pt-8 flex flex-col md:flex-row justify-between items-center gap-4 text-center md:text-left">
           <p className="text-[10px] font-black text-zinc-700 dark:text-zinc-700 light:text-gray-600 uppercase tracking-widest">
-            © 2026 EGX Bots. Built for professional analysis.
+            © 2026 EGX BOTS. Built for EGX analysis.
           </p>
         </div>
 

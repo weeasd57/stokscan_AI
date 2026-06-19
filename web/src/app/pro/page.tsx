@@ -2,7 +2,7 @@ import ProClient from "./ProClient";
 
 export const metadata = {
   title: "Pricing Plans & Pro Subscriptions | EGX Bots",
-  description: "Unlock advanced AI-driven stock market analysis, Telegram real-time signals, indicator statistics, and unlimited backtesting on the Egyptian Stock Exchange (EGX).",
+  description: "View the available EGX analysis plans and the features included with the platform, including technical scanning, backtests, and historical similarity views.",
 };
 
 export default function ProPage() {

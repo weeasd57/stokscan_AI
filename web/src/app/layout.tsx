@@ -10,7 +10,7 @@ export const metadata = {
     default: "EGX BOTS | تحليل البورصة المصرية بالذكاء الاصطناعي",
     template: "%s | EGX BOTS"
   },
-  description: "منصة متقدمة لتحليل الأسهم المصرية باستخدام الذكاء الاصطناعي ونماذج RandomForest. احصل على إشارات تداول لحظية واختبارات تاريخية دقيقة.",
+  description: "منصة لتحليل الأسهم المصرية باستخدام الذكاء الاصطناعي، الماسح الفني، والمحاكاة التاريخية وإشارات السوق.",
   keywords: ["البورصة المصرية", "EGX", "ذكاء اصطناعي", "تحليل أسهم", "تداول آلي", "إشارات تداول"],
   authors: [{ name: "EGX BOTS Team" }],
   creator: "EGX BOTS",
@@ -19,7 +19,7 @@ export const metadata = {
     locale: "ar_EG",
     url: "https://egxbots.com",
     title: "EGX BOTS | تحليل البورصة المصرية بالذكاء الاصطناعي",
-    description: "أول منصة في مصر تستخدم نماذج ML متقدمة لتوقع اتجاهات السوق المصري وتوفير بوتات تداول ذكية.",
+    description: "منصة لتحليل الأسهم المصرية باستخدام الذكاء الاصطناعي والماسح الفني والمحاكاة التاريخية.",
     siteName: "EGX BOTS",
     images: [
       {
@@ -33,7 +33,7 @@ export const metadata = {
   twitter: {
     card: "summary_large_image",
     title: "EGX BOTS | AI Stock Analysis",
-    description: "Advanced AI-driven stock analysis platform for EGX.",
+    description: "AI-driven stock analysis platform for EGX with technical scanning and backtests.",
     images: ["/dashboard_preview.png"],
   },
   manifest: "/favicon_io/site.webmanifest",

@@ -163,7 +163,7 @@ export default function HomePage() {
             title: isAr ? "أفضل الأسهم (Top Stocks)" : "Top Stocks (AI Score)",
             desc: isAr
                 ? "قائمة الأسهم اليومية مرتبة بناءً على تقييم الذكاء الاصطناعي (1-10) لفرص الصعود والهبوط."
-                : "Daily ranking of stocks rated from 1 to 10 by quantitative AI models based on beating the market.",
+                : "Daily ranking of stocks rated from 1 to 10 by the AI score.",
             badge: "AI LIVE",
             colorClass: "neobrutal-bg-cyan",
         },
@@ -173,7 +173,7 @@ export default function HomePage() {
             title: isAr ? "الماسح الفني" : "Technical Scanner",
             desc: isAr
                 ? "فلاتر فنية متقدمة وإشارات RSI وMACD وحجم التداول على كل الأسهم لحظياً."
-                : "Advanced technical filters with RSI, MACD, and volume signals on all EGX stocks in real-time.",
+                : "Technical filters including RSI, MACD, and volume on EGX stocks.",
             badge: "POPULAR",
             colorClass: "neobrutal-bg-yellow",
         },
@@ -185,7 +185,7 @@ export default function HomePage() {
             title: isAr ? "اختر سهمك المفضل" : "Pick a Stock",
             desc: isAr
                 ? "اختر سهمك المفضل المدرج في البورصة المصرية أو الأمريكية بناءً على تقييم AI Score."
-                : "Choose your favorite stock listed in US or EGX markets based on AI Score.",
+                : "Choose your favorite EGX-listed stock based on AI Score.",
             colorClass: "neobrutal-bg-yellow",
         },
         {
@@ -193,7 +193,7 @@ export default function HomePage() {
             title: isAr ? "استقبل الإشارات" : "Get Live Alerts",
             desc: isAr
                 ? "احصل على إشارات فورية على تليجرام أو عبر البوت المباشر الخاص بنا."
-                : "Get instant trading signals via Telegram or through our live direct bot.",
+                : "Get signals directly from the interface based on the displayed results.",
             colorClass: "neobrutal-bg-pink",
         },
     ];
@@ -204,7 +204,7 @@ export default function HomePage() {
             title: isAr ? "نماذج AI متقدمة" : "Advanced AI Models",
             desc: isAr
                 ? "تكامل كامل مع خوارزميات Random Forest و LightGBM لدقة أعلى في تحديد إشارات السوق."
-                : "Full integration with Random Forest & LightGBM for higher precision in market signals.",
+                : "A 1-to-10 AI score used to rank stock opportunities.",
             colorClass: "neobrutal-bg-yellow",
         },
         {
@@ -334,7 +334,7 @@ export default function HomePage() {
 
                         {/* Staircase Caption */}
                         <div className="text-center mt-6 text-sm font-black text-zinc-800 dark:text-zinc-200">
-                            💡 {isAr ? "تقييم AI Score يمثل احتمالية تفوق السهم على مؤشر السوق خلال 30 يوماً القادمة" : "AI Score rates the probability of the stock beating the benchmark index in the next 30 days."}
+                            💡 {isAr ? "AI Score يساعد على ترتيب الفرص رقميًا من 1 إلى 10" : "AI Score helps rank opportunities numerically from 1 to 10."}
                         </div>
                     </div>
 
