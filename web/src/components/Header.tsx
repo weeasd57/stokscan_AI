@@ -317,11 +317,14 @@ export default function Header() {
                                         href={item.href}
                                         className={`relative flex items-center justify-center gap-1.5 rounded-lg px-2 lg:px-2.5 py-1.5 text-[10px] font-black uppercase tracking-wider transition-all duration-300 whitespace-nowrap border-3 animate-in fade-in duration-500 ${
                                             isActive
-                                                ? "bg-black dark:bg-white text-white dark:text-black shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)] dark:shadow-[4px_4px_0px_0px_rgba(255,255,255,0.5)] border-black dark:border-white scale-105"
+                                                ? "bg-black dark:bg-white !text-white dark:!text-black shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)] dark:shadow-[4px_4px_0px_0px_rgba(255,255,255,0.5)] border-black dark:border-white scale-105"
                                                 : "bg-white dark:bg-zinc-900 text-black dark:text-white border-black/30 dark:border-white/30 hover:scale-105 hover:shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)] dark:hover:shadow-[4px_4px_0px_0px_rgba(255,255,255,0.3)]"
                                         }`}
                                         title={item.label}
-                                        style={{ animationDelay: `${300 + idx * 50}ms` }}
+                                        style={{
+                                            animationDelay: `${300 + idx * 50}ms`,
+                                            color: isActive ? (theme === "dark" ? "#000000" : "#ffffff") : undefined
+                                        }}
                                     >
                                         {item.icon}
                                         <span className="hidden xl:inline-flex items-center gap-1.5">

@@ -6,6 +6,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useAIScanner } from "@/contexts/AIScannerContext";
 import StockLogo from "./StockLogo";
+import { useTheme } from "@/contexts/ThemeContext";
 import TradingViewChart from "./TradingViewChartDynamic";
 import TelegramServiceToggle from "./TelegramServiceToggle";
 import {
@@ -16,6 +17,126 @@ import {
 } from "lucide-react";
 import { isShariaCompliant } from "@/lib/shariaStocks";
 
+function translateRationaleText(text: string, type: "brief" | "tech" | "fund", symbol: string = ""): string {
+    if (!text) return "";
+    
+    // Helper to translate sector
+    const translateSector = (sectorAr: string) => {
+        if (!sectorAr) return "Speculative Sector";
+        const sectorArClean = sectorAr.replace("قطاع ", "").trim();
+        if (sectorArClean.includes("العقارات")) return "Real Estate";
+        if (sectorArClean.includes("الخدمات المالية")) return "Financial Services";
+        if (sectorArClean.includes("البناء") || sectorArClean.includes("التشيد") || sectorArClean.includes("التشييد")) return "Construction";
+        if (sectorArClean.includes("المواد الخام") || sectorArClean.includes("التعدين")) return "Materials";
+        if (sectorArClean.includes("المرافق") || sectorArClean.includes("الطاقة")) return "Utilities";
+        if (sectorArClean.includes("الرعاية الصحية") || sectorArClean.includes("الأدوية")) return "Health Care";
+        if (sectorArClean.includes("الأغذية") || sectorArClean.includes("المشروبات")) return "Food & Beverage";
+        if (sectorArClean.includes("الاتصالات") || sectorArClean.includes("المعلومات")) return "Telecom";
+        if (sectorArClean.includes("الكيماويات") || sectorArClean.includes("الأسمدة")) return "Chemicals";
+        if (sectorArClean.includes("الصناعات التحويلية") || sectorArClean.includes("السلع")) return "Industrial Goods";
+        return "Speculative Sector";
+    };
+
+    if (type === "brief") {
+        const rsiMatch = text.match(/RSI\s*\(?(\d+)\)?|\(?(\d+)\)?\s*RSI/i);
+        const adxMatch = text.match(/ADX\s*\(?(\d+)\)?|\(?(\d+)\)?\s*ADX/i);
+        const rsi = rsiMatch ? (rsiMatch[1] || rsiMatch[2]) : "N/A";
+        const adx = adxMatch ? (adxMatch[1] || adxMatch[2]) : "N/A";
+
+        const entryMatch = text.match(/(?:سعر دخول مقترح حول|دخول حول)\s*(\d+(?:\.\d+)?)/);
+        const t1Match = text.match(/(?:هدفاً أولاً عند|مستهدفين هدفاً أولاً عند)\s*(\d+(?:\.\d+)?)/);
+        const t2Match = text.match(/(?:هدفاً ثانياً عند|وهدفاً ثانياً عند)\s*(\d+(?:\.\d+)?)/);
+        const slMatch = text.match(/(?:وقف خسارة عند|وضع وقف خسارة عند)\s*(\d+(?:\.\d+)?)/);
+
+        const entry = entryMatch ? entryMatch[1] : "N/A";
+        const t1 = t1Match ? t1Match[1] : "N/A";
+        const t2 = t2Match ? t2Match[1] : "N/A";
+        const sl = slMatch ? slMatch[1] : "N/A";
+
+        if (!rsiMatch && !adxMatch && !entryMatch && !t1Match && !t2Match && !slMatch) {
+            return text;
+        }
+
+        return `Stock "${symbol}" shows an excellent speculative opportunity supported by RSI (${rsi}) and ADX (${adx}) trend indicator. A suggested entry price has been set around ${entry} EGP, targeting a first target at ${t1} EGP and a second target at ${t2} EGP, with a stop loss placed at ${sl} EGP to protect the portfolio.`;
+    }
+
+    if (type === "tech") {
+        let translatedSentences: string[] = [];
+
+        // 1. RSI sentence
+        const rsiValMatch = text.match(/RSI.*?(\d+)/i) || text.match(/القوة النسبية.*?(\d+)/);
+        if (rsiValMatch) {
+            const rsi = rsiValMatch[1];
+            if (text.includes("مرتفع") || text.includes("تشبع شراء")) {
+                translatedSentences.push(`The Relative Strength Index (RSI) is high at ~${rsi}, indicating strong buying momentum and placing the stock in overbought territory.`);
+            } else if (text.includes("منخفض") || text.includes("تشبع بيعي")) {
+                translatedSentences.push(`The Relative Strength Index (RSI) is low at ~${rsi}, indicating that the stock has reached oversold territory, signaling the start of a technical bullish rebound.`);
+            } else {
+                translatedSentences.push(`The Relative Strength Index (RSI) is stable at ~${rsi}, opening the way for further steady technical upside without reaching overbought levels.`);
+            }
+        }
+
+        // 2. ADX sentence
+        const adxValMatch = text.match(/ADX.*?(\d+)/i) || text.match(/الاتجاه.*?(\d+)/);
+        if (adxValMatch) {
+            const adx = adxValMatch[1];
+            if (text.includes("اتجاه صاعد واضح") || text.includes("استمرار الزخم")) {
+                translatedSentences.push(`The Average Directional Index (ADX) at ~${adx} confirms a clear, strong uptrend that supports continued momentum.`);
+            } else {
+                translatedSentences.push(`The Average Directional Index (ADX) at ~${adx} points to an accumulation phase and the beginning of a new technical trend.`);
+            }
+        }
+
+        // 3. EMA/MA sentence
+        const emaMatch = text.match(/المتوسط.*?50.*?(\d+(?:\.\d+)?)/) || text.match(/50.*?المتوسط.*?(\d+(?:\.\d+)?)/);
+        if (emaMatch) {
+            const ema = emaMatch[1];
+            if (text.includes("فوق المتوسط")) {
+                translatedSentences.push(`The stock price remains above the 50-day moving average (${ema} EGP), providing a positive signal in the short term.`);
+            } else {
+                translatedSentences.push(`The stock is trading near a key technical support level, with expectations of a bullish rebound above the 50-day moving average (${ema} EGP).`);
+            }
+        } else if (text.includes("المتوسط 50 يوم") || text.includes("المتوسط المتحرك")) {
+            translatedSentences.push(`The stock is trading near a key technical support level, with expectations of a bullish rebound above the 50-day moving average.`);
+        }
+
+        if (translatedSentences.length === 0) return text;
+        return translatedSentences.join(" ");
+    }
+
+    if (type === "fund") {
+        let translatedSentences: string[] = [];
+
+        // 1. Sector sentence
+        const sectorMatch = text.match(/ينتمي السهم لقطاع\s+(.*?)\s+وهو/) || text.match(/ينتمي السهم لقطاع\s+(.*?)\s+وقوي/);
+        if (sectorMatch) {
+            const sectorEng = translateSector(sectorMatch[1]);
+            translatedSentences.push(`The stock belongs to the ${sectorEng} sector, which is a strong and supportive sector.`);
+        } else if (text.includes("ينتمي السهم لقطاع")) {
+            translatedSentences.push(`The stock belongs to a strong and supportive sector.`);
+        }
+
+        // 2. P/E sentence
+        const peMatch = text.match(/P\/E.*?(\d+(?:\.\d+)?)/i) || text.match(/مكرر ربحية.*?(\d+(?:\.\d+)?)/);
+        if (peMatch) {
+            const pe = peMatch[1];
+            translatedSentences.push(`The stock trades at a reasonable Price-to-Earnings (P/E) ratio of approximately ${pe}x, making it an attractive option.`);
+        }
+
+        // 3. EPS sentence
+        const epsMatch = text.match(/EPS.*?(\d+(?:\.\d+)?)/i) || text.match(/ربحية سهم.*?(\d+(?:\.\d+)?)/);
+        if (epsMatch) {
+            const eps = epsMatch[1];
+            translatedSentences.push(`The company recorded Earnings Per Share (EPS) of ${eps} EGP, supporting future operational growth.`);
+        }
+
+        if (translatedSentences.length === 0) return text;
+        return translatedSentences.join(" ");
+    }
+
+    return text;
+}
+
 interface RecommendationsTableProps {
     isLandingPage?: boolean;
     limit?: number;
@@ -25,6 +146,7 @@ interface RecommendationsTableProps {
 export default function RecommendationsTable({ isLandingPage = false, limit = Infinity, hideTelegramToggle = false }: RecommendationsTableProps) {
     const { user } = useAuth();
     const { language } = useLanguage();
+    const { theme } = useTheme();
     const router = useRouter();
     const isAr = language === "ar";
 
@@ -588,8 +710,8 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                             <Info className="w-3.5 h-3.5" />
                                             {isAr ? "لماذا هذا السهم؟" : "Why This Stock?"}
                                         </h3>
-                                        <p className="text-sm sm:text-base text-zinc-200 leading-relaxed font-medium" dir="rtl">
-                                            {richDetails.brief_rationale}
+                                        <p className="text-sm sm:text-base text-zinc-200 leading-relaxed font-medium" dir={isAr ? "rtl" : "ltr"}>
+                                            {isAr ? richDetails.brief_rationale : translateRationaleText(richDetails.brief_rationale, "brief", row.symbol)}
                                         </p>
                                     </div>
                                 )}
@@ -599,8 +721,8 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                             <BarChart2 className="w-3.5 h-3.5" />
                                             {isAr ? "التحليل الفني" : "Technical Analysis"}
                                         </h4>
-                                        <p className="text-sm text-zinc-300 leading-relaxed" dir="rtl">
-                                            {richDetails.technical_rationale}
+                                        <p className="text-sm text-zinc-300 leading-relaxed" dir={isAr ? "rtl" : "ltr"}>
+                                            {isAr ? richDetails.technical_rationale : translateRationaleText(richDetails.technical_rationale, "tech", row.symbol)}
                                         </p>
                                     </div>
                                 )}
@@ -610,8 +732,8 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                             <BookOpen className="w-3.5 h-3.5" />
                                             {isAr ? "التحليل الأساسي" : "Fundamental Analysis"}
                                         </h4>
-                                        <p className="text-sm text-zinc-300 leading-relaxed" dir="rtl">
-                                            {richDetails.fundamental_rationale}
+                                        <p className="text-sm text-zinc-300 leading-relaxed" dir={isAr ? "rtl" : "ltr"}>
+                                            {isAr ? richDetails.fundamental_rationale : translateRationaleText(richDetails.fundamental_rationale, "fund", row.symbol)}
                                         </p>
                                     </div>
                                 )}
@@ -927,11 +1049,19 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                 }}
                                 className={`flex-1 py-3 px-4 font-black text-sm flex items-center justify-center gap-2.5 transition-all duration-100 active:scale-98 border-2 ${
                                     isSelected
-                                        ? "bg-black dark:bg-white !text-white dark:!text-black border-black dark:border-white shadow-[2px_2px_0px_rgba(0,0,0,0.2)]"
+                                        ? "bg-black dark:bg-white border-black dark:border-white shadow-[2px_2px_0px_rgba(0,0,0,0.2)]"
                                         : "bg-white dark:bg-zinc-950 text-black dark:text-white border-transparent hover:bg-zinc-50 dark:hover:bg-zinc-800"
                                 }`}
+                                style={{
+                                    color: isSelected ? (theme === "dark" ? "#000000" : "#ffffff") : undefined
+                                }}
                             >
-                                <span className={isSelected ? "!text-white dark:!text-black font-black" : "text-black dark:text-white font-black"}>
+                                <span 
+                                    className="font-black"
+                                    style={{
+                                        color: isSelected ? (theme === "dark" ? "#000000" : "#ffffff") : undefined
+                                    }}
+                                >
                                     {tab.label}
                                 </span>
                                 <span className={`px-2 py-0.5 text-xs font-bold font-mono ${
