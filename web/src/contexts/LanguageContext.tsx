@@ -234,7 +234,7 @@ const translations: Record<string, Record<Language, string>> = {
     "bots.active_days": { en: "{days} Days Active", ar: "{days} يوم نشط" },
     "bots.inactive": { en: "Inactive", ar: "غير نشط" },
     "bots.banner_title": { en: "Top Stocks", ar: "أفضل الأسهم" },
-    "bots.banner_desc": { en: "Top popular EGX & US stocks ranked by AI Score based on advanced machine learning models.", ar: "أفضل الأسهم البورصة المصرية والأمريكية وأكثرها شعبية مرتبة حسب تقييم الذكاء الاصطناعي بناءً على نماذج التعلم الآلي المتقدمة." },
+    "bots.banner_desc": { en: "Top popular EGX stocks ranked by AI Score based on advanced machine learning models.", ar: "أفضل أسهم البورصة المصرية وأكثرها شعبية مرتبة حسب تقييم الذكاء الاصطناعي بناءً على نماذج التعلم الآلي المتقدمة." },
     "bots.limit_reached": { en: "Subscription Limit Reached", ar: "تم الوصول للحد الأقصى للاشتراك" },
     "model.size": { en: "Size", ar: "الحجم" },
     "model.modified": { en: "Modified", ar: "تاريخ التعديل" },

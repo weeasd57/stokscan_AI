@@ -19,9 +19,10 @@ import { isShariaCompliant } from "@/lib/shariaStocks";
 interface RecommendationsTableProps {
     isLandingPage?: boolean;
     limit?: number;
+    hideTelegramToggle?: boolean;
 }
 
-export default function RecommendationsTable({ isLandingPage = false, limit = Infinity }: RecommendationsTableProps) {
+export default function RecommendationsTable({ isLandingPage = false, limit = Infinity, hideTelegramToggle = false }: RecommendationsTableProps) {
     const { user } = useAuth();
     const { language } = useLanguage();
     const router = useRouter();
@@ -40,14 +41,18 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
     const [searchTerm, setSearchTerm] = useState("");
     const [selectedSector, setSelectedSector] = useState("");
     const [selectedSignal, setSelectedSignal] = useState("");
+    const [activeTab, setActiveTab] = useState<"active" | "closed" | "all">("active");
+    const [timeRange, setTimeRange] = useState<"all" | "7d" | "30d">("all");
+    const [sortBy, setSortBy] = useState("precision");
+    const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
     const [shariaOnly, setShariaOnly] = useState(false);
     const [currentPage, setCurrentPage] = useState(1);
-    const itemsPerPage = 50;
+    const itemsPerPage = 20;
 
     // Translations
     const tDict = {
         title: { en: "Top Stocks Ranked by ML AI", ar: "أفضل الأسهم مرتبة بالذكاء الاصطناعي" },
-        subtitle: { en: "Universe: EGX & US stocks evaluated by quantitative AI models. Stocks are ranked according to their AI Score, which rates the probability of beating the market in the next 30 days.", ar: "النطاق: أسهم البورصة المصرية والأمريكية مقيمة بنماذج كمية للذكاء الاصطناعي. يتم ترتيب الأسهم بناءً على تقييم الذكاء الاصطناعي الذي يحدد احتمالية التفوق على السوق خلال الـ 30 يوماً القادمة." },
+        subtitle: { en: "Universe: EGX stocks evaluated by quantitative AI models. Stocks are ranked according to their AI Score, which rates the probability of beating the market in the next 30 days.", ar: "النطاق: أسهم البورصة المصرية مقيمة بنماذج كمية للذكاء الاصطناعي. يتم ترتيب الأسهم بناءً على تقييم الذكاء الاصطناعي الذي يحدد احتمالية التفوق على السوق خلال الـ 30 يوماً القادمة." },
         rank: { en: "Rank", ar: "الترتيب" },
         stockName: { en: "Company / Symbol", ar: "الشركة / الرمز" },
         country: { en: "Country", ar: "البلد" },
@@ -66,6 +71,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
         allSignals: { en: "All Signals", ar: "جميع الإشارات" },
         buy: { en: "BUY", ar: "شراء" },
         sell: { en: "SELL", ar: "بيع" },
+        exit: { en: "EXIT", ar: "خروج" },
         searchPlaceholder: { en: "Search by stock symbol or name...", ar: "ابحث برمز السهم أو الاسم..." },
         prev: { en: "Previous", ar: "السابق" },
         next: { en: "Next", ar: "التالي" },
@@ -125,6 +131,39 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
         }
     };
 
+    // Compute performance stats from recommendations
+    const stats = useMemo(() => {
+        let items = recommendations;
+        if (shariaOnly) {
+            items = items.filter(r => isShariaCompliant(r.symbol));
+        }
+
+        const active = items.filter(r => {
+            const s = (r.status || "").toLowerCase();
+            return s !== "win" && s !== "loss";
+        });
+        const closed = items.filter(r => {
+            const s = (r.status || "").toLowerCase();
+            return s === "win" || s === "loss";
+        });
+        const wins = closed.filter(r => (r.status || "").toLowerCase() === "win");
+        
+        const winRate = closed.length > 0 ? (wins.length / closed.length) * 100 : 0;
+        
+        const closedWithReturn = closed.filter(r => r.profit_loss_pct != null);
+        const avgReturn = closedWithReturn.length > 0
+            ? closedWithReturn.reduce((sum, r) => sum + (r.profit_loss_pct || 0), 0) / closedWithReturn.length
+            : 0;
+
+        return {
+            activeCount: active.length,
+            closedCount: closed.length,
+            winRate,
+            avgReturn,
+            totalCount: items.length
+        };
+    }, [recommendations, shariaOnly]);
+
     // Client-side filtering and sorting
     const processedRows = useMemo(() => {
         let items = [...recommendations];
@@ -142,13 +181,73 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
         if (selectedSignal) {
             items = items.filter(r => r.signal.toUpperCase() === selectedSignal.toUpperCase());
         }
+        
+        // Filter by Tab (Active vs Closed)
+        if (activeTab === "active") {
+            items = items.filter(r => {
+                const s = (r.status || "").toLowerCase();
+                return s !== "win" && s !== "loss";
+            });
+        } else if (activeTab === "closed") {
+            items = items.filter(r => {
+                const s = (r.status || "").toLowerCase();
+                return s === "win" || s === "loss";
+            });
+        }
+
+        // Filter by Time Range
+        if (timeRange !== "all") {
+            const limitDate = new Date();
+            limitDate.setDate(limitDate.getDate() - (timeRange === "7d" ? 7 : 30));
+            items = items.filter(r => new Date(r.created_at || r.updated_at) >= limitDate);
+        }
+
         if (shariaOnly) {
             items = items.filter(r => isShariaCompliant(r.symbol));
         }
 
-        items.sort((a, b) => b.precision - a.precision);
+        if (sortBy) {
+            items.sort((a, b) => {
+                let valA = a[sortBy];
+                let valB = b[sortBy];
+                
+                if (valA == null) return 1;
+                if (valB == null) return -1;
+                
+                if (sortBy === "symbol") {
+                    return sortOrder === "asc" 
+                        ? String(valA).localeCompare(String(valB))
+                        : String(valB).localeCompare(String(valA));
+                } else if (sortBy === "created_at") {
+                    return sortOrder === "asc"
+                        ? new Date(valA).getTime() - new Date(valB).getTime()
+                        : new Date(valB).getTime() - new Date(valA).getTime();
+                } else {
+                    return sortOrder === "asc" 
+                        ? Number(valA) - Number(valB)
+                        : Number(valB) - Number(valA);
+                }
+            });
+        } else {
+            items.sort((a, b) => b.precision - a.precision);
+        }
         return items;
-    }, [recommendations, searchTerm, selectedSector, selectedSignal, shariaOnly]);
+    }, [recommendations, searchTerm, selectedSector, selectedSignal, activeTab, timeRange, shariaOnly, sortBy, sortOrder]);
+
+    const handleHeaderClick = (field: string) => {
+        if (sortBy === field) {
+            setSortOrder(prev => prev === "asc" ? "desc" : "asc");
+        } else {
+            setSortBy(field);
+            setSortOrder(field === "symbol" ? "asc" : "desc");
+        }
+        setCurrentPage(1);
+    };
+
+    const renderSortIcon = (field: string) => {
+        if (sortBy !== field) return <span className="opacity-30 text-[10px] ml-1">⇅</span>;
+        return <span className="ml-1 text-indigo-500 font-black text-xs">{sortOrder === "asc" ? "▲" : "▼"}</span>;
+    };
 
     const limitedRows = useMemo(() => processedRows.slice(0, limit), [processedRows, limit]);
 
@@ -212,7 +311,8 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
     };
 
     const getStatusBadge = (status: string, plPct: number | null) => {
-        if (status === "win") {
+        const s = (status || "").toLowerCase();
+        if (s === "win") {
             return (
                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-black bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
                     <ArrowUpRight className="w-3 h-3" />
@@ -221,7 +321,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                 </span>
             );
         }
-        if (status === "loss") {
+        if (s === "loss") {
             return (
                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-black bg-rose-500/10 text-rose-400 border border-rose-500/20">
                     <ArrowDownRight className="w-3 h-3" />
@@ -249,24 +349,49 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
         const cInfo = getCountryFlag(null, row.exchange);
 
         // ── Computed values ──
-        const entryPrice = row.entry_price || row.last_close || 0;
-        const targetPrice = row.target_price || 0;
-        const stopLoss = row.stop_loss || 0;
+        const plPct = row.profit_loss_pct ?? null;
+        const currentPrice = row.last_close || 0;
+        const entryPrice = row.entry_price || (plPct && plPct !== -100 ? (currentPrice / (1 + plPct / 100)) : currentPrice) || 0;
+
+        const adjustments: any[] = row.adjustments || [];
+        const lastAdj = adjustments.length > 0 ? adjustments[adjustments.length - 1] : null;
+        const targetPrice = lastAdj?.new_target ? Number(lastAdj.new_target) : (row.target_price || 0);
+        const stopLoss = lastAdj?.new_stop ? Number(lastAdj.new_stop) : (row.stop_loss || 0);
+
         const hasTarget2 = !!richDetails?.target_2;
         const target2 = hasTarget2 ? Number(richDetails.target_2) : 0;
-        const currentPrice = row.last_close || 0;
-        const plPct = row.profit_loss_pct ?? null;
-        const isWin = row.status === "win";
-        const isLoss = row.status === "loss";
+        const normalizedStatus = (row.status || "").toLowerCase();
+        const isWin = normalizedStatus === "win";
+        const isLoss = normalizedStatus === "loss";
         const isClosed = isWin || isLoss;
+
+        // Determine exit reason dynamically
+        let exitReason = "";
+        if (isClosed && row.exit_price) {
+            const diffTarget = Math.abs(row.exit_price - targetPrice);
+            const diffStop = Math.abs(row.exit_price - stopLoss);
+            if (diffTarget < diffStop && diffTarget < 0.05 * targetPrice) {
+                exitReason = isAr ? "تحقيق الهدف الأول" : "Target 1 Reached";
+            } else if (diffStop < diffTarget && diffStop < 0.05 * stopLoss) {
+                if (isWin) {
+                    exitReason = isAr ? "وقف خسارة متحرك (حجز أرباح)" : "Trailing Stop Loss (Profit Locked)";
+                } else {
+                    exitReason = isAr ? "تفعيل وقف الخسارة" : "Hit Stop Loss";
+                }
+            } else {
+                exitReason = isWin ? (isAr ? "إغلاق يدوي/أوتوماتيكي بربح" : "Manual/Auto Close (Win)") : (isAr ? "إغلاق يدوي/أوتوماتيكي بخسارة" : "Manual/Auto Close (Loss)");
+            }
+        }
 
         const risk = entryPrice && stopLoss ? Math.abs(entryPrice - stopLoss) : 0;
         const reward = entryPrice && targetPrice ? Math.abs(targetPrice - entryPrice) : 0;
         const rrRatio = risk > 0 ? (reward / risk) : 0;
         const potReturn = currentPrice && targetPrice ? ((targetPrice - currentPrice) / currentPrice) * 100 : 0;
-        const adjustments: any[] = row.adjustments || [];
         const changePct = row.change_pct ?? null;
         const lastUpdated = row.updated_at || row.created_at || null;
+        const pctChangeSinceRec = isClosed
+            ? (row.exit_price && entryPrice > 0 ? ((row.exit_price - entryPrice) / entryPrice) * 100 : (plPct ?? 0))
+            : (entryPrice > 0 ? ((currentPrice - entryPrice) / entryPrice) * 100 : 0);
 
         const formatDate = (ts: string) => new Date(ts).toLocaleDateString(isAr ? "ar-EG" : "en-US", { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 
@@ -291,13 +416,17 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                 <h2 className="text-xl sm:text-2xl font-black text-white uppercase tracking-tight">{row.symbol}</h2>
                                 <span className="text-[10px] font-bold text-zinc-400 bg-zinc-800 px-2 py-0.5 border border-white/5">{row.exchange}</span>
                                 <span className="text-base">{cInfo.flag}</span>
-                                {row.signal?.toUpperCase() === "BUY" ? (
+                                {row.status?.toLowerCase() === "win" || row.status?.toLowerCase() === "loss" ? (
+                                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-zinc-700 text-white font-black text-[10px]">
+                                        <Minus className="w-3 h-3" /> {translate("exit")}
+                                    </span>
+                                ) : row.signal?.toUpperCase() === "BUY" ? (
                                     <span className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-emerald-500 text-zinc-950 font-black text-[10px]">
-                                        <TrendingUp className="w-3 h-3" /> {isAr ? "شراء" : "BUY"}
+                                        <TrendingUp className="w-3 h-3" /> {translate("buy")}
                                     </span>
                                 ) : (
                                     <span className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-rose-500 text-zinc-950 font-black text-[10px]">
-                                        <TrendingDown className="w-3 h-3" /> {isAr ? "بيع" : "SELL"}
+                                        <TrendingDown className="w-3 h-3" /> {translate("sell")}
                                     </span>
                                 )}
                                 {getStatusBadge(row.status, row.profit_loss_pct)}
@@ -311,25 +440,25 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                 const baseSym = row.symbol.split('.')[0].toLowerCase();
                                 router.push(`/stocks/${baseSym}`);
                             }}
-                            className="h-9 px-3 bg-teal-400 text-zinc-950 hover:bg-teal-300 text-xs font-black flex items-center gap-1.5 transition-colors active:scale-95 border-2 border-black"
+                            className="h-9 px-2 sm:px-3 bg-teal-400 text-zinc-950 hover:bg-teal-300 text-xs font-black flex items-center gap-1.5 transition-colors active:scale-95 border-2 border-black"
                         >
                             <BarChart2 className="w-3.5 h-3.5" />
-                            {isAr ? "التحليل" : "Analysis"}
+                            <span className="hidden sm:inline">{isAr ? "التحليل" : "Analysis"}</span>
                         </button>
                         <button
                             onClick={() => router.push(`/chart?symbol=${encodeURIComponent(row.symbol.toUpperCase())}&exchange=${encodeURIComponent(row.exchange || "EGX")}`)}
-                            className="h-9 px-3 bg-white text-zinc-950 hover:bg-zinc-200 text-xs font-black flex items-center gap-1.5 transition-colors active:scale-95"
+                            className="h-9 px-2 sm:px-3 bg-white text-zinc-950 hover:bg-zinc-200 text-xs font-black flex items-center gap-1.5 transition-colors active:scale-95 border-2 border-black"
                         >
                             <ExternalLink className="w-3.5 h-3.5" />
-                            {isAr ? "الشارت" : "Chart"}
+                            <span className="hidden sm:inline">{isAr ? "الشارت" : "Chart"}</span>
                         </button>
                         <button
                             onClick={() => setSelectedRow(null)}
-                            className="h-10 px-4 flex items-center gap-2 bg-rose-600 hover:bg-rose-500 text-white text-sm font-black transition-colors active:scale-95"
+                            className="h-9 px-2 sm:px-3 flex items-center gap-1.5 bg-rose-600 hover:bg-rose-500 text-white text-xs font-black transition-colors active:scale-95 border-2 border-black"
                             aria-label={isAr ? "إغلاق" : "Close"}
                         >
-                            <X className="w-5 h-5" />
-                            {isAr ? "إغلاق" : "Close"}
+                            <X className="w-3.5 h-3.5" />
+                            <span className="hidden sm:inline">{isAr ? "إغلاق" : "Close"}</span>
                         </button>
                     </div>
                 </div>
@@ -342,9 +471,17 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                             <div className="lg:col-span-2 bg-gradient-to-br from-indigo-600/20 to-violet-600/10 border-2 border-indigo-500/20 p-6 sm:p-8 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6">
                                 <div>
-                                    <p className="text-xs font-bold uppercase tracking-widest text-indigo-300 mb-1">{isAr ? "السعر الحالي" : "Current Price"}</p>
+                                    <p className="text-xs font-bold uppercase tracking-widest text-indigo-300 mb-1">
+                                        {isClosed 
+                                            ? (isAr ? "سعر الخروج" : "Exit Price") 
+                                            : (isAr ? "السعر الحالي" : "Current Price")}
+                                    </p>
                                     <div className="flex items-baseline gap-3">
-                                        <span className="text-4xl sm:text-5xl font-black text-white">{currentPrice ? `${currentPrice.toFixed(2)}` : "—"}</span>
+                                        <span className="text-4xl sm:text-5xl font-black text-white">
+                                            {isClosed && row.exit_price 
+                                                ? `${Number(row.exit_price).toFixed(2)}` 
+                                                : (currentPrice ? `${currentPrice.toFixed(2)}` : "—")}
+                                        </span>
                                         <span className="text-sm font-bold text-zinc-400">EGP</span>
                                     </div>
                                     <div className="flex items-center gap-2 mt-2 flex-wrap">
@@ -354,10 +491,14 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                                 {plPct >= 0 ? "+" : ""}{plPct.toFixed(2)}%
                                             </div>
                                         )}
-                                        {changePct != null && (
-                                            <div className={`inline-flex items-center gap-1 px-2.5 py-1 text-xs font-bold ${changePct >= 0 ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" : "bg-rose-500/10 text-rose-400 border border-rose-500/20"}`}>
-                                                {changePct >= 0 ? "▲" : "▼"} {changePct >= 0 ? "+" : ""}{changePct.toFixed(2)}%
-                                                <span className="text-zinc-500 font-medium">{isAr ? "تغير" : "chg"}</span>
+                                        {pctChangeSinceRec != null && (
+                                            <div 
+                                                className={`inline-flex items-center gap-1 px-2.5 py-1 text-xs font-bold cursor-help ${pctChangeSinceRec >= 0 ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" : "bg-rose-500/10 text-rose-400 border border-rose-500/20"}`}
+                                                title={isAr ? "نسبة التغير الإجمالية منذ تاريخ توصية البوت" : "Total change percentage since the bot's recommendation"}
+                                            >
+                                                {pctChangeSinceRec >= 0 ? "▲" : "▼"} {pctChangeSinceRec >= 0 ? "+" : ""}{pctChangeSinceRec.toFixed(2)}%
+                                                <span className="text-zinc-500 font-medium">{isAr ? "منذ التوصية" : "since rec"}</span>
+                                                <Info className="w-3.5 h-3.5 text-zinc-400 inline-block shrink-0" />
                                             </div>
                                         )}
                                     </div>
@@ -365,6 +506,12 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                         <p className="text-[10px] text-zinc-500 mt-1.5 flex items-center gap-1">
                                             <span className="w-1.5 h-1.5 rounded-full bg-zinc-500 inline-block" />
                                             {isAr ? "آخر تحديث" : "Last updated"}: {formatDate(lastUpdated)}
+                                        </p>
+                                    )}
+                                    {isClosed && exitReason && (
+                                        <p className="text-xs font-bold text-indigo-300 mt-2 flex items-center gap-1.5">
+                                            <span className="w-2 h-2 rounded-full bg-indigo-500 inline-block animate-pulse" />
+                                            {isAr ? `سبب الخروج: ${exitReason}` : `Exit Reason: ${exitReason}`}
                                         </p>
                                     )}
                                 </div>
@@ -562,8 +709,19 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                     { label: isAr ? "الهدف الأول" : "Target 1", value: targetPrice ? `${targetPrice.toFixed(2)} EGP` : "—", color: "text-emerald-400" },
                                     { label: isAr ? "وقف الخسارة" : "Stop Loss", value: stopLoss ? `${stopLoss.toFixed(2)} EGP` : "—", color: "text-rose-400" },
                                     { label: isAr ? "نسبة المخاطرة/العائد" : "Risk/Reward", value: rrRatio > 0 ? `1:${rrRatio.toFixed(1)}` : "—", color: "text-indigo-400" },
+                                    {
+                                        label: isAr ? "نسبة التغيّر منذ التوصية" : "Chg. Since Rec.",
+                                        value: pctChangeSinceRec !== null ? `${pctChangeSinceRec >= 0 ? "+" : ""}${pctChangeSinceRec.toFixed(2)}%` : "—",
+                                        color: pctChangeSinceRec !== null && pctChangeSinceRec >= 0 ? "text-emerald-400" : "text-rose-400"
+                                    },
                                     { label: isAr ? "تاريخ التوصية" : "Rec. Date", value: row.created_at ? formatDate(row.created_at) : "—", color: "text-zinc-300" },
+                                    {
+                                        label: isAr ? "آخر مراجعة للروبوت" : "Last Bot Review",
+                                        value: row.updated_at ? formatDate(row.updated_at) : (row.created_at ? formatDate(row.created_at) : "—"),
+                                        color: "text-amber-400"
+                                    },
                                     ...(isClosed && row.exit_price ? [{ label: isAr ? "سعر الخروج" : "Exit Price", value: `${row.exit_price.toFixed(2)} EGP`, color: isWin ? "text-emerald-400" : "text-rose-400" }] : []),
+                                    ...(isClosed && exitReason ? [{ label: isAr ? "سبب الخروج" : "Exit Reason", value: exitReason, color: isWin ? "text-emerald-400" : "text-rose-400" }] : []),
                                 ].map((item, idx) => (
                                     <div key={idx} className="flex items-center justify-between py-2 border-b border-white/5 last:border-0">
                                         <span className="text-xs text-zinc-500">{item.label}</span>
@@ -587,16 +745,24 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                         theme="dark"
                                         showApiMarkers={true}
                                         customMarkers={
-                                            row.entry_price && row.created_at
-                                                ? [{
+                                            [
+                                                ...(row.entry_price && row.created_at ? [{
                                                     time: Math.floor(new Date(row.created_at).getTime() / 1000),
                                                     position: "belowBar" as const,
                                                     color: "#22c55e",
                                                     shape: "arrowUp" as const,
                                                     text: isAr ? "توصية" : "Signal",
                                                     size: 2
-                                                }]
-                                                : []
+                                                }] : []),
+                                                ...(isClosed && row.updated_at ? [{
+                                                    time: Math.floor(new Date(row.updated_at).getTime() / 1000),
+                                                    position: "aboveBar" as const,
+                                                    color: isWin ? "#10b981" : "#ef4444",
+                                                    shape: "arrowDown" as const,
+                                                    text: isAr ? (isWin ? "خروج بربح" : "خروج بخسارة") : (isWin ? "Exit (Win)" : "Exit (Loss)"),
+                                                    size: 2
+                                                }] : [])
+                                            ]
                                         }
                                     />
                                 </div>
@@ -630,7 +796,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
     return (
         <div
             onClick={handleLandingClick}
-            className={`w-full max-w-6xl mx-auto flex flex-col space-y-6 select-none ${isLandingPage && !user ? "cursor-pointer" : ""}`}
+            className={`w-full max-w-none mx-auto flex flex-col space-y-6 select-none ${isLandingPage && !user ? "cursor-pointer" : ""}`}
         >
             {/* Dialog */}
             {renderDialog()}
@@ -657,7 +823,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                 </div>
                 <p className="text-xs font-bold leading-relaxed text-zinc-400 max-w-3xl">{translate("subtitle")}</p>
 
-                {!isLandingPage && (
+                {!isLandingPage && !hideTelegramToggle && (
                     <TelegramServiceToggle
                         serviceType="stock_score"
                         botId="stock_score"
@@ -684,9 +850,106 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                 </div>
             )}
 
+            {/* Performance Summary Cards */}
+            {limit === Infinity && (!isLandingPage || user) && (
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    {/* Active Trades */}
+                    <div className="p-4 border-4 border-black dark:border-white bg-white dark:bg-zinc-950 text-black dark:text-white shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_rgba(255,255,255,1)] flex items-center gap-3">
+                        <div className="w-10 h-10 bg-indigo-500/10 dark:bg-indigo-500/20 border-2 border-indigo-500 flex items-center justify-center flex-shrink-0">
+                            <TrendingUp className="w-5 h-5 text-indigo-500" />
+                        </div>
+                        <div>
+                            <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest leading-none mb-1">
+                                {isAr ? "التوصيات النشطة" : "Active Trades"}
+                            </p>
+                            <p className="text-2xl font-black">{stats.activeCount}</p>
+                        </div>
+                    </div>
+
+                    {/* Closed Trades */}
+                    <div className="p-4 border-4 border-black dark:border-white bg-white dark:bg-zinc-950 text-black dark:text-white shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_rgba(255,255,255,1)] flex items-center gap-3">
+                        <div className="w-10 h-10 bg-zinc-500/10 dark:bg-zinc-500/20 border-2 border-zinc-500 flex items-center justify-center flex-shrink-0">
+                            <Layers className="w-5 h-5 text-zinc-500" />
+                        </div>
+                        <div>
+                            <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest leading-none mb-1">
+                                {isAr ? "الصفقات المغلقة" : "Closed Trades"}
+                            </p>
+                            <p className="text-2xl font-black">{stats.closedCount}</p>
+                        </div>
+                    </div>
+
+                    {/* Win Rate */}
+                    <div className="p-4 border-4 border-black dark:border-white bg-white dark:bg-zinc-950 text-black dark:text-white shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_rgba(255,255,255,1)] flex items-center gap-3">
+                        <div className="w-10 h-10 bg-emerald-500/10 dark:bg-emerald-500/20 border-2 border-emerald-500 flex items-center justify-center flex-shrink-0">
+                            <Target className="w-5 h-5 text-emerald-500" />
+                        </div>
+                        <div>
+                            <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest leading-none mb-1">
+                                {isAr ? "نسبة النجاح" : "Win Rate"}
+                            </p>
+                            <p className="text-2xl font-black text-emerald-500">{stats.winRate.toFixed(1)}%</p>
+                        </div>
+                    </div>
+
+                    {/* Average Return */}
+                    <div className="p-4 border-4 border-black dark:border-white bg-white dark:bg-zinc-950 text-black dark:text-white shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_rgba(255,255,255,1)] flex items-center gap-3">
+                        <div className={`w-10 h-10 ${stats.avgReturn >= 0 ? "bg-emerald-500/10 border-emerald-500" : "bg-rose-500/10 border-rose-500"} border-2 flex items-center justify-center flex-shrink-0`}>
+                            <Award className={`w-5 h-5 ${stats.avgReturn >= 0 ? "text-emerald-500" : "text-rose-500"}`} />
+                        </div>
+                        <div>
+                            <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest leading-none mb-1">
+                                {isAr ? "متوسط العائد" : "Avg Return"}
+                            </p>
+                            <p className={`text-2xl font-black ${stats.avgReturn >= 0 ? "text-emerald-500" : "text-rose-500"}`}>
+                                {stats.avgReturn >= 0 ? "+" : ""}{stats.avgReturn.toFixed(2)}%
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Tabs Navigation Bar */}
+            {limit === Infinity && (!isLandingPage || user) && (
+                <div className="flex flex-col sm:flex-row border-4 border-black dark:border-white bg-zinc-100 dark:bg-zinc-900 shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_rgba(255,255,255,1)] p-1.5 gap-2 select-none">
+                    {[
+                        { id: "active", label: isAr ? "الصفقات النشطة (المفتوحة)" : "Active Trades (Open)", count: stats.activeCount },
+                        { id: "closed", label: isAr ? "أرشيف العمليات (المغلقة)" : "Closed Archive", count: stats.closedCount },
+                        { id: "all", label: isAr ? "جميع الصفقات" : "All Trades", count: stats.totalCount }
+                    ].map(tab => {
+                        const isSelected = activeTab === tab.id;
+                        return (
+                            <button
+                                key={tab.id}
+                                onClick={() => {
+                                    setActiveTab(tab.id as any);
+                                    setCurrentPage(1);
+                                }}
+                                className={`flex-1 py-3 px-4 font-black text-sm flex items-center justify-center gap-2.5 transition-all duration-100 active:scale-98 border-2 ${
+                                    isSelected
+                                        ? "bg-black dark:bg-white !text-white dark:!text-black border-black dark:border-white shadow-[2px_2px_0px_rgba(0,0,0,0.2)]"
+                                        : "bg-white dark:bg-zinc-950 text-black dark:text-white border-transparent hover:bg-zinc-50 dark:hover:bg-zinc-800"
+                                }`}
+                            >
+                                <span className={isSelected ? "!text-white dark:!text-black font-black" : "text-black dark:text-white font-black"}>
+                                    {tab.label}
+                                </span>
+                                <span className={`px-2 py-0.5 text-xs font-bold font-mono ${
+                                    isSelected
+                                        ? "bg-zinc-800 dark:bg-zinc-200 text-zinc-100 dark:text-zinc-900"
+                                        : "bg-zinc-100 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 border border-zinc-200 dark:border-zinc-800"
+                                }`}>
+                                    {tab.count}
+                                </span>
+                            </button>
+                        );
+                    })}
+                </div>
+            )}
+
             {/* Interactive Filters */}
             {limit === Infinity && (!isLandingPage || user) && (
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 p-4 border-4 border-black dark:border-white bg-white dark:bg-zinc-950 text-black dark:text-white shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_rgba(255,255,255,1)]">
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 p-4 border-4 border-black dark:border-white bg-white dark:bg-zinc-950 text-black dark:text-white shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_rgba(255,255,255,1)]">
                     <div className="relative flex items-center">
                         <Search className="absolute left-3 w-4 h-4 text-zinc-500" />
                         <input
@@ -722,6 +985,37 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                             <option value="SELL">{translate("sell")}</option>
                         </select>
                     </div>
+                    <div className="relative flex items-center">
+                        <Calendar className="absolute left-3 w-4 h-4 text-zinc-500" />
+                        <select
+                            value={timeRange}
+                            onChange={(e) => { setTimeRange(e.target.value as any); setCurrentPage(1); }}
+                            className="w-full h-11 pl-10 pr-8 border-2 border-black dark:border-white bg-zinc-50 dark:bg-zinc-900 text-black dark:text-white font-bold text-sm appearance-none focus:outline-none focus:ring-0"
+                        >
+                            <option value="all">{isAr ? "كل الأوقات" : "All Time"}</option>
+                            <option value="7d">{isAr ? "آخر 7 أيام" : "Last 7 Days"}</option>
+                            <option value="30d">{isAr ? "آخر 30 يوم" : "Last 30 Days"}</option>
+                        </select>
+                    </div>
+                    <div className="relative flex items-center">
+                        <Filter className="absolute left-3 w-4 h-4 text-zinc-500" />
+                        <select
+                            value={`${sortBy}:${sortOrder}`}
+                            onChange={(e) => {
+                                const [by, order] = e.target.value.split(":");
+                                setSortBy(by);
+                                setSortOrder(order as "asc" | "desc");
+                                setCurrentPage(1);
+                            }}
+                            className="w-full h-11 pl-10 pr-8 border-2 border-black dark:border-white bg-zinc-50 dark:bg-zinc-900 text-black dark:text-white font-bold text-sm appearance-none focus:outline-none focus:ring-0"
+                        >
+                            <option value="precision:desc">{isAr ? "ترتيب: تقييم الذكاء (الأعلى)" : "Sort: AI Score (Highest)"}</option>
+                            <option value="profit_loss_pct:desc">{isAr ? "ترتيب: العائد (الأعلى)" : "Sort: Return (Highest)"}</option>
+                            <option value="profit_loss_pct:asc">{isAr ? "ترتيب: العائد (الأقل)" : "Sort: Return (Lowest)"}</option>
+                            <option value="created_at:desc">{isAr ? "ترتيب: التاريخ (الأحدث)" : "Sort: Date (Newest)"}</option>
+                            <option value="symbol:asc">{isAr ? "ترتيب: اسم السهم (أبجدي)" : "Sort: Symbol (A-Z)"}</option>
+                        </select>
+                    </div>
                     <button
                         onClick={() => { setShariaOnly(prev => !prev); setCurrentPage(1); }}
                         title={translate("shariaHint")}
@@ -739,7 +1033,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
             )}
 
             {/* Table wrapper */}
-            <div className="border-4 border-black dark:border-white bg-white dark:bg-zinc-950 text-black dark:text-white shadow-[6px_6px_0px_rgba(0,0,0,1)] dark:shadow-[6px_6px_0px_rgba(255,255,255,1)] overflow-hidden">
+            <div className="border-4 border-black dark:border-white bg-white dark:bg-zinc-950 text-black dark:text-white shadow-[6px_6px_0px_rgba(0,0,0,1)] dark:shadow-[6px_6px_0px_rgba(255,255,255,1)] overflow-hidden xl:overflow-visible">
                 {recsLoading ? (
                     <div className="p-6 space-y-3">
                         {Array.from({ length: 8 }).map((_, i) => (
@@ -766,9 +1060,18 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                             <Search className="w-8 h-8 text-zinc-400" />
                         </div>
                         <p className="text-sm font-black uppercase tracking-widest">{translate("noResults")}</p>
-                        {(searchTerm || selectedSector || selectedSignal || shariaOnly) && (
+                        {(searchTerm || selectedSector || selectedSignal || activeTab !== "active" || timeRange !== "all" || shariaOnly || sortBy !== "precision" || sortOrder !== "desc") && (
                             <button
-                                onClick={() => { setSearchTerm(""); setSelectedSector(""); setSelectedSignal(""); setShariaOnly(false); }}
+                                onClick={() => {
+                                    setSearchTerm("");
+                                    setSelectedSector("");
+                                    setSelectedSignal("");
+                                    setActiveTab("active");
+                                    setTimeRange("all");
+                                    setShariaOnly(false);
+                                    setSortBy("precision");
+                                    setSortOrder("desc");
+                                }}
                                 className="text-xs font-bold text-indigo-400 hover:text-indigo-300 underline underline-offset-2"
                             >
                                 {isAr ? "مسح الفلاتر" : "Clear Filters"}
@@ -776,27 +1079,91 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                         )}
                     </div>
                 ) : (
-                    <div className="overflow-x-auto w-full">
+                    <div className="overflow-x-auto xl:overflow-x-visible w-full">
                         <table className="w-full text-left border-collapse whitespace-nowrap lg:whitespace-normal">
                             <thead>
-                                <tr className="border-b-4 border-black dark:border-white bg-zinc-100 dark:bg-zinc-900 text-xs font-black uppercase tracking-wider text-black dark:text-white select-none">
-                                    <th className="px-4 py-4 w-12 text-center">{translate("rank")}</th>
-                                    <th className="px-6 py-4">{translate("stockName")}</th>
-                                    <th className="px-6 py-4 w-24 text-center">{translate("country")}</th>
-                                    <th className="px-4 py-4 w-24 text-center">{translate("aiScore")}</th>
-                                    <th className="px-4 py-4 w-24 text-center">{translate("signal")}</th>
+                                <tr className="text-xs font-black uppercase tracking-wider text-black dark:text-white select-none">
+                                    <th 
+                                        onClick={() => handleHeaderClick("precision")}
+                                        className="sticky top-0 xl:top-[68px] z-10 bg-zinc-100 dark:bg-zinc-900 border-b-4 border-black dark:border-white px-4 py-4 w-12 text-center cursor-pointer hover:bg-zinc-200 dark:hover:bg-zinc-800 transition-colors select-none"
+                                    >
+                                        <div className="flex items-center justify-center gap-1">
+                                            {translate("rank")}
+                                            {renderSortIcon("precision")}
+                                        </div>
+                                    </th>
+                                    <th 
+                                        onClick={() => handleHeaderClick("symbol")}
+                                        className="sticky top-0 xl:top-[68px] z-10 bg-zinc-100 dark:bg-zinc-900 border-b-4 border-black dark:border-white px-6 py-4 cursor-pointer hover:bg-zinc-200 dark:hover:bg-zinc-800 transition-colors select-none text-left"
+                                    >
+                                        <div className="flex items-center gap-1 justify-start">
+                                            {translate("stockName")}
+                                            {renderSortIcon("symbol")}
+                                        </div>
+                                    </th>
+                                    <th className="hidden md:table-cell sticky top-0 xl:top-[68px] z-10 bg-zinc-100 dark:bg-zinc-900 border-b-4 border-black dark:border-white px-6 py-4 w-24 text-center">
+                                        {translate("country")}
+                                    </th>
+                                    <th 
+                                        onClick={() => handleHeaderClick("precision")}
+                                        className="sticky top-0 xl:top-[68px] z-10 bg-zinc-100 dark:bg-zinc-900 border-b-4 border-black dark:border-white px-4 py-4 w-24 text-center cursor-pointer hover:bg-zinc-200 dark:hover:bg-zinc-800 transition-colors select-none"
+                                    >
+                                        <div className="flex items-center justify-center gap-1">
+                                            {translate("aiScore")}
+                                            {renderSortIcon("precision")}
+                                        </div>
+                                    </th>
+                                    <th className="sticky top-0 xl:top-[68px] z-10 bg-zinc-100 dark:bg-zinc-900 border-b-4 border-black dark:border-white px-4 py-4 w-24 text-center">
+                                        {translate("signal")}
+                                    </th>
 
                                     {user && (
                                         <>
-                                            <th className="px-4 py-4 w-24 text-center">{translate("techScore")}</th>
-                                            <th className="px-4 py-4 w-24 text-center">{translate("fundScore")}</th>
-                                            <th className="px-4 py-4 w-24 text-center">{translate("sentScore")}</th>
+                                            <th 
+                                                onClick={() => handleHeaderClick("technical_score")}
+                                                className="hidden md:table-cell sticky top-0 xl:top-[68px] z-10 bg-zinc-100 dark:bg-zinc-900 border-b-4 border-black dark:border-white px-4 py-4 w-24 text-center cursor-pointer hover:bg-zinc-200 dark:hover:bg-zinc-800 transition-colors select-none"
+                                            >
+                                                <div className="flex items-center justify-center gap-1">
+                                                    {translate("techScore")}
+                                                    {renderSortIcon("technical_score")}
+                                                </div>
+                                            </th>
+                                            <th 
+                                                onClick={() => handleHeaderClick("fundamental_score")}
+                                                className="hidden md:table-cell sticky top-0 xl:top-[68px] z-10 bg-zinc-100 dark:bg-zinc-900 border-b-4 border-black dark:border-white px-4 py-4 w-24 text-center cursor-pointer hover:bg-zinc-200 dark:hover:bg-zinc-800 transition-colors select-none"
+                                            >
+                                                <div className="flex items-center justify-center gap-1">
+                                                    {translate("fundScore")}
+                                                    {renderSortIcon("fundamental_score")}
+                                                </div>
+                                            </th>
+                                            <th 
+                                                onClick={() => handleHeaderClick("sentiment_score")}
+                                                className="hidden md:table-cell sticky top-0 xl:top-[68px] z-10 bg-zinc-100 dark:bg-zinc-900 border-b-4 border-black dark:border-white px-4 py-4 w-24 text-center cursor-pointer hover:bg-zinc-200 dark:hover:bg-zinc-800 transition-colors select-none"
+                                            >
+                                                <div className="flex items-center justify-center gap-1">
+                                                    {translate("sentScore")}
+                                                    {renderSortIcon("sentiment_score")}
+                                                </div>
+                                            </th>
                                         </>
                                     )}
 
-                                    <th className="px-4 py-4 w-24 text-center">{translate("lowRisk")}</th>
-                                    <th className="px-4 py-4 w-28 text-center">{isAr ? "الحالة" : "Status"}</th>
-                                    <th className="px-6 py-4">{translate("sector")}</th>
+                                    <th className="hidden md:table-cell sticky top-0 xl:top-[68px] z-10 bg-zinc-100 dark:bg-zinc-900 border-b-4 border-black dark:border-white px-4 py-4 w-24 text-center">
+                                        {translate("lowRisk")}
+                                    </th>
+                                    <th 
+                                        onClick={() => handleHeaderClick("profit_loss_pct")}
+                                        className="sticky top-0 xl:top-[68px] z-10 bg-zinc-100 dark:bg-zinc-900 border-b-4 border-black dark:border-white px-4 py-4 w-28 text-center cursor-pointer hover:bg-zinc-200 dark:hover:bg-zinc-800 transition-colors select-none"
+                                    >
+                                        <div className="flex items-center justify-center gap-1">
+                                            {isAr ? "الحالة" : "Status"}
+                                            {renderSortIcon("profit_loss_pct")}
+                                        </div>
+                                    </th>
+                                    <th className="hidden lg:table-cell sticky top-0 xl:top-[68px] z-10 bg-zinc-100 dark:bg-zinc-900 border-b-4 border-black dark:border-white px-6 py-4 text-left">
+                                        {translate("sector")}
+                                    </th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y-2 divide-black dark:divide-white">
@@ -805,10 +1172,20 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                     const rankNum = limit !== Infinity ? index + 1 : (currentPage - 1) * itemsPerPage + index + 1;
                                     const aiScoreNum = Number((row.precision * 10).toFixed(0));
 
+                                    const statusLower = row.status?.toLowerCase() || "open";
+                                    let rowBgClass = "";
+                                    if (statusLower === "win") {
+                                        rowBgClass = "bg-emerald-500/5 dark:bg-emerald-500/10 hover:bg-emerald-500/10 dark:hover:bg-emerald-500/20";
+                                    } else if (statusLower === "loss") {
+                                        rowBgClass = "bg-rose-500/5 dark:bg-rose-500/10 hover:bg-rose-500/10 dark:hover:bg-rose-500/20";
+                                    } else {
+                                        rowBgClass = "hover:bg-zinc-50 dark:hover:bg-zinc-900";
+                                    }
+
                                     return (
                                         <tr
                                             key={row.id}
-                                            className="group hover:bg-zinc-50 dark:hover:bg-zinc-900 hover:scale-[1.005] transition-all duration-150 text-sm cursor-pointer"
+                                            className={`group hover:scale-[1.005] transition-all duration-150 text-sm cursor-pointer ${rowBgClass}`}
                                             onClick={(e) => {
                                                 if (!isLandingPage || user) {
                                                     e.stopPropagation();
@@ -838,7 +1215,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                                                 </span>
                                                             )}
                                                         </div>
-                                                        <span className="text-[10px] text-zinc-500 dark:text-zinc-400 font-medium truncate max-w-[220px]" title={row.name}>
+                                                        <span className="text-[10px] text-zinc-500 dark:text-zinc-400 font-medium truncate max-w-[120px] md:max-w-[220px]" title={row.name}>
                                                             {row.name}
                                                         </span>
                                                     </div>
@@ -846,7 +1223,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                             </td>
 
                                             {/* Country */}
-                                            <td className="px-6 py-4 text-center">
+                                            <td className="hidden md:table-cell px-6 py-4 text-center">
                                                 <div className="flex items-center justify-center gap-1.5" title={cInfo.name}>
                                                     <span className="text-lg leading-none">{cInfo.flag}</span>
                                                     <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">{row.exchange}</span>
@@ -860,7 +1237,12 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
 
                                             {/* Signal Type */}
                                             <td className="px-4 py-4 text-center">
-                                                {row.signal.toUpperCase() === "BUY" ? (
+                                                {row.status?.toLowerCase() === "win" || row.status?.toLowerCase() === "loss" ? (
+                                                    <span className="inline-flex items-center gap-1.5 px-3 py-1 border-2 border-black dark:border-white font-black text-xs bg-zinc-100 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 shadow-[2px_2px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_rgba(255,255,255,1)]">
+                                                        <Minus className="w-3.5 h-3.5 shrink-0" />
+                                                        {translate("exit")}
+                                                    </span>
+                                                ) : row.signal.toUpperCase() === "BUY" ? (
                                                     <span className="inline-flex items-center gap-1.5 px-3 py-1 border-2 border-black font-black text-xs bg-emerald-100 text-emerald-800 shadow-[2px_2px_0px_rgba(0,0,0,1)]">
                                                         <TrendingUp className="w-3.5 h-3.5 shrink-0" />
                                                         {translate("buy")}
@@ -876,20 +1258,20 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                             {/* Technical, Fundamental, Sentiment (Registered only) */}
                                             {user && (
                                                 <>
-                                                    <td className="px-4 py-4 text-center">
+                                                    <td className="hidden md:table-cell px-4 py-4 text-center">
                                                         {renderCircularScore(row.technical_score || 5, "Tech")}
                                                     </td>
-                                                    <td className="px-4 py-4 text-center">
+                                                    <td className="hidden md:table-cell px-4 py-4 text-center">
                                                         {renderCircularScore(row.fundamental_score || 5, "Fund")}
                                                     </td>
-                                                    <td className="px-4 py-4 text-center">
+                                                    <td className="hidden md:table-cell px-4 py-4 text-center">
                                                         {renderCircularScore(row.sentiment_score || 5, "Sent")}
                                                     </td>
                                                 </>
                                             )}
 
                                             {/* Low Risk */}
-                                            <td className="px-4 py-4 text-center">
+                                            <td className="hidden md:table-cell px-4 py-4 text-center">
                                                 {renderCircularScore(getLowRiskScore(row), "Risk")}
                                             </td>
 
@@ -899,7 +1281,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                             </td>
 
                                             {/* Sector */}
-                                            <td className="px-6 py-4 text-xs font-black uppercase text-zinc-500">
+                                            <td className="hidden lg:table-cell px-6 py-4 text-xs font-black uppercase text-zinc-500">
                                                 {row.sector || "N/A"}
                                             </td>
                                         </tr>
@@ -925,14 +1307,14 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                             disabled={currentPage === 1}
                             className="w-10 h-10 border-2 border-black dark:border-white flex items-center justify-center bg-white dark:bg-zinc-900 text-black dark:text-white hover:bg-zinc-100 dark:hover:bg-zinc-800 disabled:opacity-50 shadow-[2px_2px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_rgba(255,255,255,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all duration-100"
                         >
-                            <ChevronLeft className={`w-4 h-4 ${isAr ? "rotate-180" : ""}`} />
+                            {isAr ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
                         </button>
                         <button
                             onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
                             disabled={currentPage === totalPages}
                             className="w-10 h-10 border-2 border-black dark:border-white flex items-center justify-center bg-white dark:bg-zinc-900 text-black dark:text-white hover:bg-zinc-100 dark:hover:bg-zinc-800 disabled:opacity-50 shadow-[2px_2px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_rgba(255,255,255,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all duration-100"
                         >
-                            <ChevronRight className={`w-4 h-4 ${isAr ? "rotate-180" : ""}`} />
+                            {isAr ? <ChevronLeft className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
                         </button>
                     </div>
                 </div>

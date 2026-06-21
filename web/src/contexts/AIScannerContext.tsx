@@ -878,12 +878,16 @@ export const AIScannerProvider = ({ children }: { children: ReactNode }) => {
                 let sentiment = row.sentiment_score || 0;
                 const openPosition = openPositionMap[normalizeSymbolKey(row.symbol)];
                 const positionMeta = openPosition?.metadata || {};
+                const rawPlPct = row.profit_loss_pct != null ? Number(row.profit_loss_pct) : null;
+                const referencePrice = (row.status === "win" || row.status === "loss") && row.exit_price ? Number(row.exit_price) : Number(row.last_close);
+                const recoveredEntryPrice = rawPlPct && rawPlPct !== -100 ? (referencePrice / (1 + rawPlPct / 100)) : Number(row.last_close);
+
                 const currentPrice = openPosition
                     ? Number(openPosition.status_price || positionMeta.current_price || row.last_close) || 0
                     : Number(row.last_close) || 0;
                 const entryPrice = openPosition
                     ? Number(openPosition.entry_price || positionMeta.entry_price || row.entry_price || row.last_close) || 0
-                    : (row.entry_price ? Number(row.entry_price) : undefined);
+                    : (row.entry_price ? Number(row.entry_price) : (recoveredEntryPrice || undefined));
                 const positionChangePct = positionMeta.price_change_pct != null
                     ? Number(positionMeta.price_change_pct)
                     : (entryPrice && currentPrice ? ((currentPrice - entryPrice) / entryPrice) * 100 : null);

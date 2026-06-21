@@ -16,6 +16,7 @@ import TradingViewChart from "@/components/TradingViewChartDynamic";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import RecommendationsTable from "@/components/RecommendationsTable";
 import TelegramServiceToggle from "@/components/TelegramServiceToggle";
+import { useNotification } from "@/contexts/NotificationContext";
 import { 
     ResponsiveContainer, 
     LineChart as RechartsLineChart, 
@@ -304,88 +305,24 @@ function TelegramNotificationCard() {
     const { user } = useAuth();
     const { language } = useLanguage();
     const isAr = language === "ar";
-    const supabase = useMemo(() => createSupabaseBrowserClient(), []);
+    const {
+        telegramLinked,
+        telegramChatId: chatId,
+        subscriptions,
+        loading,
+        toggling: contextToggling,
+        botUsername,
+        toggleSubscription,
+    } = useNotification();
 
-    const [telegramLinked, setTelegramLinked] = useState(false);
-    const [notificationsEnabled, setNotificationsEnabled] = useState(false);
-    const [loading, setLoading] = useState(true);
-    const [toggling, setToggling] = useState(false);
-    const [chatId, setChatId] = useState<string | null>(null);
-
-    useEffect(() => {
-        if (!user) { setLoading(false); return; }
-        let active = true;
-        async function load() {
-            try {
-                const { data: profile } = await supabase
-                    .from("profiles")
-                    .select("telegram_chat_id")
-                    .eq("id", user!.id)
-                    .maybeSingle();
-
-                if (active && profile?.telegram_chat_id) {
-                    setTelegramLinked(true);
-                    setChatId(profile.telegram_chat_id);
-                }
-
-                // Check if user has any active bot subscriptions with notifications
-                const { data: subs } = await supabase
-                    .from("bot_subscriptions")
-                    .select("notifications_enabled")
-                    .eq("user_id", user!.id)
-                    .limit(1);
-
-                if (active && subs && subs.length > 0) {
-                    setNotificationsEnabled(subs[0].notifications_enabled ?? true);
-                }
-            } catch (e) {
-                console.error("TelegramCard load error:", e);
-            } finally {
-                if (active) setLoading(false);
-            }
-        }
-        load();
-        return () => { active = false; };
-    }, [user, supabase]);
+    const notificationsEnabled = subscriptions["stock_score"] ?? false;
+    const toggling = contextToggling["stock_score"] ?? false;
 
     const toggleNotifications = async () => {
-        if (!user || toggling) return;
-        setToggling(true);
-        const newState = !notificationsEnabled;
-        try {
-            // Upsert into bot_subscriptions
-            const { data: existing } = await supabase
-                .from("bot_subscriptions")
-                .select("id")
-                .eq("user_id", user.id)
-                .limit(1);
-
-            if (existing && existing.length > 0) {
-                await supabase
-                    .from("bot_subscriptions")
-                    .update({ notifications_enabled: newState })
-                    .eq("user_id", user.id);
-            } else {
-                // Create a default subscription entry
-                await supabase
-                    .from("bot_subscriptions")
-                    .insert({
-                        user_id: user.id,
-                        bot_id: "stock_score",
-                        notifications_enabled: newState,
-                        created_at: new Date().toISOString(),
-                    });
-            }
-            setNotificationsEnabled(newState);
-        } catch (e) {
-            console.error("Toggle notifications error:", e);
-        } finally {
-            setToggling(false);
-        }
+        await toggleSubscription("stock_score");
     };
 
     const connectTelegram = () => {
-        const botUsername = "EGXBotsBot"; // Your bot username
         const userId = user?.id || "";
         const deepLink = `https://t.me/${botUsername}?start=${userId}`;
         window.open(deepLink, "_blank");
@@ -451,7 +388,7 @@ function TelegramNotificationCard() {
                                 }`}
                             >
                                 <div className={`absolute top-1 w-5 h-5 rounded-full bg-white shadow transition-all duration-200 ${
-                                    notificationsEnabled ? 'right-1' : 'left-1'
+                                    notificationsEnabled ? 'right-1 left-auto' : 'left-1 right-auto'
                                 }`} />
                             </button>
                             <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">
@@ -696,7 +633,7 @@ export default function AIScannerPage() {
     }, [user?.id]);
 
     useEffect(() => {
-        if (activeTab === "similarity") {
+        if (activeTab === "similarity" && !publishedReport) {
             setSimilarityLoading(true);
             fetch("/api/scan/similarity/published")
                 .then(res => res.json())
@@ -709,7 +646,7 @@ export default function AIScannerPage() {
                 .catch(err => console.error("Error loading published report:", err))
                 .finally(() => setSimilarityLoading(false));
         }
-    }, [activeTab]);
+    }, [activeTab, publishedReport]);
 
     const transformSimilarityChartData = (scan: any) => {
         if (!scan || !scan.matches) return [];
@@ -1054,7 +991,7 @@ export default function AIScannerPage() {
     };
 
     return (
-        <div className="backtests-shell app-page-shell mx-auto max-w-[1400px] w-full px-4 py-8 md:px-6 md:py-12 mt-2 min-h-[calc(100vh-200px)]">
+        <div className="backtests-shell app-page-shell mx-auto max-w-[1700px] w-full px-4 py-8 md:px-6 md:py-12 mt-2 min-h-[calc(100vh-200px)]">
             {/* Header Banner */}
             <div className="backtests-hero relative overflow-hidden rounded-none border-4 border-black dark:border-white bg-[#FFE600] dark:bg-[#FFE600] text-black dark:text-white p-8 md:p-12 mb-10 shadow-[6px_6px_0px_0px_#000000] dark:shadow-[6px_6px_0px_0px_#ffffff]">
                 <div className="absolute top-1/2 -translate-y-1/2 right-12 opacity-15 pointer-events-none hidden md:block">
@@ -1106,7 +1043,7 @@ export default function AIScannerPage() {
                 <div className="space-y-6">
                     {/* ── Telegram Notification Card ── */}
                     {user && <TelegramNotificationCard />}
-                    <RecommendationsTable />
+                    <RecommendationsTable hideTelegramToggle={true} />
                 </div>
             )}
 

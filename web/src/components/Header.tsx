@@ -277,7 +277,7 @@ export default function Header() {
                     <div className="header-center min-w-0">
                         <div
                             id="header-search-container"
-                            className={`relative min-w-0 hidden sm:flex ${searchFocused ? "flex-1 max-w-md lg:max-w-lg" : "w-full max-w-[9rem] md:max-w-[11rem] lg:max-w-[14rem] xl:max-w-xs"} transition-all duration-300 animate-in fade-in duration-700 delay-100`}
+                            className={`relative min-w-0 hidden md:flex ${searchFocused ? "flex-1 max-w-md lg:max-w-lg" : "w-full max-w-[9rem] md:max-w-[11rem] lg:max-w-[14rem] xl:max-w-xs"} transition-all duration-300 animate-in fade-in duration-700 delay-100`}
                         >
                             <div className="relative flex items-center w-full">
                                 <Search className="absolute left-3 w-4 h-4 text-black/60 dark:text-white/60 pointer-events-none z-10" />
@@ -342,7 +342,7 @@ export default function Header() {
                     </div>
 
                     {/* Actions */}
-                    <div className="flex items-center gap-1 sm:gap-1.5 shrink-0 animate-in fade-in duration-700 delay-300">
+                    <div className="flex items-center gap-1 md:gap-1.5 shrink-0 animate-in fade-in duration-700 delay-300">
                         <button
                             onClick={() => {
                                 setMobileSearchOpen((v) => !v);
@@ -351,7 +351,7 @@ export default function Header() {
                                     setTimeout(() => document.getElementById("header-search-input-mobile")?.focus(), 50);
                                 }
                             }}
-                            className="sm:hidden h-9 w-9 flex items-center justify-center rounded-xl bg-white dark:bg-zinc-900 border-3 border-black dark:border-white text-black dark:text-white hover:scale-110 hover:shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] dark:hover:shadow-[4px_4px_0px_0px_rgba(255,255,255,0.3)] transition-all duration-200"
+                            className="md:hidden h-9 w-9 flex items-center justify-center rounded-xl bg-white dark:bg-zinc-900 border-3 border-black dark:border-white text-black dark:text-white hover:scale-110 hover:shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] dark:hover:shadow-[4px_4px_0px_0px_rgba(255,255,255,0.3)] transition-all duration-200"
                             aria-label="Search"
                         >
                             <Search className="h-4 w-4" />
@@ -359,7 +359,7 @@ export default function Header() {
 
                         <button
                             onClick={toggleTheme}
-                            className="hidden sm:flex items-center justify-center h-9 w-9 rounded-xl transition-all bg-white dark:bg-zinc-900 border-3 border-black dark:border-white text-black dark:text-white hover:scale-110 hover:rotate-12 hover:shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] dark:hover:shadow-[4px_4px_0px_0px_rgba(255,255,255,0.3)] duration-200"
+                            className="hidden md:flex items-center justify-center h-9 w-9 rounded-xl transition-all bg-white dark:bg-zinc-900 border-3 border-black dark:border-white text-black dark:text-white hover:scale-110 hover:rotate-12 hover:shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] dark:hover:shadow-[4px_4px_0px_0px_rgba(255,255,255,0.3)] duration-200"
                             aria-label="Toggle theme"
                         >
                             {theme === "dark" ? <Sun className="h-4 w-4 animate-spin" style={{ animationDuration: '3s' }} /> : <Moon className="h-4 w-4" />}
@@ -367,7 +367,7 @@ export default function Header() {
 
                         <button
                             onClick={() => setLanguage(language === "ar" ? "en" : "ar")}
-                            className="hidden sm:flex items-center justify-center gap-1.5 h-9 px-2 rounded-xl text-xs font-black w-9 xl:w-[4.5rem] bg-white dark:bg-zinc-900 border-3 border-black dark:border-white text-black dark:text-white hover:scale-110 hover:shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] dark:hover:shadow-[4px_4px_0px_0px_rgba(255,255,255,0.3)] transition-all duration-200"
+                            className="hidden md:flex items-center justify-center gap-1.5 h-9 px-2 rounded-xl text-xs font-black w-9 xl:w-[4.5rem] bg-white dark:bg-zinc-900 border-3 border-black dark:border-white text-black dark:text-white hover:scale-110 hover:shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] dark:hover:shadow-[4px_4px_0px_0px_rgba(255,255,255,0.3)] transition-all duration-200"
                             title={language === "ar" ? "Switch to English" : "تغيير إلى العربية"}
                         >
                             <Globe className="h-4 w-4 shrink-0" />
@@ -375,7 +375,7 @@ export default function Header() {
                         </button>
 
                         {user ? (
-                            <div className="relative hidden sm:block">
+                            <div className="relative hidden md:block">
                                 <button
                                     onClick={() => setAccountMenuOpen(!accountMenuOpen)}
                                     className={`h-9 px-2.5 rounded-xl transition-all ${
@@ -411,7 +411,7 @@ export default function Header() {
                         ) : (
                             <Link
                                 href="/login"
-                                className="app-primary-action hidden sm:flex h-9 px-3 md:px-5 items-center rounded-xl text-[10px] md:text-xs font-bold uppercase tracking-wider transition-all whitespace-nowrap"
+                                className="app-primary-action hidden md:flex h-9 px-3 md:px-5 items-center rounded-xl text-[10px] md:text-xs font-bold uppercase tracking-wider transition-all whitespace-nowrap"
                             >
                                 {t("auth.login")}
                             </Link>
@@ -433,7 +433,7 @@ export default function Header() {
 
                 {/* Mobile search row */}
                 {mobileSearchOpen && (
-                    <div className="sm:hidden rounded-none border-4 border-black dark:border-white bg-white dark:bg-zinc-950 p-2 shadow-[6px_6px_0px_0px_#FFE600] animate-in slide-in-from-top-1 duration-200">
+                    <div className="md:hidden rounded-none border-4 border-black dark:border-white bg-white dark:bg-zinc-950 p-2 shadow-[6px_6px_0px_0px_#FFE600] animate-in slide-in-from-top-1 duration-200">
                         <div id="header-search-container-mobile" className="relative">
                             <div className="relative flex items-center">
                                 <Search className="absolute left-3 w-4 h-4 text-zinc-500" />

@@ -1,3 +1,10 @@
+import sys
+# Force UTF-8 encoding on standard output and error to prevent UnicodeEncodeError under Windows console
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8")
+
 import os
 import json
 import uuid
@@ -617,9 +624,9 @@ from datetime import datetime
 # Initialize Supabase client
 def _get_supabase():
     """Get Supabase client instance"""
-    from api.stock_ai import _init_supabase, supabase
-    _init_supabase()
-    return supabase
+    import api.stock_ai as stock_ai
+    stock_ai._init_supabase()
+    return stock_ai.supabase
 
 
 @lru_cache(maxsize=1)

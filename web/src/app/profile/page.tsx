@@ -6,6 +6,7 @@ import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useWatchlist, type SavedSymbol } from "@/contexts/WatchlistContext";
+import { useNotification, type ServiceType } from "@/contexts/NotificationContext";
 import { Loader2, Save, Send, MessageSquare, CheckCircle2, AlertCircle, RefreshCw, Globe, Star, Trash2, Edit3, X, Check, ExternalLink, Target, Shield, Bell, BellOff, Brain, Activity, BarChart3, TrendingUp } from "lucide-react";
 import { toast } from "sonner";
 
@@ -29,6 +30,18 @@ export default function ProfilePage() {
   const isAr = language === "ar";
   const supabase = useMemo(() => createSupabaseBrowserClient(), []);
 
+  const {
+    telegramChatId,
+    notificationChannel,
+    subscriptions,
+    loading: subsLoading,
+    toggling: togglingSubMap,
+    botUsername,
+    toggleSubscription: contextToggleSubscription,
+    updateNotificationChannel,
+    reloadAll: reloadNotifications,
+  } = useNotification();
+
   const [profile, setProfile] = useState<ProfileRow | null>(null);
   const [defaultTelegramChatId, setDefaultTelegramChatId] = useState("");
   const [defaultTargetPct, setDefaultTargetPct] = useState("10.00");
@@ -36,28 +49,21 @@ export default function ProfilePage() {
   const [geminiApiKey, setGeminiApiKey] = useState("");
   const [openrouterApiKey, setOpenrouterApiKey] = useState("");
   const [customAiRules, setCustomAiRules] = useState("");
-  const [notificationChannel, setNotificationChannel] = useState<"telegram" | null>(null);
-  const channelLoadedRef = useRef(false);
   const [savingDefaults, setSavingDefaults] = useState(false);
-  const [botUsername, setBotUsername] = useState("egxbots_bot");
   const [editingSymbolId, setEditingSymbolId] = useState<string | null>(null);
   const [watchlistDraft, setWatchlistDraft] = useState({ name: "" });
-  const [subscriptions, setSubscriptions] = useState<Record<string, boolean>>({});
-  const [subsLoading, setSubsLoading] = useState(true);
-  const [togglingSub, setTogglingSub] = useState<string | null>(null);
 
   useEffect(() => {
     if (!loading && !user) router.replace("/login");
   }, [loading, router, user]);
 
   useEffect(() => {
-    fetch("/api/ai_bot/telegram/bot_username")
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.username) setBotUsername(data.username);
-      })
-      .catch((err) => console.error("Error fetching bot username:", err));
-  }, []);
+    if (telegramChatId !== null) {
+      setDefaultTelegramChatId(telegramChatId);
+    } else {
+      setDefaultTelegramChatId("");
+    }
+  }, [telegramChatId]);
 
   const reloadAll = useCallback(async () => {
     if (!user) return;
@@ -70,38 +76,29 @@ export default function ProfilePage() {
 
     if (profileRow) {
       setProfile(profileRow as ProfileRow);
-      setDefaultTelegramChatId((profileRow as any).telegram_chat_id || "");
       setDefaultTargetPct(String((profileRow as any).default_target_pct ?? "10.00"));
       setDefaultStopPct(String((profileRow as any).default_stop_pct ?? "3.50"));
       setGeminiApiKey((profileRow as any).gemini_api_key || "");
       setOpenrouterApiKey((profileRow as any).openrouter_api_key || "");
       setCustomAiRules((profileRow as any).custom_ai_rules || "");
-      if (!channelLoadedRef.current) {
-        setNotificationChannel(((profileRow as any).notification_channel as "telegram") || null);
-        channelLoadedRef.current = true;
-      }
     }
-
-    // Load per-service subscriptions
-    setSubsLoading(true);
-    const { data: subs } = await supabase
-      .from("bot_subscriptions")
-      .select("service_type, notifications_enabled")
-      .eq("user_id", user.id);
-    const subMap: Record<string, boolean> = {};
-    if (subs) {
-      for (const s of subs) {
-        if (s.service_type) subMap[s.service_type] = s.notifications_enabled ?? true;
-      }
-    }
-    setSubscriptions(subMap);
-    setSubsLoading(false);
   }, [supabase, user]);
 
   useEffect(() => {
     if (!user) return;
     void reloadAll();
   }, [reloadAll, user]);
+
+  async function handleChannelToggle(channel: "telegram" | null) {
+    if (!user) return;
+    try {
+      await updateNotificationChannel(channel);
+      toast.success(isAr ? "تم تحديث قناة الإشعارات بنجاح" : "Notification channel updated successfully");
+    } catch (err: any) {
+      console.error("Error updating notification channel:", err);
+      toast.error(isAr ? `فشل تحديث القناة: ${err.message}` : `Failed to update channel: ${err.message}`);
+    }
+  }
 
   async function saveProfileSettings() {
     if (!user) return;
@@ -121,7 +118,40 @@ export default function ProfilePage() {
         .eq("id", user.id);
 
       if (error) throw error;
+
+      // Sync bot_subscriptions based on notificationChannel
+      const isEnabled = notificationChannel === "telegram";
+      
+      // Update all existing subscriptions for this user
+      await supabase
+        .from("bot_subscriptions")
+        .update({ notifications_enabled: isEnabled })
+        .eq("user_id", user.id);
+
+      // Create default entries if turning ON and they don't exist yet
+      if (isEnabled) {
+        for (const type of ["stock_score", "historical_similarity"]) {
+          const { data: existing } = await supabase
+            .from("bot_subscriptions")
+            .select("id")
+            .eq("user_id", user.id)
+            .eq("service_type", type)
+            .maybeSingle();
+
+          if (!existing) {
+            await supabase.from("bot_subscriptions").insert({
+              user_id: user.id,
+              bot_id: type,
+              service_type: type,
+              notifications_enabled: true,
+              created_at: new Date().toISOString(),
+            });
+          }
+        }
+      }
+
       await reloadAll();
+      await reloadNotifications();
       toast.success(isAr ? "تم حفظ الإعدادات بنجاح" : "Settings saved successfully");
     } catch (e: any) {
       console.error(e);
@@ -132,37 +162,11 @@ export default function ProfilePage() {
   }
 
   async function toggleSubscription(serviceType: string) {
-    if (!user || togglingSub === serviceType) return;
-    setTogglingSub(serviceType);
-    const newState = !subscriptions[serviceType];
+    if (!user) return;
     try {
-      const { data: existing } = await supabase
-        .from("bot_subscriptions")
-        .select("id")
-        .eq("user_id", user.id)
-        .eq("service_type", serviceType)
-        .maybeSingle();
-
-      if (existing) {
-        await supabase
-          .from("bot_subscriptions")
-          .update({ notifications_enabled: newState })
-          .eq("user_id", user.id)
-          .eq("service_type", serviceType);
-      } else {
-        await supabase.from("bot_subscriptions").insert({
-          user_id: user.id,
-          bot_id: serviceType,
-          service_type: serviceType,
-          notifications_enabled: newState,
-          created_at: new Date().toISOString(),
-        });
-      }
-      setSubscriptions((prev) => ({ ...prev, [serviceType]: newState }));
+      await contextToggleSubscription(serviceType as ServiceType);
     } catch (e) {
       console.error("Toggle subscription error:", e);
-    } finally {
-      setTogglingSub(null);
     }
   }
 
@@ -248,7 +252,7 @@ export default function ProfilePage() {
                   <div className="flex gap-4">
                     <button
                       type="button"
-                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); setNotificationChannel("telegram"); }}
+                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleChannelToggle("telegram"); }}
                       className={`flex-1 h-14 border-4 border-black dark:border-white font-black text-xs uppercase tracking-[0.1em] transition-all flex items-center justify-center gap-2 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] dark:shadow-[3px_3px_0px_0px_rgba(255,255,255,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none ${
                         notificationChannel === "telegram"
                           ? "neobrutal-bg-purple text-black font-black"
@@ -261,7 +265,7 @@ export default function ProfilePage() {
                     {notificationChannel !== null && (
                       <button
                         type="button"
-                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); setNotificationChannel(null); }}
+                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleChannelToggle(null); }}
                         className="h-14 px-4 border-4 border-black dark:border-white font-black text-xs uppercase tracking-[0.1em] transition-all flex items-center justify-center bg-red-400 hover:bg-red-300 text-black shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] dark:shadow-[3px_3px_0px_0px_rgba(255,255,255,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none"
                         title="Deselect Channel"
                       >
@@ -465,7 +469,7 @@ export default function ProfilePage() {
             </p>
           </div>
           <div className="inline-flex items-center justify-center gap-2 h-10 px-4 border-4 border-black dark:border-white bg-zinc-100 dark:bg-zinc-950 text-black dark:text-white font-black text-xs uppercase tracking-widest shadow-[2px_2px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_rgba(255,255,255,1)]">
-            {Object.values(subscriptions).filter(Boolean).length} / {Object.keys(subscriptions).length} {isAr ? "مفعلة" : "Active"}
+            {Object.keys(subscriptions).filter(k => subscriptions[k] === true).length} / 4 {isAr ? "مفعلة" : "Active"}
           </div>
         </div>
 
@@ -489,7 +493,7 @@ export default function ProfilePage() {
               { key: "ai_bot", labelEn: "AI Bot Signals", labelAr: "إشارات البوت الذكي", icon: <Brain className="w-5 h-5" />, color: "border-l-amber-500" },
             ].map((svc) => {
               const enabled = subscriptions[svc.key] ?? false;
-              const toggling = togglingSub === svc.key;
+              const toggling = togglingSubMap[svc.key] ?? false;
               return (
                 <div
                   key={svc.key}

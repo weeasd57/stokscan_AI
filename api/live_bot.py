@@ -1489,9 +1489,9 @@ class LiveBot:
             self._logs.clear()
             # Clear from Supabase if enabled
         try:
-            from api.stock_ai import _init_supabase, supabase
-
-            _init_supabase()
+            import api.stock_ai as stock_ai
+            stock_ai._init_supabase()
+            supabase = stock_ai.supabase
             if supabase:
                 # Use a larger timeout/retry if possible, or just standard exec
                 supabase.table("bot_logs").delete().eq("bot_id", self.bot_id).execute()
@@ -1513,9 +1513,9 @@ class LiveBot:
 
         # Clear from Supabase
         try:
-            from api.stock_ai import _init_supabase, supabase
-
-            _init_supabase()
+            import api.stock_ai as stock_ai
+            stock_ai._init_supabase()
+            supabase = stock_ai.supabase
             if supabase:
                 supabase.table("bot_logs").delete().eq("bot_id", self.bot_id).execute()
                 supabase.table("bot_trades").delete().eq(
@@ -4812,9 +4812,9 @@ class BotManager:
 
             # Delete configuration, state, logs, and trades from Supabase so they don't reload
             try:
-                from api.stock_ai import _init_supabase, supabase
-
-                _init_supabase()
+                import api.stock_ai as stock_ai
+                stock_ai._init_supabase()
+                supabase = stock_ai.supabase
                 if supabase:
                     supabase.table("bot_configs").delete().eq(
                         "bot_id", bot_id

@@ -34,10 +34,14 @@ def _safe_read_json(path: str) -> Any:
     try:
         with open(path, "r", encoding="utf-8") as f:
             return json.load(f)
-    except json.JSONDecodeError:
-        # Retry with BOM-tolerant decoding (utf-8-sig) for legacy JSON exports
-        with open(path, "r", encoding="utf-8-sig") as f:
-            return json.load(f)
+    except Exception:
+        try:
+            # Retry with BOM-tolerant decoding (utf-8-sig) for legacy JSON exports
+            with open(path, "r", encoding="utf-8-sig") as f:
+                return json.load(f)
+        except Exception as e:
+            print(f"DEBUG ERROR: Failed to read/parse JSON from {path}: {e}")
+            return None
 
 def _find_latest_file(prefix: str, suffix: str = ".json") -> Optional[str]:
     try:

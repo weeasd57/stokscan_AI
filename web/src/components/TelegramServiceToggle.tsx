@@ -1,13 +1,11 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
-import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
+import { useNotification, type ServiceType } from "@/contexts/NotificationContext";
 import { Bell, BellOff, MessageCircle, Globe } from "lucide-react";
 import Link from "next/link";
-
-export type ServiceType = "stock_score" | "historical_similarity" | "technical_scanner" | "ai_bot";
 
 interface TelegramServiceToggleProps {
     serviceType: ServiceType;
@@ -16,8 +14,6 @@ interface TelegramServiceToggleProps {
     description?: string;
     className?: string;
 }
-
-const DEFAULT_BOT_USERNAME = "egxbots_bot";
 
 export default function TelegramServiceToggle({
     serviceType,
@@ -29,14 +25,18 @@ export default function TelegramServiceToggle({
     const { user } = useAuth();
     const { language } = useLanguage();
     const isAr = language === "ar";
-    const supabase = useMemo(() => createSupabaseBrowserClient(), []);
+    const {
+        telegramLinked,
+        telegramChatId: chatId,
+        subscriptions,
+        loading,
+        toggling: contextToggling,
+        botUsername,
+        toggleSubscription,
+    } = useNotification();
 
-    const [loading, setLoading] = useState(true);
-    const [toggling, setToggling] = useState(false);
-    const [telegramLinked, setTelegramLinked] = useState(false);
-    const [notificationsEnabled, setNotificationsEnabled] = useState(false);
-    const [chatId, setChatId] = useState<string | null>(null);
-    const [botUsername, setBotUsername] = useState(DEFAULT_BOT_USERNAME);
+    const notificationsEnabled = subscriptions[serviceType] ?? false;
+    const toggling = contextToggling[serviceType] ?? false;
 
     const defaultTitle = {
         stock_score: { en: "Stocks Score Alerts", ar: "تنبيهات تقييم الأسهم" },
@@ -55,57 +55,6 @@ export default function TelegramServiceToggle({
     const tTitle = title || (isAr ? defaultTitle.ar : defaultTitle.en);
     const tDesc = description || (isAr ? defaultDesc.ar : defaultDesc.en);
 
-    useEffect(() => {
-        fetch("/api/ai_bot/telegram/bot_username")
-            .then((res) => res.json())
-            .then((data) => {
-                if (typeof data?.username === "string" && data.username.trim()) {
-                    setBotUsername(data.username.trim());
-                }
-            })
-            .catch((err) => console.error("Error fetching bot username:", err));
-    }, []);
-
-    useEffect(() => {
-        if (!user) {
-            setLoading(false);
-            return;
-        }
-        let active = true;
-        async function load() {
-            try {
-                const { data: profile } = await supabase
-                    .from("profiles")
-                    .select("telegram_chat_id")
-                    .eq("id", user!.id)
-                    .maybeSingle();
-
-                if (active && profile?.telegram_chat_id) {
-                    setTelegramLinked(true);
-                    setChatId(profile.telegram_chat_id);
-                }
-
-                const { data: subs } = await supabase
-                    .from("bot_subscriptions")
-                    .select("notifications_enabled, telegram_chat_id")
-                    .eq("user_id", user!.id)
-                    .eq("service_type", serviceType)
-                    .maybeSingle();
-
-                if (active && subs) {
-                    setNotificationsEnabled(subs.notifications_enabled ?? true);
-                    if (subs.telegram_chat_id) setChatId(subs.telegram_chat_id);
-                }
-            } catch (e) {
-                console.error(`TelegramServiceToggle load error (${serviceType}):`, e);
-            } finally {
-                if (active) setLoading(false);
-            }
-        }
-        load();
-        return () => { active = false; };
-    }, [user, supabase, serviceType]);
-
     const connectTelegramApp = () => {
         const userId = user?.id || "";
         window.open(`https://t.me/${botUsername}?start=${userId}`, "_blank");
@@ -120,39 +69,7 @@ export default function TelegramServiceToggle({
     };
 
     const toggleNotifications = async () => {
-        if (!user || toggling) return;
-        setToggling(true);
-        const newState = !notificationsEnabled;
-        try {
-            const { data: existing } = await supabase
-                .from("bot_subscriptions")
-                .select("id")
-                .eq("user_id", user.id)
-                .eq("service_type", serviceType)
-                .maybeSingle();
-
-            if (existing) {
-                await supabase
-                    .from("bot_subscriptions")
-                    .update({ notifications_enabled: newState })
-                    .eq("user_id", user.id)
-                    .eq("service_type", serviceType);
-            } else {
-                await supabase.from("bot_subscriptions").insert({
-                    user_id: user.id,
-                    bot_id: botId,
-                    service_type: serviceType,
-                    notifications_enabled: newState,
-                    telegram_chat_id: chatId,
-                    created_at: new Date().toISOString(),
-                });
-            }
-            setNotificationsEnabled(newState);
-        } catch (e) {
-            console.error(`Toggle notifications error (${serviceType}):`, e);
-        } finally {
-            setToggling(false);
-        }
+        await toggleSubscription(serviceType, botId);
     };
 
     if (loading) {

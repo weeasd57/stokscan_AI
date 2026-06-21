@@ -8,6 +8,7 @@ import { AppStateProvider } from "@/contexts/AppStateContext";
 import { AIScannerProvider } from "@/contexts/AIScannerContext";
 import { TechnicalScannerProvider } from "@/contexts/TechnicalScannerContext";
 import { ThemeProvider } from "@/contexts/ThemeContext";
+import { NotificationProvider } from "@/contexts/NotificationContext";
 
 if (typeof window !== "undefined") {
   const originalFetch = window.fetch;
@@ -51,15 +52,17 @@ export default function Providers({ children }: { children: ReactNode }) {
     <ThemeProvider>
       <AuthProvider>
         <LanguageProvider>
-          <WatchlistProvider>
-            <AppStateProvider>
-              <TechnicalScannerProvider>
-                <AIScannerProvider>
-                  {children}
-                </AIScannerProvider>
-              </TechnicalScannerProvider>
-            </AppStateProvider>
-          </WatchlistProvider>
+          <NotificationProvider>
+            <WatchlistProvider>
+              <AppStateProvider>
+                <TechnicalScannerProvider>
+                  <AIScannerProvider>
+                    {children}
+                  </AIScannerProvider>
+                </TechnicalScannerProvider>
+              </AppStateProvider>
+            </WatchlistProvider>
+          </NotificationProvider>
         </LanguageProvider>
       </AuthProvider>
     </ThemeProvider>

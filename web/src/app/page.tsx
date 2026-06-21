@@ -184,7 +184,7 @@ export default function HomePage() {
             n: 1,
             title: isAr ? "اختر سهمك المفضل" : "Pick a Stock",
             desc: isAr
-                ? "اختر سهمك المفضل المدرج في البورصة المصرية أو الأمريكية بناءً على تقييم AI Score."
+                ? "اختر سهمك المفضل المدرج في البورصة المصرية بناءً على تقييم AI Score."
                 : "Choose your favorite EGX-listed stock based on AI Score.",
             colorClass: "neobrutal-bg-yellow",
         },
@@ -264,7 +264,7 @@ export default function HomePage() {
 
                     {/* Logo & Platform Name */}
                     <div className="flex items-center justify-center gap-4 mb-6 animate-[fadeInUp_0.8s_ease-out]">
-                                                    <div className="border-4 border-black dark:border-white bg-white p-3 rotate-[2deg] shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_rgba(255,255,255,1)] hover:rotate-0 hover:scale-110 transition-transform duration-300 animate-[float_6s_ease-in-out_infinite]">
+                                                    <div className="border-4 border-black dark:border-white bg-white p-3 rotate-[2deg] shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_rgba(255,255,255,1)] hover:rotate-0 hover:scale-110 transition-transform duration-300">
                             <Image
                                 src="/favicon_io/apple-touch-icon.png"
                                 alt="EGX Bots Logo"
@@ -367,7 +367,7 @@ export default function HomePage() {
                             {isAr ? "ترتيب السوق اليوم" : "TODAY'S MARKET RANKING"}
                         </div>
                         <h2 className="text-3xl sm:text-5xl font-black text-black dark:text-white tracking-tight">
-                            {isAr ? "أفضل الأسهم المصرية والأمريكية" : "Top Ranked Popular Stocks"}
+                            {isAr ? "أفضل الأسهم المصرية" : "Top Ranked Popular Stocks"}
                         </h2>
                     </div>
 
@@ -807,8 +807,8 @@ export default function HomePage() {
                         </h2>
                         <p className="text-sm sm:text-base md:text-lg text-zinc-600 dark:text-zinc-400 max-w-xl mx-auto mt-4 font-bold">
                             {isAr
-                                ? "نظامان متكاملان ومصممان خصيصاً للبورصة المصرية والأمريكية لتسهيل قرارات الاستثمار."
-                                : "Two robust systems engineered specifically for the EGX & US markets to enhance your trading strategies."}
+                                ? "نظامان متكاملان ومصممان خصيصاً للبورصة المصرية لتسهيل قرارات الاستثمار."
+                                : "Two robust systems engineered specifically for the EGX market to enhance your trading strategies."}
                         </p>
                     </div>
 

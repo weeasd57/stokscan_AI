@@ -1,9 +1,15 @@
 # RESTART_DEBUG: 2
+import sys
+# Force UTF-8 encoding on standard output and error to prevent UnicodeEncodeError under Windows console
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8")
+
 import datetime as dt
 import io
 import json
 import os
-import sys
 import urllib.request
 import warnings
 
@@ -723,15 +729,14 @@ def symbols_by_date(
     limit: int = Query(default=200, ge=1, le=5000),
     search_term: Optional[str] = Query(default=None),
 ):
-    from api.stock_ai import _init_supabase, supabase
+    import api.stock_ai as stock_ai
+    stock_ai._init_supabase()
+    if not stock_ai.supabase:
+        return {"results": []}
 
     def _chunks(items: list, size: int):
         for i in range(0, len(items), size):
             yield items[i : i + size]
-
-    _init_supabase()
-    if not supabase:
-        return {"results": []}
 
     try:
         # Use RPC to efficiently get unique symbols with price data in the date range
@@ -1174,10 +1179,11 @@ async def strategy_tester_endpoint(req: StrategyTesterRequest):
         raise HTTPException(status_code=422, detail="No valid models or bots provided")
 
     # ── 1. Fetch single-symbol price data from Supabase ──────────────────────
-    from api.stock_ai import _init_supabase, supabase
+    import api.stock_ai as stock_ai
     from api.stock_ai import add_massive_features as _amf
 
-    _init_supabase()
+    stock_ai._init_supabase()
+    supabase = stock_ai.supabase
 
     try:
         from api.train_exchange_model import add_massive_features
@@ -1613,7 +1619,7 @@ def _fetch_adaptive_index_data(
     as_of: Optional[str] = None,
 ) -> pd.DataFrame:
     import time
-    from api.stock_ai import _init_supabase, supabase
+    import api.stock_ai as stock_ai
 
     # ── فحص الـ cache أولاً ─────────────────────────────────────────────────
     cache_key = (exchange.upper(), as_of or "latest")
@@ -1623,7 +1629,8 @@ def _fetch_adaptive_index_data(
         if time.time() - cached_at < _ADAPTIVE_CACHE_TTL_SECONDS:
             return cached_df
 
-    _init_supabase()
+    stock_ai._init_supabase()
+    supabase = stock_ai.supabase
     if not supabase:
         return pd.DataFrame()
 
@@ -1754,9 +1761,9 @@ def _compute_benchmark_metrics(
         # Database fallback if file is missing or empty
         if (df is None or df.empty) and ex == "EGX":
             try:
-                from api.stock_ai import _init_supabase, supabase
-
-                _init_supabase()
+                import api.stock_ai as stock_ai
+                stock_ai._init_supabase()
+                supabase = stock_ai.supabase
                 if supabase:
                     offset = 0
                     limit = 1000
@@ -2394,9 +2401,9 @@ def run_backtest_task(req: BacktestRequest, backtest_id: str = None):
             print(f"Error parsing trades JSON: {e}")
 
         # Save to Supabase
-        from api.stock_ai import _init_supabase, supabase
-
-        _init_supabase()
+        import api.stock_ai as stock_ai
+        stock_ai._init_supabase()
+        supabase = stock_ai.supabase
         if supabase:
             # Compute total return % on a fixed notional capital.
             # net_profit is in cash (EGP), convert to percentage

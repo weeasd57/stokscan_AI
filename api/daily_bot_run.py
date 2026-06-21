@@ -1,5 +1,11 @@
 import os
 import sys
+# Force UTF-8 encoding on standard output and error to prevent UnicodeEncodeError under Windows console
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8")
+
 import datetime as dt
 import time
 import asyncio
@@ -276,7 +282,8 @@ def calculate_indicators_for_symbol(symbol: str, exchange: str = "EGX") -> List[
     res = (
         supabase.table("stock_prices")
         .select("date,open,high,low,close,volume")
-        .eq("symbol", f"{symbol}.{exchange}")
+        .eq("symbol", symbol)
+        .eq("exchange", exchange)
         .order("date", desc=True)
         .limit(300)
         .execute()
@@ -618,7 +625,8 @@ def evaluate_old_recommendations():
         p_res = (
             supabase.table("stock_prices")
             .select("date,high,low,close")
-            .eq("symbol", f"{symbol}.{exchange}")
+            .eq("symbol", symbol)
+            .eq("exchange", exchange)
             .gte("date", created_at_date)
             .order("date", desc=False)
             .execute()
@@ -786,15 +794,15 @@ def evaluate_old_recommendations():
 
             if effective_stop is not None and lo <= (effective_stop + eps):
                 exit_price = effective_stop
-                status = "loss"
                 pl_pct = ((effective_stop - entry_price) / entry_price) * 100
+                status = "win" if pl_pct >= 0.0 else "loss"
                 found_event = True
                 break
 
             if effective_target is not None and hi >= (effective_target - eps):
                 exit_price = effective_target
-                status = "win"
                 pl_pct = ((effective_target - entry_price) / entry_price) * 100
+                status = "win" if pl_pct >= 0.0 else "loss"
                 found_event = True
                 break
 
@@ -873,7 +881,7 @@ def update_open_portfolio_positions():
         price_res = (
             supabase.table("stock_prices")
             .select("date,open,high,low,close,volume")
-            .eq("symbol", full_symbol)
+            .eq("symbol", base_symbol)
             .eq("exchange", exchange)
             .order("date", desc=True)
             .limit(1)
@@ -883,7 +891,7 @@ def update_open_portfolio_positions():
             price_res = (
                 supabase.table("stock_prices")
                 .select("date,open,high,low,close,volume")
-                .eq("symbol", full_symbol)
+                .eq("symbol", base_symbol)
                 .order("date", desc=True)
                 .limit(1)
                 .execute()
@@ -995,7 +1003,8 @@ def generate_arabic_rationale(result: dict) -> dict:
         f_res = (
             supabase.table("stock_fundamentals")
             .select("data")
-            .eq("symbol", f"{symbol}.{exchange}")
+            .eq("symbol", symbol)
+            .eq("exchange", exchange)
             .execute()
         )
         if f_res.data:

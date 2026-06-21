@@ -108,7 +108,7 @@ const config: Config = {
         'fadeInUp': 'fadeInUp 0.6s ease-out both',
         'bounceIn': 'bounceIn 0.8s ease-out',
         'slideInRight': 'slideInRight 0.8s ease-out',
-        'float': 'float 3s ease-in-out infinite',
+        'float': 'float 8s ease-in-out infinite',
         'countUp': 'countUp 1s ease-out',
         'slideIn': 'slideIn 0.6s ease-out both',
       },
