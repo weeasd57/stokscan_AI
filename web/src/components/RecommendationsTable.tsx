@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useMemo, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -158,6 +159,11 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
 
     // Detail dialog state
     const [selectedRow, setSelectedRow] = useState<any>(null);
+    const [mounted, setMounted] = useState(false);
+
+    useEffect(() => {
+        setMounted(true);
+    }, []);
 
     // Interactive Filters (Scanner or Authenticated Landing Page)
     const [searchTerm, setSearchTerm] = useState("");
@@ -540,7 +546,9 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
             return pct >= 0.7 ? "bg-emerald-500" : pct >= 0.5 ? "bg-amber-500" : "bg-rose-500";
         };
 
-        return (
+        if (!mounted) return null;
+
+        return createPortal(
             <div className="fixed inset-0 z-[2147483647] flex flex-col bg-zinc-950/95 backdrop-blur-md animate-in fade-in duration-200" dir={isAr ? "rtl" : "ltr"} onClick={() => setSelectedRow(null)}>
                 {/* Top floating control bar */}
                 <div className="flex items-center justify-between gap-4 px-4 sm:px-8 py-4 border-b-2 border-white/10 bg-zinc-950/90 backdrop-blur-md flex-shrink-0" onClick={e => e.stopPropagation()}>
@@ -601,6 +609,33 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                 {/* Scrollable content */}
                 <div className="relative z-10 flex-1 overflow-y-auto" style={{ scrollbarWidth: "thin" }}>
                     <div className="max-w-6xl mx-auto p-4 sm:p-8 space-y-8" onClick={e => e.stopPropagation()}>
+
+                        {/* Stock Symbol, Logo, and Full Name Header Card */}
+                        <div className="flex items-center gap-4 bg-zinc-900 border-2 border-white/5 p-5">
+                            <StockLogo symbol={row.symbol} logoUrl={row.logo_url} size="lg" />
+                            <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                    <h1 className="text-2xl sm:text-3xl font-black text-white uppercase tracking-tight">{row.symbol}</h1>
+                                    <span className="text-[10px] font-bold text-zinc-400 bg-zinc-800 px-2 py-0.5 border border-white/5">{row.exchange}</span>
+                                    <span className="text-xl">{cInfo.flag}</span>
+                                    {row.status?.toLowerCase() === "win" || row.status?.toLowerCase() === "loss" ? (
+                                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-zinc-700 text-white font-black text-[10px] uppercase">
+                                            <Minus className="w-3 h-3" /> {translate("exit")}
+                                        </span>
+                                    ) : row.signal?.toUpperCase() === "BUY" ? (
+                                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-emerald-500 text-zinc-950 font-black text-[10px] uppercase">
+                                            <TrendingUp className="w-3 h-3" /> {translate("buy")}
+                                        </span>
+                                    ) : (
+                                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-rose-500 text-zinc-950 font-black text-[10px] uppercase">
+                                            <TrendingDown className="w-3 h-3" /> {translate("sell")}
+                                        </span>
+                                    )}
+                                    {getStatusBadge(row.status, row.profit_loss_pct)}
+                                </div>
+                                <p className="text-sm sm:text-base text-zinc-300 font-bold mt-1">{row.name}</p>
+                            </div>
+                        </div>
 
                         {/* ── Hero Price Card ── */}
                         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -900,7 +935,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                     </span>
                                     <span className="text-xs font-bold text-zinc-500">{row.symbol}</span>
                                 </div>
-                                <div style={{ height: 420 }}>
+                                <div style={{ height: 520 }}>
                                     <TradingViewChart
                                         symbol={row.symbol}
                                         exchange={row.exchange}
@@ -950,7 +985,8 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
 
                     </div>
                 </div>
-            </div>
+            </div>,
+            document.body
         );
     };
 
@@ -958,7 +994,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
     return (
         <div
             onClick={handleLandingClick}
-            className={`w-full max-w-none mx-auto flex flex-col space-y-6 select-none ${isLandingPage && !user ? "cursor-pointer" : ""}`}
+            className={`w-full max-w-none mx-auto flex flex-col space-y-6 ${isLandingPage && !user ? "cursor-pointer" : ""}`}
         >
             {/* Dialog */}
             {renderDialog()}

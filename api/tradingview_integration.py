@@ -239,8 +239,10 @@ def _try_yahoo_direct_fallback(
             "volume": volumes
         })
         
+        # Drop rows where critical price fields are None before forward-filling,
+        # to avoid propagating previous day's prices into today's empty/placeholder candles.
+        df_new = df_new.dropna(subset=["close", "open", "high", "low"], how="any")
         df_new = df_new.ffill().bfill()
-        df_new = df_new.dropna(subset=["close"])
         
         if start_date or end_date:
             df_new['ts'] = pd.to_datetime(df_new['ts'])
