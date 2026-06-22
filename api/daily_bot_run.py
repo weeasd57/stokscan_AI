@@ -1258,10 +1258,29 @@ async def generate_daily_recommendations(model_name: Optional[str] = None):
         }
         
         try:
-            supabase.table("scan_results").insert(row_data).execute()
-            print(f"[RECOMMENDATIONS] #{i+1} Saved {symbol}.{exchange} with target1={row_data['target_price']}, target2={rich_details['target_2']}")
+            # Check if there is already an open recommendation for this symbol
+            existing = (
+                supabase.table("scan_results")
+                .select("id")
+                .eq("symbol", symbol)
+                .eq("status", "open")
+                .execute()
+            )
+            if existing.data:
+                rec_id = existing.data[0]["id"]
+                update_data = {
+                    "precision": row_data["precision"],
+                    "top_reasons": row_data["top_reasons"],
+                    "features": row_data["features"],
+                    "updated_at": row_data["updated_at"]
+                }
+                supabase.table("scan_results").update(update_data).eq("id", rec_id).execute()
+                print(f"[RECOMMENDATIONS] #{i+1} Updated existing open recommendation for {symbol}.{exchange}")
+            else:
+                supabase.table("scan_results").insert(row_data).execute()
+                print(f"[RECOMMENDATIONS] #{i+1} Saved {symbol}.{exchange} with target1={row_data['target_price']}, target2={rich_details['target_2']}")
         except Exception as ins_err:
-            print(f"[RECOMMENDATIONS] Failed to save recommendation for {symbol}: {ins_err}")
+            print(f"[RECOMMENDATIONS] Failed to save/update recommendation for {symbol}: {ins_err}")
 
     # Notify Stocks Score subscribers
     try:

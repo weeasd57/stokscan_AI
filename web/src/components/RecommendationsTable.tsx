@@ -310,6 +310,14 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                 const s = (r.status || "").toLowerCase();
                 return s !== "win" && s !== "loss";
             });
+            // Deduplicate active recommendations by symbol (keep the latest one)
+            const seen = new Set<string>();
+            items = items.filter(r => {
+                const sym = (r.symbol || "").toUpperCase();
+                if (seen.has(sym)) return false;
+                seen.add(sym);
+                return true;
+            });
         } else if (activeTab === "closed") {
             items = items.filter(r => {
                 const s = (r.status || "").toLowerCase();
@@ -482,6 +490,11 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
 
         const hasTarget2 = !!richDetails?.target_2;
         const target2 = hasTarget2 ? Number(richDetails.target_2) : 0;
+
+        // Calculate ATR from Entry Price & Stop Loss (since SL = Entry - 1.0x ATR, ATR = Entry - SL)
+        const atrValue = entryPrice && stopLoss && entryPrice > stopLoss ? (entryPrice - stopLoss) : 0;
+        const hasAtr = atrValue > 0;
+
         const normalizedStatus = (row.status || "").toLowerCase();
         const isWin = normalizedStatus === "win";
         const isLoss = normalizedStatus === "loss";
@@ -828,8 +841,30 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                 </h4>
                                 {[
                                     { label: isAr ? "سعر الدخول" : "Entry Price", value: entryPrice ? `${entryPrice.toFixed(2)} EGP` : "—", color: "text-white" },
-                                    { label: isAr ? "الهدف الأول" : "Target 1", value: targetPrice ? `${targetPrice.toFixed(2)} EGP` : "—", color: "text-emerald-400" },
-                                    { label: isAr ? "وقف الخسارة" : "Stop Loss", value: stopLoss ? `${stopLoss.toFixed(2)} EGP` : "—", color: "text-rose-400" },
+                                    { 
+                                        label: isAr ? "الهدف الأول" : "Target 1", 
+                                        subLabel: hasAtr ? (isAr ? "دخول + 2.0x ATR" : "Entry + 2.0x ATR") : undefined,
+                                        value: targetPrice ? `${targetPrice.toFixed(2)} EGP` : "—", 
+                                        color: "text-emerald-400" 
+                                    },
+                                    ...(hasTarget2 ? [{
+                                        label: isAr ? "الهدف الثاني" : "Target 2",
+                                        subLabel: isAr ? "هدف معزز (+10% للهدف 1)" : "Extended Target (+10% of T1)",
+                                        value: `${target2.toFixed(2)} EGP`,
+                                        color: "text-amber-400"
+                                    }] : []),
+                                    { 
+                                        label: isAr ? "وقف الخسارة" : "Stop Loss", 
+                                        subLabel: hasAtr ? (isAr ? "دخول - 1.0x ATR" : "Entry - 1.0x ATR") : undefined,
+                                        value: stopLoss ? `${stopLoss.toFixed(2)} EGP` : "—", 
+                                        color: "text-rose-400" 
+                                    },
+                                    ...(hasAtr ? [{
+                                        label: isAr ? "متوسط المدى الحقيقي (ATR)" : "Average True Range (ATR)",
+                                        subLabel: isAr ? "نطاق حركة السعر اليومية (14 يوم)" : "Daily volatility range (14d)",
+                                        value: `${atrValue.toFixed(2)} EGP`,
+                                        color: "text-zinc-300 font-mono"
+                                    }] : []),
                                     { label: isAr ? "نسبة المخاطرة/العائد" : "Risk/Reward", value: rrRatio > 0 ? `1:${rrRatio.toFixed(1)}` : "—", color: "text-indigo-400" },
                                     {
                                         label: isAr ? "نسبة التغيّر منذ التوصية" : "Chg. Since Rec.",
@@ -846,7 +881,12 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                     ...(isClosed && exitReason ? [{ label: isAr ? "سبب الخروج" : "Exit Reason", value: exitReason, color: isWin ? "text-emerald-400" : "text-rose-400" }] : []),
                                 ].map((item, idx) => (
                                     <div key={idx} className="flex items-center justify-between py-2 border-b border-white/5 last:border-0">
-                                        <span className="text-xs text-zinc-500">{item.label}</span>
+                                        <div className="flex flex-col">
+                                            <span className="text-xs text-zinc-500">{item.label}</span>
+                                            {item.subLabel && (
+                                                <span className="text-[9px] text-zinc-600 font-mono mt-0.5">{item.subLabel}</span>
+                                            )}
+                                        </div>
                                         <span className={`text-sm font-black ${item.color}`}>{item.value}</span>
                                     </div>
                                 ))}

@@ -3787,7 +3787,26 @@ def run_pipeline(
                 "features": json.dumps(feat_vals.tolist()) if hasattr(feat_vals, "tolist") else json.dumps(list(feat_vals)),
                 "created_at": dt.datetime.now().isoformat()
             }
-            supabase.table("scan_results").insert(data).execute()
+            # Check if there is already an open recommendation for this symbol
+            existing = (
+                supabase.table("scan_results")
+                .select("id")
+                .eq("symbol", data["symbol"])
+                .eq("status", "open")
+                .execute()
+            )
+            if existing.data:
+                rec_id = existing.data[0]["id"]
+                update_data = {
+                    "precision": data["precision"],
+                    "signal": data["signal"],
+                    "last_close": data["last_close"],
+                    "features": data["features"],
+                    "updated_at": dt.datetime.now().isoformat()
+                }
+                supabase.table("scan_results").update(update_data).eq("id", rec_id).execute()
+            else:
+                supabase.table("scan_results").insert(data).execute()
         except Exception as e:
             print(f"Adaptive logging warning: {e}")
 
