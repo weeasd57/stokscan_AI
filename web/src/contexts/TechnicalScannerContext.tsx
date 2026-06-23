@@ -51,6 +51,9 @@ export type TechScannerState = {
   minPrice: string;
   useAiFilter: boolean;
   minAiPrecision: string;
+  avoidDistribution: boolean;
+  requireAccumulation: boolean;
+  cmfMin: string;
   shariaOnly: boolean;
   activeSymbol: string | null;
   chartHeight: number;
@@ -102,6 +105,9 @@ const DEFAULT_STATE: TechScannerState = {
   minPrice: "",
   useAiFilter: false,
   minAiPrecision: "0.6",
+  avoidDistribution: false,
+  requireAccumulation: false,
+  cmfMin: "",
   shariaOnly: false,
   activeSymbol: null,
   chartHeight: 450,
@@ -153,6 +159,9 @@ function buildFilterKey(filter: TechFilter): string {
     volume_above_sma20: filter.volume_above_sma20,
     use_ai_filter: filter.use_ai_filter,
     min_ai_precision: filter.min_ai_precision,
+    avoid_distribution: filter.avoid_distribution,
+    require_accumulation: filter.require_accumulation,
+    cmf_min: filter.cmf_min,
   });
 }
 
@@ -182,6 +191,9 @@ function buildFilterFromState(s: TechScannerState): TechFilter {
     golden_cross: s.goldenCross,
     use_ai_filter: s.useAiFilter,
     min_ai_precision: s.minAiPrecision ? parseFloat(s.minAiPrecision) : undefined,
+    avoid_distribution: s.avoidDistribution,
+    require_accumulation: s.requireAccumulation,
+    cmf_min: s.cmfMin ? parseFloat(s.cmfMin) : undefined,
   };
 }
 

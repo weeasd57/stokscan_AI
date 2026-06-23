@@ -57,6 +57,9 @@ export default function TechnicalScannerPage() {
             minPrice,
             useAiFilter,
             minAiPrecision,
+            avoidDistribution,
+            requireAccumulation,
+            cmfMin,
             shariaOnly,
             activeSymbol,
             chartHeight,
@@ -108,6 +111,9 @@ export default function TechnicalScannerPage() {
                 golden_cross: goldenCross,
                 use_ai_filter: useAiFilter,
                 min_ai_precision: minAiPrecision || undefined,
+                avoid_distribution: avoidDistribution,
+                require_accumulation: requireAccumulation,
+                cmf_min: cmfMin || undefined,
             };
             const { error: upsertErr } = await supabase
                 .from("technical_alerts")
@@ -222,6 +228,7 @@ export default function TechnicalScannerPage() {
         if (volumeAboveSma20 && !activeList.includes("volume20")) activeList.push("volume20");
         if (aboveVwap20 && !activeList.includes("vwap20")) activeList.push("vwap20");
         if (useAiFilter && !activeList.includes("ai")) activeList.push("ai");
+        if ((avoidDistribution || requireAccumulation || cmfMin) && !activeList.includes("marketmaker")) activeList.push("marketmaker");
         if (industry && !activeList.includes("industry")) activeList.push("industry");
         if ((adxMin || adxMax) && !activeList.includes("adx")) activeList.push("adx");
         if ((atrMin || atrMax) && !activeList.includes("atr")) activeList.push("atr");
@@ -231,7 +238,7 @@ export default function TechnicalScannerPage() {
             const merged = new Set([...prev, ...activeList]);
             return Array.from(merged);
         });
-    }, [aboveEma50, aboveEma200, goldenCross, volumeAboveSma20, aboveVwap20, useAiFilter, industry, adxMin, adxMax, atrMin, atrMax, rocMin, rocMax]);
+    }, [aboveEma50, aboveEma200, goldenCross, volumeAboveSma20, aboveVwap20, useAiFilter, avoidDistribution, requireAccumulation, cmfMin, industry, adxMin, adxMax, atrMin, atrMax, rocMin, rocMax]);
 
     // Synchronize activeSymbol with loaded results
     useEffect(() => {
@@ -339,6 +346,9 @@ export default function TechnicalScannerPage() {
             industry: "",
             useAiFilter: false,
             minAiPrecision: "0.6",
+            avoidDistribution: false,
+            requireAccumulation: false,
+            cmfMin: "",
             shariaOnly: false,
         });
         setVisibleFilters(DEFAULT_PILLS);
@@ -371,6 +381,9 @@ export default function TechnicalScannerPage() {
             industry: "",
             useAiFilter: false,
             minAiPrecision: "0.6",
+            avoidDistribution: false,
+            requireAccumulation: false,
+            cmfMin: "",
             shariaOnly: false,
         };
 
@@ -1106,6 +1119,90 @@ export default function TechnicalScannerPage() {
                         </div>
                     )
                 };
+            case "marketmaker":
+                const mmMode = requireAccumulation ? "accumulation" : avoidDistribution ? "avoid" : "all";
+                return {
+                    label: language === "ar" ? "صانع السوق" : "Market Maker",
+                    valueDisplay: mmMode === "accumulation"
+                        ? (language === "ar" ? "تجميع فقط" : "Accum only")
+                        : mmMode === "avoid"
+                            ? (cmfMin ? `CMF >= ${cmfMin}` : (language === "ar" ? "منع التصريف" : "No dist"))
+                            : (cmfMin ? `CMF >= ${cmfMin}` : "Off"),
+                    isActive: mmMode !== "all" || !!cmfMin,
+                    onReset: () => {
+                        setTechScanner({ avoidDistribution: false, requireAccumulation: false, cmfMin: "" });
+                        removeFilterIfNonDefault("marketmaker");
+                        setTimeout(() => void runTechScan({ force: true }), 0);
+                    },
+                    renderPopover: () => (
+                        <div className="space-y-3">
+                            <h4 className="text-xs font-bold text-[#787b86] uppercase">
+                                {language === "ar" ? "فلتر التجميع والتصريف" : "Accumulation / Distribution Filter"}
+                            </h4>
+                            <p className="text-[10px] text-[#787b86] leading-relaxed">
+                                {language === "ar"
+                                    ? "اختر وضع الفلتر: إظهار كل الأسهم، منع التصريف، أو التجميع فقط."
+                                    : "Choose the filter mode: show all stocks, avoid distribution, or accumulation only."}
+                            </p>
+                            <div className="space-y-1.5">
+                                {[
+                                    { id: "all", label: language === "ar" ? "كل الأسهم (بدون فلتر)" : "All stocks (no filter)" },
+                                    { id: "avoid", label: language === "ar" ? "منع التصريف القوي / CMF < -0.10" : "Avoid distribution / CMF < -0.10" },
+                                    { id: "accumulation", label: language === "ar" ? "عرض التجميع فقط" : "Accumulation only" },
+                                ].map((opt) => (
+                                    <label
+                                        key={opt.id}
+                                        className="flex items-center gap-2.5 text-xs text-[#d1d4dc] cursor-pointer select-none"
+                                    >
+                                        <input
+                                            type="radio"
+                                            name="marketmaker-mode"
+                                            checked={mmMode === opt.id}
+                                            onChange={() => {
+                                                setTechScanner({
+                                                    avoidDistribution: opt.id === "avoid",
+                                                    requireAccumulation: opt.id === "accumulation",
+                                                });
+                                            }}
+                                            className="rounded-full border-[#2a2e39] bg-[#1c2030] text-[#2962ff] focus:ring-0 focus:ring-offset-0 h-4 w-4"
+                                        />
+                                        <span>{opt.label}</span>
+                                    </label>
+                                ))}
+                            </div>
+                            <div className="space-y-1">
+                                <span className="text-[10px] text-[#787b86] font-bold uppercase">CMF 20 Min (optional)</span>
+                                <input
+                                    type="number"
+                                    step="0.01"
+                                    placeholder="e.g. 0.05"
+                                    value={cmfMin}
+                                    onChange={(e) => setTechScanner({ cmfMin: e.target.value })}
+                                    className="w-full h-8 px-2 rounded bg-[#1c2030] border border-[#2a2e39] text-white text-xs focus:outline-none focus:border-[#2962ff] font-mono"
+                                />
+                            </div>
+                            <div className="flex gap-2 pt-1">
+                                <button
+                                    onClick={() => {
+                                        setTechScanner({ avoidDistribution: false, requireAccumulation: false, cmfMin: "" });
+                                        removeFilterIfNonDefault("marketmaker");
+                                        setActiveFilterPopover(null);
+                                        setTimeout(() => void runTechScan({ force: true }), 0);
+                                    }}
+                                    className="flex-1 h-7 text-[10px] font-bold text-[#b2b5be] hover:text-white bg-[#1c2030] border border-[#2a2e39] rounded"
+                                >
+                                    Reset
+                                </button>
+                                <button
+                                    onClick={applyFilter}
+                                    className="flex-1 h-7 text-[10px] font-bold bg-[#2962ff] hover:bg-[#1a4eff] text-white rounded"
+                                >
+                                    Apply
+                                </button>
+                            </div>
+                        </div>
+                    )
+                };
             case "sharia":
                 return {
                     label: language === "ar" ? "متوافقة شرعياً" : "Sharia",
@@ -1177,9 +1274,10 @@ export default function TechnicalScannerPage() {
         if (atrMin || atrMax) count++;
         if (rocMin || rocMax) count++;
         if (useAiFilter) count++;
+        if (avoidDistribution || requireAccumulation || cmfMin) count++;
         if (shariaOnly) count++;
         return count;
-    }, [minPrice, rsiMin, rsiMax, marketCapMin, marketCapMax, sector, industry, aboveEma50, aboveEma200, goldenCross, volumeAboveSma20, aboveVwap20, adxMin, adxMax, atrMin, atrMax, rocMin, rocMax, useAiFilter, shariaOnly]);
+    }, [minPrice, rsiMin, rsiMax, marketCapMin, marketCapMax, sector, industry, aboveEma50, aboveEma200, goldenCross, volumeAboveSma20, aboveVwap20, adxMin, adxMax, atrMin, atrMax, rocMin, rocMax, useAiFilter, avoidDistribution, requireAccumulation, cmfMin, shariaOnly]);
 
     const hasAnyActiveFilter = activeFiltersCount > 0;
 
@@ -1193,6 +1291,7 @@ export default function TechnicalScannerPage() {
             { id: "security", label: "Security Info" },
             { id: "market", label: "Market Data" },
             { id: "technical", label: "Technicals" },
+            { id: "moneyflow", label: "Money Flow" },
             { id: "ai", label: "AI Analytics" }
         ];
 
@@ -1210,6 +1309,7 @@ export default function TechnicalScannerPage() {
             { id: "adx", label: "Average Directional Index (ADX)", desc: "Trend strength indicator", cat: "technical" },
             { id: "atr", label: "Average True Range (ATR)", desc: "Market volatility indicator", cat: "technical" },
             { id: "roc", label: "Rate of Change (ROC)", desc: "12-period speed momentum indicator", cat: "technical" },
+            { id: "marketmaker", label: "Market Maker Flow", desc: "Avoid distribution or require accumulation with CMF 20", cat: "moneyflow" },
             { id: "ai", label: "Random Forest AI Filter", desc: "Machine Learning trade prediction filter", cat: "ai" },
             { id: "sharia", label: "Sharia-Compliant Stocks", desc: "Show only EGX stocks screened for Islamic Sharia compliance", cat: "security" }
         ];

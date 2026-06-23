@@ -272,6 +272,13 @@ def _filter_active_symbols(symbols_list: List[str]) -> List[str]:
 
 
 
+def calculate_and_save_indicators(symbol: str, exchange: str = "EGX"):
+    """Wrapper to calculate and save indicators for a single symbol (backward compatibility)."""
+    records = calculate_indicators_for_symbol(symbol, exchange)
+    if records:
+        _batch_upsert_indicators(records, batch_size=len(records))
+
+
 def calculate_indicators_for_symbol(symbol: str, exchange: str = "EGX") -> List[Dict[str, Any]]:
     """
     Calculate 20+ technical indicators for a given symbol.
@@ -1000,6 +1007,12 @@ def evaluate_old_recommendations():
         effective_stop = new_stop if new_stop else stop_loss
 
         for p in prices:
+            p_date = p.get("date", "")
+            # Skip exit evaluation on the recommendation creation day itself to avoid lookback bias,
+            # since the entry price is based on the close of that day and the high/low have already occurred.
+            if p_date <= created_at_date:
+                continue
+
             hi = float(p["high"]) if p.get("high") is not None else float(p["close"])
             lo = float(p["low"]) if p.get("low") is not None else float(p["close"])
 
@@ -1538,6 +1551,133 @@ async def generate_daily_recommendations(model_name: Optional[str] = None):
         print(f"[RECOMMENDATIONS] Telegram notify error: {e}")
 
 
+def _refresh_market_status_cache():
+    """Prefetch last 180 days of EGX30, EGX100, and USD/EGP from EODHD and save to local cache."""
+    api_key = os.getenv("EODHD_API_KEY")
+    if not api_key:
+        print("[MARKET_STATUS] EODHD API key not set. Skipping prefetch.")
+        return False, "EODHD API key not set"
+
+    import urllib.request as _urllib_request
+    import json as _json
+
+    from_date = (dt.datetime.utcnow() - dt.timedelta(days=180)).strftime("%Y-%m-%d")
+    to_date = dt.datetime.utcnow().strftime("%Y-%m-%d")
+
+    egx30_data = []
+    egx100_data = []
+    usdegp_data = []
+
+    # Fetch EGX30
+    try:
+        url = f"https://eodhd.com/api/eod/EGX30.INDX?api_token={api_key}&fmt=json&period=d&order=a&from={from_date}&to={to_date}"
+        req = _urllib_request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with _urllib_request.urlopen(req, timeout=15) as resp:
+            egx30_data = _json.loads(resp.read().decode("utf-8"))
+    except Exception as e:
+        print(f"[MARKET_STATUS] Error fetching EGX30: {e}")
+
+    # Fetch EGX100
+    try:
+        url = f"https://eodhd.com/api/eod/EGX100.INDX?api_token={api_key}&fmt=json&period=d&order=a&from={from_date}&to={to_date}"
+        req = _urllib_request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with _urllib_request.urlopen(req, timeout=15) as resp:
+            egx100_data = _json.loads(resp.read().decode("utf-8"))
+    except Exception as e:
+        print(f"[MARKET_STATUS] Error fetching EGX100: {e}")
+
+    # Fetch USD/EGP Forex
+    try:
+        url = f"https://eodhd.com/api/eod/USDEGP.FOREX?api_token={api_key}&fmt=json&period=d&order=a&from={from_date}&to={to_date}"
+        req = _urllib_request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with _urllib_request.urlopen(req, timeout=15) as resp:
+            usdegp_data = _json.loads(resp.read().decode("utf-8"))
+    except Exception as e:
+        print(f"[MARKET_STATUS] Error fetching USD/EGP: {e}")
+
+    # If EGX30 is empty from EODHD, try Supabase first, then local JSON
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    if not egx30_data or (isinstance(egx30_data, list) and len(egx30_data) == 0):
+        print("[MARKET_STATUS] EGX30 empty from EODHD, trying Supabase fallback...")
+        try:
+            from api.stock_ai import _init_supabase as _init_sb, supabase as _sb
+            _init_sb()
+            if _sb:
+                all_data = []
+                page_size = 1000
+                offset = 0
+                while True:
+                    res = _sb.table("stock_prices").select("date,open,high,low,close,volume").eq("symbol", "EGX30").eq("exchange", "INDX").order("date", desc=False).range(offset, offset + page_size - 1).execute()
+                    if not res.data:
+                        break
+                    all_data.extend(res.data)
+                    if len(res.data) < page_size:
+                        break
+                    offset += page_size
+                if all_data:
+                    filtered = [r for r in all_data if from_date <= r["date"] <= to_date]
+                    if filtered:
+                        egx30_data = filtered
+                        print(f"[MARKET_STATUS] Loaded {len(egx30_data)} EGX30 rows from Supabase")
+        except Exception as se:
+            print(f"[MARKET_STATUS] Supabase fallback for EGX30 failed: {se}")
+
+        if not egx30_data or (isinstance(egx30_data, list) and len(egx30_data) == 0):
+            try:
+                index_path = os.path.join(base_dir, "symbols_data", "EGX30-INDEX.json")
+                if os.path.exists(index_path):
+                    with open(index_path, "r", encoding="utf-8") as f:
+                        local_data = _json.loads(f.read())
+                    if isinstance(local_data, list) and len(local_data) > 0:
+                        filtered = [r for r in local_data if from_date <= r.get("date", "") <= to_date]
+                        if filtered:
+                            egx30_data = filtered
+                            print(f"[MARKET_STATUS] Loaded {len(egx30_data)} EGX30 rows from local JSON")
+            except Exception as le:
+                print(f"[MARKET_STATUS] Local JSON fallback for EGX30 failed: {le}")
+
+    # Calculate current regime based on EGX30
+    regime = "sideways"
+    egx30_return = 0.0
+    if egx30_data and isinstance(egx30_data, list):
+        try:
+            # Sort by date
+            egx30_data.sort(key=lambda x: x["date"])
+            if len(egx30_data) >= 2:
+                close_today = float(egx30_data[-1]["close"])
+                close_prev = float(egx30_data[-2]["close"])
+                egx30_return = (close_today - close_prev) / close_prev
+
+                # Use classifier
+                from api.egx30_fetcher import get_market_regime
+                regime = get_market_regime(egx30_return)
+        except Exception as e:
+            print(f"[MARKET_STATUS] Error calculating market regime: {e}")
+
+    res_data = {
+        "egx30": egx30_data,
+        "egx100": egx100_data,
+        "usdegp": usdegp_data,
+        "regime": regime,
+        "egx30_return": egx30_return,
+        "reject_buys": regime == "panic",
+        "updated_at": dt.datetime.utcnow().isoformat()
+    }
+
+    # Save to local file cache in api/symbols_data/market_status.json
+    cache_path = os.path.join(base_dir, "symbols_data", "market_status.json")
+    
+    try:
+        os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+        with open(cache_path, "w", encoding="utf-8") as f:
+            _json.dump(res_data, f, ensure_ascii=False, indent=2)
+        print(f"[MARKET_STATUS] Market status cache successfully saved to {cache_path}")
+        return True, "Market status cache updated successfully"
+    except Exception as e:
+        print(f"[MARKET_STATUS] Error writing local market status cache: {e}")
+        return False, f"Error writing cache: {e}"
+
+
 async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sync: bool = False, trigger: str = "manual"):
     print(f"--- Daily Bot Run Job Started: {dt.datetime.now()} ---")
     if dry_run:
@@ -1738,6 +1878,15 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
             except Exception as e:
                 _record_step("weekly_performance_report", False, str(e)[:200], 0)
                 print(f"[WEEKLY_REPORT] Error: {e}")
+
+        # 8. Refresh Market Status (EGX30, EGX100, USD/EGP indices) from EODHD
+        print("\n>>> STEP 8: Prefetching and refreshing Market Status cache from EODHD...")
+        try:
+            ok, msg = _refresh_market_status_cache()
+            _record_step("refresh_market_status", ok, msg, 0)
+        except Exception as e:
+            _record_step("refresh_market_status", False, str(e)[:200], 0)
+            print(f"[MARKET_STATUS] Error: {e}")
 
         _persist_job("completed")
         print(f"\n--- Daily Bot Run Job Completed: {dt.datetime.now()} ---")

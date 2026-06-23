@@ -58,6 +58,9 @@ type TechScannerState = {
   minPrice: string;
   useAiFilter: boolean;
   minAiPrecision: string;
+  avoidDistribution: boolean;
+  requireAccumulation: boolean;
+  cmfMin: string;
 };
 
 type ComparisonScannerState = {
@@ -177,6 +180,9 @@ const DEFAULT_STATE: AppState = {
     minPrice: "",
     useAiFilter: false,
     minAiPrecision: "0.6",
+    avoidDistribution: false,
+    requireAccumulation: false,
+    cmfMin: "",
   },
   comparisonScanner: {
     symbols: [],
@@ -233,6 +239,9 @@ type PersistedAppState = {
     | "minPrice"
     | "useAiFilter"
     | "minAiPrecision"
+    | "avoidDistribution"
+    | "requireAccumulation"
+    | "cmfMin"
   >;
   comparisonScanner: Pick<ComparisonScannerState, "symbols" | "results">;
   aiScanner: Pick<
@@ -383,6 +392,9 @@ function toPersistedState(full: AppState): PersistedAppState {
       minPrice: full.techScanner.minPrice,
       useAiFilter: full.techScanner.useAiFilter,
       minAiPrecision: full.techScanner.minAiPrecision,
+      avoidDistribution: full.techScanner.avoidDistribution,
+      requireAccumulation: full.techScanner.requireAccumulation,
+      cmfMin: full.techScanner.cmfMin,
     },
     comparisonScanner: {
       symbols: full.comparisonScanner.symbols,
@@ -858,6 +870,9 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         golden_cross: s.goldenCross,
         use_ai_filter: s.useAiFilter,
         min_ai_precision: s.minAiPrecision ? parseFloat(s.minAiPrecision) : undefined,
+        avoid_distribution: s.avoidDistribution,
+        require_accumulation: s.requireAccumulation,
+        cmf_min: s.cmfMin ? parseFloat(s.cmfMin) : undefined,
       };
 
       const now = Date.now();
@@ -887,6 +902,9 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         volume_above_sma20: filter.volume_above_sma20,
         use_ai_filter: filter.use_ai_filter,
         min_ai_precision: filter.min_ai_precision,
+        avoid_distribution: filter.avoid_distribution,
+        require_accumulation: filter.require_accumulation,
+        cmf_min: filter.cmf_min,
       });
 
       const cached = stateRef.current.techScanner.scanHistory?.find((h) => h.key === key && now - h.createdAt < cacheTtlMs);

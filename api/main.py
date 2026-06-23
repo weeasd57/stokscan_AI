@@ -652,6 +652,174 @@ def health():
     return {"ok": True}
 
 
+_MARKET_STATUS_CACHE = {}  # type: ignore[var-annotated]
+
+@app.get("/market/status")
+def get_market_status():
+    global _MARKET_STATUS_CACHE
+    import time as _time
+    import datetime as _dt
+    import urllib.request as _urllib_request
+    import json as _json
+
+    now = _time.time()
+    # 1. Check in-memory cache first (24 hours)
+    if "status" in _MARKET_STATUS_CACHE:
+        ts, data = _MARKET_STATUS_CACHE["status"]
+        if now - ts < 24 * 3600:
+            return data
+
+    # 2. Check local file cache fallback (avoid EODHD hits if recent enough, e.g. 24 hours)
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    cache_path = os.path.join(base_dir, "symbols_data", "market_status.json")
+    
+    file_fallback_data = None
+    if os.path.exists(cache_path):
+        try:
+            mtime = os.path.getmtime(cache_path)
+            with open(cache_path, "r", encoding="utf-8") as f:
+                file_fallback_data = _json.load(f)
+            
+            # If the file cache is fresh (< 24h), return it immediately
+            if now - mtime < 24 * 3600:
+                _MARKET_STATUS_CACHE["status"] = (mtime, file_fallback_data)
+                return file_fallback_data
+        except Exception as e:
+            print(f"Error reading local market status cache: {e}")
+
+    # 3. Fetch from EODHD if cache is cold/expired
+    api_key = os.getenv("EODHD_API_KEY")
+    if not api_key:
+        if file_fallback_data:
+            print("EODHD API key not set, using expired cache as fallback")
+            return file_fallback_data
+        from fastapi import HTTPException
+        raise HTTPException(status_code=500, detail="EODHD API key not set")
+
+    # Fetch last 180 days
+    from_date = (_dt.datetime.utcnow() - _dt.timedelta(days=180)).strftime("%Y-%m-%d")
+    to_date = _dt.datetime.utcnow().strftime("%Y-%m-%d")
+
+    egx30_data = []
+    egx100_data = []
+    usdegp_data = []
+
+    # Fetch EGX30
+    try:
+        url = f"https://eodhd.com/api/eod/EGX30.INDX?api_token={api_key}&fmt=json&period=d&order=a&from={from_date}&to={to_date}"
+        req = _urllib_request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with _urllib_request.urlopen(req, timeout=15) as resp:
+            egx30_data = _json.loads(resp.read().decode("utf-8"))
+    except Exception as e:
+        print(f"Error fetching EGX30 from EODHD: {e}")
+
+    # Fetch EGX100
+    try:
+        url = f"https://eodhd.com/api/eod/EGX100.INDX?api_token={api_key}&fmt=json&period=d&order=a&from={from_date}&to={to_date}"
+        req = _urllib_request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with _urllib_request.urlopen(req, timeout=15) as resp:
+            egx100_data = _json.loads(resp.read().decode("utf-8"))
+    except Exception as e:
+        print(f"Error fetching EGX100 from EODHD: {e}")
+
+    # Fetch USD/EGP Forex
+    try:
+        url = f"https://eodhd.com/api/eod/USDEGP.FOREX?api_token={api_key}&fmt=json&period=d&order=a&from={from_date}&to={to_date}"
+        req = _urllib_request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with _urllib_request.urlopen(req, timeout=15) as resp:
+            usdegp_data = _json.loads(resp.read().decode("utf-8"))
+    except Exception as e:
+        print(f"Error fetching USD/EGP from EODHD: {e}")
+
+    # If EGX30 is empty from EODHD, try Supabase first, then local JSON
+    if not egx30_data or (isinstance(egx30_data, list) and len(egx30_data) == 0):
+        print("EGX30 empty from EODHD, trying Supabase fallback...")
+        supabase_egx30 = None
+        try:
+            from api.stock_ai import _init_supabase, supabase as _supabase
+            _init_supabase()
+            if _supabase:
+                all_data = []
+                page_size = 1000
+                offset = 0
+                while True:
+                    res = _supabase.table("stock_prices").select("date,open,high,low,close,volume").eq("symbol", "EGX30").eq("exchange", "INDX").order("date", desc=False).range(offset, offset + page_size - 1).execute()
+                    if not res.data:
+                        break
+                    all_data.extend(res.data)
+                    if len(res.data) < page_size:
+                        break
+                    offset += page_size
+                if all_data:
+                    # Filter by date range
+                    filtered = [r for r in all_data if from_date <= r["date"] <= to_date]
+                    if filtered:
+                        egx30_data = filtered
+                        print(f"Loaded {len(egx30_data)} EGX30 rows from Supabase")
+        except Exception as se:
+            print(f"Supabase fallback for EGX30 failed: {se}")
+
+        # If Supabase didn't work, try local JSON file
+        if not egx30_data or (isinstance(egx30_data, list) and len(egx30_data) == 0):
+            try:
+                index_path = os.path.join(base_dir, "symbols_data", "EGX30-INDEX.json")
+                if os.path.exists(index_path):
+                    with open(index_path, "r", encoding="utf-8") as f:
+                        local_data = _json.loads(f.read())
+                    if isinstance(local_data, list) and len(local_data) > 0:
+                        # Filter by date range
+                        filtered = [r for r in local_data if from_date <= r.get("date", "") <= to_date]
+                        if filtered:
+                            egx30_data = filtered
+                            print(f"Loaded {len(egx30_data)} EGX30 rows from local JSON")
+            except Exception as le:
+                print(f"Local JSON fallback for EGX30 failed: {le}")
+
+    # If any of the fetches failed and we have cache, fall back to cache
+    if (not egx30_data or not egx100_data or not usdegp_data) and file_fallback_data:
+        print("One or more EODHD fetches failed, falling back to cached market status")
+        return file_fallback_data
+
+    # Calculate current regime based on EGX30
+    regime = "sideways"
+    egx30_return = 0.0
+    if egx30_data and isinstance(egx30_data, list):
+        try:
+            # Sort by date
+            egx30_data.sort(key=lambda x: x["date"])
+            if len(egx30_data) >= 2:
+                close_today = float(egx30_data[-1]["close"])
+                close_prev = float(egx30_data[-2]["close"])
+                egx30_return = (close_today - close_prev) / close_prev
+
+                # Use classifier
+                from api.egx30_fetcher import get_market_regime
+                regime = get_market_regime(egx30_return)
+        except Exception as e:
+            print(f"Error calculating market regime: {e}")
+
+    res_data = {
+        "egx30": egx30_data,
+        "egx100": egx100_data,
+        "usdegp": usdegp_data,
+        "regime": regime,
+        "egx30_return": egx30_return,
+        "reject_buys": regime == "panic",
+        "updated_at": _dt.datetime.utcnow().isoformat()
+    }
+
+    # Save to local file cache
+    try:
+        os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+        with open(cache_path, "w", encoding="utf-8") as f:
+            _json.dump(res_data, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"Error writing local market status cache: {e}")
+
+    _MARKET_STATUS_CACHE["status"] = (now, res_data)
+    return res_data
+
+
 @app.get("/models/local")
 def list_local_models():
     try:
@@ -1113,7 +1281,7 @@ class StrategyTesterRequest(BaseModel):
 
 
 @app.post("/backtest/simulate")
-async def strategy_tester_endpoint(req: StrategyTesterRequest):
+def strategy_tester_endpoint(req: StrategyTesterRequest):
     """
     Run a strategy tester simulation for a single symbol using one or more AI models.
     Returns OHLCV bars and per-model trade lists + statistics.
@@ -1848,7 +2016,7 @@ def _compute_benchmark_metrics(
 
 
 @app.post("/backtest")
-async def backtest_endpoint(req: BacktestRequest, background_tasks: BackgroundTasks):
+def backtest_endpoint(req: BacktestRequest, background_tasks: BackgroundTasks):
     """
     Run backtest simulation as a background task to avoid timeouts.
     """
@@ -2730,7 +2898,7 @@ def run_optimize_task(req: OptimizeRequest, opt_id: str = None):
 
 
 @app.post("/optimize")
-async def optimize_endpoint(req: OptimizeRequest, background_tasks: BackgroundTasks):
+def optimize_endpoint(req: OptimizeRequest, background_tasks: BackgroundTasks):
     """Run parameter optimization as a background task."""
     from api.stock_ai import supabase
 
@@ -2758,7 +2926,7 @@ async def optimize_endpoint(req: OptimizeRequest, background_tasks: BackgroundTa
 
 
 @app.get("/backtests")
-async def get_backtests(model: Optional[str] = None, admin: Optional[bool] = False):
+def get_backtests(model: Optional[str] = None, admin: Optional[bool] = False):
     """Fetch all backtest historical records."""
     import time as _time
 
@@ -2917,7 +3085,7 @@ async def get_backtests(model: Optional[str] = None, admin: Optional[bool] = Fal
 
 
 @app.get("/backtests/{id}/trades")
-async def get_backtest_trades(id: str):
+def get_backtest_trades(id: str):
     """Fetch trades for a given backtest (stored in scan_results)."""
     from api.stock_ai import supabase
 
@@ -3121,7 +3289,7 @@ async def get_backtest_trades(id: str):
 
 
 @app.delete("/backtests/{id}")
-async def delete_backtest(id: str):
+def delete_backtest(id: str):
     """Delete a backtest record."""
     if id.startswith("local-"):
         filename = id[6:]
@@ -3155,7 +3323,7 @@ class BacktestUpdate(BaseModel):
 
 
 @app.patch("/backtests/{id}")
-async def update_backtest(id: str, req: BacktestUpdate):
+def update_backtest(id: str, req: BacktestUpdate):
     """Update visibility or favorite status of a backtest record."""
     if id.startswith("local-"):
         filename = id[6:]
@@ -3235,7 +3403,7 @@ class OptimizationRequest(BaseModel):
 
 
 @app.post("/backtest/optimize")
-async def start_optimization(req: OptimizationRequest):
+def start_optimization(req: OptimizationRequest):
     """Start a batch optimization job. Returns job_id for tracking progress."""
     from api.stock_ai import supabase
 
@@ -3399,7 +3567,7 @@ async def start_optimization(req: OptimizationRequest):
 
 
 @app.get("/backtest/results/{job_id}")
-async def get_optimization_results(job_id: str):
+def get_optimization_results(job_id: str):
     """Get optimization job status and results."""
     if job_id not in _optimization_jobs:
         raise HTTPException(status_code=404, detail="Job not found")
@@ -3419,7 +3587,7 @@ async def get_optimization_results(job_id: str):
 
 
 @app.get("/backtest/export/{job_id}")
-async def export_optimization_results(job_id: str, format: str = "csv"):
+def export_optimization_results(job_id: str, format: str = "csv"):
     """Export optimization results as CSV or report."""
     if job_id not in _optimization_jobs:
         raise HTTPException(status_code=404, detail="Job not found")

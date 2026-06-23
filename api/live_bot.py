@@ -4798,6 +4798,22 @@ class BotManager:
         bot = LiveBot(bot_id=bot_id)
         bot.config.name = name
         bot.config.user_id = user_id
+        if user_id:
+            try:
+                profile_res = (
+                    supabase.table("profiles")
+                    .select("telegram_chat_id")
+                    .eq("id", user_id)
+                    .maybe_single()
+                    .execute()
+                    if supabase
+                    else None
+                )
+                profile_chat_id = (profile_res.data or {}).get("telegram_chat_id") if profile_res else None
+                if profile_chat_id:
+                    bot.config.telegram_chat_id = int(float(profile_chat_id))
+            except Exception as e:
+                print(f"Error loading profile telegram_chat_id for bot {bot_id}: {e}")
 
         # Apply custom keys if provided
         if virtual_key_id:

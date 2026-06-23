@@ -2530,6 +2530,53 @@ def add_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
     out["OBV"] = obv.fillna(0.0)
     out["OBV_Slope"] = out["OBV"].diff().fillna(0.0)
 
+    # Chaikin Money Flow (CMF_20) & Market Maker Phases
+    if "High" in out.columns and "Low" in out.columns:
+        high = out["High"].astype(float)
+        low = out["Low"].astype(float)
+        close = out["Close"].astype(float)
+        volume = out["Volume"].astype(float)
+
+        hl_range = high - low
+        hl_range = hl_range.replace(0.0, 1e-9)
+
+        mf_multiplier = ((close - low) - (high - close)) / hl_range
+        mf_volume = mf_multiplier * volume
+
+        out["CMF_20"] = (
+            mf_volume.rolling(window=20, min_periods=1).sum()
+            / volume.rolling(window=20, min_periods=1).sum().replace(0.0, 1e-9)
+        ).fillna(0.0)
+
+        # MM Accumulation Phase (Consolidation + positive money flow)
+        rolling_high_20 = close.rolling(window=20, min_periods=1).max()
+        rolling_low_20 = close.rolling(window=20, min_periods=1).min()
+        price_range_20 = (rolling_high_20 - rolling_low_20) / close.replace(0.0, np.nan)
+        
+        adx_val = out.get("ADX_14", pd.Series(0.0, index=out.index))
+        is_consolidation = (price_range_20 < 0.15) & (adx_val < 25)
+        is_accumulating = (out["CMF_20"] > 0.05) & is_consolidation
+        out["MM_Accumulation"] = is_accumulating.astype(float)
+
+        # MM Distribution Phase (Near highs, high volume, high RSI, but flat price or negative CMF)
+        is_near_high = close >= (rolling_high_20 * 0.95)
+        rsi_val = out.get("RSI", pd.Series(50.0, index=out.index))
+        r_vol_val = out.get("R_VOL", pd.Series(1.0, index=out.index))
+
+        # Volume churn: last 3 days volume is high, but price return is flat or negative
+        vol_3d_avg = volume.rolling(window=3, min_periods=1).mean()
+        vol_sma20 = out.get("VOL_SMA20", volume.rolling(window=20, min_periods=1).mean())
+        r_vol_3d = vol_3d_avg / vol_sma20.replace(0.0, np.nan)
+        ret_3d = close.pct_change(periods=3).fillna(0.0)
+        is_churning = (r_vol_3d > 1.5) & (ret_3d.abs() < 0.02)
+
+        is_distributing = is_near_high & (rsi_val > 70) & ((out["CMF_20"] < -0.05) | is_churning)
+        out["MM_Distribution"] = is_distributing.astype(float)
+    else:
+        out["CMF_20"] = 0.0
+        out["MM_Accumulation"] = 0.0
+        out["MM_Distribution"] = 0.0
+
     # Distance from rolling high/low (context window)
     rolling_high = out["Close"].rolling(window=100, min_periods=1).max()
     rolling_low = out["Close"].rolling(window=100, min_periods=1).min()
@@ -2801,12 +2848,42 @@ def _ensure_feature_columns(df: pd.DataFrame, features: List[str]) -> None:
             lower_name = name.lower()
             if lower_name in existing_lower:
                 df[name] = df[existing_lower[lower_name]]
+                continue
             # 2. Fallback to zero or "Unknown" for categories
             if name in ["sector", "industry"]:
                 df[name] = "Unknown"
                 df[name] = df[name].astype("category")
             else:
                 df[name] = 0.0
+
+
+def get_distribution_gate(row: Any, cmf_threshold: float = -0.10) -> Dict[str, Any]:
+    """Return whether a row should be blocked because it shows distribution."""
+    r = row.iloc[-1] if hasattr(row, "iloc") else row
+
+    def _f(key: str, default: float = 0.0) -> float:
+        try:
+            value = r.get(key, default) if hasattr(r, "get") else r[key]
+            value = float(value)
+            return value if np.isfinite(value) else default
+        except Exception:
+            return default
+
+    mm_distribution = _f("MM_Distribution", _f("mm_distribution", 0.0))
+    cmf_20 = _f("CMF_20", _f("cmf_20", 0.0))
+    blocked = mm_distribution > 0.5 or cmf_20 < cmf_threshold
+    reason = None
+    if mm_distribution > 0.5:
+        reason = "market_maker_distribution"
+    elif cmf_20 < cmf_threshold:
+        reason = "negative_money_flow"
+    return {
+        "blocked": bool(blocked),
+        "reason": reason,
+        "mm_distribution": mm_distribution,
+        "cmf_20": cmf_20,
+        "cmf_threshold": cmf_threshold,
+    }
 
 
 def _clamp_float(v: Any, *, min_v: float, max_v: float) -> float:
@@ -3589,8 +3666,8 @@ def run_pipeline(
             
             # Re-ensure basic indicators are there (without wiping massive features)
             try:
-                # Only call if we don't have basic indicators like SMA_50 yet
-                if "SMA_50" not in feat.columns:
+                required_indicator_cols = {"SMA_50", "CMF_20", "MM_Accumulation", "MM_Distribution"}
+                if not required_indicator_cols.issubset(set(feat.columns)):
                     feat_with_ind = _get_data_with_indicators_cached(sym, exchange or "US", feat, add_technical_indicators)
                     if feat_with_ind is not None and not feat_with_ind.empty:
                         # Merge instead of overwrite to keep massive features
@@ -3739,6 +3816,10 @@ def run_pipeline(
             tomorrow_prediction = int(model.predict(last_row)[0])
         except:
             tomorrow_prediction = 0
+
+    distribution_gate = get_distribution_gate(prices_ai.iloc[-1])
+    if tomorrow_prediction == 1 and distribution_gate["blocked"]:
+        tomorrow_prediction = 0
             
     # --- PHASE: Ensemble Consensus ---
     consensus_info = None
@@ -3817,6 +3898,7 @@ def run_pipeline(
                 "last_close": last_close,
                 "precision": pred_conf,
                 "signal": "BUY" if tomorrow_prediction == 1 else "SELL",
+                "distribution_gate": distribution_gate,
                 "status": "open",
                 "entry_price": last_close,
                 "features": json.dumps(feat_vals.tolist()) if hasattr(feat_vals, "tolist") else json.dumps(list(feat_vals)),
@@ -3976,6 +4058,7 @@ def run_pipeline(
         "profitSummary": profit_summary,
         "walkForwardFolds": walk_forward_folds,
         "tomorrowPrediction": tomorrow_prediction,
+        "distributionGate": distribution_gate,
         "lastClose": last_close,
         "lastDate": last_date,
         "fundamentals": fundamentals,

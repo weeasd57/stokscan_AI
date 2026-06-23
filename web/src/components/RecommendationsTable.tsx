@@ -940,7 +940,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                         symbol={row.symbol}
                                         exchange={row.exchange}
                                         theme="dark"
-                                        showApiMarkers={true}
+                                        showApiMarkers={false}
                                         customMarkers={
                                             [
                                                 ...(row.entry_price && row.created_at ? [{

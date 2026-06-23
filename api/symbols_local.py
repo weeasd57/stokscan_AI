@@ -3,24 +3,45 @@ import json
 from functools import lru_cache
 from typing import Any, Dict, List, Optional
 
+def _dir_has_symbol_data(symbols_dir: str) -> bool:
+    """True if a symbols_data directory actually holds country symbol files
+    (not just cache files like market_status.json)."""
+    if not symbols_dir or not os.path.isdir(symbols_dir):
+        return False
+    try:
+        for name in os.listdir(symbols_dir):
+            if "_all_symbols" in name or name.startswith("country_summary") or name.startswith("all_symbols_by_country"):
+                return True
+    except OSError:
+        pass
+    return False
+
+
 def _project_root() -> str:
     # 1. Start with the directory containing this file (api/)
     current_dir = os.path.dirname(os.path.abspath(__file__))
-    
-    # 2. Check if symbols_data exists inside api/ (HuggingFace deployment)
+    parent_dir = os.path.dirname(current_dir)
+
+    # 2. Prefer the project-root symbols_data when it actually holds country
+    #    symbol data. This prevents the api/symbols_data cache directory (which
+    #    only contains market_status.json) from shadowing the real symbols.
+    parent_symbols = os.path.join(parent_dir, "symbols_data")
+    if _dir_has_symbol_data(parent_symbols):
+        return parent_dir
+
+    # 3. Check if symbols_data exists inside api/ (HuggingFace deployment)
     if os.path.exists(os.path.join(current_dir, "symbols_data")):
         return current_dir
-    
-    # 3. Check if symbols_data exists in the parent (typical local/Vercel structure)
-    parent_dir = os.path.dirname(current_dir)
-    if os.path.exists(os.path.join(parent_dir, "symbols_data")):
+
+    # 4. Check if symbols_data exists in the parent (typical local/Vercel structure)
+    if os.path.exists(parent_symbols):
         return parent_dir
-        
-    # 4. Check /app (typical Hugging Face structure)
+
+    # 5. Check /app (typical Hugging Face structure)
     if os.path.exists("/app/symbols_data"):
         return "/app"
-        
-    # 5. Fallback to current dir's parent
+
+    # 6. Fallback to current dir's parent
     return parent_dir
 
 def _default_symbols_dir() -> str:

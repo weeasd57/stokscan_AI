@@ -10,6 +10,7 @@ from api.stock_ai import (
     add_technical_indicators,
     check_local_cache,
     get_company_fundamentals,
+    get_distribution_gate,
     get_stock_data_eodhd,
     is_ticker_synced,
     run_pipeline,
@@ -38,6 +39,55 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
         return float(value)
     except Exception:
         return default
+
+
+def _market_maker_values_from_row(row: Any) -> Dict[str, float]:
+    def _f(*keys: str, default: float = 0.0) -> float:
+        for key in keys:
+            try:
+                if hasattr(row, "get"):
+                    value = row.get(key)
+                else:
+                    value = row[key]
+                if value is not None:
+                    return _safe_float(value, default)
+            except Exception:
+                pass
+        return default
+
+    return {
+        "CMF_20": _f("CMF_20", "cmf_20"),
+        "MM_Accumulation": _f("MM_Accumulation", "mm_accumulation"),
+        "MM_Distribution": _f("MM_Distribution", "mm_distribution"),
+    }
+
+
+def _load_market_maker_gate(api_key: Optional[str], symbol: str, exchange: str, tech: Any) -> Dict[str, Any]:
+    values = _market_maker_values_from_row(tech)
+    if any(values.values()):
+        return get_distribution_gate(values)
+
+    if not api_key:
+        return get_distribution_gate(values)
+
+    try:
+        api = APIClient(api_key)
+        df = get_stock_data_eodhd(
+            api,
+            symbol,
+            from_date="2023-01-01",
+            tolerance_days=5,
+            exchange=exchange,
+            force_local=True,
+        )
+        if df is None or df.empty:
+            return get_distribution_gate(values)
+        df = add_technical_indicators(df)
+        if df.empty:
+            return get_distribution_gate(values)
+        return get_distribution_gate(df.iloc[-1])
+    except Exception:
+        return get_distribution_gate(values)
 
 
 def _fetch_latest_technical_indicators(symbol_pairs: List[tuple[str, str]]) -> Dict[str, Any]:
@@ -70,7 +120,8 @@ def _fetch_latest_technical_indicators(symbol_pairs: List[tuple[str, str]]) -> D
                     stock_ai.supabase.table("stock_technical_indicators")
                     .select(
                         "symbol,exchange,date,close,volume,ema_50,ema_200,rsi_14,momentum_10,"
-                        "atr_14,adx_14,stoch_k,stoch_d,cci_20,vwap_20,roc_12,vol_sma20,change_pct"
+                        "atr_14,adx_14,stoch_k,stoch_d,cci_20,vwap_20,roc_12,vol_sma20,change_pct,"
+                        "cmf_20,mm_accumulation,mm_distribution"
                     )
                     .in_("symbol", chunk)
                     .eq("exchange", exchange)
@@ -84,8 +135,31 @@ def _fetch_latest_technical_indicators(symbol_pairs: List[tuple[str, str]]) -> D
                         if key and key not in tech_data:
                             tech_data[key] = row
             except Exception as e:
+                msg = str(e)
+                if "cmf_20" in msg or "mm_accumulation" in msg or "mm_distribution" in msg:
+                    try:
+                        query = (
+                            stock_ai.supabase.table("stock_technical_indicators")
+                            .select(
+                                "symbol,exchange,date,close,volume,ema_50,ema_200,rsi_14,momentum_10,"
+                                "atr_14,adx_14,stoch_k,stoch_d,cci_20,vwap_20,roc_12,vol_sma20,change_pct"
+                            )
+                            .in_("symbol", chunk)
+                            .eq("exchange", exchange)
+                            .order("date", desc=True)
+                            .limit(max(1000, len(chunk) * 20))
+                        )
+                        res = query.execute()
+                        if res.data:
+                            for row in res.data:
+                                key = _supabase_row_key(row.get("symbol"), row.get("exchange"))
+                                if key and key not in tech_data:
+                                    tech_data[key] = row
+                            continue
+                    except Exception as legacy_e:
+                        e = legacy_e
                 print(f"ERROR: Supabase technical read failed for {exchange}: {e}")
-                print(f"HINT: Make sure the 'stock_technical_indicators' table exists and has data.")
+                print("HINT: Make sure the 'stock_technical_indicators' table exists and has data.")
     
     return tech_data
 
@@ -158,6 +232,9 @@ class TechFilter(BaseModel):
     golden_cross: bool = False
     use_ai_filter: bool = False
     min_ai_precision: float = 0.6
+    avoid_distribution: bool = False
+    require_accumulation: bool = False
+    cmf_min: Optional[float] = None
 
 
 def filter_tech_row(tech: dict, f: TechFilter, fundamentals: dict | None = None) -> bool:
@@ -211,6 +288,14 @@ def filter_tech_row(tech: dict, f: TechFilter, fundamentals: dict | None = None)
         return False
     if f.golden_cross and ema50 <= ema200:
         return False
+    mm_values = _market_maker_values_from_row(tech)
+    distribution_gate = get_distribution_gate(mm_values)
+    if f.avoid_distribution and distribution_gate.get("blocked"):
+        return False
+    if f.require_accumulation and mm_values.get("MM_Accumulation", 0.0) <= 0.5:
+        return False
+    if f.cmf_min is not None and mm_values.get("CMF_20", 0.0) < f.cmf_min:
+        return False
 
     # Fundamentals
     if f.market_cap_min is not None or f.market_cap_max is not None or f.sector or f.industry:
@@ -263,6 +348,11 @@ class TechResult(BaseModel):
     fundamental_score: Optional[int] = None
     technical_score: Optional[int] = None
     sentiment_score: Optional[int] = None
+    cmf_20: float = 0.0
+    mm_accumulation: bool = False
+    mm_distribution: bool = False
+    distribution_blocked: bool = False
+    distribution_reason: Optional[str] = None
 
     @field_validator('*', mode='before')
     def check_nan(cls, v):
@@ -287,7 +377,7 @@ class DashboardResponse(BaseModel):
     scanned_count: int
 
 @router.post("/technical", response_model=TechResponse)
-async def scan_technical(
+def scan_technical(
     request: Request,
     f: TechFilter = Body(...)
 ):
@@ -329,10 +419,6 @@ async def scan_technical(
 
     if tech_rows:
         for row in candidates:
-            if await request.is_disconnected():
-                print("Client disconnected, stopping scan_technical.")
-                break
-
             symbol = str(row.get("Code", row.get("Symbol", ""))).strip()
             name = str(row.get("Name", "")).strip()
             exchange = str(row.get("Exchange", "")).strip()
@@ -374,6 +460,15 @@ async def scan_technical(
             if not filter_tech_row(tech, f, funds):
                 continue
 
+            distribution_gate = _load_market_maker_gate(api_key, symbol, exchange, tech)
+            mm_values = _market_maker_values_from_row(tech)
+            if f.avoid_distribution and distribution_gate.get("blocked"):
+                continue
+            if f.require_accumulation and mm_values.get("MM_Accumulation", 0.0) <= 0.5:
+                continue
+            if f.cmf_min is not None and distribution_gate.get("cmf_20", 0.0) < f.cmf_min:
+                continue
+
             ai_prec = None
             ai_sig = None
             if f.use_ai_filter:
@@ -405,6 +500,9 @@ async def scan_technical(
                 "close": close, "ema_50": ema50, "ema_200": ema200,
                 "adx_14": adx14, "rsi_14": rsi, "volume": volume,
                 "vol_sma20": vol_sma20, "momentum_10": momentum, "roc_12": roc12,
+                "CMF_20": distribution_gate.get("cmf_20", 0.0),
+                "MM_Accumulation": mm_values.get("MM_Accumulation", 0.0),
+                "MM_Distribution": distribution_gate.get("mm_distribution", 0.0),
             }
             t_score = calculate_acceleration_score(accel_row)
 
@@ -470,6 +568,11 @@ async def scan_technical(
                 fundamental_score=f_score,
                 technical_score=t_score,
                 sentiment_score=s_score,
+                cmf_20=distribution_gate.get("cmf_20", 0.0),
+                mm_accumulation=mm_values.get("MM_Accumulation", 0.0) > 0.5,
+                mm_distribution=distribution_gate.get("mm_distribution", 0.0) > 0.5,
+                distribution_blocked=distribution_gate.get("blocked", False),
+                distribution_reason=distribution_gate.get("reason"),
             ))
 
             if len(results) >= f.limit:
@@ -506,10 +609,6 @@ async def scan_technical(
     results = []
     
     for row in candidates:
-        if await request.is_disconnected():
-            print("Client disconnected, stopping scan_technical.")
-            break
-
         symbol = str(row.get("Code", row.get("Symbol", ""))).strip()
         name = str(row.get("Name", ""))
         exchange = str(row.get("Exchange", "")).strip()
@@ -578,6 +677,15 @@ async def scan_technical(
             if f.volume_above_sma20 and volume <= vol_sma20: continue
             if f.golden_cross and ema50 <= ema200: continue
 
+            distribution_gate = get_distribution_gate(last)
+            mm_values = _market_maker_values_from_row(last)
+            if f.avoid_distribution and distribution_gate.get("blocked"):
+                continue
+            if f.require_accumulation and mm_values.get("MM_Accumulation", 0.0) <= 0.5:
+                continue
+            if f.cmf_min is not None and distribution_gate.get("cmf_20", 0.0) < f.cmf_min:
+                continue
+
             ai_prec = None
             ai_sig = None
             if f.use_ai_filter:
@@ -598,17 +706,15 @@ async def scan_technical(
                 except Exception:
                     continue
 
-            # Calculate technical score (1-10)
-            t_score = 0
-            if 30 <= rsi <= 70: t_score += 2
-            elif 20 <= rsi < 30 or 70 < rsi <= 80: t_score += 1
-            if close > ema50 > ema200 > 0: t_score += 2
-            elif close > ema50 > 0 or close > ema200 > 0: t_score += 1
-            if adx14 > 25: t_score += 2
-            elif adx14 > 15: t_score += 1
-            if vol_sma20 > 0 and volume > vol_sma20: t_score += 2
-            elif vol_sma20 > 0 and volume > vol_sma20 * 0.7: t_score += 1
-            t_score = min(10, max(1, t_score))
+            accel_row = {
+                "Close": close, "EMA_50": ema50, "EMA_200": ema200,
+                "ADX_14": adx14, "RSI": rsi, "Volume": volume,
+                "VOL_SMA20": vol_sma20, "Momentum": momentum, "ROC_12": roc12,
+                "CMF_20": distribution_gate.get("cmf_20", 0.0),
+                "MM_Accumulation": mm_values.get("MM_Accumulation", 0.0),
+                "MM_Distribution": distribution_gate.get("mm_distribution", 0.0),
+            }
+            t_score = calculate_acceleration_score(accel_row)
 
             # Calculate fundamental score (1-10)
             f_score = 0
@@ -678,7 +784,12 @@ async def scan_technical(
                 ai_score=ai_scr,
                 fundamental_score=f_score,
                 technical_score=t_score,
-                sentiment_score=s_score
+                sentiment_score=s_score,
+                cmf_20=distribution_gate.get("cmf_20", 0.0),
+                mm_accumulation=mm_values.get("MM_Accumulation", 0.0) > 0.5,
+                mm_distribution=distribution_gate.get("mm_distribution", 0.0) > 0.5,
+                distribution_blocked=distribution_gate.get("blocked", False),
+                distribution_reason=distribution_gate.get("reason"),
             ))
         except Exception:
             continue
@@ -686,7 +797,7 @@ async def scan_technical(
     return TechResponse(results=results, scanned_count=len(candidates))
 
 @router.get("/dashboard", response_model=DashboardResponse)
-async def get_scan_dashboard(request: Request, country: str = "Egypt", limit: int = 20, days: int = 60):
+def get_scan_dashboard(request: Request, country: str = "Egypt", limit: int = 20, days: int = 60):
     """
     Returns aggregate indicator performance (win rates) across multiple symbols in a market.
     """
@@ -726,9 +837,6 @@ async def get_scan_dashboard(request: Request, country: str = "Egypt", limit: in
 
     scanned = 0
     for row in candidates:
-        if await request.is_disconnected():
-            break
-
         symbol = str(row.get("Code", row.get("Symbol", "")))
         exchange = str(row.get("Exchange", ""))
         

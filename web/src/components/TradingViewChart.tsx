@@ -2388,6 +2388,7 @@ export default function TradingViewChart({
   return (
     <div
       ref={mainContainerRef}
+      dir="ltr"
       className="w-full h-full flex flex-col bg-zinc-50 dark:bg-[#050816] relative select-none overflow-hidden"
       style={{ touchAction: "none" }}
       onWheel={(e) => {
@@ -2943,14 +2944,10 @@ export default function TradingViewChart({
             />
           </div>
         ))}
-      </div>
 
-      {/* Indicators Modal Overlay */}
-      {showIndicatorModal &&
-        typeof window !== "undefined" &&
-        document.body &&
-        createPortal(
-          <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-[99999] p-4 select-none">
+        {/* Indicators Modal Overlay */}
+        {showIndicatorModal && (
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 select-none" style={{ zIndex: 999999 }}>
             <div className="bg-white border border-zinc-200 rounded-2xl w-full max-w-2xl shadow-2xl flex flex-col overflow-hidden max-h-[85vh] dark:bg-[#131722] dark:border-[#2a2e39]">
               {/* Header */}
               <div className="px-5 py-4 border-b border-zinc-200 flex items-center justify-between dark:border-[#2a2e39]">
@@ -3016,9 +3013,9 @@ export default function TradingViewChart({
                 </div>
               </div>
             </div>
-          </div>,
-          document.body,
+          </div>
         )}
+      </div>
     </div>
   );
 }

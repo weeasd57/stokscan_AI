@@ -609,6 +609,9 @@ export type TechFilter = {
   golden_cross?: boolean;
   use_ai_filter?: boolean;
   min_ai_precision?: number;
+  avoid_distribution?: boolean;
+  require_accumulation?: boolean;
+  cmf_min?: number;
 };
 
 export type TechResult = {
@@ -641,6 +644,11 @@ export type TechResult = {
   fundamental_score?: number;
   technical_score?: number;
   sentiment_score?: number;
+  cmf_20?: number;
+  mm_accumulation?: boolean;
+  mm_distribution?: boolean;
+  distribution_blocked?: boolean;
+  distribution_reason?: string | null;
 };
 
 export type TechResponse = {
@@ -680,7 +688,10 @@ export async function scanTech(filter: TechFilter, signal?: AbortSignal): Promis
         industry: filter.industry,
         golden_cross: filter.golden_cross ?? false,
         use_ai_filter: filter.use_ai_filter ?? false,
-        min_ai_precision: filter.min_ai_precision ?? 0.6
+        min_ai_precision: filter.min_ai_precision ?? 0.6,
+        avoid_distribution: filter.avoid_distribution ?? false,
+        require_accumulation: filter.require_accumulation ?? false,
+        cmf_min: filter.cmf_min
       }),
       cache: "no-store",
       signal: signal

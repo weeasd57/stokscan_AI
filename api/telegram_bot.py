@@ -264,7 +264,7 @@ class TelegramBot:
             parts = text.split()
             if len(parts) > 1:
                 user_id_param = parts[1].strip()
-                self._handle_start_with_user_id(chat_id, user_id_param)
+                self._handle_start_with_user_id(chat_id, user_id_param, msg)
             else:
                 self._handle_start(chat_id)
         elif text.startswith("/status"):
@@ -295,10 +295,24 @@ class TelegramBot:
             admin_chat_id = self.chat_id
         return admin_chat_id and str(chat_id) == str(admin_chat_id)
 
-    def _handle_start_with_user_id(self, chat_id, user_id_param):
+    def _is_private_chat(self, msg: dict = None):
+        chat = (msg or {}).get("chat", {})
+        return chat.get("type") == "private"
+
+    def _handle_start_with_user_id(self, chat_id, user_id_param, msg: dict = None):
         import uuid
 
         try:
+            if not self._is_private_chat(msg):
+                self._reply(
+                    chat_id,
+                    "❌ *لا يمكن ربط الحساب من جروب*\n\n"
+                    "افتح محادثة خاصة مع البوت واضغط رابط الربط مرة أخرى\\.\n\n"
+                    "❌ *Account linking must be done in a private chat*\n\n"
+                    "Please open a direct chat with the bot and use the link again\\.",
+                )
+                return
+
             # Validate UUID format
             uid = str(uuid.UUID(user_id_param))
             from api.stock_ai import supabase
@@ -325,6 +339,13 @@ class TelegramBot:
                     .execute()
                 )
                 if res.data:
+                    try:
+                        supabase.table("bot_subscriptions").update(
+                            {"telegram_chat_id": str(chat_id)}
+                        ).eq("user_id", uid).is_("telegram_chat_id", "null").execute()
+                    except Exception as e:
+                        self._log(f"Could not sync subscription telegram_chat_id: {e}")
+
                     self._reply(
                         chat_id,
                         f"🎉 *أهلاً وسهلاً، {display_name}\\!*\n\n"

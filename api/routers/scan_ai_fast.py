@@ -25,6 +25,7 @@ from api.stock_ai import (
     _ensure_feature_columns,
     add_technical_indicators,
     add_trade_levels,
+    get_distribution_gate,
     prepare_for_ai,
     get_top_reasons,
     LGBM_PREDICTORS,
@@ -509,6 +510,16 @@ def _process_symbol(
                         return None
                 except Exception:
                     pass
+            
+            distribution_gate = get_distribution_gate(candidate.iloc[-1])
+            if distribution_gate["blocked"]:
+                print(
+                    f"[FILTER] Rejecting {sym} due to {distribution_gate['reason']} "
+                    f"(MM_Distribution={distribution_gate['mm_distribution']:.0f}, "
+                    f"CMF={distribution_gate['cmf_20']:.2f})"
+                )
+                return None
+
             last_close = float(candidate.iloc[-1]["Close"])
 
             # ── Acceleration Score + Dynamic Risk ──
@@ -564,6 +575,7 @@ def _process_symbol(
                 "consensus_ratio": consensus_ratio,
                 "detailed_votes": detailed_votes,
                 "validator_score": (round(float(validator_score) * 100, 1) if validator_score is not None else None),
+                "distribution_gate": distribution_gate,
             }
         return None
     except Exception as e:
@@ -678,7 +690,7 @@ def _calculate_fundamental_score(row) -> int:
 
 
 @router.get("")
-async def fast_scan(
+def fast_scan(
     country: str = "Egypt",
     limit: int = 200,
     min_precision: float = 0.5,

@@ -183,7 +183,23 @@ def calculate_acceleration_score(row) -> int:
 
         # ── TOTAL SCORE ──────────────────────────────────────────
         raw_score = trend_pts + volume_pts + momentum_pts + adx_pts + rsi_pts
-        # raw_score range: 0 to 10.0
+        
+        # ── MARKET MAKER PHASE ADJUSTMENTS ──
+        mm_dist = _f("MM_Distribution", 0.0)
+        mm_accum = _f("MM_Accumulation", 0.0)
+        cmf_20 = _f("CMF_20", 0.0)
+
+        # Downgrade score if in distribution phase or negative money flow
+        if mm_dist > 0.5:
+            raw_score -= 3.0  # Heavy penalty for distribution (avoid buying near tops)
+        elif cmf_20 < -0.05:
+            raw_score -= 1.5
+
+        # Upgrade score if in accumulation phase or positive money flow
+        if mm_accum > 0.5:
+            raw_score += 1.0  # Bonus for accumulation support
+        elif cmf_20 > 0.10:
+            raw_score += 0.5
 
         return int(round(min(10, max(0, raw_score))))
 
@@ -252,39 +268,39 @@ def get_acceleration_breakdown(row) -> Dict[str, Any]:
 _RISK_PROFILES = {
     # score_min, score_max → (sl_pct, tp_pct, risk_reward, label_ar, label_en)
     (9, 10): {
-        "stop_loss_pct": 0.10,      # 10% stop loss — wide room to breathe
+        "stop_loss_pct": 0.12,      # WIDER: 12% stop loss (was 10%) — wide room to breathe
         "target_pct": 0.30,         # 30% target — ride the wave
-        "risk_reward": 3.0,
+        "risk_reward": 2.5,
         "label_ar": "ركوب الموجة — ريسك عالي وهدف كبير",
         "label_en": "Wave Rider — High risk, high reward",
         "max_target_cap": 0.40,     # Allow up to 40% target for extreme cases
         "trailing_start_pct": 0.10, # Start trailing at +10% profit
     },
     (7, 8): {
-        "stop_loss_pct": 0.07,      # 7% stop loss
-        "target_pct": 0.18,         # 18% target
-        "risk_reward": 2.6,
+        "stop_loss_pct": 0.09,      # WIDER: 9% stop loss (was 7%)
+        "target_pct": 0.20,         # 20% target (was 18%)
+        "risk_reward": 2.2,
         "label_ar": "صفقة قوية — مساحة تنفس جيدة",
         "label_en": "Strong Setup — Good breathing room",
-        "max_target_cap": 0.25,
-        "trailing_start_pct": 0.07,
+        "max_target_cap": 0.30,
+        "trailing_start_pct": 0.08,
     },
     (5, 6): {
-        "stop_loss_pct": 0.05,      # 5% stop loss
-        "target_pct": 0.10,         # 10% target
+        "stop_loss_pct": 0.06,      # WIDER: 6% stop loss (was 5%)
+        "target_pct": 0.12,         # 12% target (was 10%)
         "risk_reward": 2.0,
         "label_ar": "صفقة متوازنة — ريسك معتدل",
         "label_en": "Balanced Setup — Moderate risk",
-        "max_target_cap": 0.15,
-        "trailing_start_pct": 0.05,
+        "max_target_cap": 0.18,
+        "trailing_start_pct": 0.06,
     },
     (0, 4): {
-        "stop_loss_pct": 0.035,     # 3.5% stop loss — tight
-        "target_pct": 0.06,         # 6% target
+        "stop_loss_pct": 0.045,     # WIDER: 4.5% stop loss (was 3.5%)
+        "target_pct": 0.08,         # 8% target (was 6%)
         "risk_reward": 1.7,
         "label_ar": "صفقة تحفظية — ريسك منخفض",
         "label_en": "Conservative Setup — Low risk",
-        "max_target_cap": 0.08,
+        "max_target_cap": 0.12,
         "trailing_start_pct": 0.04,
     },
 }
@@ -349,18 +365,19 @@ def calculate_dynamic_risk(
     # If Relative Volume is very high (>2x), smart money is in
     # → Slightly wider stop to avoid shakeout, push target
     if r_vol >= 3.0:
-        sl_pct = min(0.12, sl_pct * 1.20)     # 20% wider stop (max 12%)
+        sl_pct = min(0.15, sl_pct * 1.20)     # 20% wider stop (max 15%)
         tp_pct = min(max_cap, tp_pct * 1.15)   # +15% target boost
     elif r_vol >= 2.0:
-        sl_pct = min(0.12, sl_pct * 1.10)     # 10% wider stop
+        sl_pct = min(0.15, sl_pct * 1.10)     # 10% wider stop
 
-    # ── ATR-based adjustment for extreme volatility ──
+    # ── ATR-based adjustment for volatility (widen stops for volatile stocks) ──
     if atr > 0 and last_close > 0:
         atr_pct = atr / last_close  # ATR as percentage of price
-        # If stock is very volatile (ATR > 5% of price), ensure stop
-        # is wide enough to avoid noise hits
-        if atr_pct > 0.05 and sl_pct < atr_pct * 2:
-            sl_pct = min(0.15, atr_pct * 2)  # At least 2x ATR for stop
+        # Determine ATR multiplier based on score to prevent stop hunting
+        sl_multiplier = 2.5 if score >= 9 else 2.2 if score >= 7 else 2.0
+        atr_sl = atr_pct * sl_multiplier
+        if sl_pct < atr_sl:
+            sl_pct = min(0.15, atr_sl)  # Wide enough to avoid shakeouts, capped at 15%
 
     # ── Calculate prices ──
     target_price = round(last_close * (1.0 + tp_pct), 2)

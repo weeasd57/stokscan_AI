@@ -246,6 +246,20 @@ def subscribe_to_bot(req: SubscribeRequest):
         }
         if req.telegram_chat_id:
             payload["telegram_chat_id"] = req.telegram_chat_id
+        else:
+            try:
+                profile_res = (
+                    stock_ai.supabase.table("profiles")
+                    .select("telegram_chat_id")
+                    .eq("id", req.user_id)
+                    .maybe_single()
+                    .execute()
+                )
+                profile_chat_id = (profile_res.data or {}).get("telegram_chat_id")
+                if profile_chat_id:
+                    payload["telegram_chat_id"] = profile_chat_id
+            except Exception as e:
+                print(f"Error fetching profile telegram_chat_id for subscription: {e}")
 
         res = stock_ai.supabase.table("bot_subscriptions").insert(payload).execute()
         return {"status": "subscribed", "data": res.data[0] if res.data else {}}
