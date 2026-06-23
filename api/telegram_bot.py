@@ -273,6 +273,8 @@ class TelegramBot:
             self._handle_positions(chat_id)
         elif text.startswith("/trades"):
             self._handle_trades(chat_id)
+        elif text.startswith("/weekly"):
+            self._handle_weekly(chat_id)
         elif text.startswith("/help"):
             self._handle_help(chat_id)
 
@@ -466,17 +468,57 @@ class TelegramBot:
             msg += f"{icon} {a} {s} @ ${pr:.2f}{pnl_t} ({ts})\n"
         self._reply(chat_id, msg)
 
+    def _handle_weekly(self, chat_id):
+        # Allow admins or registered profiles
+        is_admin = self._is_admin(chat_id)
+        is_subscriber = False
+        
+        from api.stock_ai import supabase
+        if supabase:
+            try:
+                # Check if chat_id matches any registered profile
+                res = (
+                    supabase.table("profiles")
+                    .select("id")
+                    .eq("telegram_chat_id", str(chat_id))
+                    .execute()
+                )
+                if res.data:
+                    is_subscriber = True
+            except Exception as e:
+                self._log(f"Error checking subscriber profiles: {e}")
+                
+        if not is_admin and not is_subscriber:
+            self._reply(
+                chat_id,
+                "❌ *غير مصرح:* هذا الأمر متاح فقط للمشتركين المسجلين في المنصة.\n"
+                "يرجى ربط حساب التليجرام الخاص بك أولاً عبر صفحة الإعدادات في الموقع باستخدام /start.\n\n"
+                "❌ *Unauthorized:* This command is only available to registered platform users.\n"
+                "Please link your Telegram account in the settings page first.",
+            )
+            return
+
+        self._reply(chat_id, "⏳ جاري إعداد التقرير الأسبوعي... / Generating weekly report...")
+        
+        try:
+            from api.daily_bot_run import generate_weekly_performance_report
+            generate_weekly_performance_report(trigger="manual", chat_id=chat_id)
+        except Exception as e:
+            self._reply(chat_id, f"❌ حدث خطأ أثناء توليد التقرير: {e}")
+
     def _handle_help(self, chat_id):
         self._reply(
             chat_id,
             "📋 *الأوامر المتاحة / Available Commands:*\n\n"
             "🔗 /start — ربط حسابك بالمنصة\n"
+            "📊 /weekly — تقرير الأداء الأسبوعي للمنصة\n"
             "📊 /status — حالة البوت *(للمشرف)*\n"
             "📈 /positions — المراكز المفتوحة *(للمشرف)*\n"
             "📜 /trades — آخر الصفقات *(للمشرف)*\n"
             "❓ /help — عرض هذه القائمة\n\n"
             "━━━━━━━━━━━━━━━━━━━━\n\n"
             "🔗 /start — Link your account\n"
+            "📊 /weekly — Weekly platform performance report\n"
             "📊 /status — Bot status *(Admin)*\n"
             "📈 /positions — Open positions *(Admin)*\n"
             "📜 /trades — Recent trades *(Admin)*\n"
@@ -495,6 +537,7 @@ class TelegramBot:
                 "description": "📈 المراكز المفتوحة / Open positions",
             },
             {"command": "trades", "description": "📜 آخر الصفقات / Recent trades"},
+            {"command": "weekly", "description": "📊 تقرير الأداء الأسبوعي / Weekly report"},
             {"command": "help", "description": "❓ مساعدة / Help"},
         ]
         self._call_api("setMyCommands", {"commands": commands})

@@ -1296,6 +1296,11 @@ class LiveBot:
     ) -> float:
         """
         Calculate a composite quality score (0-100) from all factors.
+        
+        Uses Acceleration/Momentum philosophy:
+        - High RSI is GOOD (strong momentum), not overbought
+        - ADX strength is heavily weighted
+        - Volume surge is a key confirming signal
         """
         if not self.config.use_quality_score:
             return 100.0  # Bypass
@@ -1328,13 +1333,20 @@ class LiveBot:
                     score += min(above_pct * 100, 1.0) * 15
                 # Below = 0 points
 
-            # RSI position (10 points max) - best around 40-60
+            # RSI momentum score (10 points max) — Acceleration philosophy
+            # HIGH RSI = strong momentum (GOOD), not overbought (BAD)
+            # TYCN had RSI=96 and gained +72.8%
             if len(bars) >= 25:
                 rsi = self._calculate_rsi(bars["close"].iloc[-25:], 14)
-                if 35 <= rsi <= 65:
-                    score += 10
-                elif 25 <= rsi < 35 or 65 < rsi <= 75:
-                    score += 5
+                if rsi >= 70:
+                    score += 10    # Strong acceleration momentum
+                elif rsi >= 55:
+                    score += 8     # Healthy bullish momentum
+                elif rsi >= 45:
+                    score += 5     # Neutral
+                elif rsi >= 30:
+                    score += 2     # Weakening
+                # RSI < 30 = 0 points (selling pressure)
 
             # Market regime (10 points max)
             if regime == "BULL":

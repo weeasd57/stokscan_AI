@@ -11,6 +11,11 @@ from fastapi import APIRouter, HTTPException, Query
 
 from api.symbols_local import load_symbols_for_country
 from api import stock_ai
+from api.acceleration_score import (
+    calculate_acceleration_score,
+    calculate_dynamic_risk,
+    calculate_momentum_sentiment,
+)
 from api.stock_ai import (
     _get_exchange_bulk_data,
     _get_data_with_indicators_cached,
@@ -505,29 +510,34 @@ def _process_symbol(
                 except Exception:
                     pass
             last_close = float(candidate.iloc[-1]["Close"])
-            percent_mode = target_pct < 1.0 and stop_loss_pct < 1.0
-            if percent_mode:
-                tp = last_close * (1 + target_pct)
-                sl = last_close * (1 - stop_loss_pct)
-            else:
-                # Use ATR-based TP/SL if available
-                atr_val = float(candidate.iloc[-1].get("ATR_14", 0)) if "ATR_14" in candidate.columns else 0
-                if atr_val > 0:
-                    tp = last_close + (atr_val * target_pct)
-                    sl = last_close - (atr_val * stop_loss_pct)
-                else:
-                    tp = last_close * (1 + 0.02)  # Fallback 2%
-                    sl = last_close * (1 - 0.01)  # Fallback 1%
+
+            # ── Acceleration Score + Dynamic Risk ──
+            accel_score = calculate_acceleration_score(candidate)
+            
+            # Extract ATR, ADX, R_VOL for dynamic risk fine-tuning
+            atr_val = float(candidate.iloc[-1].get("ATR_14", 0)) if "ATR_14" in candidate.columns else 0
+            adx_val = float(candidate.iloc[-1].get("ADX_14", 0)) if "ADX_14" in candidate.columns else 0
+            r_vol_val = float(candidate.iloc[-1].get("R_VOL", 1.0)) if "R_VOL" in candidate.columns else 1.0
+            
+            dynamic_risk = calculate_dynamic_risk(
+                score=accel_score,
+                last_close=last_close,
+                atr=atr_val,
+                adx=adx_val,
+                r_vol=r_vol_val,
+            )
+            tp = dynamic_risk["target_price"]
+            sl = dynamic_risk["stop_loss"]
             
             # Convert numpy types to native Python types for JSON serialization
             features_list = candidate[available_predictors].iloc[0].tolist()
             # Ensure all values are JSON-serializable (not numpy types)
             features_list = [float(f) if hasattr(f, 'item') else f for f in features_list]
             
-            # Calculate AI Scores
-            technical_score = _calculate_technical_score(candidate)
+            # Calculate AI Scores (using new acceleration-based scoring)
+            technical_score = accel_score  # Use acceleration score as technical score
             fundamental_score = _calculate_fundamental_score(candidate)
-            sentiment_score = _calculate_sentiment_score(candidate)
+            sentiment_score = calculate_momentum_sentiment(candidate)
             ai_score = _calculate_ai_score(float(precision), buy_threshold)
             
             return {
@@ -545,6 +555,11 @@ def _process_symbol(
                 "technical_score": technical_score,
                 "fundamental_score": fundamental_score,
                 "sentiment_score": sentiment_score,
+                "acceleration_score": accel_score,
+                "risk_profile": dynamic_risk.get("risk_profile", ""),
+                "risk_profile_ar": dynamic_risk.get("risk_profile_ar", ""),
+                "target_pct": dynamic_risk.get("target_pct", 0.0),
+                "stop_loss_pct": dynamic_risk.get("stop_loss_pct", 0.0),
                 "council_score": round(council_score * 100, 1),
                 "consensus_ratio": consensus_ratio,
                 "detailed_votes": detailed_votes,
@@ -587,91 +602,22 @@ def _calculate_ai_score(prob: float, buy_threshold: float = 0.5) -> int:
 
 
 def _calculate_sentiment_score(row) -> int:
-    """Calculate sentiment score (1-10) based on momentum and volume indicators."""
-    score = 5 # Neutral start
-    try:
-        r = row.iloc[0] if hasattr(row, 'iloc') else row
-        
-        # Momentum (0-2 points)
-        mom = float(r.get("Momentum", 0)) if "Momentum" in r else 0
-        if mom > 0.02:
-            score += 2
-        elif mom > 0:
-            score += 1
-        elif mom < -0.02:
-            score -= 2
-        elif mom < 0:
-            score -= 1
-
-        # RSI (0-2 points)
-        rsi = float(r.get("RSI", 50)) if "RSI" in r else 50
-        if rsi > 70:
-            score += 1 # Strong trend
-        elif rsi < 30:
-            score -= 2 # Panic selling
-
-        # Relative Volume (0-2 points)
-        r_vol = float(r.get("R_VOL", 1.0)) if "R_VOL" in r else 1.0
-        if r_vol > 2.0:
-            score += 2
-        elif r_vol > 1.2:
-            score += 1
-        elif r_vol < 0.5:
-            score -= 1
-    except Exception:
-        pass
-    return min(10, max(1, score))
+    """Calculate sentiment score using momentum-first philosophy.
+    
+    Delegates to the acceleration_score module for consistency.
+    High RSI is rewarded (strong momentum), not penalized.
+    """
+    return calculate_momentum_sentiment(row)
 
 
 def _calculate_technical_score(row) -> int:
-    """Calculate technical score (0-10) based on key indicators."""
-    score = 0
-    try:
-        r = row.iloc[0] if hasattr(row, 'iloc') else row
-        
-        # RSI (0-2 points): Ideal range 30-70
-        rsi = float(r.get("RSI", 50)) if "RSI" in r else 50
-        if 30 <= rsi <= 70:
-            score += 2
-        elif 20 <= rsi < 30 or 70 < rsi <= 80:
-            score += 1
-        
-        # EMA Trend (0-2 points): Close > EMA50 > EMA200
-        close = float(r.get("Close", 0)) if "Close" in r else 0
-        ema50 = float(r.get("EMA_50", 0)) if "EMA_50" in r else 0
-        ema200 = float(r.get("EMA_200", 0)) if "EMA_200" in r else 0
-        if close > ema50 > ema200 > 0:
-            score += 2
-        elif close > ema50 > 0 or close > ema200 > 0:
-            score += 1
-        
-        # MACD (0-2 points): MACD > Signal = bullish
-        macd = float(r.get("MACD", 0)) if "MACD" in r else 0
-        macd_signal = float(r.get("MACD_Signal", 0)) if "MACD_Signal" in r else 0
-        if macd > macd_signal:
-            score += 2
-        elif macd > 0:
-            score += 1
-        
-        # ADX (0-2 points): Strong trend > 25
-        adx = float(r.get("ADX_14", 0)) if "ADX_14" in r else 0
-        if adx > 25:
-            score += 2
-        elif adx > 15:
-            score += 1
-        
-        # Volume (0-2 points): Current volume > 20-day average
-        volume = float(r.get("Volume", 0)) if "Volume" in r else 0
-        vol_sma = float(r.get("VOL_SMA20", 1)) if "VOL_SMA20" in r else 1
-        if vol_sma > 0 and volume > vol_sma:
-            score += 2
-        elif vol_sma > 0 and volume > vol_sma * 0.7:
-            score += 1
-            
-    except Exception:
-        pass
+    """Calculate technical score using Acceleration Score methodology.
     
-    return min(10, max(0, score))
+    Delegates to the acceleration_score module for consistency.
+    This uses momentum-first philosophy: high RSI = strong momentum (good),
+    not overbought (bad). TYCN had RSI=96 and gained +72.8%.
+    """
+    return calculate_acceleration_score(row)
 
 
 def _calculate_fundamental_score(row) -> int:

@@ -403,6 +403,75 @@ export default function StockDetailClient({
 
   const isInWatchlist = isSaved(symbol);
 
+  // Dynamic Schema for WebApplication & FinancialProduct & FAQ
+  const jsonLd = useMemo(() => {
+    const currentPrice = Number(latestPrice?.close ?? latestTech?.close ?? 0);
+    const schemaSymbol = symbol.toUpperCase();
+    const schemaCompany = companyName;
+    const pageUrl = `https://egxbots.com/stocks/${symbol.toLowerCase()}`;
+    const rsiVal = latestTech?.rsi_14 ? Number(latestTech.rsi_14).toFixed(1) : null;
+    const adxVal = latestTech?.adx_14 ? Number(latestTech.adx_14).toFixed(1) : null;
+    const trendText = Number(latestTech?.adx_14) > 25 ? "strong trend" : "sideways consolidation";
+
+    const financialProduct = {
+      "@context": "https://schema.org",
+      "@type": "FinancialProduct",
+      "name": `${schemaCompany} (${schemaSymbol}) Stock`,
+      "tickerSymbol": schemaSymbol,
+      "description": `Live technical analysis indicators and price tracking for ${schemaCompany} (${schemaSymbol}) on the Egyptian Exchange.`,
+      "url": pageUrl,
+      "offers": {
+        "@type": "Offer",
+        "price": currentPrice,
+        "priceCurrency": currency
+      }
+    };
+
+    const webApplication = {
+      "@context": "https://schema.org",
+      "@type": "WebApplication",
+      "name": "EGX Bots AI Scanner",
+      "url": "https://egxbots.com",
+      "description": "AI-powered scanner and technical analysis tracker for EGX stocks.",
+      "applicationCategory": "BusinessApplication",
+      "operatingSystem": "All"
+    };
+
+    // FAQ Page Schema
+    const faqPage = {
+      "@context": "https://schema.org",
+      "@type": "FAQPage",
+      "mainEntity": [
+        {
+          "@type": "Question",
+          "name": language === "ar" 
+            ? `ما هو السعر الحالي لسهم ${schemaCompany} (${schemaSymbol})؟` 
+            : `What is the current stock price of ${schemaCompany} (${schemaSymbol})?`,
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": language === "ar"
+              ? `السعر الحالي لسهم ${schemaCompany} (${schemaSymbol}) هو ${currentPrice.toFixed(2)} ${currency} وفقاً لآخر تحديث للبيانات.`
+              : `The current stock price of ${schemaCompany} (${schemaSymbol}) is ${currentPrice.toFixed(2)} ${currency} based on the latest market close.`
+          }
+        },
+        {
+          "@type": "Question",
+          "name": language === "ar"
+            ? `ماذا تشير المؤشرات الفنية لسهم ${schemaSymbol}؟`
+            : `What do technical indicators show for ${schemaSymbol} stock?`,
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": language === "ar"
+              ? `يظهر مؤشر القوة النسبية RSI قيمة ${rsiVal ?? "غير متوفرة"}، بينما مؤشر ADX عند ${adxVal ?? "غير متوفر"} مما يشير إلى حالة ${trendText === "strong trend" ? "اتجاه قوي" : "تحرك عرضي"}.`
+              : `The RSI (14) indicator is at ${rsiVal ?? "N/A"} and the ADX trend strength is at ${adxVal ?? "N/A"}, indicating a ${trendText}.`
+          }
+        }
+      ]
+    };
+
+    return [financialProduct, webApplication, faqPage];
+  }, [symbol, companyName, latestPrice, latestTech, currency, language]);
+
   return (
     <div className="space-y-8 select-text">
       {/* Toast notification */}
@@ -931,6 +1000,49 @@ export default function StockDetailClient({
           </p>
         </div>
       ) : null}
+
+      {/* Similar Stocks Section (Internal Linking) */}
+      <div className="app-panel p-6 bg-[var(--app-surface)] rounded-none border-2 border-black shadow-[4px_4px_0px_0px_#000]">
+        <h2 className="text-xl font-extrabold mb-4 tracking-tight flex items-center gap-2">
+          <TrendingUp className="w-5 h-5 text-green-400" />
+          {language === "ar" ? "أسهم مشابهة" : "Similar Stocks"}
+        </h2>
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
+          {[
+            { sym: "COMI", name: "البنك التجاري الدولي", nameEn: "Commercial International Bank" },
+            { sym: "FWRY", name: "فوري لتكنولوجيا البنوك", nameEn: "Fawry for Banking Technology" },
+            { sym: "EAST", name: "الشرقية - إيسترن كومباني", nameEn: "Eastern Company" },
+            { sym: "AALR", name: "الألومنيوم العربية", nameEn: "Arab Aluminum" },
+            { sym: "CSAG", name: "القاهرة للإسكان والتعمير", nameEn: "Cairo Housing" },
+            { sym: "SPIN", name: "الإسكندرية للغزل والنسيج", nameEn: "Alexandria Spinning" },
+            { sym: "UTOP", name: "يوتوبيا للاستثمار العقاري", nameEn: "Utopia Real Estate" },
+          ].map((stock) => {
+            // Avoid showing current stock in similar list
+            if (stock.sym.toUpperCase() === symbol.toUpperCase()) return null;
+            return (
+              <Link
+                key={stock.sym}
+                href={`/stocks/${stock.sym.toLowerCase()}`}
+                className="p-3 border-2 border-black bg-[var(--app-surface-strong)] hover:bg-yellow-400 dark:hover:bg-yellow-500 hover:text-black font-mono transition-all text-center flex flex-col justify-center items-center gap-1 cursor-pointer active:translate-x-[2px] active:translate-y-[2px]"
+              >
+                <span className="font-extrabold text-base tracking-wide">{stock.sym}</span>
+                <span className="text-[10px] text-zinc-500 font-sans truncate w-full">
+                  {language === "ar" ? stock.name : stock.nameEn}
+                </span>
+              </Link>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Schema.org JSON-LD injection */}
+      {jsonLd.map((schema, index) => (
+        <script
+          key={index}
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(schema) }}
+        />
+      ))}
     </div>
   );
 }

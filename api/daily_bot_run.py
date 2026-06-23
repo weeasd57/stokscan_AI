@@ -470,7 +470,7 @@ def _fetch_technical_snapshot(symbol: str, exchange: str) -> dict:
     try:
         t_res = (
             supabase.table("stock_technical_indicators")
-            .select("rsi_14,adx_14,ema_50,ema_200,volume,change_pct,macd,macd_signal")
+            .select("rsi_14,adx_14,ema_50,ema_200,volume,change_pct,macd,macd_signal,vol_sma20")
             .eq("symbol", symbol)
             .eq("exchange", exchange)
             .order("date", desc=True)
@@ -488,10 +488,11 @@ def _fetch_technical_snapshot(symbol: str, exchange: str) -> dict:
                 "change_pct": float(row.get("change_pct", 0)),
                 "macd": float(row.get("macd", 0) or 0),
                 "macd_signal": float(row.get("macd_signal", 0) or 0),
+                "vol_sma20": float(row.get("vol_sma20", 0) or 0),
             }
     except Exception as e:
         print(f"[SMART_EVAL] Error fetching indicators for {symbol}: {e}")
-    return {"rsi": 50, "adx": 25, "ema_50": 0, "ema_200": 0, "volume": 0, "change_pct": 0, "macd": 0, "macd_signal": 0}
+    return {"rsi": 50, "adx": 25, "ema_50": 0, "ema_200": 0, "volume": 0, "change_pct": 0, "macd": 0, "macd_signal": 0, "vol_sma20": 0}
 
 
 def _send_telegram_adjustment(symbol: str, exchange: str, adjustment: dict):
@@ -510,21 +511,31 @@ def _send_telegram_adjustment(symbol: str, exchange: str, adjustment: dict):
             "stop_lowered": "🛡️📉",
             "trend_weakening": "⚠️📉",
             "trend_strengthening": "🚀📈",
+            "acceleration_breakout": "🚀⚡",
         }
         emoji = emoji_map.get(adj_type, "📊")
+        web_origin = os.getenv("WEB_ORIGIN", "https://stokscan.ai").strip().rstrip("/")
+
+        reason_ar = adjustment.get('reason_ar', adj_type)
+        reason_en = adjustment.get('reason_en', adj_type)
 
         msg = (
-            f"{emoji} *تعديل ذكي على {symbol}.{exchange}*\n"
+            f"{emoji} *تعديل ذكي على التوصية / Smart Update* 🔧\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"📌 *النوع:* {adjustment.get('reason_ar', adj_type)}\n"
-            f"💰 *السعر الحالي:* {adjustment.get('current_price', '—')} EGP\n"
+            f"💎 *السهم:* `{symbol}.{exchange}`\n"
+            f"📌 *التعديل:* {reason_ar}\n"
+            f"     *{reason_en}*\n"
+            f"💰 *السعر الحالي:* `{adjustment.get('current_price', '—')}` EGP\n"
         )
-        if adjustment.get("old_target"):
-            msg += f"🎯 *الهدف القديم:* {adjustment['old_target']} → *الجديد:* {adjustment.get('new_target', '—')} EGP\n"
-        if adjustment.get("old_stop"):
-            msg += f"🛡️ *وقف الخسارة القديم:* {adjustment['old_stop']} → *الجديد:* {adjustment.get('new_stop', '—')} EGP\n"
-        msg += f"\n📊 RSI: {adjustment.get('rsi', '—')} | ADX: {adjustment.get('adx', '—')}\n"
-        msg += f"🕐 {dt.datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}"
+        if adjustment.get("old_target") and adjustment.get("new_target"):
+            msg += f"🎯 *الهدف:* `{adjustment['old_target']}` ➔ `{adjustment['new_target']}` EGP\n"
+        if adjustment.get("old_stop") and adjustment.get("new_stop"):
+            msg += f"🛡️ *وقف الخسارة:* `{adjustment['old_stop']}` ➔ `{adjustment['new_stop']}` EGP\n"
+            
+        msg += f"\n📊 *المؤشرات:* RSI: `{adjustment.get('rsi', '—')}` | ADX: `{adjustment.get('adx', '—')}`\n"
+        msg += f"📈 *العائد الحالي للفكرة:* `{adjustment.get('pl_pct', '—')}%`\n"
+        msg += f"━━━━━━━━━━━━━━━━━━━━\n"
+        msg += f"🔗 [تحديثات الفكرة على المنصة]({web_origin}/scanner)"
 
         # Send to admin
         bot.send_notification(msg)
@@ -534,6 +545,159 @@ def _send_telegram_adjustment(symbol: str, exchange: str, adjustment: dict):
 
     except Exception as e:
         print(f"[SMART_EVAL] Telegram notification failed: {e}")
+
+
+def _send_telegram_exit(symbol: str, exchange: str, entry_price: float, exit_price: float, pl_pct: float, status: str):
+    """Send exit notification via Telegram to subscribers."""
+    try:
+        from api.telegram_bot import get_telegram_bot
+        bot = get_telegram_bot()
+        if not bot:
+            return
+
+        web_origin = os.getenv("WEB_ORIGIN", "https://stokscan.ai").strip().rstrip("/")
+        emoji = "🎉🎯" if status == "win" else "🛡️⚠️"
+        status_text_ar = "توصية ناجحة (تحقيق الهدف) ✅" if status == "win" else "تفعيل وقف الخسارة 🛡️"
+        status_text_en = "Target Hit (Profit) ✅" if status == "win" else "Stop Loss Hit (Loss) 🛡️"
+
+        msg = (
+            f"{emoji} *إغلاق صفقة / Close Signal* 🏁\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"💎 *السهم:* `{symbol}.{exchange}`\n"
+            f"📌 *النتيجة:* {status_text_ar} / {status_text_en}\n"
+            f"📈 *سعر الدخول:* `{entry_price:.2f}` EGP\n"
+            f"💰 *سعر الخروج:* `{exit_price:.2f}` EGP\n"
+            f"📊 *صافي العائد:* `{pl_pct:+.2f}%`\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"🔗 *لمتابعة الصفقات التاريخية والتحليلات:*\n"
+            f"👉 [اضغط هنا لفتح المنصة]({web_origin}/scanner)\n"
+        )
+
+        # Send to admin
+        bot.send_notification(msg)
+
+        # Send to subscribers of this symbol's bot
+        _notify_subscribers_for_symbol(symbol, exchange, msg)
+
+    except Exception as e:
+        print(f"[SMART_EVAL] Telegram exit notification failed for {symbol}: {e}")
+
+
+def generate_weekly_performance_report(trigger: str = "manual", chat_id: Optional[str] = None):
+    """
+    Calculate performance statistics for closed recommendations in the last 7 days
+    and broadcast the report to all 'stock_score' subscribers (or send to a specific chat_id).
+    """
+    try:
+        print("[WEEKLY_REPORT] Starting weekly performance report generation...")
+        seven_days_ago = (dt.datetime.utcnow() - dt.timedelta(days=7)).isoformat()
+        
+        # Fetch closed recommendations in last 7 days
+        res = (
+            supabase.table("scan_results")
+            .select("symbol, exchange, entry_price, exit_price, profit_loss_pct, status, updated_at")
+            .in_("status", ["win", "loss"])
+            .gte("updated_at", seven_days_ago)
+            .execute()
+        )
+        
+        closed_recs = res.data or []
+        total_closed = len(closed_recs)
+        
+        # Calculate stats
+        win_count = sum(1 for r in closed_recs if r.get("status") == "win")
+        win_rate = (win_count / total_closed * 100) if total_closed > 0 else 0.0
+        
+        total_pnl = sum(float(r.get("profit_loss_pct") or 0.0) for r in closed_recs)
+        avg_pnl = (total_pnl / total_closed) if total_closed > 0 else 0.0
+        
+        best_trade = None
+        worst_trade = None
+        
+        if closed_recs:
+            # Sort by profit_loss_pct
+            sorted_recs = sorted(closed_recs, key=lambda x: float(x.get("profit_loss_pct") or 0.0))
+            worst_trade = sorted_recs[0]
+            best_trade = sorted_recs[-1]
+            
+        # Fetch current active/open recommendations (top 5 by creation date or precision)
+        open_res = (
+            supabase.table("scan_results")
+            .select("symbol, exchange, entry_price, last_close, profit_loss_pct, precision, created_at")
+            .eq("status", "open")
+            .order("created_at", desc=True)
+            .limit(5)
+            .execute()
+        )
+        open_recs = open_res.data or []
+        
+        # Format active positions list
+        active_lines = []
+        for r in open_recs:
+            sym = r["symbol"]
+            ex = r.get("exchange", "EGX")
+            ep = float(r.get("entry_price") or 0.0)
+            cp = float(r.get("last_close") or ep)
+            pnl = float(r.get("profit_loss_pct") or 0.0)
+            score = round(float(r.get("precision") or 0.5) * 10)
+            icon = "🟢" if pnl >= 0 else "🔴"
+            active_lines.append(
+                f"▪️ *{sym}.{ex}* | دخول: `{ep:.2f}` | حالي: `{cp:.2f}` ({icon} `{pnl:+.2f}%` | التقييم: `{score}/10`)"
+            )
+        active_positions_str = "\n".join(active_lines) if active_lines else "▫️ لا توجد توصيات مفتوحة حالياً."
+        
+        # Format the best and worst trade strings
+        best_str = "—"
+        if best_trade:
+            best_str = f"*{best_trade['symbol']}.{best_trade.get('exchange', 'EGX')}* بمكسب `{float(best_trade['profit_loss_pct']):+.2f}%` 🚀"
+            
+        worst_str = "—"
+        if worst_trade:
+            worst_str = f"*{worst_trade['symbol']}.{worst_trade.get('exchange', 'EGX')}* بخسارة `{float(worst_trade['profit_loss_pct']):+.2f}%` 🛡️"
+            
+        # Date strings for title
+        start_date_str = (dt.datetime.utcnow() - dt.timedelta(days=7)).strftime("%Y-%m-%d")
+        end_date_str = dt.datetime.utcnow().strftime("%Y-%m-%d")
+        
+        web_origin = os.getenv("WEB_ORIGIN", "https://stokscan.ai").strip().rstrip("/")
+        
+        # Build the final message
+        msg = (
+            f"📊 *التقرير الأسبوعي للأداء / Weekly Report* 📊\n"
+            f"📅 *الفترة:* من `{start_date_str}` إلى `{end_date_str}`\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"📈 *ملخص الأداء المغلق / Closed Performance Summary:*\n"
+            f"▪️ *الصفقات المغلقة:* `{total_closed}` صفقة\n"
+            f"▪️ *نسبة النجاح (Win Rate):* `{win_rate:.1f}%` 🎯\n"
+            f"▪️ *متوسط العائد لكل صفقة:* `{avg_pnl:+.2f}%`\n"
+            f"▪️ *العائد التراكمي الإجمالي:* `{total_pnl:+.2f}%`\n\n"
+            f"🏆 *أفضل صفقة (Best Trade):*\n"
+            f"▫️ {best_str}\n\n"
+            f"📉 *أسوأ صفقة (Worst Trade):*\n"
+            f"▫️ {worst_str}\n\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"💼 *توصيات مفتوحة حالياً (آخر 5) / Active Positions:*\n"
+            f"{active_positions_str}\n\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"🔗 *لمتابعة الصفقات والتقارير الفنية الكاملة:*\n"
+            f"👉 [اضغط هنا لفتح المنصة]({web_origin}/scanner)\n"
+        )
+        
+        # Delivery
+        if chat_id:
+            from api.telegram_bot import get_telegram_bot
+            bot = get_telegram_bot()
+            if bot:
+                bot.send_notification(msg, chat_id=chat_id)
+                print(f"[WEEKLY_REPORT] Sent report on-demand to chat_id: {chat_id}")
+        else:
+            _notify_service_subscribers("stock_score", msg)
+            print("[WEEKLY_REPORT] Broadcasted weekly report to all stock_score subscribers.")
+            
+    except Exception as e:
+        print(f"[WEEKLY_REPORT] Error generating report: {e}")
+        import traceback
+        traceback.print_exc()
 
 
 def _notify_subscribers_for_symbol(symbol: str, exchange: str, message: str):
@@ -695,10 +859,27 @@ def evaluate_old_recommendations():
         price_above_ema50 = latest_close > tech["ema_50"] if tech["ema_50"] > 0 else None
         price_above_ema200 = latest_close > tech["ema_200"] if tech["ema_200"] > 0 else None
         macd_bullish = tech["macd"] > tech["macd_signal"]
+        
+        # Calculate relative volume for acceleration detection
+        r_vol = 1.0
+        if tech.get("vol_sma20") and tech["vol_sma20"] > 0 and tech.get("volume") and tech["volume"] > 0:
+            r_vol = tech["volume"] / tech["vol_sma20"]
+        
+        # ── NEW: Acceleration Breakout Detection ──
+        # When ADX>50 + Volume>2x + RSI>70, the stock is in full acceleration mode
+        # These are the stocks that generated +72% (TYCN) and +43% (EASB)
+        acceleration_breakout = (
+            tech["adx"] > 50 and
+            r_vol > 2.0 and
+            tech["rsi"] > 70 and
+            (price_above_ema50 is True) and
+            macd_bullish
+        )
+        
         strong_uptrend = (
             (price_above_ema50 is True) and
             tech["adx"] > 25 and
-            50 <= tech["rsi"] <= 75 and
+            tech["rsi"] >= 50 and  # Allow high RSI — momentum, not overbought
             macd_bullish
         )
         weakening = (
@@ -712,7 +893,37 @@ def evaluate_old_recommendations():
             tech["change_pct"] > 2.0
         )
 
-        if strong_uptrend and pl_pct > 3.0:
+        # ── ACCELERATION BREAKOUT → Maximum target expansion ──
+        if acceleration_breakout and pl_pct > 2.0:
+            if target_price:
+                old_tp = round(target_price, 2)
+                # Raise target by 40% — ride the wave!
+                new_target = round(target_price * 1.40, 2)
+                # Widen stop loss to give room — move to entry+5% if profitable enough
+                if stop_loss and pl_pct > 8.0:
+                    new_stop = round(entry_price * 1.05, 2)  # Lock +5% profit
+                elif stop_loss and pl_pct > 5.0:
+                    new_stop = round(entry_price * 1.02, 2)  # Lock +2%
+                adj = {
+                    "type": "acceleration_breakout",
+                    "reason_ar": "تسارع سعري قوي — ADX عالي + سيولة مرتفعة + زخم شرائي — رفع الهدف 40%",
+                    "reason_en": "Acceleration breakout — High ADX + Volume surge + Strong momentum — target raised 40%",
+                    "old_target": old_tp,
+                    "new_target": new_target,
+                    "old_stop": round(stop_loss, 2) if stop_loss else None,
+                    "new_stop": new_stop if new_stop != stop_loss else None,
+                    "adx": round(tech["adx"], 1),
+                    "rsi": round(tech["rsi"], 1),
+                    "r_vol": round(r_vol, 2),
+                    "current_price": round(latest_close, 2),
+                    "pl_pct": round(pl_pct, 2),
+                    "timestamp": dt.datetime.utcnow().isoformat(),
+                }
+                new_adjustments.append(adj)
+                trend_strength = "acceleration"
+                print(f"[SMART_EVAL] {symbol}: ACCELERATION BREAKOUT → target {old_tp}→{new_target} (ADX={tech['adx']:.0f}, R_VOL={r_vol:.1f}x)")
+
+        elif strong_uptrend and pl_pct > 3.0:
             # Stock is performing well — raise target by 15-25%
             if target_price:
                 old_tp = round(target_price, 2)
@@ -845,6 +1056,9 @@ def evaluate_old_recommendations():
         # ── SEND TELEGRAM NOTIFICATIONS ──
         for adj in new_adjustments:
             _send_telegram_adjustment(symbol, exchange, adj)
+
+        if found_event:
+            _send_telegram_exit(symbol, exchange, entry_price, exit_price, pl_pct, status)
 
         print(f"[EVALUATE] {symbol}: status={status}, return={pl_pct:.2f}%, trend={trend_strength}, adjustments={len(new_adjustments)}")
 
@@ -1282,14 +1496,44 @@ async def generate_daily_recommendations(model_name: Optional[str] = None):
         except Exception as ins_err:
             print(f"[RECOMMENDATIONS] Failed to save/update recommendation for {symbol}: {ins_err}")
 
-    # Notify Stocks Score subscribers
+    # Notify Stocks Score subscribers with beautiful detailed summary card
     try:
-        msg_lines = [f"🎯 *Stocks Score Update* — {dt.datetime.now().strftime('%Y-%m-%d')}", ""]
-        for i, r in enumerate(top_10[:5]):
-            msg_lines.append(f"{i+1}. *{r.get('symbol', '—')}* — Score: {round(r.get('precision', 0) * 10)}/10 | Signal: BUY")
-        msg_lines.append("")
-        msg_lines.append(f"🔗 Total new signals: {len(top_10)}")
+        web_origin = os.getenv("WEB_ORIGIN", "https://stokscan.ai").strip().rstrip("/")
+        current_date = dt.datetime.now().strftime("%Y-%m-%d")
+        
+        msg_lines = [
+            f"🚀 *توصيات الذكاء الاصطناعي الجديدة / New AI Recommendations* 🚀",
+            f"📅 *التاريخ:* `{current_date}`",
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+        ]
+        
+        for idx, r in enumerate(top_10[:5]):
+            sym = r.get("symbol")
+            ex = r.get("exchange", "EGX")
+            ep = float(r.get("last_close" if r.get("last_close") is not None else "entry_price", 0.0))
+            tp = float(r.get("target_price", 0.0))
+            sl = float(r.get("stop_loss", 0.0))
+            tp2 = round(tp * 1.10, 2)
+            score = round(float(r.get("precision", 0.5)) * 10)
+            name = r.get("name", sym)
+            
+            msg_lines.append(
+                f"🔥 *#{idx+1} {sym}.{ex}* | {name}\n"
+                f"▪️ *الدخول المقترح:* `{ep:.2f}` EGP\n"
+                f"▪️ *الهدف الأول:* `{tp:.2f}` | *الهدف الثاني:* `{tp2:.2f}`\n"
+                f"▪️ *وقف الخسارة:* `{sl:.2f}`\n"
+                f"▪️ *تقييم الزخم (Score):* `{score}/10` ⚡\n"
+                f"━━━━━━━━━━━━━━━━━━━━"
+            )
+            
+        msg_lines.append(
+            f"📈 *إجمالي الإشارات الجديدة:* `{len(top_10)}` أسهم\n\n"
+            f"🔗 *لمتابعة الرسوم البيانية والتفاصيل الكاملة:*\n"
+            f"👉 [اضغط هنا لفتح المنصة]({web_origin}/scanner)"
+        )
+        
         _notify_service_subscribers("stock_score", "\n".join(msg_lines))
+        print("[RECOMMENDATIONS] Sent beautiful detailed recommendations to Telegram.")
     except Exception as e:
         print(f"[RECOMMENDATIONS] Telegram notify error: {e}")
 
@@ -1484,6 +1728,16 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
         except Exception as e:
             _record_step("historical_similarity", False, str(e)[:200], 0)
             print(f"[SIMILARITY] Error: {e}")
+
+        # 7. Run Weekly Performance Report (on Sunday)
+        if _should_run_weekly_inventory(trigger):
+            print("\n>>> STEP 7: Running Weekly Performance Report...")
+            try:
+                generate_weekly_performance_report(trigger=trigger)
+                _record_step("weekly_performance_report", True, "Weekly performance report generated and sent", 0)
+            except Exception as e:
+                _record_step("weekly_performance_report", False, str(e)[:200], 0)
+                print(f"[WEEKLY_REPORT] Error: {e}")
 
         _persist_job("completed")
         print(f"\n--- Daily Bot Run Job Completed: {dt.datetime.now()} ---")

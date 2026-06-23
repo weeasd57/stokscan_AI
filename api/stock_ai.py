@@ -2597,9 +2597,18 @@ def add_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
     # Do not dropna here, let prepare_for_ai handle it so we can drop columns if needed
     return out
 
-def add_trade_levels(df: pd.DataFrame, risk_reward_ratio: float = 2.0) -> Tuple[float, float]:
+def add_trade_levels(df: pd.DataFrame, risk_reward_ratio: float = 2.0, acceleration_score: int = 0) -> Tuple[float, float]:
     """
-    Calculates Take Profit (T.P) and Stop Loss (S.L) based on ATR (Volatility).
+    Calculates Take Profit (T.P) and Stop Loss (S.L) based on ATR (Volatility)
+    and Acceleration Score (dynamic risk management).
+
+    For high acceleration_score stocks (9+), we use wider stops and higher targets
+    to ride the wave for 20%+ gains. Low-score stocks get conservative levels.
+
+    Args:
+        df: DataFrame with price/indicator data
+        risk_reward_ratio: Base risk/reward ratio (default 2.0)
+        acceleration_score: Acceleration score (0-10). Higher = wider risk.
     """
     if df.empty or "ATR_14" not in df.columns:
         return 0.0, 0.0
@@ -2611,21 +2620,47 @@ def add_trade_levels(df: pd.DataFrame, risk_reward_ratio: float = 2.0) -> Tuple[
         # Fallback to simple percentage if ATR is zero or invalid
         return round(current_price * 1.05, 2), round(current_price * 0.97, 2)
 
-    # Stop Loss (S.L) = Current Price - (2.0 * ATR)
-    stop_loss = current_price - (2.0 * current_atr)
+    # ── Dynamic risk based on Acceleration Score ──
+    # High-score stocks get wider room to breathe
+    if acceleration_score >= 9:
+        # Wave Rider: wide stop, high target (20%+ potential)
+        sl_multiplier = 2.5   # Wider stop
+        rr_ratio = 3.0        # Higher risk/reward
+        max_target_pct = 0.40  # Allow up to 40% target
+        min_stop_pct = 0.08    # At least 8% stop distance
+    elif acceleration_score >= 7:
+        sl_multiplier = 2.0
+        rr_ratio = 2.5
+        max_target_pct = 0.25
+        min_stop_pct = 0.05
+    elif acceleration_score >= 5:
+        sl_multiplier = 2.0
+        rr_ratio = risk_reward_ratio
+        max_target_pct = 0.15
+        min_stop_pct = 0.03
+    else:
+        sl_multiplier = 2.0
+        rr_ratio = risk_reward_ratio
+        max_target_pct = 0.10
+        min_stop_pct = 0.02
+
+    # Stop Loss (S.L) = Current Price - (sl_multiplier * ATR)
+    stop_loss = current_price - (sl_multiplier * current_atr)
     
-    # Ensure stop_loss is positive and typically at least 1-2% below current price
-    if stop_loss > current_price * 0.99: 
-        stop_loss = current_price * 0.98
-    elif stop_loss < current_price * 0.5: # Extreme ATR check
-        stop_loss = current_price * 0.95 
+    # Ensure minimum stop distance
+    min_stop_price = current_price * (1 - min_stop_pct)
+    if stop_loss > min_stop_price:
+        stop_loss = min_stop_price
+
+    # Ensure stop_loss is positive and reasonable
+    if stop_loss < current_price * 0.85:  # Max 15% loss regardless of score
+        stop_loss = current_price * 0.85
+
+    # Target Price (T.P) = Current Price + (sl_multiplier * ATR * rr_ratio)
+    target_price = current_price + (sl_multiplier * current_atr * rr_ratio)
     
-    # Target Price (T.P) = Current Price + (2.0 * ATR * risk_reward_ratio)
-    # Keeping ATR context for target but user specifically mentioned Stop Loss.
-    target_price = current_price + (2.0 * current_atr * risk_reward_ratio)
-    
-    # Cap target price at reasonable levels
-    max_target = current_price * 1.30  # Max 30% profit target
+    # Cap and floor target based on acceleration score
+    max_target = current_price * (1 + max_target_pct)
     min_target = current_price * 1.03  # Min 3% profit target
     
     if target_price > max_target:

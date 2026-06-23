@@ -15,6 +15,11 @@ from api.stock_ai import (
     run_pipeline,
 )
 from api.symbols_local import load_symbols_for_country
+from api.acceleration_score import (
+    calculate_acceleration_score,
+    calculate_dynamic_risk,
+    calculate_momentum_sentiment,
+)
 
 router = APIRouter(prefix="/scan", tags=["scan"])
 
@@ -393,17 +398,15 @@ async def scan_technical(
                 except Exception:
                     continue
 
-            # Calculate technical score (1-10)
-            t_score = 0
-            if 30 <= rsi <= 70: t_score += 2
-            elif 20 <= rsi < 30 or 70 < rsi <= 80: t_score += 1
-            if close > ema50 > ema200 > 0: t_score += 2
-            elif close > ema50 > 0 or close > ema200 > 0: t_score += 1
-            if adx14 > 25: t_score += 2
-            elif adx14 > 15: t_score += 1
-            if vol_sma20 > 0 and volume > vol_sma20: t_score += 2
-            elif vol_sma20 > 0 and volume > vol_sma20 * 0.7: t_score += 1
-            t_score = min(10, max(1, t_score))
+            # Calculate technical score using Acceleration methodology (0-10)
+            # This replaces the old Mean Reversion approach that penalized high RSI.
+            # Now uses: Trend 30% + Volume 25% + Momentum 20% + ADX 15% + RSI 10%
+            accel_row = {
+                "close": close, "ema_50": ema50, "ema_200": ema200,
+                "adx_14": adx14, "rsi_14": rsi, "volume": volume,
+                "vol_sma20": vol_sma20, "momentum_10": momentum, "roc_12": roc12,
+            }
+            t_score = calculate_acceleration_score(accel_row)
 
             # Calculate fundamental score (1-10)
             f_score = 0
@@ -419,19 +422,12 @@ async def scan_technical(
             elif m_cap and m_cap > 1_000_000_000: f_score += 1
             f_score = min(10, max(1, f_score))
 
-            # Calculate sentiment score (1-10)
-            s_score = 5
-            if momentum > 0.02: s_score += 2
-            elif momentum > 0: s_score += 1
-            elif momentum < -0.02: s_score -= 2
-            elif momentum < 0: s_score -= 1
-            if rsi > 70: s_score += 1
-            elif rsi < 30: s_score -= 2
-            r_vol = volume / vol_sma20 if vol_sma20 and vol_sma20 > 0 else 1.0
-            if r_vol > 2.0: s_score += 2
-            elif r_vol > 1.2: s_score += 1
-            elif r_vol < 0.5: s_score -= 1
-            s_score = min(10, max(1, s_score))
+            # Calculate sentiment score using momentum-first philosophy (1-10)
+            s_row = {
+                "momentum_10": momentum, "rsi_14": rsi, "volume": volume,
+                "vol_sma20": vol_sma20, "adx_14": adx14,
+            }
+            s_score = calculate_momentum_sentiment(s_row)
 
             # Calculate overall AI Score (1-10) if we have ai_prec
             ai_scr = None
