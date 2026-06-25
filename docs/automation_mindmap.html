@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EGX Bots Automation Mind Map & Architecture</title>
+    <!-- Load Mermaid JS from CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+    <script>
+        mermaid.initialize({
+            startOnLoad: true,
+            theme: 'dark',
+            securityLevel: 'loose',
+            flowchart: {
+                useMaxWidth: true,
+                htmlLabels: true,
+                curve: 'basis'
+            }
+        });
+    </script>
+    <style>
+        :root {
+            --bg-color: #0b0f19;
+            --card-bg: #0f172a;
+            --border-color: #334155;
+            --primary-color: #6366f1;
+            --text-color: #f8fafc;
+        }
+        
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            margin: 0;
+            padding: 24px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 32px;
+            max-width: 800px;
+        }
+
+        h1 {
+            color: var(--primary-color);
+            font-size: 2.2rem;
+            margin-top: 0;
+            margin-bottom: 12px;
+            font-weight: 800;
+            letter-spacing: -0.025em;
+        }
+
+        p {
+            color: #94a3b8;
+            font-size: 1.1rem;
+            line-height: 1.6;
+        }
+
+        .map-container {
+            background-color: var(--card-bg);
+            border: 2px solid var(--border-color);
+            border-radius: 20px;
+            padding: 32px;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.6), 0 10px 10px -5px rgba(0, 0, 0, 0.4);
+            width: 100%;
+            max-width: 1200px;
+            overflow-x: auto;
+            display: flex;
+            justify-content: center;
+            margin-bottom: 40px;
+        }
+
+        .mermaid {
+            width: 100%;
+            display: flex;
+            justify-content: center;
+        }
+
+        .details-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 24px;
+            width: 100%;
+            max-width: 1200px;
+        }
+
+        .detail-card {
+            background-color: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 24px;
+        }
+
+        .detail-card h3 {
+            color: var(--primary-color);
+            margin-top: 0;
+            margin-bottom: 12px;
+            font-size: 1.25rem;
+            font-weight: 700;
+        }
+
+        .detail-card p {
+            font-size: 0.95rem;
+            margin: 0;
+            color: #cbd5e1;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>EGX Bots Automation Mind Map & Architecture</h1>
+        <p>مخطط تدفق البيانات الذكي وسلسلة القرارات الآلية لذكاء روبوتات التداول الاصطناعية (اليومية والأسبوعية)</p>
+    </header>
+
+    <div class="map-container">
+        <div class="mermaid">
+            graph TD
+                %% Styling Definitions
+                classDef startEnd fill:#4F46E5,stroke:#312E81,stroke-width:2px,color:#FFF;
+                classDef process fill:#1E293B,stroke:#475569,stroke-width:2px,color:#F8FAFC;
+                classDef decision fill:#0F766E,stroke:#115E59,stroke-width:2px,color:#FFF;
+                classDef mlEngine fill:#701A75,stroke:#4A044E,stroke-width:2px,color:#FFF;
+                classDef database fill:#0369A1,stroke:#075985,stroke-width:2px,color:#FFF;
+
+                %% Workflow Nodes
+                TriggerNode(["🚀 المشغل: مجدول يومي / يدوي"]):::startEnd
+                
+                subgraph DataPrep ["1. تجهيز وتحديث البيانات"]
+                    Step0["🔄 الخطوة 0: تحديث قائمة الأسهم <br/>(أسبوعياً - الأحد)"]:::process
+                    Step1["📈 الخطوة 1: مزامنة الأسعار من EODHD API"]:::process
+                    Step2["📊 الخطوة 2: حساب المؤشرات الفنية <br/>(حساب متوازي متطور)"]:::process
+                end
+
+                subgraph PortfolioMgmt ["2. المحفظة وتقييم الأداء السابق"]
+                    Step3["💼 الخطوة 3: تحديث مواكز المحفظة المفتوحة <br/>(Positions)"]:::process
+                    Step4["🎯 الخطوة 4: التقييم الذكي للتوصيات السابقة <br/>(تحديد Win/Loss/Stale)"]:::process
+                end
+
+                subgraph MLEvaluation ["3. التقييم بالذكاء الاصطناعي والكاونسل"]
+                    TrendCheck{"🛡️ فحص اتجاه السوق العام <br/>(مؤشر EGX30 vs SMA50)"}:::decision
+                    HaltRecommendations["⚠️ إيقاف توليد التوصيات <br/>(حالة السوق الهابط الشديد)"]:::decision
+                    RegimeSelection["⚙️ تحديد نظام السوق اللحظي <br/>(Bear / Bull)"]:::process
+                    ThresholdSelection["⚖️ اختيار عتبة الشراء الديناميكية <br/>(Bear=0.75 / Bull=0.55)"]:::process
+                    FastScan["🔍 تشغيل الفحص المتوازي السريع <br/>(Fast Scan)"]:::mlEngine
+                    
+                    subgraph CouncilFilter ["فلترة الكاونسل (Ensemble Filtering)"]
+                        CouncilModel["👥 دمج التوقعات: <br/> model_EGX.pkl + KING.pkl"]:::mlEngine
+                        StrictConsensus{"🤝 هل توافق إجماع الكاونسل <br/>(Score >= 55%)؟"}:::decision
+                        RejectCandidate["❌ استبعاد السهم"]:::process
+                        AcceptCandidate["✅ اعتماد إشارة الكاونسل"]:::process
+                    end
+                    
+                    RiskAdjust["📈 حساب العائد المعدل بالمخاطر <br/>(Risk-Adjusted Return)"]:::process
+                    Top10["🏆 اختيار أفضل 10 فرص استثمارية"]:::process
+                end
+
+                subgraph DataDelivery ["4. حفظ ونشر النتائج"]
+                    SupabaseInsert[("💾 حفظ التوصيات في قاعدة بيانات Supabase")]:::database
+                    TelegramAlerts["📢 إرسال تقارير وتوصيات غنية إلى Telegram"]:::process
+                    Step6["🔄 الخطوة 6: مسح التشابه التاريخي <br/>(Historical Similarity Scan)"]:::process
+                    Step8["💾 تحديث كاش حالة السوق <br/>(Market Status Cache)"]:::process
+                end
+
+                subgraph WeeklyAdaptive ["5. الأتمتة الأسبوعية التكيفية (الأحد)"]
+                    Step7["📊 الخطوة 7: توليد تقرير الأداء الأسبوعي للمشتركين"]:::process
+                    Step9["🧠 الخطوة 9: التعلم التكيفي وإعادة التدريب <br/>(Adaptive Retraining on Mistakes)"]:::mlEngine
+                end
+
+                %% Connections
+                TriggerNode --> Step0
+                Step0 --> Step1
+                Step1 --> Step2
+                Step2 --> Step3
+                Step3 --> Step4
+                Step4 --> TrendCheck
+                
+                TrendCheck -- "سوق غير آمن (تحت SMA50)" --> HaltRecommendations
+                TrendCheck -- "سوق آمن" --> RegimeSelection
+                
+                RegimeSelection --> ThresholdSelection
+                ThresholdSelection --> FastScan
+                FastScan --> CouncilModel
+                
+                CouncilModel --> StrictConsensus
+                StrictConsensus -- "لا" --> RejectCandidate
+                StrictConsensus -- "نعم" --> AcceptCandidate
+                
+                AcceptCandidate --> RiskAdjust
+                RiskAdjust --> Top10
+                
+                Top10 --> SupabaseInsert
+                SupabaseInsert --> TelegramAlerts
+                TelegramAlerts --> Step6
+                Step6 --> Step8
+                
+                Step8 --> Step7
+                Step7 --> Step9
+
+                %% Assigning Classes
+                class SupabaseInsert database;
+        </div>
+    </div>
+
+    <div class="details-grid">
+        <div class="detail-card">
+            <h3>🛡️ صمام الأمان (Circuit Breaker)</h3>
+            <p>يتم فحص اتجاه مؤشر البورصة المصرية EGX30 مقابل متوسط الحركة لـ 50 يوماً (SMA50). إذا كان المؤشر تحت المتوسط، يتم تفعيل صمام الأمان وإيقاف توليد أي توصيات جديدة لحماية رأس المال.</p>
+        </div>
+        <div class="detail-card">
+            <h3>👥 فلترة الكاونسل (Council Filtering)</h3>
+            <p>يخضع كل ترشيح لتحليل الكاونسل بمشاركة نموذج KING.pkl المساعد حيث يشترط توافق النموذجين (LightGBM و XGBoost) على الشراء وتحقيق توافق أعلى من 55% لإجازة الصفقة.</p>
+        </div>
+        <div class="detail-card">
+            <h3>🧠 التعلم التكيفي (Adaptive Retraining)</h3>
+            <p>أسبوعياً (كل يوم أحد)، يتم مراجعة التوصيات السابقة التي تم إغلاقها على خسارة، وإعادة تدريب النموذج آلياً لتجنب تكرار الأخطاء وتحديث ملف النموذج model_EGX.pkl تلقائياً.</p>
+        </div>
+    </div>
+</body>
+</html>
