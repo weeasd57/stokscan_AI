@@ -1439,16 +1439,23 @@ async def generate_daily_recommendations(model_name: Optional[str] = None):
                 resolved_model = model_name
 
     council_model = None
+    validator_model = None
     if resolved_model == "model_EGX.pkl" or resolved_model.endswith("model_EGX.pkl"):
         council_model = "KING.pkl"
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        if os.path.exists(os.path.join(base_dir, "models", "The_Council_Validator.pkl")):
+            validator_model = "The_Council_Validator.pkl"
+        elif os.path.exists(os.path.join(base_dir, "api", "models", "The_Council_Validator.pkl")):
+            validator_model = "The_Council_Validator.pkl"
 
-    print(f"[RECOMMENDATIONS] Running ML fast scan for EGX stocks using model: {resolved_model} (council: {council_model})...")
+    print(f"[RECOMMENDATIONS] Running ML fast scan for EGX stocks using model: {resolved_model} (council: {council_model}, validator: {validator_model})...")
     scan_resp = fast_scan(
         country="Egypt",
         limit=200,
         min_precision=0.5,
         model_name=resolved_model,
-        council_model=council_model
+        council_model=council_model,
+        validator_model=validator_model
     )
     
     results = scan_resp.get("results", [])
