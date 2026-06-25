@@ -1466,17 +1466,25 @@ async def generate_daily_recommendations(model_name: Optional[str] = None):
     print(f"[RECOMMENDATIONS] ML scan found {len(results)} BUY signals.")
 
     if council_model:
+        def _normalize_percent_score(value: object, default: float = 0.0) -> float:
+            try:
+                score = float(value)
+            except Exception:
+                return float(default)
+            if score <= 1.0:
+                score *= 100.0
+            return score
+
         try:
             env_thresh = os.getenv("COUNCIL_THRESHOLD", "55.0")
-            council_threshold = float(env_thresh)
-            if council_threshold <= 1.0:
-                council_threshold *= 100.0
+            council_threshold = _normalize_percent_score(env_thresh, default=55.0)
         except Exception:
             council_threshold = 55.0
 
         filtered_results = []
         for item in results:
-            score = float(item.get("council_score", 0.0))
+            score = _normalize_percent_score(item.get("council_score", 0.0))
+            item["council_score"] = round(score, 1)
             if score >= council_threshold:
                 filtered_results.append(item)
             else:
