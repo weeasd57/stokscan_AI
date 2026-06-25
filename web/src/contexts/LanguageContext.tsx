@@ -183,6 +183,8 @@ const translations: Record<string, Record<Language, string>> = {
     "scanner.templates.volume_breakout.desc": { en: "Detect unusual volume spikes signaling institutional interest.", ar: "رصد الارتفاعات غير العادية في حجم التداول التي تشير إلى اهتمام المؤسسات." },
     "scanner.templates.sma_200_breakout.title": { en: "Trend Breakout", ar: "اختراق الاتجاه" },
     "scanner.templates.sma_200_breakout.desc": { en: "Price breaks above the 200-day SMA to confirm a long-term uptrend.", ar: "يخترق السعر خط SMA لـ 200 يوم لتأكيد اتجاه صعودي طويل المدى." },
+    "scanner.templates.smart_money_flow.title": { en: "Smart Money Flow", ar: "تدفق الأموال الذكية" },
+    "scanner.templates.smart_money_flow.desc": { en: "Track significant institutional accumulation and money flow using Chaikin Money Flow.", ar: "تتبع التراكم المؤسسي الكبير وتدفق الأموال باستخدام تدفق أموال تشايكين (CMF)." },
     "scanner.templates.risk.low": { en: "Low Risk", ar: "مخاطر منخفضة" },
     "scanner.templates.risk.medium": { en: "Medium Risk", ar: "مخاطر متوسطة" },
     "scanner.templates.risk.high": { en: "High Risk", ar: "مخاطر عالية" },
@@ -431,6 +433,7 @@ const translations: Record<string, Record<Language, string>> = {
     "footer.resources": { en: "Resources", ar: "الموارد" },
     "footer.blogs": { en: "Market Blogs", ar: "مدونات السوق" },
     "footer.faq": { en: "FAQ", ar: "الأسئلة الشائعة" },
+    "footer.disclaimer": { en: "Disclaimer", ar: "إخلاء المسؤولية" },
     "footer.copyright": {
         en: "© 2026 EGX BOTS. Built for EGX analysis.",
         ar: "© 2026 EGX BOTS. صُمم لتحليل البورصة المصرية."

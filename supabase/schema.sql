@@ -327,6 +327,7 @@ create table if not exists public.scan_results (
     profit_loss_pct numeric(10,4),
     target_price numeric(18,6),
     stop_loss numeric(18,6),
+    risk_adjusted_return numeric(10,4),
     logo_url text,
     features jsonb,
     source text default 'scan',

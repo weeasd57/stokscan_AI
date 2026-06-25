@@ -86,6 +86,14 @@ export default function Footer() {
                   {t("footer.faq")}
                 </Link>
               </li>
+              <li>
+                <Link
+                  href="/disclaimer"
+                  className="text-sm text-zinc-500 dark:text-zinc-500 light:text-gray-600 hover:text-indigo-400 dark:hover:text-indigo-400 light:hover:text-indigo-600 transition-colors"
+                >
+                  {t("footer.disclaimer")}
+                </Link>
+              </li>
             </ul>
           </div>
         </div>

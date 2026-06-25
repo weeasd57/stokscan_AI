@@ -164,6 +164,15 @@ class FeatureEngineeringManager:
                 report.warnings.append(
                     f"{zero_vol} bars have zero volume (may affect signals)"
                 )
+            
+            # Liquidity filter: exclude symbols with 20-day average daily volume below 10,000 shares
+            if len(bars) >= 20:
+                avg_vol_20 = bars[volume_col].tail(20).mean()
+                if avg_vol_20 < 10000:
+                    report.is_ready = False
+                    report.warnings.append(
+                        f"Low liquidity: 20-day average volume is {avg_vol_20:.0f} (minimum 10000 required)"
+                    )
         
         return report
     

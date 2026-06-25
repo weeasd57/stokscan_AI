@@ -1,13 +1,15 @@
 "use client";
 
-import { ArrowUpRight, Shield, Sparkles } from "lucide-react";
+import React from "react";
+import { Shield, Sparkles, Zap, Activity, BarChart3, TrendingUp, DollarSign } from "lucide-react";
 import { useLanguage } from "@/contexts/LanguageContext";
 
 export type ScannerTemplateId =
   | "macd_cross"
   | "rsi_oversold"
   | "volume_breakout"
-  | "sma_200_breakout";
+  | "sma_200_breakout"
+  | "smart_money_flow";
 
 const templates: Array<{
   id: ScannerTemplateId;
@@ -16,6 +18,7 @@ const templates: Array<{
   riskKey: string;
   gradient: string;
   accent: string;
+  icon: React.ComponentType<{ className?: string }>;
 }> = [
   {
     id: "macd_cross",
@@ -24,6 +27,7 @@ const templates: Array<{
     riskKey: "scanner.templates.risk.medium",
     gradient: "from-emerald-500/20 via-teal-500/10 to-transparent",
     accent: "text-emerald-300",
+    icon: Zap,
   },
   {
     id: "rsi_oversold",
@@ -32,6 +36,7 @@ const templates: Array<{
     riskKey: "scanner.templates.risk.high",
     gradient: "from-sky-500/20 via-cyan-500/10 to-transparent",
     accent: "text-sky-300",
+    icon: Activity,
   },
   {
     id: "volume_breakout",
@@ -40,6 +45,7 @@ const templates: Array<{
     riskKey: "scanner.templates.risk.very_high",
     gradient: "from-orange-500/20 via-rose-500/10 to-transparent",
     accent: "text-orange-300",
+    icon: BarChart3,
   },
   {
     id: "sma_200_breakout",
@@ -48,6 +54,16 @@ const templates: Array<{
     riskKey: "scanner.templates.risk.low",
     gradient: "from-slate-500/20 via-teal-500/10 to-transparent",
     accent: "text-teal-300",
+    icon: TrendingUp,
+  },
+  {
+    id: "smart_money_flow",
+    titleKey: "scanner.templates.smart_money_flow.title",
+    descKey: "scanner.templates.smart_money_flow.desc",
+    riskKey: "scanner.templates.risk.medium",
+    gradient: "from-purple-500/20 via-indigo-500/10 to-transparent",
+    accent: "text-purple-300",
+    icon: DollarSign,
   },
 ];
 
@@ -67,10 +83,10 @@ export default function ScannerTemplates({ onSelect }: ScannerTemplatesProps) {
             <Sparkles className="h-3.5 w-3.5 text-indigo-400" />
             {t("scanner.templates.kicker")}
           </div>
-          <h2 className="text-2xl md:text-3xl font-black tracking-tight text-black dark:text-white">
+          <h2 className="text-2xl md:text-3xl font-black tracking-tight text-white">
             {t("scanner.templates.title")}
           </h2>
-          <p className="text-sm text-zinc-600 dark:text-zinc-400 max-w-2xl font-bold">
+          <p className="text-sm text-zinc-400 max-w-2xl font-bold">
             {t("scanner.templates.subtitle")}
           </p>
         </div>
@@ -81,7 +97,7 @@ export default function ScannerTemplates({ onSelect }: ScannerTemplatesProps) {
               key={item.id}
               type="button"
               onClick={() => onSelect?.(item.id)}
-              className="group relative rounded-3xl border-4 border-black dark:border-white bg-zinc-950/80 p-6 overflow-hidden transition-all text-start shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] dark:shadow-[3px_3px_0px_0px_rgba(255,255,255,1)] hover:-translate-x-0.5 hover:-translate-y-0.5 hover:shadow-[4.5px_4.5px_0px_0px_rgba(0,0,0,1)] dark:hover:shadow-[4.5px_4.5px_0px_0px_rgba(255,255,255,1)] active:translate-x-0.5 active:translate-y-0.5 active:shadow-[1.5px_1.5px_0px_0px_rgba(0,0,0,1)] dark:active:shadow-[1.5px_1.5px_0px_0px_rgba(255,255,255,1)]"
+              className="neobrutal-card group relative rounded-3xl p-6 overflow-hidden transition-all text-start"
             >
               <div className={`absolute inset-0 bg-gradient-to-br ${item.gradient} opacity-40`} />
               <div className="relative z-10 flex flex-col gap-4">
@@ -95,7 +111,7 @@ export default function ScannerTemplates({ onSelect }: ScannerTemplatesProps) {
                     </p>
                   </div>
                   <div className="flex h-10 w-10 items-center justify-center rounded-2xl border-2 border-white/20 bg-zinc-900/80 text-zinc-400 group-hover:text-white transition-colors shrink-0 shadow-[1px_1px_0px_0px_rgba(255,255,255,0.1)]">
-                    <ArrowUpRight className="h-4 w-4" />
+                    <item.icon className="h-5 w-5" />
                   </div>
                 </div>
 

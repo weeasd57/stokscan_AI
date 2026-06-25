@@ -90,7 +90,7 @@ class ActiveLearner:
         try:
             feat_list = features.tolist() if hasattr(features, "tolist") else list(features)
             data = {
-                "date": date,
+                "from_date": date,
                 "symbol": symbol,
                 "exchange": self.exchange,
                 "prediction": int(prediction),
@@ -125,8 +125,8 @@ class ManualRetrainer:
                 .select("*")
                 .eq("exchange", self.exchange)
                 .eq("status", "loss")
-                .gte("date", cutoff)
-                .order("date", desc=True)
+                .gte("created_at", cutoff)
+                .order("created_at", desc=True)
             )
             if model_name:
                 query = query.or_(
@@ -224,7 +224,7 @@ def update_actuals(exchange="EGX", look_forward_days=20, target_pct=2.0, stop_lo
             .select("*")\
             .eq("exchange", exchange)\
             .eq("status", "open")\
-            .lte("date", cutoff)\
+            .lte("created_at", cutoff)\
             .execute()
             
         pending = res.data
@@ -248,7 +248,8 @@ def update_actuals(exchange="EGX", look_forward_days=20, target_pct=2.0, stop_lo
                         "symbols_total": total_to_verify
                     }
                 })
-            pred_date = pd.to_datetime(pred['date'])
+            pred_date = pd.to_datetime(pred.get('created_at') or pred.get('from_date'))
+            pred_date_str = pred_date.strftime("%Y-%m-%d")
             
             # Fetch sufficient price history for this symbol
             end_date = (pred_date + timedelta(days=look_forward_days + 10)).strftime("%Y-%m-%d")
@@ -256,7 +257,7 @@ def update_actuals(exchange="EGX", look_forward_days=20, target_pct=2.0, stop_lo
                 .select("date, open, high, low, close")\
                 .eq("symbol", sym)\
                 .eq("exchange", exchange)\
-                .gte("date", pred['date'])\
+                .gte("date", pred_date_str)\
                 .lte("date", end_date)\
                 .order("date", desc=False)\
                 .execute()

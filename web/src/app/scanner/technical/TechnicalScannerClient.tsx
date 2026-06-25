@@ -392,6 +392,7 @@ export default function TechnicalScannerPage() {
             rsi_oversold: { rsiMax: "30" },
             volume_breakout: { volumeAboveSma20: true },
             sma_200_breakout: { aboveEma200: true },
+            smart_money_flow: { avoidDistribution: true, requireAccumulation: true, cmfMin: "0.05" },
         };
 
         setTechScanner({ ...baseUpdate, ...presets[id] });

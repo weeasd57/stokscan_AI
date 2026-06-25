@@ -993,7 +993,7 @@ export default function AIScannerPage() {
     return (
         <div className="backtests-shell app-page-shell mx-auto max-w-[1700px] w-full px-4 py-8 md:px-6 md:py-12 mt-2 min-h-[calc(100vh-200px)]">
             {/* Header Banner */}
-            <div className="backtests-hero relative overflow-hidden rounded-none border-4 border-black dark:border-white bg-[#FFE600] dark:bg-[#FFE600] text-black dark:text-white p-8 md:p-12 mb-10 shadow-[6px_6px_0px_0px_#000000] dark:shadow-[6px_6px_0px_0px_#ffffff]">
+            <div className="backtests-hero relative overflow-hidden rounded-none border-4 border-black dark:border-white bg-[#FFE600] dark:bg-[#FFE600] text-black dark:text-white p-6 sm:p-8 md:p-12 mb-8 shadow-[6px_6px_0px_0px_#000000] dark:shadow-[6px_6px_0px_0px_#ffffff]">
                 <div className="absolute top-1/2 -translate-y-1/2 right-12 opacity-15 pointer-events-none hidden md:block">
                     <Image
                         src="/favicon_io/apple-touch-icon.png?v=2"
@@ -1007,7 +1007,7 @@ export default function AIScannerPage() {
                     <div className="inline-flex items-center gap-2 px-3 py-1 rounded-none bg-black dark:bg-black border-2 border-black dark:border-black text-[#FFE600] dark:text-[#FFE600] text-xs font-black uppercase tracking-wider">
                         <Sparkles className="w-3.5 h-3.5" /> {activeTab === "backtests" ? t("backtest.model_evaluation") : activeTab === "similarity" ? (language === "ar" ? "تحليل الأنماط التاريخية" : "HISTORICAL PATTERN MATCHING") : (language === "ar" ? "ترتيب السوق اليوم" : "TODAY'S MARKET RANKING")}
                     </div>
-                    <h1 className="text-3xl md:text-5xl font-black text-black dark:text-white tracking-tight leading-none uppercase">
+                    <h1 className="text-2xl sm:text-3xl md:text-5xl font-black text-black dark:text-white tracking-tight leading-tight uppercase">
                         {activeTab === "backtests" ? (
                             language === "ar" ? (
                                 <>نتائج الاختبار العكسي</>

@@ -236,6 +236,35 @@ class CircuitBreakerDetector:
         
         return flags
 
+    def is_egx30_trend_safe(self, market_df: pd.DataFrame) -> bool:
+        """
+        Check if EGX30 index close price is above its 50-day SMA.
+        If it's under its 50-day SMA, returns False (market trend is unsafe/bearish).
+        """
+        if market_df is None or market_df.empty:
+            logger.warning("No market data provided for EGX30. Assuming trend is safe.")
+            return True
+            
+        close_col = "Close" if "Close" in market_df.columns else "close"
+        if close_col not in market_df.columns:
+            logger.warning("Close column missing from index data. Assuming trend is safe.")
+            return True
+            
+        if len(market_df) < 50:
+            logger.warning(f"Insufficient history ({len(market_df)} bars) to calculate 50-day SMA for EGX30. Assuming trend is safe.")
+            return True
+            
+        # Calculate 50-day SMA
+        sma_50 = market_df[close_col].rolling(window=50).mean()
+        latest_close = float(market_df[close_col].iloc[-1])
+        latest_sma = float(sma_50.iloc[-1])
+        
+        is_safe = latest_close >= latest_sma
+        logger.info(f"EGX30 Trend Check: Latest Close={latest_close:.2f}, SMA50={latest_sma:.2f} -> Safe={is_safe}")
+        return is_safe
+
+
+
 
 def detect_circuit_breakers(
     df: pd.DataFrame,

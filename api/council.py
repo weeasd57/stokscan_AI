@@ -222,6 +222,10 @@ class TheCouncil:
         total_weighted_prob = np.zeros(len(X))
         total_weight = 0.0
 
+        lgbm_preds = []
+        xgb_preds = []
+        other_preds = []
+
         for name, weight in self.weights.items():
             if weight <= 0:
                 continue
@@ -304,6 +308,28 @@ class TheCouncil:
                     total_weighted_prob += p1 * weight
                     total_weight += weight
 
+                    # Track model predictions by type to enforce ensemble agreement
+                    model_type = "other"
+                    if isinstance(model, dict):
+                        kind = (model.get("kind") or "").strip().lower()
+                        if "lgb" in kind or "meta" in kind:
+                            model_type = "lgbm"
+                        elif "xgb" in kind:
+                            model_type = "xgb"
+                    else:
+                        model_str = str(type(model)).lower()
+                        if "lgb" in model_str or "lightgbm" in model_str:
+                            model_type = "lgbm"
+                        elif "xgb" in model_str or "xgboost" in model_str:
+                            model_type = "xgb"
+
+                    if model_type == "lgbm":
+                        lgbm_preds.append(p1)
+                    elif model_type == "xgb":
+                        xgb_preds.append(p1)
+                    else:
+                        other_preds.append(p1)
+
             except Exception as e:
                 logger.error(f"COUNCIL ERROR: Model {name} failed: {e}")
 
@@ -311,7 +337,19 @@ class TheCouncil:
             logger.error("COUNCIL ERROR: Total weight is zero, check model loading")
             return np.zeros(len(X))
 
-        return total_weighted_prob / total_weight
+        consensus = total_weighted_prob / total_weight
+
+        # Enforce consensus between LightGBM and XGBoost if both are present in the council
+        if len(lgbm_preds) > 0 and len(xgb_preds) > 0:
+            logger.info("COUNCIL: Enforcing strict consensus between LightGBM and XGBoost models.")
+            for i in range(len(X)):
+                lgbm_buy = any(p[i] >= 0.5 for p in lgbm_preds)
+                xgb_buy = any(p[i] >= 0.5 for p in xgb_preds)
+                # If they do not both agree on a BUY, override consensus to 0.0
+                if not (lgbm_buy and xgb_buy):
+                    consensus[i] = 0.0
+
+        return consensus
 
     def get_detailed_votes(self, X: pd.DataFrame) -> Dict[str, np.ndarray]:
         """

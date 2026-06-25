@@ -2452,6 +2452,7 @@ def add_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
 
     out["VOL_SMA20"] = out["Volume"].rolling(window=20, min_periods=1).mean()
     out["R_VOL"] = (out["Volume"] / out["VOL_SMA20"].replace(0.0, np.nan)).fillna(0.0)
+    out["volume_ma_ratio"] = out["R_VOL"]
 
     if "High" in out.columns and "Low" in out.columns:
         high = out["High"].astype(float)
