@@ -568,15 +568,100 @@ def main():
     except Exception as e:
         print(f"   Note: Categorical alignment skipped: {e}")
     
-    # Find optimal thresholds
+    # Load index context for regime mapping
+    market_df = None
+    if args.exchange == "EGX":
+        from api.backtest_radar import load_egx30_index
+        buffer_start = (datetime.now() - timedelta(days=(args.months_back * 30) + 180)).strftime("%Y-%m-%d")
+        try:
+            market_df = load_egx30_index(buffer_start)
+            if market_df is not None:
+                print(f"📈 Loaded EGX30 index context for regime mapping: {len(market_df)} days.")
+        except Exception as e:
+            print(f"Warning: Failed to load index data for regime mapping: {e}")
+
+    # Determine regimes (1 for Bull, 0 for Bear)
+    regimes = np.ones(len(dates))
+    if market_df is not None and not market_df.empty:
+        try:
+            mkt_df_sorted = market_df.sort_index()
+            close_col = "close" if "close" in mkt_df_sorted.columns else ("Close" if "Close" in mkt_df_sorted.columns else None)
+            if close_col:
+                mkt_close = mkt_df_sorted[close_col]
+                mkt_sma50 = mkt_close.rolling(50, min_periods=1).mean()
+                regime_map = (mkt_close >= mkt_sma50).astype(int)
+                dates_pd = pd.DatetimeIndex(dates)
+                regimes = dates_pd.map(regime_map).fillna(1).values
+        except Exception as e:
+            print(f"Warning: Failed to map market regimes: {e}")
+
+    bull_mask = regimes == 1
+    bear_mask = regimes == 0
+    print(f"\n📊 Market Regime Split: Bull samples = {bull_mask.sum()}, Bear samples = {bear_mask.sum()}")
+
+    # 1. Find optimal thresholds (OVERALL)
+    print("\n" + "=" * 100)
+    print("🌍 OVERALL CALIBRATION (COMBINED MARKET REGIMES)")
+    print("=" * 100)
     df_results, df_filtered = find_optimal_thresholds(
         model, X_val, y_val, dates,
         min_precision=args.min_precision
     )
-    
-    # Print results
     print_threshold_table(df_results, df_filtered)
     
+    # 2. Find optimal thresholds (BULL REGIME)
+    df_results_bull = pd.DataFrame()
+    df_filtered_bull = pd.DataFrame()
+    print("\n" + "=" * 100)
+    print("📈 BULL MARKET REGIME (Index >= SMA50)")
+    print("=" * 100)
+    if bull_mask.any() and len(np.unique(y_val[bull_mask])) >= 2:
+        X_val_bull = X_val[bull_mask]
+        y_val_bull = y_val[bull_mask]
+        dates_bull = dates[bull_mask]
+        df_results_bull, df_filtered_bull = find_optimal_thresholds(
+            model, X_val_bull, y_val_bull, dates_bull,
+            min_precision=args.min_precision
+        )
+        print_threshold_table(df_results_bull, df_filtered_bull)
+    else:
+        print("⚠️ Insufficient Bull samples or target classes for calibration.")
+
+    # 3. Find optimal thresholds (BEAR REGIME)
+    df_results_bear = pd.DataFrame()
+    df_filtered_bear = pd.DataFrame()
+    print("\n" + "=" * 100)
+    print("📉 BEAR MARKET REGIME (Index < SMA50)")
+    print("=" * 100)
+    if bear_mask.any() and len(np.unique(y_val[bear_mask])) >= 2:
+        X_val_bear = X_val[bear_mask]
+        y_val_bear = y_val[bear_mask]
+        dates_bear = dates[bear_mask]
+        df_results_bear, df_filtered_bear = find_optimal_thresholds(
+            model, X_val_bear, y_val_bear, dates_bear,
+            min_precision=args.min_precision
+        )
+        print_threshold_table(df_results_bear, df_filtered_bear)
+    else:
+        print("⚠️ Insufficient Bear samples or target classes for calibration.")
+
+    # Final Summary of Recommended Regime-specific thresholds
+    print("\n" + "*" * 100)
+    print("🎯 REGIME-SPECIFIC CALIBRATION RECOMMENDATIONS SUMMARY")
+    print("*" * 100)
+    
+    bull_best = 0.55
+    if bull_mask.any() and len(np.unique(y_val[bull_mask])) >= 2 and len(df_filtered_bull) > 0:
+        bull_best = float(df_filtered_bull.nlargest(1, 'profit_factor').iloc[0]['threshold'])
+    
+    bear_best = 0.65
+    if bear_mask.any() and len(np.unique(y_val[bear_mask])) >= 2 and len(df_filtered_bear) > 0:
+        bear_best = float(df_filtered_bear.nlargest(1, 'profit_factor').iloc[0]['threshold'])
+        
+    print(f"👉 Recommended BULL Threshold: {bull_best:.2f}")
+    print(f"👉 Recommended BEAR Threshold: {bear_best:.2f}")
+    print("*" * 100)
+
     # Analyze specific threshold if requested
     if args.analyze_threshold:
         if hasattr(model, "meta_threshold"):
@@ -586,7 +671,7 @@ def main():
             y_proba = model.predict_proba(X_val)[:, 1]
         analyze_by_market_regime(y_val, y_proba, dates, args.analyze_threshold)
     elif len(df_filtered) > 0:
-        # Analyze best threshold
+        # Analyze best overall threshold
         best_threshold = df_filtered.nlargest(1, 'profit_factor').iloc[0]['threshold']
         if hasattr(model, "meta_threshold"):
             model.meta_threshold = best_threshold
@@ -598,7 +683,7 @@ def main():
     # Save results
     output_file = f"threshold_calibration_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
     df_results.to_csv(output_file, index=False)
-    print(f"\n💾 Results saved to: {output_file}")
+    print(f"\n💾 Overall results saved to: {output_file}")
     
     print("\n✅ Calibration complete!")
 

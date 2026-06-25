@@ -281,9 +281,20 @@ def _load_model(model_name: str):
             except Exception:
                 predictors = None
 
+    # Extract optimal_threshold_by_regime from artifact if present
+    optimal_threshold_by_regime = None
+    if isinstance(artifact, dict):
+        optimal_threshold_by_regime = artifact.get("optimal_threshold_by_regime")
+
     # Final fallback to defaults
     if predictors is None or len(predictors) == 0:
         predictors = LGBM_PREDICTORS if is_lgbm else RF_PREDICTORS
+
+    if optimal_threshold_by_regime is not None and model is not None:
+        try:
+            model.optimal_threshold_by_regime = optimal_threshold_by_regime
+        except Exception:
+            pass
 
     _set_model_cache(model_path, model, predictors, is_lgbm)
     return _get_model_cached(model_path)
@@ -790,6 +801,28 @@ def fast_scan(
                         print(f"DEBUG SCAN: Loaded {len(market_df)} EGX30 index rows from Supabase.")
             except Exception as db_err:
                 print(f"DEBUG SCAN: Failed to load market context from Supabase: {db_err}")
+
+    # Resolve dynamic threshold based on market regime (Bull/Bear)
+    regime_thresholds = getattr(model, "optimal_threshold_by_regime", None)
+    if regime_thresholds and isinstance(regime_thresholds, dict) and country == "Egypt":
+        active_regime = "bull"  # Default
+        if market_df is not None and not market_df.empty:
+            try:
+                mkt_df_sorted = market_df.sort_index()
+                close_col = "close" if "close" in mkt_df_sorted.columns else ("Close" if "Close" in mkt_df_sorted.columns else None)
+                if close_col and len(mkt_df_sorted) >= 50:
+                    latest_close = float(mkt_df_sorted[close_col].iloc[-1])
+                    latest_sma50 = float(mkt_df_sorted[close_col].rolling(50).mean().iloc[-1])
+                    if latest_close < latest_sma50:
+                        active_regime = "bear"
+                    print(f"DEBUG SCAN: Market Regime determined as {active_regime.upper()} (Close={latest_close:.2f}, SMA50={latest_sma50:.2f})")
+            except Exception as e:
+                print(f"WARNING SCAN: Failed to determine active market regime: {e}")
+        
+        calibrated_threshold = regime_thresholds.get(active_regime)
+        if calibrated_threshold:
+            print(f"DEBUG SCAN: Dynamically overriding buy_threshold with model's calibrated {active_regime.upper()} threshold: {calibrated_threshold}")
+            buy_threshold = calibrated_threshold
 
     # Initialize Council if requested
     council = None

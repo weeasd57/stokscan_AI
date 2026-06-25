@@ -14,7 +14,7 @@ _scheduler_state: Dict[str, Any] = {
     "enabled": True,
     "run_time": "16:00",  # Cairo time — after market close
     "timezone": "Africa/Cairo",
-    "active_days": [0, 1, 2, 3, 4],  # Sun-Thu
+    "active_days": [6, 0, 1, 2, 3],  # Sun-Thu
     "model_filter": "adaptive",
     "status": "idle",
     "next_run_at": None,

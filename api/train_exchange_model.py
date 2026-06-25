@@ -84,6 +84,99 @@ except ImportError:
 # sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 
+from functools import lru_cache
+
+
+@lru_cache(maxsize=4096)
+def get_cbe_interest_rate(date) -> float:
+    d_str = str(date)[:10]
+    if d_str >= "2024-03-06":
+        return 27.25
+    elif d_str >= "2024-02-01":
+        return 21.25
+    elif d_str >= "2023-08-03":
+        return 19.25
+    elif d_str >= "2023-03-30":
+        return 18.25
+    elif d_str >= "2022-12-22":
+        return 16.25
+    elif d_str >= "2022-10-27":
+        return 13.25
+    elif d_str >= "2022-05-19":
+        return 11.25
+    elif d_str >= "2022-03-21":
+        return 9.25
+    elif d_str >= "2020-11-12":
+        return 8.25
+    elif d_str >= "2020-09-24":
+        return 8.75
+    else:
+        return 9.25
+
+
+@lru_cache(maxsize=1)
+def load_usdegp_history() -> pd.DataFrame:
+    import datetime
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    cache_path = os.path.join(base_dir, "symbols_data", "usdegp_history.json")
+    
+    # Try loading from cache first
+    df_cached = None
+    if os.path.exists(cache_path):
+        try:
+            df_cached = pd.read_json(cache_path)
+            if not df_cached.empty:
+                df_cached["date"] = pd.to_datetime(df_cached["date"])
+                df_cached.set_index("date", inplace=True)
+        except Exception:
+            pass
+            
+    # Fetch from EODHD if needed (e.g., if cache doesn't exist or is older than today)
+    api_key = os.getenv("EODHD_API_KEY")
+    if api_key:
+        try:
+            from_date = "2020-01-01"
+            url = f"https://eodhd.com/api/eod/USDEGP.FOREX?api_token={api_key}&fmt=json&period=d&order=a&from={from_date}"
+            import urllib.request as urllib_req
+            import json
+            req = urllib_req.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib_req.urlopen(req, timeout=15) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+            if data:
+                df_new = pd.DataFrame(data)
+                df_new["date"] = pd.to_datetime(df_new["date"])
+                # Save raw json to cache
+                os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+                with open(cache_path, "w", encoding="utf-8") as f:
+                    json.dump(data, f)
+                df_new.set_index("date", inplace=True)
+                return df_new
+        except Exception as e:
+            print(f"Warning: Failed to fetch USDEGP from EODHD: {e}")
+            
+    if df_cached is not None:
+        return df_cached
+        
+    # Final hardcoded fallback if everything else fails
+    fallback_dates = pd.date_range(start="2020-01-01", end=datetime.date.today(), freq="D")
+    df_fallback = pd.DataFrame(index=fallback_dates)
+    usd_rates = []
+    for d in fallback_dates:
+        d_str = d.strftime("%Y-%m-%d")
+        if d_str >= "2024-03-06":
+            usd_rates.append(47.5)
+        elif d_str >= "2023-01-01":
+            usd_rates.append(30.9)
+        elif d_str >= "2022-10-27":
+            usd_rates.append(24.5)
+        elif d_str >= "2022-03-21":
+            usd_rates.append(18.5)
+        else:
+            usd_rates.append(15.7)
+    df_fallback["close"] = usd_rates
+    return df_fallback
+
+
 def _downcast_df(df: pd.DataFrame) -> pd.DataFrame:
     """Downcast numeric columns to save memory."""
     fcols = df.select_dtypes("float").columns
@@ -306,7 +399,7 @@ def fetch_fundamentals_for_exchange(supabase: Client, exchange: str) -> pd.DataF
 
 def add_market_context(stock_df, market_df):
     """
-    Add Advanced Market Context features (Beta, Correlation, Market Regime).
+    Add Advanced Market Context features (Beta, Correlation, Market Regime, USD/EGP, Interest Rates).
     """
     if market_df is None or market_df.empty:
         # Fill with zeros and defaults (optimized: add all columns at once to avoid fragmentation)
@@ -316,6 +409,9 @@ def add_market_context(stock_df, market_df):
             "feat_rel_strength",
             "beta",
             "correlation_20",
+            "feat_usd_egp",
+            "feat_usd_egp_change",
+            "feat_cbe_interest_rate",
         ]
         missing_cols = [f for f in market_features if f not in stock_df.columns]
 
@@ -323,6 +419,10 @@ def add_market_context(stock_df, market_df):
             # Create DataFrame with zeros and concat once (faster than loop)
             zeros_df = pd.DataFrame(0, index=stock_df.index, columns=missing_cols)
             stock_df = pd.concat([stock_df, zeros_df], axis=1)
+            if "feat_usd_egp" in stock_df.columns:
+                stock_df["feat_usd_egp"] = stock_df["feat_usd_egp"].replace(0, 47.5)
+            if "feat_cbe_interest_rate" in stock_df.columns:
+                stock_df["feat_cbe_interest_rate"] = stock_df["feat_cbe_interest_rate"].replace(0, 27.25)
             # De-fragment memory
             stock_df = stock_df.copy()
 
@@ -368,6 +468,27 @@ def add_market_context(stock_df, market_df):
         stock_df["egx30_return"] = market_reindexed["egx30_return"]
     if "market_regime" in market_reindexed.columns:
         stock_df["market_regime"] = market_reindexed["market_regime"]
+
+    # 6. USD/EGP Forex Rate
+    try:
+        usd_df = load_usdegp_history()
+        usd_reindexed = usd_df.reindex(stock_df.index, method="ffill")
+        stock_df["feat_usd_egp"] = usd_reindexed["close"].fillna(47.5)
+        stock_df["feat_usd_egp_change"] = stock_df["feat_usd_egp"].pct_change(20).fillna(0.0)
+    except Exception as e:
+        print(f"Warning: Failed to add USD/EGP macro features: {e}")
+        stock_df["feat_usd_egp"] = 47.5
+        stock_df["feat_usd_egp_change"] = 0.0
+
+    # 7. CBE Interest Rate
+    try:
+        cbe_rates = []
+        for d in stock_df.index:
+            cbe_rates.append(get_cbe_interest_rate(d))
+        stock_df["feat_cbe_interest_rate"] = cbe_rates
+    except Exception as e:
+        print(f"Warning: Failed to add CBE interest rate features: {e}")
+        stock_df["feat_cbe_interest_rate"] = 27.25
 
     # Cleanup
     stock_df.drop(columns=["mkt_close", "mkt_sma200"], inplace=True, errors="ignore")
@@ -695,6 +816,7 @@ def add_technical_indicators(df):
     # 5. Volume Indicators
     out["VOL_SMA20"] = out["Volume"].rolling(window=20, min_periods=1).mean()
     out["VOL_Change"] = out["Volume"].pct_change().fillna(0)
+    out["volume_ma_ratio"] = (out["Volume"] / out["VOL_SMA20"].replace(0, np.nan)).fillna(0)
 
     # 6. Advanced (Requires High/Low)
     if "High" in out.columns and "Low" in out.columns:
@@ -1860,6 +1982,10 @@ class ModelTrainer:
         for f_feat in ["marketCap", "peRatio", "eps", "dividendYield", "fund_score"]:
             if f_feat in df.columns and f_feat not in extended:
                 extended.append(f_feat)
+        # Dynamically append macro features to extended list if they are in df
+        for m_feat in ["feat_usd_egp", "feat_usd_egp_change", "feat_cbe_interest_rate"]:
+            if m_feat in df.columns and m_feat not in extended:
+                extended.append(m_feat)
         max_p = extended + [
             "ATR_14",
             "ADX_14",
@@ -1909,83 +2035,17 @@ class ModelTrainer:
     def get_walk_forward_splits(self, df: pd.DataFrame, n_splits: int = 5):
         """
         Generate walk-forward validation splits for time-series data.
-
-        Each split = (train_idx, test_idx) where:
-        - Years 1-3 train, Year 4 test
-        - Years 1-4 train, Year 5 test
-        - ... etc
-
-        This replaces random train_test_split for proper time-series validation.
+        Uses TimeSeriesSplit to prevent lookahead bias / future data leakage.
         """
-        if "Date" not in df.columns and df.index.name != "Date":
-            # Fallback: use row indices if Date not available
-            self._progress(
-                "⚠️ No Date column found. Using row-based walk-forward split."
-            )
-            n_rows = len(df)
-            splits = []
-            for i in range(n_splits):
-                train_size = int(n_rows * (1 - 1 / n_splits)) + int(
-                    i * n_rows / n_splits
-                )
-                test_size = int(n_rows / n_splits)
-                train_idx = list(range(0, train_size))
-                test_idx = list(range(train_size, min(train_size + test_size, n_rows)))
-                if test_idx:
-                    splits.append((train_idx, test_idx))
-            return splits
-
-        # Extract date column
-        date_col = df.index if df.index.name == "Date" else df["Date"]
-        dates = pd.to_datetime(date_col)
-        years = pd.Series(dates).dt.year.values
-        unique_years = sorted(np.unique(years))
-
-        if len(unique_years) < 3:
-            self._progress(
-                f"⚠️ Only {len(unique_years)} unique years. Falling back to 80-20 split."
-            )
-            split_idx = len(df) - int(len(df) * 0.2)
-            return [
-                (
-                    list(range(split_idx)),
-                    list(range(split_idx, len(df))),
-                )
-            ]
-
+        from sklearn.model_selection import TimeSeriesSplit
+        tscv = TimeSeriesSplit(n_splits=n_splits)
+        
         splits = []
-        min_train_years = 2
-
-        for test_year_idx in range(len(unique_years) - 1):
-            test_year = unique_years[test_year_idx + 1]
-            train_years = unique_years[: test_year_idx + 1]
-
-            if len(train_years) < min_train_years:
-                continue
-
-            train_mask = np.isin(years, train_years)
-            test_mask = years == test_year
-
-            train_idx = np.where(train_mask)[0].tolist()
-            test_idx = np.where(test_mask)[0].tolist()
-
-            if len(test_idx) > 0:
-                splits.append((train_idx, test_idx))
-
-        if not splits:
-            self._progress(
-                "Could not create walk-forward splits. Using simple 80-20 split."
-            )
-            split_idx = len(df) - int(len(df) * 0.2)
-            splits = [
-                (
-                    list(range(split_idx)),
-                    list(range(split_idx, len(df))),
-                )
-            ]
-
+        for train_idx, val_idx in tscv.split(df):
+            splits.append((train_idx.tolist(), val_idx.tolist()))
+            
         self._progress(
-            f"📊 Generated {len(splits)} walk-forward splits (proper time-series validation)"
+            f"📊 Generated {len(splits)} TimeSeriesSplit splits (proper time-series validation)"
         )
         return splits
 
@@ -2136,37 +2196,22 @@ class ModelTrainer:
         self, df: pd.DataFrame, n_splits: int = 5
     ) -> List[Dict[str, float]]:
         """
-        Implementation of Purged K-Fold Cross Validation.
-        Ensures training data does not overlap (with embargo) with testing data.
+        Implementation of TimeSeriesSplit validation.
+        Ensures training data is strictly in the past relative to testing data.
         """
         if len(df) < (n_splits * 20):
             return []
 
-        self._progress(f"Running Purged {n_splits}-Fold Cross Validation...")
+        self._progress(f"Running TimeSeriesSplit Validation with {n_splits} splits...")
         X = df[self.predictors]
-        # Clean data to ensure categorical features are properly typed
         X = self._clean_dataset(X)
         y = df["Target"]
-        # Use simple integer indexing for splitting
-        indices = np.arange(len(df))
-        test_size = len(df) // n_splits
-        embargo_size = int(len(df) * self.embargo_pct)
+
+        from sklearn.model_selection import TimeSeriesSplit
+        tscv = TimeSeriesSplit(n_splits=n_splits)
 
         results = []
-        for i in range(n_splits):
-            test_start = i * test_size
-            test_end = (i + 1) * test_size
-            test_indices = indices[test_start:test_end]
-
-            # Purging: ensure training doesn't leak from look-forward period
-            # Embargo: extra buffer after the test set
-            train_indices = np.concatenate(
-                [
-                    indices[: max(0, test_start - embargo_size)],
-                    indices[test_end + embargo_size :],
-                ]
-            )
-
+        for train_indices, test_indices in tscv.split(X):
             if len(train_indices) < 50:
                 continue
 
@@ -2537,15 +2582,63 @@ class ModelTrainer:
         # This threshold was NOT used during training, ensuring unbiased evaluation
         y_pred = (y_prob >= optimal_threshold).astype(int)
 
+        # --- Regime-specific Threshold Branching Optimization ---
+        def _optimize_subset_threshold(y_val_sub, y_prob_sub, default_thresh=0.5):
+            if len(np.unique(y_val_sub)) < 2:
+                return default_thresh
+            sub_p, sub_r, sub_t = precision_recall_curve(y_val_sub, y_prob_sub)
+            with np.errstate(divide="ignore", invalid="ignore"):
+                sub_f1 = 2 * (sub_p[:-1] * sub_r[:-1]) / (sub_p[:-1] + sub_r[:-1])
+            sub_f1 = np.nan_to_num(sub_f1)
+            
+            sub_valid = (sub_p[:-1] >= 0.60) & (sub_r[:-1] >= 0.10)
+            if sub_valid.any():
+                sub_best_idx = np.argmax(np.where(sub_valid, sub_f1, -1))
+            else:
+                sub_fallback = sub_p[:-1] >= 0.55
+                if sub_fallback.any():
+                    sub_best_idx = np.argmax(np.where(sub_fallback, sub_f1, -1))
+                else:
+                    sub_best_idx = np.argmax(sub_f1)
+            return float(sub_t[sub_best_idx] if sub_best_idx < len(sub_t) else default_thresh)
+
+        regimes = np.ones(len(X_test))
+        if self.market_df is not None and not self.market_df.empty:
+            try:
+                mkt_df_sorted = self.market_df.sort_index()
+                close_col = "close" if "close" in mkt_df_sorted.columns else ("Close" if "Close" in mkt_df_sorted.columns else None)
+                if close_col:
+                    mkt_close = mkt_df_sorted[close_col]
+                    mkt_sma50 = mkt_close.rolling(50, min_periods=1).mean()
+                    regime_map = (mkt_close >= mkt_sma50).astype(int)
+                    regimes = X_test.index.map(regime_map).fillna(1).values
+            except Exception as e:
+                print(f"Warning: Failed to map market regimes during validation using self.market_df: {e}")
+
+        bull_mask = regimes == 1
+        bear_mask = regimes == 0
+
+        bull_threshold = 0.55
+        bear_threshold = 0.65
+
+        if bull_mask.any() and len(np.unique(y_val[bull_mask])) >= 2:
+            bull_threshold = _optimize_subset_threshold(y_val[bull_mask], y_prob[bull_mask], default_thresh=0.55)
+        if bear_mask.any() and len(np.unique(y_val[bear_mask])) >= 2:
+            bear_threshold = _optimize_subset_threshold(y_val[bear_mask], y_prob[bear_mask], default_thresh=0.65)
+
         metrics = {
             "precision": float(precision_score(y_val, y_pred, zero_division=0)),
             "recall": float(recall_score(y_val, y_pred, zero_division=0)),
             "f1": float(f1_score(y_val, y_pred, zero_division=0)),
             "auc": float(roc_auc_score(y_val, y_prob)),
             "optimal_threshold": float(optimal_threshold),
+            "optimal_threshold_by_regime": {
+                "bull": bull_threshold,
+                "bear": bear_threshold
+            }
         }
 
-        self._progress(f"Optimal Threshold Found: {optimal_threshold:.3f}")
+        self._progress(f"Optimal Threshold Found: {optimal_threshold:.3f} (Regime Bull: {bull_threshold:.3f}, Bear: {bear_threshold:.3f})")
         self._progress(
             f"Metrics @ Threshold: P={metrics['precision']:.1%}, R={metrics['recall']:.1%}, F1={metrics['f1']:.1%}"
         )

@@ -166,7 +166,11 @@ def _refresh_egx_fundamentals_from_tradingview(symbols_raw: List[str], chunk_siz
 def _should_run_weekly_inventory(trigger: str = "manual") -> bool:
     if str(trigger or "").strip().lower() != "scheduled":
         return True
-    return dt.datetime.utcnow().weekday() == 6
+    # Cairo time is UTC+2 or UTC+3. Let's add 2 hours as a safe approximation for day checks at 16:00
+    cairo_now = dt.datetime.utcnow() + dt.timedelta(hours=2)
+    cairo_weekday = cairo_now.weekday()
+    print(f"[ADAPTIVE] Checking weekly inventory trigger. Cairo weekday: {cairo_weekday} (6 is Sunday)")
+    return cairo_weekday == 6
 
 
 def _filter_active_symbols(symbols_list: List[str]) -> List[str]:
@@ -521,7 +525,7 @@ def _send_telegram_adjustment(symbol: str, exchange: str, adjustment: dict):
             "acceleration_breakout": "🚀⚡",
         }
         emoji = emoji_map.get(adj_type, "📊")
-        web_origin = os.getenv("WEB_ORIGIN", "https://stokscan.ai").strip().rstrip("/")
+        web_origin = os.getenv("WEB_ORIGIN", "https://egxbots.com").strip().rstrip("/")
 
         reason_ar = adjustment.get('reason_ar', adj_type)
         reason_en = adjustment.get('reason_en', adj_type)
@@ -542,7 +546,7 @@ def _send_telegram_adjustment(symbol: str, exchange: str, adjustment: dict):
         msg += f"\n📊 *المؤشرات:* RSI: `{adjustment.get('rsi', '—')}` | ADX: `{adjustment.get('adx', '—')}`\n"
         msg += f"📈 *العائد الحالي للفكرة:* `{adjustment.get('pl_pct', '—')}%`\n"
         msg += f"━━━━━━━━━━━━━━━━━━━━\n"
-        msg += f"🔗 [تحديثات الفكرة على المنصة]({web_origin}/scanner)"
+        msg += f"🔗 [تحديثات الفكرة على المنصة]({web_origin}/scanner/backtests?tab=bots)"
 
         # Send to admin
         bot.send_notification(msg)
@@ -562,7 +566,7 @@ def _send_telegram_exit(symbol: str, exchange: str, entry_price: float, exit_pri
         if not bot:
             return
 
-        web_origin = os.getenv("WEB_ORIGIN", "https://stokscan.ai").strip().rstrip("/")
+        web_origin = os.getenv("WEB_ORIGIN", "https://egxbots.com").strip().rstrip("/")
         emoji = "🎉🎯" if status == "win" else "🛡️⚠️"
         status_text_ar = "توصية ناجحة (تحقيق الهدف) ✅" if status == "win" else "تفعيل وقف الخسارة 🛡️"
         status_text_en = "Target Hit (Profit) ✅" if status == "win" else "Stop Loss Hit (Loss) 🛡️"
@@ -577,7 +581,7 @@ def _send_telegram_exit(symbol: str, exchange: str, entry_price: float, exit_pri
             f"📊 *صافي العائد:* `{pl_pct:+.2f}%`\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
             f"🔗 *لمتابعة الصفقات التاريخية والتحليلات:*\n"
-            f"👉 [اضغط هنا لفتح المنصة]({web_origin}/scanner)\n"
+            f"👉 [اضغط هنا لفتح المنصة]({web_origin}/scanner/backtests?tab=bots)\n"
         )
 
         # Send to admin
@@ -666,7 +670,7 @@ def generate_weekly_performance_report(trigger: str = "manual", chat_id: Optiona
         start_date_str = (dt.datetime.utcnow() - dt.timedelta(days=7)).strftime("%Y-%m-%d")
         end_date_str = dt.datetime.utcnow().strftime("%Y-%m-%d")
         
-        web_origin = os.getenv("WEB_ORIGIN", "https://stokscan.ai").strip().rstrip("/")
+        web_origin = os.getenv("WEB_ORIGIN", "https://egxbots.com").strip().rstrip("/")
         
         # Build the final message
         msg = (
@@ -687,7 +691,7 @@ def generate_weekly_performance_report(trigger: str = "manual", chat_id: Optiona
             f"{active_positions_str}\n\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
             f"🔗 *لمتابعة الصفقات والتقارير الفنية الكاملة:*\n"
-            f"👉 [اضغط هنا لفتح المنصة]({web_origin}/scanner)\n"
+            f"👉 [اضغط هنا لفتح المنصة]({web_origin}/scanner/backtests?tab=bots)\n"
         )
         
         # Delivery
@@ -1336,93 +1340,96 @@ async def generate_daily_recommendations(model_name: Optional[str] = None):
     from typing import Optional
     resolved_model = "model_EGX.pkl"
     
+    # ── Load EGX30 index data unconditionally for trend check and adaptive selection ──
+    market_df = None
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    index_path = os.path.join(base_dir, "symbols_data", "EGX30-INDEX.json")
+    if os.path.exists(index_path):
+        try:
+            with open(index_path, "r") as f:
+                idx_data = json.load(f)
+            market_df = pd.DataFrame(idx_data)
+            market_df['date'] = pd.to_datetime(market_df['date'])
+            market_df.set_index('date', inplace=True)
+            print("[RECOMMENDATIONS] Market context (EGX30) loaded from JSON.")
+        except Exception as json_err:
+            print(f"[WARNING] Failed to load EGX30 index from JSON: {json_err}")
+
+    if market_df is None or market_df.empty:
+        print("[RECOMMENDATIONS] Loading EGX30 index from Supabase...")
+        try:
+            offset = 0
+            limit = 1000
+            all_data = []
+            while True:
+                idx_res = (
+                    supabase.table("stock_prices")
+                    .select("date, close, open, high, low, volume")
+                    .eq("symbol", "EGX30")
+                    .eq("exchange", "INDX")
+                    .order("date", desc=False)
+                    .range(offset, offset + limit - 1)
+                    .execute()
+                )
+                if not idx_res.data:
+                    break
+                all_data.extend(idx_res.data)
+                if len(idx_res.data) < limit:
+                    break
+                offset += limit
+            
+            if all_data:
+                market_df = pd.DataFrame(all_data)
+                market_df["date"] = pd.to_datetime(market_df["date"])
+                market_df = market_df.set_index("date").sort_index()
+                print(f"[RECOMMENDATIONS] Loaded {len(market_df)} EGX30 index rows from Supabase.")
+        except Exception as db_err:
+            print(f"[WARNING] Failed to load EGX30 index from Supabase: {db_err}")
+
+    # Standardize column casing and ensure standard columns exist for trend/regime checks
+    if market_df is not None and not market_df.empty:
+        rename_map = {}
+        for src, dst in {
+            "close": "Close",
+            "high": "High",
+            "low": "Low",
+            "volume": "Volume",
+            "open": "Open",
+        }.items():
+            if src in market_df.columns:
+                rename_map[src] = dst
+        if rename_map:
+            market_df = market_df.rename(columns=rename_map)
+
+        if "Close" in market_df.columns:
+            if "High" not in market_df.columns:
+                market_df["High"] = market_df["Close"]
+            if "Low" not in market_df.columns:
+                market_df["Low"] = market_df["Close"]
+            if "Volume" not in market_df.columns:
+                market_df["Volume"] = 0.0
+
+            # ── Run EGX30 Trend Safety Check (Circuit Breaker) ──
+            from api.circuit_breaker_detector import CircuitBreakerDetector
+            detector = CircuitBreakerDetector()
+            if not detector.is_egx30_trend_safe(market_df):
+                print("[RECOMMENDATIONS] ⚠️ EGX30 is under its 50-day SMA. Halting recommendations generation due to market trend circuit breaker!")
+                return
+
     if model_name:
         model_lower = model_name.lower().strip()
         if model_lower == "adaptive":
             print("[RECOMMENDATIONS] Resolving model using AdaptiveModelSelector...")
             try:
                 from api.adaptive_model_selector import AdaptiveModelSelector
-                
-                market_df = None
-                # Load EGX30 index data
-                base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-                index_path = os.path.join(base_dir, "symbols_data", "EGX30-INDEX.json")
-                if os.path.exists(index_path):
-                    try:
-                        with open(index_path, "r") as f:
-                            idx_data = json.load(f)
-                        market_df = pd.DataFrame(idx_data)
-                        market_df['date'] = pd.to_datetime(market_df['date'])
-                        market_df.set_index('date', inplace=True)
-                        print("[RECOMMENDATIONS] Market context (EGX30) loaded from JSON.")
-                    except Exception as json_err:
-                        print(f"[WARNING] Failed to load EGX30 index from JSON: {json_err}")
-
-                # Fallback to Supabase
-                if market_df is None or market_df.empty:
-                    print("[RECOMMENDATIONS] Loading EGX30 index from Supabase...")
-                    try:
-                        offset = 0
-                        limit = 1000
-                        all_data = []
-                        while True:
-                            idx_res = (
-                                supabase.table("stock_prices")
-                                .select("date, close, open, high, low, volume")
-                                .eq("symbol", "EGX30")
-                                .eq("exchange", "INDX")
-                                .order("date", desc=False)
-                                .range(offset, offset + limit - 1)
-                                .execute()
-                            )
-                            if not idx_res.data:
-                                break
-                            all_data.extend(idx_res.data)
-                            if len(idx_res.data) < limit:
-                                break
-                            offset += limit
-                        
-                        if all_data:
-                            market_df = pd.DataFrame(all_data)
-                            market_df["date"] = pd.to_datetime(market_df["date"])
-                            market_df = market_df.set_index("date").sort_index()
-                            print(f"[RECOMMENDATIONS] Loaded {len(market_df)} EGX30 index rows from Supabase.")
-                    except Exception as db_err:
-                        print(f"[WARNING] Failed to load EGX30 index from Supabase: {db_err}")
-
-                if market_df is not None and not market_df.empty:
-                    # Normalize columns to Capitalized for AdaptiveModelSelector
-                    rename_map = {}
-                    for src, dst in {
-                        "close": "Close",
-                        "high": "High",
-                        "low": "Low",
-                        "volume": "Volume",
-                        "open": "Open",
-                    }.items():
-                        if src in market_df.columns:
-                            rename_map[src] = dst
-                    if rename_map:
-                        market_df = market_df.rename(columns=rename_map)
-
-                    # Ensure standard columns exist
-                    if "Close" in market_df.columns:
-                        if "High" not in market_df.columns:
-                            market_df["High"] = market_df["Close"]
-                        if "Low" not in market_df.columns:
-                            market_df["Low"] = market_df["Close"]
-                        if "Volume" not in market_df.columns:
-                            market_df["Volume"] = 0.0
-
-                        selector = AdaptiveModelSelector()
-                        regime_info = selector.detect_market_regime(market_df)
-                        recommended_path = regime_info.recommended_model
-                        resolved_model = os.path.basename(recommended_path)
-                        print(f"[RECOMMENDATIONS] Adaptive selector detected regime: {regime_info.regime} (confidence: {regime_info.confidence:.2f}) -> Selected: {resolved_model}")
-                    else:
-                        print(f"[WARNING] Close column missing in index data. Falling back to default model: {resolved_model}")
+                if market_df is not None and not market_df.empty and "Close" in market_df.columns:
+                    selector = AdaptiveModelSelector()
+                    regime_info = selector.detect_market_regime(market_df)
+                    recommended_path = regime_info.recommended_model
+                    resolved_model = os.path.basename(recommended_path)
+                    print(f"[RECOMMENDATIONS] Adaptive selector detected regime: {regime_info.regime} (confidence: {regime_info.confidence:.2f}) -> Selected: {resolved_model}")
                 else:
-                    print(f"[WARNING] Could not obtain EGX30 index data. Falling back to default model: {resolved_model}")
+                    print(f"[WARNING] Close column missing in index data. Falling back to default model: {resolved_model}")
             except Exception as e:
                 print(f"[WARNING] Error running AdaptiveModelSelector: {e}. Falling back to default model: {resolved_model}")
         else:
@@ -1432,7 +1439,7 @@ async def generate_daily_recommendations(model_name: Optional[str] = None):
                 resolved_model = model_name
 
     print(f"[RECOMMENDATIONS] Running ML fast scan for EGX stocks using model: {resolved_model}...")
-    scan_resp = await fast_scan(
+    scan_resp = fast_scan(
         country="Egypt",
         limit=200,
         min_precision=0.5,
@@ -1446,8 +1453,22 @@ async def generate_daily_recommendations(model_name: Optional[str] = None):
         
     print(f"[RECOMMENDATIONS] ML scan found {len(results)} BUY signals.")
     
-    # Sort by precision (AI Score) descending
-    results.sort(key=lambda x: x.get("precision", 0.0), reverse=True)
+    # Calculate risk_adjusted_return for all candidates
+    for item in results:
+        entry_p = float(item.get("last_close", 0.0)) if item.get("last_close") is not None else 0.0
+        target_p = float(item.get("target_price", 0.0)) if item.get("target_price") is not None else 0.0
+        stop_l = float(item.get("stop_loss", 0.0)) if item.get("stop_loss") is not None else 0.0
+        prec = float(item.get("precision", 0.5)) if item.get("precision") is not None else 0.5
+        
+        expected_ret = target_p - entry_p
+        expected_risk = entry_p - stop_l
+        if expected_risk > 0:
+            item["risk_adjusted_return"] = prec * (expected_ret / expected_risk)
+        else:
+            item["risk_adjusted_return"] = 0.0
+
+    # Sort by risk_adjusted_return descending to prioritize safer risk-reward profiles
+    results.sort(key=lambda x: x.get("risk_adjusted_return", 0.0), reverse=True)
     
     # Take the top 10 speculative stocks
     top_10 = results[:10]
@@ -1477,6 +1498,7 @@ async def generate_daily_recommendations(model_name: Optional[str] = None):
             "entry_price": float(res_item.get("last_close", 0.0)) if res_item.get("last_close") is not None else 0.0,
             "target_price": float(res_item.get("target_price", 0.0)) if res_item.get("target_price") is not None else 0.0,
             "stop_loss": float(res_item.get("stop_loss", 0.0)) if res_item.get("stop_loss") is not None else 0.0,
+            "risk_adjusted_return": float(res_item.get("risk_adjusted_return", 0.0)),
             "is_public": True,
             "top_reasons": rich_details,  # Stored as jsonb
             "features": res_item.get("features", []),  # Stored as jsonb
@@ -1497,6 +1519,7 @@ async def generate_daily_recommendations(model_name: Optional[str] = None):
                 rec_id = existing.data[0]["id"]
                 update_data = {
                     "precision": row_data["precision"],
+                    "risk_adjusted_return": row_data["risk_adjusted_return"],
                     "top_reasons": row_data["top_reasons"],
                     "features": row_data["features"],
                     "updated_at": row_data["updated_at"]
@@ -1505,13 +1528,13 @@ async def generate_daily_recommendations(model_name: Optional[str] = None):
                 print(f"[RECOMMENDATIONS] #{i+1} Updated existing open recommendation for {symbol}.{exchange}")
             else:
                 supabase.table("scan_results").insert(row_data).execute()
-                print(f"[RECOMMENDATIONS] #{i+1} Saved {symbol}.{exchange} with target1={row_data['target_price']}, target2={rich_details['target_2']}")
+                print(f"[RECOMMENDATIONS] #{i+1} Saved {symbol}.{exchange} with target1={row_data['target_price']}, target2={rich_details['target_2']}, risk_adjusted_return={row_data['risk_adjusted_return']:.4f}")
         except Exception as ins_err:
             print(f"[RECOMMENDATIONS] Failed to save/update recommendation for {symbol}: {ins_err}")
 
     # Notify Stocks Score subscribers with beautiful detailed summary card
     try:
-        web_origin = os.getenv("WEB_ORIGIN", "https://stokscan.ai").strip().rstrip("/")
+        web_origin = os.getenv("WEB_ORIGIN", "https://egxbots.com").strip().rstrip("/")
         current_date = dt.datetime.now().strftime("%Y-%m-%d")
         
         msg_lines = [
@@ -1542,7 +1565,7 @@ async def generate_daily_recommendations(model_name: Optional[str] = None):
         msg_lines.append(
             f"📈 *إجمالي الإشارات الجديدة:* `{len(top_10)}` أسهم\n\n"
             f"🔗 *لمتابعة الرسوم البيانية والتفاصيل الكاملة:*\n"
-            f"👉 [اضغط هنا لفتح المنصة]({web_origin}/scanner)"
+            f"👉 [اضغط هنا لفتح المنصة]({web_origin}/scanner/backtests?tab=bots)"
         )
         
         _notify_service_subscribers("stock_score", "\n".join(msg_lines))
@@ -1887,6 +1910,53 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
         except Exception as e:
             _record_step("refresh_market_status", False, str(e)[:200], 0)
             print(f"[MARKET_STATUS] Error: {e}")
+
+        # 9. Run Weekly Adaptive Retraining (on Sunday)
+        if _should_run_weekly_inventory(trigger):
+            print("\n>>> STEP 9: Running Weekly Adaptive Retraining...")
+            try:
+                from api.adaptive_learning import ActiveLearner, ManualRetrainer, update_actuals
+                print("[ADAPTIVE] Updating actual outcomes for EGX...")
+                update_actuals(exchange="EGX", look_forward_days=20)
+                
+                print("[ADAPTIVE] Initializing adaptive retraining for EGX model...")
+                learner = ActiveLearner("EGX")
+                if learner.model:
+                    retrainer = ManualRetrainer("EGX")
+                    mistakes = retrainer.fetch_mistakes(lookback_days=90)
+                    if mistakes:
+                        new_booster = retrainer.retrain_on_mistakes(learner, mistakes)
+                        if new_booster:
+                            import joblib
+                            base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                            model_path = os.path.join(base_dir, "models", "model_EGX.pkl")
+                            try:
+                                if os.path.exists(model_path):
+                                    data = joblib.load(model_path)
+                                    if isinstance(data, dict) and data.get("kind") == "lgbm_booster":
+                                        data["model_str"] = new_booster.model_to_string()
+                                        joblib.dump(data, model_path)
+                                    else:
+                                        joblib.dump(new_booster, model_path)
+                                else:
+                                    joblib.dump(new_booster, model_path)
+                                print(f"[ADAPTIVE] Weekly retraining completed successfully with {len(mistakes)} mistakes.")
+                                _record_step("weekly_adaptive_retraining", True, f"Retrained on {len(mistakes)} mistakes", len(mistakes))
+                            except Exception as save_err:
+                                print(f"[ADAPTIVE] Failed to save retrained model: {save_err}")
+                                _record_step("weekly_adaptive_retraining", False, f"Failed to save: {save_err}", 0)
+                        else:
+                            print("[ADAPTIVE] Retraining failed to produce a new booster.")
+                            _record_step("weekly_adaptive_retraining", False, "Retraining failed", 0)
+                    else:
+                        print("[ADAPTIVE] No recent mistakes found for retraining.")
+                        _record_step("weekly_adaptive_retraining", True, "Skipped - no mistakes found", 0)
+                else:
+                    print("[ADAPTIVE] EGX model not found for retraining.")
+                    _record_step("weekly_adaptive_retraining", False, "Model not found", 0)
+            except Exception as e:
+                _record_step("weekly_adaptive_retraining", False, str(e)[:200], 0)
+                print(f"[ADAPTIVE] Weekly retraining failed with error: {e}")
 
         _persist_job("completed")
         print(f"\n--- Daily Bot Run Job Completed: {dt.datetime.now()} ---")
