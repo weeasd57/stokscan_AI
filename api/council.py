@@ -55,38 +55,65 @@ class TheCouncil:
             "categorical_features", []
         )
 
-    def _align_X_for_artifact(self, X: pd.DataFrame, artifact: dict) -> pd.DataFrame:
+    def _align_X_for_artifact(self, X: pd.DataFrame, artifact: Any) -> pd.DataFrame:
         """
-        Align X to the feature expectations of a saved artifact dict.
+        Align X to the feature expectations of a saved artifact dict or model object.
         Supports:
         - meta_labeling_system (uses primary_model.feature_names + categorical_features)
         - lgbm_booster (uses feature_names + categorical_features)
+        - direct model objects (recursively inspects primary_model, booster, feature_name, feature_names_in_)
         """
         if not isinstance(X, pd.DataFrame):
             X = pd.DataFrame(X)
         df = X.copy()
 
-        kind = (artifact.get("kind") or "").strip().lower()
         required: List[str] = []
         categorical_features: List[str] = []
 
-        if kind == "meta_labeling_system":
-            primary_art = artifact.get("primary_model") or {}
-            required = list(primary_art.get("feature_names") or [])
-            categorical_features = list(primary_art.get("categorical_features") or [])
-        elif kind == "lgbm_booster":
-            required = list(artifact.get("feature_names") or [])
-            categorical_features = list(artifact.get("categorical_features") or [])
-        elif kind == "council_validator":
-            primary_art = artifact.get("primary_model") or {}
-            required = list(
-                primary_art.get("feature_names") or artifact.get("feature_names") or []
-            )
-            categorical_features = list(
-                primary_art.get("categorical_features")
-                or artifact.get("categorical_features")
-                or []
-            )
+        if isinstance(artifact, dict):
+            kind = (artifact.get("kind") or "").strip().lower()
+            if kind == "meta_labeling_system":
+                primary_art = artifact.get("primary_model") or {}
+                required = list(primary_art.get("feature_names") or [])
+                categorical_features = list(primary_art.get("categorical_features") or [])
+            elif kind == "lgbm_booster":
+                required = list(artifact.get("feature_names") or [])
+                categorical_features = list(artifact.get("categorical_features") or [])
+            elif kind == "council_validator":
+                primary_art = artifact.get("primary_model") or {}
+                required = list(
+                    primary_art.get("feature_names") or artifact.get("feature_names") or []
+                )
+                categorical_features = list(
+                    primary_art.get("categorical_features")
+                    or artifact.get("categorical_features")
+                    or []
+                )
+        elif artifact is not None:
+            # Recursively inspect the model object to find feature names
+            def extract_feats(m):
+                req, cats = [], []
+                if hasattr(m, "primary_model"):
+                    r, c = extract_feats(m.primary_model)
+                    req.extend(r)
+                    cats.extend(c)
+                elif hasattr(m, "booster"):
+                    r, c = extract_feats(m.booster)
+                    req.extend(r)
+                    cats.extend(c)
+                elif hasattr(m, "feature_name"):
+                    try:
+                        req.extend(list(m.feature_name()))
+                    except Exception:
+                        pass
+                elif hasattr(m, "feature_names_in_"):
+                    try:
+                        req.extend(list(m.feature_names_in_))
+                    except Exception:
+                        pass
+                return req, cats
+
+            required, categorical_features = extract_feats(artifact)
 
         if not required:
             # Best-effort sanitize: drop non-numeric/non-float columns that might break boosters
@@ -298,7 +325,7 @@ class TheCouncil:
                         continue
                 else:
                     # Direct model object
-                    X_aligned = self._align_X_for_artifact(X, {})
+                    X_aligned = self._align_X_for_artifact(X, model)
                     p1 = self._predict_p1(model, X_aligned)
 
                 if p1 is not None and len(p1) > 0:
@@ -402,7 +429,7 @@ class TheCouncil:
                     else:
                         votes[name] = np.zeros(len(X))
                 else:
-                    X_aligned = self._align_X_for_artifact(X, {})
+                    X_aligned = self._align_X_for_artifact(X, model)
                     votes[name] = self._predict_p1(model, X_aligned)
             except Exception:
                 votes[name] = np.zeros(len(X))

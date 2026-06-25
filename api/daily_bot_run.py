@@ -1438,12 +1438,17 @@ async def generate_daily_recommendations(model_name: Optional[str] = None):
             else:
                 resolved_model = model_name
 
-    print(f"[RECOMMENDATIONS] Running ML fast scan for EGX stocks using model: {resolved_model}...")
+    council_model = None
+    if resolved_model == "model_EGX.pkl" or resolved_model.endswith("model_EGX.pkl"):
+        council_model = "KING.pkl"
+
+    print(f"[RECOMMENDATIONS] Running ML fast scan for EGX stocks using model: {resolved_model} (council: {council_model})...")
     scan_resp = fast_scan(
         country="Egypt",
         limit=200,
         min_precision=0.5,
-        model_name=resolved_model
+        model_name=resolved_model,
+        council_model=council_model
     )
     
     results = scan_resp.get("results", [])
@@ -1452,6 +1457,29 @@ async def generate_daily_recommendations(model_name: Optional[str] = None):
         return
         
     print(f"[RECOMMENDATIONS] ML scan found {len(results)} BUY signals.")
+
+    if council_model:
+        try:
+            env_thresh = os.getenv("COUNCIL_THRESHOLD", "55.0")
+            council_threshold = float(env_thresh)
+            if council_threshold <= 1.0:
+                council_threshold *= 100.0
+        except Exception:
+            council_threshold = 55.0
+
+        filtered_results = []
+        for item in results:
+            score = float(item.get("council_score", 0.0))
+            if score >= council_threshold:
+                filtered_results.append(item)
+            else:
+                print(f"[RECOMMENDATIONS] Filtered out {item.get('symbol')} due to low council score: {score:.1f}% < {council_threshold:.1f}%")
+        
+        print(f"[RECOMMENDATIONS] Council filtering: {len(results)} -> {len(filtered_results)} candidates remaining.")
+        results = filtered_results
+        if not results:
+            print("[RECOMMENDATIONS] No candidates passed council consensus filtering.")
+            return
     
     # Calculate risk_adjusted_return for all candidates
     for item in results:
