@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
 import { Loader2, Brain, Activity, UserPlus, Zap, Settings2, BarChart2, Calendar, Target, Clock, AlertTriangle, ChevronDown, Check, X, ShieldAlert, LineChart, FileText, Download, TrendingUp, Layers, Database, Play, EyeOff, UserMinus, Search, RefreshCw, ShieldCheck, HelpCircle, ArrowRightLeft, Lock, Volume2, VolumeX, Edit, Eye, Cpu, History, Sparkles } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
@@ -626,11 +626,30 @@ export default function AIScannerPage() {
         }
     };
 
+    const botsFetchedForUser = useRef<string | null>();
+    const modelsFetchedForUser = useRef<string | null>();
+    const backtestsFetchedForUser = useRef<string | null>();
+
     useEffect(() => {
-        fetchBotsList();
-        fetchModelCards();
-        fetchBacktestsList();
-    }, [user?.id]);
+        if (activeTab === "bots" && botsFetchedForUser.current !== (user?.id ?? null)) {
+            botsFetchedForUser.current = user?.id ?? null;
+            fetchBotsList();
+        }
+    }, [activeTab, user?.id]);
+
+    useEffect(() => {
+        if ((activeTab === "bots" || activeTab === "backtests") && modelsFetchedForUser.current !== (user?.id ?? null)) {
+            modelsFetchedForUser.current = user?.id ?? null;
+            fetchModelCards();
+        }
+    }, [activeTab, user?.id]);
+
+    useEffect(() => {
+        if (activeTab === "backtests" && backtestsFetchedForUser.current !== (user?.id ?? null)) {
+            backtestsFetchedForUser.current = user?.id ?? null;
+            fetchBacktestsList();
+        }
+    }, [activeTab, user?.id]);
 
     useEffect(() => {
         if (activeTab === "similarity" && !publishedReport) {

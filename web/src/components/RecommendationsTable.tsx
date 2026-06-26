@@ -259,8 +259,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
         }
     };
 
-    // Compute performance stats from recommendations
-    const stats = useMemo(() => {
+    const tabCounts = useMemo(() => {
         let items = recommendations;
         if (shariaOnly) {
             items = items.filter(r => isShariaCompliant(r.symbol));
@@ -274,20 +273,9 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
             const s = (r.status || "").toLowerCase();
             return s === "win" || s === "loss";
         });
-        const wins = closed.filter(r => (r.status || "").toLowerCase() === "win");
-        
-        const winRate = closed.length > 0 ? (wins.length / closed.length) * 100 : 0;
-        
-        const closedWithReturn = closed.filter(r => r.profit_loss_pct != null);
-        const avgReturn = closedWithReturn.length > 0
-            ? closedWithReturn.reduce((sum, r) => sum + (r.profit_loss_pct || 0), 0) / closedWithReturn.length
-            : 0;
-
         return {
             activeCount: active.length,
             closedCount: closed.length,
-            winRate,
-            avgReturn,
             totalCount: items.length
         };
     }, [recommendations, shariaOnly]);
@@ -398,6 +386,32 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
         return processedRows.slice(start, start + itemsPerPage);
     }, [processedRows, limitedRows, limit, currentPage]);
 
+    // Compute the visible summary from the currently active tab/filter set.
+    const stats = useMemo(() => {
+        const active = processedRows.filter(r => {
+            const s = (r.status || "").toLowerCase();
+            return s !== "win" && s !== "loss";
+        });
+        const closed = processedRows.filter(r => {
+            const s = (r.status || "").toLowerCase();
+            return s === "win" || s === "loss";
+        });
+        const wins = closed.filter(r => (r.status || "").toLowerCase() === "win");
+        const winRate = closed.length > 0 ? (wins.length / closed.length) * 100 : 0;
+        const rowsWithReturn = processedRows.filter(r => r.profit_loss_pct != null);
+        const avgReturn = rowsWithReturn.length > 0
+            ? rowsWithReturn.reduce((sum, r) => sum + (r.profit_loss_pct || 0), 0) / rowsWithReturn.length
+            : 0;
+
+        return {
+            activeCount: active.length,
+            closedCount: closed.length,
+            winRate,
+            avgReturn,
+            totalCount: processedRows.length
+        };
+    }, [processedRows]);
+
     const totalPages = Math.max(1, Math.ceil(processedRows.length / itemsPerPage));
 
     // Circular Score Badge Renderer (danelfin style)
@@ -472,6 +486,141 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                 {isAr ? "مفتوح" : "OPEN"}
                 {plPct != null && ` ${plPct >= 0 ? "+" : ""}${plPct.toFixed(1)}%`}
             </span>
+        );
+    };
+
+    const renderSignalBadge = (row: any) => {
+        const status = row.status?.toLowerCase();
+        if (status === "win" || status === "loss") {
+            return (
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 border-2 border-black dark:border-white font-black text-xs bg-zinc-100 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 shadow-[2px_2px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_rgba(255,255,255,1)]">
+                    <Minus className="w-3.5 h-3.5 shrink-0" />
+                    {translate("exit")}
+                </span>
+            );
+        }
+        if (row.signal.toUpperCase() === "BUY") {
+            return (
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 border-2 border-black font-black text-xs bg-emerald-100 text-emerald-800 shadow-[2px_2px_0px_rgba(0,0,0,1)]">
+                    <TrendingUp className="w-3.5 h-3.5 shrink-0" />
+                    {translate("buy")}
+                </span>
+            );
+        }
+        return (
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 border-2 border-black font-black text-xs bg-rose-100 text-rose-800 shadow-[2px_2px_0px_rgba(0,0,0,1)]">
+                <TrendingDown className="w-3.5 h-3.5 shrink-0" />
+                {translate("sell")}
+            </span>
+        );
+    };
+
+    const renderLandingCards = () => {
+        const headerClass = "px-4 py-3 text-xs font-black uppercase tracking-wider text-black dark:text-white";
+        return (
+            <div className="divide-y-4 divide-black dark:divide-white">
+                {/* Desktop header */}
+                <div className="hidden md:grid md:grid-cols-[56px_1fr_80px_100px_110px_1fr] items-center bg-zinc-100 dark:bg-zinc-900 text-black dark:text-white border-b-4 border-black dark:border-white">
+                    <div className={`${headerClass} text-center`}>{translate("rank")}</div>
+                    <div className={`${headerClass}`}>{translate("stockName")}</div>
+                    <div className={`${headerClass} text-center`}>{translate("aiScore")}</div>
+                    <div className={`${headerClass} text-center`}>{translate("signal")}</div>
+                    <div className={`${headerClass} text-center`}>{isAr ? "الحالة" : "Status"}</div>
+                    <div className={`${headerClass}`}>{translate("sector")}</div>
+                </div>
+
+                <div className="flex flex-col">
+                    {displayRows.map((row, index) => {
+                        const cInfo = getCountryFlag(row.country, row.exchange);
+                        const rankNum = limit !== Infinity ? index + 1 : (currentPage - 1) * itemsPerPage + index + 1;
+                        const aiScoreNum = Number((row.precision * 10).toFixed(0));
+                        const statusLower = row.status?.toLowerCase() || "open";
+                        const rowBgClass =
+                            statusLower === "win"
+                                ? "bg-emerald-500/5 dark:bg-emerald-500/10"
+                                : statusLower === "loss"
+                                ? "bg-rose-500/5 dark:bg-rose-500/10"
+                                : "";
+
+                        return (
+                            <div
+                                key={row.id}
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleStockClick(row);
+                                }}
+                                className={`group cursor-pointer transition-all duration-150 hover:bg-zinc-50 dark:hover:bg-zinc-900 ${rowBgClass} border-b-4 border-black dark:border-white last:border-b-0`}
+                            >
+                                {/* Mobile card */}
+                                <div className="md:hidden p-4 space-y-4">
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-8 h-8 border-2 border-black dark:border-white neobrutal-bg-yellow flex items-center justify-center font-black font-mono text-sm text-black">
+                                                {rankNum}
+                                            </div>
+                                            <StockLogo symbol={row.symbol} logoUrl={row.logo_url} size="md" />
+                                            <div className="flex flex-col">
+                                                <div className="flex items-center gap-1.5">
+                                                    <span className="text-base font-black text-indigo-600 dark:text-indigo-400">{row.symbol}</span>
+                                                    {isShariaCompliant(row.symbol) && (
+                                                        <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 border border-black dark:border-white bg-emerald-400 text-black text-[8px] font-black uppercase tracking-wider shadow-[1px_1px_0px_rgba(0,0,0,1)] dark:shadow-[1px_1px_0px_rgba(255,255,255,1)]">
+                                                            <ShieldCheck className="w-2.5 h-2.5" />
+                                                            {translate("halal")}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                <span className="text-[10px] text-zinc-500 dark:text-zinc-400 font-medium truncate max-w-[140px]" title={row.name}>
+                                                    {row.name}
+                                                </span>
+                                            </div>
+                                        </div>
+                                        {renderCircularScore(aiScoreNum, "AI")}
+                                    </div>
+                                    <div className="flex items-center justify-between flex-wrap gap-3">
+                                        <div className="flex items-center gap-2">
+                                            {renderSignalBadge(row)}
+                                            {getStatusBadge(row.status || "open", row.profit_loss_pct)}
+                                        </div>
+                                        <div className="flex items-center gap-1.5 text-xs font-black text-zinc-500 uppercase">
+                                            <span className="text-lg leading-none">{cInfo.flag}</span>
+                                            <span className="truncate max-w-[110px]">{row.sector || "N/A"}</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Desktop row */}
+                                <div className="hidden md:grid md:grid-cols-[56px_1fr_80px_100px_110px_1fr] items-center px-4 py-3">
+                                    <div className="text-center font-black font-mono text-zinc-500 text-sm">{rankNum}</div>
+                                    <div className="flex items-center gap-3">
+                                        <StockLogo symbol={row.symbol} logoUrl={row.logo_url} size="md" />
+                                        <div className="flex flex-col">
+                                            <div className="flex items-center gap-1.5">
+                                                <span className="text-base font-black text-indigo-600 dark:text-indigo-400 hover:underline">{row.symbol}</span>
+                                                {isShariaCompliant(row.symbol) && (
+                                                    <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 border border-black dark:border-white bg-emerald-400 text-black text-[8px] font-black uppercase tracking-wider shadow-[1px_1px_0px_rgba(0,0,0,1)] dark:shadow-[1px_1px_0px_rgba(255,255,255,1)]">
+                                                        <ShieldCheck className="w-2.5 h-2.5" />
+                                                        {translate("halal")}
+                                                    </span>
+                                                )}
+                                            </div>
+                                            <span className="text-[10px] text-zinc-500 dark:text-zinc-400 font-medium truncate max-w-[200px]" title={row.name}>
+                                                {row.name}
+                                            </span>
+                                        </div>
+                                    </div>
+                                    <div className="flex justify-center">{renderCircularScore(aiScoreNum, "AI")}</div>
+                                    <div className="flex justify-center">{renderSignalBadge(row)}</div>
+                                    <div className="flex justify-center">{getStatusBadge(row.status || "open", row.profit_loss_pct)}</div>
+                                    <div className="text-xs font-black uppercase text-zinc-500 flex items-center gap-1.5">
+                                        <span className="text-lg leading-none">{cInfo.flag}</span>
+                                        <span className="truncate">{row.sector || "N/A"}</span>
+                                    </div>
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+            </div>
         );
     };
 
@@ -1111,9 +1260,9 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
             {limit === Infinity && (!isLandingPage || user) && (
                 <div className="flex flex-col sm:flex-row border-4 border-black dark:border-white bg-zinc-100 dark:bg-zinc-900 shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_rgba(255,255,255,1)] p-1.5 gap-2 select-none">
                     {[
-                        { id: "active", label: isAr ? "الصفقات النشطة (المفتوحة)" : "Active Trades (Open)", count: stats.activeCount },
-                        { id: "closed", label: isAr ? "أرشيف العمليات (المغلقة)" : "Closed Archive", count: stats.closedCount },
-                        { id: "all", label: isAr ? "جميع الصفقات" : "All Trades", count: stats.totalCount }
+                        { id: "active", label: isAr ? "الصفقات النشطة (المفتوحة)" : "Active Trades (Open)", count: tabCounts.activeCount },
+                        { id: "closed", label: isAr ? "أرشيف العمليات (المغلقة)" : "Closed Archive", count: tabCounts.closedCount },
+                        { id: "all", label: isAr ? "جميع الصفقات" : "All Trades", count: tabCounts.totalCount }
                     ].map(tab => {
                         const isSelected = activeTab === tab.id;
                         return (
@@ -1284,6 +1433,8 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                             </button>
                         )}
                     </div>
+                ) : isLandingPage ? (
+                    renderLandingCards()
                 ) : (
                     <div className="overflow-x-auto xl:overflow-x-visible w-full">
                         <table className="w-full text-left border-collapse whitespace-nowrap lg:whitespace-normal">

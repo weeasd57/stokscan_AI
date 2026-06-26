@@ -9,6 +9,7 @@ import {
   X,
   Sparkles,
   Send,
+  Globe,
 } from "lucide-react";
 import { useState, useEffect, useMemo } from "react";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
@@ -800,6 +801,66 @@ export default function BlogsPage() {
           {t("blogs.description")}
         </p>
       </header>
+
+      {/* Market Depth & Macro Insight Cards */}
+      <section className="border-4 border-black dark:border-white bg-white dark:bg-zinc-950 p-6 sm:p-8 shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] dark:shadow-[8px_8px_0px_0px_rgba(255,255,255,1)]">
+        <div className="text-center mb-8">
+          <div className="inline-block border-4 border-black dark:border-white px-3 py-1.5 neobrutal-bg-cyan text-black dark:text-black font-black text-xs uppercase tracking-widest rotate-[-1deg] mb-4">
+            {isAr ? "رؤية السوق" : "MARKET INSIGHTS"}
+          </div>
+          <h2 className="text-2xl sm:text-4xl font-black text-black dark:text-white tracking-tight">
+            {isAr ? "عمق السوق وسعر الصرف" : "Depth, Volume & Macro Signals"}
+          </h2>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 font-sans">
+          <div className="border-4 border-black dark:border-white bg-zinc-50 dark:bg-zinc-900 p-6 shadow-[5px_5px_0px_rgba(0,0,0,1)] dark:shadow-[5px_5px_0px_rgba(255,255,255,1)] space-y-4 rounded-none">
+            <h3 className={`text-sm font-black text-zinc-950 dark:text-white uppercase tracking-widest flex items-center gap-2 ${isAr ? "flex-row-reverse text-right" : "flex-row"}`}>
+              <BookOpen className="w-4 h-4 text-amber-400" />
+              {t("market.maker_title")}
+            </h3>
+            <div className={`space-y-4 text-xs leading-relaxed text-zinc-700 dark:text-zinc-400 ${isAr ? "text-right" : "text-left"}`}>
+              <p>{t("market.maker_intro")}</p>
+              <ul className="space-y-3">
+                <li className="flex flex-col gap-1">
+                  <strong className="text-zinc-950 dark:text-zinc-200">{t("market.maker_accum_title")}</strong>
+                  <span>{t("market.maker_accum_desc")}</span>
+                </li>
+                <li className="flex flex-col gap-1">
+                  <strong className="text-zinc-950 dark:text-zinc-200">{t("market.maker_dist_title")}</strong>
+                  <span>{t("market.maker_dist_desc")}</span>
+                </li>
+              </ul>
+              <p className="text-[11px] text-zinc-600 dark:text-zinc-500 border-t border-zinc-200 dark:border-zinc-800 pt-3">
+                {t("market.maker_tip")}
+              </p>
+            </div>
+          </div>
+
+          <div className="border-4 border-black dark:border-white bg-zinc-50 dark:bg-zinc-900 p-6 shadow-[5px_5px_0px_rgba(0,0,0,1)] dark:shadow-[5px_5px_0px_rgba(255,255,255,1)] space-y-4 rounded-none">
+            <h3 className={`text-sm font-black text-zinc-950 dark:text-white uppercase tracking-widest flex items-center gap-2 ${isAr ? "flex-row-reverse text-right" : "flex-row"}`}>
+              <Globe className="w-4 h-4 text-purple-400" />
+              {t("market.macro_title")}
+            </h3>
+            <div className={`space-y-4 text-xs leading-relaxed text-zinc-700 dark:text-zinc-400 ${isAr ? "text-right" : "text-left"}`}>
+              <p>{t("market.macro_intro")}</p>
+              <ul className="space-y-3">
+                <li className="flex flex-col gap-1">
+                  <strong className="text-zinc-950 dark:text-zinc-200">{t("market.macro_hedge_title")}</strong>
+                  <span>{t("market.macro_hedge_desc")}</span>
+                </li>
+                <li className="flex flex-col gap-1">
+                  <strong className="text-zinc-950 dark:text-zinc-200">{t("market.macro_reval_title")}</strong>
+                  <span>{t("market.macro_reval_desc")}</span>
+                </li>
+              </ul>
+              <p className="text-[11px] text-zinc-600 dark:text-zinc-500 border-t border-zinc-200 dark:border-zinc-800 pt-3">
+                {t("market.macro_tip")}
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
 
       {/* Blogs Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">

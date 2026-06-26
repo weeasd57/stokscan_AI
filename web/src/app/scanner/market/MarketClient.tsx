@@ -4,8 +4,8 @@ import React, { useState, useEffect } from "react";
 import { useLanguage } from "@/contexts/LanguageContext";
 import {
     Loader2, RefreshCw, Landmark,
-    ArrowUpRight, ArrowDownRight, Globe, AlertTriangle, AlertCircle,
-    DollarSign, Activity, BookOpen, Layers
+    ArrowUpRight, ArrowDownRight, AlertTriangle, AlertCircle,
+    DollarSign, Activity, Layers
 } from "lucide-react";
 import {
     ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid
@@ -393,56 +393,6 @@ export default function MarketClient() {
                 </div>
             </div>
 
-            {/* Smart Market Outlook / Educational and Depth Insights */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 font-sans">
-                {/* Market Maker Insights */}
-                <div className="border-4 border-black dark:border-white bg-white dark:bg-zinc-950 p-6 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_0px_rgba(255,255,255,0.15)] space-y-4 rounded-none">
-                    <h3 className={`text-sm font-black text-zinc-950 dark:text-white uppercase tracking-widest flex items-center gap-2 ${isAr ? "flex-row-reverse" : "flex-row"}`}>
-                        <BookOpen className="w-4 h-4 text-amber-400" />
-                        {t("market.maker_title")}
-                    </h3>
-                    <div className={`space-y-4 text-xs leading-relaxed text-zinc-700 dark:text-zinc-400 ${isAr ? "text-right" : "text-left"}`}>
-                        <p>{t("market.maker_intro")}</p>
-                        <ul className="space-y-3">
-                            <li className="flex flex-col gap-1">
-                                <strong className="text-zinc-950 dark:text-zinc-200">{t("market.maker_accum_title")}</strong>
-                                <span className="text-zinc-700 dark:text-zinc-400">{t("market.maker_accum_desc")}</span>
-                            </li>
-                            <li className="flex flex-col gap-1">
-                                <strong className="text-zinc-950 dark:text-zinc-200">{t("market.maker_dist_title")}</strong>
-                                <span className="text-zinc-700 dark:text-zinc-400">{t("market.maker_dist_desc")}</span>
-                            </li>
-                        </ul>
-                        <p className="text-[11px] text-zinc-600 dark:text-zinc-500 border-t border-zinc-200 dark:border-zinc-800 pt-3">
-                            💡 {t("market.maker_tip")}
-                        </p>
-                    </div>
-                </div>
-
-                {/* Macro Economic Analysis */}
-                <div className="border-4 border-black dark:border-white bg-white dark:bg-zinc-950 p-6 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_0px_rgba(255,255,255,0.15)] space-y-4 rounded-none">
-                    <h3 className={`text-sm font-black text-zinc-950 dark:text-white uppercase tracking-widest flex items-center gap-2 ${isAr ? "flex-row-reverse" : "flex-row"}`}>
-                        <Globe className="w-4 h-4 text-purple-400" />
-                        {t("market.macro_title")}
-                    </h3>
-                    <div className={`space-y-4 text-xs leading-relaxed text-zinc-700 dark:text-zinc-400 ${isAr ? "text-right" : "text-left"}`}>
-                        <p>{t("market.macro_intro")}</p>
-                        <ul className="space-y-3">
-                            <li className="flex flex-col gap-1">
-                                <strong className="text-zinc-950 dark:text-zinc-200">{t("market.macro_hedge_title")}</strong>
-                                <span className="text-zinc-700 dark:text-zinc-400">{t("market.macro_hedge_desc")}</span>
-                            </li>
-                            <li className="flex flex-col gap-1">
-                                <strong className="text-zinc-950 dark:text-zinc-200">{t("market.macro_reval_title")}</strong>
-                                <span className="text-zinc-700 dark:text-zinc-400">{t("market.macro_reval_desc")}</span>
-                            </li>
-                        </ul>
-                        <p className="text-[11px] text-zinc-600 dark:text-zinc-500 border-t border-zinc-200 dark:border-zinc-800 pt-3">
-                            💡 {t("market.macro_tip")}
-                        </p>
-                    </div>
-                </div>
-            </div>
         </div>
     );
 }
