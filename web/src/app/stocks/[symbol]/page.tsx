@@ -112,15 +112,148 @@ export default async function StockDetailPage({ params }: PageProps) {
     .limit(1);
   const latestScan = scanRows?.[0] || null;
 
+  // Compute composite AI Score dynamically if DB has no AI Scanner result
+  let computedAIScore = 50;
+  if (latestScan && latestScan.precision) {
+    computedAIScore = Math.round(Number(latestScan.precision) * 100);
+  } else if (latestTech) {
+    let score = 50; // base
+    const rsi = Number(latestTech.rsi_14);
+    if (!isNaN(rsi)) {
+      if (rsi < 30) score += 15;
+      else if (rsi > 70) score -= 15;
+      else if (rsi > 50) score += 5;
+    }
+
+    const macd = Number(latestTech.macd);
+    const signal = Number(latestTech.macd_signal);
+    if (!isNaN(macd) && !isNaN(signal)) {
+      if (macd > signal) score += 15;
+      else score -= 15;
+    }
+
+    const close = Number(latestTech.close);
+    const ema50 = Number(latestTech.ema_50);
+    const ema200 = Number(latestTech.ema_200);
+    if (!isNaN(close)) {
+      if (!isNaN(ema50)) {
+        if (close > ema50) score += 10;
+        else score -= 10;
+      }
+      if (!isNaN(ema200)) {
+        if (close > ema200) score += 10;
+        else score -= 10;
+      }
+    }
+
+    const chg = Number(latestTech.change_pct);
+    if (!isNaN(chg)) {
+      if (chg > 0) score += 5;
+      else score -= 5;
+    }
+
+    computedAIScore = Math.max(10, Math.min(95, score));
+  }
+
+  let rawSignal = "HOLD";
+  if (latestScan && latestScan.signal) {
+    rawSignal = latestScan.signal.toUpperCase();
+  } else {
+    if (computedAIScore >= 65) rawSignal = "BUY";
+    else if (computedAIScore <= 40) rawSignal = "SELL";
+  }
+
+  let opinionArabic = "احتفاظ";
+  if (rawSignal === "BUY" || rawSignal === "STRONG BUY") {
+    opinionArabic = "شراء";
+  } else if (rawSignal === "SELL" || rawSignal === "STRONG SELL") {
+    opinionArabic = "بيع";
+  }
+
+  const fund = fundRow?.data || {};
+  const companyName = fund.name || fund.Name || symbol;
+  const sector = fund.sector || fund.Sector || "";
+  const currentPrice = Number(latestPrice?.close ?? latestTech?.close ?? 0);
+  const priceDate = latestPrice?.date || latestTech?.date || new Date().toISOString();
+  const description = `تحليل وتوصية سهم ${companyName} (${symbol}) بناءً على الذكاء الاصطناعي والمؤشرات الفنية في البورصة المصرية.`;
+
+  const structuredDataGraph = {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "FinancialProduct",
+        "@id": `https://egxbots.com/stocks/${symbol.toLowerCase()}#financial-product`,
+        "name": companyName,
+        "tickerSymbol": symbol,
+        "exchange": exchange,
+        "description": description,
+        "brand": {
+          "@type": "Brand",
+          "name": "EGX Bots"
+        },
+        "offers": currentPrice > 0 ? {
+          "@type": "Offer",
+          "price": currentPrice.toFixed(2),
+          "priceCurrency": "EGP",
+          "priceValidUntil": new Date(new Date().setDate(new Date().getDate() + 1)).toISOString().split('T')[0]
+        } : undefined
+      },
+      {
+        "@type": "Dataset",
+        "@id": `https://egxbots.com/stocks/${symbol.toLowerCase()}#dataset`,
+        "name": `${companyName} (${symbol}) Stock Price & Indicators Dataset`,
+        "description": `بيانات أسعار ومؤشرات فنية وتوصيات الذكاء الاصطناعي لسهم ${companyName} (${symbol}) في البورصة المصرية.`,
+        "url": `https://egxbots.com/stocks/${symbol.toLowerCase()}`,
+        "creator": {
+          "@type": "Organization",
+          "name": "EGX Bots"
+        }
+      },
+      {
+        "@type": "AnalysisNewsArticle",
+        "@id": `https://egxbots.com/stocks/${symbol.toLowerCase()}#analysis`,
+        "headline": `تحليل وتوصية ذكاء اصطناعي لسهم ${companyName} (${symbol}) | البورصة المصرية`,
+        "description": description,
+        "datePublished": latestScan?.created_at || priceDate,
+        "dateModified": priceDate,
+        "author": {
+          "@type": "Organization",
+          "name": "EGX Bots AI"
+        },
+        "publisher": {
+          "@type": "Organization",
+          "name": "EGX BOTS",
+          "logo": {
+            "@type": "ImageObject",
+            "url": "https://egxbots.com/favicon_io/android-chrome-512x512.png"
+          }
+        },
+        "opinion": opinionArabic,
+        "about": {
+          "@type": "FinancialProduct",
+          "name": companyName,
+          "tickerSymbol": symbol,
+          "exchange": exchange
+        }
+      }
+    ]
+  };
+
   return (
-    <StockDetailClient
-      symbol={symbol}
-      exchange={exchange}
-      fundamentals={fundRow}
-      latestPrice={latestPrice}
-      latestTech={latestTech}
-      historicalPrices={historicalPrices}
-      latestScan={latestScan}
-    />
+    <>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredDataGraph) }}
+      />
+      <StockDetailClient
+        symbol={symbol}
+        exchange={exchange}
+        fundamentals={fundRow}
+        latestPrice={latestPrice}
+        latestTech={latestTech}
+        historicalPrices={historicalPrices}
+        latestScan={latestScan}
+      />
+    </>
   );
 }

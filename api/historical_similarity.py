@@ -887,6 +887,11 @@ def get_published_similarity_report() -> Dict[str, Any]:
             
     except Exception as e:
         print(f"❌ Error loading published reports from Supabase: {e}")
+        try:
+            import api.stock_ai as stock_ai
+            stock_ai._init_supabase(force=True)
+        except Exception:
+            pass
         return {"scans": [], "updated_at": None, "name": "Market Similarity Report"}
 
 def publish_similarity_report(report_data: Dict[str, Any]) -> Dict[str, Any]:

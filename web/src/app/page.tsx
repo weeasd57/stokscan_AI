@@ -243,6 +243,50 @@ export default function HomePage() {
 
     return (
         <div className="neobrutal-layout min-h-screen -mx-3 sm:-mx-6 md:-mx-8 overflow-hidden pb-16">
+            <script
+                type="application/ld+json"
+                dangerouslySetInnerHTML={{
+                    __html: JSON.stringify({
+                        "@context": "https://schema.org",
+                        "@graph": [
+                            {
+                                "@type": "FinancialService",
+                                "@id": "https://egxbots.com/#financial-service",
+                                "name": "EGX BOTS",
+                                "url": "https://egxbots.com",
+                                "logo": "https://egxbots.com/favicon_io/android-chrome-512x512.png",
+                                "image": "https://egxbots.com/dashboard_preview.png",
+                                "description": "منصة لتحليل الأسهم المصرية باستخدام الذكاء الاصطناعي، الماسح الفني، والمحاكاة التاريخية وإشارات السوق.",
+                                "sameAs": [
+                                    "https://t.me/egxbots"
+                                ],
+                                "address": {
+                                    "@type": "PostalAddress",
+                                    "addressCountry": "EG"
+                                }
+                            },
+                            {
+                                "@type": "WebSite",
+                                "@id": "https://egxbots.com/#website",
+                                "url": "https://egxbots.com",
+                                "name": "EGX BOTS",
+                                "description": "تحليل البورصة المصرية بالذكاء الاصطناعي",
+                                "publisher": {
+                                    "@id": "https://egxbots.com/#financial-service"
+                                },
+                                "potentialAction": {
+                                    "@type": "SearchAction",
+                                    "target": {
+                                        "@type": "EntryPoint",
+                                        "urlTemplate": "https://egxbots.com/scanner/market?search={search_term_string}"
+                                    },
+                                    "query-input": "required name=search_term_string"
+                                }
+                            }
+                        ]
+                    })
+                }}
+            />
             {/* Top Marquee Ribbon */}
             <div className="w-full border-y-4 border-black dark:border-white bg-black dark:bg-zinc-950 text-white overflow-hidden py-3 font-mono font-black text-xs sm:text-sm uppercase tracking-widest flex select-none">
                 <div className={isAr ? "animate-marquee-neobrutal-rtl flex gap-12 shrink-0 min-w-full justify-around" : "animate-marquee-neobrutal flex gap-12 shrink-0 min-w-full justify-around"}>
