@@ -1759,45 +1759,74 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
         return
 
     job_run_id = str(uuid.uuid4())
+    job_start_time = dt.datetime.utcnow().isoformat()
     steps_log = []
+    active_steps = {}
     symbols_raw = []
     total_symbols = 0
 
-    def _record_step(step_name: str, success: bool, details: str = "", count: int = 0):
-        steps_log.append({
-            "step": step_name,
-            "status": "success" if success else "failed",
-            "details": details,
-            "count": count,
-            "timestamp": dt.datetime.utcnow().isoformat()
-        })
-
     def _persist_job(status: str):
         try:
-            stock_ai.supabase.table("daily_job_runs").insert({
+            last_failed = next(
+                (step for step in reversed(steps_log) if step.get("status") == "failed"),
+                None,
+            )
+            stock_ai.supabase.table("daily_job_runs").upsert({
                 "id": job_run_id,
                 "job_type": "daily_bot",
                 "status": status,
-                "started_at": dt.datetime.utcnow().isoformat(),
+                "started_at": job_start_time,
                 "completed_at": dt.datetime.utcnow().isoformat() if status in ("completed", "failed") else None,
                 "steps": json.dumps(steps_log),
                 "total_symbols": total_symbols,
                 "trigger": trigger,
-                "error": steps_log[-1]["details"] if steps_log and steps_log[-1]["status"] == "failed" else None
+                "error": last_failed.get("details") if last_failed else None,
             }).execute()
         except Exception as e:
             print(f"[JOB] Failed to persist job run: {e}")
 
+    def _append_step_log(step_name: str, status: str, details: str = "", count: int = 0, extra: Optional[Dict[str, Any]] = None):
+        payload = {
+            "step": step_name,
+            "status": status,
+            "details": str(details or "")[:1000],
+            "count": int(count or 0),
+            "timestamp": dt.datetime.utcnow().isoformat(),
+            "sequence": len(steps_log) + 1,
+        }
+        if extra:
+            payload.update(extra)
+        steps_log.append(payload)
+        _persist_job("running")
+
+    def _start_step(step_name: str, details: str = ""):
+        active_steps[step_name] = time.time()
+        _append_step_log(step_name, "started", details, 0)
+
+    def _record_step(step_name: str, success: bool, details: str = "", count: int = 0):
+        started_at = active_steps.pop(step_name, None)
+        status = "success" if success else "failed"
+        if success and str(details or "").strip().lower().startswith("skipped"):
+            status = "skipped"
+        extra = {}
+        if started_at is not None:
+            extra["duration_ms"] = int((time.time() - started_at) * 1000)
+        _append_step_log(step_name, status, details, count, extra)
+
     try:
+        # Initial status insert
+        _persist_job("running")
         # 0. Refresh EGX inventory weekly only for scheduled runs
         if _should_run_weekly_inventory(trigger):
             print("\n>>> STEP 0: Refreshing EGX listed symbols inventory from EODHD...")
+            _start_step("sync_inventory", "Refreshing EGX listed symbols inventory from EODHD")
             try:
                 inv_ok, inv_symbols, inv_msg = _sync_latest_egx_inventory_from_eodhd()
                 _record_step("sync_inventory", inv_ok, inv_msg, len(inv_symbols))
                 print(f"[INVENTORY] {inv_msg}")
 
                 if inv_ok and inv_symbols:
+                    _start_step("mark_non_listed", "Marking symbols not present in latest EGX inventory")
                     mark_ok, mark_msg, mark_count = _mark_non_listed_egx_symbols(inv_symbols)
                     _record_step("mark_non_listed", mark_ok, mark_msg, mark_count)
                     print(f"[LISTING] {mark_msg}")
@@ -1811,6 +1840,7 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
         # 1. Sync prices
         if not skip_sync:
             print("\n>>> STEP 1: Syncing daily prices from TradingView...")
+            _start_step("sync_prices", "Syncing EGX daily prices from TradingView")
             try:
                 if not symbols_raw:
                     symbols_raw = _fetch_egx_symbols()
@@ -1830,6 +1860,7 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
 
         # 2. Calculate technical indicators (parallel + batch upsert)
         print("\n>>> STEP 2: Calculating technical indicators (parallel)...")
+        _start_step("calculate_indicators", "Calculating technical indicators in parallel and upserting results")
         if not symbols_raw:
             symbols_raw = _fetch_egx_symbols()
             symbols_raw = _filter_active_symbols(symbols_raw)
@@ -1870,6 +1901,7 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
 
         # 3. Update open portfolio positions
         print("\n>>> STEP 3: Updating open portfolio positions...")
+        _start_step("update_positions", "Updating open portfolio positions")
         try:
             update_open_portfolio_positions()
             _record_step("update_positions", True, "Positions updated", 0)
@@ -1879,6 +1911,7 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
 
         # 4. Evaluate old recommendations
         print("\n>>> STEP 4: Evaluating old recommendations...")
+        _start_step("evaluate_recommendations", "Evaluating open/old recommendations")
         try:
             evaluate_old_recommendations()
             _record_step("evaluate_recommendations", True, "Evaluated open recommendations", 0)
@@ -1888,6 +1921,7 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
 
         # 5. Generate new recommendations
         print("\n>>> STEP 5: Generating new speculative recommendations...")
+        _start_step("generate_recommendations", f"Generating recommendations using {model_filter or 'default'} model")
         try:
             await generate_daily_recommendations(model_name=model_filter)
             _record_step("generate_recommendations", True, f"Top 10 generated using {model_filter or 'default'}", 10)
@@ -1897,6 +1931,7 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
 
         # 6. Run Historical Similarity Scan
         print("\n>>> STEP 6: Running Historical Similarity market scan...")
+        _start_step("historical_similarity", "Running market-wide historical similarity scan")
         try:
             from api.historical_similarity import run_market_wide_similarity_scan, publish_similarity_report
             results = run_market_wide_similarity_scan(
@@ -1938,6 +1973,7 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
         # 7. Run Weekly Performance Report (on Sunday)
         if _should_run_weekly_inventory(trigger):
             print("\n>>> STEP 7: Running Weekly Performance Report...")
+            _start_step("weekly_performance_report", "Generating weekly performance report")
             try:
                 generate_weekly_performance_report(trigger=trigger)
                 _record_step("weekly_performance_report", True, "Weekly performance report generated and sent", 0)
@@ -1947,6 +1983,7 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
 
         # 8. Refresh Market Status (EGX30, EGX100, USD/EGP indices) from EODHD
         print("\n>>> STEP 8: Prefetching and refreshing Market Status cache from EODHD...")
+        _start_step("refresh_market_status", "Refreshing Market Status cache from EODHD")
         try:
             ok, msg = _refresh_market_status_cache()
             _record_step("refresh_market_status", ok, msg, 0)
@@ -1957,6 +1994,7 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
         # 9. Run Weekly Adaptive Retraining (on Sunday)
         if _should_run_weekly_inventory(trigger):
             print("\n>>> STEP 9: Running Weekly Adaptive Retraining...")
+            _start_step("weekly_adaptive_retraining", "Running adaptive retraining on recent EGX mistakes")
             try:
                 from api.adaptive_learning import ActiveLearner, ManualRetrainer, update_actuals
                 print("[ADAPTIVE] Updating actual outcomes for EGX...")

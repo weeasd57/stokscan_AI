@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
@@ -142,6 +142,52 @@ interface RecommendationsTableProps {
     isLandingPage?: boolean;
     limit?: number;
     hideTelegramToggle?: boolean;
+}
+
+type SpotlightCardProps = {
+    children: React.ReactNode;
+    className?: string;
+    glowColor?: string;
+    radius?: number;
+};
+
+function SpotlightCard({ children, className = "", glowColor, radius = 250 }: SpotlightCardProps) {
+    const [coords, setCoords] = useState({ x: 0, y: 0 });
+    const [isHovered, setIsHovered] = useState(false);
+    const cardRef = useRef<HTMLDivElement>(null);
+    const { theme } = useTheme();
+
+    const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+        if (!cardRef.current) return;
+        const rect = cardRef.current.getBoundingClientRect();
+        setCoords({
+            x: e.clientX - rect.left,
+            y: e.clientY - rect.top,
+        });
+    };
+
+    // Gold/amber glow that matches the site's branding
+    const defaultGlow = theme === "dark" ? "rgba(245, 158, 11, 0.16)" : "rgba(245, 158, 11, 0.08)";
+    const finalGlow = glowColor || defaultGlow;
+
+    return (
+        <div
+            ref={cardRef}
+            onMouseMove={handleMouseMove}
+            onMouseEnter={() => setIsHovered(true)}
+            onMouseLeave={() => setIsHovered(false)}
+            className={`relative overflow-hidden ${className}`}
+        >
+            <div
+                className="absolute inset-0 pointer-events-none transition-opacity duration-300 z-0"
+                style={{
+                    opacity: isHovered ? 1 : 0,
+                    background: `radial-gradient(${radius}px circle at ${coords.x}px ${coords.y}px, ${finalGlow}, rgba(245, 158, 11, 0.02) 40%, transparent 80%)`,
+                }}
+            />
+            {children}
+        </div>
+    );
 }
 
 export default function RecommendationsTable({ isLandingPage = false, limit = Infinity, hideTelegramToggle = false }: RecommendationsTableProps) {
@@ -1149,35 +1195,40 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
             {renderDialog()}
 
             {/* Header Content Info Box */}
-            <div className="flex flex-col gap-3 p-8 border-4 border-black dark:border-white bg-zinc-950 text-white shadow-[6px_6px_0px_rgba(0,0,0,1)] dark:shadow-[6px_6px_0px_rgba(255,255,255,1)]">
-                <div className="flex items-center justify-between flex-wrap gap-4">
-                    <div className="flex items-center gap-3">
-                        <div className="w-12 h-12 rounded-xl bg-gradient-to-tr from-indigo-600 to-purple-600 border border-white/20 flex items-center justify-center shadow-lg shadow-indigo-500/25">
-                            <Layers className="w-6 h-6 text-white" />
+            <SpotlightCard 
+                radius={450}
+                className="flex flex-col gap-3 p-8 border-4 border-black dark:border-white bg-zinc-950 text-white shadow-[6px_6px_0px_rgba(0,0,0,1)] dark:shadow-[6px_6px_0px_rgba(255,255,255,1)] hover:shadow-[6px_6px_0px_rgba(245,158,11,1)] transition-all duration-300"
+            >
+                <div className="flex flex-col gap-3 w-full z-10">
+                    <div className="flex items-center justify-between flex-wrap gap-4">
+                        <div className="flex items-center gap-3">
+                            <div className="w-12 h-12 rounded-xl bg-amber-500/10 dark:bg-amber-500/20 border-2 border-amber-500 flex items-center justify-center shadow-[0_0_15px_rgba(245,158,11,0.25)] flex-shrink-0">
+                                <Layers className="w-6 h-6 text-amber-500" />
+                            </div>
+                            <h2 className="text-2xl font-black uppercase tracking-tight">{translate("title")}</h2>
                         </div>
-                        <h2 className="text-2xl font-black uppercase tracking-tight">{translate("title")}</h2>
+                        {limit === Infinity && (
+                            <button
+                                onClick={() => loadRecommendations(isLandingPage)}
+                                disabled={recsLoading}
+                                className="h-10 px-4 border-2 border-black dark:border-white bg-white dark:bg-zinc-900 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-black dark:text-white font-bold uppercase text-xs flex items-center gap-2 shadow-[2px_2px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_rgba(255,255,255,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all duration-100"
+                            >
+                                <RefreshCw className={`w-3.5 h-3.5 ${recsLoading ? "animate-spin" : ""}`} />
+                                {isAr ? "تحديث" : "Refresh"}
+                            </button>
+                        )}
                     </div>
-                    {limit === Infinity && (
-                        <button
-                            onClick={() => loadRecommendations(isLandingPage)}
-                            disabled={recsLoading}
-                            className="h-10 px-4 border-2 border-black dark:border-white bg-white dark:bg-zinc-900 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-black dark:text-white font-bold uppercase text-xs flex items-center gap-2 shadow-[2px_2px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_rgba(255,255,255,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all duration-100"
-                        >
-                            <RefreshCw className={`w-3.5 h-3.5 ${recsLoading ? "animate-spin" : ""}`} />
-                            {isAr ? "تحديث" : "Refresh"}
-                        </button>
+                    <p className="text-xs font-bold leading-relaxed text-zinc-400 max-w-3xl">{translate("subtitle")}</p>
+
+                    {!isLandingPage && !hideTelegramToggle && (
+                        <TelegramServiceToggle
+                            serviceType="stock_score"
+                            botId="stock_score"
+                            className="mt-4"
+                        />
                     )}
                 </div>
-                <p className="text-xs font-bold leading-relaxed text-zinc-400 max-w-3xl">{translate("subtitle")}</p>
-
-                {!isLandingPage && !hideTelegramToggle && (
-                    <TelegramServiceToggle
-                        serviceType="stock_score"
-                        botId="stock_score"
-                        className="mt-4"
-                    />
-                )}
-            </div>
+            </SpotlightCard>
 
             {/* Outdated Warning Panel */}
             {isOutdated && (
@@ -1201,58 +1252,66 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
             {limit === Infinity && (!isLandingPage || user) && (
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     {/* Active Trades */}
-                    <div className="p-4 border-4 border-black dark:border-white bg-white dark:bg-zinc-950 text-black dark:text-white shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_rgba(255,255,255,1)] flex items-center gap-3">
-                        <div className="w-10 h-10 bg-indigo-500/10 dark:bg-indigo-500/20 border-2 border-indigo-500 flex items-center justify-center flex-shrink-0">
-                            <TrendingUp className="w-5 h-5 text-indigo-500" />
+                    <SpotlightCard className="p-4 border-4 border-black dark:border-white bg-white dark:bg-zinc-950 text-black dark:text-white shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_rgba(255,255,255,1)] hover:shadow-[4px_4px_0px_rgba(245,158,11,1)] transition-all duration-300">
+                        <div className="relative z-10 flex items-center gap-3 w-full">
+                            <div className="w-10 h-10 bg-amber-500/10 dark:bg-amber-500/20 border-2 border-amber-500 flex items-center justify-center flex-shrink-0">
+                                <TrendingUp className="w-5 h-5 text-amber-500" />
+                            </div>
+                            <div>
+                                <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest leading-none mb-1">
+                                    {isAr ? "التوصيات النشطة" : "Active Trades"}
+                                </p>
+                                <p className="text-2xl font-black">{stats.activeCount}</p>
+                            </div>
                         </div>
-                        <div>
-                            <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest leading-none mb-1">
-                                {isAr ? "التوصيات النشطة" : "Active Trades"}
-                            </p>
-                            <p className="text-2xl font-black">{stats.activeCount}</p>
-                        </div>
-                    </div>
+                    </SpotlightCard>
 
                     {/* Closed Trades */}
-                    <div className="p-4 border-4 border-black dark:border-white bg-white dark:bg-zinc-950 text-black dark:text-white shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_rgba(255,255,255,1)] flex items-center gap-3">
-                        <div className="w-10 h-10 bg-zinc-500/10 dark:bg-zinc-500/20 border-2 border-zinc-500 flex items-center justify-center flex-shrink-0">
-                            <Layers className="w-5 h-5 text-zinc-500" />
+                    <SpotlightCard className="p-4 border-4 border-black dark:border-white bg-white dark:bg-zinc-950 text-black dark:text-white shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_rgba(255,255,255,1)] hover:shadow-[4px_4px_0px_rgba(245,158,11,1)] transition-all duration-300">
+                        <div className="relative z-10 flex items-center gap-3 w-full">
+                            <div className="w-10 h-10 bg-amber-500/10 dark:bg-amber-500/20 border-2 border-amber-500 flex items-center justify-center flex-shrink-0">
+                                <Layers className="w-5 h-5 text-amber-500" />
+                            </div>
+                            <div>
+                                <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest leading-none mb-1">
+                                    {isAr ? "الصفقات المغلقة" : "Closed Trades"}
+                                </p>
+                                <p className="text-2xl font-black">{stats.closedCount}</p>
+                            </div>
                         </div>
-                        <div>
-                            <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest leading-none mb-1">
-                                {isAr ? "الصفقات المغلقة" : "Closed Trades"}
-                            </p>
-                            <p className="text-2xl font-black">{stats.closedCount}</p>
-                        </div>
-                    </div>
+                    </SpotlightCard>
 
                     {/* Win Rate */}
-                    <div className="p-4 border-4 border-black dark:border-white bg-white dark:bg-zinc-950 text-black dark:text-white shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_rgba(255,255,255,1)] flex items-center gap-3">
-                        <div className="w-10 h-10 bg-emerald-500/10 dark:bg-emerald-500/20 border-2 border-emerald-500 flex items-center justify-center flex-shrink-0">
-                            <Target className="w-5 h-5 text-emerald-500" />
+                    <SpotlightCard className="p-4 border-4 border-black dark:border-white bg-white dark:bg-zinc-950 text-black dark:text-white shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_rgba(255,255,255,1)] hover:shadow-[4px_4px_0px_rgba(245,158,11,1)] transition-all duration-300">
+                        <div className="relative z-10 flex items-center gap-3 w-full">
+                            <div className="w-10 h-10 bg-amber-500/10 dark:bg-amber-500/20 border-2 border-amber-500 flex items-center justify-center flex-shrink-0">
+                                <Target className="w-5 h-5 text-amber-500" />
+                            </div>
+                            <div>
+                                <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest leading-none mb-1">
+                                    {isAr ? "نسبة النجاح" : "Win Rate"}
+                                </p>
+                                <p className="text-2xl font-black text-emerald-500">{stats.winRate.toFixed(1)}%</p>
+                            </div>
                         </div>
-                        <div>
-                            <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest leading-none mb-1">
-                                {isAr ? "نسبة النجاح" : "Win Rate"}
-                            </p>
-                            <p className="text-2xl font-black text-emerald-500">{stats.winRate.toFixed(1)}%</p>
-                        </div>
-                    </div>
+                    </SpotlightCard>
 
                     {/* Average Return */}
-                    <div className="p-4 border-4 border-black dark:border-white bg-white dark:bg-zinc-950 text-black dark:text-white shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_rgba(255,255,255,1)] flex items-center gap-3">
-                        <div className={`w-10 h-10 ${stats.avgReturn >= 0 ? "bg-emerald-500/10 border-emerald-500" : "bg-rose-500/10 border-rose-500"} border-2 flex items-center justify-center flex-shrink-0`}>
-                            <Award className={`w-5 h-5 ${stats.avgReturn >= 0 ? "text-emerald-500" : "text-rose-500"}`} />
+                    <SpotlightCard className="p-4 border-4 border-black dark:border-white bg-white dark:bg-zinc-950 text-black dark:text-white shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_rgba(255,255,255,1)] hover:shadow-[4px_4px_0px_rgba(245,158,11,1)] transition-all duration-300">
+                        <div className="relative z-10 flex items-center gap-3 w-full">
+                            <div className="w-10 h-10 bg-amber-500/10 dark:bg-amber-500/20 border-2 border-amber-500 flex items-center justify-center flex-shrink-0">
+                                <Award className="w-5 h-5 text-amber-500" />
+                            </div>
+                            <div>
+                                <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest leading-none mb-1">
+                                    {isAr ? "متوسط العائد" : "Avg Return"}
+                                </p>
+                                <p className={`text-2xl font-black ${stats.avgReturn >= 0 ? "text-emerald-500" : "text-rose-500"}`}>
+                                    {stats.avgReturn >= 0 ? "+" : ""}{stats.avgReturn.toFixed(2)}%
+                                </p>
+                            </div>
                         </div>
-                        <div>
-                            <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest leading-none mb-1">
-                                {isAr ? "متوسط العائد" : "Avg Return"}
-                            </p>
-                            <p className={`text-2xl font-black ${stats.avgReturn >= 0 ? "text-emerald-500" : "text-rose-500"}`}>
-                                {stats.avgReturn >= 0 ? "+" : ""}{stats.avgReturn.toFixed(2)}%
-                            </p>
-                        </div>
-                    </div>
+                    </SpotlightCard>
                 </div>
             )}
 

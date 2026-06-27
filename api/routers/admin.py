@@ -471,6 +471,28 @@ def update_batch(req: UpdateRequest, background_tasks: BackgroundTasks):
                         msg = f"OK (binance fallback) - {sync_msg}"
                 except Exception as be:
                     print(f"DEBUG: Binance fallback failed for {sym}: {be}")
+
+            # General EODHD fallback for any stock if TV fails
+            if not ok:
+                if client:
+                    print(
+                        f"DEBUG: TradingView failed for {sym}. Attempting EODHD fallback..."
+                    )
+                    try:
+                        from api.stock_ai import update_stock_data
+                        ok_eod, fallback_msg = update_stock_data(
+                            client, sym, source="eodhd", max_days=req.maxPriceDays
+                        )
+                        if ok_eod:
+                            ok = True
+                            msg = f"OK (EODHD fallback) - {fallback_msg}"
+                        else:
+                            msg = f"TV: {msg} | EODHD fallback: {fallback_msg}"
+                    except Exception as ee:
+                        print(f"DEBUG: EODHD fallback failed for {sym}: {ee}")
+                        msg = f"TV: {msg} | EODHD fallback exception: {ee}"
+                else:
+                    msg = f"TV: {msg} | EODHD fallback skipped (API key not set)"
         elif price_source == "eodhd":
             ok, msg = update_stock_data(
                 client, sym, source="eodhd", max_days=req.maxPriceDays

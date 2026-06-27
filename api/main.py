@@ -107,6 +107,27 @@ async def startup_event():
 
             traceback.print_exc()
 
+    # Initialize Support Bot
+    try:
+        from api.support_chat import SUPPORT_BOT_TOKEN
+        import requests as req
+        
+        if webhook_url:
+            support_hook = f"{webhook_url.rstrip('/')}/support-tg-webhook/{SUPPORT_BOT_TOKEN}"
+            try:
+                r = req.post(
+                    f"https://api.telegram.org/bot{SUPPORT_BOT_TOKEN}/setWebhook",
+                    json={"url": support_hook},
+                    timeout=10
+                )
+                print(f"[SUPPORT_CHAT] Webhook set response: {r.json()}")
+            except Exception as e:
+                print(f"[SUPPORT_CHAT] Failed to set support webhook: {e}")
+        else:
+            print("[SUPPORT_CHAT] Support Bot Webhook mode enabled. Set WEBHOOK_URL to configure webhook.")
+    except Exception as e:
+        print(f"[SUPPORT_CHAT] Failed to initialize support bot: {e}")
+
     # Start Technical Alerts Scheduler
     try:
         from api.tech_alerts_scheduler import start_alerts_scheduler
@@ -186,7 +207,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
     )
 
 
-from api.routers import admin, bot, payment, scan_ai, scan_ai_fast, scan_tech, similarity_admin
+from api.routers import admin, bot, payment, scan_ai, scan_ai_fast, scan_tech, similarity_admin, support
 
 app.include_router(scan_ai.router)
 app.include_router(scan_ai_fast.router)
@@ -196,6 +217,7 @@ app.include_router(bot.router, prefix="/ai_bot")
 app.include_router(bot.router, prefix="/bot")  # Compatibility Alias
 app.include_router(payment.router)
 app.include_router(similarity_admin.router)
+app.include_router(support.router)
 
 
 @app.post("/api/admin/run-daily-bot")
@@ -244,14 +266,39 @@ async def tg_set_webhook_from_local():
       https://your-space.hf.space/tg-set-webhook
     """
     import requests as req
-
-    bridge = getattr(app.state, "telegram_bridge", None)
-    if not bridge:
-        raise HTTPException(status_code=503, detail="Bridge not started")
+    from api.support_chat import SUPPORT_BOT_TOKEN
 
     webhook_url = os.getenv("WEBHOOK_URL", "")
     if not webhook_url:
         raise HTTPException(status_code=500, detail="WEBHOOK_URL not set")
+
+    # 1. Set Webhook for Support Bot
+    support_hook = f"{webhook_url.rstrip('/')}/support-tg-webhook/{SUPPORT_BOT_TOKEN}"
+    support_ok = False
+    support_detail = {}
+    try:
+        r_support = req.post(
+            f"https://api.telegram.org/bot{SUPPORT_BOT_TOKEN}/setWebhook",
+            json={"url": support_hook},
+            timeout=30,
+        )
+        support_data = r_support.json()
+        support_ok = support_data.get("ok", False)
+        support_detail = support_data
+    except Exception as e:
+        support_detail = {"error": str(e)}
+
+    # 2. Set Webhook for Main Bot
+    bridge = getattr(app.state, "telegram_bridge", None)
+    if not bridge:
+        return {
+            "main_bot": "Bridge not started (ARTORO_AI_BOT missing or not initialized)",
+            "support_bot": {
+                "ok": support_ok,
+                "webhook": support_hook,
+                "detail": support_detail
+            }
+        }
 
     hook = f"{webhook_url.rstrip('/')}/tg-webhook/{bridge.token}"
     try:
@@ -264,8 +311,14 @@ async def tg_set_webhook_from_local():
         if data.get("ok"):
             bridge._ready = True
             bridge._net_ok = True
-            return {"ok": True, "webhook": hook, "message": "Webhook set successfully!"}
-        return {"ok": False, "detail": data}
+            return {
+                "main_bot": {"ok": True, "webhook": hook, "message": "Webhook set successfully!"},
+                "support_bot": {"ok": support_ok, "webhook": support_hook, "detail": support_detail}
+            }
+        return {
+            "main_bot": {"ok": False, "detail": data},
+            "support_bot": {"ok": support_ok, "webhook": support_hook, "detail": support_detail}
+        }
     except Exception as e:
         raise HTTPException(status_code=502, detail=str(e))
 

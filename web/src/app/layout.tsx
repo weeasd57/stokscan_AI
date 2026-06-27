@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import Providers from "@/app/providers";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
+import SupportChatWidget from "@/components/SupportChatWidget";
 
 export const metadata = {
   metadataBase: new URL('https://egxbots.com'),
@@ -119,6 +120,7 @@ export default function RootLayout({
             {children}
           </main>
           <Footer />
+          <SupportChatWidget />
         </Providers>
       </body>
     </html>

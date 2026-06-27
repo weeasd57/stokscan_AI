@@ -334,6 +334,31 @@ def fetch_tradingview_prices(
     if is_daily and is_up_to_date and has_enough_history:
         return True, "Already up to date and sufficient history in Cloud"
     
+    # Define EODHD fallback function
+    def try_eodhd_fallback() -> Tuple[bool, str]:
+        api_key = os.getenv("EODHD_API_KEY")
+        if not api_key:
+            return False, "EODHD API key not set"
+        try:
+            from eodhd import APIClient
+            is_daily_tf = timeframe.lower() in ["1d", "1day", "daily"]
+            if is_daily_tf:
+                from api.stock_ai import update_stock_data
+                api_client = APIClient(api_key)
+                ok_eodhd, msg_eodhd = update_stock_data(api_client, upper, source="eodhd", max_days=max_days)
+                return ok_eodhd, msg_eodhd
+            else:
+                from api.intraday_provider import fetch_eodhd_intraday_prices
+                ok_eodhd, msg_eodhd = fetch_eodhd_intraday_prices(
+                    symbol=upper,
+                    timeframe=timeframe,
+                    start_date=start_date,
+                    end_date=end_date
+                )
+                return ok_eodhd, msg_eodhd
+        except Exception as e_err:
+            return False, f"EODHD error: {e_err}"
+
     # Throttle slightly
     try:
         delay = float(os.getenv("TRADINGVIEW_REQUEST_DELAY", "0.3"))
@@ -389,7 +414,13 @@ def fetch_tradingview_prices(
             ok_fall, msg_fall = try_yahoo_fallback()
             if ok_fall:
                 return ok_fall, msg_fall
-            return False, f"No data found for {symbol} on {tv_exchange} at {timeframe} (Yahoo fallback: {msg_fall})"
+            
+            # Fallback to EODHD
+            ok_eod, msg_eod = try_eodhd_fallback()
+            if ok_eod:
+                return ok_eod, msg_eod
+            
+            return False, f"No data found for {symbol} on {tv_exchange} at {timeframe} (Yahoo fallback: {msg_fall} | EODHD fallback: {msg_eod})"
         
         # Prepare data
         df_new = df.reset_index()
@@ -422,6 +453,15 @@ def fetch_tradingview_prices(
             error_msg += f" (Yahoo fallback: {msg_fall})"
         except Exception:
             pass
+
+        # Try EODHD fallback
+        try:
+            ok_eod, msg_eod = try_eodhd_fallback()
+            if ok_eod:
+                return ok_eod, msg_eod
+            error_msg += f" (EODHD fallback: {msg_eod})"
+        except Exception as eod_err:
+            error_msg += f" (EODHD exception: {eod_err})"
 
         if "symbol not found" in error_msg.lower():
             return False, f"Symbol {base_symbol} not found on {tv_exchange} ({error_msg})"

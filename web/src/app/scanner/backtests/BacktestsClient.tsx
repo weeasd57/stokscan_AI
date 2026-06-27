@@ -30,7 +30,10 @@ import {
     Bar,
     AreaChart,
     Area,
-    Cell
+    Cell,
+    PieChart,
+    Pie,
+    ReferenceArea
 } from "recharts";
 
 // Helper component to fetch and display EGX30 comparison
@@ -425,6 +428,20 @@ export default function AIScannerPage() {
     const { user } = useAuth();
     const { t, language } = useLanguage();
     const searchParams = useSearchParams();
+
+    // States for Hero Banner Interactive Spotlight
+    const [heroCoords, setHeroCoords] = useState({ x: 0, y: 0 });
+    const [isHeroHovered, setIsHeroHovered] = useState(false);
+    const heroRef = useRef<HTMLDivElement>(null);
+
+    const handleHeroMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+        if (!heroRef.current) return;
+        const rect = heroRef.current.getBoundingClientRect();
+        setHeroCoords({
+            x: e.clientX - rect.left,
+            y: e.clientY - rect.top,
+        });
+    };
     const tabParam = searchParams.get("tab");
     const activeTab = tabParam === "backtests" ? "backtests" : tabParam === "similarity" ? "similarity" : "bots";
 
@@ -432,6 +449,33 @@ export default function AIScannerPage() {
     const [publishedReport, setPublishedReport] = useState<any | null>(null);
     const [similarityLoading, setSimilarityLoading] = useState(false);
     const [selectedSimilarityScan, setSelectedSimilarityScan] = useState<any | null>(null);
+
+    // States for custom interactive similarity charts
+    const [candlesData, setCandlesData] = useState<any[]>([]);
+    const [candlesLoading, setCandlesLoading] = useState(false);
+    const [visibleSpaghetti, setVisibleSpaghetti] = useState<Record<string, boolean>>({
+        Target: true,
+        Average: true,
+        Match_1: true,
+        Match_2: true,
+        Match_3: true,
+        Match_4: true,
+        Match_5: true,
+    });
+    const [visibleQuality, setVisibleQuality] = useState<Record<string, boolean>>({
+        mfe: true,
+        mae: true,
+        finalReturn: true,
+        similarity: true,
+    });
+    const [visibleMatches, setVisibleMatches] = useState<Record<string, boolean>>({
+        all: true,
+        Match_1: true,
+        Match_2: true,
+        Match_3: true,
+        Match_4: true,
+        Match_5: true,
+    });
 
     // SaaS Subscription State
     const [isPro, setIsPro] = useState(false);
@@ -667,6 +711,46 @@ export default function AIScannerPage() {
         }
     }, [activeTab, publishedReport]);
 
+    useEffect(() => {
+        if (!selectedSimilarityScan || !selectedSimilarityScan.symbol) {
+            setCandlesData([]);
+            return;
+        }
+
+        let isMounted = true;
+        setCandlesLoading(true);
+
+        const parts = selectedSimilarityScan.symbol.split(".");
+        const symbolBase = parts[0];
+        const exchange = parts[1] || "EGX";
+
+        fetch(`/api/ai_bot/candles?symbol=${encodeURIComponent(symbolBase)}&exchange=${exchange}&limit=365`)
+            .then(res => {
+                if (!res.ok) throw new Error("Failed to fetch candles");
+                return res.json();
+            })
+            .then(data => {
+                if (isMounted) {
+                    if (data?.candles) {
+                        setCandlesData(data.candles);
+                    } else {
+                        setCandlesData([]);
+                    }
+                }
+            })
+            .catch(err => {
+                console.error("Error fetching similarity candles:", err);
+                if (isMounted) setCandlesData([]);
+            })
+            .finally(() => {
+                if (isMounted) setCandlesLoading(false);
+            });
+
+        return () => {
+            isMounted = false;
+        };
+    }, [selectedSimilarityScan?.symbol]);
+
     const transformSimilarityChartData = (scan: any) => {
         if (!scan || !scan.matches) return [];
 
@@ -763,6 +847,47 @@ export default function AIScannerPage() {
 
         return { rankedSetups, outcomeData, matchQuality, strongestSetup, avgWinRate, avgExpectedEdge };
     }, [publishedReport, selectedSimilarityScan, language]);
+
+    const priceChartData = useMemo(() => {
+        if (!candlesData || candlesData.length === 0) return [];
+        return candlesData.map((c: any) => {
+            const d = new Date(c.time * 1000);
+            const yyyy = d.getUTCFullYear();
+            const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+            const dd = String(d.getUTCDate()).padStart(2, '0');
+            const dateStr = `${yyyy}-${mm}-${dd}`;
+            return {
+                ...c,
+                dateLabel: dateStr,
+                closePrice: c.close,
+            };
+        });
+    }, [candlesData]);
+
+    const matchedAreas = useMemo(() => {
+        if (!priceChartData || priceChartData.length === 0 || !selectedSimilarityScan?.matches) return [];
+        const forwardDays = publishedReport?.forward_days || 10;
+        
+        return selectedSimilarityScan.matches.map((m: any, idx: number) => {
+            const mDate = m.date;
+            const targetIdx = priceChartData.findIndex((c: any) => c.dateLabel === mDate);
+            if (targetIdx === -1) return null;
+            
+            const startIdx = Math.max(0, targetIdx - 9);
+            const endIdx = Math.min(priceChartData.length - 1, targetIdx + forwardDays);
+            
+            return {
+                key: `area_match_${idx + 1}_${mDate}`,
+                label: `Match ${idx + 1} (${mDate})`,
+                x1: priceChartData[startIdx].dateLabel,
+                x2: priceChartData[endIdx].dateLabel,
+                color: m.outcome === "win" ? "rgba(16, 185, 129, 0.12)" : "rgba(239, 68, 68, 0.12)",
+                strokeColor: m.outcome === "win" ? "rgba(16, 185, 129, 0.35)" : "rgba(239, 68, 68, 0.35)",
+                matchIndex: idx + 1,
+                date: mDate,
+            };
+        }).filter(Boolean);
+    }, [priceChartData, selectedSimilarityScan, publishedReport]);
 
 
     // Handle Subscribe
@@ -1012,14 +1137,29 @@ export default function AIScannerPage() {
     return (
         <div className="backtests-shell app-page-shell mx-auto max-w-[1700px] w-full px-4 py-8 md:px-6 md:py-12 mt-2 min-h-[calc(100vh-200px)]">
             {/* Header Banner */}
-            <div className="backtests-hero relative overflow-hidden rounded-none border-4 border-black dark:border-white bg-[#FFE600] dark:bg-[#FFE600] text-black dark:text-white p-6 sm:p-8 md:p-12 mb-8 shadow-[6px_6px_0px_0px_#000000] dark:shadow-[6px_6px_0px_0px_#ffffff]">
-                <div className="absolute top-1/2 -translate-y-1/2 right-12 opacity-15 pointer-events-none hidden md:block">
+            <div 
+                ref={heroRef}
+                onMouseMove={handleHeroMouseMove}
+                onMouseEnter={() => setIsHeroHovered(true)}
+                onMouseLeave={() => setIsHeroHovered(false)}
+                className="backtests-hero relative overflow-hidden rounded-none border-4 border-black dark:border-white bg-[#FFE600] dark:bg-[#FFE600] text-black dark:text-white p-6 sm:p-8 md:p-12 mb-8 shadow-[6px_6px_0px_0px_#000000] dark:shadow-[6px_6px_0px_0px_#ffffff] transition-all duration-300 hover:shadow-[6px_6px_0px_rgba(245,158,11,1)]"
+            >
+                {/* Spotlight overlay */}
+                <div
+                    className="absolute inset-0 pointer-events-none transition-opacity duration-300 z-0"
+                    style={{
+                        opacity: isHeroHovered ? 1 : 0,
+                        background: `radial-gradient(450px circle at ${heroCoords.x}px ${heroCoords.y}px, rgba(245, 158, 11, 0.18), rgba(245, 158, 11, 0.02) 40%, transparent 80%)`,
+                    }}
+                />
+                
+                <div className={`absolute top-1/2 -translate-y-1/2 right-12 pointer-events-none hidden md:block z-10 transition-all duration-500 ${isHeroHovered ? "opacity-35 scale-105" : "opacity-20"}`}>
                     <Image
                         src="/favicon_io/apple-touch-icon.png?v=2"
                         alt="EGX Bots logo"
                         width={200}
                         height={200}
-                        className="object-contain filter grayscale brightness-0"
+                        className="object-contain filter drop-shadow-[0_0_15px_rgba(245,158,11,0.25)]"
                     />
                 </div>
                 <div className="relative z-10 max-w-2xl space-y-4">
@@ -1185,6 +1325,121 @@ export default function AIScannerPage() {
                                             </div>
                                         </div>
 
+                                        {/* Main Price & Similarity Alignment Chart */}
+                                        <div className="border-4 border-black dark:border-white bg-zinc-950 p-6 shadow-[4px_4px_0px_0px_rgba(255,255,255,0.15)] rounded-none">
+                                            <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
+                                                <div>
+                                                    <h3 className="text-xs font-black tracking-widest text-zinc-300 uppercase flex items-center gap-2 font-mono">
+                                                        <TrendingUp className="w-4 h-4 text-amber-400" />
+                                                        {language === "ar" ? `${selectedSimilarityScan.symbol} مسار السعر مع تحديد فترات التشابه` : `${selectedSimilarityScan.symbol} Price History & Similar Patterns`}
+                                                    </h3>
+                                                    <p className="text-[10px] text-zinc-500 font-mono mt-1">
+                                                        {language === "ar" ? "يعرض شارت السعر التاريخي مع تظليل الفترات التي تماثل النمط الحالي." : "Full price history showing highlighted zones matching the historical similarity pattern."}
+                                                    </p>
+                                                </div>
+                                                
+                                                {/* Highlight Toggle controls */}
+                                                <div className="flex flex-wrap gap-2 font-mono text-[9px]">
+                                                    <button 
+                                                        onClick={() => {
+                                                            const anyHidden = matchedAreas.some((area: any) => !visibleMatches[`Match_${area.matchIndex}`]);
+                                                            const newVal = anyHidden;
+                                                            const updated = { ...visibleMatches };
+                                                            matchedAreas.forEach((area: any) => {
+                                                                updated[`Match_${area.matchIndex}`] = newVal;
+                                                            });
+                                                            updated.all = newVal;
+                                                            setVisibleMatches(updated);
+                                                        }}
+                                                        className={`px-2 py-1 border transition-colors cursor-pointer ${
+                                                            visibleMatches.all ? "bg-amber-400/20 text-amber-400 border-amber-400/40" : "bg-zinc-900 text-zinc-500 border-zinc-800"
+                                                        }`}
+                                                    >
+                                                        {language === "ar" ? "تحديد الكل" : "Toggle All Highlights"}
+                                                    </button>
+                                                </div>
+                                            </div>
+
+                                            {candlesLoading ? (
+                                                <div className="h-[250px] w-full flex flex-col items-center justify-center gap-2">
+                                                    <Loader2 className="w-6 h-6 animate-spin text-indigo-500" />
+                                                    <p className="text-[10px] font-mono text-zinc-500">Loading historical prices...</p>
+                                                </div>
+                                            ) : priceChartData.length === 0 ? (
+                                                <div className="h-[250px] w-full flex items-center justify-center border border-dashed border-zinc-800">
+                                                    <p className="text-xs text-zinc-500 font-mono">No price history available</p>
+                                                </div>
+                                            ) : (
+                                                <div className="h-[300px] w-full">
+                                                    <ResponsiveContainer width="100%" height="100%">
+                                                        <AreaChart data={priceChartData} margin={{ top: 10, right: 10, left: 0, bottom: 5 }}>
+                                                            <defs>
+                                                                <linearGradient id="priceGradient" x1="0" y1="0" x2="0" y2="1">
+                                                                    <stop offset="5%" stopColor="#818cf8" stopOpacity={0.2}/>
+                                                                    <stop offset="95%" stopColor="#818cf8" stopOpacity={0}/>
+                                                                </linearGradient>
+                                                            </defs>
+                                                            <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
+                                                            <XAxis dataKey="dateLabel" stroke="#9ca3af" style={{ fontSize: 9, fontFamily: "monospace" }} />
+                                                            <YAxis stroke="#9ca3af" style={{ fontSize: 9, fontFamily: "monospace" }} domain={["auto", "auto"]} />
+                                                            <ChartTooltip
+                                                                contentStyle={{ backgroundColor: "#09090b", borderColor: "#27272a" }}
+                                                                labelStyle={{ color: "#fff", fontWeight: "bold", fontFamily: "monospace", fontSize: 11 }}
+                                                                itemStyle={{ fontSize: 10, fontFamily: "monospace" }}
+                                                            />
+                                                            
+                                                            {/* Highlight similar periods */}
+                                                            {visibleMatches.all && matchedAreas.map((area: any) => {
+                                                                if (!area || !visibleMatches[`Match_${area.matchIndex}`]) return null;
+                                                                return (
+                                                                    <ReferenceArea
+                                                                        key={area.key}
+                                                                        x1={area.x1}
+                                                                        x2={area.x2}
+                                                                        fill={area.color}
+                                                                        stroke={area.strokeColor}
+                                                                        strokeDasharray="3 3"
+                                                                        label={{ value: `Match ${area.matchIndex}`, fill: "#ffffff", fontSize: 8, position: "top", fontFamily: "monospace" }}
+                                                                    />
+                                                                );
+                                                            })}
+
+                                                            <Area type="monotone" dataKey="closePrice" stroke="#818cf8" strokeWidth={2} fillOpacity={1} fill="url(#priceGradient)" name="Close Price" />
+                                                        </AreaChart>
+                                                    </ResponsiveContainer>
+                                                </div>
+                                            )}
+
+                                            {/* List of individual match toggles */}
+                                            {matchedAreas.length > 0 && (
+                                                <div className="flex flex-wrap items-center gap-3 mt-4 pt-3 border-t border-zinc-900 font-mono text-[9px] text-zinc-400">
+                                                    <span>{language === "ar" ? "إظهار الفترات المتطابقة:" : "Filter Matched Periods:"}</span>
+                                                    {matchedAreas.map((area: any) => {
+                                                        const isVisible = visibleMatches[`Match_${area.matchIndex}`];
+                                                        return (
+                                                            <button
+                                                                key={area.key}
+                                                                onClick={() => {
+                                                                    setVisibleMatches(prev => {
+                                                                        const updated = { ...prev, [`Match_${area.matchIndex}`]: !prev[`Match_${area.matchIndex}`] };
+                                                                        const allVisible = matchedAreas.every((a: any) => updated[`Match_${a.matchIndex}`]);
+                                                                        updated.all = allVisible;
+                                                                        return updated;
+                                                                    });
+                                                                }}
+                                                                className={`px-2 py-0.5 border flex items-center gap-1.5 transition-colors cursor-pointer ${
+                                                                    isVisible ? "border-amber-400 text-white bg-amber-400/10" : "border-zinc-800 text-zinc-500 bg-zinc-900/40"
+                                                                }`}
+                                                            >
+                                                                <span className={`w-1.5 h-1.5 rounded-full ${area.strokeColor.includes("16, 185") ? "bg-emerald-500" : "bg-red-500"}`} />
+                                                                Match {area.matchIndex} ({area.date})
+                                                            </button>
+                                                        );
+                                                    })}
+                                                </div>
+                                            )}
+                                        </div>
+
                                         {/* Similarity Intelligence Dashboard */}
                                         <div className="grid grid-cols-1 xl:grid-cols-12 gap-5">
                                             <div className="xl:col-span-7 border-4 border-black dark:border-white bg-zinc-950 p-5 shadow-[4px_4px_0px_0px_rgba(255,255,255,0.15)] rounded-none">
@@ -1237,22 +1492,58 @@ export default function AIScannerPage() {
                                                 <div className="border-4 border-black dark:border-white bg-zinc-950 p-5 shadow-[4px_4px_0px_0px_rgba(255,255,255,0.15)] rounded-none">
                                                     <h3 className="text-xs font-black tracking-widest text-zinc-300 uppercase flex items-center gap-2 mb-4 font-mono">
                                                         <Target className="w-4 h-4 text-amber-400" />
-                                                        {language === "ar" ? "توزيع النتائج" : "Outcome Split"}
+                                                        {language === "ar" ? "توزيع النتائج ونسبة النجاح" : "Outcome Split & Win Rate"}
                                                     </h3>
-                                                    <div className="h-[160px] w-full">
-                                                        <ResponsiveContainer width="100%" height="100%">
-                                                            <BarChart data={similarityDashboard.outcomeData} margin={{ top: 10, right: 10, left: 0, bottom: 5 }}>
-                                                                <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" vertical={false} />
-                                                                <XAxis dataKey="name" stroke="#9ca3af" style={{ fontSize: 10, fontFamily: "monospace" }} />
-                                                                <YAxis allowDecimals={false} stroke="#9ca3af" style={{ fontSize: 10, fontFamily: "monospace" }} />
-                                                                <ChartTooltip contentStyle={{ backgroundColor: "#09090b", borderColor: "#27272a" }} itemStyle={{ fontSize: 10, fontFamily: "monospace" }} />
-                                                                <Bar dataKey="value" name="Matches" radius={[4, 4, 0, 0]}>
-                                                                    {similarityDashboard.outcomeData.map((entry: any) => (
-                                                                        <Cell key={entry.name} fill={entry.fill} />
-                                                                    ))}
-                                                                </Bar>
-                                                            </BarChart>
-                                                        </ResponsiveContainer>
+                                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 h-[180px] w-full">
+                                                        <div className="h-full">
+                                                            <ResponsiveContainer width="100%" height="100%">
+                                                                <BarChart data={similarityDashboard.outcomeData} margin={{ top: 10, right: 10, left: 0, bottom: 5 }}>
+                                                                    <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" vertical={false} />
+                                                                    <XAxis dataKey="name" stroke="#9ca3af" style={{ fontSize: 9, fontFamily: "monospace" }} />
+                                                                    <YAxis allowDecimals={false} stroke="#9ca3af" style={{ fontSize: 9, fontFamily: "monospace" }} />
+                                                                    <ChartTooltip contentStyle={{ backgroundColor: "#09090b", borderColor: "#27272a" }} itemStyle={{ fontSize: 9, fontFamily: "monospace" }} />
+                                                                    <Bar dataKey="value" name="Matches" radius={[4, 4, 0, 0]}>
+                                                                        {similarityDashboard.outcomeData.map((entry: any) => (
+                                                                            <Cell key={entry.name} fill={entry.fill} />
+                                                                        ))}
+                                                                    </Bar>
+                                                                </BarChart>
+                                                            </ResponsiveContainer>
+                                                        </div>
+                                                        <div className="h-full relative flex items-center justify-center">
+                                                            <ResponsiveContainer width="100%" height="100%">
+                                                                <PieChart>
+                                                                    <Pie
+                                                                        data={[
+                                                                            { name: language === "ar" ? "رابحة" : "Wins", value: selectedSimilarityScan?.stats?.wins || 0, fill: "#10b981" },
+                                                                            { name: language === "ar" ? "خاسرة" : "Losses", value: selectedSimilarityScan?.stats?.losses || 0, fill: "#ef4444" },
+                                                                        ]}
+                                                                        cx="50%"
+                                                                        cy="50%"
+                                                                        innerRadius={45}
+                                                                        outerRadius={60}
+                                                                        paddingAngle={4}
+                                                                        dataKey="value"
+                                                                    >
+                                                                        {[
+                                                                            { name: language === "ar" ? "رابحة" : "Wins", value: selectedSimilarityScan?.stats?.wins || 0, fill: "#10b981" },
+                                                                            { name: language === "ar" ? "خاسرة" : "Losses", value: selectedSimilarityScan?.stats?.losses || 0, fill: "#ef4444" },
+                                                                        ].map((entry, index) => (
+                                                                            <Cell key={`cell-${index}`} fill={entry.fill} />
+                                                                        ))}
+                                                                    </Pie>
+                                                                    <ChartTooltip contentStyle={{ backgroundColor: "#09090b", borderColor: "#27272a" }} itemStyle={{ fontSize: 10, fontFamily: "monospace" }} />
+                                                                </PieChart>
+                                                            </ResponsiveContainer>
+                                                            <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                                                                <span className="text-lg font-black text-white font-mono leading-none">
+                                                                    {(selectedSimilarityScan.stats.win_rate * 100).toFixed(0)}%
+                                                                </span>
+                                                                <span className="text-[8px] text-zinc-500 font-mono uppercase tracking-widest mt-1">
+                                                                    {language === "ar" ? "نجاح" : "Win Rate"}
+                                                                </span>
+                                                            </div>
+                                                        </div>
                                                     </div>
                                                 </div>
 
@@ -1280,11 +1571,53 @@ export default function AIScannerPage() {
                                         </div>
 
                                         {/* Spaghetti Chart */}
-                                        <div className="border-4 border-black dark:border-white bg-zinc-950 p-6 shadow-[4px_4px_0px_0px_rgba(255,255,255,0.15)] rounded-none">
-                                            <h3 className="text-xs font-black tracking-widest text-zinc-300 uppercase flex items-center gap-2 mb-6 font-mono">
-                                                <TrendingUp className="w-4 h-4 text-amber-400" />
-                                                {selectedSimilarityScan.symbol} Trajectory spaghetti plot
-                                            </h3>
+                                        <div className="border-4 border-black dark:border-white bg-zinc-950 p-6 shadow-[4px_4px_0px_0px_rgba(255,255,255,0.15)] rounded-none animate-in fade-in duration-300">
+                                            <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
+                                                <div>
+                                                    <h3 className="text-xs font-black tracking-widest text-zinc-300 uppercase flex items-center gap-2 font-mono">
+                                                        <TrendingUp className="w-4 h-4 text-amber-400" />
+                                                        {language === "ar" ? `${selectedSimilarityScan.symbol} رسم بياني للمسارات التاريخية المتعددة` : `${selectedSimilarityScan.symbol} Trajectory Spaghetti Plot`}
+                                                    </h3>
+                                                    <p className="text-[10px] text-zinc-500 font-mono mt-1">
+                                                        {language === "ar" ? "يقارن حركة السعر الحالية مع متوسط المسار وحالات المطابقة الفردية." : "Compares current price move with the average historical path and individual match sequences."}
+                                                    </p>
+                                                </div>
+                                            </div>
+
+                                            {/* Interactive Spaghetti Series Toggles */}
+                                            <div className="flex flex-wrap gap-1.5 mb-4 font-mono text-[9px]">
+                                                <button
+                                                    onClick={() => setVisibleSpaghetti(prev => ({ ...prev, Target: !prev.Target }))}
+                                                    className={`px-2 py-0.5 border transition-all cursor-pointer ${
+                                                        visibleSpaghetti.Target ? "border-white text-white bg-white/10" : "border-zinc-800 text-zinc-500 bg-zinc-900/40"
+                                                    }`}
+                                                >
+                                                    Target Stock
+                                                </button>
+                                                <button
+                                                    onClick={() => setVisibleSpaghetti(prev => ({ ...prev, Average: !prev.Average }))}
+                                                    className={`px-2 py-0.5 border transition-all cursor-pointer ${
+                                                        visibleSpaghetti.Average ? "border-amber-400 text-white bg-amber-400/10" : "border-zinc-800 text-zinc-500 bg-zinc-900/40"
+                                                    }`}
+                                                >
+                                                    Average Path
+                                                </button>
+                                                {selectedSimilarityScan.matches.slice(0, 5).map((m: any, idx: number) => {
+                                                    const label = `Match_${idx + 1}`;
+                                                    const isVisible = visibleSpaghetti[label];
+                                                    return (
+                                                        <button
+                                                            key={idx}
+                                                            onClick={() => setVisibleSpaghetti(prev => ({ ...prev, [label]: !prev[label] }))}
+                                                            className={`px-2 py-0.5 border transition-all cursor-pointer ${
+                                                                isVisible ? "border-indigo-400 text-white bg-indigo-400/10" : "border-zinc-800 text-zinc-500 bg-zinc-900/40"
+                                                            }`}
+                                                        >
+                                                            Match {idx + 1} ({m.date})
+                                                        </button>
+                                                    );
+                                                })}
+                                            </div>
 
                                             <div className="h-[350px] w-full">
                                                 <ResponsiveContainer width="100%" height="100%">
@@ -1305,11 +1638,11 @@ export default function AIScannerPage() {
                                                         {selectedSimilarityScan.matches.slice(0, 5).map((m: any, idx: number) => {
                                                             const key = `Match_${idx + 1}_${m.date}`;
                                                             return (
-                                                                <Line key={key} type="monotone" dataKey={key} stroke="#6366f1" strokeWidth={1} dot={false} opacity={0.3} name={`Match ${idx + 1} (${m.date})`} />
+                                                                <Line key={key} type="monotone" dataKey={key} stroke="#6366f1" strokeWidth={1} dot={false} opacity={0.4} name={`Match ${idx + 1} (${m.date})`} hide={!visibleSpaghetti[`Match_${idx + 1}`]} />
                                                             );
                                                         })}
-                                                        <Line type="monotone" dataKey="Target" stroke="#ffffff" strokeWidth={3} dot={false} name="Target Stock" />
-                                                        <Line type="monotone" dataKey="Average" stroke="#ffdc58" strokeWidth={3} dot={false} name="Average Path" />
+                                                        <Line type="monotone" dataKey="Target" stroke="#ffffff" strokeWidth={3} dot={false} name="Target Stock" hide={!visibleSpaghetti.Target} />
+                                                        <Line type="monotone" dataKey="Average" stroke="#ffdc58" strokeWidth={3} dot={false} name="Average Path" hide={!visibleSpaghetti.Average} />
                                                     </RechartsLineChart>
                                                 </ResponsiveContainer>
                                             </div>
@@ -1321,8 +1654,8 @@ export default function AIScannerPage() {
                                         </div>
 
                                         {/* Match Quality Chart */}
-                                        <div className="border-4 border-black dark:border-white bg-zinc-950 p-6 shadow-[4px_4px_0px_0px_rgba(255,255,255,0.15)] rounded-none">
-                                            <div className="flex flex-wrap items-start justify-between gap-3 mb-6">
+                                        <div className="border-4 border-black dark:border-white bg-zinc-950 p-6 shadow-[4px_4px_0px_0px_rgba(255,255,255,0.15)] rounded-none animate-in fade-in duration-300">
+                                            <div className="flex flex-wrap items-start justify-between gap-3 mb-2">
                                                 <div>
                                                     <h3 className="text-xs font-black tracking-widest text-zinc-300 uppercase flex items-center gap-2 font-mono">
                                                         <Activity className="w-4 h-4 text-cyan-400" />
@@ -1335,6 +1668,42 @@ export default function AIScannerPage() {
                                                 <div className="text-[10px] text-zinc-500 font-mono uppercase">
                                                     {language === "ar" ? "أول 10 حالات" : "Top 10 matches"}
                                                 </div>
+                                            </div>
+
+                                            {/* Interactive Match Quality Toggles */}
+                                            <div className="flex flex-wrap gap-1.5 mb-4 font-mono text-[9px]">
+                                                <button
+                                                    onClick={() => setVisibleQuality(prev => ({ ...prev, mfe: !prev.mfe }))}
+                                                    className={`px-2 py-0.5 border transition-all cursor-pointer ${
+                                                        visibleQuality.mfe ? "border-emerald-500 text-white bg-emerald-500/10" : "border-zinc-800 text-zinc-500 bg-zinc-900/40"
+                                                    }`}
+                                                >
+                                                    {language === "ar" ? "أقصى ربح" : "Peak Gain"}
+                                                </button>
+                                                <button
+                                                    onClick={() => setVisibleQuality(prev => ({ ...prev, mae: !prev.mae }))}
+                                                    className={`px-2 py-0.5 border transition-all cursor-pointer ${
+                                                        visibleQuality.mae ? "border-red-500 text-white bg-red-500/10" : "border-zinc-800 text-zinc-500 bg-zinc-900/40"
+                                                    }`}
+                                                >
+                                                    {language === "ar" ? "أقصى هبوط" : "Drawdown"}
+                                                </button>
+                                                <button
+                                                    onClick={() => setVisibleQuality(prev => ({ ...prev, finalReturn: !prev.finalReturn }))}
+                                                    className={`px-2 py-0.5 border transition-all cursor-pointer ${
+                                                        visibleQuality.finalReturn ? "border-amber-400 text-white bg-amber-400/10" : "border-zinc-800 text-zinc-500 bg-zinc-900/40"
+                                                    }`}
+                                                >
+                                                    {language === "ar" ? "العائد النهائي" : "End Return"}
+                                                </button>
+                                                <button
+                                                    onClick={() => setVisibleQuality(prev => ({ ...prev, similarity: !prev.similarity }))}
+                                                    className={`px-2 py-0.5 border transition-all cursor-pointer ${
+                                                        visibleQuality.similarity ? "border-sky-400 text-white bg-sky-400/10" : "border-zinc-800 text-zinc-500 bg-zinc-900/40"
+                                                    }`}
+                                                >
+                                                    {language === "ar" ? "التشابه" : "Similarity"}
+                                                </button>
                                             </div>
 
                                             <div className="h-[280px] w-full">
@@ -1355,10 +1724,10 @@ export default function AIScannerPage() {
                                                             }}
                                                         />
                                                         <ReferenceLine yAxisId="left" y={0} stroke="#71717a" strokeDasharray="3 3" />
-                                                        <Area yAxisId="left" type="monotone" dataKey="mfe" name="Peak Gain" stroke="#10b981" fill="#10b981" fillOpacity={0.08} strokeWidth={2} />
-                                                        <Area yAxisId="left" type="monotone" dataKey="mae" name="Max Draw" stroke="#ef4444" fill="#ef4444" fillOpacity={0.08} strokeWidth={2} />
-                                                        <Line yAxisId="left" type="monotone" dataKey="finalReturn" name="End Return" stroke="#ffdc58" strokeWidth={3} dot={{ r: 3 }} />
-                                                        <Line yAxisId="right" type="monotone" dataKey="similarity" name="Similarity" stroke="#38bdf8" strokeWidth={2} strokeDasharray="4 4" dot={false} />
+                                                        <Area yAxisId="left" type="monotone" dataKey="mfe" name="Peak Gain" stroke="#10b981" fill="#10b981" fillOpacity={0.08} strokeWidth={2} hide={!visibleQuality.mfe} />
+                                                        <Area yAxisId="left" type="monotone" dataKey="mae" name="Max Draw" stroke="#ef4444" fill="#ef4444" fillOpacity={0.08} strokeWidth={2} hide={!visibleQuality.mae} />
+                                                        <Line yAxisId="left" type="monotone" dataKey="finalReturn" name="End Return" stroke="#ffdc58" strokeWidth={3} dot={{ r: 3 }} hide={!visibleQuality.finalReturn} />
+                                                        <Line yAxisId="right" type="monotone" dataKey="similarity" name="Similarity" stroke="#38bdf8" strokeWidth={2} strokeDasharray="4 4" dot={false} hide={!visibleQuality.similarity} />
                                                     </AreaChart>
                                                 </ResponsiveContainer>
                                             </div>

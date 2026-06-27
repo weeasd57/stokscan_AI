@@ -182,19 +182,35 @@ export default function HomePage() {
     const steps = [
         {
             n: 1,
-            title: isAr ? "اختر سهمك المفضل" : "Pick a Stock",
+            title: isAr ? "الذكاء الاصطناعي يحلل الأسهم" : "AI Analyzes Stocks",
             desc: isAr
-                ? "اختر سهمك المفضل المدرج في البورصة المصرية بناءً على تقييم AI Score."
-                : "Choose your favorite EGX-listed stock based on AI Score.",
+                ? "تحلل نماذج الذكاء الاصطناعي (Random Forest و LightGBM) أسهم البورصة المصرية لحظياً وتمنح كل سهم تقييماً من 1 إلى 10."
+                : "AI models (Random Forest & LightGBM) analyze EGX stocks in real time and assign each a 1-to-10 AI score.",
             colorClass: "neobrutal-bg-yellow",
         },
         {
             n: 2,
-            title: isAr ? "استقبل الإشارات" : "Get Live Alerts",
+            title: isAr ? "امسح وفلتر الفرص" : "Scan & Filter Opportunities",
             desc: isAr
-                ? "احصل على إشارات فورية على تليجرام أو عبر البوت المباشر الخاص بنا."
-                : "Get signals directly from the interface based on the displayed results.",
+                ? "استخدم الماسح الفني لفلترة الأسهم حسب تقييم AI والمؤشرات الفنية لتحديد أفضل الفرص بدقة."
+                : "Use the technical scanner to filter stocks by AI score and technical indicators to pinpoint the best opportunities.",
             colorClass: "neobrutal-bg-pink",
+        },
+        {
+            n: 3,
+            title: isAr ? "راجع أداء النماذج تاريخياً" : "Review Model Performance",
+            desc: isAr
+                ? "اطّلع على نتائج الاختبارات العكسية ونسب النجاح وأداء النماذج على البيانات التاريخية لتقييم جودة الإشارات."
+                : "Explore backtest results, win rates, and model performance on historical data to gauge signal quality.",
+            colorClass: "neobrutal-bg-green",
+        },
+        {
+            n: 4,
+            title: isAr ? "استقبل الإشارات فوراً" : "Get Instant Signals",
+            desc: isAr
+                ? "احصل على إشارات الشراء والبيع لحظة ظهورها عبر تليجرام أو مباشرة من خلال واجهة المنصة."
+                : "Receive buy and sell signals the moment they appear via Telegram or directly through the platform interface.",
+            colorClass: "neobrutal-bg-cyan",
         },
     ];
 
@@ -219,8 +235,8 @@ export default function HomePage() {
             icon: Shield,
             title: isAr ? "تحليل فني متكامل" : "Pro-Grade Analysis",
             desc: isAr
-                ? "أدوات مخصصة تشمل فلاتر فنية، محاكي تداول تاريخي، وإدارة بيانات متقدمة في مكان واحد."
-                : "Custom tools including technical filters, historical simulator, and data management.",
+                ? "أدوات مخصصة تشمل الماسح الفني، عرض النتائج التاريخية، والتحليل الفني المتقدم في مكان واحد."
+                : "Custom tools including technical scanner, historical backtest results view, and advanced data analysis.",
             colorClass: "neobrutal-bg-pink",
         },
     ];

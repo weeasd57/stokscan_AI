@@ -1674,7 +1674,7 @@ def get_stock_data_eodhd(
         except Exception as e:
             print(f"Supabase read error for {ticker}: {e}")
 
-    if force_local:
+    if True:
         try:
             from api.tradingview_integration import fetch_tradingview_prices
             s, e = _infer_symbol_exchange(ticker, exchange)
@@ -1719,7 +1719,8 @@ def get_stock_data_eodhd(
                         return df
         except Exception as tv_ex:
             print(f"DEBUG: On-the-fly TradingView sync failed for {ticker}: {tv_ex}")
-        return pd.DataFrame() # Return empty instead of raising error if cloud-only
+        if force_local:
+            return pd.DataFrame() # Return empty instead of raising error if cloud-only
 
     # No cloud data, try API
     try:

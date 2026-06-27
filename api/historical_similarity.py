@@ -822,8 +822,18 @@ def run_market_wide_similarity_scan(
     
     return results
 
+_cached_similarity_report = None
+_cached_report_timestamp = 0.0
+CACHE_TTL_SECONDS = 300  # 5 minutes
+
 def get_published_similarity_report() -> Dict[str, Any]:
     """Get the currently published similarity scan results from Supabase."""
+    global _cached_similarity_report, _cached_report_timestamp
+    import time
+    now = time.time()
+    if _cached_similarity_report is not None and (now - _cached_report_timestamp) < CACHE_TTL_SECONDS:
+        return _cached_similarity_report
+
     try:
         supabase = _get_supabase()
         if not supabase:
@@ -852,9 +862,13 @@ def get_published_similarity_report() -> Dict[str, Any]:
         if response.data and len(response.data) > 0:
             report_row = response.data[0]
             raw_scans = _parse_scans(report_row.get("scans", []))
-            filtered_scans = _filter_report_scans(raw_scans)
+            
+            # Optimization: raw_scans is already filtered during publication.
+            # Bypassing _filter_report_scans (which queries 50k prices and all symbols from Supabase)
+            # avoids huge performance degradation on every page load.
+            filtered_scans = raw_scans
 
-            return {
+            report_dict = {
                     "id": report_row.get("id"),
                     "name": report_row.get("name", "Market Similarity Report"),
                     "scans": filtered_scans,
@@ -864,6 +878,9 @@ def get_published_similarity_report() -> Dict[str, Any]:
                     "stop_loss": report_row.get("stop_loss", -0.03),
                     "updated_at": report_row.get("updated_at")
                 }
+            _cached_similarity_report = report_dict
+            _cached_report_timestamp = now
+            return report_dict
         else:
             print("📝 No published reports found in Supabase")
             return {"scans": [], "updated_at": None, "name": "Market Similarity Report"}
@@ -874,6 +891,11 @@ def get_published_similarity_report() -> Dict[str, Any]:
 
 def publish_similarity_report(report_data: Dict[str, Any]) -> Dict[str, Any]:
     """Save/Publish a new similarity scan report to Supabase."""
+    global _cached_similarity_report, _cached_report_timestamp
+    # Invalidate cache
+    _cached_similarity_report = None
+    _cached_report_timestamp = 0.0
+
     try:
         supabase = _get_supabase()
         if not supabase:
