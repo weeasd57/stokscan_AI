@@ -111,12 +111,13 @@ async def startup_event():
     try:
         from api.support_chat import SUPPORT_BOT_TOKEN
         import requests as req
+        telegram_relay = os.getenv("TELEGRAM_RELAY_URL", "https://api.telegram.org").rstrip("/")
         
         if webhook_url:
             support_hook = f"{webhook_url.rstrip('/')}/support-tg-webhook/{SUPPORT_BOT_TOKEN}"
             try:
                 r = req.post(
-                    f"https://api.telegram.org/bot{SUPPORT_BOT_TOKEN}/setWebhook",
+                    f"{telegram_relay}/bot{SUPPORT_BOT_TOKEN}/setWebhook",
                     json={"url": support_hook},
                     timeout=10
                 )
@@ -273,12 +274,13 @@ async def tg_set_webhook_from_local():
         raise HTTPException(status_code=500, detail="WEBHOOK_URL not set")
 
     # 1. Set Webhook for Support Bot
+    telegram_relay = os.getenv("TELEGRAM_RELAY_URL", "https://api.telegram.org").rstrip("/")
     support_hook = f"{webhook_url.rstrip('/')}/support-tg-webhook/{SUPPORT_BOT_TOKEN}"
     support_ok = False
     support_detail = {}
     try:
         r_support = req.post(
-            f"https://api.telegram.org/bot{SUPPORT_BOT_TOKEN}/setWebhook",
+            f"{telegram_relay}/bot{SUPPORT_BOT_TOKEN}/setWebhook",
             json={"url": support_hook},
             timeout=30,
         )

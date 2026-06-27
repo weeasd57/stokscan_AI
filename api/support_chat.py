@@ -14,6 +14,7 @@ def __getattr__(name: str):
         return token
     raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
 CHAT_ID_FILE = os.path.join(os.path.dirname(__file__), "support_admin_chat_id.txt")
+TELEGRAM_RELAY_URL = os.getenv("TELEGRAM_RELAY_URL", "https://api.telegram.org").rstrip("/")
 
 def load_admin_chat_id() -> Optional[int]:
     if os.path.exists(CHAT_ID_FILE):
@@ -34,7 +35,7 @@ def save_admin_chat_id(chat_id: int):
         print(f"[SUPPORT_CHAT] Error saving admin chat ID: {e}")
 
 def send_telegram_message(chat_id: int, text: str) -> bool:
-    url = f"https://api.telegram.org/bot{SUPPORT_BOT_TOKEN}/sendMessage"
+    url = f"{TELEGRAM_RELAY_URL}/bot{SUPPORT_BOT_TOKEN}/sendMessage"
     payload = {
         "chat_id": chat_id,
         "text": text,
