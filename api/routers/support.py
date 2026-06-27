@@ -2,7 +2,7 @@ from fastapi import APIRouter, Request, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Optional
 from api.stock_ai import _init_supabase, supabase as _supabase
-from api.support_chat import handle_customer_message, handle_telegram_update, SUPPORT_BOT_TOKEN
+from api.support_chat import handle_customer_message, handle_telegram_update, get_token
 
 router = APIRouter()
 
@@ -34,9 +34,9 @@ async def get_customer_messages(session_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/support-tg-webhook/{token}")
-async def support_webhook(token: str, request: Request):
-    if token != SUPPORT_BOT_TOKEN:
-        raise HTTPException(status_code=403, detail="Invalid token")
+async def support_telegram_webhook(token: str, request: Request):
+    if token != get_token():
+        raise HTTPException(status_code=403, detail="Unauthorized token")
     data = await request.json()
     handle_telegram_update(data)
     return {"ok": True}

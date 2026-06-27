@@ -6,9 +6,12 @@ import time
 from typing import Optional, List, Dict
 from api.stock_ai import _init_supabase, supabase as _supabase
 
+def get_token() -> str:
+    return os.getenv("SUPPORT_BOT_TOKEN", "").strip()
+
 def __getattr__(name: str):
     if name == "SUPPORT_BOT_TOKEN":
-        token = os.getenv("SUPPORT_BOT_TOKEN", "").strip()
+        token = get_token()
         preview = f"{token[:4]}...{token[-4:]}" if len(token) > 8 else "empty/too_short"
         print(f"[SUPPORT_CHAT] Dynamic lookup of SUPPORT_BOT_TOKEN: length={len(token)}, preview={preview}")
         return token
@@ -35,7 +38,7 @@ def save_admin_chat_id(chat_id: int):
         print(f"[SUPPORT_CHAT] Error saving admin chat ID: {e}")
 
 def send_telegram_message(chat_id: int, text: str) -> bool:
-    url = f"{TELEGRAM_RELAY_URL}/bot{SUPPORT_BOT_TOKEN}/sendMessage"
+    url = f"{TELEGRAM_RELAY_URL}/bot{get_token()}/sendMessage"
     payload = {
         "chat_id": chat_id,
         "text": text,
