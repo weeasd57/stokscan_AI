@@ -6,7 +6,13 @@ import time
 from typing import Optional, List, Dict
 from api.stock_ai import _init_supabase, supabase as _supabase
 
-SUPPORT_BOT_TOKEN = os.getenv("SUPPORT_BOT_TOKEN", "").strip()
+def __getattr__(name: str):
+    if name == "SUPPORT_BOT_TOKEN":
+        token = os.getenv("SUPPORT_BOT_TOKEN", "").strip()
+        preview = f"{token[:4]}...{token[-4:]}" if len(token) > 8 else "empty/too_short"
+        print(f"[SUPPORT_CHAT] Dynamic lookup of SUPPORT_BOT_TOKEN: length={len(token)}, preview={preview}")
+        return token
+    raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
 CHAT_ID_FILE = os.path.join(os.path.dirname(__file__), "support_admin_chat_id.txt")
 
 def load_admin_chat_id() -> Optional[int]:
