@@ -6,7 +6,7 @@ import time
 from typing import Optional, List, Dict
 from api.stock_ai import _init_supabase, supabase as _supabase
 
-SUPPORT_BOT_TOKEN = os.getenv("SUPPORT_BOT_TOKEN", "")
+SUPPORT_BOT_TOKEN = os.getenv("SUPPORT_BOT_TOKEN", "").strip()
 CHAT_ID_FILE = os.path.join(os.path.dirname(__file__), "support_admin_chat_id.txt")
 
 def load_admin_chat_id() -> Optional[int]:
