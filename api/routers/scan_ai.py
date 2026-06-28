@@ -280,6 +280,16 @@ async def get_all_news(
             
         query = supabase.table("stock_news_sentiment").select("*", count="exact")
         
+        # Hide stocks with no news (news_count = 0) unless searching
+        has_search = False
+        if search and search.strip():
+            has_search = True
+        if symbol and symbol.strip():
+            has_search = True
+            
+        if not has_search:
+            query = query.gt("news_count", 0)
+            
         if symbol:
             query = query.eq("symbol", symbol.upper())
             
