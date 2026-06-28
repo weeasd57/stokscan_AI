@@ -366,9 +366,47 @@ def get_top_reasons(model: Any, predictors: List[str], limit: int = 3) -> List[s
 # Standard predictors for default RandomForest (Legacy)
 RF_PREDICTORS = ["Close", "Volume", "SMA_50", "SMA_200", "RSI", "Momentum"]
 
+_supabase_local = threading.local()
+
+def _get_thread_local_supabase():
+    return getattr(_supabase_local, "client", None)
+
+def _set_thread_local_supabase(client):
+    _supabase_local.client = client
+
+class ThreadLocalSupabaseProxy:
+    def __getattr__(self, name):
+        client = _get_thread_local_supabase()
+        if client is None:
+            _init_supabase()
+            client = _get_thread_local_supabase()
+        if client is None:
+            raise RuntimeError("Supabase client is not initialized")
+        return getattr(client, name)
+
+    def __setattr__(self, name, value):
+        client = _get_thread_local_supabase()
+        if client is None:
+            _init_supabase()
+            client = _get_thread_local_supabase()
+        if client is None:
+            raise RuntimeError("Supabase client is not initialized")
+        setattr(client, name, value)
+
+    def __bool__(self):
+        client = _get_thread_local_supabase()
+        if client is None:
+            try:
+                _init_supabase()
+                client = _get_thread_local_supabase()
+            except Exception:
+                pass
+        return client is not None
+
+supabase = ThreadLocalSupabaseProxy()
+
 def _init_supabase(force=False):
-    global supabase
-    if supabase is None or force:
+    if _get_thread_local_supabase() is None or force:
         url = os.getenv("NEXT_PUBLIC_SUPABASE_URL")
         key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
         if not key:
@@ -396,7 +434,7 @@ def _init_supabase(force=False):
                     storage_client_timeout=httpx.Timeout(storage_timeout_s, connect=connect_timeout_s),
                 )
                 new_client = create_client(url, key, options)
-                supabase = new_client
+                _set_thread_local_supabase(new_client)
                 print("DEBUG: Supabase client initialized successfully")
             except Exception as e:
                 print(f"Failed to init Supabase: {e}")

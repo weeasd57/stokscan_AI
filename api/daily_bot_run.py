@@ -28,7 +28,7 @@ from api.stock_ai import _init_supabase
 # But since supabase is used as a global variable, we can override or define it as a getter or wrap it
 class SupabaseWrapper:
     def __getattr__(self, name):
-        if stock_ai.supabase is None:
+        if not stock_ai.supabase:
             _init_supabase()
         return getattr(stock_ai.supabase, name)
 

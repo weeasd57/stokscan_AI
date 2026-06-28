@@ -41,6 +41,7 @@ export default function NewsPage() {
     const [totalCount, setTotalCount] = useState(0);
     const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState("");
+    const [debouncedSearch, setDebouncedSearch] = useState("");
     const [sentiment, setSentiment] = useState<string>("all"); // "all", "positive", "negative", "neutral"
     const [sortBy, setSortBy] = useState<string>("newest"); // "newest", "oldest", "highest_sent", "lowest_sent"
     const [dateFilter, setDateFilter] = useState("");
@@ -54,8 +55,8 @@ export default function NewsPage() {
             const offset = (page - 1) * limit;
             let url = `/api/scan/news?limit=${limit}&offset=${offset}`;
             
-            if (search.trim()) {
-                url += `&search=${encodeURIComponent(search)}`;
+            if (debouncedSearch.trim()) {
+                url += `&search=${encodeURIComponent(debouncedSearch)}`;
             }
             if (sentiment !== "all") {
                 url += `&sentiment=${sentiment}`;
@@ -85,20 +86,26 @@ export default function NewsPage() {
         } finally {
             setLoading(false);
         }
-    }, [page, search, sentiment, dateFilter, sortBy]);
+    }, [page, debouncedSearch, sentiment, dateFilter, sortBy]);
 
+    // Handle search input debounce/delay
+    useEffect(() => {
+        const delayDebounce = setTimeout(() => {
+            setDebouncedSearch(search);
+            setPage(1);
+        }, 300);
+        return () => clearTimeout(delayDebounce);
+    }, [search]);
+
+    // Reset pagination when date filter changes
+    useEffect(() => {
+        setPage(1);
+    }, [dateFilter]);
+
+    // Trigger fetch when fetchNews callback changes
     useEffect(() => {
         fetchNews();
     }, [fetchNews]);
-
-    // Handle search and date filters change
-    useEffect(() => {
-        const delayDebounce = setTimeout(() => {
-            setPage(1);
-            fetchNews();
-        }, 300);
-        return () => clearTimeout(delayDebounce);
-    }, [search, dateFilter]);
 
     const handleSentimentFilter = (val: string) => {
         setSentiment(val);
