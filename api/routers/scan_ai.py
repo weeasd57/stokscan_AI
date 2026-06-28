@@ -287,8 +287,6 @@ async def get_all_news(
             has_search = True
         if symbol and symbol.strip():
             has_search = True
-        if date and date.strip():
-            has_search = True
             
         if not has_search:
             query = query.gt("news_count", 0)
