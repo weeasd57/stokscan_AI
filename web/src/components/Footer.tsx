@@ -40,6 +40,14 @@ export default function Footer() {
               </li>
               <li>
                 <Link
+                  href="/news"
+                  className="text-sm text-zinc-500 dark:text-zinc-500 light:text-gray-600 hover:text-indigo-400 dark:hover:text-indigo-400 light:hover:text-indigo-600 transition-colors font-bold text-indigo-400/80 dark:text-indigo-400/80 light:text-indigo-600/80"
+                >
+                  {t("nav.scanner.news")}
+                </Link>
+              </li>
+              <li>
+                <Link
                   href="/scanner/technical"
                   className="text-sm text-zinc-500 dark:text-zinc-500 light:text-gray-600 hover:text-indigo-400 dark:hover:text-indigo-400 light:hover:text-indigo-600 transition-colors"
                 >

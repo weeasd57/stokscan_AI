@@ -17,6 +17,7 @@ import {
     Star,
     GitGraph,
     Search,
+    Loader2,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import RecommendationsTable from "@/components/RecommendationsTable";
@@ -88,6 +89,21 @@ export default function HomePage() {
     const [similarityUpdatedAt, setSimilarityUpdatedAt] = useState<string | null>(null);
     const [selectedSimStock, setSelectedSimStock] = useState<any>(FALLBACK_SIMILARITY_STOCKS[0]);
     const [simChartData, setSimChartData] = useState<any[]>([]);
+    const [recentNews, setRecentNews] = useState<any[]>([]);
+    const [newsLoading, setNewsLoading] = useState(true);
+
+    useEffect(() => {
+        setNewsLoading(true);
+        fetch("/api/scan/news?limit=3")
+            .then(res => res.json())
+            .then(data => {
+                if (data?.data) {
+                    setRecentNews(data.data);
+                }
+            })
+            .catch(err => console.error("Error fetching homepage news:", err))
+            .finally(() => setNewsLoading(false));
+    }, []);
 
     useEffect(() => {
         fetch("/api/scan/similarity/published")
@@ -802,6 +818,90 @@ export default function HomePage() {
                                 <ArrowRight className={`w-4 h-4 ${isAr ? 'rotate-180' : ''}`} />
                             </Link>
                         </div>
+                    </div>
+                </div>
+            </section>
+
+            {/* AI News Section */}
+            <section className="px-4 sm:px-6 lg:px-8 py-20 border-t-4 border-black dark:border-white bg-white dark:bg-zinc-900">
+                <div className="max-w-6xl mx-auto">
+                    <div className="text-center mb-16">
+                        <div className="inline-block border-4 border-black dark:border-white px-3 py-1.5 neobrutal-bg-cyan text-black dark:text-black font-black text-xs uppercase tracking-widest rotate-[1deg] mb-4">
+                            {isAr ? "ذكاء اصطناعي وأخبار" : "AI NEWS & INTELLIGENCE"}
+                        </div>
+                        <h2 className="text-3xl sm:text-5xl font-black text-black dark:text-white tracking-tight mb-4">
+                            {isAr ? "آخر أخبار وتحليلات الأسهم بالذكاء الاصطناعي" : "Latest AI Market Intelligence"}
+                        </h2>
+                        <p className="text-sm sm:text-base text-zinc-500 max-w-xl mx-auto font-bold">
+                            {isAr 
+                                ? "تابع أهم الأخبار المالية وتحليلات معالجة اللغة الطبيعية والذكاء الاصطناعي لأسهم البورصة المصرية."
+                                : "Stay updated with NLP-driven sentiment analytics, corporate news, and AI-generated trading intelligence."}
+                        </p>
+                    </div>
+
+                    {newsLoading ? (
+                        <div className="flex flex-col items-center justify-center p-20 border-4 border-black dark:border-white bg-zinc-50 dark:bg-zinc-950 gap-4 shadow-[6px_6px_0px_rgba(0,0,0,1)] dark:shadow-[6px_6px_0px_rgba(255,255,255,1)]">
+                            <Loader2 className="w-8 h-8 text-indigo-500 animate-spin" />
+                            <p className="text-xs font-black uppercase tracking-[0.2em] text-zinc-500">{isAr ? "جاري تحميل الأخبار..." : "Loading Latest Intelligence..."}</p>
+                        </div>
+                    ) : recentNews.length > 0 ? (
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                            {recentNews.map((item: any, i: number) => {
+                                const headlines = item.headlines || [];
+                                const mainHeadline = headlines[0] || (isAr ? `تحديث فني لسهم ${item.symbol}` : `Technical update for ${item.symbol}`);
+                                const sources = item.sources || [];
+                                const mainSource = sources[0] || "EGX Bots AI";
+                                const isPositive = item.sentiment_score > 0.05;
+                                const isNegative = item.sentiment_score < -0.05;
+                                
+                                return (
+                                    <div 
+                                        key={item.id || i}
+                                        className="border-4 border-black dark:border-white p-6 bg-white dark:bg-zinc-950 flex flex-col justify-between shadow-[6px_6px_0px_rgba(0,0,0,1)] dark:shadow-[6px_6px_0px_rgba(255,255,255,1)] hover:translate-x-[-2px] hover:translate-y-[-2px] hover:shadow-[8px_8px_0px_rgba(0,0,0,1)] dark:hover:shadow-[8px_8px_0px_rgba(255,255,255,1)] transition-all duration-200"
+                                    >
+                                        <div>
+                                            <div className="flex items-center justify-between gap-3 mb-4">
+                                                <span className="border-2 border-black dark:border-white px-2 py-0.5 neobrutal-bg-yellow text-[10px] font-black uppercase tracking-wider">
+                                                    {item.symbol}
+                                                </span>
+                                                <span className={`border-2 border-black dark:border-white px-2 py-0.5 text-[10px] font-black uppercase ${
+                                                    isPositive ? 'neobrutal-bg-green' : isNegative ? 'neobrutal-bg-pink' : 'bg-zinc-200'
+                                                }`}>
+                                                    {isPositive ? (isAr ? "إيجابي" : "Positive") : isNegative ? (isAr ? "سلبي" : "Negative") : (isAr ? "neutral" : "Neutral")}
+                                                </span>
+                                            </div>
+
+                                            <h3 className="text-base sm:text-lg font-black text-black dark:text-white mb-3 line-clamp-2 leading-snug">
+                                                {mainHeadline}
+                                            </h3>
+                                        </div>
+
+                                        <div className="mt-6 pt-4 border-t-2 border-black dark:border-white flex items-center justify-between text-[11px] font-bold text-zinc-500">
+                                            <span>
+                                                📅 {new Date(item.date).toLocaleDateString(isAr ? "ar-EG" : "en-US", { month: "short", day: "numeric" })}
+                                            </span>
+                                            <span>
+                                                📰 {mainSource}
+                                            </span>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    ) : (
+                        <div className="text-center p-12 border-4 border-black dark:border-white bg-zinc-50 dark:bg-zinc-950 font-bold text-zinc-500">
+                            {isAr ? "لا توجد أخبار متاحة حالياً." : "No intelligence reports available."}
+                        </div>
+                    )}
+
+                    <div className="text-center mt-12">
+                        <Link
+                            href="/news"
+                            className="h-12 px-6 border-4 border-black dark:border-white bg-black dark:bg-white text-white dark:text-black font-black text-sm uppercase tracking-wider shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_rgba(255,255,255,1)] hover:translate-x-[-2px] hover:translate-y-[-2px] hover:shadow-[6px_6px_0px_rgba(0,0,0,1)] dark:hover:shadow-[6px_6px_0px_rgba(255,255,255,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all duration-100 cursor-pointer inline-flex items-center justify-center gap-2"
+                        >
+                            {isAr ? "عرض جميع الأخبار" : "View All News"}
+                            <ArrowRight className={`w-4 h-4 ${isAr ? 'rotate-180' : ''}`} />
+                        </Link>
                     </div>
                 </div>
             </section>
