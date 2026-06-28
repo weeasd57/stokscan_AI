@@ -41,13 +41,39 @@ except ImportError:
     pass
 
 
-def _verify_admin_key(x_admin_key: Optional[str] = Header(default=None)):
-    """Enforce ADMIN_SECRET_KEY if configured. Backward-compatible: open if env var is unset."""
+def _verify_admin_key(
+    x_admin_key: Optional[str] = Header(default=None),
+    authorization: Optional[str] = Header(default=None)
+):
+    """
+    Enforce security on admin endpoints.
+    Allows access if:
+      1. x-admin-key matches ADMIN_SECRET_KEY (if ADMIN_SECRET_KEY is configured).
+      2. OR authorization header contains a valid Supabase JWT for an admin user.
+    """
+    # 1. Check x-admin-key header
     secret = os.getenv("ADMIN_SECRET_KEY", "").strip()
-    if not secret:
-        return  # Not configured — allow all (legacy mode)
-    if x_admin_key != secret:
-        raise HTTPException(status_code=403, detail="Forbidden: invalid admin key")
+    if secret and x_admin_key == secret:
+        return
+
+    # 2. Check Supabase Authorization token
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization.split(" ")[1]
+        try:
+            _init_supabase()
+            if stock_ai.supabase:
+                user_res = stock_ai.supabase.auth.get_user(token)
+                if user_res and user_res.user:
+                    user = user_res.user
+                    role = user.app_metadata.get("role") if user.app_metadata else None
+                    email = user.email
+                    if role == "admin" or email == "weeeessd57@gmail.com":
+                        return
+        except Exception as e:
+            print(f"[ADMIN_AUTH] Supabase token auth failed: {e}")
+
+    # Neither is valid: raise 403 Forbidden
+    raise HTTPException(status_code=403, detail="Forbidden: invalid admin credentials")
 
 
 router = APIRouter(

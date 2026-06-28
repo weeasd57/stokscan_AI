@@ -15,13 +15,41 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  // ─── Inject Admin Key for backend admin API proxy calls ───────────────────
-  // The Next.js rewrite forwards /api/admin/* → backend /admin/*.
-  // We add X-Admin-Key server-side so the secret is never exposed to the browser.
+  // ─── Inject Admin Key for backend admin API proxy calls (Secured) ─────────
+  // Verify that the requester is an authenticated admin before injecting the x-admin-key.
   if (request.nextUrl.pathname.startsWith("/api/admin")) {
-    const adminKey = process.env.ADMIN_SECRET_KEY;
-    if (adminKey) {
-      requestHeaders.set("x-admin-key", adminKey);
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const anonKey =
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??
+      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY;
+
+    if (url && anonKey) {
+      const supabase = createServerClient(url, anonKey, {
+        cookies: {
+          get(name: string) {
+            return request.cookies.get(name)?.value;
+          },
+          set() {},
+          remove() {},
+        },
+      });
+
+      try {
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+
+        const isAdmin = user?.app_metadata?.role === "admin" || user?.email === "weeeessd57@gmail.com";
+
+        if (user && isAdmin) {
+          const adminKey = process.env.ADMIN_SECRET_KEY;
+          if (adminKey) {
+            requestHeaders.set("x-admin-key", adminKey);
+          }
+        }
+      } catch (err) {
+        console.error("Middleware auth check failed for /api/admin:", err);
+      }
     }
   }
   // ──────────────────────────────────────────────────────────────────────────
