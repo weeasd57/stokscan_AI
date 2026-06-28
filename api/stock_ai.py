@@ -590,6 +590,35 @@ def _sanitize_fundamentals(fundamentals: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
+def _get_latest_news_sentiment(symbol: str) -> Dict[str, Any]:
+    """
+    Fetch the latest news sentiment record for the given symbol from Supabase.
+    """
+    out = {"sentiment_score": 0.0, "news_count": 0, "negative_flag": 0, "positive_flag": 0}
+    try:
+        _init_supabase()
+        global supabase
+        if supabase and symbol:
+            sym_clean = symbol.split(".")[0].upper()
+            res = (
+                supabase.table("stock_news_sentiment")
+                .select("sentiment_score, news_count, negative_flag, positive_flag")
+                .eq("symbol", sym_clean)
+                .order("date", desc=True)
+                .limit(1)
+                .execute()
+            )
+            if res.data:
+                record = res.data[0]
+                out["sentiment_score"] = float(record.get("sentiment_score", 0.0))
+                out["news_count"] = int(record.get("news_count", 0))
+                out["negative_flag"] = int(record.get("negative_flag", 0))
+                out["positive_flag"] = int(record.get("positive_flag", 0))
+    except Exception as e:
+        print(f"DEBUG: Error fetching sentiment score for {symbol}: {e}")
+    return out
+
+
 def _last_trading_day(today: dt.date) -> dt.date:
     # Very small heuristic (no exchange calendar):
     # - If weekend, roll back to Friday
@@ -3614,6 +3643,15 @@ def calculate_sentiment_score_val(row) -> int:
     return min(10, max(1, score))
 
 
+def rescale_news_sentiment(raw_score: float) -> int:
+    """
+    Convert a raw news sentiment score in [-1.0, +1.0] to the 1-10 integer scale
+    used by the AI score display. Score 0 maps to ~6, +1 maps to 10, -1 maps to 1.
+    """
+    scaled = int((raw_score + 1.0) * 4.5) + 1
+    return max(1, min(10, scaled))
+
+
 def run_pipeline(
     api_key: str,
     ticker: str,
@@ -3821,6 +3859,16 @@ def run_pipeline(
 
     distribution_gate = get_distribution_gate(prices_ai.iloc[-1])
     if tomorrow_prediction == 1 and distribution_gate["blocked"]:
+        tomorrow_prediction = 0
+
+    # Sentiment Veto Gate
+    sentiment_data = _get_latest_news_sentiment(selected_symbol or ticker)
+    news_sentiment_score = sentiment_data["sentiment_score"]
+    news_count = sentiment_data["news_count"]
+    sentiment_veto = (sentiment_data["negative_flag"] == 1)
+
+    if tomorrow_prediction == 1 and sentiment_veto:
+        print(f"[SENTIMENT_VETO] Gated prediction for {selected_symbol or ticker} due to negative news sentiment ({news_sentiment_score})")
         tomorrow_prediction = 0
             
     # --- PHASE: Ensemble Consensus ---
@@ -4047,7 +4095,14 @@ def run_pipeline(
     current_ai_score = calculate_ai_score_val(float(precision), buy_threshold)
     current_tech_score = calculate_technical_score_val(last_row_dict)
     current_fund_score = calculate_fundamental_score_val(last_row_dict)
-    current_sent_score = calculate_sentiment_score_val(last_row_dict)
+    
+    # Use real news sentiment if available, otherwise fallback to momentum-based sentiment score
+    # news_count and news_sentiment_score are always initialized (lines ~3829) before the veto gate;
+    # no 'in locals()' check needed — a direct value check is robust against reordering.
+    if news_count > 0:
+        current_sent_score = rescale_news_sentiment(news_sentiment_score)
+    else:
+        current_sent_score = calculate_sentiment_score_val(last_row_dict)
 
     return {
         "ticker": selected_symbol or ticker,

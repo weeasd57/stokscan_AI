@@ -39,6 +39,7 @@ yarn-error.log*
 api/*.log
 council_debug.log
 logs/structured.json
+logs/*.log
 api/intraday_sync_state.json
 
 # TypeScript build info
@@ -61,3 +62,8 @@ web/public/favicon_io/*.png
 
 # Gemini files
 .gemini/
+
+# Temp and Datasets
+threshold_calibration_*.csv
+web/scratch/
+EGX_news_dataset.json

@@ -1320,6 +1320,30 @@ def generate_arabic_rationale(result: dict) -> dict:
         f"تم تحديد سعر دخول مقترح حول {last_close:.2f} جنيه، مستهدفين هدفاً أولاً عند {target_1:.2f} جنيه وهدفاً ثانياً عند {target_2:.2f} جنيه، "
         f"مع وضع وقف خسارة عند {stop_loss:.2f} جنيه لحماية المحفظة."
     )
+
+    # 7.5 Fetch real news headlines
+    news_source = f"نتائج الربع الأول وتقارير الإفصاح المالي لشركة ({symbol})"
+    try:
+        sym_clean = symbol.split(".")[0].upper()
+        res = (
+            supabase.table("stock_news_sentiment")
+            .select("headlines, sources")
+            .eq("symbol", sym_clean)
+            .order("date", desc=True)
+            .limit(1)
+            .execute()
+        )
+        if res.data and res.data[0].get("headlines"):
+            headlines = res.data[0]["headlines"]
+            sources = res.data[0]["sources"]
+            if headlines:
+                headline_str = headlines[0]
+                if " - " in headline_str:
+                    headline_str = headline_str.split(" - ")[0]
+                source_str = sources[0] if sources else "Google News"
+                news_source = f"أخبار البورصة: «{headline_str}» (المصدر: {source_str})"
+    except Exception as e:
+        print(f"[RATIONALE] Error fetching news for rationale: {e}")
     
     return {
         "win_rate": win_rate,
@@ -1328,7 +1352,7 @@ def generate_arabic_rationale(result: dict) -> dict:
         "technical_rationale": tech_rationale,
         "fundamental_rationale": fund_rationale,
         "expected_win_pct": win_rate_val,
-        "news_source": f"نتائج الربع الأول وتقارير الإفصاح المالي لشركة ({symbol})"
+        "news_source": news_source
     }
 
 
@@ -1496,7 +1520,8 @@ async def generate_daily_recommendations(model_name: Optional[str] = None):
             print("[RECOMMENDATIONS] No candidates passed council consensus filtering.")
             return
     
-    # Calculate risk_adjusted_return for all candidates
+    # Calculate risk_adjusted_return for all candidates and adjust with news sentiment
+    _init_supabase()
     for item in results:
         entry_p = float(item.get("last_close", 0.0)) if item.get("last_close") is not None else 0.0
         target_p = float(item.get("target_price", 0.0)) if item.get("target_price") is not None else 0.0
@@ -1505,10 +1530,34 @@ async def generate_daily_recommendations(model_name: Optional[str] = None):
         
         expected_ret = target_p - entry_p
         expected_risk = entry_p - stop_l
+        
+        raw_rar = 0.0
         if expected_risk > 0:
-            item["risk_adjusted_return"] = prec * (expected_ret / expected_risk)
-        else:
-            item["risk_adjusted_return"] = 0.0
+            raw_rar = prec * (expected_ret / expected_risk)
+            
+        # Get today's news sentiment from Supabase
+        sentiment_mult = 1.0
+        try:
+            if supabase:
+                sym_clean = item.get("symbol", "").split(".")[0].upper()
+                res = (
+                    supabase.table("stock_news_sentiment")
+                    .select("sentiment_score, news_count")
+                    .eq("symbol", sym_clean)
+                    .order("date", desc=True)
+                    .limit(1)
+                    .execute()
+                )
+                if res.data:
+                    record = res.data[0]
+                    if record.get("news_count", 0) > 0:
+                        score = record.get("sentiment_score", 0.0)
+                        # Adjustment formula: mult = 1 + score * 0.25
+                        sentiment_mult = 1.0 + (score * 0.25)
+        except Exception as se_err:
+            print(f"DEBUG: Error checking sentiment for rank adjustment of {item.get('symbol')}: {se_err}")
+            
+        item["risk_adjusted_return"] = raw_rar * sentiment_mult
 
     # Sort by risk_adjusted_return descending to prioritize safer risk-reward profiles
     results.sort(key=lambda x: x.get("risk_adjusted_return", 0.0), reverse=True)
@@ -1898,6 +1947,22 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
         except Exception as e:
             _record_step("calculate_indicators", False, str(e)[:200], 0)
             print(f"[INDICATORS] Error: {e}")
+
+        # 2.5 Fetch & Analyze News Sentiment
+        print("\n>>> STEP 2.5: Fetching and analyzing news sentiment...")
+        _start_step("news_sentiment", "Fetching and analyzing news sentiment from Google News RSS")
+        try:
+            from api.news_sentiment_engine import process_exchange_news
+            if not symbols_raw:
+                symbols_raw = _fetch_egx_symbols()
+                symbols_raw = _filter_active_symbols(symbols_raw)
+            
+            # Fetch and process news sentiment for all active EGX symbols
+            ok, count = process_exchange_news("EGX", symbols_raw)
+            _record_step("news_sentiment", ok, f"Processed news for {count} symbols", count)
+        except Exception as e:
+            _record_step("news_sentiment", False, str(e)[:200], 0)
+            print(f"[NEWS_SENTIMENT] Error: {e}")
 
         # 3. Update open portfolio positions
         print("\n>>> STEP 3: Updating open portfolio positions...")

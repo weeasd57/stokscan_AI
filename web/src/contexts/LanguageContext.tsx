@@ -44,6 +44,7 @@ const translations: Record<string, Record<Language, string>> = {
     "nav.scanner.similarity": { en: "Historical Similarity", ar: "النماذج المتكررة (شبه ده)" },
     "nav.scanner.market": { en: "Market Analysis", ar: "اتجاه السوق والعملة" },
     "nav.scanner.compare": { en: "Comparison", ar: "المقارنة" },
+    "nav.scanner.news": { en: "AI News", ar: "أخبار الـ AI" },
     
     // Market Analysis Translations
     "market.title": { en: "Market Analysis", ar: "تحليل اتجاه السوق والوضع الاقتصادي" },

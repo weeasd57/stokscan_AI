@@ -824,6 +824,38 @@ Phase 2-6 → Phase 9 → Phase 10 → Phase 7-8 → إطلاق SaaS
 
 ---
 
-**آخر تحديث:** 2026-06-12  
-**الإصدار:** 5.0  
-**الحالة:** تمت إضافة Phase 11 (Hybrid Data Storage)
+## 🆕 Phase 12: Daily News & Sentiment Analysis Integration 🔄 (80% Complete)
+
+**Priority: HIGH - Quality control & decision enhancement**
+
+- [x] **12.1 Database & News Engine Setup**
+  - [x] Create Supabase table `stock_news_sentiment` and its indexes
+  - [x] Create `api/news_sentiment_engine.py` with bilingual dictionary and Google News RSS parsing
+  - **الجهد:** مكتمل 100%
+
+- [x] **12.2 Integration with Daily Automation Pipeline**
+  - [x] Add Step 2.5 (`run_news_sentiment_step`) to `daily_bot_run.py` to fetch/analyze news for all symbols
+  - [x] Schedule news fetching and caching during the daily run
+  - **الجهد:** مكتمل 100%
+
+- [x] **12.3 Inference Gating & Decision Logic**
+  - [x] Add Sentiment Veto Gate to `tomorrow_prediction` logic in `stock_ai.py`
+  - [x] Adjust `risk_adjusted_return` ranking in Step 5 using news sentiment scores
+  - [x] Update placeholder `sentiment_score` to reflect real news sentiment (scaled 1-10)
+  - **الجهد:** مكتمل 100%
+
+- [x] **12.4 Reports & UI Rationale Enrichment**
+  - [x] Retrieve latest news headlines in `generate_arabic_rationale` and format dynamic rationale for Telegram cards
+  - [x] Expose `/api/stocks/{symbol}/news` endpoint to serve news to frontend
+  - **الجهد:** مكتمل 100%
+
+- [ ] **12.5 Meta-Model Integration (Future Phase)**
+  - ⚪ Train secondary XGBoost model (Meta-Classifier) combining `primary_prob` and sentiment features
+  - ⚪ Perform evaluation on walk-forward splits to measure sentiment alpha
+  - **الجهد المتوقع:** 12-15 ساعة
+
+---
+
+**آخر تحديث:** 2026-06-27  
+**الإصدار:** 6.0  
+**الحالة:** إكمال دمج خط الأتمتة والفلترة الإخبارية (80%)

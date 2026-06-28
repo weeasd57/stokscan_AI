@@ -241,3 +241,63 @@ async def api_get_published_similarity_report():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
+@router.get("/stocks/{symbol}/news")
+async def get_stock_news(symbol: str):
+    try:
+        from api.stock_ai import _init_supabase, supabase
+        _init_supabase()
+        if not supabase:
+            raise HTTPException(status_code=500, detail="Database not initialized")
+            
+        sym_clean = symbol.split(".")[0].upper()
+        res = (
+            supabase.table("stock_news_sentiment")
+            .select("sentiment_score, news_count, negative_flag, positive_flag, headlines, sources, date")
+            .eq("symbol", sym_clean)
+            .order("date", desc=True)
+            .limit(10)
+            .execute()
+        )
+        return res.data
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/news")
+async def get_all_news(
+    limit: int = Query(default=30, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    symbol: Optional[str] = None,
+    sentiment: Optional[str] = None,
+    search: Optional[str] = None
+):
+    try:
+        from api.stock_ai import _init_supabase, supabase
+        _init_supabase()
+        if not supabase:
+            raise HTTPException(status_code=500, detail="Database not initialized")
+            
+        query = supabase.table("stock_news_sentiment").select("*", count="exact")
+        
+        if symbol:
+            query = query.eq("symbol", symbol.upper())
+            
+        if sentiment == "positive":
+            query = query.gt("sentiment_score", 0.15)
+        elif sentiment == "negative":
+            query = query.lt("sentiment_score", -0.15)
+        elif sentiment == "neutral":
+            query = query.gte("sentiment_score", -0.15).lte("sentiment_score", 0.15)
+            
+        if search:
+            query = query.ilike("symbol", f"%{search}%")
+            
+        res = query.order("date", desc=True).range(offset, offset + limit - 1).execute()
+        return {
+            "data": res.data,
+            "count": res.count
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+

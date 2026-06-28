@@ -136,7 +136,7 @@
                 end
 
                 subgraph PortfolioMgmt ["2. المحفظة وتقييم الأداء السابق"]
-                    Step3["💼 الخطوة 3: تحديث مواكز المحفظة المفتوحة <br/>(Positions)"]:::process
+                    Step3["💼 الخطوة 3: تحديث مراكز المحفظة المفتوحة <br/>(Positions)"]:::process
                     Step4["🎯 الخطوة 4: التقييم الذكي للتوصيات السابقة <br/>(تحديد Win/Loss/Stale)"]:::process
                 end
 
@@ -144,12 +144,12 @@
                     TrendCheck{"🛡️ فحص اتجاه السوق العام <br/>(مؤشر EGX30 vs SMA50)"}:::decision
                     HaltRecommendations["⚠️ إيقاف توليد التوصيات <br/>(حالة السوق الهابط الشديد)"]:::decision
                     RegimeSelection["⚙️ تحديد نظام السوق اللحظي <br/>(Bear / Bull)"]:::process
-                    ThresholdSelection["⚖️ اختيار عتبة الشراء الديناميكية <br/>(Bear=0.75 / Bull=0.55)"]:::process
+                    ThresholdSelection["⚖️ اختيار عتبة الشراء الديناميكية <br/>(Bull=0.55 / Bear=0.65 افتراضياً أو من Artifact النموذج)"]:::process
                     FastScan["🔍 تشغيل الفحص المتوازي السريع <br/>(Fast Scan)"]:::mlEngine
                     
                     subgraph CouncilFilter ["فلترة الكاونسل (Ensemble Filtering)"]
-                        CouncilModel["👥 دمج التوقعات: <br/> model_EGX.pkl + KING.pkl"]:::mlEngine
-                        StrictConsensus{"🤝 هل توافق إجماع الكاونسل <br/>(Score >= 55%)؟"}:::decision
+                        CouncilModel["👥 تشغيل طبقة الكاونسل: <br/> model_EGX.pkl + KING.pkl + Validator اختياري"]:::mlEngine
+                        StrictConsensus{"🤝 هل اجتاز السهم فلتر الكاونسل <br/>(Score >= 55% افتراضياً)؟"}:::decision
                         RejectCandidate["❌ استبعاد السهم"]:::process
                         AcceptCandidate["✅ اعتماد إشارة الكاونسل"]:::process
                     end
@@ -212,11 +212,11 @@
         </div>
         <div class="detail-card">
             <h3>👥 فلترة الكاونسل (Council Filtering)</h3>
-            <p>يخضع كل ترشيح لتحليل الكاونسل بمشاركة نموذج KING.pkl المساعد حيث يشترط توافق النموذجين (LightGBM و XGBoost) على الشراء وتحقيق توافق أعلى من 55% لإجازة الصفقة.</p>
+            <p>يخضع كل ترشيح لتحليل الكاونسل بمشاركة نموذج مساعد مثل KING.pkl مع إمكانية تمرير Validator إضافي. يشترط اجتياز درجة توافق الكاونسل (55% افتراضياً)، وقد يُفرض توافق LightGBM وXGBoost فقط عندما يكونان ضمن النماذج المحمّلة فعلاً داخل المجلس.</p>
         </div>
         <div class="detail-card">
             <h3>🧠 التعلم التكيفي (Adaptive Retraining)</h3>
-            <p>أسبوعياً (كل يوم أحد)، يتم مراجعة التوصيات السابقة التي تم إغلاقها على خسارة، وإعادة تدريب النموذج آلياً لتجنب تكرار الأخطاء وتحديث ملف النموذج model_EGX.pkl تلقائياً.</p>
+            <p>يدعم النظام مراجعة التوصيات السابقة التي أغلقت على خسارة وتشغيل التعلم التكيفي وإعادة التدريب على الأخطاء. توقيت التنفيذ وجدولته يعتمدان على المشغّل أو المهام الإدارية المفعّلة في البيئة الحالية، وليس شرطاً أن يكون تحديث model_EGX.pkl تلقائياً كل أحد في جميع البيئات.</p>
         </div>
     </div>
 </body>

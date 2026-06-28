@@ -361,6 +361,22 @@ create table if not exists public.similarity_reports (
     updated_at timestamptz not null default now()
 );
 
+-- Stock News Sentiment (Phase 12 — Daily News & Sentiment Analysis)
+create table if not exists public.stock_news_sentiment (
+    id uuid primary key default gen_random_uuid(),
+    symbol text not null,
+    exchange text not null default 'EGX',
+    date date not null default current_date,
+    sentiment_score numeric(6,4) not null default 0.0,
+    news_count int not null default 0,
+    negative_flag int not null default 0 check (negative_flag in (0, 1)),
+    positive_flag int not null default 0 check (positive_flag in (0, 1)),
+    headlines jsonb not null default '[]'::jsonb,
+    sources jsonb not null default '[]'::jsonb,
+    created_at timestamptz not null default now(),
+    unique(symbol, date)
+);
+
 -- Daily Job Runs Tracking
 create table if not exists public.daily_job_runs (
     id uuid primary key default gen_random_uuid(),
@@ -396,6 +412,9 @@ create index if not exists idx_bot_logs_bot_id on public.bot_logs(bot_id);
 create index if not exists idx_bot_logs_timestamp on public.bot_logs("timestamp" desc);
 create index if not exists idx_bot_daily_performance_date on public.bot_daily_performance(date desc);
 create index if not exists idx_bot_alerts_timestamp on public.bot_alerts(timestamp desc);
+create index if not exists idx_stock_news_sentiment_symbol on public.stock_news_sentiment(symbol);
+create index if not exists idx_stock_news_sentiment_symbol_date on public.stock_news_sentiment(symbol, date desc);
+create index if not exists idx_stock_news_sentiment_date on public.stock_news_sentiment(date desc);
 
 -- RPC Functions and Helper Logic
 -- (Include the ones needed by the app here, like evaluate_position, get_leaderboard, handle_new_user, etc.)
@@ -454,14 +473,17 @@ grant all on public.bot_states to anon, authenticated, service_role;
 alter table public.similarity_cases enable row level security;
 alter table public.similarity_reports enable row level security;
 alter table public.daily_job_runs enable row level security;
+alter table public.stock_news_sentiment enable row level security;
 
 create policy "allow_all_similarity_cases" on public.similarity_cases for all using (true);
 create policy "allow_all_similarity_reports" on public.similarity_reports for all using (true);
 create policy "allow_all_daily_job_runs" on public.daily_job_runs for all using (true);
+create policy "allow_all_stock_news_sentiment" on public.stock_news_sentiment for all using (true);
 
 grant all on public.similarity_cases to anon, authenticated, service_role;
 grant all on public.similarity_reports to anon, authenticated, service_role;
 grant all on public.daily_job_runs to anon, authenticated, service_role;
+grant all on public.stock_news_sentiment to anon, authenticated, service_role;
 
 create index if not exists idx_daily_job_runs_started on public.daily_job_runs(started_at desc);
 
