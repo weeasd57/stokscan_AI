@@ -107,6 +107,28 @@ def list_countries() -> List[str]:
 
 @lru_cache(maxsize=64)
 def load_symbols_for_country(country: str) -> List[Dict[str, Any]]:
+    # 1. Try to fetch from Supabase
+    try:
+        from api.stock_ai import get_supabase_symbols
+        db_symbols = get_supabase_symbols(country)
+        if db_symbols:
+            # Map keys to capitalized format expected by endpoints
+            mapped_symbols = []
+            for s in db_symbols:
+                mapped_symbols.append({
+                    "Symbol": s.get("symbol", ""),
+                    "Exchange": s.get("exchange", ""),
+                    "Name": s.get("name", ""),
+                    "Country": s.get("country", country),
+                    "Type": s.get("type", "Common Stock"),
+                    "Currency": s.get("currency", "EGP")
+                })
+            print(f"INFO: Loaded {len(mapped_symbols)} symbols for {country} from Supabase")
+            return mapped_symbols
+    except Exception as e:
+        print(f"WARNING: Failed to fetch symbols from Supabase for {country}: {e}. Falling back to local files.")
+
+    # 2. Fallback to local files
     path = _find_latest_file(f"{country}_all_symbols")
     if not path:
         return []
