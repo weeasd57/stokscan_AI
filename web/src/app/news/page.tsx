@@ -18,6 +18,7 @@ import {
     ExternalLink
 } from "lucide-react";
 import { useLanguage } from "@/contexts/LanguageContext";
+import StockLogo from "@/components/StockLogo";
 
 interface NewsItem {
     id: number;
@@ -288,17 +289,20 @@ export default function NewsPage() {
                         >
                             {/* Card Top Row */}
                             <div className="flex flex-wrap justify-between items-center gap-3 mb-4 pb-3 border-b-2 border-black/10 dark:border-white/10">
-                                <div className="flex items-center gap-2">
-                                    <Link
-                                        href={`/stocks/${item.symbol.toLowerCase()}`}
-                                        className="px-2.5 py-1 text-xs font-black uppercase tracking-wider bg-black text-white dark:bg-white dark:text-black border-2 border-black dark:border-white hover:bg-[#FFE600] hover:text-black hover:border-black transition-none shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]"
-                                    >
-                                        {item.symbol}.EGX
-                                    </Link>
-                                    <span className="flex items-center gap-1 text-[10px] font-black text-zinc-500 dark:text-zinc-400">
-                                        <Calendar className="w-3.5 h-3.5" />
-                                        {item.date}
-                                    </span>
+                                <div className="flex items-center gap-3">
+                                    <StockLogo symbol={item.symbol} size="sm" className="border-2 border-black dark:border-white rounded-none shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]" />
+                                    <div className="flex items-center gap-2">
+                                        <Link
+                                            href={`/stocks/${item.symbol.toLowerCase()}`}
+                                            className="px-2.5 py-1 text-xs font-black uppercase tracking-wider bg-black text-white dark:bg-white dark:text-black border-2 border-black dark:border-white hover:bg-[#FFE600] hover:text-black hover:border-black transition-none shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]"
+                                        >
+                                            {item.symbol}.EGX
+                                        </Link>
+                                        <span className="flex items-center gap-1 text-[10px] font-black text-zinc-500 dark:text-zinc-400">
+                                            <Calendar className="w-3.5 h-3.5" />
+                                            {item.date}
+                                        </span>
+                                    </div>
                                 </div>
                                 <div className="flex items-center gap-2">
                                     {getSentimentBadge(item.sentiment_score, item.news_count)}
