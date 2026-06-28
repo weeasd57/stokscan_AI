@@ -4572,15 +4572,30 @@ def list_users(page: int = 0, page_size: int = 50, search: str = ""):
         users = res.data or []
         total = res.count if hasattr(res, "count") and res.count is not None else len(users)
 
+        uids = [u.get("id") for u in users if u.get("id")]
+        
+        subs_map = {}
+        bots_map = defaultdict(list)
+        
+        if uids:
+            # Bulk fetch subscriptions
+            subs_res = stock_ai.supabase.table("subscriptions").select("user_id, plan_id, status, current_period_end").in_("user_id", uids).execute()
+            subs_data = subs_res.data or []
+            subs_map = {s.get("user_id"): s for s in subs_data if s.get("user_id")}
+            
+            # Bulk fetch bot subscriptions
+            bots_res = stock_ai.supabase.table("bot_subscriptions").select("user_id, service_type, notifications_enabled").in_("user_id", uids).execute()
+            bots_data = bots_res.data or []
+            for b in bots_data:
+                uid = b.get("user_id")
+                if uid:
+                    bots_map[uid].append(b)
+
         enriched = []
         for u in users:
             uid = u.get("id")
-            sub_res = stock_ai.supabase.table("subscriptions").select("plan_id, status, current_period_end").eq("user_id", uid).maybe_single().execute()
-            sub = sub_res.data if (sub_res and sub_res.data) else None
-
-            bot_res = stock_ai.supabase.table("bot_subscriptions").select("service_type, notifications_enabled").eq("user_id", uid).execute()
-            bots = bot_res.data or []
-
+            sub = subs_map.get(uid)
+            bots = bots_map.get(uid, [])
             enriched.append({
                 **u,
                 "subscription": sub,

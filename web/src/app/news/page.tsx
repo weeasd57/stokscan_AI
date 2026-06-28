@@ -43,6 +43,7 @@ export default function NewsPage() {
     const [search, setSearch] = useState("");
     const [sentiment, setSentiment] = useState<string>("all"); // "all", "positive", "negative", "neutral"
     const [sortBy, setSortBy] = useState<string>("newest"); // "newest", "oldest", "highest_sent", "lowest_sent"
+    const [dateFilter, setDateFilter] = useState("");
     const [page, setPage] = useState(1);
     const limit = 10;
 
@@ -58,6 +59,9 @@ export default function NewsPage() {
             }
             if (sentiment !== "all") {
                 url += `&sentiment=${sentiment}`;
+            }
+            if (dateFilter) {
+                url += `&date=${dateFilter}`;
             }
             
             const res = await fetch(url);
@@ -81,20 +85,20 @@ export default function NewsPage() {
         } finally {
             setLoading(false);
         }
-    }, [page, search, sentiment, sortBy]);
+    }, [page, search, sentiment, dateFilter, sortBy]);
 
     useEffect(() => {
         fetchNews();
     }, [fetchNews]);
 
-    // Handle search input debounce/delay
+    // Handle search and date filters change
     useEffect(() => {
         const delayDebounce = setTimeout(() => {
             setPage(1);
             fetchNews();
         }, 300);
         return () => clearTimeout(delayDebounce);
-    }, [search]);
+    }, [search, dateFilter]);
 
     const handleSentimentFilter = (val: string) => {
         setSentiment(val);
@@ -189,10 +193,10 @@ export default function NewsPage() {
                 </p>
             </div>
 
-            {/* Controls Row (Search, Filters, Sort) */}
+            {/* Controls Row (Search, Date Filter, Filters, Sort) */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 mb-8">
                 {/* Search */}
-                <div className="lg:col-span-4 relative flex items-center">
+                <div className="lg:col-span-3 relative flex items-center">
                     <Search className="absolute left-3.5 w-4 h-4 text-black/70 dark:text-white/70" />
                     <input
                         type="text"
@@ -203,8 +207,19 @@ export default function NewsPage() {
                     />
                 </div>
 
+                {/* Date Filter */}
+                <div className="lg:col-span-3 relative flex items-center">
+                    <Calendar className="absolute left-3.5 w-4 h-4 text-black/70 dark:text-white/70 pointer-events-none" />
+                    <input
+                        type="date"
+                        value={dateFilter}
+                        onChange={(e) => setDateFilter(e.target.value)}
+                        className="h-11 w-full rounded-none pl-10 pr-4 text-xs font-black outline-none border-4 border-black bg-white dark:bg-zinc-900 text-black dark:text-white dark:border-white focus:bg-[#FFE600] focus:text-black transition-none shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_0px_rgba(255,255,255,0.4)]"
+                    />
+                </div>
+
                 {/* Sentiment Filters */}
-                <div className="lg:col-span-5 flex flex-wrap gap-2 items-center">
+                <div className="lg:col-span-4 flex flex-wrap gap-2 items-center">
                     <span className="text-xs font-black uppercase tracking-wider flex items-center gap-1 text-black dark:text-white">
                         <Filter className="w-3.5 h-3.5" />
                         {isAr ? "المشاعر:" : "Sentiment:"}
@@ -219,7 +234,7 @@ export default function NewsPage() {
                             <button
                                 key={btn.val}
                                 onClick={() => handleSentimentFilter(btn.val)}
-                                className={`px-3 py-1.5 text-xs font-black rounded-none border-3 border-black dark:border-white transition-none ${
+                                className={`px-2.5 py-1.5 text-xs font-black rounded-none border-3 border-black dark:border-white transition-none ${
                                     sentiment === btn.val
                                         ? "bg-black text-white dark:bg-white dark:text-black"
                                         : "bg-white text-black dark:bg-zinc-900 dark:text-white hover:bg-[#FFE600] hover:text-black"
@@ -232,19 +247,19 @@ export default function NewsPage() {
                 </div>
 
                 {/* Sort */}
-                <div className="lg:col-span-3 flex items-center gap-2">
+                <div className="lg:col-span-2 flex items-center gap-2">
                     <span className="text-xs font-black uppercase tracking-wider whitespace-nowrap text-black dark:text-white">
                         <ArrowUpDown className="w-3.5 h-3.5" />
                     </span>
                     <select
                         value={sortBy}
                         onChange={(e) => handleSortChange(e.target.value)}
-                        className="h-11 w-full rounded-none px-3 text-xs font-black border-4 border-black dark:border-white bg-white dark:bg-zinc-900 text-black dark:text-white outline-none cursor-pointer focus:bg-[#FFE600] focus:text-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_0px_rgba(255,255,255,0.4)]"
+                        className="h-11 w-full rounded-none px-2 text-xs font-black border-4 border-black dark:border-white bg-white dark:bg-zinc-900 text-black dark:text-white outline-none cursor-pointer focus:bg-[#FFE600] focus:text-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_0px_rgba(255,255,255,0.4)]"
                     >
-                        <option value="newest">{isAr ? "الأحدث أولاً" : "Newest First"}</option>
-                        <option value="oldest">{isAr ? "الأقدم أولاً" : "Oldest First"}</option>
-                        <option value="highest_sent">{isAr ? "الأعلى مشاعر" : "Highest Sentiment"}</option>
-                        <option value="lowest_sent">{isAr ? "الأدنى مشاعر" : "Lowest Sentiment"}</option>
+                        <option value="newest">{isAr ? "الأحدث" : "Newest"}</option>
+                        <option value="oldest">{isAr ? "الأقدم" : "Oldest"}</option>
+                        <option value="highest_sent">{isAr ? "الأعلى" : "Highest"}</option>
+                        <option value="lowest_sent">{isAr ? "الأدنى" : "Lowest"}</option>
                     </select>
                 </div>
             </div>
@@ -373,6 +388,7 @@ export default function NewsPage() {
                             setSearch("");
                             setSentiment("all");
                             setSortBy("newest");
+                            setDateFilter("");
                             setPage(1);
                         }}
                         className="mt-2 px-4 py-2 text-xs font-black bg-black text-white dark:bg-white dark:text-black border-2 border-black dark:border-white hover:bg-[#FFE600] hover:text-black transition-none"

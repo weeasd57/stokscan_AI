@@ -270,7 +270,8 @@ async def get_all_news(
     offset: int = Query(default=0, ge=0),
     symbol: Optional[str] = None,
     sentiment: Optional[str] = None,
-    search: Optional[str] = None
+    search: Optional[str] = None,
+    date: Optional[str] = None
 ):
     try:
         from api.stock_ai import _init_supabase, supabase
@@ -286,12 +287,17 @@ async def get_all_news(
             has_search = True
         if symbol and symbol.strip():
             has_search = True
+        if date and date.strip():
+            has_search = True
             
         if not has_search:
             query = query.gt("news_count", 0)
             
         if symbol:
             query = query.eq("symbol", symbol.upper())
+            
+        if date:
+            query = query.eq("date", date)
             
         if sentiment == "positive":
             query = query.gt("sentiment_score", 0.15)

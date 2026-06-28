@@ -1007,32 +1007,44 @@ def evaluate_old_recommendations():
                 print(f"[SMART_EVAL] {symbol}: WEAKENING → SL {old_sl}→{new_stop}")
 
         # ── CHECK EXIT CONDITIONS (with potentially adjusted TP/SL) ──
+        # FIX: If we just raised the target in this run (strong uptrend / breakout),
+        # skip exit evaluation to avoid the contradictory "target raised → immediately closed" behavior.
+        # The new target will be evaluated in the next run.
+        target_just_raised = trend_strength in ("acceleration", "strong_bull", "breakout")
+
         effective_target = new_target if new_target else target_price
         effective_stop = new_stop if new_stop else stop_loss
 
-        for p in prices:
-            p_date = p.get("date", "")
-            # Skip exit evaluation on the recommendation creation day itself to avoid lookback bias,
-            # since the entry price is based on the close of that day and the high/low have already occurred.
-            if p_date <= created_at_date:
-                continue
+        # FIX: Use updated_at (last bot review date) instead of created_at as the
+        # cutoff for bar evaluation.  This prevents re-discovering old target hits
+        # on bars that were already evaluated in previous runs.
+        last_review_date = (rec.get("updated_at") or rec.get("created_at") or "")[:10]
 
-            hi = float(p["high"]) if p.get("high") is not None else float(p["close"])
-            lo = float(p["low"]) if p.get("low") is not None else float(p["close"])
+        if not target_just_raised:
+            for p in prices:
+                p_date = p.get("date", "")
+                # Skip bars already evaluated in previous runs (or the entry day)
+                if p_date <= last_review_date:
+                    continue
 
-            if effective_stop is not None and lo <= (effective_stop + eps):
-                exit_price = effective_stop
-                pl_pct = ((effective_stop - entry_price) / entry_price) * 100
-                status = "win" if pl_pct >= 0.0 else "loss"
-                found_event = True
-                break
+                hi = float(p["high"]) if p.get("high") is not None else float(p["close"])
+                lo = float(p["low"]) if p.get("low") is not None else float(p["close"])
 
-            if effective_target is not None and hi >= (effective_target - eps):
-                exit_price = effective_target
-                pl_pct = ((effective_target - entry_price) / entry_price) * 100
-                status = "win" if pl_pct >= 0.0 else "loss"
-                found_event = True
-                break
+                if effective_stop is not None and lo <= (effective_stop + eps):
+                    exit_price = effective_stop
+                    pl_pct = ((effective_stop - entry_price) / entry_price) * 100
+                    status = "win" if pl_pct >= 0.0 else "loss"
+                    found_event = True
+                    break
+
+                if effective_target is not None and hi >= (effective_target - eps):
+                    exit_price = effective_target
+                    pl_pct = ((effective_target - entry_price) / entry_price) * 100
+                    status = "win" if pl_pct >= 0.0 else "loss"
+                    found_event = True
+                    break
+        else:
+            print(f"[EVALUATE] {symbol}: Skipping exit check — target just raised (trend={trend_strength})")
 
         # ── UPDATE DATABASE ──
         all_adjustments = existing_adjustments + new_adjustments
@@ -1071,8 +1083,11 @@ def evaluate_old_recommendations():
                 print(f"[EVALUATE] Close update failed for {symbol}: {upd_err}")
 
         # ── SEND TELEGRAM NOTIFICATIONS ──
-        for adj in new_adjustments:
-            _send_telegram_adjustment(symbol, exchange, adj)
+        # FIX: Only send adjustment notifications (e.g. "target raised") if we are
+        # NOT closing the position in the same run. Sending both is contradictory.
+        if not found_event:
+            for adj in new_adjustments:
+                _send_telegram_adjustment(symbol, exchange, adj)
 
         if found_event:
             _send_telegram_exit(symbol, exchange, entry_price, exit_price, pl_pct, status)
