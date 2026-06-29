@@ -39,7 +39,9 @@ export async function middleware(request: NextRequest) {
           data: { user },
         } = await supabase.auth.getUser();
 
-        const isAdmin = user?.app_metadata?.role === "admin" || user?.email === "weeeessd57@gmail.com";
+        const isAdmin =
+          user?.app_metadata?.role === "admin" ||
+          (user?.email && ["weeeessd57@gmail.com", "weeasd57@gmail.com"].includes(user.email));
 
         if (user && isAdmin) {
           const adminKey = process.env.ADMIN_SECRET_KEY;

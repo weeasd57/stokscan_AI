@@ -67,7 +67,7 @@ def _verify_admin_key(
                     user = user_res.user
                     role = user.app_metadata.get("role") if user.app_metadata else None
                     email = user.email
-                    if role == "admin" or email == "weeeessd57@gmail.com":
+                    if role == "admin" or email in ("weeeessd57@gmail.com", "weeasd57@gmail.com"):
                         return
         except Exception as e:
             print(f"[ADMIN_AUTH] Supabase token auth failed: {e}")

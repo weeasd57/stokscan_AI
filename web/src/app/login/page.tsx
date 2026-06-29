@@ -31,7 +31,9 @@ export default function LoginPage() {
         setError(res.error);
         return;
       }
-      const isAdmin = res.user?.app_metadata?.role === "admin" || res.user?.email === "weeeessd57@gmail.com";
+      const isAdmin =
+        res.user?.app_metadata?.role === "admin" ||
+        (res.user?.email && ["weeeessd57@gmail.com", "weeasd57@gmail.com"].includes(res.user.email));
       router.push(isAdmin ? "/admin" : "/scanner/technical");
     } finally {
       setSubmitting(false);
@@ -54,7 +56,9 @@ export default function LoginPage() {
   }
 
   if (!loading && user) {
-    const isAdmin = user.app_metadata?.role === "admin" || user.email === "weeeessd57@gmail.com";
+    const isAdmin =
+      user.app_metadata?.role === "admin" ||
+      (user.email && ["weeeessd57@gmail.com", "weeasd57@gmail.com"].includes(user.email));
     router.replace(isAdmin ? "/admin" : "/scanner/technical");
     return null;
   }

@@ -43,7 +43,9 @@ export async function GET(request: Request) {
     if (!error) {
       // Check if user is admin to redirect accordingly
       const { data: { user } } = await supabase.auth.getUser();
-      const isAdmin = user?.app_metadata?.role === "admin" || user?.email === "weeeessd57@gmail.com";
+      const isAdmin =
+        user?.app_metadata?.role === "admin" ||
+        (user?.email && ["weeeessd57@gmail.com", "weeasd57@gmail.com"].includes(user.email));
       const finalDest = isAdmin ? "/admin" : next;
       return NextResponse.redirect(`${origin}${finalDest}`);
     }
