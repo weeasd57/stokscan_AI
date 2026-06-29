@@ -31,6 +31,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   return {
     title,
     description,
+    keywords: [symbol, companyName, "EGX BOTS", "egxbots", "egx bots", "البورصة المصرية", "تحليل أسهم"],
     openGraph: {
       title,
       description,

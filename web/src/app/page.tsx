@@ -272,7 +272,7 @@ export default function HomePage() {
                                 "url": "https://egxbots.com",
                                 "logo": "https://egxbots.com/favicon_io/android-chrome-512x512.png",
                                 "image": "https://egxbots.com/dashboard_preview.png",
-                                "description": "منصة لتحليل الأسهم المصرية باستخدام الذكاء الاصطناعي، الماسح الفني، والمحاكاة التاريخية وإشارات السوق.",
+                                "description": "منصة EGX BOTS (egxbots) هي منصة متقدمة لتحليل الأسهم المصرية باستخدام الذكاء الاصطناعي، الماسح الفني، والمحاكاة التاريخية وإشارات السوق.",
                                 "sameAs": [
                                     "https://t.me/egxbots"
                                 ],
