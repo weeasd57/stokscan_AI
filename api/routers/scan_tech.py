@@ -92,10 +92,7 @@ def _load_market_maker_gate(api_key: Optional[str], symbol: str, exchange: str, 
 
 def _fetch_latest_technical_indicators(symbol_pairs: List[tuple[str, str]]) -> Dict[str, Any]:
     """
-    Fetch the latest technical indicators for given symbols from Supabase.
-    
-    Returns:
-        Dict mapping "SYMBOL|EXCHANGE" to the most recent technical indicator row.
+    Dict mapping "SYMBOL|EXCHANGE" to the most recent technical indicator row.
     """
     _init_supabase()
     if not stock_ai.supabase:
@@ -125,6 +122,7 @@ def _fetch_latest_technical_indicators(symbol_pairs: List[tuple[str, str]]) -> D
                     )
                     .in_("symbol", chunk)
                     .eq("exchange", exchange)
+                    .gte("date", "2026-05-01")
                     .order("date", desc=True)
                     .limit(max(1000, len(chunk) * 20))
                 )
@@ -146,6 +144,7 @@ def _fetch_latest_technical_indicators(symbol_pairs: List[tuple[str, str]]) -> D
                             )
                             .in_("symbol", chunk)
                             .eq("exchange", exchange)
+                            .gte("date", "2026-05-01")
                             .order("date", desc=True)
                             .limit(max(1000, len(chunk) * 20))
                         )
@@ -913,6 +912,36 @@ async def create_alert(req: CreateAlertRequest):
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+
+
+class CreateAlertRequest(BaseModel):
+    user_id: str
+    name: str
+    filters: TechFilter
+
+class AlertToggleRequest(BaseModel):
+    is_active: bool
+
+@router.post("/alerts")
+async def create_alert(req: CreateAlertRequest):
+    try:
+        _init_supabase()
+        if not stock_ai.supabase:
+            raise HTTPException(status_code=500, detail="Supabase not initialized")
+            
+        payload = {
+            "user_id": req.user_id,
+            "name": req.name,
+            "filters": req.filters.dict(exclude_none=True),
+            "is_active": True
+        }
+        res = stock_ai.supabase.table("technical_alerts").insert(payload).execute()
+        if not res.data:
+            raise HTTPException(status_code=400, detail="Failed to save alert")
+        return res.data[0]
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
 @router.get("/alerts")
 async def list_alerts(user_id: str):
     try:
@@ -951,3 +980,389 @@ async def toggle_alert(alert_id: str, req: AlertToggleRequest):
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+
+@router.get("/sectors/heatmap")
+def get_sectors_heatmap(country: str = "Egypt"):
+    try:
+        _init_supabase()
+        if not stock_ai.supabase:
+            raise HTTPException(status_code=500, detail="Supabase not initialized")
+
+        # Load all symbols for the country
+        try:
+            symbols_data = load_symbols_for_country(country)
+        except FileNotFoundError:
+            raise HTTPException(status_code=404, detail=f"No symbols found for country: {country}")
+
+        if not symbols_data:
+            return {"sectors": [], "total_market_flow": 0, "updated_at": None}
+
+        # Build symbol pairs
+        symbol_pairs = []
+        company_names = {}
+        for row in symbols_data:
+            sym = str(row.get("Code", row.get("Symbol", ""))).strip()
+            ex = str(row.get("Exchange", "")).strip()
+            name = str(row.get("Name", row.get("Company", sym))).strip()
+            if sym and ex:
+                symbol_pairs.append((sym, ex))
+                company_names[f"{sym}|{ex}"] = name
+
+        # Fetch latest technicals and fundamentals
+        tech_rows = _fetch_latest_technical_indicators(symbol_pairs)
+        fundamentals = _fetch_company_fundamentals(symbol_pairs)
+
+        # Mappings
+        SECTOR_MAP_AR = {
+            "Real Estate": "العقارات والتطوير العقاري",
+            "Financial Services": "الخدمات المالية غير المصرفية",
+            "Construction": "البناء والتشييد",
+            "Materials": "المواد الخام والتعدين",
+            "Utilities": "المرافق والطاقة",
+            "Health Care": "الرعاية الصحية والأدوية",
+            "Food & Beverage": "الأغذية والمشروبات",
+            "Telecom": "الاتصالات وتكنولوجيا المعلومات",
+            "Chemicals": "الكيماويات والأسمدة",
+            "Industrial Goods": "الصناعات التحويلية والسلع الصناعية",
+            "Speculative Sector": "القطاع العام والمضاربة"
+        }
+
+        def normalize_sector(sector_str: str) -> str:
+            if not sector_str:
+                return "Speculative Sector"
+            s = sector_str.lower()
+            if "real estate" in s or "عقارات" in s:
+                return "Real Estate"
+            if "financial" in s or "services" in s or "بنوك" in s or "مالية" in s or "banking" in s or "bank" in s or "investment" in s:
+                return "Financial Services"
+            if "construction" in s or "building" in s or "بناء" in s or "تشييد" in s or "تشيد" in s or "cement" in s:
+                return "Construction"
+            if "materials" in s or "mining" in s or "تعدين" in s or "حديد" in s or "مواد خام" in s or "steel" in s:
+                return "Materials"
+            if "utility" in s or "utilities" in s or "energy" in s or "طاقة" in s or "مرافق" in s:
+                return "Utilities"
+            if "health" in s or "pharma" in s or "medical" in s or "أدوية" in s or "رعاية صحية" in s:
+                return "Health Care"
+            if "food" in s or "beverage" in s or "أغذية" in s or "مشروبات" in s or "سكر" in s or "مطاحن" in s or "dairy" in s:
+                return "Food & Beverage"
+            if "telecom" in s or "communication" in s or "technology" in s or "it" in s or "اتصالات" in s or "معلومات" in s:
+                return "Telecom"
+            if "chemical" in s or "fertilizer" in s or "أسمدة" in s or "كيماويات" in s:
+                return "Chemicals"
+            if "industrial" in s or "goods" in s or "manufacturing" in s or "صناعات" in s or "سلع" in s or "paper" in s or "packaging" in s:
+                return "Industrial Goods"
+            return "Speculative Sector"
+
+        # Aggregate data by sector
+        sector_groups = {}
+        total_market_flow = 0.0
+        latest_date = None
+
+        for sym, ex in symbol_pairs:
+            key = f"{sym}|{ex}"
+            tech = tech_rows.get(key)
+            fund = fundamentals.get(key) or {}
+
+            # Extract price and indicators
+            close = _safe_float(tech.get("close") if tech else None)
+            volume = _safe_float(tech.get("volume") if tech else None)
+            change_pct = _safe_float(tech.get("change_pct") if tech else None)
+            cmf = _safe_float(tech.get("cmf_20") if tech else None)
+            rsi = _safe_float(tech.get("rsi_14") if tech else 50.0)
+
+            # Record date
+            if tech and tech.get("date"):
+                if not latest_date or tech.get("date") > latest_date:
+                    latest_date = tech.get("date")
+
+            # Skip if no price/volume (we need to calculate liquidity)
+            if not close or not volume:
+                continue
+
+            money_flow = close * volume
+            total_market_flow += money_flow
+
+            # Get sector
+            raw_sec = fund.get("Sector", fund.get("sector", fund.get("industry", "Speculative Sector")))
+            norm_sec = normalize_sector(raw_sec)
+
+            stock_info = {
+                "symbol": sym,
+                "name": company_names.get(key, sym),
+                "close": close,
+                "volume": volume,
+                "money_flow": money_flow,
+                "change_pct": change_pct,
+                "cmf": cmf,
+                "rsi": rsi
+            }
+
+            sector_groups.setdefault(norm_sec, []).append(stock_info)
+
+        # Compute sector aggregates
+        sectors_list = []
+        for sec_name, stocks in sector_groups.items():
+            sec_money_flow = sum(st["money_flow"] for st in stocks)
+            
+            # Weighted average price change and CMF
+            if sec_money_flow > 0:
+                sec_change_pct = sum(st["change_pct"] * st["money_flow"] for st in stocks) / sec_money_flow
+                sec_cmf = sum(st["cmf"] * st["money_flow"] for st in stocks) / sec_money_flow
+            else:
+                sec_change_pct = sum(st["change_pct"] for st in stocks) / len(stocks) if stocks else 0.0
+                sec_cmf = sum(st["cmf"] for st in stocks) / len(stocks) if stocks else 0.0
+
+            # Sort stocks in sector by money flow descending
+            stocks.sort(key=lambda x: x["money_flow"], reverse=True)
+
+            # Add weight in sector
+            for st in stocks:
+                st["weight_in_sector"] = (st["money_flow"] / sec_money_flow * 100) if sec_money_flow > 0 else 0.0
+
+            # Determine sentiment / state
+            if sec_change_pct >= 1.0 and sec_cmf > 0.05:
+                sentiment = "strong_accumulation"
+            elif sec_change_pct > 0.0:
+                sentiment = "accumulation"
+            elif sec_change_pct <= -1.0 and sec_cmf < -0.05:
+                sentiment = "strong_distribution"
+            elif sec_change_pct < 0.0:
+                sentiment = "distribution"
+            else:
+                sentiment = "neutral"
+
+            sectors_list.append({
+                "sector": sec_name,
+                "sector_ar": SECTOR_MAP_AR.get(sec_name, "القطاع العام والمضاربة"),
+                "money_flow": sec_money_flow,
+                "change_pct": round(sec_change_pct, 2),
+                "cmf": round(sec_cmf, 3),
+                "sentiment": sentiment,
+                "stocks_count": len(stocks),
+                "stocks": stocks
+            })
+
+        # Sort sectors by money flow descending
+        sectors_list.sort(key=lambda x: x["money_flow"], reverse=True)
+
+        # Calculate market share for each sector
+        for sec in sectors_list:
+            sec["market_share"] = round((sec["money_flow"] / total_market_flow * 100), 2) if total_market_flow > 0 else 0.0
+
+        return {
+            "updated_at": latest_date,
+            "total_market_flow": total_market_flow,
+            "sectors": sectors_list
+        }
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/sectors/timeline")
+def get_sectors_timeline(country: str = "Egypt", months: int = 6):
+    """
+    Monthly money-flow timeline per sector over the last N months.
+    For each month: total flow per sector, net change vs previous month,
+    top inflow sector (money entered) and top outflow sector (money exited).
+    """
+    try:
+        _init_supabase()
+        if not stock_ai.supabase:
+            raise HTTPException(status_code=500, detail="Supabase not initialized")
+
+        months = max(1, min(int(months), 12))
+
+        # Load all symbols for the country
+        try:
+            symbols_data = load_symbols_for_country(country)
+        except FileNotFoundError:
+            raise HTTPException(status_code=404, detail=f"No symbols found for country: {country}")
+
+        if not symbols_data:
+            return {"months": [], "sectors": []}
+
+        # Build symbol pairs + names
+        symbol_pairs = []
+        company_names = {}
+        for row in symbols_data:
+            sym = str(row.get("Code", row.get("Symbol", ""))).strip()
+            ex = str(row.get("Exchange", "")).strip()
+            name = str(row.get("Name", row.get("Company", sym))).strip()
+            if sym and ex:
+                symbol_pairs.append((sym, ex))
+                company_names[f"{sym}|{ex}"] = name
+
+        # Window start date
+        from datetime import datetime, timedelta
+        today = datetime.utcnow()
+        window_start = (today.replace(day=1) - timedelta(days=months * 31 - 1)).strftime("%Y-%m-%d")
+
+        # Fetch technical indicators within window (date, close, volume, change_pct, cmf_20)
+        by_exchange: Dict[str, List[str]] = {}
+        for symbol, exchange in symbol_pairs:
+            by_exchange.setdefault(exchange, []).append(symbol)
+
+        tech_rows: Dict[str, List[Any]] = {}
+        for exchange, symbols in by_exchange.items():
+            unique_symbols = list(dict.fromkeys(symbols))
+            for i in range(0, len(unique_symbols), 200):
+                chunk = unique_symbols[i:i + 200]
+                try:
+                    query = (
+                        stock_ai.supabase.table("stock_technical_indicators")
+                        .select("symbol,exchange,date,close,volume,change_pct")
+                        .in_("symbol", chunk)
+                        .eq("exchange", exchange)
+                        .gte("date", window_start)
+                        .order("date", desc=False)
+                        .limit(max(2000, len(chunk) * (months * 32)))
+                    )
+                    res = query.execute()
+                    if res.data:
+                        for row in res.data:
+                            key = _supabase_row_key(row.get("symbol"), row.get("exchange"))
+                            tech_rows.setdefault(key, []).append(row)
+                except Exception as e:
+                    print(f"ERROR: timeline technical read failed for {exchange}: {e}")
+
+        # Fetch fundamentals for sector mapping
+        fundamentals = _fetch_company_fundamentals(symbol_pairs)
+
+        # Sector normalize (reuse the same logic as heatmap)
+        def normalize_sector(sector_str: str) -> str:
+            if not sector_str:
+                return "Speculative Sector"
+            s = sector_str.lower()
+            if "real estate" in s or "عقارات" in s:
+                return "Real Estate"
+            if "financial" in s or "services" in s or "بنوك" in s or "مالية" in s or "banking" in s or "bank" in s or "investment" in s:
+                return "Financial Services"
+            if "construction" in s or "building" in s or "بناء" in s or "تشييد" in s or "تشيد" in s or "cement" in s:
+                return "Construction"
+            if "materials" in s or "mining" in s or "تعدين" in s or "حديد" in s or "مواد خام" in s or "steel" in s:
+                return "Materials"
+            if "utility" in s or "utilities" in s or "energy" in s or "طاقة" in s or "مرافق" in s:
+                return "Utilities"
+            if "health" in s or "pharma" in s or "medical" in s or "أدوية" in s or "رعاية صحية" in s:
+                return "Health Care"
+            if "food" in s or "beverage" in s or "أغذية" in s or "مشروبات" in s or "سكر" in s or "مطاحن" in s or "dairy" in s:
+                return "Food & Beverage"
+            if "telecom" in s or "communication" in s or "technology" in s or "it" in s or "اتصالات" in s or "معلومات" in s:
+                return "Telecom"
+            if "chemical" in s or "fertilizer" in s or "أسمدة" in s or "كيماويات" in s:
+                return "Chemicals"
+            if "industrial" in s or "goods" in s or "manufacturing" in s or "صناعات" in s or "سلع" in s or "paper" in s or "packaging" in s:
+                return "Industrial Goods"
+            return "Speculative Sector"
+
+        SECTOR_MAP_AR = {
+            "Real Estate": "العقارات والتطوير العقاري",
+            "Financial Services": "الخدمات المالية غير المصرفية",
+            "Construction": "البناء والتشييد",
+            "Materials": "المواد الخام والتعدين",
+            "Utilities": "المرافق والطاقة",
+            "Health Care": "الرعاية الصحية والأدوية",
+            "Food & Beverage": "الأغذية والمشروبات",
+            "Telecom": "الاتصالات وتكنولوجيا المعلومات",
+            "Chemicals": "الكيماويات والأسمدة",
+            "Industrial Goods": "الصناعات التحويلية والسلع الصناعية",
+            "Speculative Sector": "القطاع العام والمضاربة",
+        }
+
+        # Aggregate money flow per sector per month (YYYY-MM)
+        # sector_month: { sector: { month: flow } }
+        sector_month_flow: Dict[str, Dict[str, float]] = {}
+        sector_month_change: Dict[str, Dict[str, float]] = {}
+        all_months_set = set()
+
+        for sym, ex in symbol_pairs:
+            key = f"{sym}|{ex}"
+            rows = tech_rows.get(key)
+            if not rows:
+                continue
+            fund = fundamentals.get(key) or {}
+            raw_sec = fund.get("Sector", fund.get("sector", fund.get("industry", "Speculative Sector")))
+            norm_sec = normalize_sector(raw_sec)
+
+            sm_flow = sector_month_flow.setdefault(norm_sec, {})
+            sm_change = sector_month_change.setdefault(norm_sec, {})
+
+            for row in rows:
+                d = row.get("date")
+                close = _safe_float(row.get("close"))
+                volume = _safe_float(row.get("volume"))
+                change_pct = _safe_float(row.get("change_pct"))
+                if not close or not volume or not d:
+                    continue
+                month_key = str(d)[:7]  # YYYY-MM
+                all_months_set.add(month_key)
+                sm_flow[month_key] = sm_flow.get(month_key, 0.0) + (close * volume)
+                # weighted change for net direction
+                sm_change[month_key] = sm_change.get(month_key, 0.0) + (change_pct * close * volume)
+
+        sorted_months = sorted(all_months_set)
+        # Keep only last N months
+        sorted_months = sorted_months[-months:]
+
+        # Build per-sector series + global monthly totals
+        all_sectors = sorted(sector_month_flow.keys())
+        sector_series = []
+        for sec in all_sectors:
+            sm_flow = sector_month_flow.get(sec, {})
+            series = []
+            prev_flow = None
+            for m in sorted_months:
+                flow = sm_flow.get(m, 0.0)
+                net = 0.0
+                direction = "neutral"
+                if prev_flow is not None and prev_flow > 0:
+                    net = flow - prev_flow
+                    direction = "inflow" if net > 0 else ("outflow" if net < 0 else "neutral")
+                series.append({"month": m, "flow": flow, "net": net, "direction": direction})
+                prev_flow = flow
+            total_flow = sum(p["flow"] for p in series)
+            sector_series.append({
+                "sector": sec,
+                "sector_ar": SECTOR_MAP_AR.get(sec, sec),
+                "total_flow": total_flow,
+                "series": series,
+            })
+
+        # Sort sectors by total flow descending
+        sector_series.sort(key=lambda x: x["total_flow"], reverse=True)
+
+        # Monthly totals + winners (top inflow / top outflow sector by net)
+        monthly = []
+        for idx, m in enumerate(sorted_months):
+            total = sum(sector_month_flow.get(sec, {}).get(m, 0.0) for sec in all_sectors)
+            # net per sector this month
+            nets = []
+            for sec in all_sectors:
+                s = next((x for x in sector_series if x["sector"] == sec), None)
+                if s and idx < len(s["series"]):
+                    nets.append((sec, s["series"][idx]["net"]))
+            nets.sort(key=lambda x: x[1], reverse=True)
+            top_in = nets[0] if nets else (None, 0.0)
+            top_out = nets[-1] if nets else (None, 0.0)
+            monthly.append({
+                "month": m,
+                "total_flow": total,
+                "top_inflow_sector": top_in[0],
+                "top_inflow_sector_ar": SECTOR_MAP_AR.get(top_in[0], top_in[0]) if top_in[0] else None,
+                "top_inflow_net": round(top_in[1], 0),
+                "top_outflow_sector": top_out[0],
+                "top_outflow_sector_ar": SECTOR_MAP_AR.get(top_out[0], top_out[0]) if top_out[0] else None,
+                "top_outflow_net": round(top_out[1], 0),
+            })
+
+        return {
+            "months": sorted_months,
+            "monthly": monthly,
+            "sectors": sector_series,
+        }
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=400, detail=str(e))

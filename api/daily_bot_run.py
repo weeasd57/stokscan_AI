@@ -36,6 +36,7 @@ supabase = SupabaseWrapper()
 from api.smart_sync import get_smart_sync
 from api.intraday_downloader import _fetch_egx_symbols
 from api.routers.scan_ai_fast import fast_scan
+from api.market_status_gate import should_reject_new_buys
 
 
 def _sync_latest_egx_inventory_from_eodhd() -> Tuple[bool, List[str], str]:
@@ -604,11 +605,12 @@ def generate_weekly_performance_report(trigger: str = "manual", chat_id: Optiona
         seven_days_ago = (dt.datetime.utcnow() - dt.timedelta(days=7)).isoformat()
         
         # Fetch closed recommendations in last 7 days
+        # BUG 5 FIX: Use closed_at (set at exit time) not updated_at (overwritten by Step 5 scans)
         res = (
             supabase.table("scan_results")
-            .select("symbol, exchange, entry_price, exit_price, profit_loss_pct, status, updated_at")
+            .select("symbol, exchange, entry_price, exit_price, profit_loss_pct, status, closed_at")
             .in_("status", ["win", "loss"])
-            .gte("updated_at", seven_days_ago)
+            .gte("closed_at", seven_days_ago)
             .execute()
         )
         
@@ -771,7 +773,11 @@ def evaluate_old_recommendations():
     - If stock breaking out (MACD crossover, volume spike): RAISE target aggressively
     - Track all adjustments in 'adjustments' jsonb field
     """
-    res = supabase.table("scan_results").select("*").eq("status", "open").execute()
+    # PERF: Select only the columns we actually use — avoids pulling large JSONB fields like `top_reasons`/`features`
+    res = supabase.table("scan_results").select(
+        "id, symbol, exchange, entry_price, last_close, target_price, stop_loss, "
+        "status, created_at, updated_at, profit_loss_pct, adjustments, rich_details"
+    ).eq("status", "open").execute()
     open_recs = res.data
     if not open_recs:
         print("[EVALUATE] No open recommendations to evaluate.")
@@ -866,6 +872,22 @@ def evaluate_old_recommendations():
         new_stop = stop_loss
         trend_strength = "neutral"
 
+        # SMART 1: Cooldown — check if a target-raise adjustment was already made in the last 3 days
+        today_str = dt.datetime.utcnow().strftime("%Y-%m-%d")
+        _three_days_ago = (dt.datetime.utcnow() - dt.timedelta(days=3)).strftime("%Y-%m-%d")
+        recent_target_raise = any(
+            a.get("type") in ("target_raised", "acceleration_breakout")
+            and (a.get("timestamp", "")[:10]) >= _three_days_ago
+            for a in existing_adjustments
+        )
+
+        # SMART 4: Max holding period — after 45 days start tightening stop to force a close
+        days_held = 0
+        try:
+            days_held = (dt.datetime.utcnow() - dt.datetime.strptime(created_at_date, "%Y-%m-%d")).days
+        except Exception:
+            pass
+
         # Determine trend strength
         price_above_ema50 = latest_close > tech["ema_50"] if tech["ema_50"] > 0 else None
         price_above_ema200 = latest_close > tech["ema_200"] if tech["ema_200"] > 0 else None
@@ -905,11 +927,12 @@ def evaluate_old_recommendations():
         )
 
         # ── ACCELERATION BREAKOUT → Maximum target expansion ──
-        if acceleration_breakout and pl_pct > 2.0:
+        # SMART 1: Only raise if no target-raise done in last 3 days (prevents exponential compounding)
+        if acceleration_breakout and pl_pct > 2.0 and not recent_target_raise:
             if target_price:
                 old_tp = round(target_price, 2)
-                # Raise target by 40% — ride the wave!
-                new_target = round(target_price * 1.40, 2)
+                # SMART 2: Raise target by 20% (was 40% — too aggressive, caused unreachable targets)
+                new_target = round(target_price * 1.20, 2)
                 # Widen stop loss to give room — move to entry+5% if profitable enough
                 if stop_loss and pl_pct > 8.0:
                     new_stop = round(entry_price * 1.05, 2)  # Lock +5% profit
@@ -917,8 +940,8 @@ def evaluate_old_recommendations():
                     new_stop = round(entry_price * 1.02, 2)  # Lock +2%
                 adj = {
                     "type": "acceleration_breakout",
-                    "reason_ar": "تسارع سعري قوي — ADX عالي + سيولة مرتفعة + زخم شرائي — رفع الهدف 40%",
-                    "reason_en": "Acceleration breakout — High ADX + Volume surge + Strong momentum — target raised 40%",
+                    "reason_ar": "تسارع سعري قوي — ADX عالي + سيولة مرتفعة + زخم شرائي — رفع الهدف 20%",
+                    "reason_en": "Acceleration breakout — High ADX + Volume surge + Strong momentum — target raised 20%",
                     "old_target": old_tp,
                     "new_target": new_target,
                     "old_stop": round(stop_loss, 2) if stop_loss else None,
@@ -934,11 +957,11 @@ def evaluate_old_recommendations():
                 trend_strength = "acceleration"
                 print(f"[SMART_EVAL] {symbol}: ACCELERATION BREAKOUT → target {old_tp}→{new_target} (ADX={tech['adx']:.0f}, R_VOL={r_vol:.1f}x)")
 
-        elif strong_uptrend and pl_pct > 3.0:
-            # Stock is performing well — raise target by 15-25%
+        elif strong_uptrend and pl_pct > 3.0 and not recent_target_raise:
+            # Stock is performing well — raise target by 15% (3-day cooldown prevents compounding)
             if target_price:
                 old_tp = round(target_price, 2)
-                raise_pct = 0.15 if pl_pct < 8 else 0.25
+                raise_pct = 0.15  # Fixed 15% raise — was 25% for pl>8, too aggressive
                 new_target = round(target_price * (1 + raise_pct), 2)
                 # Also trail stop loss up to lock profits
                 if stop_loss and pl_pct > 5.0:
@@ -961,7 +984,7 @@ def evaluate_old_recommendations():
                 trend_strength = "strong_bull"
                 print(f"[SMART_EVAL] {symbol}: UPTREND → target {old_tp}→{new_target}, SL→{new_stop}")
 
-        elif breaking_out and pl_pct > 1.0:
+        elif breaking_out and pl_pct > 1.0 and not recent_target_raise:
             # Breaking out — aggressive target raise
             if target_price:
                 old_tp = round(target_price, 2)
@@ -983,37 +1006,74 @@ def evaluate_old_recommendations():
                 print(f"[SMART_EVAL] {symbol}: BREAKOUT → target {old_tp}→{new_target}")
 
         elif weakening and pl_pct > 0:
-            # Stock weakening but still in profit — tighten stop loss
-            if stop_loss:
+            # Stock weakening but still in profit — tighten stop loss or close if near target
+            # SMART 3: If very close to target (within 2%), just let it close naturally — don't tighten
+            effective_tp_for_weak = new_target if new_target else target_price
+            near_target = (
+                effective_tp_for_weak is not None
+                and latest_close >= effective_tp_for_weak * 0.98
+            )
+            if near_target:
+                print(f"[SMART_EVAL] {symbol}: WEAKENING but within 2% of target — holding, no SL change")
+            elif stop_loss is not None:
                 old_sl = round(stop_loss, 2)
-                # Move SL to just below current price (lock in ~50% of current profit)
-                new_stop = round(latest_close * 0.97, 2)
-                if new_stop <= stop_loss:
-                    new_stop = round(latest_close * 0.96, 2)
-                adj = {
-                    "type": "stop_raised",
-                    "reason_ar": "ضعف الزخم - تضييق وقف الخسارة لحماية الأرباح",
-                    "reason_en": "Momentum weakening - stop loss tightened",
-                    "old_stop": old_sl,
-                    "new_stop": new_stop,
-                    "current_price": round(latest_close, 2),
-                    "rsi": round(tech["rsi"], 1),
-                    "adx": round(tech["adx"], 1),
-                    "pl_pct": round(pl_pct, 2),
-                    "timestamp": dt.datetime.utcnow().isoformat(),
-                }
-                new_adjustments.append(adj)
-                trend_strength = "weakening"
-                print(f"[SMART_EVAL] {symbol}: WEAKENING → SL {old_sl}→{new_stop}")
+                # BUG 1 FIX: Only apply the tighter stop if it's ABOVE the current stop loss
+                # Using 0.97 of current price to lock ~50% of unrealised profit
+                candidate_stop = round(latest_close * 0.97, 2)
+                if candidate_stop > stop_loss:
+                    new_stop = candidate_stop
+                    adj = {
+                        "type": "stop_raised",
+                        "reason_ar": "ضعف الزخم - تضييق وقف الخسارة لحماية الأرباح",
+                        "reason_en": "Momentum weakening - stop loss tightened",
+                        "old_stop": old_sl,
+                        "new_stop": new_stop,
+                        "current_price": round(latest_close, 2),
+                        "rsi": round(tech["rsi"], 1),
+                        "adx": round(tech["adx"], 1),
+                        "pl_pct": round(pl_pct, 2),
+                        "timestamp": dt.datetime.utcnow().isoformat(),
+                    }
+                    new_adjustments.append(adj)
+                    print(f"[SMART_EVAL] {symbol}: WEAKENING → SL raised {old_sl}→{new_stop}")
+                else:
+                    print(f"[SMART_EVAL] {symbol}: WEAKENING but proposed SL {candidate_stop} <= current SL {old_sl} — skipping adjustment")
+            trend_strength = "weakening"
+
+        # SMART 4: Max holding period — after 45 days without exit, start tightening stop
+        if days_held >= 45 and not found_event and trend_strength == "neutral":
+            if stop_loss is not None:
+                old_sl = round(stop_loss, 2)
+                # Trail stop aggressively to force a close within the next few sessions
+                candidate_stop = round(latest_close * 0.98, 2)
+                if candidate_stop > stop_loss:
+                    new_stop = candidate_stop
+                    adj = {
+                        "type": "stop_raised",
+                        "reason_ar": f"انتهاء مدة الاحتفاظ ({days_held} يوم) - تضييق وقف الخسارة",
+                        "reason_en": f"Max holding period ({days_held} days) - tightening stop to force close",
+                        "old_stop": old_sl,
+                        "new_stop": new_stop,
+                        "current_price": round(latest_close, 2),
+                        "pl_pct": round(pl_pct, 2),
+                        "days_held": days_held,
+                        "timestamp": dt.datetime.utcnow().isoformat(),
+                    }
+                    new_adjustments.append(adj)
+                    trend_strength = "max_holding"
+                    print(f"[SMART_EVAL] {symbol}: MAX HOLDING ({days_held}d) → SL raised {old_sl}→{new_stop}")
 
         # ── CHECK EXIT CONDITIONS (with potentially adjusted TP/SL) ──
         # FIX: If we just raised the target in this run (strong uptrend / breakout),
         # skip exit evaluation to avoid the contradictory "target raised → immediately closed" behavior.
         # The new target will be evaluated in the next run.
-        target_just_raised = trend_strength in ("acceleration", "strong_bull", "breakout")
+        # BUG 6 FIX: Include "weakening" — a stop adjustment also changes effective_stop,
+        # so we skip exit on the same run to avoid contradictory notifications.
+        target_just_raised = trend_strength in ("acceleration", "strong_bull", "breakout", "weakening")
 
-        effective_target = new_target if new_target else target_price
-        effective_stop = new_stop if new_stop else stop_loss
+        # BUG 4 FIX: Use `is not None` instead of truthiness to handle stop_loss = 0.0 correctly
+        effective_target = new_target if new_target is not None else target_price
+        effective_stop = new_stop if new_stop is not None else stop_loss
 
         # FIX: Use updated_at (last bot review date) instead of created_at as the
         # cutoff for bar evaluation.  This prevents re-discovering old target hits
@@ -1056,9 +1116,9 @@ def evaluate_old_recommendations():
                 "status": "open",
                 "updated_at": dt.datetime.utcnow().isoformat(),
             }
-            if new_target and new_target != target_price:
+            if new_target is not None and new_target != target_price:
                 update_data["target_price"] = new_target
-            if new_stop and new_stop != stop_loss:
+            if new_stop is not None and new_stop != stop_loss:
                 update_data["stop_loss"] = new_stop
             if all_adjustments:
                 update_data["adjustments"] = all_adjustments
@@ -1068,11 +1128,16 @@ def evaluate_old_recommendations():
             except Exception as upd_err:
                 print(f"[EVALUATE] Update failed for {symbol}: {upd_err}")
         else:
+            _now_iso = dt.datetime.utcnow().isoformat()
             update_data = {
                 "exit_price": exit_price,
+                # BUG 3 FIX: update last_close to exit price so dashboard shows correct current value
+                "last_close": exit_price,
                 "profit_loss_pct": round(pl_pct, 4),
                 "status": status,
-                "updated_at": dt.datetime.utcnow().isoformat(),
+                "updated_at": _now_iso,
+                # BUG 2 FIX: set closed_at for consistency with stale/delisted closures
+                "closed_at": _now_iso,
             }
             if all_adjustments:
                 update_data["adjustments"] = all_adjustments
@@ -1453,7 +1518,7 @@ async def generate_daily_recommendations(model_name: Optional[str] = None):
             detector = CircuitBreakerDetector()
             if not detector.is_egx30_trend_safe(market_df):
                 print("[RECOMMENDATIONS] ⚠️ EGX30 is under its 50-day SMA. Halting recommendations generation due to market trend circuit breaker!")
-                return
+                return 0
 
     if model_name:
         model_lower = model_name.lower().strip()
@@ -1500,7 +1565,7 @@ async def generate_daily_recommendations(model_name: Optional[str] = None):
     results = scan_resp.get("results", [])
     if not results:
         print("[RECOMMENDATIONS] ML scan returned no BUY recommendations.")
-        return
+        return 0
         
     print(f"[RECOMMENDATIONS] ML scan found {len(results)} BUY signals.")
 
@@ -1533,7 +1598,7 @@ async def generate_daily_recommendations(model_name: Optional[str] = None):
         results = filtered_results
         if not results:
             print("[RECOMMENDATIONS] No candidates passed council consensus filtering.")
-            return
+            return 0
     
     # Calculate risk_adjusted_return for all candidates and adjust with news sentiment
     _init_supabase()
@@ -1650,7 +1715,8 @@ async def generate_daily_recommendations(model_name: Optional[str] = None):
             f"━━━━━━━━━━━━━━━━━━━━\n"
         ]
         
-        for idx, r in enumerate(top_10[:5]):
+        # SMART 6 FIX: Send all top 10 (was top 5 — users missed half the recommendations)
+        for idx, r in enumerate(top_10):
             sym = r.get("symbol")
             ex = r.get("exchange", "EGX")
             ep = float(r.get("last_close" if r.get("last_close") is not None else "entry_price", 0.0))
@@ -1679,6 +1745,8 @@ async def generate_daily_recommendations(model_name: Optional[str] = None):
         print("[RECOMMENDATIONS] Sent beautiful detailed recommendations to Telegram.")
     except Exception as e:
         print(f"[RECOMMENDATIONS] Telegram notify error: {e}")
+
+    return len(top_10)
 
 
 def _refresh_market_status_cache():
@@ -1802,6 +1870,60 @@ def _refresh_market_status_cache():
         with open(cache_path, "w", encoding="utf-8") as f:
             _json.dump(res_data, f, ensure_ascii=False, indent=2)
         print(f"[MARKET_STATUS] Market status cache successfully saved to {cache_path}")
+
+        # Upsert index rows to Supabase so the runtime fallback always has fresh data
+        try:
+            from api.stock_ai import _init_supabase as _init_sb, supabase as _sb
+            _init_sb()
+            if _sb:
+                INDEX_META = [
+                    ("EGX30", "INDX", egx30_data),
+                    ("EGX100", "INDX", egx100_data),
+                    ("USDEGP", "FOREX", usdegp_data),
+                ]
+                total_upserted = 0
+                for idx_symbol, idx_exchange, idx_rows in INDEX_META:
+                    if not idx_rows or not isinstance(idx_rows, list):
+                        continue
+                    batch = []
+                    for r in idx_rows:
+                        try:
+                            d = r.get("date", r.get("Date"))
+                            if not d:
+                                continue
+                            batch.append({
+                                "symbol": idx_symbol,
+                                "exchange": idx_exchange,
+                                "date": str(d)[:10],
+                                "open": float(r.get("open", r.get("Open", 0)) or 0),
+                                "high": float(r.get("high", r.get("High", 0)) or 0),
+                                "low": float(r.get("low", r.get("Low", 0)) or 0),
+                                "close": float(r.get("close", r.get("Close", 0)) or 0),
+                                "volume": float(r.get("volume", r.get("Volume", 0)) or 0),
+                            })
+                        except Exception:
+                            continue
+                    # Chunk to avoid request size limits
+                    for i in range(0, len(batch), 100):
+                        chunk = batch[i:i + 100]
+                        try:
+                            _sb.table("stock_prices").upsert(chunk, on_conflict="symbol,exchange,date").execute()
+                            total_upserted += len(chunk)
+                        except Exception as ue:
+                            print(f"[MARKET_STATUS] Index upsert chunk failed for {idx_symbol}: {ue}")
+                if total_upserted:
+                    print(f"[MARKET_STATUS] Upserted {total_upserted} index price rows to Supabase")
+        except Exception as ie:
+            print(f"[MARKET_STATUS] Index Supabase upsert skipped: {ie}")
+        
+        # Update macro history correlation cache
+        try:
+            from api.macro_correlation import build_or_update_macro_history
+            build_or_update_macro_history()
+            print("[MARKET_STATUS] Macro correlation history cache updated successfully")
+        except Exception as me:
+            print(f"[MARKET_STATUS] Error updating macro correlation cache: {me}")
+            
         return True, "Market status cache updated successfully"
     except Exception as e:
         print(f"[MARKET_STATUS] Error writing local market status cache: {e}")
@@ -1907,8 +2029,8 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
             _start_step("sync_prices", "Syncing EGX daily prices from TradingView")
             try:
                 if not symbols_raw:
-                    symbols_raw = _fetch_egx_symbols()
-                symbols_raw = _filter_active_symbols(symbols_raw)
+                    symbols_raw = _fetch_egx_symbols()  # PERF: cached — reused across steps 1, 2, 2.5
+                    symbols_raw = _filter_active_symbols(symbols_raw)
                 symbols = [f"{sym}.EGX" for sym in symbols_raw if sym]
                 total_symbols = len(symbols)
                 print(f"[SYNC] Found {total_symbols} symbols to sync.")
@@ -1999,12 +2121,28 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
             _record_step("evaluate_recommendations", False, str(e)[:200], 0)
             print(f"[EVALUATE] Error: {e}")
 
+        # 4.5 Refresh Market Status so Step 5 gate uses today's data, not yesterday's cache
+        print("\n>>> STEP 4.5: Refreshing Market Status cache before recommendation gate...")
+        _start_step("refresh_market_status_for_gate", "Refreshing market status for buy gate")
+        try:
+            ok_gate_refresh, msg_gate_refresh = _refresh_market_status_cache()
+            _record_step("refresh_market_status_for_gate", ok_gate_refresh, (msg_gate_refresh or "")[:200], 0)
+        except Exception as e:
+            _record_step("refresh_market_status_for_gate", False, str(e)[:200], 0)
+            print(f"[MARKET_GATE] Could not refresh market status before gate: {e}")
+
         # 5. Generate new recommendations
         print("\n>>> STEP 5: Generating new speculative recommendations...")
         _start_step("generate_recommendations", f"Generating recommendations using {model_filter or 'default'} model")
         try:
-            await generate_daily_recommendations(model_name=model_filter)
-            _record_step("generate_recommendations", True, f"Top 10 generated using {model_filter or 'default'}", 10)
+            market_gate = should_reject_new_buys()
+            if market_gate.get("blocked"):
+                msg = f"Skipped - {market_gate.get('reason')}"
+                print(f"[MARKET_GATE] {msg}")
+                _record_step("generate_recommendations", True, msg[:200], 0)
+            else:
+                generated_count = await generate_daily_recommendations(model_name=model_filter)
+                _record_step("generate_recommendations", True, f"Generated {generated_count} recommendations using {model_filter or 'default'}", int(generated_count or 0))
         except Exception as e:
             _record_step("generate_recommendations", False, str(e)[:200], 0)
             print(f"[RECOMMENDATIONS] Error: {e}")

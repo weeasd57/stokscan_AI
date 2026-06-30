@@ -37,6 +37,7 @@ from api.stock_ai import (
 from api.train_exchange_model import add_massive_features, add_market_context
 from api.council import TheCouncil
 from api.council_validator import CouncilValidator, load_council_validator_from_path
+from api.market_status_gate import should_reject_new_buys
 
 router = APIRouter(prefix="/scan/fast", tags=["scan-fast"])
 
@@ -531,6 +532,14 @@ def _process_symbol(
                 )
                 return None
 
+            news_sentiment = stock_ai._get_latest_news_sentiment(sym)
+            if news_sentiment.get("negative_flag") == 1:
+                print(
+                    f"[SENTIMENT_VETO] Rejecting {sym} due to negative news "
+                    f"sentiment ({news_sentiment.get('sentiment_score', 0.0)})"
+                )
+                return None
+
             last_close = float(candidate.iloc[-1]["Close"])
 
             # ── Acceleration Score + Dynamic Risk ──
@@ -560,6 +569,8 @@ def _process_symbol(
             technical_score = accel_score  # Use acceleration score as technical score
             fundamental_score = _calculate_fundamental_score(candidate)
             sentiment_score = calculate_momentum_sentiment(candidate)
+            if news_sentiment.get("news_count", 0) > 0:
+                sentiment_score = stock_ai.rescale_news_sentiment(float(news_sentiment.get("sentiment_score", 0.0)))
             ai_score = _calculate_ai_score(float(precision), buy_threshold)
             
             return {
@@ -577,6 +588,7 @@ def _process_symbol(
                 "technical_score": technical_score,
                 "fundamental_score": fundamental_score,
                 "sentiment_score": sentiment_score,
+                "news_sentiment": news_sentiment,
                 "acceleration_score": accel_score,
                 "risk_profile": dynamic_risk.get("risk_profile", ""),
                 "risk_profile_ar": dynamic_risk.get("risk_profile_ar", ""),
@@ -750,6 +762,20 @@ def fast_scan(
     model, predictors, _ = model_entry
     if not predictors:
         raise HTTPException(status_code=400, detail="Model predictors not found")
+
+    market_gate = should_reject_new_buys() if country == "Egypt" else {"blocked": False, "reason": "market gate not applicable"}
+    if market_gate.get("blocked"):
+        duration = time.time() - start
+        print(f"[MARKET_GATE] Fast scan blocked: {market_gate.get('reason')}")
+        return {
+            "results": [],
+            "scanned_count": 0,
+            "duration_seconds": round(duration, 2),
+            "model": model_name,
+            "limit": limit,
+            "min_precision": min_precision,
+            "market_gate": market_gate,
+        }
 
     # Prepare Market Context (EGX30 index)
     market_df = None
@@ -937,6 +963,7 @@ def fast_scan(
         "model": model_name,
         "limit": limit,
         "min_precision": min_precision,
+        "market_gate": market_gate,
     }
 
 

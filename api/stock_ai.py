@@ -657,6 +657,15 @@ def _get_latest_news_sentiment(symbol: str) -> Dict[str, Any]:
     return out
 
 
+def _get_market_buy_gate() -> Dict[str, Any]:
+    """Read global market gate for final BUY decisions, failing open on errors."""
+    try:
+        from api.market_status_gate import should_reject_new_buys
+        return should_reject_new_buys()
+    except Exception as e:
+        return {"blocked": False, "reason": f"market gate unavailable: {e}"}
+
+
 def _last_trading_day(today: dt.date) -> dt.date:
     # Very small heuristic (no exchange calendar):
     # - If weekend, roll back to Friday
@@ -3908,6 +3917,11 @@ def run_pipeline(
     if tomorrow_prediction == 1 and sentiment_veto:
         print(f"[SENTIMENT_VETO] Gated prediction for {selected_symbol or ticker} due to negative news sentiment ({news_sentiment_score})")
         tomorrow_prediction = 0
+
+    market_gate = _get_market_buy_gate()
+    if tomorrow_prediction == 1 and market_gate.get("blocked"):
+        print(f"[MARKET_GATE] Gated prediction for {selected_symbol or ticker}: {market_gate.get('reason')}")
+        tomorrow_prediction = 0
             
     # --- PHASE: Ensemble Consensus ---
     consensus_info = None
@@ -4154,6 +4168,9 @@ def run_pipeline(
         "walkForwardFolds": walk_forward_folds,
         "tomorrowPrediction": tomorrow_prediction,
         "distributionGate": distribution_gate,
+        "sentimentVeto": sentiment_veto,
+        "newsSentiment": sentiment_data,
+        "marketGate": market_gate,
         "lastClose": last_close,
         "lastDate": last_date,
         "fundamentals": fundamentals,

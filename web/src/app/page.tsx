@@ -18,6 +18,12 @@ import {
     GitGraph,
     Search,
     Loader2,
+    ArrowUpRight,
+    ArrowDownRight,
+    DollarSign,
+    Landmark,
+    Layers,
+    AlertTriangle,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import RecommendationsTable from "@/components/RecommendationsTable";
@@ -91,6 +97,8 @@ export default function HomePage() {
     const [simChartData, setSimChartData] = useState<any[]>([]);
     const [recentNews, setRecentNews] = useState<any[]>([]);
     const [newsLoading, setNewsLoading] = useState(true);
+    const [marketData, setMarketData] = useState<any>(null);
+    const [marketLoading, setMarketLoading] = useState(true);
 
     useEffect(() => {
         setNewsLoading(true);
@@ -133,6 +141,33 @@ export default function HomePage() {
                 }
             })
             .catch(() => {});
+    }, []);
+
+    const getMarketStats = (points: any[]) => {
+        if (!points || points.length < 2) return { last: 0, change: 0, changePct: 0 };
+        const sorted = [...points].sort((a, b) => a.date.localeCompare(b.date));
+        const last = sorted[sorted.length - 1].close;
+        const prev = sorted[sorted.length - 2].close;
+        const change = last - prev;
+        const changePct = (change / prev) * 100;
+        return { last, change, changePct };
+    };
+
+    useEffect(() => {
+        let cancelled = false;
+        fetch("/api/market/status")
+            .then(res => res.json())
+            .then(data => {
+                if (!cancelled) {
+                    setMarketData(data);
+                    setMarketLoading(false);
+                }
+            })
+            .catch(err => {
+                console.error("Error fetching homepage market data:", err);
+                if (!cancelled) setMarketLoading(false);
+            });
+        return () => { cancelled = true; };
     }, []);
 
     const transformSimChart = (scan: any, forwardDays: number) => {
@@ -903,6 +938,122 @@ export default function HomePage() {
                             <ArrowRight className={`w-4 h-4 ${isAr ? 'rotate-180' : ''}`} />
                         </Link>
                     </div>
+                </div>
+            </section>
+
+            {/* Market Analysis Section */}
+            <section className="px-4 sm:px-6 lg:px-8 py-20 border-t-4 border-black dark:border-white bg-white dark:bg-zinc-900">
+                <div className="max-w-6xl mx-auto">
+                    <div className="text-center mb-12">
+                        <div className="inline-block border-4 border-black dark:border-white px-3 py-1.5 neobrutal-bg-yellow text-black dark:text-black font-black text-xs uppercase tracking-widest rotate-[1deg] mb-4">
+                            {isAr ? "اتجاه السوق والعملة" : "MARKET TREND & CURRENCY"}
+                        </div>
+                        <h2 className="text-3xl sm:text-5xl font-black text-black dark:text-white tracking-tight">
+                            {isAr ? "متابعة لحظية للسوق المصرية" : "Live Egyptian Market Pulse"}
+                        </h2>
+                        <p className="text-sm sm:text-base text-zinc-500 max-w-xl mx-auto font-bold mt-4">
+                            {isAr
+                                ? "تتبع مباشر لمؤشرات البورصة المصرية (EGX 30 / EGX 100) وسعر الدولار لحظة بلحظة."
+                                : "Live EGX index tracking, USD/EGP rate, and real-time market regime analysis."}
+                        </p>
+                    </div>
+
+                    {marketLoading ? (
+                        <div className="flex flex-col items-center justify-center p-12 border-4 border-black dark:border-white bg-zinc-50 dark:bg-zinc-950 gap-4 shadow-[6px_6px_0px_rgba(0,0,0,1)]">
+                            <Loader2 className="w-8 h-8 text-indigo-500 animate-spin" />
+                            <p className="text-xs font-black uppercase tracking-[0.2em] text-zinc-500">{isAr ? "جاري تحميل بيانات السوق..." : "Loading Market Intelligence..."}</p>
+                        </div>
+                    ) : marketData ? (
+                        <>
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
+                                {(() => {
+                                    const egx30 = getMarketStats(marketData.egx30);
+                                    const egx100 = getMarketStats(marketData.egx100);
+                                    const usdegp = getMarketStats(marketData.usdegp);
+                                    const cards = [
+                                        { labelKey: "EGX 30", labelAr: "EGX 30", value: egx30.last, changePct: egx30.changePct, unit: isAr ? "نقطة" : "pts", icon: Landmark, up: egx30.changePct >= 0 },
+                                        { labelKey: "EGX 100", labelAr: "EGX 100", value: egx100.last, changePct: egx100.changePct, unit: isAr ? "نقطة" : "pts", icon: Layers, up: egx100.changePct >= 0 },
+                                        { labelKey: "USD/EGP", labelAr: "USD/EGP", value: usdegp.last, changePct: usdegp.changePct, unit: isAr ? "جنيه" : "EGP", icon: DollarSign, up: usdegp.changePct >= 0 },
+                                    ];
+                                    return cards.map((card, idx) => (
+                                        <div key={idx} className="border-4 border-black dark:border-white bg-white dark:bg-zinc-950 p-6 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_0px_rgba(255,255,255,0.15)] flex flex-col justify-between hover:translate-x-[-2px] hover:translate-y-[-2px] hover:shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] transition-all duration-200">
+                                            <div className="flex items-center justify-between mb-3">
+                                                <span className="text-xs font-bold text-zinc-600 dark:text-zinc-400 uppercase tracking-wider">{card.labelAr}</span>
+                                                <card.icon className="w-5 h-5 text-indigo-500" />
+                                            </div>
+                                            <div className="flex items-baseline gap-2">
+                                                <span className="text-3xl font-black text-zinc-950 dark:text-white font-mono leading-none">
+                                                    {typeof card.value === "number" ? card.value.toLocaleString(undefined, { maximumFractionDigits: 2 }) : "—"}
+                                                </span>
+                                                <span className="text-xs text-zinc-600 dark:text-zinc-500 font-bold">{card.unit}</span>
+                                            </div>
+                                            <div className="flex items-center gap-1.5 mt-4">
+                                                <span className={`text-sm font-black flex items-center ${card.up ? "text-emerald-500" : "text-rose-500"}`}>
+                                                    {card.up ? "+" : ""}{typeof card.changePct === "number" ? card.changePct.toFixed(2) : "0.00"}%
+                                                </span>
+                                                {card.up
+                                                    ? <ArrowUpRight className="w-4 h-4 text-emerald-500" />
+                                                    : <ArrowDownRight className="w-4 h-4 text-rose-500" />
+                                                }
+                                            </div>
+                                        </div>
+                                    ));
+                                })()}
+                            </div>
+
+                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                <div className="border-4 border-black dark:border-white bg-white dark:bg-zinc-950 p-6 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_0px_rgba(255,255,255,0.15)] flex flex-col justify-between">
+                                    <div className="flex items-center justify-between mb-4">
+                                        <span className="text-xs font-bold text-zinc-600 dark:text-zinc-400 uppercase tracking-wider">{isAr ? "وضع السوق" : "Market Regime"}</span>
+                                        <Activity className="w-5 h-5 text-indigo-500" />
+                                    </div>
+                                    <div>
+                                        <span className="text-2xl font-black text-zinc-950 dark:text-white font-mono uppercase">
+                                            {marketData.reject_buys
+                                                ? isAr
+                                                    ? "🛑 إيقاف الشراء"
+                                                    : "🛑 Buy Paused"
+                                                : marketData.regime === "trending_up"
+                                                    ? isAr
+                                                        ? "📈 صاعد"
+                                                        : "📈 Trending Up"
+                                                    : marketData.regime === "trending_down"
+                                                        ? isAr
+                                                            ? "📉 هابط"
+                                                            : "📉 Trending Down"
+                                                        : isAr
+                                                            ? "↔️ عرضي"
+                                                            : "↔️ Sideways"}
+                                        </span>
+                                        <p className="text-xs text-zinc-600 dark:text-zinc-500 font-bold mt-2">
+                                            {isAr
+                                                ? "بناءً على تحليل مؤشر EGX 30 وأداء السوق اليومي."
+                                                : "Based on EGX 30 index momentum and daily market performance."}
+                                        </p>
+                                    </div>
+                                </div>
+                                <div className="border-4 border-black dark:border-white bg-[#FFE600] dark:bg-[#FFE600] text-black dark:text-black p-6 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] flex flex-col justify-center">
+                                    <p className="text-sm font-black uppercase tracking-wider mb-2">{isAr ? "مؤشر البورصة المصرية" : "EGX Market Overview"}</p>
+                                    <p className="text-xs font-bold opacity-80 leading-relaxed mb-4">
+                                        {isAr
+                                            ? "احصل على تحليل كامل للأسهم المصرية، خرائط حرارية للقطاعات، وتوصيات يومية مدعومة بالذكاء الاصطناعي."
+                                            : "Get full EGX market analysis, sector heatmaps, and AI-backed daily recommendations."}
+                                    </p>
+                                    <Link
+                                        href="/scanner/market"
+                                        className="inline-flex items-center gap-2 px-6 py-3 bg-black dark:bg-white text-white dark:text-black font-black text-[11px] uppercase tracking-widest border-2 border-black dark:border-white shadow-[3px_3px_0px_rgba(0,0,0,0.4)] hover:bg-zinc-800 dark:hover:bg-zinc-200 transition-colors"
+                                    >
+                                        {isAr ? "عرض التحليل" : "Open Analysis"}
+                                        <ArrowRight className={`w-4 h-4 ${isAr ? 'rotate-180' : ''}`} />
+                                    </Link>
+                                </div>
+                            </div>
+                        </>
+                    ) : (
+                        <div className="text-center p-12 border-4 border-black dark:border-white bg-zinc-50 dark:bg-zinc-950 font-bold text-zinc-500">
+                            {isAr ? "لا توجد بيانات سوق متاحة حالياً." : "No market intelligence available right now."}
+                        </div>
+                    )}
                 </div>
             </section>
 

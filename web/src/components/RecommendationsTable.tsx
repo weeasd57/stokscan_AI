@@ -1447,7 +1447,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
             )}
 
             {/* Table wrapper */}
-            <div className="border-4 border-black dark:border-white bg-white dark:bg-zinc-950 text-black dark:text-white shadow-[6px_6px_0px_rgba(0,0,0,1)] dark:shadow-[6px_6px_0px_rgba(255,255,255,1)] overflow-hidden xl:overflow-visible">
+            <div className="border-4 border-black dark:border-white bg-white dark:bg-zinc-950 text-black dark:text-white shadow-[6px_6px_0px_rgba(0,0,0,1)] dark:shadow-[6px_6px_0px_rgba(255,255,255,1)] overflow-hidden">
                 {recsLoading ? (
                     <div className="p-6 space-y-3">
                         {Array.from({ length: 8 }).map((_, i) => (
@@ -1495,13 +1495,13 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                 ) : isLandingPage ? (
                     renderLandingCards()
                 ) : (
-                    <div className="overflow-x-auto xl:overflow-x-visible w-full">
-                        <table className="w-full text-left border-collapse whitespace-nowrap lg:whitespace-normal">
+                    <div className="overflow-x-auto w-full">
+                        <table className="w-full min-w-[1150px] text-left border-collapse whitespace-nowrap lg:whitespace-normal">
                             <thead>
                                 <tr className="text-xs font-black uppercase tracking-wider text-black dark:text-white select-none">
                                     <th 
                                         onClick={() => handleHeaderClick("precision")}
-                                        className="sticky top-0 xl:top-[68px] z-10 bg-zinc-100 dark:bg-zinc-900 border-b-4 border-black dark:border-white px-4 py-4 w-12 text-center cursor-pointer hover:bg-zinc-200 dark:hover:bg-zinc-800 transition-colors select-none"
+                                        className="bg-zinc-100 dark:bg-zinc-900 border-b-4 border-black dark:border-white px-4 py-4 w-12 text-center cursor-pointer hover:bg-zinc-200 dark:hover:bg-zinc-800 transition-colors select-none"
                                     >
                                         <div className="flex items-center justify-center gap-1">
                                             {translate("rank")}
@@ -1510,26 +1510,26 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                     </th>
                                     <th 
                                         onClick={() => handleHeaderClick("symbol")}
-                                        className="sticky top-0 xl:top-[68px] z-10 bg-zinc-100 dark:bg-zinc-900 border-b-4 border-black dark:border-white px-6 py-4 cursor-pointer hover:bg-zinc-200 dark:hover:bg-zinc-800 transition-colors select-none text-left"
+                                        className="bg-zinc-100 dark:bg-zinc-900 border-b-4 border-black dark:border-white px-6 py-4 cursor-pointer hover:bg-zinc-200 dark:hover:bg-zinc-800 transition-colors select-none text-left"
                                     >
                                         <div className="flex items-center gap-1 justify-start">
                                             {translate("stockName")}
                                             {renderSortIcon("symbol")}
                                         </div>
                                     </th>
-                                    <th className="hidden md:table-cell sticky top-0 xl:top-[68px] z-10 bg-zinc-100 dark:bg-zinc-900 border-b-4 border-black dark:border-white px-6 py-4 w-24 text-center">
+                                    <th className="hidden md:table-cell bg-zinc-100 dark:bg-zinc-900 border-b-4 border-black dark:border-white px-6 py-4 w-24 text-center">
                                         {translate("country")}
                                     </th>
                                     <th 
                                         onClick={() => handleHeaderClick("precision")}
-                                        className="sticky top-0 xl:top-[68px] z-10 bg-zinc-100 dark:bg-zinc-900 border-b-4 border-black dark:border-white px-4 py-4 w-24 text-center cursor-pointer hover:bg-zinc-200 dark:hover:bg-zinc-800 transition-colors select-none"
+                                        className="bg-zinc-100 dark:bg-zinc-900 border-b-4 border-black dark:border-white px-4 py-4 w-24 text-center cursor-pointer hover:bg-zinc-200 dark:hover:bg-zinc-800 transition-colors select-none"
                                     >
                                         <div className="flex items-center justify-center gap-1">
                                             {translate("aiScore")}
                                             {renderSortIcon("precision")}
                                         </div>
                                     </th>
-                                    <th className="sticky top-0 xl:top-[68px] z-10 bg-zinc-100 dark:bg-zinc-900 border-b-4 border-black dark:border-white px-4 py-4 w-24 text-center">
+                                    <th className="bg-zinc-100 dark:bg-zinc-900 border-b-4 border-black dark:border-white px-4 py-4 w-24 text-center">
                                         {translate("signal")}
                                     </th>
 
@@ -1537,7 +1537,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                         <>
                                             <th 
                                                 onClick={() => handleHeaderClick("technical_score")}
-                                                className="hidden md:table-cell sticky top-0 xl:top-[68px] z-10 bg-zinc-100 dark:bg-zinc-900 border-b-4 border-black dark:border-white px-4 py-4 w-24 text-center cursor-pointer hover:bg-zinc-200 dark:hover:bg-zinc-800 transition-colors select-none"
+                                                className="hidden md:table-cell bg-zinc-100 dark:bg-zinc-900 border-b-4 border-black dark:border-white px-4 py-4 w-24 text-center cursor-pointer hover:bg-zinc-200 dark:hover:bg-zinc-800 transition-colors select-none"
                                             >
                                                 <div className="flex items-center justify-center gap-1">
                                                     {translate("techScore")}
@@ -1546,7 +1546,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                             </th>
                                             <th 
                                                 onClick={() => handleHeaderClick("fundamental_score")}
-                                                className="hidden md:table-cell sticky top-0 xl:top-[68px] z-10 bg-zinc-100 dark:bg-zinc-900 border-b-4 border-black dark:border-white px-4 py-4 w-24 text-center cursor-pointer hover:bg-zinc-200 dark:hover:bg-zinc-800 transition-colors select-none"
+                                                className="hidden md:table-cell bg-zinc-100 dark:bg-zinc-900 border-b-4 border-black dark:border-white px-4 py-4 w-24 text-center cursor-pointer hover:bg-zinc-200 dark:hover:bg-zinc-800 transition-colors select-none"
                                             >
                                                 <div className="flex items-center justify-center gap-1">
                                                     {translate("fundScore")}
@@ -1555,7 +1555,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                             </th>
                                             <th 
                                                 onClick={() => handleHeaderClick("sentiment_score")}
-                                                className="hidden md:table-cell sticky top-0 xl:top-[68px] z-10 bg-zinc-100 dark:bg-zinc-900 border-b-4 border-black dark:border-white px-4 py-4 w-24 text-center cursor-pointer hover:bg-zinc-200 dark:hover:bg-zinc-800 transition-colors select-none"
+                                                className="hidden md:table-cell bg-zinc-100 dark:bg-zinc-900 border-b-4 border-black dark:border-white px-4 py-4 w-24 text-center cursor-pointer hover:bg-zinc-200 dark:hover:bg-zinc-800 transition-colors select-none"
                                             >
                                                 <div className="flex items-center justify-center gap-1">
                                                     {translate("sentScore")}
@@ -1565,19 +1565,19 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                         </>
                                     )}
 
-                                    <th className="hidden md:table-cell sticky top-0 xl:top-[68px] z-10 bg-zinc-100 dark:bg-zinc-900 border-b-4 border-black dark:border-white px-4 py-4 w-24 text-center">
+                                    <th className="hidden md:table-cell bg-zinc-100 dark:bg-zinc-900 border-b-4 border-black dark:border-white px-4 py-4 w-24 text-center">
                                         {translate("lowRisk")}
                                     </th>
                                     <th 
                                         onClick={() => handleHeaderClick("profit_loss_pct")}
-                                        className="sticky top-0 xl:top-[68px] z-10 bg-zinc-100 dark:bg-zinc-900 border-b-4 border-black dark:border-white px-4 py-4 w-28 text-center cursor-pointer hover:bg-zinc-200 dark:hover:bg-zinc-800 transition-colors select-none"
+                                        className="bg-zinc-100 dark:bg-zinc-900 border-b-4 border-black dark:border-white px-4 py-4 w-28 text-center cursor-pointer hover:bg-zinc-200 dark:hover:bg-zinc-800 transition-colors select-none"
                                     >
                                         <div className="flex items-center justify-center gap-1">
                                             {isAr ? "الحالة" : "Status"}
                                             {renderSortIcon("profit_loss_pct")}
                                         </div>
                                     </th>
-                                    <th className="hidden lg:table-cell sticky top-0 xl:top-[68px] z-10 bg-zinc-100 dark:bg-zinc-900 border-b-4 border-black dark:border-white px-6 py-4 text-left">
+                                    <th className="hidden lg:table-cell bg-zinc-100 dark:bg-zinc-900 border-b-4 border-black dark:border-white px-6 py-4 text-left">
                                         {translate("sector")}
                                     </th>
                                 </tr>
