@@ -28,6 +28,8 @@ import warnings
 
 
 
+import asyncio
+
 import numpy as np
 
 import pandas as pd
@@ -83,6 +85,8 @@ from pydantic import BaseModel, Field
 
 
 from api.adaptive_model_selector import recommend_model_from_pool
+
+from api.cache_utils import countries_cache, health_cache, inventory_cache
 
 from api.stock_ai import run_pipeline
 
@@ -151,6 +155,22 @@ async def log_requests(request: Request, call_next):
         )
 
         raise e
+
+
+@app.middleware("http")
+async def timeout_middleware(request: Request, call_next):
+    # Lightweight timeout to prevent hanging connections from exhausting the pool
+    # Heavy endpoints (/predict, /scan/technical) are exempted by path prefix
+    path = request.url.path
+    is_heavy = path.startswith(("/predict", "/scan/technical", "/scan/fundamental", "/scan/sentiment", "/scanner", "/ai_bot/scan", "/bot/scan"))
+    timeout_seconds = 25 if is_heavy else 8
+    try:
+        return await asyncio.wait_for(call_next(request), timeout=timeout_seconds)
+    except asyncio.TimeoutError:
+        return JSONResponse(
+            status_code=504,
+            content={"detail": "Request timeout", "path": path},
+        )
 
 
 
@@ -1409,10 +1429,13 @@ def root():
 
 
 @app.get("/health")
-
 def health():
-
-    return {"ok": True}
+    cached = health_cache.get("health")
+    if cached is not None:
+        return cached
+    resp = {"ok": True}
+    health_cache.set("health", resp)
+    return resp
 
 
 
@@ -1758,16 +1781,15 @@ def list_local_models():
 
 
 @app.get("/symbols/inventory")
-
 def symbols_inventory():
-
     """Returns mapping of countries/exchanges to symbol/price counts."""
-
+    cached = inventory_cache.get("inventory")
+    if cached is not None:
+        return {"inventory": cached}
     from api.stock_ai import get_supabase_inventory
-
-
-
-    return {"inventory": get_supabase_inventory()}
+    data = get_supabase_inventory()
+    inventory_cache.set("inventory", data)
+    return {"inventory": data}
 
 
 @app.get("/market/macro-correlation/symbols")
@@ -1829,54 +1851,41 @@ def refresh_macro_correlation_cache():
 
 
 @app.get("/symbols/countries")
-
 def symbols_countries(source: str = Query(default="supabase")):
+    cache_key = f"countries:{source}"
+    cached = countries_cache.get(cache_key)
+    if cached is not None:
+        return {"countries": cached}
 
     try:
-
-        # Debugging logging
-
-        # with open("/tmp/country_debug.log", "a") as f:
-
-        #    f.write(f"DEBUG: Country fetch start. Source={source}\n")
-
-
-
         if source == "local":
-
-            return {"countries": list_countries()}
-
-
+            data = list_countries()
+            countries_cache.set(cache_key, data)
+            return {"countries": data}
 
         try:
-
             from api.stock_ai import get_supabase_countries
-
-
-
             sb_countries = get_supabase_countries()
-
             if sb_countries:
-
+                countries_cache.set(cache_key, sb_countries)
                 return {"countries": sb_countries}
-
         except Exception as sb_err:
-
             print(f"DEBUG ERROR: get_supabase_countries failed: {sb_err}")
 
-
-
-        # Fallback to local
-
         try:
-
-            return {"countries": list_countries()}
-
+            data = list_countries()
+            countries_cache.set(cache_key, data)
+            return {"countries": data}
         except Exception as loc_err:
-
             print(f"DEBUG ERROR: list_countries failed: {loc_err}")
-
-            return {"countries": ["Egypt", "USA", "UK"]}
+            fallback = ["Egypt", "USA", "UK"]
+            countries_cache.set(cache_key, fallback)
+            return {"countries": fallback}
+    except Exception as e:
+        import traceback
+        err_msg = traceback.format_exc()
+        print(f"ERROR in /symbols/countries: {err_msg}")
+        return {"countries": ["Egypt", "USA", "UK"]}
 
 
 

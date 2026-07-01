@@ -330,38 +330,35 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
         const fetchShareCandles = async () => {
             setLoadingCandles(true);
             try {
-                const d = new Date();
-                d.setDate(d.getDate() - 250);
-                const fromDate = d.toISOString().split('T')[0];
-                const res = await predictStock({
-                    ticker: shareRow.symbol,
-                    fromDate,
-                    rfPreset: "default"
-                });
-                if (res && res.testPredictions) {
-                    const sorted = [...res.testPredictions].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+                const symbolBase = shareRow.symbol.split('.')[0];
+                const exchange = shareRow.exchange || "EGX";
+                const res = await fetch(`/api/ai_bot/candles?symbol=${encodeURIComponent(symbolBase)}&exchange=${exchange}&limit=120`);
+                if (!res.ok) throw new Error(`Candles fetch failed: ${res.status}`);
+                const data = await res.json();
+                const candles = (data?.candles || []).map((c: any) => ({
+                    date: c.date,
+                    open: c.open ?? c.close,
+                    high: c.high ?? c.close,
+                    low: c.low ?? c.close,
+                    close: c.close
+                }));
+                const sorted = candles.sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime());
+                const isClosed = shareRow.status?.toLowerCase() === "win" || shareRow.status?.toLowerCase() === "loss";
+                let sliceStart = Math.max(0, sorted.length - 60);
+                if (isClosed && shareRow.updated_at) {
+                    const exitDateStr = new Date(shareRow.updated_at).toISOString().split('T')[0];
+                    const exitIdx = sorted.findIndex(c => c.date >= exitDateStr);
+                    if (exitIdx !== -1) {
+                        sliceStart = Math.max(0, exitIdx - 15);
+                    }
+                } else if (shareRow.created_at) {
                     const signalDateStr = new Date(shareRow.created_at).toISOString().split('T')[0];
-                    let signalIndex = sorted.findIndex(c => c.date >= signalDateStr);
-                    if (signalIndex === -1) {
-                        signalIndex = sorted.length - 1;
+                    const signalIdx = sorted.findIndex(c => c.date >= signalDateStr);
+                    if (signalIdx !== -1) {
+                        sliceStart = Math.max(0, signalIdx - 10);
                     }
-                    const startIndex = Math.max(0, signalIndex - 2);
-                    
-                    // Determine end index based on active vs closed status
-                    const isClosed = shareRow.status?.toLowerCase() === "win" || shareRow.status?.toLowerCase() === "loss";
-                    let endIndex = sorted.length - 1;
-                    
-                    if (isClosed) {
-                        const exitDateStr = new Date(shareRow.updated_at).toISOString().split('T')[0];
-                        const idx = sorted.findIndex(c => c.date >= exitDateStr);
-                        if (idx !== -1) {
-                            endIndex = idx;
-                        }
-                    }
-                    
-                    const sliced = sorted.slice(startIndex, endIndex + 1);
-                    setShareCandles(sliced);
                 }
+                setShareCandles(sorted.slice(sliceStart));
             } catch (err) {
                 console.error("Error loading share candles", err);
             } finally {

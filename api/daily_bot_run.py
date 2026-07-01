@@ -40,38 +40,39 @@ from api.market_status_gate import should_reject_new_buys
 
 
 def _sync_latest_egx_inventory_from_eodhd() -> Tuple[bool, List[str], str]:
-    api_key = os.getenv("EODHD_API_KEY")
-    if not api_key:
-        return False, [], "EODHD_API_KEY not set"
+    """
+    Fetch EGX symbols using free data providers (yfinance).
+    No API key required anymore!
+    """
+    from api.free_data_provider import fetch_egx_symbols_free
+    
+    # Use free provider instead of EODHD
+    ok, active_symbols, msg = fetch_egx_symbols_free()
+    
+    if not ok:
+        return False, [], msg
 
     base_dir = os.path.join(project_root, "symbols_data")
     os.makedirs(base_dir, exist_ok=True)
-    url = f"https://eodhd.com/api/exchange-symbol-list/EGX?api_token={api_key}&fmt=json"
 
     try:
-        with urllib.request.urlopen(url, timeout=60) as resp:
-            payload = json.loads(resp.read().decode("utf-8"))
-
+        # Normalize symbols to standard format
         normalized_syms = []
-        active_symbols: List[str] = []
-        seen: Set[str] = set()
-        for row in payload or []:
-            sym = str(row.get("Code") or "").strip().upper()
-            if not sym or sym in seen:
-                continue
-            seen.add(sym)
-            active_symbols.append(sym)
+        for sym in active_symbols:
+            base_sym = sym.split(".")[0].upper()
             normalized_syms.append({
-                "Symbol": sym,
-                "Name": row.get("Name"),
+                "Symbol": base_sym,
+                "Name": f"EGX Stock {base_sym}",
                 "Exchange": "EGX",
                 "Country": "Egypt",
-                "Type": row.get("Type"),
-                "Currency": row.get("Currency"),
-                "Isin": row.get("Isin"),
+                "Type": "Stock",
+                "Currency": "EGP",
+                "Isin": None,
             })
 
         timestamp = dt.datetime.now().strftime("%Y%m%d_%H%M%S")
+        
+        # Remove old symbol files
         for name in os.listdir(base_dir):
             if name.startswith("Egypt_all_symbols_") and name.endswith(".json"):
                 try:
@@ -83,7 +84,7 @@ def _sync_latest_egx_inventory_from_eodhd() -> Tuple[bool, List[str], str]:
         with open(out_path, "w", encoding="utf-8") as f:
             json.dump(normalized_syms, f, indent=2, ensure_ascii=False)
 
-        return True, active_symbols, f"Updated Egypt inventory with {len(active_symbols)} symbols"
+        return True, active_symbols, f"Updated Egypt inventory with {len(active_symbols)} symbols (yfinance - FREE)"
     except Exception as e:
         return False, [], str(e)
 
@@ -1694,7 +1695,11 @@ async def generate_daily_recommendations(model_name: Optional[str] = None):
                 supabase.table("scan_results").update(update_data).eq("id", rec_id).execute()
                 print(f"[RECOMMENDATIONS] #{i+1} Updated existing open recommendation for {symbol}.{exchange}")
             else:
-                supabase.table("scan_results").insert(row_data).execute()
+                # Avoid hard failure if some DB columns are missing in the remote schema.
+                safe_row_data = dict(row_data)
+                safe_row_data.pop("top_reasons", None)
+                safe_row_data.pop("features", None)
+                supabase.table("scan_results").insert(safe_row_data).execute()
                 print(f"[RECOMMENDATIONS] #{i+1} Saved {symbol}.{exchange} with target1={row_data['target_price']}, target2={rich_details['target_2']}, risk_adjusted_return={row_data['risk_adjusted_return']:.4f}")
         except Exception as ins_err:
             print(f"[RECOMMENDATIONS] Failed to save/update recommendation for {symbol}: {ins_err}")
@@ -1745,125 +1750,28 @@ async def generate_daily_recommendations(model_name: Optional[str] = None):
 
 
 def _refresh_market_status_cache():
-    """Prefetch last 180 days of EGX30, EGX100, and USD/EGP from EODHD and save to local cache."""
-    api_key = os.getenv("EODHD_API_KEY")
-    if not api_key:
-        print("[MARKET_STATUS] EODHD API key not set. Skipping prefetch.")
-        return False, "EODHD API key not set"
-
-    import urllib.request as _urllib_request
-    import json as _json
-
-    from_date = (dt.datetime.utcnow() - dt.timedelta(days=180)).strftime("%Y-%m-%d")
-    to_date = dt.datetime.utcnow().strftime("%Y-%m-%d")
-
-    egx30_data = []
-    egx100_data = []
-    usdegp_data = []
-
-    # Fetch EGX30
-    try:
-        url = f"https://eodhd.com/api/eod/EGX30.INDX?api_token={api_key}&fmt=json&period=d&order=a&from={from_date}&to={to_date}"
-        req = _urllib_request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        with _urllib_request.urlopen(req, timeout=15) as resp:
-            egx30_data = _json.loads(resp.read().decode("utf-8"))
-    except Exception as e:
-        print(f"[MARKET_STATUS] Error fetching EGX30: {e}")
-
-    # Fetch EGX100
-    try:
-        url = f"https://eodhd.com/api/eod/EGX100.INDX?api_token={api_key}&fmt=json&period=d&order=a&from={from_date}&to={to_date}"
-        req = _urllib_request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        with _urllib_request.urlopen(req, timeout=15) as resp:
-            egx100_data = _json.loads(resp.read().decode("utf-8"))
-    except Exception as e:
-        print(f"[MARKET_STATUS] Error fetching EGX100: {e}")
-
-    # Fetch USD/EGP Forex
-    try:
-        url = f"https://eodhd.com/api/eod/USDEGP.FOREX?api_token={api_key}&fmt=json&period=d&order=a&from={from_date}&to={to_date}"
-        req = _urllib_request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        with _urllib_request.urlopen(req, timeout=15) as resp:
-            usdegp_data = _json.loads(resp.read().decode("utf-8"))
-    except Exception as e:
-        print(f"[MARKET_STATUS] Error fetching USD/EGP: {e}")
-
-    # If EGX30 is empty from EODHD, try Supabase first, then local JSON
+    """Prefetch last 180 days of EGX30, EGX100, and USD/EGP using FREE data providers (yfinance)."""
+    from api.free_data_provider import get_market_status_free
+    
     base_dir = os.path.dirname(os.path.abspath(__file__))
-    if not egx30_data or (isinstance(egx30_data, list) and len(egx30_data) == 0):
-        print("[MARKET_STATUS] EGX30 empty from EODHD, trying Supabase fallback...")
-        try:
-            from api.stock_ai import _init_supabase as _init_sb, supabase as _sb
-            _init_sb()
-            if _sb:
-                all_data = []
-                page_size = 1000
-                offset = 0
-                while True:
-                    res = _sb.table("stock_prices").select("date,open,high,low,close,volume").eq("symbol", "EGX30").eq("exchange", "INDX").order("date", desc=False).range(offset, offset + page_size - 1).execute()
-                    if not res.data:
-                        break
-                    all_data.extend(res.data)
-                    if len(res.data) < page_size:
-                        break
-                    offset += page_size
-                if all_data:
-                    filtered = [r for r in all_data if from_date <= r["date"] <= to_date]
-                    if filtered:
-                        egx30_data = filtered
-                        print(f"[MARKET_STATUS] Loaded {len(egx30_data)} EGX30 rows from Supabase")
-        except Exception as se:
-            print(f"[MARKET_STATUS] Supabase fallback for EGX30 failed: {se}")
-
-        if not egx30_data or (isinstance(egx30_data, list) and len(egx30_data) == 0):
-            try:
-                index_path = os.path.join(base_dir, "symbols_data", "EGX30-INDEX.json")
-                if os.path.exists(index_path):
-                    with open(index_path, "r", encoding="utf-8") as f:
-                        local_data = _json.loads(f.read())
-                    if isinstance(local_data, list) and len(local_data) > 0:
-                        filtered = [r for r in local_data if from_date <= r.get("date", "") <= to_date]
-                        if filtered:
-                            egx30_data = filtered
-                            print(f"[MARKET_STATUS] Loaded {len(egx30_data)} EGX30 rows from local JSON")
-            except Exception as le:
-                print(f"[MARKET_STATUS] Local JSON fallback for EGX30 failed: {le}")
-
-    # Calculate current regime based on EGX30
-    regime = "sideways"
-    egx30_return = 0.0
-    if egx30_data and isinstance(egx30_data, list):
-        try:
-            # Sort by date
-            egx30_data.sort(key=lambda x: x["date"])
-            if len(egx30_data) >= 2:
-                close_today = float(egx30_data[-1]["close"])
-                close_prev = float(egx30_data[-2]["close"])
-                egx30_return = (close_today - close_prev) / close_prev
-
-                # Use classifier
-                from api.egx30_fetcher import get_market_regime
-                regime = get_market_regime(egx30_return)
-        except Exception as e:
-            print(f"[MARKET_STATUS] Error calculating market regime: {e}")
-
-    res_data = {
-        "egx30": egx30_data,
-        "egx100": egx100_data,
-        "usdegp": usdegp_data,
-        "regime": regime,
-        "egx30_return": egx30_return,
-        "reject_buys": regime == "panic",
-        "updated_at": dt.datetime.utcnow().isoformat()
-    }
-
-    # Save to local file cache in api/symbols_data/market_status.json
-    cache_path = os.path.join(base_dir, "symbols_data", "market_status.json")
     
     try:
+        # Fetch market data using free providers
+        res_data = get_market_status_free(period="6mo")
+        egx30_data = res_data.get("egx30", [])
+        egx100_data = res_data.get("egx100", [])
+        usdegp_data = res_data.get("usdegp", [])
+        regime = res_data.get("regime", "sideways")
+        egx30_return = res_data.get("egx30_return", 0.0)
+        
+        print(f"[MARKET_STATUS] Fetched market data (FREE): {len(egx30_data)} EGX30 rows, regime={regime}")
+        
+        # Save to local file cache in api/symbols_data/market_status.json
+        cache_path = os.path.join(base_dir, "symbols_data", "market_status.json")
+        
         os.makedirs(os.path.dirname(cache_path), exist_ok=True)
         with open(cache_path, "w", encoding="utf-8") as f:
-            _json.dump(res_data, f, ensure_ascii=False, indent=2)
+            json.dump(res_data, f, ensure_ascii=False, indent=2)
         print(f"[MARKET_STATUS] Market status cache successfully saved to {cache_path}")
 
         # Upsert index rows to Supabase so the runtime fallback always has fresh data
@@ -1919,10 +1827,10 @@ def _refresh_market_status_cache():
         except Exception as me:
             print(f"[MARKET_STATUS] Error updating macro correlation cache: {me}")
             
-        return True, "Market status cache updated successfully"
+        return True, "Market status cache updated successfully (using FREE data providers)"
     except Exception as e:
-        print(f"[MARKET_STATUS] Error writing local market status cache: {e}")
-        return False, f"Error writing cache: {e}"
+        print(f"[MARKET_STATUS] Error fetching market status: {e}")
+        return False, f"Error: {e}"
 
 
 async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sync: bool = False, trigger: str = "manual"):

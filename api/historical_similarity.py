@@ -9,6 +9,7 @@ import os
 import json
 import uuid
 import math
+import threading
 from functools import lru_cache
 import numpy as np
 import pandas as pd
@@ -16,6 +17,16 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Any, Tuple, Optional, Set
 from api.stock_ai import add_technical_indicators, get_supabase_symbols
 import api.stock_ai as stock_ai
+
+_thread_local = threading.local()
+
+def _get_thread_local_supabase():
+    client = getattr(_thread_local, "client", None)
+    if client is None:
+        stock_ai._init_supabase()
+        client = stock_ai.supabase
+        _thread_local.client = client
+    return client
 
 def sanitize_json_floats(obj):
     if isinstance(obj, dict):
@@ -623,10 +634,8 @@ from datetime import datetime
 
 # Initialize Supabase client
 def _get_supabase():
-    """Get Supabase client instance"""
-    import api.stock_ai as stock_ai
-    stock_ai._init_supabase()
-    return stock_ai.supabase
+    """Get thread-local Supabase client instance"""
+    return _get_thread_local_supabase()
 
 
 @lru_cache(maxsize=1)

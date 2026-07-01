@@ -8,6 +8,7 @@ from datetime import datetime
 
 from api.live_bot import bot_manager
 from api import stock_ai
+from api.cache_utils import model_cards_cache
 from api.stock_ai import get_cached_tickers, _supabase_read_with_retry, _init_supabase
 
 router = APIRouter(tags=["AI_BOT"])
@@ -728,6 +729,9 @@ def get_available_models():
 @router.get("/model_cards")
 def get_model_cards():
     """Returns detailed model information including model card metadata for each .pkl model, filtering out crypto/validator models."""
+    cached = model_cards_cache.get("model_cards")
+    if cached is not None:
+        return cached
     try:
         from api.routers.admin import list_local_models
         res = list_local_models()
@@ -750,7 +754,9 @@ def get_model_cards():
             filtered.append(m)
 
         from api.model_catalog import select_canonical_model_cards
-        return select_canonical_model_cards(filtered)
+        result = select_canonical_model_cards(filtered)
+        model_cards_cache.set("model_cards", result)
+        return result
     except Exception as e:
         print(f"Error fetching model cards: {e}")
         return []

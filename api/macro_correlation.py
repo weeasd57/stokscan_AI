@@ -16,93 +16,32 @@ CACHE_PATH = os.path.join(BASE_DIR, "symbols_data", "macro_history_cache.json")
 
 def scrape_live_rates() -> dict:
     """
-    Scrapes live USD parallel, USD official, and Gold prices from sarfegp.com.
+    Fetch live rates using FREE providers (yfinance, exchangerate-api, etc).
     Returns:
         dict: {'usd_parallel': float, 'usd_official': float, 'gold_24k': float, 'gold_21k': float}
     """
-    url = "https://sarfegp.com"
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
-    res = {
-        "usd_parallel": 50.3,
-        "usd_official": 49.3,
-        "gold_24k": 6540.0,
-        "gold_21k": 5720.0,
-        "source": "fallback"
-    }
+    from api.free_data_provider import fetch_live_rates_free
     
     try:
-        req = urllib_req.Request(url, headers=headers)
-        with urllib_req.urlopen(req, timeout=10) as response:
-            html = response.read()
-        
-        soup = BeautifulSoup(html, 'html.parser')
-        tables = soup.find_all("table")
-        
-        # Parse Table 0 for general parallel market rate
-        if len(tables) > 0:
-            for row in tables[0].find_all("tr"):
-                cols = [col.get_text().strip() for col in row.find_all(["td", "th"])]
-                if len(cols) >= 4 and "الدولار" in cols[0]:
-                    try:
-                        res["usd_parallel"] = float(cols[3].replace(",", ""))
-                        res["source"] = "scraped"
-                    except ValueError:
-                        pass
-        
-        # Parse Table 1 for gold prices
-        if len(tables) > 1:
-            for row in tables[1].find_all("tr"):
-                cols = [col.get_text().strip() for col in row.find_all(["td", "th"])]
-                if len(cols) >= 3:
-                    if "ذهب عيار 24" in cols[0]:
-                        try:
-                            # e.g., "6,543.00 EGP" -> 6543.00
-                            val = cols[2].replace("EGP", "").replace(",", "").strip()
-                            res["gold_24k"] = float(val)
-                        except ValueError:
-                            pass
-                    elif "ذهب عيار 21" in cols[0]:
-                        try:
-                            val = cols[2].replace("EGP", "").replace(",", "").strip()
-                            res["gold_21k"] = float(val)
-                        except ValueError:
-                            pass
-                            
-        # Parse Table 4 for verified parallel vs bank rates
-        if len(tables) > 4:
-            for row in tables[4].find_all("tr"):
-                cols = [col.get_text().strip() for col in row.find_all(["td", "th"])]
-                if len(cols) >= 3:
-                    if "سوق سوداء" in cols[0] or "السوق السوداء" in cols[0]:
-                        try:
-                            res["usd_parallel"] = float(cols[1].replace(",", ""))
-                        except ValueError:
-                            pass
-                    elif "البنوك" in cols[0] or "البنك" in cols[0]:
-                        try:
-                            res["usd_official"] = float(cols[1].replace(",", ""))
-                        except ValueError:
-                            pass
-                            
-        logger.info(f"Scraped live rates: {res}")
+        return fetch_live_rates_free()
     except Exception as e:
-        logger.warning(f"Failed to scrape live rates: {e}. Using cache fallbacks.")
-        
-    return res
+        logger.warning(f"Failed to fetch live rates: {e}. Using fallback values.")
+        return {
+            "usd_parallel": 50.3,
+            "usd_official": 49.3,
+            "gold_24k": 6540.0,
+            "gold_21k": 5720.0,
+            "source": "fallback"
+        }
 
 def fetch_eod_data(symbol: str, from_date: str) -> list:
-    """Fetches end-of-day data from EODHD API."""
-    api_key = os.getenv("EODHD_API_KEY")
-    if not api_key:
-        return []
+    """Fetches end-of-day data using FREE providers (yfinance). No API key required!"""
+    from api.free_data_provider import fetch_eod_data_free
     
-    url = f"https://eodhd.com/api/eod/{symbol}?api_token={api_key}&fmt=json&period=d&order=a&from={from_date}"
     try:
-        req = urllib_req.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib_req.urlopen(req, timeout=15) as resp:
-            return json.loads(resp.read().decode("utf-8"))
+        return fetch_eod_data_free(symbol, period="6mo")
     except Exception as e:
-        logger.error(f"Error fetching {symbol} from EODHD: {e}")
+        logger.error(f"Error fetching {symbol} from free providers: {e}")
         return []
 
 def get_comi_history_from_db() -> list:
@@ -142,11 +81,11 @@ def build_or_update_macro_history() -> list:
         except Exception:
             pass
             
-    # Check if cache is fresh (less than 12 hours old)
+    # Check if cache is fresh (less than 3 hours old)
     is_fresh = False
     if cached_data and os.path.exists(CACHE_PATH):
         mtime = datetime.datetime.fromtimestamp(os.path.getmtime(CACHE_PATH))
-        if datetime.datetime.now() - mtime < datetime.timedelta(hours=12):
+        if datetime.datetime.now() - mtime < datetime.timedelta(hours=3):
             is_fresh = True
             
     if is_fresh and cached_data:
@@ -253,6 +192,11 @@ def build_or_update_macro_history() -> list:
     # Save cache
     try:
         os.makedirs(os.path.dirname(CACHE_PATH), exist_ok=True)
+        # Validate records before saving
+        for record in records:
+            if not all(k in record for k in ["date", "usd_official", "usd_parallel", "gold_24k"]):
+                logger.warning(f"Skipping invalid record: {record}")
+                continue
         with open(CACHE_PATH, "w", encoding="utf-8") as f:
             json.dump(records, f, indent=2)
         logger.info(f"Saved {len(records)} macro daily records to cache.")
@@ -317,8 +261,25 @@ def calculate_macro_correlation(symbol: str) -> dict:
     # 3. Join datasets
     df_joined = df_stock["close"].rename("stock").to_frame().join(df_macro, how="inner")
     
+    # Forward fill any gaps and then backward fill remaining NaNs
+    for col in ["usd_official", "usd_parallel", "gold_24k"]:
+        if col in df_joined.columns:
+            df_joined[col] = df_joined[col].ffill().bfill()
+    
     # Get last 30 trading days
     df_subset = df_joined.tail(30).copy()
+    
+    # Final validation: if any column still has NaN, fill with forward fill one more time
+    df_subset = df_subset.ffill().bfill()
+    
+    # Ensure all values are numeric and finite
+    for col in ["stock", "usd_official", "usd_parallel", "gold_24k"]:
+        if col in df_subset.columns:
+            df_subset[col] = pd.to_numeric(df_subset[col], errors="coerce")
+            # Replace infinite values with NaN and fill
+            df_subset[col] = df_subset[col].replace([np.inf, -np.inf], np.nan)
+            df_subset[col] = df_subset[col].ffill().bfill()
+    
     if len(df_subset) < 5:
         return {
             "symbol": symbol,
@@ -330,31 +291,57 @@ def calculate_macro_correlation(symbol: str) -> dict:
             "insights": "Insufficient overlap dates between stock and macro indicators."
         }
         
-    # Calculate price correlations
-    corr_usd_off = float(df_subset["stock"].corr(df_subset["usd_official"]))
-    corr_usd_par = float(df_subset["stock"].corr(df_subset["usd_parallel"]))
-    corr_gold = float(df_subset["stock"].corr(df_subset["gold_24k"]))
+    # Calculate price correlations with NaN handling
+    try:
+        corr_usd_off = float(df_subset["stock"].corr(df_subset["usd_official"]))
+        corr_usd_par = float(df_subset["stock"].corr(df_subset["usd_parallel"]))
+        corr_gold = float(df_subset["stock"].corr(df_subset["gold_24k"]))
+    except (ValueError, TypeError):
+        corr_usd_off = corr_usd_par = corr_gold = 0.0
     
-    # Clean NaNs
-    corr_usd_off = 0.0 if np.isnan(corr_usd_off) else corr_usd_off
-    corr_usd_par = 0.0 if np.isnan(corr_usd_par) else corr_usd_par
-    corr_gold = 0.0 if np.isnan(corr_gold) else corr_gold
+    # Clean NaNs and infinite values
+    corr_usd_off = 0.0 if (np.isnan(corr_usd_off) or np.isinf(corr_usd_off)) else corr_usd_off
+    corr_usd_par = 0.0 if (np.isnan(corr_usd_par) or np.isinf(corr_usd_par)) else corr_usd_par
+    corr_gold = 0.0 if (np.isnan(corr_gold) or np.isinf(corr_gold)) else corr_gold
+    
+    # Clamp correlations to -1 to 1 range (in case of numerical errors)
+    corr_usd_off = np.clip(corr_usd_off, -1.0, 1.0)
+    corr_usd_par = np.clip(corr_usd_par, -1.0, 1.0)
+    corr_gold = np.clip(corr_gold, -1.0, 1.0)
     
     # Normalize/Scale prices for overlay charting (0 to 100 normalization)
+    # Using percentage change from first value to handle different price ranges better
     def normalize_series(s):
-        s_min = s.min()
-        s_max = s.max()
-        if s_max == s_min:
+        if len(s) == 0 or s.isna().all():
             return s * 0.0 + 50.0
-        return ((s - s_min) / (s_max - s_min)) * 100.0
+        first_val = s.iloc[0]
+        if pd.isna(first_val) or first_val == 0:
+            # Fallback to min-max if first value is invalid
+            s_min = s.min()
+            s_max = s.max()
+            if s_max == s_min:
+                return s * 0.0 + 50.0
+            return ((s - s_min) / (s_max - s_min)) * 100.0
+        # Percentage change normalization: base at 50, up/down from there
+        pct_change = ((s - first_val) / first_val) * 100.0
+        # Clip to -50 to +50 range and shift to 0-100 scale
+        return np.clip(pct_change, -50, 50) + 50.0
         
-    df_subset["stock_norm"] = normalize_series(df_subset["stock"])
-    df_subset["usd_parallel_norm"] = normalize_series(df_subset["usd_parallel"])
-    df_subset["gold_norm"] = normalize_series(df_subset["gold_24k"])
+    df_subset["stock_norm"] = normalize_series(df_subset["stock"].astype(float))
+    df_subset["usd_parallel_norm"] = normalize_series(df_subset["usd_parallel"].astype(float))
+    df_subset["gold_norm"] = normalize_series(df_subset["gold_24k"].astype(float))
     
     # Prepare chart rows
     df_subset.reset_index(inplace=True)
     df_subset["date"] = df_subset["date"].dt.strftime("%Y-%m-%d")
+    
+    # Ensure all numeric columns are properly formatted
+    for col in ["stock", "usd_parallel", "gold_24k", "stock_norm", "usd_parallel_norm", "gold_norm"]:
+        if col in df_subset.columns:
+            df_subset[col] = pd.to_numeric(df_subset[col], errors="coerce")
+            # Replace any infinite or missing values
+            df_subset[col] = df_subset[col].replace([np.inf, -np.inf], np.nan).fillna(0)
+    
     chart_data = df_subset[["date", "stock", "usd_parallel", "gold_24k", "stock_norm", "usd_parallel_norm", "gold_norm"]].to_dict(orient="records")
     
     # Determine Rating

@@ -316,6 +316,7 @@ create table if not exists public.scan_results (
     precision numeric(10,4),
     signal text,
     top_reasons jsonb default '[]'::jsonb,
+    rich_details jsonb default '[]'::jsonb,
     is_public boolean default false,
     from_date date,
     to_date date,
