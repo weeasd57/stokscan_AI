@@ -7,6 +7,21 @@ export const getProductionApiUrl = (): string => {
     if (
       host === "localhost" ||
       host === "127.0.0.1" ||
+      host.includes("ngrok-free.app") ||
+      host.startsWith("192.168.") ||
+      host.startsWith("10.")
+    ) {
+      return "";
+    }
+    if (host.endsWith(".vercel.app") || host === "stokscan-ai-web.vercel.app") {
+      return "https://weeasdwee-ai-bot.hf.space";
+    }
+    return "https://weeasdwee-ai-bot.hf.space";
+  }
+
+  const fromEnv = process.env.NEXT_PUBLIC_API_BASE_URL || "";
+  if (/localhost:3000|:3000\b/.test(fromEnv)) {
+    return "";
   }
   return fromEnv.replace(/\/$/, "");
 };
