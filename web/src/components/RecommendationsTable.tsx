@@ -328,7 +328,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
             setLoadingCandles(true);
             try {
                 const d = new Date();
-                d.setDate(d.getDate() - 90);
+                d.setDate(d.getDate() - 250);
                 const fromDate = d.toISOString().split('T')[0];
                 const res = await predictStock({
                     ticker: shareRow.symbol,
@@ -1339,7 +1339,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
             try {
                 const dataUrl = await toPng(shareCardRef.current, {
                     cacheBust: true,
-                    backgroundColor: "#09090b",
+                    backgroundColor: theme === "dark" ? "#09090b" : "#ffffff",
                     style: {
                         transform: "scale(1)",
                     },
@@ -1363,17 +1363,17 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
 
         return createPortal(
             <div 
-                className="fixed inset-0 z-[2147483647] flex items-center justify-center p-4 bg-zinc-950/90 backdrop-blur-md overflow-y-auto text-white"
+                className="fixed inset-0 z-[2147483647] flex items-center justify-center p-4 bg-zinc-950/70 dark:bg-zinc-950/90 bg-zinc-200/60 backdrop-blur-md overflow-y-auto text-zinc-900 dark:text-white"
                 onClick={() => setShareRow(null)}
                 dir={isAr ? "rtl" : "ltr"}
             >
                 <div 
-                    className="relative w-full max-w-md bg-zinc-900 border-4 border-black dark:border-white p-6 shadow-[8px_8px_0px_rgba(0,0,0,1)] dark:shadow-[8px_8px_0px_rgba(255,255,255,1)] flex flex-col gap-6 animate-in zoom-in-95 duration-150 text-white"
+                    className="relative w-full max-w-md bg-white dark:bg-zinc-900 border-4 border-black dark:border-white p-6 shadow-[8px_8px_0px_rgba(0,0,0,1)] dark:shadow-[8px_8px_0px_rgba(255,255,255,1)] flex flex-col gap-6 animate-in zoom-in-95 duration-150 text-zinc-900 dark:text-white"
                     onClick={(e) => e.stopPropagation()}
                 >
                     {/* Header */}
                     <div className="flex items-center justify-between border-b-2 border-black dark:border-zinc-800 pb-4">
-                        <h3 className="text-lg font-black uppercase text-white">
+                        <h3 className="text-lg font-black uppercase text-zinc-900 dark:text-white">
                             {translate("shareTrade")}
                         </h3>
                         <button
@@ -1386,28 +1386,28 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                     </div>
 
                     {/* Captured Card Wrapper */}
-                    <div className="overflow-hidden border-2 border-black dark:border-zinc-800 bg-zinc-950 p-1 flex justify-center">
+                    <div className="overflow-hidden border-2 border-black dark:border-zinc-800 bg-zinc-100 dark:bg-zinc-950 p-1 flex justify-center">
                         <div 
                             ref={shareCardRef}
-                            className="w-[380px] bg-zinc-950 p-6 flex flex-col gap-5 border border-zinc-800 relative select-none"
+                            className="w-[380px] bg-white dark:bg-zinc-950 p-6 flex flex-col gap-5 border border-zinc-200 dark:border-zinc-800/80 relative select-none"
                         >
                             {/* Card Background Branding/Watermark */}
                             <div className="absolute top-2 right-4 flex items-center gap-1.5">
                                 <img src="/favicon_io/apple-touch-icon.png" alt="Stokscan Logo" className="w-4 h-4 object-contain" />
-                                <span className="text-[9px] font-bold tracking-widest text-zinc-500 uppercase">
+                                <span className="text-[9px] font-bold tracking-widest text-zinc-400 dark:text-zinc-500 uppercase">
                                     STOKSCAN AI
                                 </span>
                             </div>
 
                             {/* Header Stock Info */}
-                            <div className="flex items-center gap-3 border-b border-zinc-800/80 pb-4">
+                            <div className="flex items-center gap-3 border-b border-zinc-200 dark:border-zinc-800/80 pb-4 text-left">
                                 <StockLogo symbol={row.symbol} logoUrl={row.logo_url} size="lg" className="rounded-sm" />
                                 <div className="min-w-0 flex-1 text-left">
                                     <div className="flex items-center gap-2">
-                                        <span className="text-xl font-black uppercase text-white tracking-wide truncate">
+                                        <span className="text-xl font-black uppercase text-zinc-900 dark:text-white tracking-wide truncate">
                                             {row.symbol}
                                         </span>
-                                        <span className="text-[9px] font-bold text-zinc-400 bg-zinc-900 border border-zinc-800 px-1.5 py-0.5 uppercase">
+                                        <span className="text-[9px] font-bold text-zinc-500 dark:text-zinc-400 bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 px-1.5 py-0.5 uppercase">
                                             {row.exchange}
                                         </span>
                                     </div>
@@ -1436,7 +1436,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                         <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider block">
                                             {translate("shareEntry")}
                                         </span>
-                                        <span className="text-base font-black text-white">
+                                        <span className="text-base font-black text-zinc-900 dark:text-white">
                                             {entryPrice.toFixed(2)} <span className="text-[10px] font-bold text-zinc-400">EGP</span>
                                         </span>
                                     </div>
@@ -1444,7 +1444,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                         <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider block">
                                             {translate("shareTarget")}
                                         </span>
-                                        <span className="text-base font-black text-emerald-400">
+                                        <span className="text-base font-black text-emerald-500 dark:text-emerald-400">
                                             {targetPrice.toFixed(2)} <span className="text-[10px] font-bold text-zinc-400">EGP</span>
                                         </span>
                                     </div>
@@ -1452,7 +1452,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                         <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider block">
                                             {translate("shareStop")}
                                         </span>
-                                        <span className="text-base font-black text-rose-400">
+                                        <span className="text-base font-black text-rose-500 dark:text-rose-400">
                                             {stopLoss.toFixed(2)} <span className="text-[10px] font-bold text-zinc-400">EGP</span>
                                         </span>
                                     </div>
@@ -1474,7 +1474,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                         <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider block">
                                             {isAr ? "أداء الصفقة" : "Trade Return"}
                                         </span>
-                                        <span className={`text-base font-black ${pctChangeSinceRec >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+                                        <span className={`text-base font-black ${pctChangeSinceRec >= 0 ? "text-emerald-500 dark:text-emerald-400" : "text-rose-500 dark:text-rose-400"}`}>
                                             {pctChangeSinceRec >= 0 ? "+" : ""}{pctChangeSinceRec.toFixed(2)}%
                                         </span>
                                     </div>
@@ -1483,7 +1483,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                         <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider block">
                                             {translate("shareScanDate")}
                                         </span>
-                                        <span className="text-[10px] font-medium text-zinc-400 mt-0.5">
+                                        <span className="text-[10px] font-medium text-zinc-500 dark:text-zinc-400 mt-0.5">
                                             {scanDate}
                                         </span>
                                     </div>
@@ -1492,8 +1492,8 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
 
                             {/* Mini Candlestick SVG Chart */}
                             {loadingCandles ? (
-                                <div className="h-[120px] w-full bg-zinc-900/50 border border-zinc-800 flex items-center justify-center text-zinc-500 text-xs font-bold gap-2 mt-2">
-                                    <Loader2 className="w-4 h-4 animate-spin text-teal-400" />
+                                <div className="h-[120px] w-full bg-zinc-100 dark:bg-zinc-900/50 border border-zinc-200 dark:border-zinc-800 flex items-center justify-center text-zinc-500 text-xs font-bold gap-2 mt-2">
+                                    <Loader2 className="w-4 h-4 animate-spin text-teal-500 dark:text-teal-400" />
                                     <span>{isAr ? "جاري تحميل الشارت..." : "Loading chart..."}</span>
                                 </div>
                             ) : shareCandles.length > 0 ? (() => {
@@ -1528,12 +1528,12 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                         <span className="text-[9px] text-zinc-500 font-bold uppercase tracking-wider block text-left">
                                             {isAr ? "أداء السعر (الشموع اليابانية)" : "Price Action (Candlesticks)"}
                                         </span>
-                                        <div className="relative h-[120px] w-full bg-zinc-950 border border-zinc-800/80 rounded-sm overflow-hidden p-1">
+                                        <div className="relative h-[120px] w-full bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800/80 rounded-sm overflow-hidden p-1">
                                             <svg width={chartWidth} height={chartHeight} className="overflow-visible">
                                                 {/* Grid Lines */}
-                                                <line x1={0} y1={chartHeight * 0.25} x2={chartWidth} y2={chartHeight * 0.25} stroke="#18181b" strokeWidth={0.5} strokeDasharray="2 2" opacity={0.3} />
-                                                <line x1={0} y1={chartHeight * 0.5} x2={chartWidth} y2={chartHeight * 0.5} stroke="#18181b" strokeWidth={0.5} strokeDasharray="2 2" opacity={0.3} />
-                                                <line x1={0} y1={chartHeight * 0.75} x2={chartWidth} y2={chartHeight * 0.75} stroke="#18181b" strokeWidth={0.5} strokeDasharray="2 2" opacity={0.3} />
+                                                <line x1={0} y1={chartHeight * 0.25} x2={chartWidth} y2={chartHeight * 0.25} stroke={theme === "dark" ? "#18181b" : "#e4e4e7"} strokeWidth={0.5} strokeDasharray="2 2" opacity={theme === "dark" ? 0.3 : 0.6} />
+                                                <line x1={0} y1={chartHeight * 0.5} x2={chartWidth} y2={chartHeight * 0.5} stroke={theme === "dark" ? "#18181b" : "#e4e4e7"} strokeWidth={0.5} strokeDasharray="2 2" opacity={theme === "dark" ? 0.3 : 0.6} />
+                                                <line x1={0} y1={chartHeight * 0.75} x2={chartWidth} y2={chartHeight * 0.75} stroke={theme === "dark" ? "#18181b" : "#e4e4e7"} strokeWidth={0.5} strokeDasharray="2 2" opacity={theme === "dark" ? 0.3 : 0.6} />
                                                 
                                                 {/* Price Lines */}
                                                 {entryPrice > 0 && (() => {
@@ -1541,7 +1541,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                                     return (
                                                         <>
                                                             <line x1={0} y1={y} x2={chartWidth} y2={y} stroke="#2dd4bf" strokeWidth={1} strokeDasharray="3 3" opacity={0.6} />
-                                                            <text x={5} y={y - 3} fill="#2dd4bf" fontSize="7" fontWeight="bold">
+                                                            <text x={5} y={y - 3} fill="#0d9488" dark-fill="#2dd4bf" fontSize="7" fontWeight="bold">
                                                                 {isAr ? `دخول: ${entryPrice.toFixed(2)}` : `Entry: ${entryPrice.toFixed(2)}`}
                                                             </text>
                                                         </>
@@ -1553,7 +1553,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                                     return (
                                                         <>
                                                             <line x1={0} y1={y} x2={chartWidth} y2={y} stroke="#34d399" strokeWidth={1} strokeDasharray="3 3" opacity={0.6} />
-                                                            <text x={chartWidth - 5} y={y - 3} fill="#34d399" fontSize="7" fontWeight="bold" textAnchor="end">
+                                                            <text x={chartWidth - 5} y={y - 3} fill="#059669" dark-fill="#34d399" fontSize="7" fontWeight="bold" textAnchor="end">
                                                                 {isAr ? `هدف: ${targetPrice.toFixed(2)}` : `Target: ${targetPrice.toFixed(2)}`}
                                                             </text>
                                                         </>
@@ -1565,7 +1565,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                                     return (
                                                         <>
                                                             <line x1={0} y1={y} x2={chartWidth} y2={y} stroke="#fb7185" strokeWidth={1} strokeDasharray="3 3" opacity={0.6} />
-                                                            <text x={5} y={y - 3} fill="#fb7185" fontSize="7" fontWeight="bold">
+                                                            <text x={5} y={y - 3} fill="#e11d48" dark-fill="#fb7185" fontSize="7" fontWeight="bold">
                                                                 {isAr ? `وقف: ${stopLoss.toFixed(2)}` : `Stop: ${stopLoss.toFixed(2)}`}
                                                             </text>
                                                         </>
@@ -1609,7 +1609,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                 <p className="text-[8px] text-zinc-500 font-bold leading-normal max-w-[200px] text-left">
                                     {translate("shareDisclaimer")}
                                 </p>
-                                <span className="text-[10px] font-black text-teal-400 tracking-wider">
+                                <span className="text-[10px] font-black text-indigo-600 dark:text-teal-400 tracking-wider">
                                     stokscan.com
                                 </span>
                             </div>
@@ -1640,7 +1640,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
 
                             <button
                                 onClick={handleCopyText}
-                                className="h-10 px-4 border-2 border-black bg-zinc-800 hover:bg-zinc-700 text-white text-xs font-black flex items-center justify-center gap-2 shadow-[2px_2px_0px_rgba(0,0,0,1)] hover:-translate-x-[1px] hover:-translate-y-[1px] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all"
+                                className="h-10 px-4 border-2 border-black bg-zinc-100 hover:bg-zinc-200 text-zinc-900 dark:bg-zinc-800 dark:hover:bg-zinc-700 dark:text-white text-xs font-black flex items-center justify-center gap-2 shadow-[2px_2px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_rgba(255,255,255,1)] hover:-translate-x-[1px] hover:-translate-y-[1px] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all"
                             >
                                 {isCopied ? (
                                     <>
@@ -1660,7 +1660,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                         <div className="grid grid-cols-4 gap-2">
                             <button
                                 onClick={() => handleShare("x")}
-                                className="h-9 border-2 border-black bg-zinc-800 hover:bg-zinc-700 text-white text-xs font-black flex items-center justify-center gap-1.5 shadow-[2px_2px_0px_rgba(0,0,0,1)] hover:-translate-x-[1px] hover:-translate-y-[1px] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all duration-150"
+                                className="h-9 border-2 border-black bg-zinc-100 hover:bg-zinc-200 text-zinc-900 dark:bg-zinc-800 dark:hover:bg-zinc-700 dark:text-white text-xs font-black flex items-center justify-center gap-1.5 shadow-[2px_2px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_rgba(255,255,255,1)] hover:-translate-x-[1px] hover:-translate-y-[1px] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all duration-150"
                             >
                                 <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24">
                                     <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
@@ -1670,7 +1670,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
 
                             <button
                                 onClick={() => handleShare("telegram")}
-                                className="h-9 border-2 border-black bg-zinc-800 hover:bg-zinc-700 text-white text-xs font-black flex items-center justify-center gap-1.5 shadow-[2px_2px_0px_rgba(0,0,0,1)] hover:-translate-x-[1px] hover:-translate-y-[1px] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all duration-150"
+                                className="h-9 border-2 border-black bg-zinc-100 hover:bg-zinc-200 text-zinc-900 dark:bg-zinc-800 dark:hover:bg-zinc-700 dark:text-white text-xs font-black flex items-center justify-center gap-1.5 shadow-[2px_2px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_rgba(255,255,255,1)] hover:-translate-x-[1px] hover:-translate-y-[1px] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all duration-150"
                             >
                                 <Send className="w-3.5 h-3.5 text-sky-500" />
                                 <span className="hidden sm:inline">Telegram</span>
@@ -1678,7 +1678,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
 
                             <button
                                 onClick={() => handleShare("whatsapp")}
-                                className="h-9 border-2 border-black bg-zinc-800 hover:bg-zinc-700 text-white text-xs font-black flex items-center justify-center gap-1.5 shadow-[2px_2px_0px_rgba(0,0,0,1)] hover:-translate-x-[1px] hover:-translate-y-[1px] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all duration-150"
+                                className="h-9 border-2 border-black bg-zinc-100 hover:bg-zinc-200 text-zinc-900 dark:bg-zinc-800 dark:hover:bg-zinc-700 dark:text-white text-xs font-black flex items-center justify-center gap-1.5 shadow-[2px_2px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_rgba(255,255,255,1)] hover:-translate-x-[1px] hover:-translate-y-[1px] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all duration-150"
                             >
                                 <MessageCircle className="w-3.5 h-3.5 text-emerald-500" />
                                 <span className="hidden sm:inline">WhatsApp</span>
@@ -1686,7 +1686,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
 
                             <button
                                 onClick={() => handleShare("facebook")}
-                                className="h-9 border-2 border-black bg-zinc-800 hover:bg-zinc-700 text-white text-xs font-black flex items-center justify-center gap-1.5 shadow-[2px_2px_0px_rgba(0,0,0,1)] hover:-translate-x-[1px] hover:-translate-y-[1px] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all duration-150"
+                                className="h-9 border-2 border-black bg-zinc-100 hover:bg-zinc-200 text-zinc-900 dark:bg-zinc-800 dark:hover:bg-zinc-700 dark:text-white text-xs font-black flex items-center justify-center gap-1.5 shadow-[2px_2px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_rgba(255,255,255,1)] hover:-translate-x-[1px] hover:-translate-y-[1px] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all duration-150"
                             >
                                 <svg className="w-3.5 h-3.5 fill-current text-blue-600" viewBox="0 0 24 24">
                                     <path d="M22 12c0-5.52-4.48-10-10-10S2 6.48 2 12c0 4.84 3.44 8.87 8 9.8V15H8v-3h2V9.5C10 7.57 11.57 6 13.5 6H16v3h-2c-.55 0-1 .45-1 1v2h3v3h-3v6.95c4.56-.93 8-4.96 8-9.75z" />
@@ -2217,6 +2217,20 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                             <td className="px-4 py-4 text-center">
                                                 {getStatusBadge(row.status || "open", row.profit_loss_pct)}
                                             </td>
+
+                                            {/* Share Action */}
+                                            <td className="px-4 py-4 text-center">
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        setShareRow(row);
+                                                    }}
+                                                    className="inline-flex items-center justify-center w-8 h-8 border-2 border-black dark:border-white bg-white dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300 hover:bg-teal-400 hover:text-black dark:hover:text-black transition-all cursor-pointer shadow-[2px_2px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_rgba(255,255,255,1)] hover:-translate-x-[1px] hover:-translate-y-[1px] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none duration-150"
+                                                    title={translate("shareTrade")}
+                                                 >
+                                                     <Share2 className="w-4 h-4" />
+                                                 </button>
+                                             </td>
 
                                             {/* Sector */}
                                             <td className="hidden lg:table-cell px-6 py-4 text-xs font-black uppercase text-zinc-500">

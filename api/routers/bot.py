@@ -1777,9 +1777,10 @@ def get_recommendations(is_landing: bool = False, limit: int = 200, force_refres
         raise HTTPException(status_code=500, detail="Supabase not initialized")
         
     try:
-        # Fetch only public recommendations to serve all requests efficiently, excluding features column
+        # Fetch only public recommendations to serve all requests efficiently
+        # Include features column for fallback extraction of technical_score, fundamental_score, sentiment_score
         query = stock_ai.supabase.table("scan_results").select(
-            "id, batch_id, user_id, symbol, exchange, name, model_name, country, last_close, precision, signal, status, entry_price, target_price, stop_loss, risk_adjusted_return, is_public, created_at, updated_at, exit_price, profit_loss_pct, top_reasons, adjustments"
+            "id, batch_id, user_id, symbol, exchange, name, model_name, country, last_close, precision, signal, status, entry_price, target_price, stop_loss, risk_adjusted_return, is_public, created_at, updated_at, exit_price, profit_loss_pct, top_reasons, adjustments, features"
         )
         
         if is_landing:
