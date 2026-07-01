@@ -684,20 +684,21 @@ const formatMonth = (m: string, isAr: boolean) => {
 
 const flowM = (v: number) => (Math.abs(v) / 1_000_000).toFixed(0);
 
-const MoneyFlowTimeline = ({ data, loading, error, isAr, t }: {
+const MoneyFlowTimeline = ({ data, loading, error, isAr, t, onRefresh }: {
     data: any;
     loading: boolean;
     error: string | null;
     isAr: boolean;
     t: (k: string) => string;
+    onRefresh: () => void;
 }) => {
-    const [expandedSector, setExpandedSector] = useState<string | null>(null);
+    const [selMonth, setSelMonth] = useState<string | null>(null);
 
     if (loading) {
         return (
             <div className="flex flex-col items-center justify-center py-12 gap-3 border-2 border-dashed border-zinc-300 dark:border-zinc-800">
                 <Loader2 className="w-7 h-7 animate-spin text-[#FFDC58]" />
-                <p className="text-xs font-mono text-zinc-500">{isAr ? "جاري تحميل تايم لاين السيولة الشهري..." : "Loading monthly money-flow timeline..."}</p>
+                <p className="text-xs font-mono text-zinc-500">{isAr ? "جاري تحميل خط سير السيولة..." : "Loading liquidity timeline..."}</p>
             </div>
         );
     }
@@ -713,121 +714,191 @@ const MoneyFlowTimeline = ({ data, loading, error, isAr, t }: {
         return (
             <div className="flex flex-col items-center justify-center py-10 gap-2 border-2 border-dashed border-zinc-300 dark:border-zinc-800 text-center">
                 <AlertTriangle className="w-7 h-7 text-zinc-500" />
-                <p className="text-xs font-mono text-zinc-500">{isAr ? "لا توجد بيانات تايم لاين متاحة" : "No timeline data available"}</p>
+                <p className="text-xs font-mono text-zinc-500">{isAr ? "لا توجد بيانات متاحة" : "No timeline data available"}</p>
             </div>
         );
     }
 
     const monthly: any[] = data.monthly;
     const sectors: any[] = data.sectors ?? [];
-    const months: string[] = data.months ?? [];
     const maxFlow = Math.max(...monthly.map((m) => m.total_flow || 0), 1);
+    const activeMonth = selMonth ?? monthly[monthly.length - 1].month;
+    const activeData = monthly.find((m) => m.month === activeMonth) ?? monthly[monthly.length - 1];
+
+    // Build per-sector net for the active month (sorted)
+    const sectorNets = sectors
+        .map((sec) => {
+            const s = (sec.series ?? []).find((x: any) => x.month === activeMonth);
+            return {
+                sector: sec.sector,
+                sector_ar: sec.sector_ar,
+                total_flow: sec.total_flow,
+                flow: s?.flow ?? 0,
+                net: s?.net ?? 0,
+            };
+        })
+        .sort((a, b) => b.net - a.net);
+    const inflowSectors = sectorNets.filter((s) => s.net > 0);
+    const outflowSectors = sectorNets.filter((s) => s.net < 0).reverse();
 
     return (
-        <div className="border-2 border-black dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/40 p-4 sm:p-5 space-y-4">
-            <div className={`flex items-center gap-2 ${isAr ? "flex-row-reverse text-right" : "flex-row text-left"}`}>
-                <Activity className="w-4 h-4 text-[#FFDC58] shrink-0" />
-                <div>
-                    <h4 className="text-xs font-black text-zinc-950 dark:text-white uppercase tracking-wider">{t("market.heatmap.timeline_title")}</h4>
-                    <p className="text-[10px] font-semibold text-zinc-500">{t("market.heatmap.timeline_desc")}</p>
-                </div>
+        <div className="border-4 border-black dark:border-white bg-white dark:bg-zinc-950 shadow-[3px_3px_0px_rgba(0,0,0,1)] dark:shadow-[3px_3px_0px_rgba(255,255,255,0.15)]">
+            {/* Header */}
+            <div className={`flex items-center justify-between gap-3 px-4 py-3 bg-[#FFDC58] ${isAr ? "flex-row-reverse" : "flex-row"}`}>
+                <h4 className="text-xs font-black text-black uppercase tracking-wider flex items-center gap-2">
+                    <Activity className="w-4 h-4" />
+                    {t("market.heatmap.timeline_title")}
+                </h4>
+                <button
+                    onClick={onRefresh}
+                    disabled={loading}
+                    className={`shrink-0 inline-flex items-center gap-1 px-2 py-1 text-[9px] font-black uppercase border-2 border-black bg-black text-[#FFDC58] active:translate-x-[1px] active:translate-y-[1px] transition-all cursor-pointer ${loading ? "opacity-60 cursor-wait" : "hover:bg-zinc-800"}`}
+                >
+                    {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+                    {isAr ? "تحديث" : "Refresh"}
+                </button>
             </div>
 
-            {/* Monthly summary row — horizontal timeline */}
-            <div className={`flex gap-2 overflow-x-auto pb-2 ${isAr ? "flex-row-reverse" : "flex-row"}`}>
-                {monthly.map((m, idx) => {
-                    const pct = m.total_flow > 0 ? (m.total_flow / maxFlow) * 100 : 0;
-                    return (
-                        <div key={m.month} className="shrink-0 w-[150px] sm:w-[180px] border-2 border-black dark:border-zinc-700 bg-white dark:bg-zinc-950 p-3 flex flex-col gap-2">
-                            <span className="text-[10px] font-black font-mono uppercase text-zinc-400">{formatMonth(m.month, isAr)}</span>
-                            <div className="flex items-end gap-1">
-                                <span className="text-lg font-black font-mono leading-none text-zinc-950 dark:text-white">{flowM(m.total_flow)}</span>
-                                <span className="text-[9px] font-mono text-zinc-500 mb-0.5">M EGP</span>
+            <div className="p-4 sm:p-5 space-y-5">
+                {/* 1. Simple Bar Chart — total market liquidity per month */}
+                <div>
+                    <div className={`flex items-baseline justify-between mb-3 ${isAr ? "flex-row-reverse" : "flex-row"}`}>
+                        <span className="text-xs font-black text-zinc-950 dark:text-white uppercase tracking-wider">{t("market.heatmap.timeline_total_market")}</span>
+                        <span className="text-[10px] font-mono text-zinc-400">{monthly.length} {isAr ? "شهر" : "months"}</span>
+                    </div>
+                    <div className={`flex items-end justify-between gap-1.5 sm:gap-3 h-32 border-b-2 border-black dark:border-zinc-800 pb-1 ${isAr ? "flex-row-reverse" : "flex-row"}`}>
+                        {monthly.map((m) => {
+                            const pct = m.total_flow > 0 ? (m.total_flow / maxFlow) * 100 : 0;
+                            const isActive = m.month === activeMonth;
+                            return (
+                                <button
+                                    key={m.month}
+                                    onClick={() => setSelMonth(m.month)}
+                                    className="flex-1 h-full flex flex-col items-center justify-end gap-1.5 cursor-pointer group min-w-0"
+                                >
+                                    {/* value label */}
+                                    <span className={`text-[8px] sm:text-[9px] font-mono font-black transition-opacity ${isActive ? "text-zinc-950 dark:text-white opacity-100" : "text-zinc-400 opacity-0 group-hover:opacity-100"}`}>
+                                        {flowM(m.total_flow)}M
+                                    </span>
+                                    {/* bar */}
+                                    <div
+                                        className={`w-full rounded-t-none border-2 border-b-0 transition-all duration-200 ${isActive ? "border-black dark:border-white" : "border-black/30 dark:border-white/20 group-hover:border-black dark:group-hover:border-white"}`}
+                                        style={{
+                                            height: `${Math.max(2, pct)}%`,
+                                            backgroundColor: isActive ? "#FFDC58" : "#d4d4d8",
+                                        }}
+                                    />
+                                </button>
+                            );
+                        })}
+                    </div>
+                    {/* month labels */}
+                    <div className={`flex justify-between gap-1.5 sm:gap-3 mt-1.5 ${isAr ? "flex-row-reverse" : "flex-row"}`}>
+                        {monthly.map((m) => {
+                            const isActive = m.month === activeMonth;
+                            return (
+                                <button
+                                    key={m.month}
+                                    onClick={() => setSelMonth(m.month)}
+                                    className={`flex-1 text-center text-[8px] sm:text-[9px] font-mono font-black uppercase transition-colors cursor-pointer ${isActive ? "text-[#FFDC58]" : "text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300"}`}
+                                >
+                                    {formatMonth(m.month, isAr)}
+                                </button>
+                            );
+                        })}
+                    </div>
+                </div>
+
+                {/* 2. Money movement for selected month */}
+                <div>
+                    <p className={`text-xs font-bold text-zinc-500 mb-3 ${isAr ? "text-right" : "text-left"}`}>
+                        {t("market.heatmap.timeline_month_select")}
+                        {" — "}
+                        <span className="font-black text-zinc-950 dark:text-white">{formatMonth(activeMonth, isAr)}</span>
+                    </p>
+
+                    {inflowSectors.length === 0 && outflowSectors.length === 0 ? (
+                        <div className="flex items-center justify-center py-6 border-2 border-dashed border-zinc-200 dark:border-zinc-800">
+                            <p className="text-xs font-mono text-zinc-400">{t("market.heatmap.timeline_no_movement")}</p>
+                        </div>
+                    ) : (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            {/* Money entered */}
+                            <div className="border-2 border-emerald-600 dark:border-emerald-600 bg-emerald-50 dark:bg-emerald-950/30">
+                                <div className={`flex items-center gap-2 px-3 py-2 border-b-2 border-emerald-600 bg-emerald-600 ${isAr ? "flex-row-reverse" : "flex-row"}`}>
+                                    <ArrowUpRight className="w-4 h-4 text-white shrink-0" />
+                                    <span className="text-[10px] font-black uppercase text-white tracking-wider">{t("market.heatmap.timeline_inflow")}</span>
+                                </div>
+                                <div className="divide-y divide-emerald-200 dark:divide-emerald-900/50">
+                                    {inflowSectors.length === 0 ? (
+                                        <p className="px-3 py-4 text-[10px] font-mono text-zinc-400 text-center">{t("market.heatmap.timeline_neutral")}</p>
+                                    ) : inflowSectors.slice(0, 4).map((s) => (
+                                        <div key={s.sector} className={`flex items-center justify-between gap-2 px-3 py-2 ${isAr ? "flex-row-reverse text-right" : "flex-row text-left"}`}>
+                                            <span className="text-xs font-black text-zinc-950 dark:text-white truncate">{isAr ? s.sector_ar : s.sector}</span>
+                                            <span className="text-xs font-mono font-black text-emerald-600 dark:text-emerald-400 shrink-0">+{flowM(s.net)}M</span>
+                                        </div>
+                                    ))}
+                                </div>
                             </div>
-                            <div className="h-2 w-full bg-zinc-200 dark:bg-zinc-800">
-                                <div className="h-full bg-[#FFDC58]" style={{ width: `${pct}%` }} />
-                            </div>
-                            <div className={`flex flex-col gap-1 pt-1 border-t border-black/10 dark:border-white/10 ${isAr ? "text-right" : "text-left"}`}>
-                                {m.top_inflow_sector && (
-                                    <div className="flex items-center gap-1.5">
-                                        <span className="w-2 h-2 bg-emerald-500 inline-block shrink-0" />
-                                        <span className="text-[9px] font-bold text-emerald-600 dark:text-emerald-400 truncate">{isAr ? m.top_inflow_sector_ar : m.top_inflow_sector}</span>
-                                        <span className="text-[9px] font-mono text-emerald-500 ml-auto">+{flowM(m.top_inflow_net)}M</span>
-                                    </div>
-                                )}
-                                {m.top_outflow_sector && m.top_outflow_sector !== m.top_inflow_sector && (
-                                    <div className="flex items-center gap-1.5">
-                                        <span className="w-2 h-2 bg-rose-500 inline-block shrink-0" />
-                                        <span className="text-[9px] font-bold text-rose-600 dark:text-rose-400 truncate">{isAr ? m.top_outflow_sector_ar : m.top_outflow_sector}</span>
-                                        <span className="text-[9px] font-mono text-rose-500 ml-auto">{flowM(m.top_outflow_net)}M</span>
-                                    </div>
-                                )}
+
+                            {/* Money exited */}
+                            <div className="border-2 border-rose-600 dark:border-rose-600 bg-rose-50 dark:bg-rose-950/30">
+                                <div className={`flex items-center gap-2 px-3 py-2 border-b-2 border-rose-600 bg-rose-600 ${isAr ? "flex-row-reverse" : "flex-row"}`}>
+                                    <ArrowDownRight className="w-4 h-4 text-white shrink-0" />
+                                    <span className="text-[10px] font-black uppercase text-white tracking-wider">{t("market.heatmap.timeline_outflow")}</span>
+                                </div>
+                                <div className="divide-y divide-rose-200 dark:divide-rose-900/50">
+                                    {outflowSectors.length === 0 ? (
+                                        <p className="px-3 py-4 text-[10px] font-mono text-zinc-400 text-center">{t("market.heatmap.timeline_neutral")}</p>
+                                    ) : outflowSectors.slice(0, 4).map((s) => (
+                                        <div key={s.sector} className={`flex items-center justify-between gap-2 px-3 py-2 ${isAr ? "flex-row-reverse text-right" : "flex-row text-left"}`}>
+                                            <span className="text-xs font-black text-zinc-950 dark:text-white truncate">{isAr ? s.sector_ar : s.sector}</span>
+                                            <span className="text-xs font-mono font-black text-rose-600 dark:text-rose-400 shrink-0">{flowM(s.net)}M</span>
+                                        </div>
+                                    ))}
+                                </div>
                             </div>
                         </div>
-                    );
-                })}
-            </div>
-
-            {/* Per-sector breakdown (expandable) */}
-            <div className="border-2 border-black dark:border-zinc-800 bg-white dark:bg-zinc-950">
-                <div className={`flex items-center justify-between px-3 py-2 border-b-2 border-black dark:border-zinc-800 bg-zinc-100 dark:bg-zinc-900 ${isAr ? "flex-row-reverse" : "flex-row"}`}>
-                    <span className="text-[10px] font-black uppercase tracking-wider text-zinc-500">{isAr ? "تفصيل القطاعات" : "Sector Breakdown"}</span>
-                    <span className="text-[9px] font-mono text-zinc-400">{sectors.length} {isAr ? "قطاع" : "sectors"}</span>
+                    )}
                 </div>
-                <div className="divide-y divide-zinc-200 dark:divide-zinc-800 max-h-[260px] overflow-y-auto">
-                    {sectors.map((sec: any) => {
-                        const series: any[] = sec.series ?? [];
-                        const isOpen = expandedSector === sec.sector;
-                        const lastNet = series.length > 1 ? series[series.length - 1].net : 0;
-                        const dir = lastNet > 0 ? "in" : lastNet < 0 ? "out" : "neutral";
-                        const dirColor = dir === "in" ? "text-emerald-500" : dir === "out" ? "text-rose-500" : "text-zinc-500";
-                        const dirLabel = dir === "in" ? t("market.heatmap.timeline_in") : dir === "out" ? t("market.heatmap.timeline_out") : t("market.heatmap.timeline_neutral");
-                        const dirIcon = dir === "in" ? <ArrowUpRight className="w-3.5 h-3.5" /> : dir === "out" ? <ArrowDownRight className="w-3.5 h-3.5" /> : <Activity className="w-3.5 h-3.5" />;
-                        const secMax = Math.max(...series.map((s) => s.flow || 0), 1);
-                        return (
-                            <div key={sec.sector}>
-                                <button
-                                    onClick={() => setExpandedSector(isOpen ? null : sec.sector)}
-                                    className={`w-full flex items-center justify-between gap-2 px-3 py-2.5 hover:bg-zinc-50 dark:hover:bg-zinc-900 transition-colors cursor-pointer ${isAr ? "flex-row-reverse text-right" : "flex-row text-left"}`}
-                                >
-                                    <span className="flex items-center gap-2 min-w-0">
-                                        <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 border text-[9px] font-mono font-black uppercase ${dirColor} border-current`}>
-                                            {dirIcon}
-                                            {dirLabel}
-                                        </span>
-                                        <span className="text-xs font-black text-zinc-950 dark:text-white truncate">{isAr ? sec.sector_ar : sec.sector}</span>
-                                    </span>
-                                    <span className="flex items-center gap-2 shrink-0">
-                                        <span className="text-[10px] font-mono font-bold text-zinc-500">{flowM(sec.total_flow)}M</span>
-                                        <ChevronDown className={`w-3.5 h-3.5 text-zinc-400 transition-transform ${isOpen ? "rotate-180" : ""}`} />
-                                    </span>
-                                </button>
-                                {isOpen && (
-                                    <div className={`px-3 py-3 bg-zinc-50 dark:bg-zinc-900/50 border-t border-black/10 dark:border-white/10 ${isAr ? "flex-row-reverse" : "flex-row"} flex gap-2 overflow-x-auto`}>
-                                        {series.map((s) => {
-                                            const h = s.flow > 0 ? (s.flow / secMax) * 100 : 0;
-                                            const netDir = s.direction === "inflow" ? "in" : s.direction === "outflow" ? "out" : "neutral";
-                                            const barColor = netDir === "in" ? "bg-emerald-500" : netDir === "out" ? "bg-rose-500" : "bg-zinc-400";
-                                            return (
-                                                <div key={s.month} className={`shrink-0 w-[90px] flex flex-col items-center gap-1 ${isAr ? "text-right" : "text-left"}`}>
-                                                    <span className="text-[9px] font-mono font-bold text-zinc-400 uppercase">{formatMonth(s.month, isAr)}</span>
-                                                    <div className="w-full h-20 flex items-end border-b-2 border-black/10 dark:border-white/10">
-                                                        <div className={`w-full ${barColor}`} style={{ height: `${Math.max(3, h)}%` }} />
-                                                    </div>
-                                                    <span className="text-[9px] font-mono font-black text-zinc-700 dark:text-zinc-300">{flowM(s.flow)}M</span>
-                                                    {s.net !== 0 && (
-                                                        <span className={`text-[9px] font-mono font-bold ${netDir === "in" ? "text-emerald-500" : netDir === "out" ? "text-rose-500" : "text-zinc-500"}`}>
-                                                            {s.net > 0 ? "+" : ""}{flowM(s.net)}M
-                                                        </span>
-                                                    )}
-                                                </div>
-                                            );
-                                        })}
+
+                {/* 3. Simple sector list with trend indicators */}
+                <div>
+                    <div className={`flex items-baseline justify-between mb-2 ${isAr ? "flex-row-reverse" : "flex-row"}`}>
+                        <span className="text-xs font-black text-zinc-950 dark:text-white uppercase tracking-wider">{isAr ? "حركة القطاعات" : "Sector Movement"}</span>
+                        <span className="text-[10px] font-mono text-zinc-400">{t("market.heatmap.timeline_trend")}</span>
+                    </div>
+                    <div className="space-y-1">
+                        {sectors.slice(0, 8).map((sec) => {
+                            const series: any[] = sec.series ?? [];
+                            const lastNet = series.length > 1 ? series[series.length - 1].net : 0;
+                            const prevNet = series.length > 2 ? series[series.length - 2].net : 0;
+                            const growing = lastNet > prevNet;
+                            const declining = lastNet < prevNet;
+                            const trendIcon = growing ? <ArrowUpRight className="w-3.5 h-3.5 text-emerald-500" />
+                                : declining ? <ArrowDownRight className="w-3.5 h-3.5 text-rose-500" />
+                                : <Activity className="w-3.5 h-3.5 text-zinc-400" />;
+                            const trendLabel = growing ? t("market.heatmap.timeline_growing")
+                                : declining ? t("market.heatmap.timeline_declining")
+                                : t("market.heatmap.timeline_neutral");
+                            const trendColor = growing ? "text-emerald-500" : declining ? "text-rose-500" : "text-zinc-400";
+                            const flowPct = sec.total_flow > 0 ? (sec.total_flow / Math.max(...sectors.map((x) => x.total_flow), 1)) * 100 : 0;
+                            return (
+                                <div key={sec.sector} className={`flex items-center gap-3 px-3 py-2 border border-black/10 dark:border-white/10 ${isAr ? "flex-row-reverse text-right" : "flex-row text-left"}`}>
+                                    <span className="text-xs font-black text-zinc-950 dark:text-white truncate min-w-0 flex-1">{isAr ? sec.sector_ar : sec.sector}</span>
+                                    {/* mini flow bar */}
+                                    <div className="hidden sm:block w-20 h-2.5 bg-zinc-100 dark:bg-zinc-900 shrink-0">
+                                        <div className="h-full bg-[#FFDC58]" style={{ width: `${Math.max(3, flowPct)}%` }} />
                                     </div>
-                                )}
-                            </div>
-                        );
-                    })}
+                                    <span className="text-[10px] font-mono font-black text-zinc-700 dark:text-zinc-300 shrink-0 w-16 text-center">{flowM(sec.total_flow)}M</span>
+                                    <span className={`flex items-center gap-1 shrink-0 w-20 justify-end ${trendColor}`}>
+                                        {trendIcon}
+                                        <span className="text-[9px] font-black uppercase">{trendLabel}</span>
+                                    </span>
+                                </div>
+                            );
+                        })}
+                    </div>
                 </div>
             </div>
         </div>
@@ -921,11 +992,11 @@ export default function MarketClient() {
         }
     };
 
-    const fetchTimelineData = async () => {
+    const fetchTimelineData = async (forceRefresh = false) => {
         setTimelineLoading(true);
         setTimelineError(null);
         try {
-            const res = await fetch("/api/scan/sectors/timeline?country=Egypt&months=6");
+            const res = await fetch(`/api/scan/sectors/timeline?country=Egypt&months=6${forceRefresh ? "&force_refresh=true" : ""}`);
             if (!res.ok) {
                 throw new Error(`Failed to load timeline data (Status ${res.status})`);
             }
@@ -1471,6 +1542,7 @@ export default function MarketClient() {
                                 error={timelineError}
                                 isAr={isAr}
                                 t={t}
+                                onRefresh={() => void fetchTimelineData(true)}
                             />
                         )}
                     </div>

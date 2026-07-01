@@ -1,80 +1,102 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 
-export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
-function withTimeout(ms: number) {
-  const controller = new AbortController();
-  const id = setTimeout(() => controller.abort(), ms);
-  return { controller, id };
-}
+async function getAuthenticatedUser(supabase: ReturnType<typeof createSupabaseServerClient>) {
+  const {
+    data: { user },
+    error,
+  } = await supabase.auth.getUser();
 
-const base = process.env.PYTHON_BACKEND_URL || process.env.NEXT_PUBLIC_API_BASE_URL || (process.env.VERCEL ? "https://weeasdwee-ai-bot.hf.space" : "http://127.0.0.1:8000");
-
-export async function PATCH(req: Request, { params }: { params: { id: string } }) {
-  const alertId = params.id;
-  const targetUrl = `${base.replace(/\/$/, "")}/scan/alerts/${alertId}`;
-
-  let bodyText = "{}";
-  try {
-    const t = await req.text();
-    bodyText = t && t.trim().length ? t : "{}";
-  } catch {
-    // keep default
+  if (error || !user) {
+    return null;
   }
 
-  const { controller, id } = withTimeout(30_000);
-  try {
-    const upstream = await fetch(targetUrl, {
-      method: "PATCH",
-      headers: {
-        "Content-Type": req.headers.get("content-type") || "application/json",
-        Accept: req.headers.get("accept") || "application/json",
-      },
-      body: bodyText,
-      cache: "no-store",
-      signal: controller.signal,
-    });
+  return user;
+}
 
-    const contentType = upstream.headers.get("content-type") || "application/json";
-    const text = await upstream.text();
-    return new Response(text, {
-      status: upstream.status,
-      headers: {
-        "content-type": contentType,
-      },
-    });
+export async function PATCH(
+  req: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const alertId = params.id;
+    if (!alertId) {
+      return NextResponse.json({ error: "Missing alert ID" }, { status: 400 });
+    }
+
+    const body = await req.json();
+    const { is_active } = body;
+
+    if (is_active === undefined) {
+      return NextResponse.json({ error: "Missing is_active parameter" }, { status: 400 });
+    }
+
+    const supabase = createSupabaseServerClient();
+    const user = await getAuthenticatedUser(supabase);
+
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const { data, error } = await supabase
+      .from("technical_alerts")
+      .update({ is_active })
+      .eq("id", alertId)
+      .eq("user_id", user.id)
+      .select()
+      .maybeSingle();
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    if (!data) {
+      return NextResponse.json({ error: "Alert not found" }, { status: 404 });
+    }
+
+    return NextResponse.json(data);
   } catch (e: any) {
-    const msg = e?.name === "AbortError" ? "Upstream timeout" : "Upstream request failed";
-    return NextResponse.json({ detail: msg }, { status: 502 });
-  } finally {
-    clearTimeout(id);
+    return NextResponse.json({ error: e.message || "Failed to update alert" }, { status: 500 });
   }
 }
 
-export async function DELETE(req: Request, { params }: { params: { id: string } }) {
-  const alertId = params.id;
-  const targetUrl = `${base.replace(/\/$/, "")}/scan/alerts/${alertId}`;
-
-  const { controller, id } = withTimeout(30_000);
+export async function DELETE(
+  req: NextRequest,
+  { params }: { params: { id: string } }
+) {
   try {
-    const upstream = await fetch(targetUrl, {
-      method: "DELETE",
-      cache: "no-store",
-      signal: controller.signal,
-    });
+    const alertId = params.id;
+    if (!alertId) {
+      return NextResponse.json({ error: "Missing alert ID" }, { status: 400 });
+    }
 
-    const contentType = upstream.headers.get("content-type") || "application/json";
-    const text = await upstream.text();
-    return new Response(text, {
-      status: upstream.status,
-      headers: {
-        "content-type": contentType,
-      },
-    });
+    const supabase = createSupabaseServerClient();
+    const user = await getAuthenticatedUser(supabase);
+
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const { data, error } = await supabase
+      .from("technical_alerts")
+      .delete()
+      .eq("id", alertId)
+      .eq("user_id", user.id)
+      .select("id")
+      .maybeSingle();
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    if (!data) {
+      return NextResponse.json({ error: "Alert not found" }, { status: 404 });
+    }
+
+    return NextResponse.json({ status: "deleted" });
   } catch (e: any) {
-    const msg = e?.name === "AbortError" ? "Upstream timeout" : "Upstream request failed";
-    return NextResponse.json({ detail: msg }, { status: 502 });
-  } finally {
-    clearTimeout(id);
+    return NextResponse.json({ error: e.message || "Failed to delete alert" }, { status: 500 });
   }
 }

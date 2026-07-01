@@ -1161,18 +1161,48 @@ def get_sectors_heatmap(country: str = "Egypt"):
 
 
 @router.get("/sectors/timeline")
-def get_sectors_timeline(country: str = "Egypt", months: int = 6):
+def get_sectors_timeline(country: str = "Egypt", months: int = 6, force_refresh: bool = False):
     """
     Monthly money-flow timeline per sector over the last N months.
     For each month: total flow per sector, net change vs previous month,
     top inflow sector (money entered) and top outflow sector (money exited).
+    Results are cached in Supabase (market_cache table) with a 6h TTL.
     """
+    import datetime as _dt
+
     try:
         _init_supabase()
         if not stock_ai.supabase:
             raise HTTPException(status_code=500, detail="Supabase not initialized")
 
         months = max(1, min(int(months), 12))
+        cache_key = f"sector_timeline_{months}m"
+        CACHE_TTL_SECONDS = 6 * 3600  # 6 hours
+
+        # --- Read from Supabase cache (unless force_refresh) ---
+        if not force_refresh:
+            try:
+                cache_res = (
+                    stock_ai.supabase.table("market_cache")
+                    .select("payload, computed_at")
+                    .eq("cache_key", cache_key)
+                    .eq("country", country)
+                    .limit(1)
+                    .execute()
+                )
+                if cache_res.data:
+                    row = cache_res.data[0]
+                    computed_ts = _dt.datetime.fromisoformat(
+                        row["computed_at"].replace("Z", "+00:00")
+                    ).timestamp()
+                    age = _dt.datetime.utcnow().timestamp() - computed_ts
+                    if age < CACHE_TTL_SECONDS:
+                        payload = row["payload"]
+                        payload["cached"] = True
+                        payload["cached_at"] = row["computed_at"]
+                        return payload
+            except Exception as ce:
+                print(f"[TIMELINE] Cache read failed (will recompute): {ce}")
 
         # Load all symbols for the country
         try:
@@ -1357,11 +1387,29 @@ def get_sectors_timeline(country: str = "Egypt", months: int = 6):
                 "top_outflow_net": round(top_out[1], 0),
             })
 
-        return {
+        result = {
             "months": sorted_months,
             "monthly": monthly,
             "sectors": sector_series,
+            "cached": False,
+            "computed_at": _dt.datetime.utcnow().isoformat() + "Z",
         }
+
+        # --- Write to Supabase cache ---
+        try:
+            stock_ai.supabase.table("market_cache").upsert(
+                {
+                    "cache_key": cache_key,
+                    "country": country,
+                    "payload": result,
+                    "computed_at": _dt.datetime.utcnow().isoformat() + "Z",
+                },
+                on_conflict="cache_key,country",
+            ).execute()
+        except Exception as we:
+            print(f"[TIMELINE] Cache write failed: {we}")
+
+        return result
     except Exception as e:
         import traceback
         traceback.print_exc()

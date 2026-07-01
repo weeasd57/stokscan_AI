@@ -1,83 +1,80 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 
-export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-function withTimeout(ms: number) {
-  const controller = new AbortController();
-  const id = setTimeout(() => controller.abort(), ms);
-  return { controller, id };
+async function getAuthenticatedUser(supabase: ReturnType<typeof createSupabaseServerClient>) {
+  const {
+    data: { user },
+    error,
+  } = await supabase.auth.getUser();
+
+  if (error || !user) {
+    return null;
+  }
+
+  return user;
 }
 
-const base = process.env.PYTHON_BACKEND_URL || process.env.NEXT_PUBLIC_API_BASE_URL || (process.env.VERCEL ? "https://weeasdwee-ai-bot.hf.space" : "http://127.0.0.1:8000");
-
-export async function GET(req: Request) {
-  const incomingUrl = new URL(req.url);
-  const search = incomingUrl.searchParams.toString();
-  const targetUrl = `${base.replace(/\/$/, "")}/scan/alerts${search ? `?${search}` : ""}`;
-
-  const { controller, id } = withTimeout(30_000);
+export async function GET(req: NextRequest) {
   try {
-    const upstream = await fetch(targetUrl, {
-      method: "GET",
-      cache: "no-store",
-      signal: controller.signal,
-    });
+    const supabase = createSupabaseServerClient();
+    const user = await getAuthenticatedUser(supabase);
 
-    const contentType = upstream.headers.get("content-type") || "application/json";
-    const text = await upstream.text();
-    return new Response(text, {
-      status: upstream.status,
-      headers: {
-        "content-type": contentType,
-      },
-    });
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const { data, error } = await supabase
+      .from("technical_alerts")
+      .select("*")
+      .eq("user_id", user.id);
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    return NextResponse.json({ alerts: data || [] });
   } catch (e: any) {
-    const msg = e?.name === "AbortError" ? "Upstream timeout" : "Upstream request failed";
-    return NextResponse.json({ detail: msg }, { status: 502 });
-  } finally {
-    clearTimeout(id);
+    return NextResponse.json({ error: e.message || "Failed to load alerts" }, { status: 500 });
   }
 }
 
-export async function POST(req: Request) {
-  const incomingUrl = new URL(req.url);
-  const search = incomingUrl.searchParams.toString();
-  const targetUrl = `${base.replace(/\/$/, "")}/scan/alerts${search ? `?${search}` : ""}`;
-
-  let bodyText = "{}";
+export async function POST(req: NextRequest) {
   try {
-    const t = await req.text();
-    bodyText = t && t.trim().length ? t : "{}";
-  } catch {
-    // keep default
-  }
+    const body = await req.json();
+    const { name, filters } = body;
 
-  const { controller, id } = withTimeout(30_000);
-  try {
-    const upstream = await fetch(targetUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": req.headers.get("content-type") || "application/json",
-        Accept: req.headers.get("accept") || "application/json",
-      },
-      body: bodyText,
-      cache: "no-store",
-      signal: controller.signal,
-    });
+    if (!name || !filters) {
+      return NextResponse.json({ error: "Missing required fields (name, filters)" }, { status: 400 });
+    }
 
-    const contentType = upstream.headers.get("content-type") || "application/json";
-    const text = await upstream.text();
-    return new Response(text, {
-      status: upstream.status,
-      headers: {
-        "content-type": contentType,
-      },
-    });
+    const supabase = createSupabaseServerClient();
+    const user = await getAuthenticatedUser(supabase);
+
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const payload = {
+      user_id: user.id,
+      name,
+      filters,
+      is_active: true,
+    };
+
+    const { data, error } = await supabase
+      .from("technical_alerts")
+      .insert(payload)
+      .select()
+      .single();
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    return NextResponse.json(data);
   } catch (e: any) {
-    const msg = e?.name === "AbortError" ? "Upstream timeout" : "Upstream request failed";
-    return NextResponse.json({ detail: msg }, { status: 502 });
-  } finally {
-    clearTimeout(id);
+    return NextResponse.json({ error: e.message || "Failed to create alert" }, { status: 500 });
   }
 }

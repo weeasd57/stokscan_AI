@@ -392,6 +392,15 @@ create table if not exists public.daily_job_runs (
     created_at timestamptz not null default now()
 );
 
+-- Computed market data cache (heatmap, sector timeline, etc.)
+create table if not exists public.market_cache (
+    cache_key text not null,
+    country text not null default 'Egypt',
+    payload jsonb not null,
+    computed_at timestamptz not null default now(),
+    primary key (cache_key, country)
+);
+
 -- Triggers for updated_at
 create trigger trg_profiles_updated_at before update on public.profiles for each row execute function public.set_updated_at();
 create trigger trg_user_settings_updated_at before update on public.user_settings for each row execute function public.set_updated_at();
@@ -475,15 +484,84 @@ alter table public.similarity_reports enable row level security;
 alter table public.daily_job_runs enable row level security;
 alter table public.stock_news_sentiment enable row level security;
 
+alter table if exists public.technical_alerts enable row level security;
+alter table if exists public.backtests enable row level security;
+
 create policy "allow_all_similarity_cases" on public.similarity_cases for all using (true);
 create policy "allow_all_similarity_reports" on public.similarity_reports for all using (true);
 create policy "allow_all_daily_job_runs" on public.daily_job_runs for all using (true);
 create policy "allow_all_stock_news_sentiment" on public.stock_news_sentiment for all using (true);
 
+do $$ begin
+  if to_regclass('public.technical_alerts') is not null then
+    if not exists (
+      select 1 from pg_policies
+      where schemaname = 'public' and tablename = 'technical_alerts' and policyname = 'users_select_own_technical_alerts'
+    ) then
+      execute 'create policy "users_select_own_technical_alerts" on public.technical_alerts for select to authenticated using (auth.uid() = user_id)';
+    end if;
+
+    if not exists (
+      select 1 from pg_policies
+      where schemaname = 'public' and tablename = 'technical_alerts' and policyname = 'users_insert_own_technical_alerts'
+    ) then
+      execute 'create policy "users_insert_own_technical_alerts" on public.technical_alerts for insert to authenticated with check (auth.uid() = user_id)';
+    end if;
+
+    if not exists (
+      select 1 from pg_policies
+      where schemaname = 'public' and tablename = 'technical_alerts' and policyname = 'users_update_own_technical_alerts'
+    ) then
+      execute 'create policy "users_update_own_technical_alerts" on public.technical_alerts for update to authenticated using (auth.uid() = user_id) with check (auth.uid() = user_id)';
+    end if;
+
+    if not exists (
+      select 1 from pg_policies
+      where schemaname = 'public' and tablename = 'technical_alerts' and policyname = 'users_delete_own_technical_alerts'
+    ) then
+      execute 'create policy "users_delete_own_technical_alerts" on public.technical_alerts for delete to authenticated using (auth.uid() = user_id)';
+    end if;
+  end if;
+end $$;
+
+do $$ begin
+  if to_regclass('public.backtests') is not null then
+    if not exists (
+      select 1 from pg_policies
+      where schemaname = 'public' and tablename = 'backtests' and policyname = 'authenticated_select_public_backtests'
+    ) then
+      execute 'create policy "authenticated_select_public_backtests" on public.backtests for select to authenticated using (is_public = true)';
+    end if;
+
+    if not exists (
+      select 1 from pg_policies
+      where schemaname = 'public' and tablename = 'backtests' and policyname = 'admins_select_all_backtests'
+    ) then
+      execute 'create policy "admins_select_all_backtests" on public.backtests for select to authenticated using ((auth.jwt() ->> ''email'') in (''weeeessd57@gmail.com'', ''weeasd57@gmail.com''))';
+    end if;
+  end if;
+end $$;
+
 grant all on public.similarity_cases to anon, authenticated, service_role;
 grant all on public.similarity_reports to anon, authenticated, service_role;
 grant all on public.daily_job_runs to anon, authenticated, service_role;
 grant all on public.stock_news_sentiment to anon, authenticated, service_role;
+
+do $$ begin
+  if to_regclass('public.technical_alerts') is not null then
+    execute 'grant select, insert, update, delete on public.technical_alerts to authenticated';
+  end if;
+
+  if to_regclass('public.backtests') is not null then
+    execute 'grant select on public.backtests to authenticated';
+  end if;
+end $$;
+
+-- Market cache table
+alter table public.market_cache enable row level security;
+create policy "allow_all_market_cache" on public.market_cache for all using (true);
+grant all on public.market_cache to anon, authenticated, service_role;
+create index if not exists idx_market_cache_key_country on public.market_cache(cache_key, country);
 
 create index if not exists idx_daily_job_runs_started on public.daily_job_runs(started_at desc);
 

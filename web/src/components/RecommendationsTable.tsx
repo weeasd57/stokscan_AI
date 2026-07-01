@@ -14,9 +14,12 @@ import {
     Search, Filter, AlertTriangle, RefreshCw, ChevronLeft, ChevronRight,
     TrendingUp, TrendingDown, Layers, Info, CheckCircle2, X, BarChart2,
     Target, ShieldAlert, Cpu, BookOpen, TrendingUp as Bullish, Calendar,
-    Award, ArrowUpRight, ArrowDownRight, Minus, ExternalLink, ShieldCheck
+    Award, ArrowUpRight, ArrowDownRight, Minus, ExternalLink, ShieldCheck,
+    Share2, Loader2, Download, Check, Copy, Send, MessageCircle
 } from "lucide-react";
 import { isShariaCompliant } from "@/lib/shariaStocks";
+import { toPng } from "html-to-image";
+import { predictStock } from "@/lib/api";
 
 function translateRationaleText(text: string, type: "brief" | "tech" | "fund", symbol: string = ""): string {
     if (!text) return "";
@@ -223,6 +226,14 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
     const [currentPage, setCurrentPage] = useState(1);
     const itemsPerPage = 20;
 
+    // Share card state
+    const [shareRow, setShareRow] = useState<any>(null);
+    const shareCardRef = useRef<HTMLDivElement>(null);
+    const [isDownloading, setIsDownloading] = useState(false);
+    const [isCopied, setIsCopied] = useState(false);
+    const [shareCandles, setShareCandles] = useState<any[]>([]);
+    const [loadingCandles, setLoadingCandles] = useState(false);
+
     // Translations
     const tDict = {
         title: { en: "Top Stocks Ranked by ML AI", ar: "أفضل الأسهم مرتبة بالذكاء الاصطناعي" },
@@ -256,6 +267,25 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
         shariaOnly: { en: "Sharia-Compliant Only", ar: "المتوافقة شرعياً فقط" },
         shariaHint: { en: "Show only EGX stocks screened for Sharia compliance (excludes banks, insurance, alcohol, tobacco & pork).", ar: "عرض أسهم البورصة المصرية المتوافقة شرعياً فقط (يستثني البنوك والتأمين والكحول والتبغ ولحم الخنزير)." },
         halal: { en: "Halal", ar: "حلال" },
+        shareTrade: { en: "Share Trade", ar: "مشاركة الصفقة" },
+        shareCardTitle: { en: "Trade Signal Card", ar: "كارت توصية الصفقة" },
+        shareDownload: { en: "Download Image", ar: "تحميل الصورة" },
+        shareX: { en: "Share on X", ar: "شارك على X" },
+        shareTelegram: { en: "Share on Telegram", ar: "شارك على تيليجرام" },
+        shareWhatsapp: { en: "Share on WhatsApp", ar: "شارك على واتساب" },
+        shareFacebook: { en: "Share on Facebook", ar: "شارك على فيسبوك" },
+        shareCopy: { en: "Copy", ar: "نسخ" },
+        shareCopied: { en: "Copied!", ar: "تم النسخ!" },
+        shareDownloading: { en: "Generating image...", ar: "جاري إنشاء الصورة..." },
+        shareEntry: { en: "Entry", ar: "سعر الدخول" },
+        shareTarget: { en: "Target", ar: "الهدف" },
+        shareStop: { en: "Stop Loss", ar: "وقف الخسارة" },
+        shareWinRate: { en: "Win Rate", ar: "نسبة النجاح" },
+        shareScanDate: { en: "Scan Date", ar: "تاريخ التوصية" },
+        shareDisclaimer: { en: "Not financial advice. Do your own research.", ar: "هذه ليست نصيحة مالية. ادرس بنفسك." },
+        shareScore: { en: "AI Score", ar: "تقييم الذكاء" },
+        shareSector: { en: "Sector", ar: "القطاع" },
+        shareCurrent: { en: "Current", ar: "الحالي" },
     };
 
     const translate = (key: keyof typeof tDict) => {
@@ -287,6 +317,43 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
         window.addEventListener("keydown", handleEsc);
         return () => window.removeEventListener("keydown", handleEsc);
     }, []);
+
+    // Fetch candles for sharing
+    useEffect(() => {
+        if (!shareRow) {
+            setShareCandles([]);
+            return;
+        }
+        const fetchShareCandles = async () => {
+            setLoadingCandles(true);
+            try {
+                const d = new Date();
+                d.setDate(d.getDate() - 90);
+                const fromDate = d.toISOString().split('T')[0];
+                const res = await predictStock({
+                    ticker: shareRow.symbol,
+                    fromDate,
+                    rfPreset: "default"
+                });
+                if (res && res.testPredictions) {
+                    const sorted = [...res.testPredictions].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+                    const signalDateStr = new Date(shareRow.created_at || shareRow.updated_at).toISOString().split('T')[0];
+                    let signalIndex = sorted.findIndex(c => c.date >= signalDateStr);
+                    if (signalIndex === -1) {
+                        signalIndex = sorted.length - 1;
+                    }
+                    const startIndex = Math.max(0, signalIndex - 2);
+                    const sliced = sorted.slice(startIndex);
+                    setShareCandles(sliced);
+                }
+            } catch (err) {
+                console.error("Error loading share candles", err);
+            } finally {
+                setLoadingCandles(false);
+            }
+        };
+        fetchShareCandles();
+    }, [shareRow]);
 
     // Handle Landing Page Clicks Redirection for unauthenticated users
     const handleLandingClick = (e: React.MouseEvent) => {
@@ -774,6 +841,14 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                     </div>
                     <div className="flex items-center gap-2 flex-shrink-0">
                         <button
+                            onClick={() => setShareRow(row)}
+                            className="h-9 px-2 sm:px-3 bg-indigo-600 text-white hover:bg-indigo-500 dark:bg-indigo-500 dark:hover:bg-indigo-400 text-xs font-black flex items-center gap-1.5 transition-colors active:scale-95 border-2 border-black"
+                            title={translate("shareTrade")}
+                        >
+                            <Share2 className="w-3.5 h-3.5" />
+                            <span className="hidden sm:inline">{translate("shareTrade")}</span>
+                        </button>
+                        <button
                             onClick={() => {
                                 const baseSym = row.symbol.split('.')[0].toLowerCase();
                                 router.push(`/stocks/${baseSym}`);
@@ -1185,6 +1260,447 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
         );
     };
 
+    const renderShareDialog = () => {
+        if (!shareRow) return null;
+        const row = shareRow;
+        const aiScoreNum = Math.round((row.precision || 0) * 10);
+        const plPct = row.profit_loss_pct ?? null;
+        const currentPrice = row.last_close || 0;
+        const entryPrice = row.entry_price || (plPct && plPct !== -100 ? (currentPrice / (1 + plPct / 100)) : currentPrice) || 0;
+        const adjustments: any[] = row.adjustments || [];
+        const lastAdj = adjustments.length > 0 ? adjustments[adjustments.length - 1] : null;
+        const targetPrice = lastAdj?.new_target ? Number(lastAdj.new_target) : (row.target_price || 0);
+        const stopLoss = lastAdj?.new_stop ? Number(lastAdj.new_stop) : (row.stop_loss || 0);
+        const isBuy = (row.signal || "").toUpperCase() === "BUY";
+        
+        const formatDateLocal = (ts: string) => new Date(ts).toLocaleDateString(isAr ? "ar-EG" : "en-US", { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+        const scanDate = formatDateLocal(row.updated_at || row.created_at || new Date().toISOString());
+
+        const scoreBgColor = (v: number) => {
+            return v >= 7 ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30" : v >= 5 ? "bg-amber-500/10 text-amber-400 border-amber-500/30" : "bg-rose-500/10 text-rose-400 border-rose-500/30";
+        };
+
+        const signalUpper = (row.signal || "").toUpperCase();
+        const signalEmoji = signalUpper === "BUY" ? "🟢" : signalUpper === "SELL" ? "🔴" : "exit";
+        const baseSym = row.symbol.split('.')[0].toLowerCase();
+        
+        const isClosed = row.status?.toLowerCase() === "win" || row.status?.toLowerCase() === "loss";
+        const pctChangeSinceRec = isClosed
+            ? (row.exit_price && entryPrice > 0 ? ((row.exit_price - entryPrice) / entryPrice) * 100 : (plPct ?? 0))
+            : (entryPrice > 0 ? ((currentPrice - entryPrice) / entryPrice) * 100 : 0);
+
+        const shareText = isAr 
+            ? `🚨 توصية صفقة بالذكاء الاصطناعي - STOKSCAN AI 🚨\n\n` +
+              `السهم: ${row.symbol} (${row.exchange})\n` +
+              `الإشارة: ${signalUpper === "BUY" ? "شراء" : signalUpper === "SELL" ? "بيع" : "خروج"} ${signalEmoji}\n` +
+              `سعر الدخول المقترح: ${entryPrice.toFixed(2)} ج.م\n` +
+              `الهدف: ${targetPrice.toFixed(2)} ج.م\n` +
+              `وقف الخسارة: ${stopLoss.toFixed(2)} ج.م\n` +
+              `تقييم الذكاء الاصطناعي: ${aiScoreNum}/10\n` +
+              `القطاع: ${row.sector || "N/A"}\n` +
+              `أداء الصفقة: ${pctChangeSinceRec >= 0 ? "+" : ""}${pctChangeSinceRec.toFixed(2)}%\n` +
+              `التاريخ: ${scanDate}\n\n` +
+              `👉 التفاصيل والتحليل: https://stokscan.com/stocks/${baseSym}`
+            : `🚨 STOKSCAN AI Trade Signal 🚨\n\n` +
+              `Stock: ${row.symbol} (${row.exchange})\n` +
+              `Signal: ${signalUpper} ${signalEmoji}\n` +
+              `Entry Price: ${entryPrice.toFixed(2)} EGP\n` +
+              `Target Price: ${targetPrice.toFixed(2)} EGP\n` +
+              `Stop Loss: ${stopLoss.toFixed(2)} EGP\n` +
+              `AI Score: ${aiScoreNum}/10\n` +
+              `Sector: ${row.sector || "N/A"}\n` +
+              `Trade Return: ${pctChangeSinceRec >= 0 ? "+" : ""}${pctChangeSinceRec.toFixed(2)}%\n` +
+              `Date: ${scanDate}\n\n` +
+              `👉 Analyze here: https://stokscan.com/stocks/${baseSym}`;
+
+        const handleShare = (platform: "x" | "telegram" | "whatsapp" | "facebook") => {
+            let url = "";
+            const pageUrl = `https://stokscan.com/stocks/${baseSym}`;
+            switch (platform) {
+                case "x":
+                    url = `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}`;
+                    break;
+                case "telegram":
+                    url = `https://t.me/share/url?url=${encodeURIComponent(pageUrl)}&text=${encodeURIComponent(shareText)}`;
+                    break;
+                case "whatsapp":
+                    url = `https://api.whatsapp.com/send?text=${encodeURIComponent(shareText)}`;
+                    break;
+                case "facebook":
+                    url = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(pageUrl)}`;
+                    break;
+            }
+            window.open(url, "_blank", "width=600,height=400");
+        };
+
+        const handleDownloadImage = async () => {
+            if (!shareCardRef.current || isDownloading) return;
+            setIsDownloading(true);
+            try {
+                const dataUrl = await toPng(shareCardRef.current, {
+                    cacheBust: true,
+                    backgroundColor: "#09090b",
+                    style: {
+                        transform: "scale(1)",
+                    },
+                });
+                const link = document.createElement("a");
+                link.download = `${shareRow.symbol}_stokscan_signal.png`;
+                link.href = dataUrl;
+                link.click();
+            } catch (err) {
+                console.error("Error generating image:", err);
+            } finally {
+                setIsDownloading(false);
+            }
+        };
+
+        const handleCopyText = () => {
+            navigator.clipboard.writeText(shareText);
+            setIsCopied(true);
+            setTimeout(() => setIsCopied(false), 2000);
+        };
+
+        return createPortal(
+            <div 
+                className="fixed inset-0 z-[2147483647] flex items-center justify-center p-4 bg-zinc-950/90 backdrop-blur-md overflow-y-auto text-white"
+                onClick={() => setShareRow(null)}
+                dir={isAr ? "rtl" : "ltr"}
+            >
+                <div 
+                    className="relative w-full max-w-md bg-zinc-900 border-4 border-black dark:border-white p-6 shadow-[8px_8px_0px_rgba(0,0,0,1)] dark:shadow-[8px_8px_0px_rgba(255,255,255,1)] flex flex-col gap-6 animate-in zoom-in-95 duration-150 text-white"
+                    onClick={(e) => e.stopPropagation()}
+                >
+                    {/* Header */}
+                    <div className="flex items-center justify-between border-b-2 border-black dark:border-zinc-800 pb-4">
+                        <h3 className="text-lg font-black uppercase text-white">
+                            {translate("shareTrade")}
+                        </h3>
+                        <button
+                            onClick={() => setShareRow(null)}
+                            className="w-8 h-8 flex items-center justify-center border-2 border-black bg-rose-600 hover:bg-rose-500 text-white font-black transition-colors"
+                            aria-label="Close"
+                        >
+                            <X className="w-4 h-4" />
+                        </button>
+                    </div>
+
+                    {/* Captured Card Wrapper */}
+                    <div className="overflow-hidden border-2 border-black dark:border-zinc-800 bg-zinc-950 p-1 flex justify-center">
+                        <div 
+                            ref={shareCardRef}
+                            className="w-[380px] bg-zinc-950 p-6 flex flex-col gap-5 border border-zinc-800 relative select-none"
+                        >
+                            {/* Card Background Branding/Watermark */}
+                            <div className="absolute top-2 right-4 flex items-center gap-1.5">
+                                <img src="/favicon_io/apple-touch-icon.png" alt="Stokscan Logo" className="w-4 h-4 object-contain" />
+                                <span className="text-[9px] font-bold tracking-widest text-zinc-500 uppercase">
+                                    STOKSCAN AI
+                                </span>
+                            </div>
+
+                            {/* Header Stock Info */}
+                            <div className="flex items-center gap-3 border-b border-zinc-800/80 pb-4">
+                                <StockLogo symbol={row.symbol} logoUrl={row.logo_url} size="lg" className="rounded-sm" />
+                                <div className="min-w-0 flex-1 text-left">
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-xl font-black uppercase text-white tracking-wide truncate">
+                                            {row.symbol}
+                                        </span>
+                                        <span className="text-[9px] font-bold text-zinc-400 bg-zinc-900 border border-zinc-800 px-1.5 py-0.5 uppercase">
+                                            {row.exchange}
+                                        </span>
+                                    </div>
+                                    <p className="text-[10px] text-zinc-400 font-medium truncate mt-0.5">
+                                        {row.name}
+                                    </p>
+                                </div>
+                                <div className="shrink-0 flex flex-col items-end gap-1">
+                                    {isBuy ? (
+                                        <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-500 text-zinc-950 font-black text-xs rounded-sm">
+                                            <TrendingUp className="w-3.5 h-3.5" /> {translate("buy")}
+                                        </span>
+                                    ) : (
+                                        <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-rose-500 text-zinc-950 font-black text-xs rounded-sm">
+                                            <TrendingDown className="w-3.5 h-3.5" /> {translate("sell")}
+                                        </span>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* Main Details Grid */}
+                            <div className="grid grid-cols-2 gap-4 text-left">
+                                {/* Left stats list */}
+                                <div className="space-y-3">
+                                    <div>
+                                        <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider block">
+                                            {translate("shareEntry")}
+                                        </span>
+                                        <span className="text-base font-black text-white">
+                                            {entryPrice.toFixed(2)} <span className="text-[10px] font-bold text-zinc-400">EGP</span>
+                                        </span>
+                                    </div>
+                                    <div>
+                                        <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider block">
+                                            {translate("shareTarget")}
+                                        </span>
+                                        <span className="text-base font-black text-emerald-400">
+                                            {targetPrice.toFixed(2)} <span className="text-[10px] font-bold text-zinc-400">EGP</span>
+                                        </span>
+                                    </div>
+                                    <div>
+                                        <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider block">
+                                            {translate("shareStop")}
+                                        </span>
+                                        <span className="text-base font-black text-rose-400">
+                                            {stopLoss.toFixed(2)} <span className="text-[10px] font-bold text-zinc-400">EGP</span>
+                                        </span>
+                                    </div>
+                                </div>
+
+                                {/* Right stats list & AI Score */}
+                                <div className="space-y-3 flex flex-col justify-between items-end text-right">
+                                    <div className="w-full flex flex-col items-end">
+                                        <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider block">
+                                            {translate("shareScore")}
+                                        </span>
+                                        <div className={`mt-1 px-3 py-1 border text-xs font-black rounded-sm inline-flex items-center gap-1.5 ${scoreBgColor(aiScoreNum)}`}>
+                                            <Cpu className="w-3.5 h-3.5" />
+                                            <span>{aiScoreNum}/10</span>
+                                        </div>
+                                    </div>
+
+                                    <div className="w-full flex flex-col items-end">
+                                        <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider block">
+                                            {isAr ? "أداء الصفقة" : "Trade Return"}
+                                        </span>
+                                        <span className={`text-base font-black ${pctChangeSinceRec >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+                                            {pctChangeSinceRec >= 0 ? "+" : ""}{pctChangeSinceRec.toFixed(2)}%
+                                        </span>
+                                    </div>
+
+                                    <div className="w-full flex flex-col items-end">
+                                        <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider block">
+                                            {translate("shareScanDate")}
+                                        </span>
+                                        <span className="text-[10px] font-medium text-zinc-400 mt-0.5">
+                                            {scanDate}
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Mini Candlestick SVG Chart */}
+                            {loadingCandles ? (
+                                <div className="h-[120px] w-full bg-zinc-900/50 border border-zinc-800 flex items-center justify-center text-zinc-500 text-xs font-bold gap-2 mt-2">
+                                    <Loader2 className="w-4 h-4 animate-spin text-teal-400" />
+                                    <span>{isAr ? "جاري تحميل الشارت..." : "Loading chart..."}</span>
+                                </div>
+                            ) : shareCandles.length > 0 ? (() => {
+                                const chartWidth = 332;
+                                const chartHeight = 120;
+                                const ohlcList = shareCandles.map(c => ({
+                                    open: c.open ?? c.close,
+                                    high: c.high ?? c.close,
+                                    low: c.low ?? c.close,
+                                    close: c.close
+                                }));
+                                
+                                const highs = ohlcList.map(c => c.high);
+                                const lows = ohlcList.map(c => c.low);
+                                
+                                let minPrice = Math.min(...lows, stopLoss, entryPrice) * 0.98;
+                                let maxPrice = Math.max(...highs, targetPrice, entryPrice) * 1.02;
+                                if (minPrice === maxPrice) {
+                                    minPrice -= 1;
+                                    maxPrice += 1;
+                                }
+                                
+                                const N = shareCandles.length;
+                                const candleWidth = (chartWidth / N) * 0.65;
+                                const candleSpacing = (chartWidth / N) * 0.35;
+                                
+                                const getX = (i: number) => i * (chartWidth / N) + candleSpacing / 2;
+                                const getY = (price: number) => chartHeight - ((price - minPrice) / (maxPrice - minPrice)) * chartHeight;
+                                
+                                return (
+                                    <div className="flex flex-col gap-1.5 mt-2">
+                                        <span className="text-[9px] text-zinc-500 font-bold uppercase tracking-wider block text-left">
+                                            {isAr ? "أداء السعر (الشموع اليابانية)" : "Price Action (Candlesticks)"}
+                                        </span>
+                                        <div className="relative h-[120px] w-full bg-zinc-950 border border-zinc-800/80 rounded-sm overflow-hidden p-1">
+                                            <svg width={chartWidth} height={chartHeight} className="overflow-visible">
+                                                {/* Grid Lines */}
+                                                <line x1={0} y1={chartHeight * 0.25} x2={chartWidth} y2={chartHeight * 0.25} stroke="#18181b" strokeWidth={0.5} strokeDasharray="2 2" opacity={0.3} />
+                                                <line x1={0} y1={chartHeight * 0.5} x2={chartWidth} y2={chartHeight * 0.5} stroke="#18181b" strokeWidth={0.5} strokeDasharray="2 2" opacity={0.3} />
+                                                <line x1={0} y1={chartHeight * 0.75} x2={chartWidth} y2={chartHeight * 0.75} stroke="#18181b" strokeWidth={0.5} strokeDasharray="2 2" opacity={0.3} />
+                                                
+                                                {/* Price Lines */}
+                                                {entryPrice > 0 && (() => {
+                                                    const y = getY(entryPrice);
+                                                    return (
+                                                        <>
+                                                            <line x1={0} y1={y} x2={chartWidth} y2={y} stroke="#2dd4bf" strokeWidth={1} strokeDasharray="3 3" opacity={0.6} />
+                                                            <text x={5} y={y - 3} fill="#2dd4bf" fontSize="7" fontWeight="bold">
+                                                                {isAr ? `دخول: ${entryPrice.toFixed(2)}` : `Entry: ${entryPrice.toFixed(2)}`}
+                                                            </text>
+                                                        </>
+                                                    );
+                                                })()}
+                                                
+                                                {targetPrice > 0 && (() => {
+                                                    const y = getY(targetPrice);
+                                                    return (
+                                                        <>
+                                                            <line x1={0} y1={y} x2={chartWidth} y2={y} stroke="#34d399" strokeWidth={1} strokeDasharray="3 3" opacity={0.6} />
+                                                            <text x={chartWidth - 5} y={y - 3} fill="#34d399" fontSize="7" fontWeight="bold" textAnchor="end">
+                                                                {isAr ? `هدف: ${targetPrice.toFixed(2)}` : `Target: ${targetPrice.toFixed(2)}`}
+                                                            </text>
+                                                        </>
+                                                    );
+                                                })()}
+                                                
+                                                {stopLoss > 0 && (() => {
+                                                    const y = getY(stopLoss);
+                                                    return (
+                                                        <>
+                                                            <line x1={0} y1={y} x2={chartWidth} y2={y} stroke="#fb7185" strokeWidth={1} strokeDasharray="3 3" opacity={0.6} />
+                                                            <text x={5} y={y - 3} fill="#fb7185" fontSize="7" fontWeight="bold">
+                                                                {isAr ? `وقف: ${stopLoss.toFixed(2)}` : `Stop: ${stopLoss.toFixed(2)}`}
+                                                            </text>
+                                                        </>
+                                                    );
+                                                })()}
+                                                
+                                                {/* Candles */}
+                                                {ohlcList.map((c, i) => {
+                                                    const x = getX(i);
+                                                    const yOpen = getY(c.open);
+                                                    const yClose = getY(c.close);
+                                                    const yHigh = getY(c.high);
+                                                    const yLow = getY(c.low);
+                                                    const isBullish = c.close >= c.open;
+                                                    const color = isBullish ? "#10b981" : "#f43f5e";
+                                                    
+                                                    return (
+                                                        <g key={i}>
+                                                            <line x1={x + candleWidth / 2} y1={yHigh} x2={x + candleWidth / 2} y2={yLow} stroke={color} strokeWidth={1.2} />
+                                                            <rect
+                                                                x={x}
+                                                                y={Math.min(yOpen, yClose)}
+                                                                width={candleWidth}
+                                                                height={Math.max(1.5, Math.abs(yOpen - yClose))}
+                                                                fill={color}
+                                                                stroke={color}
+                                                                strokeWidth={0.5}
+                                                                rx={0.5}
+                                                            />
+                                                        </g>
+                                                    );
+                                                })}
+                                            </svg>
+                                        </div>
+                                    </div>
+                                );
+                            })() : null}
+
+                            {/* Bottom Disclaimer and Website Link */}
+                            <div className="mt-2 pt-3 border-t border-zinc-800/80 flex items-center justify-between gap-4">
+                                <p className="text-[8px] text-zinc-500 font-bold leading-normal max-w-[200px] text-left">
+                                    {translate("shareDisclaimer")}
+                                </p>
+                                <span className="text-[10px] font-black text-teal-400 tracking-wider">
+                                    stokscan.com
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Sharing / Actions Bar */}
+                    <div className="flex flex-col gap-4">
+                        {/* Primary Image & Copy Buttons */}
+                        <div className="grid grid-cols-2 gap-3">
+                            <button
+                                onClick={handleDownloadImage}
+                                disabled={isDownloading}
+                                className="h-10 px-4 border-2 border-black bg-teal-400 hover:bg-teal-300 text-zinc-950 text-xs font-black flex items-center justify-center gap-2 shadow-[2px_2px_0px_rgba(0,0,0,1)] hover:-translate-x-[1px] hover:-translate-y-[1px] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all disabled:opacity-50"
+                            >
+                                {isDownloading ? (
+                                    <>
+                                        <Loader2 className="w-4 h-4 animate-spin" />
+                                        <span>{translate("shareDownloading")}</span>
+                                    </>
+                                ) : (
+                                    <>
+                                        <Download className="w-4 h-4" />
+                                        <span>{translate("shareDownload")}</span>
+                                    </>
+                                )}
+                            </button>
+
+                            <button
+                                onClick={handleCopyText}
+                                className="h-10 px-4 border-2 border-black bg-zinc-800 hover:bg-zinc-700 text-white text-xs font-black flex items-center justify-center gap-2 shadow-[2px_2px_0px_rgba(0,0,0,1)] hover:-translate-x-[1px] hover:-translate-y-[1px] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all"
+                            >
+                                {isCopied ? (
+                                    <>
+                                        <Check className="w-4 h-4 text-emerald-500" />
+                                        <span>{translate("shareCopied")}</span>
+                                    </>
+                                ) : (
+                                    <>
+                                        <Copy className="w-4 h-4" />
+                                        <span>{translate("shareCopy")}</span>
+                                    </>
+                                )}
+                            </button>
+                        </div>
+
+                        {/* Social Media Share Buttons */}
+                        <div className="grid grid-cols-4 gap-2">
+                            <button
+                                onClick={() => handleShare("x")}
+                                className="h-9 border-2 border-black bg-zinc-800 hover:bg-zinc-700 text-white text-xs font-black flex items-center justify-center gap-1.5 shadow-[2px_2px_0px_rgba(0,0,0,1)] hover:-translate-x-[1px] hover:-translate-y-[1px] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all duration-150"
+                            >
+                                <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24">
+                                    <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
+                                </svg>
+                                <span className="hidden sm:inline">X</span>
+                            </button>
+
+                            <button
+                                onClick={() => handleShare("telegram")}
+                                className="h-9 border-2 border-black bg-zinc-800 hover:bg-zinc-700 text-white text-xs font-black flex items-center justify-center gap-1.5 shadow-[2px_2px_0px_rgba(0,0,0,1)] hover:-translate-x-[1px] hover:-translate-y-[1px] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all duration-150"
+                            >
+                                <Send className="w-3.5 h-3.5 text-sky-500" />
+                                <span className="hidden sm:inline">Telegram</span>
+                            </button>
+
+                            <button
+                                onClick={() => handleShare("whatsapp")}
+                                className="h-9 border-2 border-black bg-zinc-800 hover:bg-zinc-700 text-white text-xs font-black flex items-center justify-center gap-1.5 shadow-[2px_2px_0px_rgba(0,0,0,1)] hover:-translate-x-[1px] hover:-translate-y-[1px] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all duration-150"
+                            >
+                                <MessageCircle className="w-3.5 h-3.5 text-emerald-500" />
+                                <span className="hidden sm:inline">WhatsApp</span>
+                            </button>
+
+                            <button
+                                onClick={() => handleShare("facebook")}
+                                className="h-9 border-2 border-black bg-zinc-800 hover:bg-zinc-700 text-white text-xs font-black flex items-center justify-center gap-1.5 shadow-[2px_2px_0px_rgba(0,0,0,1)] hover:-translate-x-[1px] hover:-translate-y-[1px] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all duration-150"
+                            >
+                                <svg className="w-3.5 h-3.5 fill-current text-blue-600" viewBox="0 0 24 24">
+                                    <path d="M22 12c0-5.52-4.48-10-10-10S2 6.48 2 12c0 4.84 3.44 8.87 8 9.8V15H8v-3h2V9.5C10 7.57 11.57 6 13.5 6H16v3h-2c-.55 0-1 .45-1 1v2h3v3h-3v6.95c4.56-.93 8-4.96 8-9.75z" />
+                                </svg>
+                                <span className="hidden sm:inline">Facebook</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>,
+            document.body
+        );
+    };
+
     // ─── Main Table ────────────────────────────────────────────────────────────
     return (
         <div
@@ -1193,6 +1709,9 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
         >
             {/* Dialog */}
             {renderDialog()}
+
+            {/* Share Dialog */}
+            {renderShareDialog()}
 
             {/* Header Content Info Box */}
             <SpotlightCard 
@@ -1576,6 +2095,9 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                             {isAr ? "الحالة" : "Status"}
                                             {renderSortIcon("profit_loss_pct")}
                                         </div>
+                                    </th>
+                                    <th className="bg-zinc-100 dark:bg-zinc-900 border-b-4 border-black dark:border-white px-4 py-4 w-20 text-center select-none">
+                                        {isAr ? "مشاركة" : "Share"}
                                     </th>
                                     <th className="hidden lg:table-cell bg-zinc-100 dark:bg-zinc-900 border-b-4 border-black dark:border-white px-6 py-4 text-left">
                                         {translate("sector")}

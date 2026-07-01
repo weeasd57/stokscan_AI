@@ -378,7 +378,7 @@ export const AIScannerProvider = ({ children }: { children: ReactNode }) => {
         if (!supabase) return [];
         const { data, error } = await supabase
             .from("scan_results")
-            .select("*")
+            .select("id, batch_id, user_id, symbol, exchange, name, model_name, country, last_close, precision, signal, status, entry_price, target_price, stop_loss, risk_adjusted_return, is_public, created_at, updated_at, exit_price, profit_loss_pct, top_reasons, adjustments")
             .eq("batch_id", batchId)
             .order("precision", { ascending: false });
         if (error) {
@@ -423,7 +423,7 @@ export const AIScannerProvider = ({ children }: { children: ReactNode }) => {
         // 2. Fetch results for that specific date (or batch if preferred, but user wants date pagination)
         const { data: results, error: resultsErr } = await supabase
             .from("scan_results")
-            .select("*")
+            .select("id, batch_id, user_id, symbol, exchange, name, model_name, country, last_close, precision, signal, status, entry_price, target_price, stop_loss, risk_adjusted_return, is_public, created_at, updated_at, exit_price, profit_loss_pct, top_reasons, adjustments")
             .eq("model_name", modelName)
             .gte("created_at", `${dateStr}T00:00:00`)
             .lte("created_at", `${dateStr}T23:59:59`)
@@ -497,7 +497,7 @@ export const AIScannerProvider = ({ children }: { children: ReactNode }) => {
         if (!supabase) return [];
         const { data, error } = await supabase
             .from("scan_results")
-            .select("*")
+            .select("id, batch_id, user_id, symbol, exchange, name, model_name, country, last_close, precision, signal, status, entry_price, target_price, stop_loss, risk_adjusted_return, is_public, created_at, updated_at, exit_price, profit_loss_pct, top_reasons, adjustments")
             .eq("model_name", modelName)
             .eq("is_public", true)
             .gte("created_at", `${date}T00:00:00`)
@@ -544,10 +544,31 @@ export const AIScannerProvider = ({ children }: { children: ReactNode }) => {
     }, [supabase]);
 
     const fetchPublishedResults = useCallback(async (filters?: { country?: string; model?: string; startDate?: string; endDate?: string }) => {
+        // If no filters are applied, use the cached API endpoint to save database egress
+        if (!filters || (!filters.country && !filters.model && !filters.startDate && !filters.endDate)) {
+            try {
+                const apiRes = await fetch("/api/ai_bot/recommendations?is_landing=true");
+                if (apiRes.ok) {
+                    const scanData = await apiRes.json();
+                    return (scanData || []).map((row: any) => {
+                        return {
+                            ...row,
+                            technical_score: row.technical_score || 0,
+                            fundamental_score: row.fundamental_score || 0,
+                            council_score: row.council_score || 0,
+                            consensus_ratio: row.consensus_ratio || ""
+                        };
+                    });
+                }
+            } catch (err) {
+                console.error("Error fetching cached published results:", err);
+            }
+        }
+
         if (!supabase) return [];
         let query = supabase
             .from("scan_results")
-            .select("*")
+            .select("id, batch_id, user_id, symbol, exchange, name, model_name, country, last_close, precision, signal, status, entry_price, target_price, stop_loss, risk_adjusted_return, is_public, created_at, updated_at, exit_price, profit_loss_pct, top_reasons, adjustments")
             .eq("is_public", true)
             .order("created_at", { ascending: false });
 
@@ -819,15 +840,10 @@ export const AIScannerProvider = ({ children }: { children: ReactNode }) => {
         setRecsLoading(true);
         setRecsError(null);
         try {
-            let query = supabase.from("scan_results").select("*");
-            if (isLandingPage && !user) {
-                query = query.eq("is_public", true);
-            }
-            const { data: scanData, error: scanErr } = await query
-                .order("created_at", { ascending: false })
-                .limit(200);
-
-            if (scanErr) throw scanErr;
+            const url = `/api/ai_bot/recommendations?is_landing=${isLandingPage}`;
+            const apiRes = await fetch(url);
+            if (!apiRes.ok) throw new Error("Failed to fetch recommendations from server");
+            const scanData = await apiRes.json();
             if (!scanData || scanData.length === 0) {
                 setRecommendations([]);
                 loadedLandingRef.current = isLandingPage;
@@ -835,7 +851,7 @@ export const AIScannerProvider = ({ children }: { children: ReactNode }) => {
                 return;
             }
 
-            const symbols = Array.from(new Set(scanData.map(r => r.symbol)));
+            const symbols = Array.from(new Set((scanData as any[]).map((r: any) => r.symbol)));
             const { data: fundData, error: fundErr } = await supabase
                 .from("stock_fundamentals")
                 .select("symbol, data")
@@ -850,8 +866,8 @@ export const AIScannerProvider = ({ children }: { children: ReactNode }) => {
             }
 
             const normalizeSymbolKey = (value: string | null | undefined) => (value || "").toUpperCase().split(".")[0];
-            const symbolKeys = Array.from(new Set(scanData.map(r => normalizeSymbolKey(r.symbol)).filter(Boolean)));
-            const positionSymbols = Array.from(new Set(scanData.flatMap(r => {
+            const symbolKeys = Array.from(new Set((scanData as any[]).map((r: any) => normalizeSymbolKey(r.symbol)).filter(Boolean)));
+            const positionSymbols = Array.from(new Set((scanData as any[]).flatMap((r: any) => {
                 const rawSymbol = (r.symbol || "").toUpperCase();
                 const baseSymbol = normalizeSymbolKey(rawSymbol);
                 return [rawSymbol, baseSymbol].filter(Boolean);
@@ -872,7 +888,7 @@ export const AIScannerProvider = ({ children }: { children: ReactNode }) => {
                 }
             }
 
-            const mapped = scanData.map(row => {
+            const mapped = (scanData as any[]).map((row: any) => {
                 let tech = row.technical_score || 0;
                 let fund = row.fundamental_score || 0;
                 let sentiment = row.sentiment_score || 0;

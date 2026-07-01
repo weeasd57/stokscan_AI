@@ -1289,10 +1289,14 @@ def get_candles(symbol: str, bot_id: str = "primary", limit: int = 150, exchange
         now = datetime.now()
         cache_key = (symbol, bot_id, limit, exchange)
         
-        # Check cache (2 second window)
+        # Check cache: 5 minutes (300s) for stocks, 15s for crypto to reduce database load
+        is_crypto_guess = "/" in symbol or symbol.upper().endswith("USD") or symbol.upper().endswith("USDT")
+        is_stock = not is_crypto_guess and (not exchange or exchange.upper() in ("EGX", "US"))
+        cache_duration = 300 if is_stock else 15
+        
         if cache_key in candle_cache:
             ts, cached_data = candle_cache[cache_key]
-            if (now - ts).total_seconds() < 2:
+            if (now - ts).total_seconds() < cache_duration:
                 return cached_data
 
         _init_supabase()
@@ -1743,4 +1747,59 @@ def send_test_channel_notification(req: TestNotificationRequest):
             return {"ok": False, "channel": "telegram", "error": str(e)}
 
     return {"ok": False, "error": "Unknown channel"}
+
+
+# ── RECOMMENDATIONS ENDPOINT WITH CACHING ────────────────────────────
+import time
+
+RECOMMENDATIONS_CACHE = {
+    "data": None,
+    "expiry": 0
+}
+RECOMMENDATIONS_CACHE_DURATION = 600  # 10 minutes cache
+
+@router.get("/recommendations")
+def get_recommendations(is_landing: bool = False, limit: int = 200, force_refresh: bool = False):
+    """
+    Exposes in-memory cached AI bot recommendations from scan_results table to avoid Supabase egress exhaustion.
+    Caches results for 10 minutes.
+    """
+    global RECOMMENDATIONS_CACHE
+    now = time.time()
+    
+    if not force_refresh and RECOMMENDATIONS_CACHE["data"] is not None and now < RECOMMENDATIONS_CACHE["expiry"]:
+        print("[CACHE] Serving recommendations from in-memory cache")
+        return RECOMMENDATIONS_CACHE["data"]
+        
+    print("[CACHE] Cache expired or force_refresh. Fetching recommendations from Supabase...")
+    _init_supabase()
+    if not stock_ai.supabase:
+        raise HTTPException(status_code=500, detail="Supabase not initialized")
+        
+    try:
+        # Fetch only public recommendations to serve all requests efficiently, excluding features column
+        query = stock_ai.supabase.table("scan_results").select(
+            "id, batch_id, user_id, symbol, exchange, name, model_name, country, last_close, precision, signal, status, entry_price, target_price, stop_loss, risk_adjusted_return, is_public, created_at, updated_at, exit_price, profit_loss_pct, top_reasons, adjustments"
+        )
+        
+        if is_landing:
+            query = query.eq("is_public", True)
+            
+        res = query.order("created_at", desc=True).limit(limit).execute()
+        data = res.data or []
+        
+        # Cache the result
+        RECOMMENDATIONS_CACHE["data"] = data
+        RECOMMENDATIONS_CACHE["expiry"] = now + RECOMMENDATIONS_CACHE_DURATION
+        print(f"[CACHE] Cached {len(data)} recommendations. Expiry in {RECOMMENDATIONS_CACHE_DURATION}s")
+        return data
+        
+    except Exception as e:
+        print(f"[CACHE] Error fetching recommendations from Supabase: {e}")
+        # Return stale cache as fallback if database is down/rate-limited
+        if RECOMMENDATIONS_CACHE["data"] is not None:
+            print("[CACHE] Serving stale recommendations cache as fallback")
+            return RECOMMENDATIONS_CACHE["data"]
+        raise HTTPException(status_code=500, detail=str(e))
+
 

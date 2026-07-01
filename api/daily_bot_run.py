@@ -605,12 +605,11 @@ def generate_weekly_performance_report(trigger: str = "manual", chat_id: Optiona
         seven_days_ago = (dt.datetime.utcnow() - dt.timedelta(days=7)).isoformat()
         
         # Fetch closed recommendations in last 7 days
-        # BUG 5 FIX: Use closed_at (set at exit time) not updated_at (overwritten by Step 5 scans)
         res = (
             supabase.table("scan_results")
-            .select("symbol, exchange, entry_price, exit_price, profit_loss_pct, status, closed_at")
+            .select("symbol, exchange, entry_price, exit_price, profit_loss_pct, status, updated_at")
             .in_("status", ["win", "loss"])
-            .gte("closed_at", seven_days_ago)
+            .gte("updated_at", seven_days_ago)
             .execute()
         )
         
@@ -776,7 +775,7 @@ def evaluate_old_recommendations():
     # PERF: Select only the columns we actually use — avoids pulling large JSONB fields like `top_reasons`/`features`
     res = supabase.table("scan_results").select(
         "id, symbol, exchange, entry_price, last_close, target_price, stop_loss, "
-        "status, created_at, updated_at, profit_loss_pct, adjustments, rich_details"
+        "status, created_at, updated_at, profit_loss_pct, adjustments"
     ).eq("status", "open").execute()
     open_recs = res.data
     if not open_recs:
@@ -842,8 +841,7 @@ def evaluate_old_recommendations():
                 supabase.table("scan_results").update({
                     "status": "stale",
                     "exit_price": latest_close if latest_close > 0 else None,
-                    "updated_at": dt.datetime.utcnow().isoformat(),
-                    "closed_at": dt.datetime.utcnow().isoformat()
+                    "updated_at": dt.datetime.utcnow().isoformat()
                 }).eq("id", rec["id"]).execute()
             except Exception as upd_err:
                 print(f"[EVALUATE] Failed to close stale recommendation for {symbol}: {upd_err}")
@@ -1136,8 +1134,6 @@ def evaluate_old_recommendations():
                 "profit_loss_pct": round(pl_pct, 4),
                 "status": status,
                 "updated_at": _now_iso,
-                # BUG 2 FIX: set closed_at for consistency with stale/delisted closures
-                "closed_at": _now_iso,
             }
             if all_adjustments:
                 update_data["adjustments"] = all_adjustments
@@ -1692,7 +1688,6 @@ async def generate_daily_recommendations(model_name: Optional[str] = None):
                 update_data = {
                     "precision": row_data["precision"],
                     "risk_adjusted_return": row_data["risk_adjusted_return"],
-                    "top_reasons": row_data["top_reasons"],
                     "features": row_data["features"],
                     "updated_at": row_data["updated_at"]
                 }

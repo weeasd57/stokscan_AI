@@ -22,6 +22,15 @@ const nextConfig = {
     console.log("Using Trading Signals Backend URL:", backendUrl);
     const BACKEND_URL = backendUrl.replace(/\/$/, "");
     return [
+      // Bypass rewrites to keep backtests and scan alerts local
+      {
+        source: '/api/backtests/:path*',
+        destination: '/api/backtests/:path*',
+      },
+      {
+        source: '/api/scan/alerts/:path*',
+        destination: '/api/scan/alerts/:path*',
+      },
       {
         source: '/api/:path*',
         destination: `${BACKEND_URL}/:path*`,
