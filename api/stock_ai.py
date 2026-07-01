@@ -1,4 +1,5 @@
 import datetime as dt
+import math
 import os
 import ssl
 import urllib.request
@@ -593,6 +594,23 @@ def _finite_float(value: Any) -> Optional[float]:
     except Exception:
         return None
     return v if np.isfinite(v) else None
+
+
+def _sanitize_value(v: Any) -> Any:
+    if isinstance(v, float) and (math.isnan(v) or math.isinf(v)):
+        return None
+    return v
+
+
+def _sanitize_for_json(obj: Any) -> Any:
+    if isinstance(obj, dict):
+        return {k: _sanitize_for_json(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [_sanitize_for_json(v) for v in obj]
+    elif isinstance(obj, tuple):
+        return [_sanitize_for_json(v) for v in obj]
+    else:
+        return _sanitize_value(obj)
 
 
 def _resolve_barrier_mode(
@@ -3885,6 +3903,7 @@ def run_pipeline(
         profit_summary = None
         walk_forward_folds = []
 
+    _ensure_feature_columns(prices_ai, predictors)
     last_row = prices_ai.iloc[[-1]][predictors]
     if hasattr(model, "predict_proba"):
         try:
@@ -3990,6 +4009,8 @@ def run_pipeline(
             feat_vals = last_row.values[0]
 
             # Prepare data for scan_results
+            safe_last_close = _finite_float(last_close)
+            safe_pred_conf = _finite_float(pred_conf)
             data = {
                 "user_id": None, # This is a server-side log, no user_id by default
                 "symbol": selected_symbol or ticker,
@@ -3997,13 +4018,13 @@ def run_pipeline(
                 "name": selected_symbol or ticker,
                 "model_name": model_name,
                 "country": "Egypt", # Default country for this app context
-                "last_close": last_close,
-                "precision": pred_conf,
+                "last_close": safe_last_close,
+                "precision": safe_pred_conf,
                 "signal": "BUY" if tomorrow_prediction == 1 else "SELL",
                 "distribution_gate": distribution_gate,
                 "status": "open",
-                "entry_price": last_close,
-                "features": json.dumps(feat_vals.tolist()) if hasattr(feat_vals, "tolist") else json.dumps(list(feat_vals)),
+                "entry_price": safe_last_close,
+                "features": json.dumps([_sanitize_value(v) for v in (feat_vals.tolist() if hasattr(feat_vals, "tolist") else list(feat_vals))]),
                 "created_at": dt.datetime.now().isoformat()
             }
             # Check if there is already an open recommendation for this symbol
@@ -4023,9 +4044,9 @@ def run_pipeline(
                     "features": data["features"],
                     "updated_at": dt.datetime.now().isoformat()
                 }
-                supabase.table("scan_results").update(update_data).eq("id", rec_id).execute()
+                supabase.table("scan_results").update(_sanitize_for_json(update_data)).eq("id", rec_id).execute()
             else:
-                supabase.table("scan_results").insert(data).execute()
+                supabase.table("scan_results").insert(_sanitize_for_json(data)).execute()
         except Exception as e:
             print(f"Adaptive logging warning: {e}")
 

@@ -32,7 +32,12 @@ from api.stock_ai import (
     get_supabase_inventory,
     update_stock_data,
     upsert_technical_indicators,
+    check_local_cache,
+    get_cached_tickers,
+    get_supabase_symbols,
 )
+from api.smart_sync import get_smart_sync
+from api.intraday_downloader import _fetch_egx_symbols
 
 try:
     from api.adaptive_learning import ActiveLearner, ManualRetrainer
@@ -146,7 +151,7 @@ CONFIG_FILE = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "..", "..", "admin_config.json")
 )
 ENV_ROOT_FILE = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), "..", "..", "..", ".env")
+    os.path.join(os.path.dirname(__file__), "..", "..", ".env")
 )
 
 # Uses centralized stock_ai._init_supabase()
@@ -2587,7 +2592,7 @@ async def trigger_cron(req: CronTriggerRequest, background_tasks: BackgroundTask
                         background_tasks,
                     )
                 elif action in ["update_prices", "update_funds"]:
-                    syms = [s["symbol"] for s in get_supabase_symbols(exchange=ex)]
+                    syms = [s["symbol"] for s in get_supabase_symbols() if s.get("exchange", "").upper() == ex.upper()]
                     for chunk in _chunks(syms, 50):
                         from api.routers.admin import UpdateRequest, update_batch
 

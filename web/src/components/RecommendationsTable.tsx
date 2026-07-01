@@ -280,6 +280,9 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
         shareEntry: { en: "Entry", ar: "سعر الدخول" },
         shareTarget: { en: "Target", ar: "الهدف" },
         shareStop: { en: "Stop Loss", ar: "وقف الخسارة" },
+        shareExit: { en: "Exit Price", ar: "سعر الخروج" },
+        shareExitReason: { en: "Exit Reason", ar: "سبب الخروج" },
+        shareClosedSignal: { en: "EXIT", ar: "خروج" },
         shareWinRate: { en: "Win Rate", ar: "نسبة النجاح" },
         shareScanDate: { en: "Scan Date", ar: "تاريخ التوصية" },
         shareDisclaimer: { en: "Not financial advice. Do your own research.", ar: "هذه ليست نصيحة مالية. ادرس بنفسك." },
@@ -337,13 +340,26 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                 });
                 if (res && res.testPredictions) {
                     const sorted = [...res.testPredictions].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-                    const signalDateStr = new Date(shareRow.created_at || shareRow.updated_at).toISOString().split('T')[0];
+                    const signalDateStr = new Date(shareRow.created_at).toISOString().split('T')[0];
                     let signalIndex = sorted.findIndex(c => c.date >= signalDateStr);
                     if (signalIndex === -1) {
                         signalIndex = sorted.length - 1;
                     }
                     const startIndex = Math.max(0, signalIndex - 2);
-                    const sliced = sorted.slice(startIndex);
+                    
+                    // Determine end index based on active vs closed status
+                    const isClosed = shareRow.status?.toLowerCase() === "win" || shareRow.status?.toLowerCase() === "loss";
+                    let endIndex = sorted.length - 1;
+                    
+                    if (isClosed) {
+                        const exitDateStr = new Date(shareRow.updated_at).toISOString().split('T')[0];
+                        const idx = sorted.findIndex(c => c.date >= exitDateStr);
+                        if (idx !== -1) {
+                            endIndex = idx;
+                        }
+                    }
+                    
+                    const sliced = sorted.slice(startIndex, endIndex + 1);
                     setShareCandles(sliced);
                 }
             } catch (err) {
@@ -741,6 +757,8 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
     const renderDialog = () => {
         if (!selectedRow) return null;
         const row = selectedRow;
+        const isDark = theme === "dark";
+        const d = (dk: string, lt: string) => isDark ? dk : lt;
         const richDetails = row.top_reasons && typeof row.top_reasons === "object" && !Array.isArray(row.top_reasons) ? row.top_reasons : null;
         const legacyReasons = Array.isArray(row.top_reasons) ? row.top_reasons : [];
         const aiScoreNum = Math.round((row.precision || 0) * 10);
@@ -811,18 +829,18 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
         if (!mounted) return null;
 
         return createPortal(
-            <div className="fixed inset-0 z-[2147483647] flex flex-col bg-zinc-950/95 backdrop-blur-md animate-in fade-in duration-200" dir={isAr ? "rtl" : "ltr"} onClick={() => setSelectedRow(null)}>
+            <div className={`fixed inset-0 z-[2147483647] flex flex-col ${d("bg-zinc-950/95", "bg-zinc-100/90")} backdrop-blur-md animate-in fade-in duration-200`} dir={isAr ? "rtl" : "ltr"} onClick={() => setSelectedRow(null)}>
                 {/* Top floating control bar */}
-                <div className="flex items-center justify-between gap-4 px-4 sm:px-8 py-4 border-b-2 border-white/10 bg-zinc-950/90 backdrop-blur-md flex-shrink-0" onClick={e => e.stopPropagation()}>
+                <div className={`flex items-center justify-between gap-4 px-4 sm:px-8 py-4 border-b-2 ${d("border-white/10", "border-zinc-300")} ${d("bg-zinc-950/90", "bg-white/90")} backdrop-blur-md flex-shrink-0`} onClick={e => e.stopPropagation()}>
                     <div className="flex items-center gap-3 min-w-0">
                         <StockLogo symbol={row.symbol} logoUrl={row.logo_url} size="md" />
                         <div className="min-w-0">
                             <div className="flex items-center gap-2 flex-wrap">
-                                <h2 className="text-xl sm:text-2xl font-black text-white uppercase tracking-tight">{row.symbol}</h2>
-                                <span className="text-[10px] font-bold text-zinc-400 bg-zinc-800 px-2 py-0.5 border border-white/5">{row.exchange}</span>
+                                <h2 className={`text-xl sm:text-2xl font-black ${d("text-white", "text-zinc-900")} uppercase tracking-tight`}>{row.symbol}</h2>
+                                <span className={`text-[10px] font-bold ${d("text-zinc-400", "text-zinc-500")} ${d("bg-zinc-800", "bg-zinc-100")} px-2 py-0.5 border ${d("border-white/5", "border-zinc-200")}`}>{row.exchange}</span>
                                 <span className="text-base">{cInfo.flag}</span>
                                 {row.status?.toLowerCase() === "win" || row.status?.toLowerCase() === "loss" ? (
-                                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-zinc-700 text-white font-black text-[10px]">
+                                    <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 ${d("bg-zinc-700 text-white", "bg-zinc-200 text-zinc-900")} font-black text-[10px]`}>
                                         <Minus className="w-3 h-3" /> {translate("exit")}
                                     </span>
                                 ) : row.signal?.toUpperCase() === "BUY" ? (
@@ -836,7 +854,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                 )}
                                 {getStatusBadge(row.status, row.profit_loss_pct)}
                             </div>
-                            <p className="text-xs sm:text-sm text-zinc-400 font-medium truncate mt-0.5">{row.name}</p>
+                            <p className={`text-xs sm:text-sm ${d("text-zinc-400", "text-zinc-600")} font-medium truncate mt-0.5`}>{row.name}</p>
                         </div>
                     </div>
                     <div className="flex items-center gap-2 flex-shrink-0">
@@ -880,49 +898,49 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                 <div className="relative z-10 flex-1 overflow-y-auto" style={{ scrollbarWidth: "thin" }}>
                     <div className="max-w-6xl mx-auto p-4 sm:p-8 space-y-8" onClick={e => e.stopPropagation()}>
 
-                        {/* Stock Symbol, Logo, and Full Name Header Card */}
-                        <div className="flex items-center gap-4 bg-zinc-900 border-2 border-white/5 p-5">
+                         {/* Stock Symbol, Logo, and Full Name Header Card */}
+                         <div className={`flex items-center gap-4 ${d("bg-zinc-900", "bg-white")} border-2 ${d("border-white/5", "border-zinc-300")} p-5`}>
                             <StockLogo symbol={row.symbol} logoUrl={row.logo_url} size="lg" />
                             <div className="min-w-0 flex-1">
                                 <div className="flex items-center gap-2 flex-wrap">
-                                    <h1 className="text-2xl sm:text-3xl font-black text-white uppercase tracking-tight">{row.symbol}</h1>
-                                    <span className="text-[10px] font-bold text-zinc-400 bg-zinc-800 px-2 py-0.5 border border-white/5">{row.exchange}</span>
+                                <h1 className={`text-2xl sm:text-3xl font-black ${d("text-white", "text-zinc-900")} uppercase tracking-tight`}>{row.symbol}</h1>
+                                <span className={`text-[10px] font-bold ${d("text-zinc-400", "text-zinc-600")} ${d("bg-zinc-800", "bg-zinc-100")} px-2 py-0.5 border ${d("border-white/5", "border-zinc-200")}`}>{row.exchange}</span>
                                     <span className="text-xl">{cInfo.flag}</span>
-                                    {row.status?.toLowerCase() === "win" || row.status?.toLowerCase() === "loss" ? (
-                                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-zinc-700 text-white font-black text-[10px] uppercase">
-                                            <Minus className="w-3 h-3" /> {translate("exit")}
-                                        </span>
+                                {row.status?.toLowerCase() === "win" || row.status?.toLowerCase() === "loss" ? (
+                                    <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 ${d("bg-zinc-700 text-white", "bg-zinc-200 text-zinc-900")} font-black text-[10px]`}>
+                                        <Minus className="w-3 h-3" /> {translate("exit")}
+                                    </span>
                                     ) : row.signal?.toUpperCase() === "BUY" ? (
-                                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-emerald-500 text-zinc-950 font-black text-[10px] uppercase">
+                                        <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 bg-emerald-500 text-zinc-950 font-black text-[10px] uppercase`}>
                                             <TrendingUp className="w-3 h-3" /> {translate("buy")}
                                         </span>
                                     ) : (
-                                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-rose-500 text-zinc-950 font-black text-[10px] uppercase">
+                                        <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 bg-rose-500 text-zinc-950 font-black text-[10px] uppercase`}>
                                             <TrendingDown className="w-3 h-3" /> {translate("sell")}
                                         </span>
                                     )}
                                     {getStatusBadge(row.status, row.profit_loss_pct)}
                                 </div>
-                                <p className="text-sm sm:text-base text-zinc-300 font-bold mt-1">{row.name}</p>
+                                <p className={`text-sm sm:text-base ${d("text-zinc-300", "text-zinc-700")} font-bold mt-1`}>{row.name}</p>
                             </div>
                         </div>
 
-                        {/* ── Hero Price Card ── */}
-                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                            <div className="lg:col-span-2 bg-gradient-to-br from-indigo-600/20 to-violet-600/10 border-2 border-indigo-500/20 p-6 sm:p-8 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6">
+                             {/* ── Hero Price Card ── */}
+                             <div className={`grid grid-cols-1 lg:grid-cols-3 gap-4`}>
+                                 <div className={`lg:col-span-2 bg-gradient-to-br ${d("from-indigo-600/20", "from-indigo-50")} ${d("to-violet-600/10", "to-violet-50")} border-2 ${d("border-indigo-500/20", "border-indigo-200")} p-6 sm:p-8 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6`}>
                                 <div>
-                                    <p className="text-xs font-bold uppercase tracking-widest text-indigo-300 mb-1">
+                                    <p className={`text-xs font-bold uppercase tracking-widest ${d("text-indigo-300", "text-indigo-600")} mb-1`}>
                                         {isClosed 
                                             ? (isAr ? "سعر الخروج" : "Exit Price") 
                                             : (isAr ? "السعر الحالي" : "Current Price")}
                                     </p>
-                                    <div className="flex items-baseline gap-3">
-                                        <span className="text-4xl sm:text-5xl font-black text-white">
+                                        <div className="flex items-baseline gap-3">
+                                            <span className={`text-4xl sm:text-5xl font-black ${d("text-white", "text-zinc-900")}`}>
                                             {isClosed && row.exit_price 
                                                 ? `${Number(row.exit_price).toFixed(2)}` 
                                                 : (currentPrice ? `${currentPrice.toFixed(2)}` : "—")}
                                         </span>
-                                        <span className="text-sm font-bold text-zinc-400">EGP</span>
+                                        <span className={`text-sm font-bold ${d("text-zinc-400", "text-zinc-500")}`}>EGP</span>
                                     </div>
                                     <div className="flex items-center gap-2 mt-2 flex-wrap">
                                         {plPct != null && (
@@ -937,47 +955,47 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                                 title={isAr ? "نسبة التغير الإجمالية منذ تاريخ توصية البوت" : "Total change percentage since the bot's recommendation"}
                                             >
                                                 {pctChangeSinceRec >= 0 ? "▲" : "▼"} {pctChangeSinceRec >= 0 ? "+" : ""}{pctChangeSinceRec.toFixed(2)}%
-                                                <span className="text-zinc-500 font-medium">{isAr ? "منذ التوصية" : "since rec"}</span>
-                                                <Info className="w-3.5 h-3.5 text-zinc-400 inline-block shrink-0" />
+                                                 <span className={`${d("text-zinc-500", "text-zinc-600")} font-medium`}>{isAr ? "منذ التوصية" : "since rec"}</span>
+                                                 <Info className={`w-3.5 h-3.5 ${d("text-zinc-400", "text-zinc-500")} inline-block shrink-0`} />
                                             </div>
                                         )}
                                     </div>
                                     {lastUpdated && (
-                                        <p className="text-[10px] text-zinc-500 mt-1.5 flex items-center gap-1">
-                                            <span className="w-1.5 h-1.5 rounded-full bg-zinc-500 inline-block" />
+                                        <p className={`text-[10px] ${d("text-zinc-500", "text-zinc-400")} mt-1.5 flex items-center gap-1`}>
+                                            <span className={`w-1.5 h-1.5 rounded-full ${d("bg-zinc-500", "bg-zinc-400")} inline-block`} />
                                             {isAr ? "آخر تحديث" : "Last updated"}: {formatDate(lastUpdated)}
                                         </p>
                                     )}
                                     {isClosed && exitReason && (
-                                        <p className="text-xs font-bold text-indigo-300 mt-2 flex items-center gap-1.5">
+                                        <p className={`text-xs font-bold text-indigo-300 dark:text-indigo-400 mt-2 flex items-center gap-1.5`}>
                                             <span className="w-2 h-2 rounded-full bg-indigo-500 inline-block animate-pulse" />
                                             {isAr ? `سبب الخروج: ${exitReason}` : `Exit Reason: ${exitReason}`}
                                         </p>
                                     )}
                                 </div>
-                                <div className="flex flex-col gap-2 text-sm min-w-[140px]">
-                                    <div className="flex justify-between gap-4">
-                                        <span className="text-zinc-400">{isAr ? "الهدف" : "Target"}</span>
-                                        <span className="font-black text-emerald-400">{targetPrice ? targetPrice.toFixed(2) : "—"}</span>
+                                <div className={`flex flex-col gap-2 text-sm min-w-[140px]`}>
+                                    <div className={`flex justify-between gap-4`}>
+                                        <span className={`${d("text-zinc-400", "text-zinc-600")}`}>{isAr ? "الهدف" : "Target"}</span>
+                                        <span className={`font-black text-emerald-400`}>{targetPrice ? targetPrice.toFixed(2) : "—"}</span>
                                     </div>
-                                    <div className="flex justify-between gap-4">
-                                        <span className="text-zinc-400">{isAr ? "وقف الخسارة" : "Stop Loss"}</span>
-                                        <span className="font-black text-rose-400">{stopLoss ? stopLoss.toFixed(2) : "—"}</span>
+                                    <div className={`flex justify-between gap-4`}>
+                                        <span className={`${d("text-zinc-400", "text-zinc-600")}`}>{isAr ? "وقف الخسارة" : "Stop Loss"}</span>
+                                        <span className={`font-black text-rose-400`}>{stopLoss ? stopLoss.toFixed(2) : "—"}</span>
                                     </div>
                                     {hasTarget2 && (
                                         <div className="flex justify-between gap-4">
-                                            <span className="text-zinc-400">{isAr ? "الهدف 2" : "Target 2"}</span>
-                                            <span className="font-black text-amber-400">{target2.toFixed(2)}</span>
+                                            <span className={`${d("text-zinc-400", "text-zinc-600")}`}>{isAr ? "الهدف 2" : "Target 2"}</span>
+                                            <span className={`font-black text-amber-400`}>{target2.toFixed(2)}</span>
                                         </div>
                                     )}
                                 </div>
                             </div>
 
-                            {/* AI Score Big Card */}
-                            <div className="bg-zinc-900 border-2 border-white/10 p-6 flex flex-col items-center justify-center gap-3">
+                             {/* AI Score Big Card */}
+                             <div className={`${d("bg-zinc-900", "bg-white")} border-2 ${d("border-white/10", "border-zinc-300")} p-6 flex flex-col items-center justify-center gap-3`}>
                                 <div className="relative w-28 h-28">
-                                    <svg className="w-full h-full -rotate-90" viewBox="0 0 100 100">
-                                        <circle cx="50" cy="50" r="42" fill="none" stroke="rgb(255 255 255 / 0.06)" strokeWidth="8" />
+                                     <svg className="w-full h-full -rotate-90" viewBox="0 0 100 100">
+                                         <circle cx="50" cy="50" r="42" fill="none" stroke={isDark ? "rgb(255 255 255 / 0.06)" : "rgb(0 0 0 / 0.06)"} strokeWidth="8" />
                                         <circle
                                             cx="50" cy="50" r="42" fill="none"
                                             stroke={aiScoreNum >= 7 ? "#22c55e" : aiScoreNum >= 5 ? "#f59e0b" : "#f43f5e"}
@@ -989,10 +1007,10 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                     </svg>
                                     <div className="absolute inset-0 flex flex-col items-center justify-center">
                                         <span className={`text-3xl font-black ${scoreColor(aiScoreNum, 10)}`}>{aiScoreNum}</span>
-                                        <span className="text-[10px] font-bold text-zinc-500 uppercase">/10</span>
+                                        <span className={`text-[10px] font-bold ${d("text-zinc-500", "text-zinc-500")} uppercase`}>/10</span>
                                     </div>
                                 </div>
-                                <span className="text-xs font-black uppercase tracking-widest text-zinc-400">{isAr ? "تقييم الذكاء" : "AI Score"}</span>
+                                <span className={`text-xs font-black uppercase tracking-widest ${d("text-zinc-400", "text-zinc-500")}`}>{isAr ? "تقييم الذكاء" : "AI Score"}</span>
                             </div>
                         </div>
 
@@ -1006,12 +1024,12 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                 const max = item.max || 10;
                                 const pct = Math.min(100, (item.val / max) * 100);
                                 return (
-                                    <div key={idx} className="bg-zinc-900/50 border border-white/5 p-4 space-y-3">
-                                        <div className="flex items-center justify-between">
-                                            <span className="text-xs font-bold uppercase tracking-widest text-zinc-400">{item.label}</span>
-                                            <span className={`text-xl font-black ${scoreColor(item.val, max)}`}>{item.val}{item.suffix || ""}</span>
-                                        </div>
-                                        <div className="w-full h-2 bg-white/5 overflow-hidden">
+                                    <div key={idx} className={`${d("bg-zinc-900/50", "bg-zinc-50")} border ${d("border-white/5", "border-zinc-200")} p-4 space-y-3`}>
+                                    <div className={`flex items-center justify-between`}>
+                                        <span className={`text-xs font-bold uppercase tracking-widest ${d("text-zinc-400", "text-zinc-600")}`}>{item.label}</span>
+                                        <span className={`text-xl font-black ${scoreColor(item.val, max)}`}>{item.val}{item.suffix || ""}</span>
+                                    </div>
+                                    <div className={`w-full h-2 ${d("bg-white/5", "bg-zinc-200")} overflow-hidden`}>
                                             <div className={`h-full ${scoreBarColor(item.val, max)} transition-all duration-700`} style={{ width: `${pct}%` }} />
                                         </div>
                                     </div>
@@ -1023,34 +1041,34 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                         {richDetails && (
                             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                                 {richDetails.brief_rationale && (
-                                    <div className="lg:col-span-2 bg-indigo-500/[0.05] border-l-4 border-indigo-500 p-5">
-                                        <h3 className="text-xs font-black uppercase tracking-widest text-indigo-400 mb-3 flex items-center gap-2">
+                                    <div className={`lg:col-span-2 ${d("bg-indigo-500/[0.05]", "bg-indigo-50")} border-l-4 border-indigo-500 p-5`}>
+                                        <h3 className={`text-xs font-black uppercase tracking-widest text-indigo-400 mb-3 flex items-center gap-2`}>
                                             <Info className="w-3.5 h-3.5" />
                                             {isAr ? "لماذا هذا السهم؟" : "Why This Stock?"}
                                         </h3>
-                                        <p className="text-sm sm:text-base text-zinc-200 leading-relaxed font-medium" dir={isAr ? "rtl" : "ltr"}>
+                                        <p className="text-sm sm:text-base text-zinc-200 dark:text-zinc-800 leading-relaxed font-medium" dir={isAr ? "rtl" : "ltr"}>
                                             {isAr ? richDetails.brief_rationale : translateRationaleText(richDetails.brief_rationale, "brief", row.symbol)}
                                         </p>
                                     </div>
                                 )}
                                 {richDetails.technical_rationale && (
-                                    <div className="bg-zinc-900/50 border border-white/5 p-5">
-                                        <h4 className="text-xs font-black uppercase tracking-widest text-sky-400 mb-3 flex items-center gap-2">
+                                    <div className={`${d("bg-zinc-900/50", "bg-zinc-50")} border ${d("border-white/5", "border-zinc-200")} p-5`}>
+                                        <h4 className={`text-xs font-black uppercase tracking-widest text-sky-400 mb-3 flex items-center gap-2`}>
                                             <BarChart2 className="w-3.5 h-3.5" />
                                             {isAr ? "التحليل الفني" : "Technical Analysis"}
                                         </h4>
-                                        <p className="text-sm text-zinc-300 leading-relaxed" dir={isAr ? "rtl" : "ltr"}>
+                                        <p className={`text-sm ${d("text-zinc-300", "text-zinc-700")} leading-relaxed`} dir={isAr ? "rtl" : "ltr"}>
                                             {isAr ? richDetails.technical_rationale : translateRationaleText(richDetails.technical_rationale, "tech", row.symbol)}
                                         </p>
                                     </div>
                                 )}
                                 {richDetails.fundamental_rationale && (
-                                    <div className="bg-zinc-900/50 border border-white/5 p-5">
-                                        <h4 className="text-xs font-black uppercase tracking-widest text-amber-400 mb-3 flex items-center gap-2">
+                                    <div className={`${d("bg-zinc-900/50", "bg-zinc-50")} border ${d("border-white/5", "border-zinc-200")} p-5`}>
+                                        <h4 className={`text-xs font-black uppercase tracking-widest text-amber-400 mb-3 flex items-center gap-2`}>
                                             <BookOpen className="w-3.5 h-3.5" />
                                             {isAr ? "التحليل الأساسي" : "Fundamental Analysis"}
                                         </h4>
-                                        <p className="text-sm text-zinc-300 leading-relaxed" dir={isAr ? "rtl" : "ltr"}>
+                                        <p className={`text-sm ${d("text-zinc-300", "text-zinc-700")} leading-relaxed`} dir={isAr ? "rtl" : "ltr"}>
                                             {isAr ? richDetails.fundamental_rationale : translateRationaleText(richDetails.fundamental_rationale, "fund", row.symbol)}
                                         </p>
                                     </div>
@@ -1060,16 +1078,16 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
 
                         {/* ── Legacy Reasons ── */}
                         {legacyReasons.length > 0 && (
-                            <div className="bg-zinc-900/50 border border-white/5 p-5">
-                                <h3 className="text-xs font-black uppercase tracking-widest text-zinc-300 mb-4 flex items-center gap-2">
+                            <div className={`${d("bg-zinc-900/50", "bg-zinc-50")} border ${d("border-white/5", "border-zinc-200")} p-5`}>
+                                <h3 className={`text-xs font-black uppercase tracking-widest ${d("text-zinc-300", "text-zinc-700")} mb-4 flex items-center gap-2`}>
                                     <Layers className="w-3.5 h-3.5" />
                                     {isAr ? "أسباب الاختيار" : "Selection Reasons"}
                                 </h3>
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                     {legacyReasons.map((reason: string, i: number) => (
-                                        <div key={i} className="flex items-start gap-3 p-3 bg-zinc-950/50 border border-white/5">
+                                        <div key={i} className={`flex items-start gap-3 p-3 ${d("bg-zinc-950/50 border border-white/5", "bg-zinc-100 border border-zinc-200")}`}>
                                             <span className="w-6 h-6 flex items-center justify-center bg-indigo-600/20 text-indigo-400 text-xs font-black flex-shrink-0">{i + 1}</span>
-                                            <span className="text-sm text-zinc-300">{reason}</span>
+                                            <span className={`text-sm ${d("text-zinc-300", "text-zinc-700")}`}>{reason}</span>
                                         </div>
                                     ))}
                                 </div>
@@ -1078,9 +1096,9 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
 
                         {/* ── No details fallback ── */}
                         {!richDetails && legacyReasons.length === 0 && (
-                            <div className="border-2 border-dashed border-zinc-700 bg-zinc-900/30 p-8 text-center">
-                                <Info className="w-10 h-10 text-zinc-600 mx-auto mb-4" />
-                                <p className="text-sm text-zinc-400 font-medium">
+                            <div className={`border-2 border-dashed ${d("border-zinc-700", "border-zinc-300")} ${d("bg-zinc-900/30", "bg-zinc-100")} p-8 text-center`}>
+                                <Info className={`w-10 h-10 ${d("text-zinc-600", "text-zinc-400")} mx-auto mb-4`} />
+                                <p className={`text-sm ${d("text-zinc-400", "text-zinc-500")} font-medium`}>
                                     {isAr ? "لا توجد تفاصيل إضافية متاحة." : "No additional details available."}
                                 </p>
                             </div>
@@ -1088,8 +1106,8 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
 
                         {/* ── Adjustments Timeline ── */}
                         {adjustments.length > 0 && (
-                            <div className="bg-amber-500/[0.05] border border-amber-500/20 p-5">
-                                <h3 className="text-xs font-black uppercase tracking-widest text-amber-400 mb-5 flex items-center gap-2">
+                            <div className={`${d("bg-amber-500/[0.05]", "bg-amber-50")} border ${d("border-amber-500/20", "border-amber-200")} p-5`}>
+                                <h3 className={`text-xs font-black uppercase tracking-widest text-amber-400 mb-5 flex items-center gap-2`}>
                                     <RefreshCw className="w-3.5 h-3.5" />
                                     {isAr ? "سجل التعديلات الذكية" : "Smart Adjustments"}
                                 </h3>
@@ -1100,7 +1118,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                         const adjColor = isTargetRaise ? "emerald" : isStopRaise ? "rose" : "amber";
                                         const AdjIcon = isTargetRaise ? TrendingUp : isStopRaise ? ShieldAlert : RefreshCw;
                                         return (
-                                            <div key={i} className="flex items-start gap-4 p-4 bg-zinc-950/60 border border-white/5">
+                                            <div key={i} className={`flex items-start gap-4 p-4 ${d("bg-zinc-950/60", "bg-white")} border ${d("border-white/5", "border-zinc-200")}`}>
                                                 <div className={`w-10 h-10 flex items-center justify-center flex-shrink-0 bg-${adjColor}-500/10 border border-${adjColor}-500/20`}>
                                                     <AdjIcon className={`w-4 h-4 text-${adjColor}-400`} />
                                                 </div>
@@ -1109,18 +1127,18 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                                         <span className={`text-xs font-black uppercase text-${adjColor}-400`}>
                                                             {isTargetRaise ? (isAr ? "رفع الهدف" : "Target Raised") : isStopRaise ? (isAr ? "تضييق وقف الخسارة" : "Stop Tightened") : (adj.reason_en || adj.type)}
                                                         </span>
-                                                        {adj.timestamp && <span className="text-[10px] text-zinc-500">{formatDate(adj.timestamp)}</span>}
+                                                        {adj.timestamp && <span className={`text-[10px] ${d("text-zinc-500", "text-zinc-400")}`}>{formatDate(adj.timestamp)}</span>}
                                                     </div>
-                                                    <p className="text-xs text-zinc-400 mb-2" dir="rtl">{adj.reason_ar || adj.reason_en || ""}</p>
+                                                    <p className={`text-xs ${d("text-zinc-400", "text-zinc-500")} mb-2`} dir="rtl">{adj.reason_ar || adj.reason_en || ""}</p>
                                                     <div className="flex flex-wrap gap-3 text-[10px]">
                                                         {adj.old_target && adj.new_target && (
-                                                            <span className="bg-zinc-900 px-2 py-1 text-zinc-300">
-                                                                🎯 {isAr ? "الهدف" : "Target"}: <span className="line-through text-zinc-500">{Number(adj.old_target).toFixed(2)}</span> → <span className="text-emerald-400 font-bold">{Number(adj.new_target).toFixed(2)}</span>
+                                                            <span className={`${d("bg-zinc-900", "bg-zinc-200")} px-2 py-1 ${d("text-zinc-300", "text-zinc-700")}`}>
+                                                                🎯 {isAr ? "الهدف" : "Target"}: <span className={`line-through ${d("text-zinc-500", "text-zinc-500")}`}>{Number(adj.old_target).toFixed(2)}</span> → <span className="text-emerald-400 font-bold">{Number(adj.new_target).toFixed(2)}</span>
                                                             </span>
                                                         )}
                                                         {adj.old_stop && adj.new_stop && (
-                                                            <span className="bg-zinc-900 px-2 py-1 text-zinc-300">
-                                                                🛡️ SL: <span className="line-through text-zinc-500">{Number(adj.old_stop).toFixed(2)}</span> → <span className="text-rose-400 font-bold">{Number(adj.new_stop).toFixed(2)}</span>
+                                                            <span className={`${d("bg-zinc-900", "bg-zinc-200")} px-2 py-1 ${d("text-zinc-300", "text-zinc-700")}`}>
+                                                                🛡️ SL: <span className={`line-through ${d("text-zinc-500", "text-zinc-500")}`}>{Number(adj.old_stop).toFixed(2)}</span> → <span className="text-rose-400 font-bold">{Number(adj.new_stop).toFixed(2)}</span>
                                                             </span>
                                                         )}
                                                         {adj.pl_pct != null && (
@@ -1139,13 +1157,13 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
 
                         {/* ── Trade Details & Chart ── */}
                         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                            <div className="lg:col-span-1 bg-zinc-900/50 border border-white/5 p-5 space-y-4 h-fit">
-                                <h4 className="text-xs font-black uppercase tracking-widest text-zinc-400 mb-2 flex items-center gap-2">
+                            <div className={`lg:col-span-1 ${d("bg-zinc-900/50", "bg-zinc-50")} border ${d("border-white/5", "border-zinc-200")} p-5 space-y-4 h-fit`}>
+                                <h4 className={`text-xs font-black uppercase tracking-widest ${d("text-zinc-400", "text-zinc-600")} mb-2 flex items-center gap-2`}>
                                     <Calendar className="w-3.5 h-3.5" />
                                     {isAr ? "تفاصيل الصفقة" : "Trade Details"}
                                 </h4>
                                 {[
-                                    { label: isAr ? "سعر الدخول" : "Entry Price", value: entryPrice ? `${entryPrice.toFixed(2)} EGP` : "—", color: "text-white" },
+                                    { label: isAr ? "سعر الدخول" : "Entry Price", value: entryPrice ? `${entryPrice.toFixed(2)} EGP` : "—", color: d("text-white", "text-zinc-900") },
                                     { 
                                         label: isAr ? "الهدف الأول" : "Target 1", 
                                         subLabel: hasAtr ? (isAr ? "دخول + 2.0x ATR" : "Entry + 2.0x ATR") : undefined,
@@ -1165,11 +1183,11 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                         color: "text-rose-400" 
                                     },
                                     ...(hasAtr ? [{
-                                        label: isAr ? "متوسط المدى الحقيقي (ATR)" : "Average True Range (ATR)",
-                                        subLabel: isAr ? "نطاق حركة السعر اليومية (14 يوم)" : "Daily volatility range (14d)",
-                                        value: `${atrValue.toFixed(2)} EGP`,
-                                        color: "text-zinc-300 font-mono"
-                                    }] : []),
+                                         label: isAr ? "متوسط المدى الحقيقي (ATR)" : "Average True Range (ATR)",
+                                         subLabel: isAr ? "نطاق حركة السعر اليومية (14 يوم)" : "Daily volatility range (14d)",
+                                         value: `${atrValue.toFixed(2)} EGP`,
+                                         color: `${d("text-zinc-300", "text-zinc-600")} font-mono`
+                                     }] : []),
                                     { label: isAr ? "نسبة المخاطرة/العائد" : "Risk/Reward", value: rrRatio > 0 ? `1:${rrRatio.toFixed(1)}` : "—", color: "text-indigo-400" },
                                     {
                                         label: isAr ? "نسبة التغيّر منذ التوصية" : "Chg. Since Rec.",
@@ -1185,11 +1203,11 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                     ...(isClosed && row.exit_price ? [{ label: isAr ? "سعر الخروج" : "Exit Price", value: `${row.exit_price.toFixed(2)} EGP`, color: isWin ? "text-emerald-400" : "text-rose-400" }] : []),
                                     ...(isClosed && exitReason ? [{ label: isAr ? "سبب الخروج" : "Exit Reason", value: exitReason, color: isWin ? "text-emerald-400" : "text-rose-400" }] : []),
                                 ].map((item, idx) => (
-                                    <div key={idx} className="flex items-center justify-between py-2 border-b border-white/5 last:border-0">
+                                    <div key={idx} className={`flex items-center justify-between py-2 border-b ${d("border-white/5", "border-zinc-200")} last:border-0`}>
                                         <div className="flex flex-col">
-                                            <span className="text-xs text-zinc-500">{item.label}</span>
+                                            <span className={`text-xs ${d("text-zinc-500", "text-zinc-500")}`}>{item.label}</span>
                                             {item.subLabel && (
-                                                <span className="text-[9px] text-zinc-600 font-mono mt-0.5">{item.subLabel}</span>
+                                                <span className={`text-[9px] ${d("text-zinc-600", "text-zinc-400")} font-mono mt-0.5`}>{item.subLabel}</span>
                                             )}
                                         </div>
                                         <span className={`text-sm font-black ${item.color}`}>{item.value}</span>
@@ -1197,19 +1215,19 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                 ))}
                             </div>
 
-                            <div className="lg:col-span-2 border-2 border-white/5 overflow-hidden bg-zinc-950">
-                                <div className="bg-zinc-900 px-4 py-3 border-b border-white/5 flex items-center justify-between">
-                                    <span className="text-xs font-black uppercase tracking-widest text-zinc-300 flex items-center gap-2">
+                            <div className={`lg:col-span-2 border-2 ${d("border-white/5", "border-zinc-300")} overflow-hidden ${d("bg-zinc-950", "bg-white")}`}>
+                                <div className={`${d("bg-zinc-900", "bg-zinc-100")} px-4 py-3 border-b ${d("border-white/5", "border-zinc-200")} flex items-center justify-between`}>
+                                    <span className={`text-xs font-black uppercase tracking-widest ${d("text-zinc-300", "text-zinc-600")} flex items-center gap-2`}>
                                         <BarChart2 className="w-3.5 h-3.5" />
                                         {isAr ? "الشارت التفاعلي" : "Interactive Chart"}
                                     </span>
-                                    <span className="text-xs font-bold text-zinc-500">{row.symbol}</span>
+                                    <span className={`text-xs font-bold ${d("text-zinc-500", "text-zinc-500")}`}>{row.symbol}</span>
                                 </div>
                                 <div style={{ height: 520 }}>
                                     <TradingViewChart
                                         symbol={row.symbol}
                                         exchange={row.exchange}
-                                        theme="dark"
+                                        theme={isDark ? "dark" : "light"}
                                         showApiMarkers={false}
                                         customMarkers={
                                             [
@@ -1237,7 +1255,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                         </div>
 
                         {richDetails?.news_source && (
-                            <p className="text-xs text-zinc-500 text-right" dir="rtl">
+                            <p className={`text-xs ${d("text-zinc-500", "text-zinc-500")} text-right`} dir="rtl">
                                 📑 {richDetails.news_source}
                             </p>
                         )}
@@ -1290,7 +1308,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
             : (entryPrice > 0 ? ((currentPrice - entryPrice) / entryPrice) * 100 : 0);
 
         const shareText = isAr 
-            ? `🚨 توصية صفقة بالذكاء الاصطناعي - STOKSCAN AI 🚨\n\n` +
+            ? `🚨 توصية صفقة بالذكاء الاصطناعي - EGX BOTS 🚨\n\n` +
               `السهم: ${row.symbol} (${row.exchange})\n` +
               `الإشارة: ${signalUpper === "BUY" ? "شراء" : signalUpper === "SELL" ? "بيع" : "خروج"} ${signalEmoji}\n` +
               `سعر الدخول المقترح: ${entryPrice.toFixed(2)} ج.م\n` +
@@ -1300,8 +1318,8 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
               `القطاع: ${row.sector || "N/A"}\n` +
               `أداء الصفقة: ${pctChangeSinceRec >= 0 ? "+" : ""}${pctChangeSinceRec.toFixed(2)}%\n` +
               `التاريخ: ${scanDate}\n\n` +
-              `👉 التفاصيل والتحليل: https://stokscan.com/stocks/${baseSym}`
-            : `🚨 STOKSCAN AI Trade Signal 🚨\n\n` +
+              `👉 التفاصيل والتحليل: https://egxbots.com/scanner/backtests?tab=bots`
+            : `🚨 EGX BOTS AI Trade Signal 🚨\n\n` +
               `Stock: ${row.symbol} (${row.exchange})\n` +
               `Signal: ${signalUpper} ${signalEmoji}\n` +
               `Entry Price: ${entryPrice.toFixed(2)} EGP\n` +
@@ -1311,11 +1329,11 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
               `Sector: ${row.sector || "N/A"}\n` +
               `Trade Return: ${pctChangeSinceRec >= 0 ? "+" : ""}${pctChangeSinceRec.toFixed(2)}%\n` +
               `Date: ${scanDate}\n\n` +
-              `👉 Analyze here: https://stokscan.com/stocks/${baseSym}`;
+              `👉 Analyze here: https://egxbots.com/scanner/backtests?tab=bots`;
 
         const handleShare = (platform: "x" | "telegram" | "whatsapp" | "facebook") => {
             let url = "";
-            const pageUrl = `https://stokscan.com/stocks/${baseSym}`;
+            const pageUrl = `https://egxbots.com/scanner/backtests?tab=bots`;
             switch (platform) {
                 case "x":
                     url = `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}`;
@@ -1345,7 +1363,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                     },
                 });
                 const link = document.createElement("a");
-                link.download = `${shareRow.symbol}_stokscan_signal.png`;
+                link.download = `${shareRow.symbol}_egxbots_signal.png`;
                 link.href = dataUrl;
                 link.click();
             } catch (err) {
@@ -1393,9 +1411,9 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                         >
                             {/* Card Background Branding/Watermark */}
                             <div className="absolute top-2 right-4 flex items-center gap-1.5">
-                                <img src="/favicon_io/apple-touch-icon.png" alt="Stokscan Logo" className="w-4 h-4 object-contain" />
+                                <img src="/favicon_io/apple-touch-icon.png" alt="EGX Bots Logo" className="w-4 h-4 object-contain" />
                                 <span className="text-[9px] font-bold tracking-widest text-zinc-400 dark:text-zinc-500 uppercase">
-                                    STOKSCAN AI
+                                    EGX BOTS AI
                                 </span>
                             </div>
 
@@ -1456,6 +1474,16 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                             {stopLoss.toFixed(2)} <span className="text-[10px] font-bold text-zinc-400">EGP</span>
                                         </span>
                                     </div>
+                                    {isClosed && row.exit_price != null && (
+                                        <div>
+                                            <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider block">
+                                                {translate("shareExit")}
+                                            </span>
+                                            <span className={`text-base font-black ${(row.status || '').toLowerCase() === 'win' ? 'text-emerald-500 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400'}`}>
+                                                {Number(row.exit_price).toFixed(2)} <span className="text-[10px] font-bold text-zinc-400">EGP</span>
+                                            </span>
+                                        </div>
+                                    )}
                                 </div>
 
                                 {/* Right stats list & AI Score */}
@@ -1479,6 +1507,17 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                         </span>
                                     </div>
 
+                                    {isClosed && row.exit_price != null && (
+                                        <div className="w-full flex flex-col items-end">
+                                            <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider block">
+                                                {translate("shareExit")}
+                                            </span>
+                                            <span className={`text-base font-black ${(row.status || '').toLowerCase() === 'win' ? 'text-emerald-500 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400'}`}>
+                                                {Number(row.exit_price).toFixed(2)} <span className="text-[10px] font-bold text-zinc-400">EGP</span>
+                                            </span>
+                                        </div>
+                                    )}
+
                                     <div className="w-full flex flex-col items-end">
                                         <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider block">
                                             {translate("shareScanDate")}
@@ -1499,109 +1538,136 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                             ) : shareCandles.length > 0 ? (() => {
                                 const chartWidth = 332;
                                 const chartHeight = 120;
-                                const ohlcList = shareCandles.map(c => ({
-                                    open: c.open ?? c.close,
-                                    high: c.high ?? c.close,
-                                    low: c.low ?? c.close,
-                                    close: c.close
-                                }));
+                                const paddingX = 20;
+                                const paddingY = 25;
+
+                                const N = shareCandles.length;
+                                const closes = shareCandles.map(c => c.close);
                                 
-                                const highs = ohlcList.map(c => c.high);
-                                const lows = ohlcList.map(c => c.low);
-                                
-                                let minPrice = Math.min(...lows, stopLoss, entryPrice) * 0.98;
-                                let maxPrice = Math.max(...highs, targetPrice, entryPrice) * 1.02;
+                                let minPrice = Math.min(...closes) * 0.95;
+                                let maxPrice = Math.max(...closes) * 1.05;
                                 if (minPrice === maxPrice) {
                                     minPrice -= 1;
                                     maxPrice += 1;
                                 }
                                 
-                                const N = shareCandles.length;
-                                const candleWidth = (chartWidth / N) * 0.65;
-                                const candleSpacing = (chartWidth / N) * 0.35;
+                                const getX = (i: number) => paddingX + i * ((chartWidth - 2 * paddingX) / (N - 1 || 1));
+                                const getY = (price: number) => (chartHeight - paddingY) - ((price - minPrice) / (maxPrice - minPrice)) * (chartHeight - 2 * paddingY);
                                 
-                                const getX = (i: number) => i * (chartWidth / N) + candleSpacing / 2;
-                                const getY = (price: number) => chartHeight - ((price - minPrice) / (maxPrice - minPrice)) * chartHeight;
+                                const isClosed = row.status?.toLowerCase() === "win" || row.status?.toLowerCase() === "loss";
+                                const lineColor = pctChangeSinceRec >= 0 ? "#10b981" : "#f43f5e";
+                                const exitColor = (row.status || '').toLowerCase() === 'win' ? '#10b981' : '#f43f5e';
                                 
+                                const signalDateStr = new Date(row.created_at).toISOString().split('T')[0];
+                                const exitDateStr = new Date(row.updated_at).toISOString().split('T')[0];
+                                
+                                const entryIdx = shareCandles.findIndex(c => c.date >= signalDateStr);
+                                const exitIdx = isClosed ? shareCandles.findIndex(c => c.date >= exitDateStr) : -1;
+
+                                // Build polyline points
+                                const points = shareCandles.map((c, i) => `${getX(i)},${getY(c.close)}`).join(" ");
+                                
+                                // Build gradient area points
+                                const areaPoints = [
+                                    `${getX(0)},${chartHeight}`,
+                                    ...shareCandles.map((c, i) => `${getX(i)},${getY(c.close)}`),
+                                    `${getX(N - 1)},${chartHeight}`
+                                ].join(" ");
+
                                 return (
                                     <div className="flex flex-col gap-1.5 mt-2">
                                         <span className="text-[9px] text-zinc-500 font-bold uppercase tracking-wider block text-left">
-                                            {isAr ? "أداء السعر (الشموع اليابانية)" : "Price Action (Candlesticks)"}
+                                            {isAr ? "أداء السعر" : "Price Action"}
                                         </span>
                                         <div className="relative h-[120px] w-full bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800/80 rounded-sm overflow-hidden p-1">
                                             <svg width={chartWidth} height={chartHeight} className="overflow-visible">
+                                                <defs>
+                                                    <linearGradient id="chartGradient" x1="0" y1="0" x2="0" y2="1">
+                                                        <stop offset="0%" stopColor={lineColor} stopOpacity="0.25" />
+                                                        <stop offset="100%" stopColor={lineColor} stopOpacity="0.0" />
+                                                    </linearGradient>
+                                                </defs>
+
                                                 {/* Grid Lines */}
                                                 <line x1={0} y1={chartHeight * 0.25} x2={chartWidth} y2={chartHeight * 0.25} stroke={theme === "dark" ? "#18181b" : "#e4e4e7"} strokeWidth={0.5} strokeDasharray="2 2" opacity={theme === "dark" ? 0.3 : 0.6} />
                                                 <line x1={0} y1={chartHeight * 0.5} x2={chartWidth} y2={chartHeight * 0.5} stroke={theme === "dark" ? "#18181b" : "#e4e4e7"} strokeWidth={0.5} strokeDasharray="2 2" opacity={theme === "dark" ? 0.3 : 0.6} />
                                                 <line x1={0} y1={chartHeight * 0.75} x2={chartWidth} y2={chartHeight * 0.75} stroke={theme === "dark" ? "#18181b" : "#e4e4e7"} strokeWidth={0.5} strokeDasharray="2 2" opacity={theme === "dark" ? 0.3 : 0.6} />
                                                 
-                                                {/* Price Lines */}
-                                                {entryPrice > 0 && (() => {
-                                                    const y = getY(entryPrice);
-                                                    return (
-                                                        <>
-                                                            <line x1={0} y1={y} x2={chartWidth} y2={y} stroke="#2dd4bf" strokeWidth={1} strokeDasharray="3 3" opacity={0.6} />
-                                                            <text x={5} y={y - 3} fill="#0d9488" dark-fill="#2dd4bf" fontSize="7" fontWeight="bold">
-                                                                {isAr ? `دخول: ${entryPrice.toFixed(2)}` : `Entry: ${entryPrice.toFixed(2)}`}
-                                                            </text>
-                                                        </>
-                                                    );
-                                                })()}
-                                                
-                                                {targetPrice > 0 && (() => {
-                                                    const y = getY(targetPrice);
-                                                    return (
-                                                        <>
-                                                            <line x1={0} y1={y} x2={chartWidth} y2={y} stroke="#34d399" strokeWidth={1} strokeDasharray="3 3" opacity={0.6} />
-                                                            <text x={chartWidth - 5} y={y - 3} fill="#059669" dark-fill="#34d399" fontSize="7" fontWeight="bold" textAnchor="end">
-                                                                {isAr ? `هدف: ${targetPrice.toFixed(2)}` : `Target: ${targetPrice.toFixed(2)}`}
-                                                            </text>
-                                                        </>
-                                                    );
-                                                })()}
-                                                
-                                                {stopLoss > 0 && (() => {
-                                                    const y = getY(stopLoss);
-                                                    return (
-                                                        <>
-                                                            <line x1={0} y1={y} x2={chartWidth} y2={y} stroke="#fb7185" strokeWidth={1} strokeDasharray="3 3" opacity={0.6} />
-                                                            <text x={5} y={y - 3} fill="#e11d48" dark-fill="#fb7185" fontSize="7" fontWeight="bold">
-                                                                {isAr ? `وقف: ${stopLoss.toFixed(2)}` : `Stop: ${stopLoss.toFixed(2)}`}
-                                                            </text>
-                                                        </>
-                                                    );
-                                                })()}
-                                                
-                                                {/* Candles */}
-                                                {ohlcList.map((c, i) => {
+                                                {/* Area under the line */}
+                                                <polygon
+                                                    points={areaPoints}
+                                                    fill="url(#chartGradient)"
+                                                />
+
+                                                {/* Line Chart */}
+                                                <polyline
+                                                    fill="none"
+                                                    stroke={lineColor}
+                                                    strokeWidth="2.5"
+                                                    strokeLinecap="round"
+                                                    strokeLinejoin="round"
+                                                    points={points}
+                                                />
+
+                                                {/* Markers & Dots */}
+                                                {shareCandles.map((c, i) => {
                                                     const x = getX(i);
-                                                    const yOpen = getY(c.open);
-                                                    const yClose = getY(c.close);
-                                                    const yHigh = getY(c.high);
-                                                    const yLow = getY(c.low);
-                                                    const isBullish = c.close >= c.open;
-                                                    const color = isBullish ? "#10b981" : "#f43f5e";
-                                                    
+                                                    const y = getY(c.close);
+                                                    const isEntry = i === entryIdx;
+                                                    const isExit = i === exitIdx;
+
                                                     return (
                                                         <g key={i}>
-                                                            <line x1={x + candleWidth / 2} y1={yHigh} x2={x + candleWidth / 2} y2={yLow} stroke={color} strokeWidth={1.2} />
-                                                            <rect
-                                                                x={x}
-                                                                y={Math.min(yOpen, yClose)}
-                                                                width={candleWidth}
-                                                                height={Math.max(1.5, Math.abs(yOpen - yClose))}
-                                                                fill={color}
-                                                                stroke={color}
-                                                                strokeWidth={0.5}
-                                                                rx={0.5}
-                                                            />
+                                                            {/* Small dot on every point for cleaner look */}
+                                                            <circle cx={x} cy={y} r="2" fill={lineColor} opacity="0.5" />
+
+                                                            {/* Entry Point */}
+                                                            {isEntry && (
+                                                                <g>
+                                                                    <circle cx={x} cy={y} r="5" fill="#10b981" stroke="#ffffff" strokeWidth="1.5" />
+                                                                    <polygon 
+                                                                        points={`${x},${y + 8} ${x - 3},${y + 13} ${x + 3},${y + 13}`} 
+                                                                        fill="#10b981" 
+                                                                    />
+                                                                    <text 
+                                                                        x={x} 
+                                                                        y={y + 21} 
+                                                                        fill="#10b981" 
+                                                                        fontSize="7" 
+                                                                        fontWeight="black" 
+                                                                        textAnchor="middle"
+                                                                    >
+                                                                        {isAr ? "دخول" : "Buy"}
+                                                                    </text>
+                                                                </g>
+                                                            )}
+
+                                                            {/* Exit Point */}
+                                                            {isExit && (
+                                                                <g>
+                                                                    <circle cx={x} cy={y} r="5" fill={exitColor} stroke="#ffffff" strokeWidth="1.5" />
+                                                                    <polygon 
+                                                                        points={`${x},${y - 8} ${x - 3},${y - 13} ${x + 3},${y - 13}`} 
+                                                                        fill={exitColor} 
+                                                                    />
+                                                                    <text 
+                                                                        x={x} 
+                                                                        y={y - 17} 
+                                                                        fill={exitColor} 
+                                                                        fontSize="7" 
+                                                                        fontWeight="black" 
+                                                                        textAnchor="middle"
+                                                                    >
+                                                                        {isAr ? "خروج" : "Exit"}
+                                                                    </text>
+                                                                </g>
+                                                            )}
                                                         </g>
                                                     );
                                                 })}
                                             </svg>
                                         </div>
                                     </div>
-                                );
                             })() : null}
 
                             {/* Bottom Disclaimer and Website Link */}
@@ -1610,7 +1676,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                     {translate("shareDisclaimer")}
                                 </p>
                                 <span className="text-[10px] font-black text-indigo-600 dark:text-teal-400 tracking-wider">
-                                    stokscan.com
+                                    egxbots.com
                                 </span>
                             </div>
                         </div>

@@ -33,7 +33,7 @@ async function proxyAdminRequest(req: Request, context: { params: { path?: strin
 
   // Forward middleware-injected or client-supplied x-admin-key
   const incomingAdminKey = req.headers.get("x-admin-key");
-  if (incomingAdminKey) {
+  if (incomingAdminKey && incomingAdminKey !== "undefined" && incomingAdminKey !== "null") {
     headers.set("x-admin-key", incomingAdminKey);
   } else if (process.env.ADMIN_SECRET_KEY) {
     headers.set("x-admin-key", process.env.ADMIN_SECRET_KEY);
