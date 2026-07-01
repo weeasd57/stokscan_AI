@@ -19,7 +19,6 @@ COPY symbols_data ./symbols_data
 
 # Hugging Face Spaces expects the app to listen on port 7860 by default.
 ENV PORT=7860
-EXPOSE 7860
+EXPOSE 10000
 
-# Start command pointing to the api package
-CMD ["sh", "-c", "python -m uvicorn api.main:app --host 0.0.0.0 --port ${PORT:-7860}"]
+CMD ["sh", "-c", "python -m uvicorn api.main:app --host 0.0.0.0 --port ${PORT:-10000}"]

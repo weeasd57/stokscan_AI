@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: stokscan-ai-api
+    env: docker
+    region: frankfurt
+    plan: free
+    branch: main
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    envVars:
+      - key: PORT
+        value: "10000"
