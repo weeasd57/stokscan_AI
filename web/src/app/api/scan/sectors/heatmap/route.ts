@@ -12,7 +12,7 @@ export async function GET(req: Request) {
   const incomingUrl = new URL(req.url);
   const search = incomingUrl.searchParams.toString();
 
-  const base = process.env.PYTHON_BACKEND_URL || process.env.NEXT_PUBLIC_API_BASE_URL || (process.env.VERCEL ? "https://weeasdwee-ai-bot.hf.space" : "http://127.0.0.1:8000");
+  const base = process.env.PYTHON_BACKEND_URL || process.env.NEXT_PUBLIC_API_BASE_URL || (process.env.VERCEL ? "https://stokscan-ai-api.onrender.com" : "http://127.0.0.1:8000");
   const targetUrl = `${base.replace(/\/$/, "")}/scan/sectors/heatmap${search ? `?${search}` : ""}`;
 
   const { controller, id } = withTimeout(120_000); // 2 minutes timeout

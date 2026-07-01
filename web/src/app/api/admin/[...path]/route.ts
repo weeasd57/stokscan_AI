@@ -5,7 +5,7 @@ export const runtime = "nodejs";
 const BACKEND_BASE =
   process.env.PYTHON_BACKEND_URL ||
   process.env.NEXT_PUBLIC_API_BASE_URL ||
-  (process.env.VERCEL ? "https://weeasdwee-ai-bot.hf.space" : "http://127.0.0.1:8000");
+  (process.env.VERCEL ? "https://stokscan-ai-api.onrender.com" : "http://127.0.0.1:8000");
 
 function withTimeout(ms: number) {
   const controller = new AbortController();

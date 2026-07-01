@@ -347,13 +347,13 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                 let sliceStart = Math.max(0, sorted.length - 60);
                 if (isClosed && shareRow.updated_at) {
                     const exitDateStr = new Date(shareRow.updated_at).toISOString().split('T')[0];
-                    const exitIdx = sorted.findIndex(c => c.date >= exitDateStr);
+                    const exitIdx = sorted.findIndex((c: any) => c.date >= exitDateStr);
                     if (exitIdx !== -1) {
                         sliceStart = Math.max(0, exitIdx - 15);
                     }
                 } else if (shareRow.created_at) {
                     const signalDateStr = new Date(shareRow.created_at).toISOString().split('T')[0];
-                    const signalIdx = sorted.findIndex(c => c.date >= signalDateStr);
+                    const signalIdx = sorted.findIndex((c: any) => c.date >= signalDateStr);
                     if (signalIdx !== -1) {
                         sliceStart = Math.max(0, signalIdx - 10);
                     }

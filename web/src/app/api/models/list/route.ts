@@ -13,7 +13,7 @@ export async function GET() {
     const base =
       process.env.NEXT_PUBLIC_API_BASE_URL ||
       process.env.PYTHON_BACKEND_URL ||
-      (process.env.VERCEL ? "https://weeasdwee-ai-bot.hf.space" : "http://127.0.0.1:8000");
+      (process.env.VERCEL ? "https://stokscan-ai-api.onrender.com" : "http://127.0.0.1:8000");
 
     const { controller, id } = withTimeout(15_000);
     const res = await fetch(`${base.replace(/\/$/, "")}/admin/models/list`, {

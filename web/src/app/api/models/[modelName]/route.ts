@@ -6,7 +6,7 @@ export async function DELETE(
     const { modelName } = params;
 
     const res = await fetch(
-      `${process.env.PYTHON_BACKEND_URL || process.env.NEXT_PUBLIC_API_BASE_URL || (process.env.VERCEL ? "https://weeasdwee-ai-bot.hf.space" : "http://127.0.0.1:8000")}/admin/models/${encodeURIComponent(modelName)}`,
+      `${process.env.PYTHON_BACKEND_URL || process.env.NEXT_PUBLIC_API_BASE_URL || (process.env.VERCEL ? "https://stokscan-ai-api.onrender.com" : "http://127.0.0.1:8000")}/admin/models/${encodeURIComponent(modelName)}`,
       {
         method: "DELETE",
       }
