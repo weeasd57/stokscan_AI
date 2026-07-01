@@ -24,7 +24,20 @@ async function proxyAdminRequest(req: Request, context: { params: { path?: strin
   const accept = req.headers.get("accept");
   if (contentType) headers.set("content-type", contentType);
   if (accept) headers.set("accept", accept);
-  if (process.env.ADMIN_SECRET_KEY) headers.set("x-admin-key", process.env.ADMIN_SECRET_KEY);
+
+  // Forward authorization if present (client-side auth token)
+  const authHeader = req.headers.get("authorization");
+  if (authHeader) {
+    headers.set("authorization", authHeader);
+  }
+
+  // Forward middleware-injected or client-supplied x-admin-key
+  const incomingAdminKey = req.headers.get("x-admin-key");
+  if (incomingAdminKey) {
+    headers.set("x-admin-key", incomingAdminKey);
+  } else if (process.env.ADMIN_SECRET_KEY) {
+    headers.set("x-admin-key", process.env.ADMIN_SECRET_KEY);
+  }
 
   const init: RequestInit = {
     method: req.method,
