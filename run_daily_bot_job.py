@@ -10,6 +10,7 @@ Usage:
 """
 import os
 import sys
+import time
 import asyncio
 import argparse
 import logging
@@ -50,7 +51,37 @@ logging.basicConfig(
 
 logger = logging.getLogger("daily_bot_job")
 
-from api.daily_bot_run import run_daily_job
+from api.daily_bot_run import run_daily_bot_job as _run_daily_job_inner
+
+
+def _init_telegram_bridge():
+    """Initialize Telegram bridge if ARTORO_AI_BOT token is present and bridge not already running."""
+    try:
+        from api.telegram_bot import get_telegram_bot, start_telegram_bridge
+        if get_telegram_bot():
+            return
+        token = os.getenv("ARTORO_AI_BOT", "").strip()
+        if token:
+            start_telegram_bridge(token, None)
+            logger.info("Telegram bridge initialized for CLI job")
+    except Exception as e:
+        logger.warning(f"Failed to initialize Telegram bridge: {e}")
+
+
+def _flush_telegram_queue(timeout: int = 10):
+    """Wait for the Telegram outbound queue to drain before script termination."""
+    try:
+        from api.telegram_bot import get_telegram_bot
+        bot = get_telegram_bot()
+        if not bot:
+            return
+        deadline = time.time() + timeout
+        while time.time() < deadline and len(bot._queue) > 0:
+            time.sleep(0.5)
+        if len(bot._queue) > 0:
+            logger.warning(f"Telegram queue still has {len(bot._queue)} messages after {timeout}s wait")
+    except Exception as e:
+        logger.warning(f"Telegram queue flush error: {e}")
 
 # ── CLI Argument Parsing ───────────────────────────────────────────────────
 def parse_args():
@@ -90,20 +121,24 @@ if __name__ == "__main__":
     start_time = datetime.now(timezone.utc)
 
     try:
-        asyncio.run(run_daily_job(
+        _init_telegram_bridge()
+        asyncio.run(_run_daily_job_inner(
             dry_run=args.dry_run,
             model_filter=args.model,
             skip_sync=args.skip_sync,
         ))
         elapsed = (datetime.now(timezone.utc) - start_time).total_seconds()
         logger.info(f"✅ Daily Bot Job completed successfully in {elapsed:.1f}s")
+        _flush_telegram_queue(timeout=10)
         sys.exit(0)
 
     except KeyboardInterrupt:
         logger.warning("⚠️  Job interrupted by user (Ctrl+C)")
+        _flush_telegram_queue(timeout=5)
         sys.exit(130)
 
     except Exception as e:
         elapsed = (datetime.now(timezone.utc) - start_time).total_seconds()
         logger.error(f"❌ Daily Bot Job FAILED after {elapsed:.1f}s: {e}", exc_info=True)
+        _flush_telegram_queue(timeout=5)
         sys.exit(1)

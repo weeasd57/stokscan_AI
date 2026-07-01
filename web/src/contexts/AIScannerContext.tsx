@@ -378,7 +378,7 @@ export const AIScannerProvider = ({ children }: { children: ReactNode }) => {
         if (!supabase) return [];
         const { data, error } = await supabase
             .from("scan_results")
-            .select("id, batch_id, user_id, symbol, exchange, name, model_name, country, last_close, precision, signal, status, entry_price, target_price, stop_loss, risk_adjusted_return, is_public, created_at, updated_at, exit_price, profit_loss_pct, top_reasons, adjustments")
+            .select("id, batch_id, user_id, symbol, exchange, name, model_name, country, last_close, precision, signal, status, entry_price, target_price, stop_loss, risk_adjusted_return, is_public, created_at, updated_at, exit_price, profit_loss_pct, top_reasons, adjustments, features")
             .eq("batch_id", batchId)
             .order("precision", { ascending: false });
         if (error) {
@@ -421,9 +421,10 @@ export const AIScannerProvider = ({ children }: { children: ReactNode }) => {
         const dateStr = new Date(latestCreatedAt).toISOString().split('T')[0];
 
         // 2. Fetch results for that specific date (or batch if preferred, but user wants date pagination)
+        // Include features column for fallback extraction of technical_score, fundamental_score, sentiment_score
         const { data: results, error: resultsErr } = await supabase
             .from("scan_results")
-            .select("id, batch_id, user_id, symbol, exchange, name, model_name, country, last_close, precision, signal, status, entry_price, target_price, stop_loss, risk_adjusted_return, is_public, created_at, updated_at, exit_price, profit_loss_pct, top_reasons, adjustments")
+            .select("id, batch_id, user_id, symbol, exchange, name, model_name, country, last_close, precision, signal, status, entry_price, target_price, stop_loss, risk_adjusted_return, is_public, created_at, updated_at, exit_price, profit_loss_pct, top_reasons, adjustments, features")
             .eq("model_name", modelName)
             .gte("created_at", `${dateStr}T00:00:00`)
             .lte("created_at", `${dateStr}T23:59:59`)
@@ -497,7 +498,7 @@ export const AIScannerProvider = ({ children }: { children: ReactNode }) => {
         if (!supabase) return [];
         const { data, error } = await supabase
             .from("scan_results")
-            .select("id, batch_id, user_id, symbol, exchange, name, model_name, country, last_close, precision, signal, status, entry_price, target_price, stop_loss, risk_adjusted_return, is_public, created_at, updated_at, exit_price, profit_loss_pct, top_reasons, adjustments")
+            .select("id, batch_id, user_id, symbol, exchange, name, model_name, country, last_close, precision, signal, status, entry_price, target_price, stop_loss, risk_adjusted_return, is_public, created_at, updated_at, exit_price, profit_loss_pct, top_reasons, adjustments, features")
             .eq("model_name", modelName)
             .eq("is_public", true)
             .gte("created_at", `${date}T00:00:00`)
@@ -566,9 +567,10 @@ export const AIScannerProvider = ({ children }: { children: ReactNode }) => {
         }
 
         if (!supabase) return [];
+        // Include features column for fallback extraction of technical_score, fundamental_score, sentiment_score
         let query = supabase
             .from("scan_results")
-            .select("id, batch_id, user_id, symbol, exchange, name, model_name, country, last_close, precision, signal, status, entry_price, target_price, stop_loss, risk_adjusted_return, is_public, created_at, updated_at, exit_price, profit_loss_pct, top_reasons, adjustments")
+            .select("id, batch_id, user_id, symbol, exchange, name, model_name, country, last_close, precision, signal, status, entry_price, target_price, stop_loss, risk_adjusted_return, is_public, created_at, updated_at, exit_price, profit_loss_pct, top_reasons, adjustments, features")
             .eq("is_public", true)
             .order("created_at", { ascending: false });
 
