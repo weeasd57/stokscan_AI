@@ -1668,6 +1668,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                             </svg>
                                         </div>
                                     </div>
+                                );
                             })() : null}
 
                             {/* Bottom Disclaimer and Website Link */}
