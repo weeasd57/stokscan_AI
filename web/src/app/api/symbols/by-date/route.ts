@@ -1,47 +1,59 @@
 import { NextResponse } from "next/server";
+import { getSupabaseClient } from "@/lib/supabase/route-data";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-function withTimeout(ms: number) {
-  const controller = new AbortController();
-  const id = setTimeout(() => controller.abort(), ms);
-  return { controller, id };
-}
-
 export async function GET(req: Request) {
   const incomingUrl = new URL(req.url);
-  const search = incomingUrl.searchParams.toString();
+  const start = incomingUrl.searchParams.get("start");
+  const end = incomingUrl.searchParams.get("end");
+  const exchange = incomingUrl.searchParams.get("exchange");
+  const limit = parseInt(incomingUrl.searchParams.get("limit") || "50");
+  const searchTerm = incomingUrl.searchParams.get("search_term");
 
-  const base = process.env.PYTHON_BACKEND_URL || process.env.NEXT_PUBLIC_API_BASE_URL || (process.env.VERCEL ? "https://stokscan-ai-api.onrender.com" : "http://127.0.0.1:8000");
-  const targetUrl = `${base.replace(/\/$/, "")}/symbols/by-date${search ? `?${search}` : ""}`;
-
-  const { controller, id } = withTimeout(15_000);
   try {
-    const upstream = await fetch(targetUrl, {
-      method: "GET",
-      headers: { Accept: "application/json" },
-      cache: "no-store",
-      signal: controller.signal,
-    });
+    const supabase = getSupabaseClient();
+    
+    let query = supabase
+      .from('stocks')
+      .select(`
+        symbol,
+        exchange,
+        name,
+        stock_prices(count)
+      `)
+      .eq('is_active', true);
 
-    const contentType = upstream.headers.get("content-type") || "application/json";
-    if (upstream.body) {
-      return new Response(upstream.body, {
-        status: upstream.status,
-        headers: { "content-type": contentType },
-      });
+    if (exchange) {
+      query = query.eq('exchange', exchange);
     }
 
-    const text = await upstream.text();
-    return new Response(text, {
-      status: upstream.status,
-      headers: { "content-type": contentType },
-    });
-  } catch (e: any) {
-    const msg = e?.name === "AbortError" ? "Upstream timeout" : "Upstream request failed";
-    return NextResponse.json({ detail: msg }, { status: 502 });
-  } finally {
-    clearTimeout(id);
+    if (searchTerm) {
+      query = query.or(`symbol.ilike.%${searchTerm}%,name.ilike.%${searchTerm}%`);
+    }
+
+    const { data: stocks, error } = await query
+      .limit(limit)
+      .order('symbol', { ascending: true });
+
+    if (error) {
+      console.error('Supabase error:', error);
+      return NextResponse.json({ error: 'Failed to fetch symbols' }, { status: 500 });
+    }
+
+    // Transform to match expected format
+    const results = stocks?.map(stock => ({
+      symbol: stock.symbol,
+      exchange: stock.exchange,
+      name: stock.name || '',
+      rowCount: stock.stock_prices?.[0]?.count || 0
+    })) || [];
+
+    return NextResponse.json({ results });
+
+  } catch (error) {
+    console.error('API error:', error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

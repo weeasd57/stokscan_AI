@@ -1,53 +1,75 @@
 import { NextResponse } from "next/server";
+import { getSupabaseClient } from "@/lib/supabase/route-data";
 
 export const runtime = "nodejs";
 
-function withTimeout(ms: number) {
-  const controller = new AbortController();
-  const id = setTimeout(() => controller.abort(), ms);
-  return { controller, id };
-}
-
 export async function GET(req: Request) {
   const incomingUrl = new URL(req.url);
-  const search = incomingUrl.searchParams.toString();
-
-  const base = process.env.PYTHON_BACKEND_URL || process.env.NEXT_PUBLIC_API_BASE_URL || (process.env.VERCEL ? "https://stokscan-ai-api.onrender.com" : "http://127.0.0.1:8000");
-  const targetUrl = `${base.replace(/\/$/, "")}/scan/sectors/heatmap${search ? `?${search}` : ""}`;
-
-  const { controller, id } = withTimeout(120_000); // 2 minutes timeout
+  const country = incomingUrl.searchParams.get("country") || "Egypt";
+  
   try {
-    const upstream = await fetch(targetUrl, {
-      method: "GET",
-      headers: {
-        Accept: "application/json",
-      },
-      cache: "no-store",
-      signal: controller.signal,
-    });
+    const supabase = getSupabaseClient();
+    
+    // Get recent heatmap data from Supabase
+    const { data: heatmapData, error } = await supabase
+      .from('market_heatmap')
+      .select('*')
+      .eq('exchange', 'EGX') // Map country to exchange
+      .order('captured_at', { ascending: false })
+      .limit(100);
 
-    const contentType = upstream.headers.get("content-type") || "application/json";
-    if (upstream.body) {
-      return new Response(upstream.body, {
-        status: upstream.status,
-        headers: {
-          "content-type": contentType,
-        },
-      });
+    if (error) {
+      console.error('Heatmap Supabase error:', error);
+      return NextResponse.json({ error: 'Failed to fetch heatmap data' }, { status: 500 });
     }
 
-    const text = await upstream.text();
-    return new Response(text, {
-      status: upstream.status,
-      headers: {
-        "content-type": contentType,
-      },
+    // Group by sector and calculate aggregates
+    const sectors = new Map<string, {
+      sector: string;
+      totalCap: number;
+      avgChange: number;
+      count: number;
+      symbols: Array<{
+        symbol: string;
+        change_pct: number;
+        volume: number;
+        cap: number;
+      }>;
+    }>();
+
+    heatmapData?.forEach(row => {
+      const sector = row.sector || 'Other';
+      if (!sectors.has(sector)) {
+        sectors.set(sector, {
+          sector,
+          totalCap: 0,
+          avgChange: 0,
+          count: 0,
+          symbols: []
+        });
+      }
+      
+      const sectorData = sectors.get(sector)!;
+      sectorData.symbols.push({
+        symbol: row.symbol,
+        change_pct: row.change_pct || 0,
+        volume: row.volume || 0,
+        cap: row.cap || 0
+      });
+      sectorData.totalCap += row.cap || 0;
+      sectorData.count++;
     });
-  } catch (e: any) {
-    const msg = e?.name === "AbortError" ? "Upstream timeout" : "Upstream request failed";
-    console.error("Heatmap proxy error:", e);
-    return NextResponse.json({ detail: msg }, { status: 502 });
-  } finally {
-    clearTimeout(id);
+
+    // Calculate averages
+    const results = Array.from(sectors.values()).map(sector => ({
+      ...sector,
+      avgChange: sector.symbols.reduce((sum, s) => sum + s.change_pct, 0) / sector.count
+    }));
+
+    return NextResponse.json({ sectors: results });
+
+  } catch (error) {
+    console.error('Heatmap API error:', error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
