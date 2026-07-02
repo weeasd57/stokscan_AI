@@ -1,0 +1,51 @@
+name: Daily Bot Job
+
+on:
+  schedule:
+    - cron: '0 13 * * *'
+  workflow_dispatch:
+
+jobs:
+  run-daily-bot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          if [ -f api/requirements.txt ]; then pip install -r api/requirements.txt; fi
+
+      - name: Run daily bot job
+        env:
+          ARTORO_AI_BOT: ${{ secrets.ARTORO_AI_BOT }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_POSTGREST_TIMEOUT: ${{ secrets.SUPABASE_POSTGREST_TIMEOUT }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          EODHD_API_KEY: ${{ secrets.EODHD_API_KEY }}
+          TRADINGVIEW_DEFAULT_MARKET: ${{ secrets.TRADINGVIEW_DEFAULT_MARKET }}
+          TRADINGVIEW_REQUEST_DELAY: ${{ secrets.TRADINGVIEW_REQUEST_DELAY }}
+          TRADINGVIEW_BULK_CHUNK_SIZE: ${{ secrets.TRADINGVIEW_BULK_CHUNK_SIZE }}
+          WEB_ORIGIN: ${{ secrets.WEB_ORIGIN }}
+          TELEGRAM_BOT_USERNAME: ${{ secrets.TELEGRAM_BOT_USERNAME }}
+          ADMIN_SECRET_KEY: ${{ secrets.ADMIN_SECRET_KEY }}
+          NEXT_PUBLIC_ADMIN_KEY: ${{ secrets.NEXT_PUBLIC_ADMIN_KEY }}
+          STOKSCANAI_DISABLE_JOBLIB_CACHE: ${{ secrets.STOKSCANAI_DISABLE_JOBLIB_CACHE }}
+          STOKSCANAI_JOBLIB_CACHE_DIR: ${{ secrets.STOKSCANAI_JOBLIB_CACHE_DIR }}
+          PAYMOB_MERCHANT_ID: ${{ secrets.PAYMOB_MERCHANT_ID }}
+          PAYMOB_HMAC_SECRET: ${{ secrets.PAYMOB_HMAC_SECRET }}
+          PAYMOB_IFRAME_ID: ${{ secrets.PAYMOB_IFRAME_ID }}
+          PAYMOB_INTEGRATION_TYPE: ${{ secrets.PAYMOB_INTEGRATION_TYPE }}
+        run: |
+          python run_daily_bot_job.py
