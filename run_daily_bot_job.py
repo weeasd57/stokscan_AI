@@ -29,6 +29,7 @@ if hasattr(sys.stderr, "reconfigure"):
 
 # Load environment variables
 load_dotenv(os.path.join(project_root, ".env"))
+from api.scripts.update_market_cache import main as update_market_cache
 
 # ── Logging Setup ──────────────────────────────────────────────────────────
 LOG_DIR = os.path.join(project_root, "logs")
@@ -129,6 +130,12 @@ if __name__ == "__main__":
         ))
         elapsed = (datetime.now(timezone.utc) - start_time).total_seconds()
         logger.info(f"✅ Daily Bot Job completed successfully in {elapsed:.1f}s")
+        # Refresh market cache after successful bot execution
+        try:
+            update_market_cache()
+            logger.info("✅ Market cache refreshed successfully")
+        except Exception as e:
+            logger.error(f"❌ Failed to refresh market cache: {e}", exc_info=True)
         _flush_telegram_queue(timeout=10)
         sys.exit(0)
 

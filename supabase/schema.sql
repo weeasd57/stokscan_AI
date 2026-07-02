@@ -1,569 +1,279 @@
--- AI Stocks / Supabase Schema
--- Consolidated and Cleaned up version
--- Run this in Supabase SQL Editor to initialize or repair the schema.
+-- stokscan_ai schema
+-- Generated for migration from FastAPI/HuggingFace to Supabase
+-- Run in Supabase SQL Editor
 
--- Extensions
+-- 0. Extensions
 create extension if not exists pgcrypto;
-create extension if not exists citext;
-create extension if not exists "uuid-ossp";
 
--- Base grants
-grant usage on schema public to anon, authenticated;
-
--- Custom Types
-do $$ begin
-  create type public.symbol_source as enum ('home','ai_scanner','tech_scanner');
-exception when duplicate_object then null; end $$;
-
-do $$ begin
-  create type public.position_status as enum ('open','hit_target','hit_stop','closed_manual');
-exception when duplicate_object then null; end $$;
-
--- Utility Functions
-create or replace function public.set_updated_at()
-returns trigger language plpgsql as $$
-begin
-  new.updated_at = now();
-  return new;
-end;
-$$;
-
--- Core User Tables
-create table if not exists public.profiles (
-  id uuid primary key references auth.users(id) on delete cascade,
-  username citext unique,
-  display_name text,
-  avatar_url text,
-  language text default 'en' check (language in ('en','ar')),
-  default_target_pct numeric(6,2) not null default 10.00,
-  default_stop_pct numeric(6,2) not null default 3.50,
-  telegram_chat_id text,
-  whatsapp_number text,
-  notification_channel text default 'telegram',
-  custom_ai_rules text,
-  gemini_api_key text,
-  openrouter_api_key text,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
-);
-
-create table if not exists public.user_settings (
-  user_id uuid primary key references auth.users(id) on delete cascade,
-  app_state jsonb not null default '{}'::jsonb,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
-);
-
-create table if not exists public.chart_drawings (
-  id uuid primary key default gen_random_uuid(),
-  user_id uuid not null references auth.users(id) on delete cascade,
+-- 1. stocks
+create table if not exists public.stocks (
+  id bigserial primary key,
   symbol text not null,
   exchange text not null,
-  drawings jsonb not null default '[]'::jsonb,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now(),
-  unique (user_id, symbol, exchange)
-);
-
-create table if not exists public.pricing_plans (
-  id text primary key,
-  name text not null,
-  price_monthly_cents int not null default 0,
-  features jsonb not null default '{}'::jsonb,
-  is_active boolean not null default true,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
-);
-
-create table if not exists public.subscriptions (
-  id uuid primary key default gen_random_uuid(),
-  user_id uuid not null references auth.users(id) on delete cascade unique,
-  plan_id text not null references public.pricing_plans(id),
-  status text not null default 'trialing' check (status in ('trialing','active','past_due','canceled')),
-  current_period_start timestamptz,
-  current_period_end timestamptz,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
-);
-
--- Application Tables
-create table if not exists public.positions (
-  id uuid primary key default gen_random_uuid(),
-  user_id uuid not null references auth.users(id) on delete cascade,
-  symbol text not null,
+  country text not null,
+  sector text,
+  currency text default 'EGP',
   name text,
-  source public.symbol_source not null,
-  metadata jsonb not null default '{}'::jsonb,
-  entry_price numeric(18,6),
-  entry_at timestamptz,
-  target_pct numeric(6,2) not null,
-  stop_pct numeric(6,2) not null,
-  target_price numeric(18,6),
-  stop_price numeric(18,6),
-  status public.position_status not null default 'open',
-  status_at timestamptz,
-  status_price numeric(18,6),
-  added_at timestamptz not null default now(),
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+  is_active boolean default true,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now(),
+  unique(symbol, exchange)
 );
+create index if not exists stocks_symbol_exchange_idx on public.stocks(symbol, exchange);
 
-create table if not exists public.position_events (
-  id uuid primary key default gen_random_uuid(),
-  position_id uuid not null references public.positions(id) on delete cascade,
-  user_id uuid not null references auth.users(id) on delete cascade,
-  event_type text not null,
-  event_at timestamptz not null default now(),
-  payload jsonb not null default '{}'::jsonb
-);
-
--- Financial Data Tables
+-- 2. stock_prices
 create table if not exists public.stock_prices (
-    symbol text not null,
-    exchange text not null,
-    date date not null,
-    open numeric(18,6),
-    high numeric(18,6),
-    low numeric(18,6),
-    close numeric(18,6),
-    adjusted_close numeric(18,6),
-    volume bigint,
-    created_at timestamptz not null default now(),
-    primary key (symbol, exchange, date)
+  id bigserial primary key,
+  stock_id bigint not null references public.stocks(id) on delete cascade,
+  symbol text,
+  exchange text,
+  date date not null,
+  open double precision,
+  high double precision,
+  low double precision,
+  close double precision,
+  volume bigint,
+  source text,
+  created_at timestamptz default now(),
+  unique(stock_id, date, source)
 );
+create index if not exists stock_prices_stock_date_idx on public.stock_prices(stock_id, date desc);
+create index if not exists stock_prices_symbol_exchange_date_idx on public.stock_prices(symbol, exchange, date desc);
 
-create table if not exists public.stock_bars_intraday (
-    symbol text not null,
-    exchange text not null,
-    timeframe text not null,
-    ts timestamptz not null,
-    open numeric(18,6),
-    high numeric(18,6),
-    low numeric(18,6),
-    close numeric(18,6),
-    volume bigint,
-    created_at timestamptz not null default now(),
-    primary key (symbol, exchange, timeframe, ts)
+-- 3. technical_indicators
+create table if not exists public.technical_indicators (
+  id bigserial primary key,
+  stock_id bigint not null references public.stocks(id) on delete cascade,
+  date date not null,
+  rsi14 double precision,
+  macd double precision,
+  macd_signal double precision,
+  macd_hist double precision,
+  ema20 double precision,
+  ema50 double precision,
+  sma20 double precision,
+  sma50 double precision,
+  atr14 double precision,
+  volume_ratio double precision,
+  boll_upper double precision,
+  boll_lower double precision,
+  created_at timestamptz default now(),
+  unique(stock_id, date)
 );
+create index if not exists technical_indicators_stock_date_idx on public.technical_indicators(stock_id, date desc);
 
-create table if not exists public.stock_fundamentals (
-    symbol text not null,
-    exchange text not null,
-    data jsonb not null default '{}'::jsonb,
-    fund_score numeric(10,4),
-    updated_at timestamptz not null default now(),
-    primary key (symbol, exchange)
-);
-
-create table if not exists public.alpaca_assets_cache (
-    symbol text not null,
-    exchange text not null,
-    asset_class text not null,
-    name text,
-    status text,
-    tradable boolean,
-    marginable boolean,
-    shortable boolean,
-    easy_to_borrow boolean,
-    fractionable boolean,
-    raw jsonb not null default '{}'::jsonb,
-    updated_at timestamptz not null default now(),
-    primary key (symbol, exchange, asset_class)
-);
-
+-- 3b. Route-compatible technical snapshot table
 create table if not exists public.stock_technical_indicators (
-    symbol text not null,
-    exchange text not null,
-    date date not null,
-    close numeric(18,6),
-    volume bigint,
-    ema_20 numeric(18,6),
-    ema_50 numeric(18,6),
-    ema_200 numeric(18,6),
-    sma_20 numeric(18,6),
-    sma_50 numeric(18,6),
-    sma_200 numeric(18,6),
-    rsi_14 numeric(10,4),
-    rsi_9 numeric(10,4),
-    macd numeric(18,6),
-    macd_signal numeric(18,6),
-    macd_histogram numeric(18,6),
-    momentum_10 numeric(10,4),
-    roc_12 numeric(10,4),
-    atr_14 numeric(18,6),
-    bb_upper numeric(18,6),
-    bb_middle numeric(18,6),
-    bb_lower numeric(18,6),
-    adx_14 numeric(10,4),
-    plus_di numeric(10,4),
-    minus_di numeric(10,4),
-    stoch_k numeric(10,4),
-    stoch_d numeric(10,4),
-    vol_sma20 bigint,
-    vwap_20 numeric(18,6),
-    r_vol numeric(10,4),
-    cci_20 numeric(10,4),
-    change_pct numeric(10,4),
-    calculated_at timestamptz not null default now(),
-    primary key (symbol, exchange, date)
+  id bigserial primary key,
+  symbol text not null,
+  exchange text not null,
+  close double precision,
+  rsi_14 double precision,
+  ema_50 double precision,
+  ema_200 double precision,
+  momentum_10 double precision,
+  atr_14 double precision,
+  adx_14 double precision,
+  stoch_k double precision,
+  stoch_d double precision,
+  cci_20 double precision,
+  vwap_20 double precision,
+  roc_12 double precision,
+  volume double precision,
+  volume_sma_20 double precision,
+  change_pct double precision,
+  updated_at timestamptz default now(),
+  unique(symbol, exchange)
+);
+create index if not exists stock_technical_indicators_symbol_exchange_idx on public.stock_technical_indicators(symbol, exchange);
+
+-- 4. ai_scores
+create table if not exists public.ai_scores (
+  id bigserial primary key,
+  stock_id bigint not null references public.stocks(id) on delete cascade,
+  model_name text not null,
+  score double precision not null,
+  direction text not null,
+  confidence double precision,
+  predicted_at timestamptz default now(),
+  for_date date,
+  details jsonb,
+  unique(stock_id, model_name, for_date)
+);
+create index if not exists ai_scores_stock_model_date_idx on public.ai_scores(stock_id, model_name, for_date);
+
+-- 5. historical_similarity
+create table if not exists public.historical_similarity (
+  id bigserial primary key,
+  stock_id bigint not null references public.stocks(id) on delete cascade,
+  scanned_at timestamptz default now(),
+  similar_patterns jsonb not null,
+  stats jsonb
+);
+create index if not exists historical_similarity_stock_idx on public.historical_similarity(stock_id, scanned_at desc);
+
+-- 6. backtests
+create table if not exists public.backtests (
+  id text primary key,
+  exchange text not null,
+  model text not null,
+  status text default 'running',
+  params jsonb,
+  summary jsonb,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+create index if not exists backtests_exchange_idx on public.backtests(exchange);
+
+-- 7. backtest_trades
+create table if not exists public.backtest_trades (
+  id bigserial primary key,
+  backtest_id text not null references public.backtests(id) on delete cascade,
+  stock_id bigint references public.stocks(id),
+  entry_date date,
+  exit_date date,
+  direction text,
+  pnl double precision,
+  return_pct double precision,
+  metadata jsonb,
+  created_at timestamptz default now()
+);
+create index if not exists backtest_trades_backtest_idx on public.backtest_trades(backtest_id);
+
+-- 8. market_heatmap
+create table if not exists public.market_heatmap (
+  id bigserial primary key,
+  exchange text not null,
+  sector text,
+  symbol text not null,
+  change_pct double precision,
+  volume double precision,
+  cap double precision,
+  source text,
+  captured_at timestamptz default now(),
+  unique(exchange, symbol, captured_at)
+);
+create index if not exists market_heatmap_exchange_sector_idx on public.market_heatmap(exchange, sector, captured_at desc);
+
+-- 9. market_sectors_timeline
+create table if not exists public.market_sectors_timeline (
+  id bigserial primary key,
+  exchange text not null,
+  sector text not null,
+  date date not null,
+  avg_return double precision,
+  advance_count integer,
+  decline_count integer,
+  source text,
+  unique(exchange, sector, date)
 );
 
--- Bot Infrastructure Tables
-create table if not exists public.bot_configs (
-    bot_id text primary key,
-    name text,
-    config jsonb not null default '{}'::jsonb,
-    updated_at timestamptz not null default now()
+-- 10. news
+create table if not exists public.news (
+  id bigserial primary key,
+  stock_id bigint references public.stocks(id) on delete cascade,
+  title text not null,
+  url text,
+  source text,
+  published_at timestamptz,
+  sentiment_score double precision,
+  sentiment_label text,
+  created_at timestamptz default now()
 );
+create index if not exists news_stock_published_idx on public.news(stock_id, published_at desc);
 
-create table if not exists public.bot_states (
-    bot_id text primary key,
-    state jsonb not null default '{}'::jsonb,
-    updated_at timestamptz not null default now()
+-- 11. scan_alerts
+create table if not exists public.scan_alerts (
+  id bigserial primary key,
+  user_id text,
+  symbol text not null,
+  exchange text not null,
+  condition jsonb not null,
+  is_active boolean default true,
+  last_triggered_at timestamptz,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
 );
+create index if not exists scan_alerts_user_idx on public.scan_alerts(user_id);
 
-create table if not exists public.bot_trades (
-    id uuid primary key default gen_random_uuid(),
-    bot_id text not null,
-    "timestamp" timestamptz not null default now(),
-    symbol text not null,
-    action text not null,
-    amount numeric(18,6),
-    price numeric(18,6),
-    entry_price numeric(18,6),
-    pnl numeric(18,6),
-    king_conf numeric(10,4),
-    council_conf numeric(10,4),
-    order_id text unique, -- FIXED: Added UNIQUE constraint
-    metadata jsonb not null default '{}'::jsonb,
-    created_at timestamptz not null default now()
-);
-
-create table if not exists public.bot_logs (
-    id uuid primary key default gen_random_uuid(),
-    bot_id text not null,
-    "timestamp" timestamptz not null default now(),
-    level text not null default 'INFO',
-    message text not null,
-    metadata jsonb default '{}'::jsonb
-);
-
-create table if not exists public.bot_daily_performance (
-    id uuid primary key default gen_random_uuid(),
-    date date not null,
-    bot_id text not null default 'primary',
-    trades_count integer default 0,
-    wins integer default 0,
-    losses integer default 0,
-    total_pnl numeric(20,2) default 0,
-    starting_balance numeric(20,2),
-    ending_balance numeric(20,2),
-    daily_return_pct numeric(10,4),
-    max_drawdown_pct numeric(10,4),
-    metadata jsonb,
-    created_at timestamptz default now(),
-    updated_at timestamptz default now(),
-    unique (date, bot_id)
-);
-
-create table if not exists public.bot_alerts (
-    id uuid primary key default gen_random_uuid(),
-    timestamp timestamptz not null default now(),
-    bot_id text not null default 'primary',
-    alert_type text not null,
-    severity text not null,
-    message text not null,
-    metadata jsonb,
-    acknowledged boolean default false,
-    created_at timestamptz default now()
-);
-
-create table if not exists public.bot_subscriptions (
-    id uuid primary key default gen_random_uuid(),
-    user_id uuid not null references auth.users(id) on delete cascade,
-    bot_id text not null default 'stock_score',
-    service_type text not null default 'stock_score' check (service_type in ('stock_score','historical_similarity','technical_scanner','ai_bot')),
-    notifications_enabled boolean not null default true,
-    telegram_chat_id text,
-    target_pct numeric(6,2),
-    stop_loss_pct numeric(6,2),
-    max_open_positions int,
-    pct_cash_per_trade numeric(6,2),
-    created_at timestamptz not null default now(),
-    updated_at timestamptz not null default now(),
-    unique (user_id, bot_id)
-);
-
--- Add service_type column if table already existed without it
-alter table public.bot_subscriptions
-    add column if not exists service_type text not null default 'stock_score'
-    check (service_type in ('stock_score','historical_similarity','technical_scanner','ai_bot'));
-
--- Partial unique index: one subscription per service per user (except ai_bot which uses bot_id)
-create unique index if not exists bot_subscriptions_user_service_unique on public.bot_subscriptions (user_id, service_type) where service_type != 'ai_bot';
-
--- Scan Results
+-- 12. scan_results
 create table if not exists public.scan_results (
-    id uuid primary key default gen_random_uuid(),
-    batch_id uuid not null default gen_random_uuid(),
-    user_id uuid references auth.users(id) on delete cascade,
-    symbol text not null,
-    exchange text not null,
-    name text,
-    model_name text not null,
-    country text not null,
-    last_close numeric(18,6) not null,
-    precision numeric(10,4),
-    signal text,
-    top_reasons jsonb default '[]'::jsonb,
-    rich_details jsonb default '[]'::jsonb,
-    is_public boolean default false,
-    from_date date,
-    to_date date,
-    scanned_count int default 0,
-    duration_ms int default 0,
-    status text default 'open' check (status in ('open', 'win', 'loss')),
-    entry_price numeric(18,6),
-    exit_price numeric(18,6),
-    profit_loss_pct numeric(10,4),
-    target_price numeric(18,6),
-    stop_loss numeric(18,6),
-    risk_adjusted_return numeric(10,4),
-    logo_url text,
-    features jsonb,
-    source text default 'scan',
-    created_at timestamptz not null default now(),
-    updated_at timestamptz not null default now()
+  id bigserial primary key,
+  symbol text not null,
+  exchange text not null,
+  name text,
+  last_close double precision,
+  precision double precision,
+  signal text,
+  top_reasons jsonb,
+  council_score double precision,
+  consensus_ratio text,
+  updated_at timestamptz default now(),
+  unique(symbol, exchange)
+);
+create index if not exists scan_results_symbol_exchange_idx on public.scan_results(symbol, exchange);
+
+-- 12. subscriptions
+create table if not exists public.subscriptions (
+  id bigserial primary key,
+  user_id text not null,
+  symbol text not null,
+  exchange text not null,
+  meta jsonb,
+  created_at timestamptz default now(),
+  unique(user_id, symbol, exchange)
 );
 
--- Historical Similarity Tables
-create table if not exists public.similarity_cases (
-    id uuid primary key default gen_random_uuid(),
-    name text not null,
-    symbol text not null,
-    k int not null default 10,
-    forward_days int not null default 10,
-    target_return numeric(10,4) default 0.05,
-    stop_loss numeric(10,4) default -0.03,
-    features jsonb default '[]'::jsonb,
-    search_scope text default 'same_symbol',
-    created_at timestamptz not null default now(),
-    updated_at timestamptz not null default now()
+-- 13. model_metadata
+create table if not exists public.model_metadata (
+  id bigserial primary key,
+  name text primary key,
+  exchange text,
+  accuracy double precision,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now(),
+  metadata jsonb
 );
 
-create table if not exists public.similarity_reports (
-    id uuid primary key default gen_random_uuid(),
-    name text not null default 'Market Similarity Report',
-    scans jsonb not null default '[]'::jsonb,
-    k int not null default 10,
-    forward_days int not null default 10,
-    target_return numeric(10,4) default 0.05,
-    stop_loss numeric(10,4) default -0.03,
-    updated_at timestamptz not null default now()
+-- 14. daily_job_logs
+create table if not exists public.daily_job_logs (
+  id bigserial primary key,
+  exchange text not null,
+  model text not null,
+  status text not null,
+  started_at timestamptz default now(),
+  finished_at timestamptz,
+  summary jsonb
+);
+create index if not exists daily_job_logs_exchange_idx on public.daily_job_logs(exchange, started_at desc);
+
+-- 15. Fundamentals compatibility table and helpers
+create table if not exists public.stock_fundamentals (
+  id bigserial primary key,
+  symbol text not null,
+  exchange text not null,
+  data jsonb not null,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now(),
+  unique(symbol, exchange)
 );
 
--- Stock News Sentiment (Phase 12 — Daily News & Sentiment Analysis)
-create table if not exists public.stock_news_sentiment (
-    id uuid primary key default gen_random_uuid(),
-    symbol text not null,
-    exchange text not null default 'EGX',
-    date date not null default current_date,
-    sentiment_score numeric(6,4) not null default 0.0,
-    news_count int not null default 0,
-    negative_flag int not null default 0 check (negative_flag in (0, 1)),
-    positive_flag int not null default 0 check (positive_flag in (0, 1)),
-    headlines jsonb not null default '[]'::jsonb,
-    sources jsonb not null default '[]'::jsonb,
-    created_at timestamptz not null default now(),
-    unique(symbol, date)
-);
+create or replace function public.get_active_countries()
+returns table(country text)
+language sql
+security definer
+as $$
+  with uniq_countries as (
+    select distinct trim(both ' ' from lower(data->>'country')) as country
+    from public.stock_fundamentals
+    where data->>'country' is not null
+      and trim(both ' ' from data->>'country') <> ''
+  )
+  select country
+  from uniq_countries
+  where country is not null
+  order by country asc;
+$$;
 
--- Daily Job Runs Tracking
-create table if not exists public.daily_job_runs (
-    id uuid primary key default gen_random_uuid(),
-    job_type text not null default 'daily_bot',
-    status text not null default 'running' check (status in ('running', 'completed', 'failed')),
-    started_at timestamptz not null default now(),
-    completed_at timestamptz,
-    steps jsonb not null default '[]'::jsonb,
-    total_symbols int default 0,
-    error text,
-    schedule_time text,
-    trigger text default 'manual' check (trigger in ('manual', 'scheduled', 'cron')),
-    created_at timestamptz not null default now()
-);
-
--- Computed market data cache (heatmap, sector timeline, etc.)
-create table if not exists public.market_cache (
-    cache_key text not null,
-    country text not null default 'Egypt',
-    payload jsonb not null,
-    computed_at timestamptz not null default now(),
-    primary key (cache_key, country)
-);
-
--- Triggers for updated_at
-create trigger trg_profiles_updated_at before update on public.profiles for each row execute function public.set_updated_at();
-create trigger trg_user_settings_updated_at before update on public.user_settings for each row execute function public.set_updated_at();
-create trigger trg_chart_drawings_updated_at before update on public.chart_drawings for each row execute function public.set_updated_at();
-create trigger trg_pricing_plans_updated_at before update on public.pricing_plans for each row execute function public.set_updated_at();
-create trigger trg_subscriptions_updated_at before update on public.subscriptions for each row execute function public.set_updated_at();
-create trigger trg_positions_updated_at before update on public.positions for each row execute function public.set_updated_at();
-create trigger trg_bot_configs_updated_at before update on public.bot_configs for each row execute function public.set_updated_at();
-create trigger trg_bot_states_updated_at before update on public.bot_states for each row execute function public.set_updated_at();
-create trigger trg_bot_daily_performance_updated_at before update on public.bot_daily_performance for each row execute function public.set_updated_at();
-
--- Indexes
-create index if not exists idx_bot_trades_bot_id on public.bot_trades(bot_id);
-create index if not exists idx_chart_drawings_user_symbol_exchange on public.chart_drawings(user_id, symbol, exchange);
-create index if not exists idx_bot_trades_symbol on public.bot_trades(symbol);
-create index if not exists idx_bot_trades_timestamp on public.bot_trades("timestamp" desc);
-create index if not exists idx_bot_logs_bot_id on public.bot_logs(bot_id);
-create index if not exists idx_bot_logs_timestamp on public.bot_logs("timestamp" desc);
-create index if not exists idx_bot_daily_performance_date on public.bot_daily_performance(date desc);
-create index if not exists idx_bot_alerts_timestamp on public.bot_alerts(timestamp desc);
-create index if not exists idx_stock_news_sentiment_symbol on public.stock_news_sentiment(symbol);
-create index if not exists idx_stock_news_sentiment_symbol_date on public.stock_news_sentiment(symbol, date desc);
-create index if not exists idx_stock_news_sentiment_date on public.stock_news_sentiment(date desc);
-
--- RPC Functions and Helper Logic
--- (Include the ones needed by the app here, like evaluate_position, get_leaderboard, handle_new_user, etc.)
--- ... [Omitting full body of complex functions for brevity in this cleanup, but they should remain in the actual file if user wants to keep them] ...
--- Actually, I'll include the ones I saw in the file previously.
-
--- [Include evaluate_position, get_leaderboard, handle_new_user etc here if fully consolidated]
-
--- RLS Policies
-alter table public.profiles enable row level security;
-alter table public.user_settings enable row level security;
-alter table public.chart_drawings enable row level security;
-alter table public.pricing_plans enable row level security;
-alter table public.subscriptions enable row level security;
-alter table public.positions enable row level security;
-alter table public.position_events enable row level security;
-alter table public.stock_prices enable row level security;
-alter table public.stock_bars_intraday enable row level security;
-alter table public.stock_fundamentals enable row level security;
-alter table public.alpaca_assets_cache enable row level security;
-alter table public.stock_technical_indicators enable row level security;
-alter table public.bot_trades enable row level security;
-alter table public.bot_logs enable row level security;
-alter table public.bot_configs enable row level security;
-alter table public.bot_states enable row level security;
-alter table public.scan_results enable row level security;
-
--- Simple "Allow All" policies for Bot/Admin tables (usually used with service role)
-create policy "allow_all_trades" on public.bot_trades for all using (true);
-create policy "allow_all_logs" on public.bot_logs for all using (true);
-create policy "allow_all_configs" on public.bot_configs for all using (true);
-create policy "allow_all_states" on public.bot_states for all using (true);
-
-create policy "users_manage_own_chart_drawings_select" on public.chart_drawings
-for select to authenticated
-using (auth.uid() = user_id);
-
-create policy "users_manage_own_chart_drawings_insert" on public.chart_drawings
-for insert to authenticated
-with check (auth.uid() = user_id);
-
-create policy "users_manage_own_chart_drawings_update" on public.chart_drawings
-for update to authenticated
-using (auth.uid() = user_id)
-with check (auth.uid() = user_id);
-
-create policy "users_manage_own_chart_drawings_delete" on public.chart_drawings
-for delete to authenticated
-using (auth.uid() = user_id);
-
-grant all on public.bot_trades to anon, authenticated, service_role;
-grant all on public.bot_logs to anon, authenticated, service_role;
-grant all on public.bot_configs to anon, authenticated, service_role;
-grant all on public.bot_states to anon, authenticated, service_role;
-
-alter table public.similarity_cases enable row level security;
-alter table public.similarity_reports enable row level security;
-alter table public.daily_job_runs enable row level security;
-alter table public.stock_news_sentiment enable row level security;
-
-alter table if exists public.technical_alerts enable row level security;
-alter table if exists public.backtests enable row level security;
-
-create policy "allow_all_similarity_cases" on public.similarity_cases for all using (true);
-create policy "allow_all_similarity_reports" on public.similarity_reports for all using (true);
-create policy "allow_all_daily_job_runs" on public.daily_job_runs for all using (true);
-create policy "allow_all_stock_news_sentiment" on public.stock_news_sentiment for all using (true);
-
-do $$ begin
-  if to_regclass('public.technical_alerts') is not null then
-    if not exists (
-      select 1 from pg_policies
-      where schemaname = 'public' and tablename = 'technical_alerts' and policyname = 'users_select_own_technical_alerts'
-    ) then
-      execute 'create policy "users_select_own_technical_alerts" on public.technical_alerts for select to authenticated using (auth.uid() = user_id)';
-    end if;
-
-    if not exists (
-      select 1 from pg_policies
-      where schemaname = 'public' and tablename = 'technical_alerts' and policyname = 'users_insert_own_technical_alerts'
-    ) then
-      execute 'create policy "users_insert_own_technical_alerts" on public.technical_alerts for insert to authenticated with check (auth.uid() = user_id)';
-    end if;
-
-    if not exists (
-      select 1 from pg_policies
-      where schemaname = 'public' and tablename = 'technical_alerts' and policyname = 'users_update_own_technical_alerts'
-    ) then
-      execute 'create policy "users_update_own_technical_alerts" on public.technical_alerts for update to authenticated using (auth.uid() = user_id) with check (auth.uid() = user_id)';
-    end if;
-
-    if not exists (
-      select 1 from pg_policies
-      where schemaname = 'public' and tablename = 'technical_alerts' and policyname = 'users_delete_own_technical_alerts'
-    ) then
-      execute 'create policy "users_delete_own_technical_alerts" on public.technical_alerts for delete to authenticated using (auth.uid() = user_id)';
-    end if;
-  end if;
-end $$;
-
-do $$ begin
-  if to_regclass('public.backtests') is not null then
-    if not exists (
-      select 1 from pg_policies
-      where schemaname = 'public' and tablename = 'backtests' and policyname = 'authenticated_select_public_backtests'
-    ) then
-      execute 'create policy "authenticated_select_public_backtests" on public.backtests for select to authenticated using (is_public = true)';
-    end if;
-
-    if not exists (
-      select 1 from pg_policies
-      where schemaname = 'public' and tablename = 'backtests' and policyname = 'admins_select_all_backtests'
-    ) then
-      execute 'create policy "admins_select_all_backtests" on public.backtests for select to authenticated using ((auth.jwt() ->> ''email'') in (''weeeessd57@gmail.com'', ''weeasd57@gmail.com''))';
-    end if;
-  end if;
-end $$;
-
-grant all on public.similarity_cases to anon, authenticated, service_role;
-grant all on public.similarity_reports to anon, authenticated, service_role;
-grant all on public.daily_job_runs to anon, authenticated, service_role;
-grant all on public.stock_news_sentiment to anon, authenticated, service_role;
-
-do $$ begin
-  if to_regclass('public.technical_alerts') is not null then
-    execute 'grant select, insert, update, delete on public.technical_alerts to authenticated';
-  end if;
-
-  if to_regclass('public.backtests') is not null then
-    execute 'grant select on public.backtests to authenticated';
-  end if;
-end $$;
-
--- Market cache table
-alter table public.market_cache enable row level security;
-create policy "allow_all_market_cache" on public.market_cache for all using (true);
-grant all on public.market_cache to anon, authenticated, service_role;
-create index if not exists idx_market_cache_key_country on public.market_cache(cache_key, country);
-
-create index if not exists idx_daily_job_runs_started on public.daily_job_runs(started_at desc);
-
--- ... [Other policies as needed] ...
+grant execute on function public.get_active_countries() to anon;
+grant execute on function public.get_active_countries() to authenticated;

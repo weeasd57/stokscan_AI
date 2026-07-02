@@ -1,63 +1,103 @@
 import { NextResponse } from "next/server";
+import { getSupabaseClient, toNumber } from "@/lib/supabase/route-data";
 
 export const runtime = "nodejs";
 
-function withTimeout(ms: number) {
-  const controller = new AbortController();
-  const id = setTimeout(() => controller.abort(), ms);
-  return { controller, id };
-}
-
 export async function POST(req: Request) {
-  const incomingUrl = new URL(req.url);
-  const search = incomingUrl.searchParams.toString();
-
-  const base = process.env.PYTHON_BACKEND_URL || process.env.NEXT_PUBLIC_API_BASE_URL || (process.env.VERCEL ? "https://stokscan-ai-api.onrender.com" : "http://127.0.0.1:8000");
-  const targetUrl = `${base.replace(/\/$/, "")}/scan/technical${search ? `?${search}` : ""}`;
-
-  let bodyText = "{}";
   try {
-    const t = await req.text();
-    bodyText = t && t.trim().length ? t : "{}";
-  } catch {
-    // keep default {}
-  }
+    const body = await req.json();
+    const {
+      country = "Egypt",
+      limit = 50,
+      rsi_min,
+      rsi_max,
+      min_price,
+      above_ema50,
+      above_ema200,
+      adx_min,
+      adx_max,
+      sector,
+    } = body;
 
-  const { controller, id } = withTimeout(300_000);
-  try {
-    const upstream = await fetch(targetUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": req.headers.get("content-type") || "application/json",
-        Accept: req.headers.get("accept") || "application/json",
-      },
-      body: bodyText,
-      cache: "no-store",
-      signal: controller.signal,
-    });
+    const supabase = getSupabaseClient();
 
-    const contentType = upstream.headers.get("content-type") || "application/json";
-    if (upstream.body) {
-      return new Response(upstream.body, {
-        status: upstream.status,
-        headers: {
-          "content-type": contentType,
-        },
-      });
+    // Get technical indicators from Supabase
+    let query = supabase
+      .from('stock_technical_indicators')
+      .select(`
+        symbol,
+        exchange,
+        close,
+        rsi_14,
+        ema_50,
+        ema_200,
+        atr_14,
+        adx_14,
+        stoch_k,
+        stoch_d,
+        volume,
+        volume_sma_20,
+        change_pct
+      `);
+
+    // Apply filters
+    if (rsi_min !== undefined) {
+      query = query.gte('rsi_14', rsi_min);
+    }
+    if (rsi_max !== undefined) {
+      query = query.lte('rsi_14', rsi_max);
+    }
+    if (min_price !== undefined) {
+      query = query.gte('close', min_price);
+    }
+    if (adx_min !== undefined) {
+      query = query.gte('adx_14', adx_min);
     }
 
-    const text = await upstream.text();
-    return new Response(text, {
-      status: upstream.status,
-      headers: {
-        "content-type": contentType,
-      },
+    const { data: indicators, error } = await query
+      .limit(limit)
+      .order('symbol', { ascending: true });
+
+    if (error) {
+      console.error('Technical scan Supabase error:', error);
+      return NextResponse.json({ error: 'Failed to scan technical indicators' }, { status: 500 });
+    }
+
+    // Apply EMA filters in JS (complex logic)
+    let results = indicators || [];
+    
+    if (above_ema50) {
+      results = results.filter(s => s.close > s.ema_50);
+    }
+    if (above_ema200) {
+      results = results.filter(s => s.close > s.ema_200);
+    }
+
+    // Transform to expected format
+    const scanned = results.map(stock => ({
+      symbol: stock.symbol,
+      name: stock.symbol, // Fallback to symbol
+      last_close: toNumber(stock.close),
+      rsi: toNumber(stock.rsi_14),
+      volume: toNumber(stock.volume),
+      ema50: toNumber(stock.ema_50),
+      ema200: toNumber(stock.ema_200),
+      momentum: toNumber(stock.change_pct),
+      atr14: toNumber(stock.atr_14),
+      adx14: toNumber(stock.adx_14),
+      stoch_k: toNumber(stock.stoch_k),
+      stoch_d: toNumber(stock.stoch_d),
+      change_p: toNumber(stock.change_pct)
+    }));
+
+    return NextResponse.json({
+      results: scanned,
+      scanned_count: scanned.length
     });
-  } catch (e: any) {
-    const msg = e?.name === "AbortError" ? "Upstream timeout" : "Upstream request failed";
-    return NextResponse.json({ detail: msg }, { status: 502 });
-  } finally {
-    clearTimeout(id);
+
+  } catch (error) {
+    console.error('Technical scan API error:', error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
 

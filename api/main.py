@@ -1953,6 +1953,34 @@ def symbols_by_date(
 
 
 
+    import datetime as _dt
+    CACHE_TTL_SECONDS = 6 * 3600  # 6 hours
+    cache_key = f"symbols_by_date_{exchange}_{start}_{end}_{limit}"
+    cache_country = exchange or "ALL"
+
+    # --- Read from cache (skip when search_term is provided) ---
+    if not search_term:
+        try:
+            _cache_res = (
+                supabase.table("market_cache")
+                .select("payload, computed_at")
+                .eq("cache_key", cache_key)
+                .eq("country", cache_country)
+                .limit(1)
+                .execute()
+            )
+            if _cache_res.data:
+                _row = _cache_res.data[0]
+                _computed_ts = _dt.datetime.fromisoformat(
+                    _row["computed_at"].replace("Z", "+00:00")
+                ).timestamp()
+                _age = _dt.datetime.utcnow().timestamp() - _computed_ts
+                if _age < CACHE_TTL_SECONDS:
+                    print(f"[CACHE HIT] symbols_by_date {cache_key}")
+                    return _row["payload"]
+        except Exception as _ce:
+            print(f"[CACHE] symbols_by_date read failed (will recompute): {_ce}")
+
     try:
 
         # Use RPC to efficiently get unique symbols with price data in the date range
@@ -2101,7 +2129,25 @@ def symbols_by_date(
 
         symbols_to_process.sort(key=lambda x: x["symbol"])
 
-        return {"results": symbols_to_process}
+        result = {"results": symbols_to_process}
+
+        # --- Write to cache (only if no search_term) ---
+        if not search_term:
+            try:
+                supabase.table("market_cache").upsert(
+                    {
+                        "cache_key": cache_key,
+                        "country": cache_country,
+                        "payload": result,
+                        "computed_at": _dt.datetime.utcnow().isoformat() + "Z",
+                    },
+                    on_conflict="cache_key,country",
+                ).execute()
+                print(f"[CACHE WRITE] symbols_by_date {cache_key}")
+            except Exception as we:
+                print(f"[CACHE] symbols_by_date write failed: {we}")
+
+        return result
 
     except Exception as e:
 

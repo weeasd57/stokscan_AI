@@ -1,3 +1,72 @@
+# Phase 0: Backend Independence Migration (Vercel + Supabase + Hugging Face Daily Worker)
+
+**Priority: HIGH - Remove dependency on any always-on backend for user requests**
+
+**الهدف:** الاعتماد على Vercel + Supabase لكل طلبات المستخدمين، مع استخدام Hugging Face كـ daily automation worker فقط يكتب النتائج في Supabase مرة يومياً.
+
+**المعمارية النهائية:**
+- Vercel -> Supabase: كل طلبات الموقع والواجهة تقرأ من Supabase مباشرة.
+- Hugging Face -> Supabase: الأتمتة اليومية فقط، تحسب البيانات والمؤشرات والـ AI scores وتخزنها في Supabase.
+- لا Render، لا FastAPI backend للطلبات اليومية من المستخدمين، ولا GitHub Actions بسبب قفل الحساب billing lock.
+
+---
+
+## 📋 قائمة الـ Endpoints المستخرجة (179 endpoint)
+
+### التصنيف:
+| الفئة | عدد | مثال |
+|---|---|---|
+| **قراءة/عرض (READ)** | ~80 | `/symbols/search`, `/price`, `/news`, `/market/status` |
+| **حساب فوري (COMPUTE)** | ~30 | `/predict`, `/backtest/simulate`, `/scan/ai`, `/scan/technical` |
+| **كتابة/إعدادات (WRITE)** | ~25 | `/admin/config`, `/admin/update_batch`, `/daily-jobs/trigger` |
+| **AI/ML Models** | ~10 | `/adaptive/recommendation`, `/ai-brain/simulate`, `/models/*` |
+| **إدارة/ monitoring** | ~34 | `/admin/train/*`, `/admin/db-symbols/*`, `/telegram/*` |
+
+---
+
+## مراحل التنفيذ:
+
+### المرحلة 1: جرد وظائف الـ Backend الحالي ✅
+- [x] عمل قائمة بكل Endpoint وتصنيفه
+- [x] استخراج جميع مسارات FastAPI وفلترتها (قراءة/كتابة/حساب/AI)
+
+### المرحلة 2: تصميم schema لقاعدة بيانات Supabase
+- [ ] إنشاء جداول: stocks، stock_prices، technical_indicators، ai_scores، historical_similarity، backtests، market_heatmap، news، sectors
+- [ ] إنشاء RPCs للعمليات المعقدة
+
+### المرحلة 3: Hugging Face كـ Daily Engine
+- [ ] تثبيت `run_daily_bot_job.py` كمسار التشغيل اليومي على Hugging Face
+- [ ] التأكد أن Hugging Face يكتب النتائج النهائية في Supabase فقط
+- [ ] حساب المؤشرات الفنية يومياً (RSI، MACD، EMA، ATR، Volume)
+- [ ] حساب AI Scores يومياً وتخزينها في Supabase
+
+### المرحلة 4: تحويل Next.js API routes
+- [ ] تحويل API routes من FastAPI لاستعلامات Supabase مباشرة
+- [ ] تحديث الواجهة للقراءة فقط من Supabase بدون FastAPI
+
+### المرحلة 5: الحسابات الفورية
+- [ ] التعامل مع الحسابات الفورية باستخدام Vercel/Supabase Edge Functions
+- [ ] الحسابات الثقيلة تُحسب مسبقاً في GitHub Actions
+
+---
+
+## ترتيب التنفيذ المقترح:
+
+| الأسبوع | المهمة |
+|---|---|
+| **الأسبوع 1** | نقل قاعدة البيانات بالكامل إلى Supabase |
+| **الأسبوع 2** | تثبيت Hugging Face لتوليد كل المؤشرات والنتائج ورفعها إلى Supabase |
+| **الأسبوع 3** | تحويل كل API في Next.js لاستخدام Supabase مباشرة |
+| **الأسبوع 4** | اختبار الموقع بالكامل بدون أي calls من Vercel إلى HF/FastAPI |
+| **الأسبوع 5** | إبقاء HF للأتمتة اليومية فقط والتأكد أنه لا يخدم طلبات المستخدمين |
+
+---
+
+## ملاحظة مهمة:
+بما أن منصتك تعتمد على **تحليلات دورية لبيانات السوق** أكثر من اعتمادها على طلبات تحليل لحظية من المستخدم، فالمسار المعتمد الآن هو تنفيذ **95% من الحسابات مسبقًا على Hugging Face مرة يومياً** وتخزينها في Supabase، بينما يكون دور Vercel هو العرض والاستعلام فقط.
+
+---
+
 # TODO: EGX Unified Trading System & Consistency Integration
 
 This file tracks all remaining integration and refactoring tasks based on the specifications in `.kiro/specs/training-consistency` and `.kiro/specs/egx-unified-trading-system`.

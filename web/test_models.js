@@ -1,6 +1,7 @@
 async function test() {
   try {
-    const res = await fetch("http://127.0.0.1:8000/admin/train/models");
+    const baseUrl = process.env.WEB_ORIGIN || "http://127.0.0.1:3000";
+    const res = await fetch(`${baseUrl.replace(/\/$/, "")}/api/models/list`);
     const json = await res.json();
     console.log("Models list response:", JSON.stringify(json, null, 2));
   } catch (e) {

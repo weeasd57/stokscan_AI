@@ -43,7 +43,8 @@ function calculateRSI(data, period = 14) {
 
 async function run() {
     try {
-        const res = await fetch("http://127.0.0.1:8000/ai_bot/candles?symbol=ABUK&exchange=EGX&limit=800");
+        const baseUrl = process.env.WEB_ORIGIN || "http://127.0.0.1:3000";
+        const res = await fetch(`${baseUrl.replace(/\/$/, "")}/api/ai_bot/candles?symbol=ABUK&exchange=EGX&limit=800`);
         const json = await res.json();
         const candles = json.candles;
         console.log("Candles length:", candles.length);

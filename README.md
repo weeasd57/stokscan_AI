@@ -146,28 +146,23 @@ npx vercel
 npx vercel --prod
 ```
 
-### 2️⃣ السيرفر الخلفي - Backend (GitHub + Hugging Face)
+### 2️⃣ التشغيل اليومي - Daily Automation (Hugging Face + Supabase)
 
-> ⚠️ **ملاحظة مهمة:** ملفات الموديلات (`*.pkl`) مطلوبة على Hugging Face فقط لتشغيل السيرفر، ولا يتم رفعها على GitHub بسبب حد LFS.
+> ⚠️ **ملاحظة مهمة:** Hugging Face مستخدم كـ worker يومي فقط لحساب البيانات ورفع النتائج إلى Supabase. المستخدمون لا يتصلون بـ Hugging Face مباشرة، وكل طلبات الموقع تمر عبر Vercel وتقرأ من Supabase.
 
-#### GitHub (بدون موديلات)
+#### Vercel + Supabase
 ```powershell
-# رفع الكود فقط — ملفات *.pkl يتم تجاهلها (GIT_LFS_SKIP_PUSH)
-$env:GIT_LFS_SKIP_PUSH = "1"
-git push origin main
+# الواجهة والـ API routes العامة تعمل على Vercel فقط
+# لا تضف أي متغير backend خارجي في Vercel Environment Variables
+# تأكد من وجود NEXT_PUBLIC_SUPABASE_URL و NEXT_PUBLIC_SUPABASE_ANON_KEY
 ```
 
-#### Hugging Face Spaces (مع الموديلات)
+#### Hugging Face Daily Worker
 ```powershell
-# 1. إضافة الخادم كـ remote للـ Git (لأول مرة فقط)
-git remote add hf https://huggingface.co/spaces/weeasd57/stokscan_AI
-
-# 2. رفع التحديثات مع الموديلات (ملفات *.pkl مرفوعة كاملة)
-git push hf main:main --force
+# يستخدم لتشغيل run_daily_bot_job.py مرة يومياً فقط
+# الهدف: حساب المؤشرات والـ AI scores ثم تخزين النتائج في Supabase
+# لا يتم استخدامه كـ user-facing backend
 ```
-
-> [!NOTE]
-> مجلد الـ `api/` هو المصدر الأساسي والوحيد للباكيند. تأكد من تفعيل التغييرات فيه قبل الرفع.
 
 
 ## 🤝 Contributing
