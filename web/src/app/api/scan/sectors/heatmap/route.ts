@@ -37,7 +37,7 @@ export async function GET(req: Request) {
       }>;
     }>();
 
-    heatmapData?.forEach(row => {
+    heatmapData?.forEach((row: any) => {
       const sector = row.sector || 'Other';
       if (!sectors.has(sector)) {
         sectors.set(sector, {

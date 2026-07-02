@@ -43,7 +43,7 @@ export async function GET(req: Request) {
     }
 
     // Transform to match expected format
-    const results = stocks?.map(stock => ({
+    const results = stocks?.map((stock: any) => ({
       symbol: stock.symbol,
       exchange: stock.exchange,
       name: stock.name || '',

@@ -38,7 +38,7 @@ export async function POST(req: Request) {
     }
 
     // Transform to expected format
-    const results = scanResults?.map(scan => ({
+    const results = scanResults?.map((scan: any) => ({
       symbol: scan.symbol,
       exchange: scan.exchange,
       name: scan.name || scan.symbol,

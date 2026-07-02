@@ -26,7 +26,7 @@ export async function GET() {
     }
 
     // Transform to expected format
-    const modelList = models?.map(model => ({
+    const modelList = models?.map((model: any) => ({
       name: model.name,
       accuracy: model.accuracy || 0.0,
       exchange: model.exchange || 'EGX',

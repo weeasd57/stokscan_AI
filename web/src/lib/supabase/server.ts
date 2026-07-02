@@ -14,3 +14,5 @@ export const supabaseServer = createClient(supabaseUrl, supabaseServiceKey, {
     persistSession: false
   }
 })
+
+export const createSupabaseServerClient = () => supabaseServer

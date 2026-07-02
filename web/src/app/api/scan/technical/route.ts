@@ -67,14 +67,14 @@ export async function POST(req: Request) {
     let results = indicators || [];
     
     if (above_ema50) {
-      results = results.filter(s => s.close > s.ema_50);
+      results = results.filter((s: any) => s.close > s.ema_50);
     }
     if (above_ema200) {
-      results = results.filter(s => s.close > s.ema_200);
+      results = results.filter((s: any) => s.close > s.ema_200);
     }
 
     // Transform to expected format
-    const scanned = results.map(stock => ({
+    const scanned = results.map((stock: any) => ({
       symbol: stock.symbol,
       name: stock.symbol, // Fallback to symbol
       last_close: toNumber(stock.close),
