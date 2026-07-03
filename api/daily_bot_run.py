@@ -1774,6 +1774,21 @@ def _refresh_market_status_cache():
             json.dump(res_data, f, ensure_ascii=False, indent=2)
         print(f"[MARKET_STATUS] Market status cache successfully saved to {cache_path}")
 
+        # Save to market_cache table in Supabase
+        try:
+            from api.stock_ai import _init_supabase as _init_sb, supabase as _sb
+            _init_sb()
+            if _sb:
+                _sb.table("market_cache").upsert({
+                    "cache_key": "market_status_Egypt",
+                    "country": "Egypt",
+                    "payload": res_data,
+                    "computed_at": dt.datetime.now(dt.timezone.utc).isoformat()
+                }).execute()
+                print("[MARKET_STATUS] Market status successfully upserted to market_cache in Supabase")
+        except Exception as se_cache:
+            print(f"[MARKET_STATUS] Failed to upsert to market_cache table in Supabase: {se_cache}")
+
         # Upsert index rows to Supabase so the runtime fallback always has fresh data
         try:
             from api.stock_ai import _init_supabase as _init_sb, supabase as _sb

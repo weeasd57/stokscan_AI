@@ -1,0 +1,26 @@
+{
+  "scenario": "stress",
+  "target": "production",
+  "virtual_users": 50,
+  "duration_sec": 60,
+  "total_requests": 3694,
+  "success_rate": 44.23,
+  "rps": 60.87,
+  "latency_p50_ms": 190.5,
+  "latency_p95_ms": 1463.3,
+  "latency_p99_ms": 4631.9,
+  "errors_by_label": {
+    "backend:/health": 996,
+    "backend:/symbols/countries": 316,
+    "backend:/symbols/inventory": 425,
+    "backend:/ai_bot/model_cards": 323
+  },
+  "estimated_comfortable_users": 25,
+  "estimated_max_users": 40,
+  "notes": [
+    "High error rate \u2014 do not scale beyond this level without infra changes.",
+    "HuggingFace Spaces free tier: typically 1-2 vCPU, cold starts possible.",
+    "Vercel frontend scales separately \u2014 test backend and frontend independently.",
+    "Heavy endpoints (/scan/technical, /predict) need dedicated tests \u2014 not in default mix."
+  ]
+}

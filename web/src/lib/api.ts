@@ -4,7 +4,53 @@ import type { PredictResponse } from "@/lib/types";
 
 
 
-export const getProductionApiUrl = (): string => "";
+export const getProductionApiUrl = (): string => {
+
+  if (typeof window !== "undefined") {
+
+    const host = window.location.hostname;
+
+    if (
+
+      host === "localhost" ||
+
+      host === "127.0.0.1" ||
+
+      host.includes("ngrok-free.app") ||
+
+      host.startsWith("192.168.") ||
+
+      host.startsWith("10.")
+
+    ) {
+
+      return "";
+
+    }
+
+    if (host.endsWith(".vercel.app") || host === "stokscan-ai-web.vercel.app") {
+
+      return "https://weeasdwee-ai-bot.hf.space";
+
+    }
+
+    return "https://weeasdwee-ai-bot.hf.space";
+
+  }
+
+
+
+  const fromEnv = process.env.NEXT_PUBLIC_API_BASE_URL || "";
+
+  if (/localhost:3000|:3000\b/.test(fromEnv)) {
+
+    return "";
+
+  }
+
+  return fromEnv.replace(/\/$/, "");
+
+};
 
 
 
@@ -1562,7 +1608,7 @@ export async function evaluateScan(scanId: string): Promise<{ count: number; mes
 
 export async function getBacktests(model?: string, admin: boolean = false): Promise<any[]> {
 
-  // Always use same-origin Vercel API routes.
+  // Prefer same-origin `/api` proxy on Vercel. If NEXT_PUBLIC_API_BASE_URL is set, use it as-is.
 
   const baseUrl = getGlobalBaseUrl() || "/api";
 

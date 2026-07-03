@@ -74,14 +74,32 @@ def build_or_update_macro_history() -> list:
     """
     # Try loading cache first
     cached_data = []
-    if os.path.exists(CACHE_PATH):
+    # Try loading from Supabase market_cache first
+    try:
+        from api.stock_ai import _init_supabase, supabase
+        _init_supabase()
+        if supabase:
+            res = supabase.table("market_cache").select("payload,computed_at").eq("cache_key", "macro_history_cache").eq("country", "Egypt").maybe_single().execute()
+            if res.data and res.data.get("payload"):
+                cached_data = res.data["payload"]
+                computed_at = res.data.get("computed_at")
+                if computed_at:
+                    parsed = datetime.datetime.fromisoformat(computed_at.replace("Z", "+00:00"))
+                    if parsed.tzinfo is not None:
+                        parsed = parsed.astimezone(datetime.timezone.utc).replace(tzinfo=None)
+                    if datetime.datetime.utcnow() - parsed < datetime.timedelta(hours=3):
+                        return cached_data
+    except Exception as e_sb:
+        logger.debug(f"Supabase macro_history_cache load failed: {e_sb}")
+
+    if not cached_data and os.path.exists(CACHE_PATH):
         try:
             with open(CACHE_PATH, "r", encoding="utf-8") as f:
                 cached_data = json.load(f)
         except Exception:
             pass
             
-    # Check if cache is fresh (less than 3 hours old)
+    # Check if local file cache is fresh (less than 3 hours old)
     is_fresh = False
     if cached_data and os.path.exists(CACHE_PATH):
         mtime = datetime.datetime.fromtimestamp(os.path.getmtime(CACHE_PATH))
@@ -105,7 +123,7 @@ def build_or_update_macro_history() -> list:
         except Exception:
             pass
             
-    if not usd_off_data and api_key:
+    if not usd_off_data:
         usd_off_data = fetch_eod_data("USDEGP.FOREX", from_date)
         
     df_usd_off = pd.DataFrame(usd_off_data)
@@ -200,6 +218,23 @@ def build_or_update_macro_history() -> list:
         with open(CACHE_PATH, "w", encoding="utf-8") as f:
             json.dump(records, f, indent=2)
         logger.info(f"Saved {len(records)} macro daily records to cache.")
+
+        # Save to market_cache table in Supabase
+        try:
+            from api.stock_ai import _init_supabase, supabase
+            _init_supabase()
+            if supabase:
+                data = {
+                    "cache_key": "macro_history_cache",
+                    "country": "Egypt",
+                    "payload": records,
+                    "computed_at": datetime.datetime.now(datetime.timezone.utc).isoformat()
+                }
+                supabase.table("market_cache").upsert(data).execute()
+                logger.info("Successfully upserted macro_history_cache to Supabase.")
+        except Exception as se_cache:
+            logger.error(f"Failed to upsert macro_history_cache to Supabase: {se_cache}")
+
     except Exception as e:
         logger.error(f"Error saving macro history cache: {e}")
         
@@ -393,7 +428,26 @@ def scan_macro_correlation(force_refresh: bool = False) -> dict:
     Results are cached to SCAN_CACHE_PATH with a SCAN_CACHE_TTL lifetime.
     Returns: {"updated_at": str, "symbols": [{symbol, corr_usd_official, corr_usd_parallel, corr_gold, rating}, ...]}
     """
-    # Serve from cache when fresh
+    # Serve from Supabase cache when fresh
+    if not force_refresh:
+        try:
+            from api.stock_ai import _init_supabase, supabase
+            _init_supabase()
+            if supabase:
+                res = supabase.table("market_cache").select("payload,computed_at").eq("cache_key", "hedge_scan_cache").eq("country", "Egypt").maybe_single().execute()
+                if res.data and res.data.get("payload"):
+                    cached = res.data["payload"]
+                    computed_at = res.data.get("computed_at")
+                    if computed_at:
+                        parsed = datetime.datetime.fromisoformat(computed_at.replace("Z", "+00:00"))
+                        if parsed.tzinfo is not None:
+                            parsed = parsed.astimezone(datetime.timezone.utc).replace(tzinfo=None)
+                        if datetime.datetime.utcnow() - parsed < datetime.timedelta(seconds=SCAN_CACHE_TTL) and cached.get("symbols"):
+                            return cached
+        except Exception as e_sb:
+            logger.debug(f"Supabase hedge_scan_cache load failed: {e_sb}")
+
+    # Fallback to local file cache
     if not force_refresh and os.path.exists(SCAN_CACHE_PATH):
         try:
             with open(SCAN_CACHE_PATH, "r", encoding="utf-8") as f:
@@ -448,6 +502,23 @@ def scan_macro_correlation(force_refresh: bool = False) -> dict:
         os.makedirs(os.path.dirname(SCAN_CACHE_PATH), exist_ok=True)
         with open(SCAN_CACHE_PATH, "w", encoding="utf-8") as f:
             json.dump(payload, f, ensure_ascii=False)
+
+        # Save to market_cache table in Supabase
+        try:
+            from api.stock_ai import _init_supabase, supabase
+            _init_supabase()
+            if supabase:
+                data = {
+                    "cache_key": "hedge_scan_cache",
+                    "country": "Egypt",
+                    "payload": payload,
+                    "computed_at": datetime.datetime.now(datetime.timezone.utc).isoformat()
+                }
+                supabase.table("market_cache").upsert(data).execute()
+                logger.info("Successfully upserted hedge_scan_cache to Supabase.")
+        except Exception as se_cache:
+            logger.error(f"Failed to upsert hedge_scan_cache to Supabase: {se_cache}")
+
     except Exception as e:
         logger.error(f"Failed to write hedge scan cache: {e}")
 

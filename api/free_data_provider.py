@@ -32,7 +32,7 @@ def fetch_egx_symbols_free() -> Tuple[bool, List[str], str]:
     try:
         import yfinance as yf
         # Try to fetch EGX30 as a smoke test
-        egx30 = yf.Ticker("^CCSI")  # Cairo Composite Stock Index
+        egx30 = yf.Ticker("^CASE30")  # Cairo Composite Stock Index (EGX30)
         if egx30.info:
             # Known major EGX stocks (use as fallback list)
             active_symbols = [
@@ -70,7 +70,7 @@ def fetch_eod_data_free(symbol: str, period: str = "6mo") -> List[Dict[str, Any]
     Falls back to hardcoded/simulated data if APIs are unavailable.
     
     Args:
-        symbol: Ticker symbol (e.g., "^CCSI" for EGX30, "USDEGP=X" for USD/EGP)
+        symbol: Ticker symbol (e.g., "^CASE30" for EGX30, "USDEGP=X" for USD/EGP)
         period: Data period ("1mo", "3mo", "6mo", "1y", "2y", "5y", "10y", "max")
     
     Returns:
@@ -84,8 +84,8 @@ def fetch_eod_data_free(symbol: str, period: str = "6mo") -> List[Dict[str, Any]
         
         # Map EODHD symbols to yfinance symbols
         symbol_map = {
-            "EGX30.INDX": "^CCSI",           # Cairo Composite Stock Index
-            "EGX100.INDX": "^CCSI",          # Fallback to EGX30 (no EGX100 in yfinance)
+            "EGX30.INDX": "^CASE30",         # Cairo Composite Stock Index (EGX30)
+            "EGX100.INDX": "^CASE30",        # Fallback to EGX30 (no EGX100 in yfinance)
             "USDEGP.FOREX": "USDEGP=X",      # USD/EGP
             "XAUUSD.FOREX": "GC=F",          # Gold (Futures)
             "CBKD.LSE": "CBKD.L",            # CBK Bank ADR/GDR
@@ -98,7 +98,7 @@ def fetch_eod_data_free(symbol: str, period: str = "6mo") -> List[Dict[str, Any]
         for attempt in range(max_retries):
             try:
                 ticker = yf.Ticker(yf_symbol)
-                hist = ticker.history(period=period, progress=False)
+                hist = ticker.history(period=period)
                 
                 if not hist.empty:
                     # Convert to EODHD-like format
@@ -193,7 +193,7 @@ def fetch_live_rates_free() -> Dict[str, float]:
         import yfinance as yf
         try:
             forex = yf.Ticker("USDEGP=X")
-            hist = forex.history(period="1d", progress=False)
+            hist = forex.history(period="1d")
             if not hist.empty:
                 usd_egp = float(hist["Close"].iloc[-1])
                 if 45 <= usd_egp <= 60:

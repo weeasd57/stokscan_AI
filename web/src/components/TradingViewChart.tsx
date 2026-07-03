@@ -934,9 +934,74 @@ export default function TradingViewChart({
       wickUpColor: "#26a69a",
       wickDownColor: "#ef5350",
     });
-    candlestickSeries.setData(
-      candlesData.map((c) => ({ ...c, time: c.time as UTCTimestamp })),
-    );
+  const parseCandleTime = (rawTime: unknown): UTCTimestamp | null => {
+    if (typeof rawTime === "number" && Number.isFinite(rawTime)) {
+      return rawTime as UTCTimestamp;
+    }
+
+    if (rawTime instanceof Date && !Number.isNaN(rawTime.getTime())) {
+      return Math.floor(rawTime.getTime() / 1000) as UTCTimestamp;
+    }
+
+    if (typeof rawTime === "string") {
+      const parsed = new Date(rawTime);
+      if (!Number.isNaN(parsed.getTime())) {
+        return Math.floor(parsed.getTime() / 1000) as UTCTimestamp;
+      }
+      const numeric = Number(rawTime);
+      if (Number.isFinite(numeric)) {
+        return numeric as UTCTimestamp;
+      }
+      return null;
+    }
+
+    if (rawTime && typeof rawTime === "object") {
+      const maybeDay = rawTime as { year?: unknown; month?: unknown; day?: unknown };
+      const year = Number(maybeDay.year);
+      const month = Number(maybeDay.month);
+      const day = Number(maybeDay.day);
+      if (Number.isFinite(year) && Number.isFinite(month) && Number.isFinite(day)) {
+        const parsed = new Date(Date.UTC(year, month - 1, day));
+        if (!Number.isNaN(parsed.getTime())) {
+          return Math.floor(parsed.getTime() / 1000) as UTCTimestamp;
+        }
+      }
+    }
+
+    return null;
+  };
+
+  const normalizedCandles = (Array.isArray(candlesData) ? candlesData : [])
+    .map((c) => {
+      if (!c || typeof c !== "object") return null;
+
+      const time = parseCandleTime((c as any).time);
+
+      const open = Number((c as any).open);
+      const high = Number((c as any).high);
+      const low = Number((c as any).low);
+      const close = Number((c as any).close);
+
+      if (time === null || !Number.isFinite(open) || !Number.isFinite(high) || !Number.isFinite(low) || !Number.isFinite(close)) {
+        return null;
+      }
+
+      return {
+        ...c,
+        time: time as UTCTimestamp,
+        open,
+        high,
+        low,
+        close,
+      };
+    })
+    .filter((c): c is any => c !== null);
+
+  if (normalizedCandles.length === 0) {
+    return;
+  }
+
+  candlestickSeries.setData(normalizedCandles);
     chartRefs.current.candlestickSeries = candlestickSeries;
 
     if (activeTool === "trash") {
@@ -1315,39 +1380,80 @@ export default function TradingViewChart({
     {
       const candleTimes = new Set(candlesData.map((c) => c.time));
 
+      const getSafeISOString = (time: any): string | null => {
+        if (!time) return null;
+        try {
+          if (typeof time === "string") {
+            if (/^\d{4}-\d{2}-\d{2}/.test(time)) {
+              return time.slice(0, 10);
+            }
+            const d = new Date(time);
+            return isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
+          }
+          if (typeof time === "number") {
+            const isMs = time > 5e10;
+            const d = new Date(isMs ? time : time * 1000);
+            return isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
+          }
+          if (typeof time === "object") {
+            if (typeof time.year === "number" && typeof time.month === "number" && typeof time.day === "number") {
+              const year = String(time.year);
+              const month = String(time.month).padStart(2, "0");
+              const day = String(time.day).padStart(2, "0");
+              return `${year}-${month}-${day}`;
+            }
+          }
+        } catch (e) {}
+        return null;
+      };
+
       // Build date-string → candle-time map for daily candle matching
       // (trade dates are YYYY-MM-DD midnight UTC; candles may use market-open time)
-      const dateMap = new Map<string, number>();
+      const dateMap = new Map<string, string | number>();
       for (const c of candlesData) {
-        const dateStr = new Date((c.time as number) * 1000)
-          .toISOString()
-          .slice(0, 10);
-        if (!dateMap.has(dateStr)) dateMap.set(dateStr, c.time as number);
+        const dateStr = getSafeISOString(c.time);
+        if (dateStr && !dateMap.has(dateStr)) {
+          dateMap.set(dateStr, c.time);
+        }
       }
 
       // Build sorted candle times for nearest-candle fallback
-      const sortedCandleTimes = [...candleTimes].sort(
-        (a, b) => (a as number) - (b as number),
-      );
+      const sortedCandleTimes = candlesData
+        .map((c) => {
+          let tsVal = 0;
+          if (typeof c.time === "number") {
+            tsVal = c.time > 5e10 ? Math.floor(c.time / 1000) : c.time;
+          } else {
+            const dateStr = getSafeISOString(c.time);
+            tsVal = dateStr ? Math.floor(new Date(dateStr).getTime() / 1000) : NaN;
+          }
+          return { time: c.time, tsVal };
+        })
+        .filter((item) => !isNaN(item.tsVal))
+        .sort((a, b) => a.tsVal - b.tsVal);
 
       // Helper: snap a unix-seconds timestamp to the nearest candle
       const snapToCandle = (ts: number): UTCTimestamp | null => {
+        if (isNaN(ts)) return null;
+
         // 1. Exact match
-        if (candleTimes.has(ts)) return ts as UTCTimestamp;
+        if (candleTimes.has(ts)) return ts as any as UTCTimestamp;
+
         // 2. Date-string match (handles timezone offset for daily bars)
-        const dateStr = new Date(ts * 1000).toISOString().slice(0, 10);
-        if (dateMap.has(dateStr)) return dateMap.get(dateStr)! as UTCTimestamp;
+        const dateStr = getSafeISOString(ts);
+        if (dateStr && dateMap.has(dateStr)) return dateMap.get(dateStr)! as any as UTCTimestamp;
+
         // 3. Nearest candle fallback
-        let best: number | null = null;
+        let bestTime: any = null;
         let bestDiff = Infinity;
-        for (const ct of sortedCandleTimes) {
-          const diff = Math.abs((ct as number) - ts);
+        for (const item of sortedCandleTimes) {
+          const diff = Math.abs(item.tsVal - ts);
           if (diff < bestDiff) {
             bestDiff = diff;
-            best = ct as number;
+            bestTime = item.time;
           } else if (diff > bestDiff) break;
         }
-        return best !== null ? (best as UTCTimestamp) : null;
+        return bestTime !== null ? (bestTime as any as UTCTimestamp) : null;
       };
 
       const apiMarkers: SeriesMarker<UTCTimestamp>[] = (
@@ -1367,7 +1473,7 @@ export default function TradingViewChart({
         customMarkers || []
       )
         .map((m) => {
-          const snapped = snapToCandle(m.time);
+          const snapped = snapToCandle(m.time as number);
           if (!snapped) return null;
           return {
             time: snapped,
@@ -2093,7 +2199,7 @@ export default function TradingViewChart({
     }
 
     return null;
-  };;
+  };
 
   // --- Scroll chart to focusTimestamp when it changes (e.g. navigating between trades) ---
   useEffect(() => {
@@ -2106,18 +2212,46 @@ export default function TradingViewChart({
     const chart = chartRefs.current.priceChart;
     const ts = chart.timeScale();
 
+    const getSafeISOString = (time: any): string | null => {
+      if (!time) return null;
+      try {
+        if (typeof time === "string") {
+          if (/^\d{4}-\d{2}-\d{2}/.test(time)) {
+            return time.slice(0, 10);
+          }
+          const d = new Date(time);
+          return isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
+        }
+        if (typeof time === "number") {
+          const isMs = time > 5e10;
+          const d = new Date(isMs ? time : time * 1000);
+          return isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
+        }
+        if (typeof time === "object") {
+          if (typeof time.year === "number" && typeof time.month === "number" && typeof time.day === "number") {
+            const year = String(time.year);
+            const month = String(time.month).padStart(2, "0");
+            const day = String(time.day).padStart(2, "0");
+            return `${year}-${month}-${day}`;
+          }
+        }
+      } catch (e) {}
+      return null;
+    };
+
     // Build date-string → index map to find bar index of focusTimestamp
-    const dateStr = new Date(focusTimestamp * 1000).toISOString().slice(0, 10);
+    const dateStr = getSafeISOString(focusTimestamp);
     let targetIndex = -1;
-    for (let i = 0; i < candlesData.length; i++) {
-      const cDate = new Date((candlesData[i].time as number) * 1000)
-        .toISOString()
-        .slice(0, 10);
-      if (cDate === dateStr) {
-        targetIndex = i;
-        break;
+    if (dateStr) {
+      for (let i = 0; i < candlesData.length; i++) {
+        const cDate = getSafeISOString(candlesData[i].time);
+        if (cDate === dateStr) {
+          targetIndex = i;
+          break;
+        }
       }
     }
+
     // Fall back to nearest timestamp
     if (targetIndex === -1) {
       let best = 0;

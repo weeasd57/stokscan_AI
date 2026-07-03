@@ -76,6 +76,8 @@ export async function POST(req: Request) {
     const scanned = results.map((stock: any) => ({
       symbol: stock.symbol,
       name: stock.symbol, // Fallback to symbol
+      date: stock.date ?? null,
+      year: stock.date ? new Date(stock.date).getFullYear() : null,
       last_close: toNumber(stock.close),
       rsi: toNumber(stock.rsi_14),
       volume: toNumber(stock.volume),

@@ -269,7 +269,7 @@ export default function UsersTab() {
                                             <div className="flex items-center gap-1">
                                                 <Bot className="w-3 h-3 text-zinc-400" />
                                                 <span className="font-bold">{u.bot_count}</span>
-                                                {u.bot_subscriptions.slice(0, 3).map((b, i) => (
+                                                {(u.bot_subscriptions || []).slice(0, 3).map((b, i) => (
                                                     <span key={i} className="text-[9px] text-zinc-500 bg-zinc-100 dark:bg-zinc-800 px-1 border border-zinc-300 dark:border-zinc-700">
                                                         {SERVICE_LABELS[b.service_type] || b.service_type}
                                                     </span>
@@ -524,9 +524,9 @@ export default function UsersTab() {
 
                                 <div className="border-4 border-black dark:border-white bg-zinc-50 dark:bg-zinc-900 p-4">
                                     <h3 className="font-black text-[10px] uppercase tracking-widest text-zinc-500 mb-3 flex items-center gap-2">
-                                        <Bot className="w-3 h-3" /> BOT SUBSCRIPTIONS ({selectedUser.bot_subscriptions.length})
+                                        <Bot className="w-3 h-3" /> BOT SUBSCRIPTIONS ({(selectedUser.bot_subscriptions || []).length})
                                     </h3>
-                                    {selectedUser.bot_subscriptions.length ? (
+                                    {(selectedUser.bot_subscriptions || []).length ? (
                                         <div className="space-y-1">
                                             {selectedUser.bot_subscriptions.map((b, i) => (
                                                 <div key={i} className="flex items-center gap-2 text-xs font-mono px-2 py-1 border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950">
@@ -544,9 +544,9 @@ export default function UsersTab() {
 
                                 <div className="border-4 border-black dark:border-white bg-zinc-50 dark:bg-zinc-900 p-4">
                                     <h3 className="font-black text-[10px] uppercase tracking-widest text-zinc-500 mb-3 flex items-center gap-2">
-                                        <TrendingUp className="w-3 h-3" /> OPEN POSITIONS ({selectedUser.open_positions.length})
+                                        <TrendingUp className="w-3 h-3" /> OPEN POSITIONS ({(selectedUser.open_positions || []).length})
                                     </h3>
-                                    {selectedUser.open_positions.length ? (
+                                    {(selectedUser.open_positions || []).length ? (
                                         <div className="space-y-1">
                                             {selectedUser.open_positions.map((p, i) => (
                                                 <div key={i} className="flex items-center gap-2 text-xs font-mono px-2 py-1 border border-zinc-300 dark:border-zinc-700">
@@ -563,9 +563,9 @@ export default function UsersTab() {
 
                                 <div className="border-4 border-black dark:border-white bg-zinc-50 dark:bg-zinc-900 p-4">
                                     <h3 className="font-black text-[10px] uppercase tracking-widest text-zinc-500 mb-3 flex items-center gap-2">
-                                        <Activity className="w-3 h-3" /> RECENT SCANS ({selectedUser.recent_scans.length})
+                                        <Activity className="w-3 h-3" /> RECENT SCANS ({(selectedUser.recent_scans || []).length})
                                     </h3>
-                                    {selectedUser.recent_scans.length ? (
+                                    {(selectedUser.recent_scans || []).length ? (
                                         <div className="space-y-1">
                                             {selectedUser.recent_scans.map((s, i) => (
                                                 <div key={i} className="flex items-center gap-2 text-xs font-mono px-2 py-1 border border-zinc-300 dark:border-zinc-700">

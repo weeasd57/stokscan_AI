@@ -23,11 +23,11 @@ import requests
 
 TARGETS = {
     "production": {
-        "backend": "https://egxbots.com",
+        "backend": "https://weeasdwee-ai-bot.hf.space",
         "frontend": "https://egxbots.com",
     },
     "local": {
-        "backend": "http://localhost:3000",
+        "backend": "http://127.0.0.1:8000",
         "frontend": "http://localhost:3000",
     },
 }
@@ -41,10 +41,10 @@ SCENARIOS = {
 
 # Mix approximating real browsing (weights must sum to 100)
 WORKLOAD = [
-    ("backend", "GET", "/api/symbols/countries?source=supabase", 25),
-    ("backend", "GET", "/api/symbols/by-date?exchange=EGX&limit=50", 20),
-    ("backend", "GET", "/api/models/list", 15),
-    ("backend", "GET", "/api/scan/sectors/heatmap?country=Egypt", 15),
+    ("backend", "GET", "/health", 25),
+    ("backend", "GET", "/symbols/inventory", 20),
+    ("backend", "GET", "/ai_bot/model_cards", 15),
+    ("backend", "GET", "/symbols/countries", 15),
     ("frontend", "GET", "/", 15),
     ("frontend", "GET", "/scanner/technical", 10),
 ]
@@ -77,18 +77,17 @@ class LoadReport:
     notes: List[str] = field(default_factory=list)
 
 
-def _pick_workload(backend_only: bool = False) -> Tuple[str, str, str]:
+def _pick_workload() -> Tuple[str, str, str]:
     import random
 
-    workload = [item for item in WORKLOAD if not backend_only or item[0] == "backend"]
-    total = sum(w for *_, w in workload)
+    total = sum(w for *_, w in WORKLOAD)
     r = random.uniform(0, total)
     acc = 0.0
-    for layer, method, path, weight in workload:
+    for layer, method, path, weight in WORKLOAD:
         acc += weight
         if r <= acc:
             return layer, method, path
-    return workload[0][0], workload[0][1], workload[0][2]
+    return WORKLOAD[0][0], WORKLOAD[0][1], WORKLOAD[0][2]
 
 
 def _one_request(
@@ -97,7 +96,9 @@ def _one_request(
     timeout: float,
     backend_only: bool,
 ) -> RequestResult:
-    layer, method, path = _pick_workload(backend_only=backend_only)
+    layer, method, path = _pick_workload()
+    if backend_only and layer == "frontend":
+        layer, method, path = "backend", "GET", "/health"
 
     base = bases[layer]
     url = f"{base.rstrip('/')}{path}"
@@ -175,9 +176,9 @@ def _estimate_capacity(
 
     notes.extend(
         [
-            "User traffic is routed through Vercel API routes only.",
-            "Supabase table/RPC latency is now the main backend bottleneck.",
-            "Heavy endpoints (/api/scan/technical, /api/predict) need dedicated tests.",
+            "HuggingFace Spaces free tier: typically 1-2 vCPU, cold starts possible.",
+            "Vercel frontend scales separately — test backend and frontend independently.",
+            "Heavy endpoints (/scan/technical, /predict) need dedicated tests — not in default mix.",
         ]
     )
     return comfortable, maximum, notes

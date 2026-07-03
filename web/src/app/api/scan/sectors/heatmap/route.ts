@@ -3,6 +3,34 @@ import { getSupabaseClient } from "@/lib/supabase/route-data";
 
 export const runtime = "nodejs";
 
+const SECTOR_AR: Record<string, string> = {
+  'Finance': 'الخدمات المالية',
+  'Process Industries': 'الصناعات التحويلية',
+  'Producer Materials': 'المواد الأساسية',
+  'Consumer Services': 'الخدمات الاستهلاكية',
+  'Technology': 'التكنولوجيا',
+  'Health Care': 'الرعاية الصحية',
+  'Speculative Sector': 'قطاع المضاربة',
+  'Retail': 'التجزئة',
+  'Energy': 'الطاقة',
+  'Utilities': 'المرافق',
+  'Real Estate': 'العقارات',
+  'Communications': 'الاتصالات',
+  'Transportation': 'النقل',
+  'Industrial': 'الصناعي',
+  'Commercial': 'التجاري',
+  'Services': 'الخدمات',
+  'Other': 'أخرى'
+};
+
+const getSentiment = (avgChange: number): string => {
+  if (avgChange > 1.5) return 'bullish';
+  if (avgChange > 0.3) return 'slightly_bullish';
+  if (avgChange < -1.5) return 'bearish';
+  if (avgChange < -0.3) return 'slightly_bearish';
+  return 'neutral';
+};
+
 export async function GET(req: Request) {
   const incomingUrl = new URL(req.url);
   const country = incomingUrl.searchParams.get("country") || "Egypt";
@@ -10,61 +38,110 @@ export async function GET(req: Request) {
   try {
     const supabase = getSupabaseClient();
     
-    // Get recent heatmap data from Supabase
-    const { data: heatmapData, error } = await supabase
+    // Get the latest captured_at timestamp for EGX
+    const { data: latestRow, error: latestError } = await supabase
+      .from('market_heatmap')
+      .select('captured_at')
+      .eq('exchange', 'EGX')
+      .order('captured_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (latestError) {
+      console.error('Heatmap latest row Supabase error:', latestError);
+      return NextResponse.json({ error: 'Failed to fetch latest heatmap metadata' }, { status: 500 });
+    }
+
+    if (!latestRow) {
+      return NextResponse.json({ sectors: [] });
+    }
+
+    const latestTime = latestRow.captured_at;
+    
+    // Fetch all records for this latest timestamp
+    const { data: heatmapData, error: dataError } = await supabase
       .from('market_heatmap')
       .select('*')
-      .eq('exchange', 'EGX') // Map country to exchange
-      .order('captured_at', { ascending: false })
-      .limit(400);
+      .eq('exchange', 'EGX')
+      .eq('captured_at', latestTime);
 
-    if (error) {
-      console.error('Heatmap Supabase error:', error);
+    if (dataError) {
+      console.error('Heatmap data Supabase error:', dataError);
       return NextResponse.json({ error: 'Failed to fetch heatmap data' }, { status: 500 });
     }
+
+    // Fetch stock company names to display in the drilldown modal
+    const { data: stocksData } = await supabase
+      .from('stocks')
+      .select('symbol,name');
+    const symbolToName = new Map<string, string>();
+    stocksData?.forEach(s => symbolToName.set(s.symbol, s.name));
 
     // Group by sector and calculate aggregates
     const sectors = new Map<string, {
       sector: string;
-      totalCap: number;
-      avgChange: number;
-      count: number;
-      symbols: Array<{
+      sector_ar: string;
+      money_flow: number;
+      change_pct: number;
+      stocks_count: number;
+      stocks: Array<{
         symbol: string;
+        name: string;
+        close: number;
         change_pct: number;
         volume: number;
-        cap: number;
+        money_flow: number;
       }>;
     }>();
 
+    let totalMarketCap = 0;
+
     heatmapData?.forEach((row: any) => {
       const sector = row.sector || 'Other';
+      const sectorAr = SECTOR_AR[sector] || sector;
+      const symbol = row.symbol;
+      const name = symbolToName.get(symbol) || symbol;
+      const volume = row.volume || 0;
+      const cap = row.cap || 0;
+      const changePct = row.change_pct || 0;
+      const close = volume > 0 ? (cap / volume) : 0;
+
       if (!sectors.has(sector)) {
         sectors.set(sector, {
           sector,
-          totalCap: 0,
-          avgChange: 0,
-          count: 0,
-          symbols: []
+          sector_ar: sectorAr,
+          money_flow: 0,
+          change_pct: 0,
+          stocks_count: 0,
+          stocks: []
         });
       }
       
       const sectorData = sectors.get(sector)!;
-      sectorData.symbols.push({
-        symbol: row.symbol,
-        change_pct: row.change_pct || 0,
-        volume: row.volume || 0,
-        cap: row.cap || 0
+      sectorData.stocks.push({
+        symbol,
+        name,
+        close,
+        change_pct: changePct,
+        volume,
+        money_flow: cap
       });
-      sectorData.totalCap += row.cap || 0;
-      sectorData.count++;
+      sectorData.money_flow += cap;
+      sectorData.stocks_count++;
+      totalMarketCap += cap;
     });
 
-    // Calculate averages
-    const results = Array.from(sectors.values()).map(sector => ({
-      ...sector,
-      avgChange: sector.symbols.reduce((sum, s) => sum + s.change_pct, 0) / sector.count
-    }));
+    // Calculate averages and market shares
+    const results = Array.from(sectors.values()).map(sector => {
+      const avgChange = sector.stocks.reduce((sum, s) => sum + s.change_pct, 0) / sector.stocks_count;
+      const marketShare = totalMarketCap > 0 ? (sector.money_flow / totalMarketCap) * 100 : 0;
+      return {
+        ...sector,
+        change_pct: avgChange,
+        market_share: Number(marketShare.toFixed(2)),
+        sentiment: getSentiment(avgChange)
+      };
+    });
 
     return NextResponse.json({ sectors: results });
 

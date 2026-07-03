@@ -24,6 +24,35 @@ def load_market_status_cache(max_age_hours: int = 36) -> Dict[str, Any]:
         "reject_buys": False,
         "reason": "market status cache unavailable",
     }
+    
+    # Try loading from Supabase market_cache first
+    try:
+        from api.stock_ai import _init_supabase, supabase
+        _init_supabase()
+        if supabase:
+            res = supabase.table("market_cache").select("payload,computed_at").eq("cache_key", "market_status_Egypt").eq("country", "Egypt").maybe_single().execute()
+            if res.data and res.data.get("payload"):
+                data = res.data["payload"]
+                updated_at = res.data.get("computed_at") or data.get("updated_at")
+                stale = True
+                if updated_at:
+                    try:
+                        parsed = dt.datetime.fromisoformat(str(updated_at).replace("Z", "+00:00"))
+                        if parsed.tzinfo is not None:
+                            parsed = parsed.astimezone(dt.timezone.utc).replace(tzinfo=None)
+                        stale = (dt.datetime.utcnow() - parsed) > dt.timedelta(hours=max_age_hours)
+                    except Exception:
+                        stale = True
+
+                data["available"] = True
+                data["stale"] = stale
+                data["reject_buys"] = bool(data.get("reject_buys")) and not stale
+                data["reason"] = _market_gate_reason(data)
+                return data
+    except Exception as e_sb:
+        print(f"[MARKET_STATUS] Supabase load failed: {e_sb}")
+
+    # Fallback to local file cache
     path = _market_status_path()
     try:
         if not os.path.exists(path):

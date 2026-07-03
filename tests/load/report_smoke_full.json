@@ -1,0 +1,21 @@
+{
+  "scenario": "smoke",
+  "target": "production",
+  "virtual_users": 5,
+  "duration_sec": 20,
+  "total_requests": 83,
+  "success_rate": 100.0,
+  "rps": 3.93,
+  "latency_p50_ms": 184.2,
+  "latency_p95_ms": 735.3,
+  "latency_p99_ms": 954.9,
+  "errors_by_label": {},
+  "estimated_comfortable_users": 7,
+  "estimated_max_users": 12,
+  "notes": [
+    "Current scenario looks healthy \u2014 capacity estimate extrapolated linearly.",
+    "HuggingFace Spaces free tier: typically 1-2 vCPU, cold starts possible.",
+    "Vercel frontend scales separately \u2014 test backend and frontend independently.",
+    "Heavy endpoints (/scan/technical, /predict) need dedicated tests \u2014 not in default mix."
+  ]
+}

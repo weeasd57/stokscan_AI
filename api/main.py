@@ -28,8 +28,6 @@ import warnings
 
 
 
-import asyncio
-
 import numpy as np
 
 import pandas as pd
@@ -85,8 +83,6 @@ from pydantic import BaseModel, Field
 
 
 from api.adaptive_model_selector import recommend_model_from_pool
-
-from api.cache_utils import countries_cache, health_cache, inventory_cache
 
 from api.stock_ai import run_pipeline
 
@@ -155,22 +151,6 @@ async def log_requests(request: Request, call_next):
         )
 
         raise e
-
-
-@app.middleware("http")
-async def timeout_middleware(request: Request, call_next):
-    # Lightweight timeout to prevent hanging connections from exhausting the pool
-    # Heavy endpoints (/predict, /scan/technical) are exempted by path prefix
-    path = request.url.path
-    is_heavy = path.startswith(("/predict", "/scan/technical", "/scan/fundamental", "/scan/sentiment", "/scanner", "/ai_bot/scan", "/bot/scan"))
-    timeout_seconds = 25 if is_heavy else 8
-    try:
-        return await asyncio.wait_for(call_next(request), timeout=timeout_seconds)
-    except asyncio.TimeoutError:
-        return JSONResponse(
-            status_code=504,
-            content={"detail": "Request timeout", "path": path},
-        )
 
 
 
@@ -340,22 +320,6 @@ async def startup_event():
 
 
 
-    # Start News Sentiment Scheduler (runs at 19:00 Cairo — after market + daily bot)
-
-    try:
-
-        from api.news_scheduler import start_news_scheduler
-
-        start_news_scheduler()
-
-        print("DEBUG: News Scheduler started successfully (runs daily at 19:00 Cairo).")
-
-    except Exception as e:
-
-        print(f"DEBUG ERROR: Failed to start News Scheduler: {e}")
-
-
-
 
 
 @app.on_event("shutdown")
@@ -369,18 +333,6 @@ async def shutdown_event():
         from api.daily_job_scheduler import stop_daily_job_scheduler
 
         stop_daily_job_scheduler()
-
-    except Exception:
-
-        pass
-
-    # Stop News Sentiment Scheduler
-
-    try:
-
-        from api.news_scheduler import stop_news_scheduler
-
-        stop_news_scheduler()
 
     except Exception:
 
@@ -470,15 +422,23 @@ from api.routers import admin, bot, payment, scan_ai, scan_ai_fast, scan_tech, s
 
 
 
-# Include routers with and without /api prefix to handle both local and Vercel-rewritten requests
-for r in [scan_ai.router, scan_ai_fast.router, scan_tech.router, admin.router, payment.router, similarity_admin.router, support.router]:
-    app.include_router(r)
-    app.include_router(r, prefix="/api")
+app.include_router(scan_ai.router)
+
+app.include_router(scan_ai_fast.router)
+
+app.include_router(scan_tech.router)
+
+app.include_router(admin.router)
 
 app.include_router(bot.router, prefix="/ai_bot")
-app.include_router(bot.router, prefix="/api/ai_bot")
-app.include_router(bot.router, prefix="/bot")
-app.include_router(bot.router, prefix="/api/bot")
+
+app.include_router(bot.router, prefix="/bot")  # Compatibility Alias
+
+app.include_router(payment.router)
+
+app.include_router(similarity_admin.router)
+
+app.include_router(support.router)
 
 
 
@@ -1449,13 +1409,10 @@ def root():
 
 
 @app.get("/health")
+
 def health():
-    cached = health_cache.get("health")
-    if cached is not None:
-        return cached
-    resp = {"ok": True}
-    health_cache.set("health", resp)
-    return resp
+
+    return {"ok": True}
 
 
 
@@ -1801,15 +1758,16 @@ def list_local_models():
 
 
 @app.get("/symbols/inventory")
+
 def symbols_inventory():
+
     """Returns mapping of countries/exchanges to symbol/price counts."""
-    cached = inventory_cache.get("inventory")
-    if cached is not None:
-        return {"inventory": cached}
+
     from api.stock_ai import get_supabase_inventory
-    data = get_supabase_inventory()
-    inventory_cache.set("inventory", data)
-    return {"inventory": data}
+
+
+
+    return {"inventory": get_supabase_inventory()}
 
 
 @app.get("/market/macro-correlation/symbols")
@@ -1871,41 +1829,54 @@ def refresh_macro_correlation_cache():
 
 
 @app.get("/symbols/countries")
+
 def symbols_countries(source: str = Query(default="supabase")):
-    cache_key = f"countries:{source}"
-    cached = countries_cache.get(cache_key)
-    if cached is not None:
-        return {"countries": cached}
 
     try:
+
+        # Debugging logging
+
+        # with open("/tmp/country_debug.log", "a") as f:
+
+        #    f.write(f"DEBUG: Country fetch start. Source={source}\n")
+
+
+
         if source == "local":
-            data = list_countries()
-            countries_cache.set(cache_key, data)
-            return {"countries": data}
+
+            return {"countries": list_countries()}
+
+
 
         try:
+
             from api.stock_ai import get_supabase_countries
+
+
+
             sb_countries = get_supabase_countries()
+
             if sb_countries:
-                countries_cache.set(cache_key, sb_countries)
+
                 return {"countries": sb_countries}
+
         except Exception as sb_err:
+
             print(f"DEBUG ERROR: get_supabase_countries failed: {sb_err}")
 
+
+
+        # Fallback to local
+
         try:
-            data = list_countries()
-            countries_cache.set(cache_key, data)
-            return {"countries": data}
+
+            return {"countries": list_countries()}
+
         except Exception as loc_err:
+
             print(f"DEBUG ERROR: list_countries failed: {loc_err}")
-            fallback = ["Egypt", "USA", "UK"]
-            countries_cache.set(cache_key, fallback)
-            return {"countries": fallback}
-    except Exception as e:
-        import traceback
-        err_msg = traceback.format_exc()
-        print(f"ERROR in /symbols/countries: {err_msg}")
-        return {"countries": ["Egypt", "USA", "UK"]}
+
+            return {"countries": ["Egypt", "USA", "UK"]}
 
 
 
@@ -1972,34 +1943,6 @@ def symbols_by_date(
             yield items[i : i + size]
 
 
-
-    import datetime as _dt
-    CACHE_TTL_SECONDS = 6 * 3600  # 6 hours
-    cache_key = f"symbols_by_date_{exchange}_{start}_{end}_{limit}"
-    cache_country = exchange or "ALL"
-
-    # --- Read from cache (skip when search_term is provided) ---
-    if not search_term:
-        try:
-            _cache_res = (
-                supabase.table("market_cache")
-                .select("payload, computed_at")
-                .eq("cache_key", cache_key)
-                .eq("country", cache_country)
-                .limit(1)
-                .execute()
-            )
-            if _cache_res.data:
-                _row = _cache_res.data[0]
-                _computed_ts = _dt.datetime.fromisoformat(
-                    _row["computed_at"].replace("Z", "+00:00")
-                ).timestamp()
-                _age = _dt.datetime.utcnow().timestamp() - _computed_ts
-                if _age < CACHE_TTL_SECONDS:
-                    print(f"[CACHE HIT] symbols_by_date {cache_key}")
-                    return _row["payload"]
-        except Exception as _ce:
-            print(f"[CACHE] symbols_by_date read failed (will recompute): {_ce}")
 
     try:
 
@@ -2149,25 +2092,7 @@ def symbols_by_date(
 
         symbols_to_process.sort(key=lambda x: x["symbol"])
 
-        result = {"results": symbols_to_process}
-
-        # --- Write to cache (only if no search_term) ---
-        if not search_term:
-            try:
-                supabase.table("market_cache").upsert(
-                    {
-                        "cache_key": cache_key,
-                        "country": cache_country,
-                        "payload": result,
-                        "computed_at": _dt.datetime.utcnow().isoformat() + "Z",
-                    },
-                    on_conflict="cache_key,country",
-                ).execute()
-                print(f"[CACHE WRITE] symbols_by_date {cache_key}")
-            except Exception as we:
-                print(f"[CACHE] symbols_by_date write failed: {we}")
-
-        return result
+        return {"results": symbols_to_process}
 
     except Exception as e:
 
