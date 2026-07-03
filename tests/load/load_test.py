@@ -23,7 +23,7 @@ import requests
 
 TARGETS = {
     "production": {
-        "backend": "https://weeasdwee-ai-bot.hf.space",
+        "backend": "https://egxbots.com/api",
         "frontend": "https://egxbots.com",
     },
     "local": {
