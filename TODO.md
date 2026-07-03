@@ -7,7 +7,6 @@
 **المعمارية النهائية:**
 - Vercel -> Supabase: كل طلبات الموقع والواجهة تقرأ من Supabase مباشرة.
 - Hugging Face -> Supabase: الأتمتة اليومية فقط، تحسب البيانات والمؤشرات والـ AI scores وتخزنها في Supabase.
-- لا Render، لا FastAPI backend للطلبات اليومية من المستخدمين، ولا GitHub Actions بسبب قفل الحساب billing lock.
 
 ---
 
@@ -30,35 +29,64 @@
 - [x] عمل قائمة بكل Endpoint وتصنيفه
 - [x] استخراج جميع مسارات FastAPI وفلترتها (قراءة/كتابة/حساب/AI)
 
-### المرحلة 2: تصميم schema لقاعدة بيانات Supabase
-- [ ] إنشاء جداول: stocks، stock_prices، technical_indicators، ai_scores، historical_similarity، backtests، market_heatmap، news، sectors
-- [ ] إنشاء RPCs للعمليات المعقدة
+### المرحلة 2: تصميم schema لقاعدة بيانات Supabase ✅
+- [x] إنشاء الجداول والمنظورات: `stocks` (كـ View)، `stock_prices`، `stock_technical_indicators`، `scan_results` (بديل لـ `ai_scores`)، `backtests`، `market_heatmap`، `model_metadata`.
+- [x] ربط العلاقات (Foreign Keys) بين الجداول لتسهيل الاستعلامات (مثل ربط الأسعار بالأساسيات).
+- [ ] إنشاء RPCs مخصصة للعمليات المعقدة عند الحاجة.
 
-### المرحلة 3: Hugging Face كـ Daily Engine
-- [ ] تثبيت `run_daily_bot_job.py` كمسار التشغيل اليومي على Hugging Face
-- [ ] التأكد أن Hugging Face يكتب النتائج النهائية في Supabase فقط
-- [ ] حساب المؤشرات الفنية يومياً (RSI، MACD، EMA، ATR، Volume)
-- [ ] حساب AI Scores يومياً وتخزينها في Supabase
+### المرحلة 3: Hugging Face كـ Daily Engine ✅
+- [x] تثبيت `run_daily_bot_job.py` كمسار التشغيل اليومي على Hugging Face
+- [x] التأكد أن Hugging Face يكتب النتائج النهائية في Supabase فقط
+- [x] حساب المؤشرات الفنية يومياً وتخزينها في Supabase
+- [x] حساب AI Scores يومياً وتخزينها في Supabase
 
-### المرحلة 4: تحويل Next.js API routes
-- [ ] تحويل API routes من FastAPI لاستعلامات Supabase مباشرة
-- [ ] تحديث الواجهة للقراءة فقط من Supabase بدون FastAPI
+### المرحلة 4: تحويل Next.js API routes ✅
+- [x] تحويل API routes من FastAPI لاستعلامات Supabase مباشرة (الرموز والـ heatmap والموديلات)
+- [x] تحديث الواجهة للقراءة فقط من Supabase بدون FastAPI
 
-### المرحلة 5: الحسابات الفورية
-- [ ] التعامل مع الحسابات الفورية باستخدام Vercel/Supabase Edge Functions
+### المرحلة 5: الحسابات الفورية وتحسين الأداء 🔄
+- [ ] تحسين الاستعلامات واستخدام Vercel/Supabase Edge Functions للحسابات الفورية
 - [ ] الحسابات الثقيلة تُحسب مسبقاً في GitHub Actions
+
+---
+
+## ⚡ اقتراحات وتوصيات تحديث الأداء (Performance Optimization Proposals):
+
+بناءً على نتائج اختبارات الضغط والحمل (Stress Tests) التي أظهرت قدرة معالجة تصل إلى **53 req/s** وزمن استجابة **~359 ms** عند تفعيل الكاش، نوصي بالتالي لزيادة سعة التحمل:
+
+### 1. تحسين فهرسة قاعدة البيانات (Database Indexing)
+* **المشكلة:** كثرة البيانات في جدول `stock_prices` (أكثر من 500 ألف سطر) قد تبطئ الاستعلامات غير المفلترة بشكل صحيح.
+* **التوصية:** تم إنشاء الفهرس المركب التالي على الأعمدة الأكثر بحثاً في Supabase لتسريع استعلامات الأسعار:
+  ```sql
+  CREATE INDEX IF NOT EXISTS fk_stock_prices_fundamentals ON public.stock_prices (symbol, exchange, date DESC);
+  ```
+
+### 2. استخدام Edge Caching على Vercel لـ API Routes
+* **المشكلة:** الاستعلامات المتكررة لـ Supabase من مستخدمين مختلفين لبيانات ثابتة يومياً تستهلك موارد الاتصال.
+* **التوصية:** إضافة ترويسة `Cache-Control` في مسارات Vercel للبيانات المشتركة (مثل الرموز والموديلات والـ Heatmap):
+  ```typescript
+  return new Response(JSON.stringify(data), {
+    headers: {
+      'Cache-Control': 'public, s-maxage=3600, stale-while-revalidate=86400'
+    }
+  });
+  ```
+
+### 3. إنشاء RPC (Stored Procedure) لحساب الـ Heatmap
+* **المشكلة:** تجميع وحساب متوسط التغير للقطاعات (Sectors) داخل الـ Node.js API route على Vercel يستهلك موارد الخادم.
+* **التوصية:** تفويض الحساب لقاعدة البيانات مباشرة عن طريق استدعاء دالة RPC، لتقليل حجم البيانات المرسلة عبر الشبكة.
 
 ---
 
 ## ترتيب التنفيذ المقترح:
 
-| الأسبوع | المهمة |
-|---|---|
-| **الأسبوع 1** | نقل قاعدة البيانات بالكامل إلى Supabase |
-| **الأسبوع 2** | تثبيت Hugging Face لتوليد كل المؤشرات والنتائج ورفعها إلى Supabase |
-| **الأسبوع 3** | تحويل كل API في Next.js لاستخدام Supabase مباشرة |
-| **الأسبوع 4** | اختبار الموقع بالكامل بدون أي calls من Vercel إلى HF/FastAPI |
-| **الأسبوع 5** | إبقاء HF للأتمتة اليومية فقط والتأكد أنه لا يخدم طلبات المستخدمين |
+| الأسبوع | المهمة | الحالة |
+|---|---|---|
+| **الأسبوع 1** | نقل قاعدة البيانات بالكامل إلى Supabase | ✅ مكتمل |
+| **الأسبوع 2** | تثبيت Hugging Face لتوليد كل المؤشرات والنتائج ورفعها إلى Supabase | ✅ مكتمل |
+| **الأسبوع 3** | تحويل كل API في Next.js لاستخدام Supabase مباشرة | ✅ مكتمل |
+| **الأسبوع 4** | تحسين الأداء وإضافة كاش Edge وفهارس قاعدة البيانات | 🔄 جاري العمل |
+| **الأسبوع 5** | إبقاء HF للأتمتة اليومية فقط والتأكد من استقرار المعمارية | 🔄 جاري العمل |
 
 ---
 
