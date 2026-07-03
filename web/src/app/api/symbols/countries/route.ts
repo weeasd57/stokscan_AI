@@ -15,6 +15,19 @@ export async function GET(req: Request) {
     const supabase = getSupabaseClient();
 
     if (source === "local") {
+      try {
+        const { data: cacheRow } = await supabase
+          .from("market_cache")
+          .select("payload")
+          .eq("cache_key", "country_summary")
+          .maybeSingle();
+        if (cacheRow?.payload) {
+          const countries = Object.keys(cacheRow.payload).sort();
+          return NextResponse.json({ countries });
+        }
+      } catch (e) {
+        console.error("Failed to fetch country summary from market_cache:", e);
+      }
       return NextResponse.json({ countries: [] });
     }
 
@@ -22,11 +35,11 @@ export async function GET(req: Request) {
       const { data } = await supabase.rpc("get_active_countries");
       if (Array.isArray(data) && data.length > 0) {
         const countries = data
-          .map((item: unknown) => String((item as Record<string, unknown>).country || ""))
+          .map((item: any) => String(item.country || ""))
           .filter(Boolean);
         return NextResponse.json({ countries });
       }
-    } catch {
+    } catch (e) {
       // fall through to the fundamentals fallback below
     }
 

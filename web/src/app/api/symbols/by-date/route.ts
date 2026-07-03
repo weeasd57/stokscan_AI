@@ -9,51 +9,91 @@ export async function GET(req: Request) {
   const start = incomingUrl.searchParams.get("start");
   const end = incomingUrl.searchParams.get("end");
   const exchange = incomingUrl.searchParams.get("exchange");
-  const limit = parseInt(incomingUrl.searchParams.get("limit") || "50");
+  const limit = Math.min(parseInt(incomingUrl.searchParams.get("limit") || "50"), 500);
   const searchTerm = incomingUrl.searchParams.get("search_term");
 
   try {
     const supabase = getSupabaseClient();
-    
-    let query = supabase
-      .from('stocks')
-      .select(`
-        symbol,
-        exchange,
-        name,
-        stock_prices(count)
-      `)
-      .eq('is_active', true);
+
+    // 1. Get all symbols with latest price dates from stock_prices
+    //    Filtered by optional exchange and date range
+    let priceQuery = supabase
+      .from("stock_prices")
+      .select("symbol, exchange, date")
+      .order("date", { ascending: false });
 
     if (exchange) {
-      query = query.eq('exchange', exchange);
+      priceQuery = priceQuery.eq("exchange", exchange.toUpperCase());
     }
+    if (start) {
+      priceQuery = priceQuery.gte("date", start);
+    }
+    if (end) {
+      priceQuery = priceQuery.lte("date", end);
+    }
+
+    const { data: priceRows, error: priceErr } = await priceQuery.limit(limit * 10);
+
+    if (priceErr) {
+      console.error("by-date price query error:", priceErr);
+      return NextResponse.json({ results: [] });
+    }
+
+    // Deduplicate — keep only one (most recent) row per symbol
+    const seen = new Map<string, { symbol: string; exchange: string; date: string; rowCount: number }>();
+    for (const row of (priceRows || [])) {
+      const key = `${row.symbol}|${row.exchange}`;
+      if (!seen.has(key)) {
+        seen.set(key, {
+          symbol: row.symbol,
+          exchange: row.exchange,
+          date: row.date,
+          rowCount: 1,
+        });
+      } else {
+        seen.get(key)!.rowCount++;
+      }
+    }
+
+    // 2. Optionally get names from stock_fundamentals
+    const uniqueExchanges = [...new Set((priceRows || []).map((r: any) => r.exchange))];
+    let fundMap: Record<string, string> = {};
+    try {
+      let fundQuery = supabase
+        .from("stock_fundamentals")
+        .select("symbol, exchange, data");
+      if (exchange) {
+        fundQuery = fundQuery.eq("exchange", exchange.toUpperCase());
+      }
+      const { data: fundRows } = await fundQuery.limit(5000);
+      for (const row of (fundRows || [])) {
+        const key = `${row.symbol}|${row.exchange}`;
+        const rowData = row.data || {};
+        fundMap[key] = rowData.name || rowData.Name || "";
+      }
+    } catch {
+      // name lookup is optional
+    }
+
+    // 3. Apply optional search term filter and build result
+    let results = Array.from(seen.values()).map((entry) => ({
+      symbol: entry.symbol,
+      exchange: entry.exchange,
+      name: fundMap[`${entry.symbol}|${entry.exchange}`] || "",
+      rowCount: entry.rowCount,
+      lastDate: entry.date,
+    }));
 
     if (searchTerm) {
-      query = query.or(`symbol.ilike.%${searchTerm}%,name.ilike.%${searchTerm}%`);
+      const q = searchTerm.toLowerCase();
+      results = results.filter(
+        (r) => r.symbol.toLowerCase().includes(q) || r.name.toLowerCase().includes(q)
+      );
     }
 
-    const { data: stocks, error } = await query
-      .limit(limit)
-      .order('symbol', { ascending: true });
-
-    if (error) {
-      console.error('Supabase error:', error);
-      return NextResponse.json({ error: 'Failed to fetch symbols' }, { status: 500 });
-    }
-
-    // Transform to match expected format
-    const results = stocks?.map((stock: any) => ({
-      symbol: stock.symbol,
-      exchange: stock.exchange,
-      name: stock.name || '',
-      rowCount: stock.stock_prices?.[0]?.count || 0
-    })) || [];
-
-    return NextResponse.json({ results });
-
+    return NextResponse.json({ results: results.slice(0, limit) });
   } catch (error) {
-    console.error('API error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    console.error("by-date API error:", error);
+    return NextResponse.json({ results: [] });
   }
 }

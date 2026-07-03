@@ -340,6 +340,22 @@ async def startup_event():
 
 
 
+    # Start News Sentiment Scheduler (runs at 19:00 Cairo — after market + daily bot)
+
+    try:
+
+        from api.news_scheduler import start_news_scheduler
+
+        start_news_scheduler()
+
+        print("DEBUG: News Scheduler started successfully (runs daily at 19:00 Cairo).")
+
+    except Exception as e:
+
+        print(f"DEBUG ERROR: Failed to start News Scheduler: {e}")
+
+
+
 
 
 @app.on_event("shutdown")
@@ -353,6 +369,18 @@ async def shutdown_event():
         from api.daily_job_scheduler import stop_daily_job_scheduler
 
         stop_daily_job_scheduler()
+
+    except Exception:
+
+        pass
+
+    # Stop News Sentiment Scheduler
+
+    try:
+
+        from api.news_scheduler import stop_news_scheduler
+
+        stop_news_scheduler()
 
     except Exception:
 

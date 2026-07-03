@@ -7,17 +7,48 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   try {
     const supabase = getSupabaseClient();
+    
+    // 1. Try to load precalculated inventory from market_cache
+    try {
+      const { data: cacheRow } = await supabase
+        .from("market_cache")
+        .select("payload")
+        .eq("cache_key", "inventory")
+        .maybeSingle();
+
+      if (cacheRow?.payload && Array.isArray(cacheRow.payload)) {
+        return NextResponse.json({
+          inventory: cacheRow.payload,
+        });
+      }
+    } catch (cacheErr) {
+      console.warn("Failed to load inventory from market_cache:", cacheErr);
+    }
+
+    // 2. Fallback to basic fundamentals aggregation
     const { data } = await supabase
       .from("stock_fundamentals")
       .select("symbol,exchange,data")
       .limit(1000);
 
-    return NextResponse.json({
-      inventory: (data || []).map((row: Record<string, unknown>) => ({
-        symbol: row.symbol,
+    const fallbackInventory = (data || []).map((row: Record<string, any>) => {
+      const rowData = row.data || {};
+      return {
         exchange: row.exchange,
-        data: row.data,
-      })),
+        symbol: row.symbol,
+        price_count: 0,
+        fund_count: 1,
+        country: rowData.country || rowData.Country || "Unknown",
+        expected_count: 0,
+        priceCount: 0,
+        fundCount: 1,
+        expectedCount: 0,
+        intradayCount: 0,
+      };
+    });
+
+    return NextResponse.json({
+      inventory: fallbackInventory,
     });
   } catch (error) {
     console.error("symbols inventory route error:", error);

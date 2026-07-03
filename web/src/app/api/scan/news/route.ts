@@ -14,25 +14,31 @@ export async function GET(req: Request) {
     const dateFilter = url.searchParams.get("date") || "";
 
     const supabase = getSupabaseClient();
+    // stock_news_sentiment columns: id, symbol, exchange, date, sentiment_score,
+    // news_count, negative_flag, positive_flag, headlines (jsonb), sources (jsonb), created_at
     let query = supabase
       .from("stock_news_sentiment")
       .select("*", { count: "exact" })
       .order("date", { ascending: false })
       .range(offset, offset + limit - 1);
 
+    // Search by symbol (no 'title' column exists)
     if (search.trim()) {
-      query = query.ilike("title", `%${search}%`);
+      query = query.ilike("symbol", `%${search}%`);
     }
 
-    if (sentiment !== "all") {
-      query = query.eq("sentiment_label", sentiment);
+    // Derive sentiment from score — no sentiment_label column
+    if (sentiment === "positive") {
+      query = query.gt("sentiment_score", 0.1);
+    } else if (sentiment === "negative") {
+      query = query.lt("sentiment_score", -0.1);
+    } else if (sentiment === "neutral") {
+      query = query.gte("sentiment_score", -0.1).lte("sentiment_score", 0.1);
     }
 
+    // Filter by date (column is 'date', not 'published_at')
     if (dateFilter) {
-      const start = new Date(dateFilter);
-      const end = new Date(start);
-      end.setDate(end.getDate() + 1);
-      query = query.gte("published_at", start.toISOString()).lt("published_at", end.toISOString());
+      query = query.eq("date", dateFilter);
     }
 
     const { data, error, count } = await query;
@@ -42,15 +48,22 @@ export async function GET(req: Request) {
       return NextResponse.json({ data: [], total: 0 });
     }
 
-    const items = (data || []).map((row: Record<string, unknown>) => ({
-      id: row.id,
-      title: row.title,
-      url: row.url,
-      source: row.source,
-      published_at: row.published_at,
-      sentiment_score: toNumber(row.sentiment_score),
-      sentiment_label: row.sentiment_label,
-    }));
+    const items = (data || []).map((row: Record<string, unknown>) => {
+      const score = toNumber(row.sentiment_score);
+      const label = score > 0.1 ? "positive" : score < -0.1 ? "negative" : "neutral";
+      const headlines = Array.isArray(row.headlines) ? row.headlines : [];
+      return {
+        id: row.id,
+        symbol: row.symbol,
+        exchange: row.exchange,
+        date: row.date,
+        sentiment_score: score,
+        sentiment_label: label,
+        news_count: typeof row.news_count === "number" ? row.news_count : headlines.length,
+        headlines,
+        sources: Array.isArray(row.sources) ? row.sources : [],
+      };
+    });
 
     return NextResponse.json({ data: items, total: count || 0 });
   } catch (error) {

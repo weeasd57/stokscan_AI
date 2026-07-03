@@ -252,12 +252,13 @@ class TestFeatureEngineeringManager:
         
         # Create sample data
         dates = pd.date_range("2024-01-01", periods=200)
+        close_vals = np.random.rand(200) * 100
         df = pd.DataFrame({
-            "Open": np.random.rand(200) * 100,
-            "High": np.random.rand(200) * 100,
-            "Low": np.random.rand(200) * 100,
-            "Close": np.random.rand(200) * 100,
-            "Volume": np.random.randint(1000, 10000, 200),
+            "Open": close_vals,
+            "High": close_vals + np.random.rand(200) * 10,
+            "Low": np.clip(close_vals - np.random.rand(200) * 10, a_min=0.01, a_max=None),
+            "Close": close_vals,
+            "Volume": np.random.randint(15000, 20000, 200),
         }, index=dates)
         
         report = manager.check_data_ready(df)

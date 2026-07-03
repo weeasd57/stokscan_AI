@@ -1,7 +1,26 @@
 import os
 import json
+import datetime as dt
 from functools import lru_cache
 from typing import Any, Dict, List, Optional
+
+def save_to_supabase_cache(key: str, payload: Any, country: Optional[str] = None):
+    """Save payload into Supabase market_cache table."""
+    try:
+        from api.stock_ai import _init_supabase, supabase
+        _init_supabase()
+        if supabase:
+            data = {
+                "cache_key": key,
+                "payload": payload,
+                "computed_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+            }
+            if country:
+                data["country"] = country
+            supabase.table("market_cache").upsert(data).execute()
+            print(f"INFO: Successfully saved '{key}' to Supabase market_cache.")
+    except Exception as e:
+        print(f"WARNING: Failed to save '{key}' to Supabase market_cache: {e}")
 
 def _dir_has_symbol_data(symbols_dir: str) -> bool:
     """True if a symbols_data directory actually holds country symbol files
@@ -11,7 +30,10 @@ def _dir_has_symbol_data(symbols_dir: str) -> bool:
     try:
         for name in os.listdir(symbols_dir):
             if "_all_symbols" in name or name.startswith("country_summary") or name.startswith("all_symbols_by_country"):
-                return True
+                # Ignore Git LFS pointer files (which are around 130 bytes)
+                path = os.path.join(symbols_dir, name)
+                if os.path.isfile(path) and os.path.getsize(path) > 1000:
+                    return True
     except OSError:
         pass
     return False
@@ -96,6 +118,18 @@ def _find_latest_file(prefix: str, suffix: str = ".json") -> Optional[str]:
 
 @lru_cache(maxsize=1)
 def load_country_summary() -> Dict[str, Any]:
+    # 1. Try Supabase first
+    try:
+        from api.stock_ai import _init_supabase, supabase
+        _init_supabase()
+        if supabase:
+            res = supabase.table("market_cache").select("payload").eq("cache_key", "country_summary").maybe_single().execute()
+            if res.data and res.data.get("payload"):
+                return res.data["payload"]
+    except Exception as e:
+        print(f"WARNING: Failed to load country_summary from Supabase: {e}")
+
+    # 2. Fallback to local files
     path = _find_latest_file("country_summary")
     if not path:
         return {}
@@ -105,9 +139,27 @@ def list_countries() -> List[str]:
     summary = load_country_summary()
     return sorted(summary.keys())
 
+def load_exchanges_list() -> List[Dict[str, Any]]:
+    # 1. Try Supabase first
+    try:
+        from api.stock_ai import _init_supabase, supabase
+        _init_supabase()
+        if supabase:
+            res = supabase.table("market_cache").select("payload").eq("cache_key", "exchanges_list").maybe_single().execute()
+            if res.data and res.data.get("payload"):
+                return res.data["payload"]
+    except Exception as e:
+        print(f"WARNING: Failed to load exchanges_list from Supabase: {e}")
+
+    # 2. Fallback to local
+    path = _find_latest_file("exchanges_list")
+    if not path:
+        return []
+    return _safe_read_json(path) or []
+
 @lru_cache(maxsize=64)
 def load_symbols_for_country(country: str) -> List[Dict[str, Any]]:
-    # 1. Try to fetch from Supabase
+    # 1. Try to fetch from Supabase symbols/fundamentals
     try:
         from api.stock_ai import get_supabase_symbols
         db_symbols = get_supabase_symbols(country)
@@ -126,9 +178,20 @@ def load_symbols_for_country(country: str) -> List[Dict[str, Any]]:
             print(f"INFO: Loaded {len(mapped_symbols)} symbols for {country} from Supabase")
             return mapped_symbols
     except Exception as e:
-        print(f"WARNING: Failed to fetch symbols from Supabase for {country}: {e}. Falling back to local files.")
+        print(f"WARNING: Failed to fetch symbols from Supabase for {country}: {e}.")
 
-    # 2. Fallback to local files
+    # 2. Try market_cache symbols_{country}
+    try:
+        from api.stock_ai import _init_supabase, supabase
+        _init_supabase()
+        if supabase:
+            res = supabase.table("market_cache").select("payload").eq("cache_key", f"symbols_{country}").maybe_single().execute()
+            if res.data and res.data.get("payload"):
+                return res.data["payload"]
+    except Exception as e:
+        print(f"WARNING: Failed to load symbols_{country} from market_cache: {e}")
+
+    # 3. Fallback to local files
     path = _find_latest_file(f"{country}_all_symbols")
     if not path:
         return []
@@ -137,6 +200,18 @@ def load_symbols_for_country(country: str) -> List[Dict[str, Any]]:
 
 @lru_cache(maxsize=1)
 def load_all_symbols() -> List[Dict[str, Any]]:
+    # 1. Try market_cache first
+    try:
+        from api.stock_ai import _init_supabase, supabase
+        _init_supabase()
+        if supabase:
+            res = supabase.table("market_cache").select("payload").eq("cache_key", "all_symbols_by_country").maybe_single().execute()
+            if res.data and res.data.get("payload"):
+                return res.data["payload"]
+    except Exception as e:
+        print(f"WARNING: Failed to load all_symbols_by_country from market_cache: {e}")
+
+    # 2. Fallback to local files
     path = _find_latest_file("all_symbols_by_country")
     if not path:
         return []
