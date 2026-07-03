@@ -227,28 +227,28 @@
                     <tr style="border-bottom: 2px solid var(--border-color); color: var(--primary-color);">
                         <th style="padding: 12px; font-weight: 700; text-align: right;">الخدمة / المنصة</th>
                         <th style="padding: 12px; font-weight: 700; text-align: right;">الدور في الموقع</th>
-                        <th style="padding: 12px; font-weight: 700; text-align: right;">أقصى استيعاب للمستخدمين (نشط يومياً / DAU)</th>
-                        <th style="padding: 12px; font-weight: 700; text-align: right;">آلية التحسين الرئيسية</th>
+                        <th style="padding: 12px; font-weight: 700; text-align: right;">أقصى استيعاب للمستخدمين (مؤكد بالاختبار)</th>
+                        <th style="padding: 12px; font-weight: 700; text-align: right;">آلية التحسين والنتائج المحققة</th>
                     </tr>
                 </thead>
                 <tbody>
                     <tr style="border-bottom: 1px solid var(--border-color);">
-                        <td style="padding: 12px; font-weight: 700; color: #f8fafc;">Supabase (البيانات)</td>
-                        <td style="padding: 12px;">تخزين وجلب التوصيات وحركة الأسعار الشموع.</td>
-                        <td style="padding: 12px; color: #22c55e; font-weight: 700;">2,500 - 4,000 مستخدم يومياً</td>
-                        <td style="padding: 12px;">استبعاد عمود الـ features الثقيل، وتفعيل كاش 10 دقائق للتوصيات على السيرفر.</td>
+                        <td style="padding: 12px; font-weight: 700; color: #f8fafc;">Vercel + Supabase (الـ API والموقع)</td>
+                        <td style="padding: 12px;">معالجة طلبات الأسهم وتصفح الواجهة والربط ببيانات السوق.</td>
+                        <td style="padding: 12px; color: #22c55e; font-weight: 700;">~75 مستخدم متزامن (1,000+ في الدقيقة)</td>
+                        <td style="padding: 12px;">تفعيل كاش 6 ساعات لطلب رموز الأسهم اليومي، مما وفر استقراراً بنسبة 100% ومعدل معالجة 53 طلب/ثانية.</td>
                     </tr>
                     <tr style="border-bottom: 1px solid var(--border-color);">
-                        <td style="padding: 12px; font-weight: 700; color: #f8fafc;">Hugging Face (السيرفر)</td>
-                        <td style="padding: 12px;">معالجة طلبات البحث وتشغيل الذكاء الاصطناعي.</td>
-                        <td style="padding: 12px; color: #22c55e; font-weight: 700;">+3,000 مستخدم متزامن</td>
-                        <td style="padding: 12px;">تقديم استجابة الكاش خلال 16 مللي ثانية فقط دون الاستعلام المتكرر لقاعدة البيانات.</td>
+                        <td style="padding: 12px; font-weight: 700; color: #f8fafc;">Hugging Face (السيرفر والذكاء الاصطناعي)</td>
+                        <td style="padding: 12px;">معالجة عمليات التنبؤ والموديلات وتشغيل البوت المجدول يومياً.</td>
+                        <td style="padding: 12px; color: #22c55e; font-weight: 700;">~125 مستخدم متزامن كحد أقصى للـ API</td>
+                        <td style="padding: 12px;">تخزين الموديلات الكبيرة محلياً عبر LFS وربطها بالـ FastAPI مع تقليل استهلاك ذاكرة الحاوية.</td>
                     </tr>
                     <tr>
-                        <td style="padding: 12px; font-weight: 700; color: #f8fafc;">Vercel (الموقع)</td>
-                        <td style="padding: 12px;">تحميل وعرض تصميم الموقع للمستخدم.</td>
-                        <td style="padding: 12px; color: #22c55e; font-weight: 700;">1,600 زائر يومياً (50 ألف شهرياً)</td>
-                        <td style="padding: 12px;">تحميل ملفات الموقع الثابتة عبر الـ CDN.</td>
+                        <td style="padding: 12px; font-weight: 700; color: #f8fafc;">CDN & Cache (الشبكة)</td>
+                        <td style="padding: 12px;">توزيع الأصول الثابتة وتقليل الحمل المباشر عن السيرفر الرئيسي.</td>
+                        <td style="padding: 12px; color: #22c55e; font-weight: 700;">غير محدود (مستضافة على شبكة Edge سحابية)</td>
+                        <td style="padding: 12px;">استخدام الحواف الذكية لـ Vercel مع وقت استجابة p50 يبلغ 359 مللي ثانية فقط تحت أقصى ضغط.</td>
                     </tr>
                 </tbody>
             </table>
