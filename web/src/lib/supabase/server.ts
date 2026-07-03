@@ -23,7 +23,5 @@ function getSupabaseServer() {
   return _supabaseServer
 }
 
-// Server-side client with service role key for API routes
-export const supabaseServer = getSupabaseServer()
-
+// Only export the function, not a pre-initialized client
 export const createSupabaseServerClient = () => getSupabaseServer()
