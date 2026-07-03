@@ -52,7 +52,7 @@ logging.basicConfig(
 
 logger = logging.getLogger("daily_bot_job")
 
-from api.daily_bot_run import run_daily_bot_job as _run_daily_job_inner
+from api.daily_bot_run import run_daily_job as _run_daily_job_inner
 
 
 def _init_telegram_bridge():

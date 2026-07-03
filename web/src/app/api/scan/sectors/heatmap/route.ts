@@ -16,7 +16,7 @@ export async function GET(req: Request) {
       .select('*')
       .eq('exchange', 'EGX') // Map country to exchange
       .order('captured_at', { ascending: false })
-      .limit(100);
+      .limit(400);
 
     if (error) {
       console.error('Heatmap Supabase error:', error);

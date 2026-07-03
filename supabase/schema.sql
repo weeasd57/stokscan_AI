@@ -258,6 +258,16 @@ create table if not exists public.stock_fundamentals (
   unique(symbol, exchange)
 );
 
+create table if not exists public.support_messages (
+  id uuid primary key default gen_random_uuid(),
+  session_id text not null,
+  sender text not null,
+  content text not null,
+  user_name text,
+  created_at timestamptz default now()
+);
+create index if not exists support_messages_session_idx on public.support_messages(session_id, created_at);
+
 create or replace function public.get_active_countries()
 returns table(country text)
 language sql

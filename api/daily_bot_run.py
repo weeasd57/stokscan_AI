@@ -1833,6 +1833,92 @@ def _refresh_market_status_cache():
         return False, f"Error: {e}"
 
 
+def update_market_heatmap():
+    """
+    Fetch all active EGX symbols, their latest prices, volume, percent change,
+    and fundamentals (sector), then upsert into public.market_heatmap.
+    """
+    print("\n>>> STEP 2.7: Pre-computing and saving Sector Heatmap to Supabase...")
+    try:
+        from api.symbols_local import load_symbols_for_country
+        symbols_data = load_symbols_for_country("Egypt")
+        if not symbols_data:
+            print("[HEATMAP] No symbols loaded for Egypt.")
+            return False, "No symbols loaded"
+
+        symbol_pairs = []
+        company_names = {}
+        for row in symbols_data:
+            sym = str(row.get("Code", row.get("Symbol", ""))).strip()
+            ex = str(row.get("Exchange", "")).strip()
+            name = str(row.get("Name", row.get("Company", sym))).strip()
+            if sym and ex:
+                symbol_pairs.append((sym, ex))
+                company_names[f"{sym}|{ex}"] = name
+
+        # Fetch fundamentals and technicals
+        from api.routers.scan_tech import _fetch_company_fundamentals, _fetch_latest_technical_indicators
+        fundamentals = _fetch_company_fundamentals(symbol_pairs)
+        tech_rows = _fetch_latest_technical_indicators(symbol_pairs)
+
+        def _local_safe_float(val, default=0.0):
+            try:
+                if val is None:
+                    return default
+                return float(val)
+            except Exception:
+                return default
+
+        # Build list of records to insert
+        records_to_upsert = []
+        captured_at = dt.datetime.now(dt.timezone.utc).isoformat()
+        
+        for sym, ex in symbol_pairs:
+            key = f"{sym}|{ex}"
+            tech = tech_rows.get(key)
+            fund = fundamentals.get(key) or {}
+
+            close = _local_safe_float(tech.get("close") if tech else None)
+            volume = _local_safe_float(tech.get("volume") if tech else None)
+            change_pct = _local_safe_float(tech.get("change_pct") if tech else None)
+            raw_sec = fund.get("Sector", fund.get("sector", fund.get("industry", "Speculative Sector")))
+            
+            # Using close * volume as cap/money_flow proxy
+            cap = (close * volume) if (close and volume) else 0.0
+
+            records_to_upsert.append({
+                "exchange": ex,
+                "symbol": sym,
+                "sector": raw_sec,
+                "change_pct": change_pct,
+                "volume": volume,
+                "cap": cap,
+                "source": "daily_job",
+                "captured_at": captured_at
+            })
+
+        if records_to_upsert:
+            # First, let's delete records older than 7 days to prevent database bloat
+            try:
+                seven_days_ago = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=7)).isoformat()
+                supabase.table("market_heatmap").delete().lt("captured_at", seven_days_ago).execute()
+            except Exception as del_err:
+                print(f"[HEATMAP] Failed to prune old heatmap records: {del_err}")
+
+            # Batch insert
+            for i in range(0, len(records_to_upsert), 100):
+                chunk = records_to_upsert[i:i+100]
+                supabase.table("market_heatmap").insert(chunk).execute()
+            
+            print(f"[HEATMAP] Successfully saved {len(records_to_upsert)} records to market_heatmap.")
+            return True, f"Saved {len(records_to_upsert)} symbols"
+        else:
+            return False, "No records to save"
+    except Exception as e:
+        print(f"[HEATMAP] Error pre-computing heatmap: {e}")
+        return False, str(e)
+
+
 async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sync: bool = False, trigger: str = "manual"):
     print(f"--- Daily Bot Run Job Started: {dt.datetime.now()} ---")
     if dry_run:
@@ -1848,7 +1934,7 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
         return
 
     job_run_id = str(uuid.uuid4())
-    job_start_time = dt.datetime.utcnow().isoformat()
+    job_start_time = dt.datetime.now(dt.timezone.utc).isoformat()
     steps_log = []
     active_steps = {}
     symbols_raw = []
@@ -1901,6 +1987,19 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
         if started_at is not None:
             extra["duration_ms"] = int((time.time() - started_at) * 1000)
         _append_step_log(step_name, status, details, count, extra)
+
+        if not success and status == "failed":
+            try:
+                from api.telegram_bot import get_telegram_bot
+                bot = get_telegram_bot()
+                if bot:
+                    bot.send_notification(
+                        f"⚠️ *تنبيه فشل StokScan AI*:\n"
+                        f"• الخطوة: *{step_name}* فشلت\n"
+                        f"• التفاصيل: {str(details)[:300]}"
+                    )
+            except Exception as e_alert:
+                print(f"[TELEGRAM_ALERT] Failed to send failure alert: {e_alert}")
 
     try:
         # Initial status insert
@@ -2003,6 +2102,16 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
         except Exception as e:
             _record_step("news_sentiment", False, str(e)[:200], 0)
             print(f"[NEWS_SENTIMENT] Error: {e}")
+
+        # 2.7 Pre-compute Sector Heatmap
+        print("\n>>> STEP 2.7: Pre-computing and saving Sector Heatmap...")
+        _start_step("precompute_heatmap", "Pre-computing sector heatmap and saving to Supabase")
+        try:
+            ok_heatmap, msg_heatmap = update_market_heatmap()
+            _record_step("precompute_heatmap", ok_heatmap, msg_heatmap, 0)
+        except Exception as e:
+            _record_step("precompute_heatmap", False, str(e)[:200], 0)
+            print(f"[HEATMAP] Error: {e}")
 
         # 3. Update open portfolio positions
         print("\n>>> STEP 3: Updating open portfolio positions...")
@@ -2159,6 +2268,68 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
             except Exception as e:
                 _record_step("weekly_adaptive_retraining", False, str(e)[:200], 0)
                 print(f"[ADAPTIVE] Weekly retraining failed with error: {e}")
+
+        # 10. Send Daily Digest Telegram Report
+        try:
+            from api.telegram_bot import get_telegram_bot
+            bot = get_telegram_bot()
+            if bot:
+                elapsed = (dt.datetime.now(dt.timezone.utc) - dt.datetime.fromisoformat(job_start_time.replace("Z", "+00:00"))).total_seconds()
+                digest_lines = [
+                    f"🤖 *ملخص التشغيل اليومي لـ StokScan AI*",
+                    f"📅 التاريخ: {dt.datetime.now().strftime('%Y-%m-%d %H:%M')}",
+                    f"⏱️ مدة التشغيل الإجمالية: {elapsed:.1f} ثانية",
+                    ""
+                ]
+                
+                step_names_ar = {
+                    "sync_inventory": "تحديث قائمة الأسهم",
+                    "mark_non_listed": "تحديد الأسهم غير المدرجة",
+                    "sync_prices": "مزامنة الأسعار",
+                    "calculate_indicators": "حساب المؤشرات الفنية",
+                    "news_sentiment": "تحليل الأخبار بالذكاء الاصطناعي",
+                    "precompute_heatmap": "حساب الـ Heatmap",
+                    "update_positions": "تحديث المحفظة",
+                    "evaluate_recommendations": "تقييم التوصيات القديمة",
+                    "refresh_market_status_for_gate": "تحديث بوابة التوصيات",
+                    "generate_recommendations": "توليد التوصيات الجديدة",
+                    "historical_similarity": "البحث عن التشابه التاريخي",
+                    "weekly_performance_report": "التقرير الأسبوعي للأداء",
+                    "refresh_market_status": "تحديث حالة المؤشرات العامة",
+                    "weekly_adaptive_retraining": "إعادة التدريب التكيفي"
+                }
+
+                for step in steps_log:
+                    name = step.get("step")
+                    status = step.get("status")
+                    count = step.get("count", 0)
+                    
+                    emoji = "✅" if status in ("success", "skipped") else "❌"
+                    if status == "skipped":
+                        emoji = "⏭️"
+                    
+                    step_ar = step_names_ar.get(name, name)
+                    line = f"{emoji} *{step_ar}* — {status.upper()}"
+                    if count > 0:
+                        line += f" ({count})"
+                    digest_lines.append(line)
+                
+                try:
+                    res_status = stock_ai.supabase.table("market_cache").select("payload").eq("cache_key", "market_status_Egypt").maybe_single().execute()
+                    if res_status.data and res_status.data.get("payload"):
+                        payload_data = res_status.data["payload"]
+                        egx30_change = payload_data.get("egx30", {}).get("change_pct", 0)
+                        egx30_close = payload_data.get("egx30", {}).get("close", 0)
+                        market_state = "Bullish 📈" if egx30_change >= 0 else "Bearish 📉"
+                        digest_lines.append("")
+                        digest_lines.append(f"📊 *حالة السوق اليوم (EGX30)*: {market_state}")
+                        digest_lines.append(f"• الإغلاق: {egx30_close:,.2f} | التغيير: {egx30_change:+.2f}%")
+                except Exception as me_err:
+                    print(f"[TELEGRAM_DIGEST] Market status read error: {me_err}")
+                
+                bot.send_notification("\n".join(digest_lines))
+        except Exception as e_telegram:
+            print(f"[TELEGRAM_DIGEST] Failed to send daily digest: {e_telegram}")
 
         _persist_job("completed")
         print(f"\n--- Daily Bot Run Job Completed: {dt.datetime.now()} ---")

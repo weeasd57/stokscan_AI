@@ -23,15 +23,12 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 # وظائف مساعدة
 # -------------------------------------------------
 def _upsert(key: str, payload: dict, ttl_seconds: int = 6 * 3600) -> None:
-    """يدمج/يحدث سجلًّا في market_cache.
-    ttl_seconds = 6 ساعات بشكل افتراضي.
-    """
+    """يدمج/يحدث سجلًّا في market_cache."""
     data = {
         "cache_key": key,
         "country": "Egypt",
         "payload": payload,
         "computed_at": datetime.now(timezone.utc).isoformat(),
-        "expiry": (datetime.now(timezone.utc) + timedelta(seconds=ttl_seconds)).isoformat(),
     }
     supabase.table("market_cache").upsert(data).execute()
 

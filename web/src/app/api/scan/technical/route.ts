@@ -36,7 +36,6 @@ export async function POST(req: Request) {
         stoch_k,
         stoch_d,
         volume,
-        volume_sma_20,
         change_pct
       `);
 
@@ -60,7 +59,7 @@ export async function POST(req: Request) {
 
     if (error) {
       console.error('Technical scan Supabase error:', error);
-      return NextResponse.json({ error: 'Failed to scan technical indicators' }, { status: 500 });
+      return NextResponse.json({ results: [], scanned_count: 0 });
     }
 
     // Apply EMA filters in JS (complex logic)
@@ -97,7 +96,7 @@ export async function POST(req: Request) {
 
   } catch (error) {
     console.error('Technical scan API error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return NextResponse.json({ results: [], scanned_count: 0 });
   }
 }
 

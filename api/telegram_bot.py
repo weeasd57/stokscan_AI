@@ -53,6 +53,17 @@ class TelegramBot:
         ):
             self.chat_id = self.bot_instance.config.telegram_chat_id
             self._log(f"Loaded chat_id from bot config: {self.chat_id}")
+        else:
+            env_chat_id = os.getenv("TELEGRAM_CHAT_ID")
+            if env_chat_id:
+                try:
+                    self.chat_id = int(float(env_chat_id))
+                    self._log(f"Loaded chat_id from environment: {self.chat_id}")
+                except Exception:
+                    pass
+            if not self.chat_id:
+                self.chat_id = -1003699330518
+                self._log(f"Loaded default fallback chat_id: {self.chat_id}")
 
     def _save_chat_id(self, chat_id: int):
         self.chat_id = chat_id

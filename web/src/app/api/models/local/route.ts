@@ -1,47 +1,17 @@
 import { NextResponse } from "next/server";
+import { getSupabaseClient } from "@/lib/supabase/route-data";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-function withTimeout(ms: number) {
-  const controller = new AbortController();
-  const id = setTimeout(() => controller.abort(), ms);
-  return { controller, id };
-}
-
 export async function GET() {
-  const base = process.env.PYTHON_BACKEND_URL || process.env.NEXT_PUBLIC_API_BASE_URL || (process.env.VERCEL ? "https://stokscan-ai-api.onrender.com" : "http://127.0.0.1:8000");
-  const targetUrl = `${base.replace(/\/$/, "")}/admin/models/list`;
-
-  const { controller, id } = withTimeout(15_000);
   try {
-    const upstream = await fetch(targetUrl, {
-      method: "GET",
-      headers: {
-        Accept: "application/json",
-        "x-admin-key": process.env.ADMIN_SECRET_KEY || "",
-      },
-      cache: "no-store",
-      signal: controller.signal,
-    });
-
-    const contentType = upstream.headers.get("content-type") || "application/json";
-    if (upstream.body) {
-      return new Response(upstream.body, {
-        status: upstream.status,
-        headers: { "content-type": contentType },
-      });
-    }
-
-    const text = await upstream.text();
-    return new Response(text, {
-      status: upstream.status,
-      headers: { "content-type": contentType },
-    });
-  } catch (e: any) {
-    const msg = e?.name === "AbortError" ? "Upstream timeout" : "Upstream request failed";
-    return NextResponse.json({ detail: msg }, { status: 502 });
-  } finally {
-    clearTimeout(id);
+    const supabase = getSupabaseClient();
+    const { data, error } = await supabase.from("model_metadata").select("*").order("created_at", { ascending: false });
+    if (error) return NextResponse.json({ models: [] });
+    return NextResponse.json({ models: data || [] });
+  } catch (error) {
+    console.error("Local models route error:", error);
+    return NextResponse.json({ models: [] });
   }
 }
