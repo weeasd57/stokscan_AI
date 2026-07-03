@@ -8,7 +8,7 @@ export async function GET() {
   try {
     const supabase = getSupabaseClient();
     const { data, error } = await supabase
-      .from("symbols")
+      .from("stocks")
       .select("symbol")
       .eq("country", "Egypt");
 

@@ -442,23 +442,15 @@ from api.routers import admin, bot, payment, scan_ai, scan_ai_fast, scan_tech, s
 
 
 
-app.include_router(scan_ai.router)
-
-app.include_router(scan_ai_fast.router)
-
-app.include_router(scan_tech.router)
-
-app.include_router(admin.router)
+# Include routers with and without /api prefix to handle both local and Vercel-rewritten requests
+for r in [scan_ai.router, scan_ai_fast.router, scan_tech.router, admin.router, payment.router, similarity_admin.router, support.router]:
+    app.include_router(r)
+    app.include_router(r, prefix="/api")
 
 app.include_router(bot.router, prefix="/ai_bot")
-
-app.include_router(bot.router, prefix="/bot")  # Compatibility Alias
-
-app.include_router(payment.router)
-
-app.include_router(similarity_admin.router)
-
-app.include_router(support.router)
+app.include_router(bot.router, prefix="/api/ai_bot")
+app.include_router(bot.router, prefix="/bot")
+app.include_router(bot.router, prefix="/api/bot")
 
 
 

@@ -15,9 +15,9 @@ export async function GET(req: Request) {
 
     const supabase = getSupabaseClient();
     let query = supabase
-      .from("news")
+      .from("stock_news_sentiment")
       .select("*", { count: "exact" })
-      .order("published_at", { ascending: false })
+      .order("date", { ascending: false })
       .range(offset, offset + limit - 1);
 
     if (search.trim()) {
