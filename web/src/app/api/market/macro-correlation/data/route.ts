@@ -7,41 +7,40 @@ export const dynamic = "force-dynamic";
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const symbol = url.searchParams.get("symbol") || "FWRY";
-  const backendBaseUrl =
-    process.env.BACKEND_URL ||
-    process.env.API_BASE_URL ||
-    process.env.NEXT_PUBLIC_BACKEND_URL ||
-    "http://127.0.0.1:8000";
 
   try {
-    const backendUrl = new URL("/market/macro-correlation/data", backendBaseUrl);
-    backendUrl.searchParams.set("symbol", symbol);
+    const supabase = getSupabaseClient();
+    const { data, error } = await supabase
+      .from("market_cache")
+      .select("payload, computed_at")
+      .eq("cache_key", `macro_correlation_${symbol}`)
+      .eq("country", "Egypt")
+      .order("computed_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
 
-    const res = await fetch(backendUrl.toString(), { cache: "no-store" });
-    if (!res.ok) {
-      throw new Error(`Backend macro-correlation fetch failed (${res.status})`);
+    if (error) {
+      console.error("Macro-correlation data error:", error);
     }
 
-    const payload = await res.json();
-
-    try {
-      const supabase = getSupabaseClient();
-      await supabase.from("market_cache").upsert(
-        {
-          cache_key: `macro_correlation_${symbol}`,
-          country: "Egypt",
-          payload,
-          computed_at: new Date().toISOString(),
-        },
-        {
-          onConflict: "cache_key,country",
-        }
-      );
-    } catch (cacheError) {
-      console.error("Macro-correlation cache backfill failed:", cacheError);
+    if (data?.payload) {
+      const payload =
+        typeof data.payload === "string"
+          ? JSON.parse(data.payload)
+          : data.payload;
+      return NextResponse.json({ ...payload, computed_at: data.computed_at });
     }
 
-    return NextResponse.json(payload);
+    // No data yet — backend will populate on next daily run
+    return NextResponse.json({
+      symbol,
+      corr_usd_official: 0.0,
+      corr_usd_parallel: 0.0,
+      corr_gold: 0.0,
+      rating: "Low Protection",
+      chart_data: [],
+      insights: "Macro-correlation data is not yet available. It will be computed during the next daily update.",
+    });
   } catch (error: any) {
     console.error("Macro-correlation data error:", error);
     return NextResponse.json(
@@ -52,9 +51,11 @@ export async function GET(req: Request) {
         corr_gold: 0.0,
         rating: "Low Protection",
         chart_data: [],
-        insights: error?.message || "Macro-correlation data is unavailable.",
+        insights: "Macro-correlation data is currently unavailable.",
       },
       { status: 200 }
     );
   }
 }
+
+

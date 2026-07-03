@@ -6,6 +6,7 @@ export const dynamic = "force-dynamic";
 
 function getBackendBaseUrl() {
   return (
+    process.env.PYTHON_BACKEND_URL ||
     process.env.BACKEND_URL ||
     process.env.API_BASE_URL ||
     process.env.NEXT_PUBLIC_BACKEND_URL ||
@@ -83,6 +84,7 @@ async function proxyAdminRequest(req: Request, context: { params: { path?: strin
       headers,
       body,
       cache: "no-store",
+      signal: AbortSignal.timeout(10000),
     });
 
     const contentType = backendRes.headers.get("content-type") || "";
@@ -136,12 +138,18 @@ async function proxyAdminRequest(req: Request, context: { params: { path?: strin
     });
   } catch (error: any) {
     console.error("Admin proxy error:", error);
+    const isUnreachable =
+      error?.cause?.code === "ECONNREFUSED" ||
+      error?.name === "TimeoutError" ||
+      error?.code === "ECONNREFUSED";
     return NextResponse.json(
       {
-        detail: `Failed to proxy admin route '${path}'`,
+        detail: isUnreachable
+          ? `Admin backend is unreachable. Route '${path}' requires the Python backend to be running.`
+          : `Failed to proxy admin route '${path}'`,
         error: error?.message || "Unknown proxy error",
       },
-      { status: 502 }
+      { status: isUnreachable ? 503 : 502 }
     );
   }
 }

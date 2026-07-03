@@ -85,7 +85,7 @@ export async function GET(req: Request) {
       .from('stocks')
       .select('symbol,name');
     const symbolToName = new Map<string, string>();
-    stocksData?.forEach((s: any) => symbolToName.set(s.symbol, s.name));
+    stocksData?.forEach((s: {symbol: string; name: string}) => symbolToName.set(s.symbol, s.name));
 
     // Group by sector and calculate aggregates
     const sectors = new Map<string, {

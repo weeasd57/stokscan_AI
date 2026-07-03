@@ -6,7 +6,7 @@
   ],
   "scripts": {
     "web:install": "npm --prefix web install",
-    "web:dev": "npm --prefix web run dev",
+    "build": "npm --prefix web run build",
     "web:build": "npm --prefix web run build",
     "web:start": "npm --prefix web run start"
   },

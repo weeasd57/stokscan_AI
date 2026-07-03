@@ -87,6 +87,7 @@ from api.adaptive_model_selector import recommend_model_from_pool
 from api.stock_ai import run_pipeline
 
 from api.symbols_local import list_countries, search_symbols
+from api.health import router as health_router
 
 
 
@@ -439,7 +440,7 @@ app.include_router(payment.router)
 app.include_router(similarity_admin.router)
 
 app.include_router(support.router)
-
+app.include_router(health_router)
 
 
 

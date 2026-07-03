@@ -4,54 +4,46 @@ import { getSupabaseClient } from "@/lib/supabase/route-data";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET(req: Request) {
-  const incomingUrl = new URL(req.url);
-  const backendBaseUrl =
-    process.env.BACKEND_URL ||
-    process.env.API_BASE_URL ||
-    process.env.NEXT_PUBLIC_BACKEND_URL ||
-    "http://127.0.0.1:8000";
-
+export async function GET() {
   try {
-    const backendUrl = new URL("/market/macro-correlation/scan", backendBaseUrl);
-    incomingUrl.searchParams.forEach((value, key) => {
-      backendUrl.searchParams.append(key, value);
+    const supabase = getSupabaseClient();
+    const { data, error } = await supabase
+      .from("market_cache")
+      .select("payload, computed_at")
+      .eq("cache_key", "macro_correlation_scan")
+      .eq("country", "Egypt")
+      .order("computed_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      console.error("Macro-correlation scan error:", error);
+    }
+
+    if (data?.payload) {
+      const payload =
+        typeof data.payload === "string"
+          ? JSON.parse(data.payload)
+          : data.payload;
+      return NextResponse.json({ ...payload, computed_at: data.computed_at });
+    }
+
+    // No data yet — backend will populate on next daily run
+    return NextResponse.json({
+      updated_at: new Date().toISOString(),
+      symbols: [],
     });
-
-    const res = await fetch(backendUrl.toString(), { cache: "no-store" });
-    if (!res.ok) {
-      throw new Error(`Backend macro-correlation scan failed (${res.status})`);
-    }
-
-    const payload = await res.json();
-
-    try {
-      const supabase = getSupabaseClient();
-      await supabase.from("market_cache").upsert(
-        {
-          cache_key: "macro_correlation_scan",
-          country: "Egypt",
-          payload,
-          computed_at: new Date().toISOString(),
-        },
-        {
-          onConflict: "cache_key,country",
-        }
-      );
-    } catch (cacheError) {
-      console.error("Macro-correlation scan cache backfill failed:", cacheError);
-    }
-
-    return NextResponse.json(payload);
   } catch (error: any) {
     console.error("Macro-correlation scan error:", error);
     return NextResponse.json(
       {
         updated_at: new Date().toISOString(),
         symbols: [],
-        error: error?.message || "Failed to load macro-correlation scan data",
+        error: "Failed to load macro-correlation scan data",
       },
       { status: 200 }
     );
   }
 }
+
+
