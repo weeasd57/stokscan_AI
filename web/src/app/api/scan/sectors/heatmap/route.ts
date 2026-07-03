@@ -4,23 +4,33 @@ import { getSupabaseClient } from "@/lib/supabase/route-data";
 export const runtime = "nodejs";
 
 const SECTOR_AR: Record<string, string> = {
-  'Finance': 'الخدمات المالية',
-  'Process Industries': 'الصناعات التحويلية',
-  'Producer Materials': 'المواد الأساسية',
-  'Consumer Services': 'الخدمات الاستهلاكية',
-  'Technology': 'التكنولوجيا',
-  'Health Care': 'الرعاية الصحية',
-  'Speculative Sector': 'قطاع المضاربة',
-  'Retail': 'التجزئة',
-  'Energy': 'الطاقة',
-  'Utilities': 'المرافق',
-  'Real Estate': 'العقارات',
-  'Communications': 'الاتصالات',
-  'Transportation': 'النقل',
-  'Industrial': 'الصناعي',
-  'Commercial': 'التجاري',
-  'Services': 'الخدمات',
-  'Other': 'أخرى'
+  'finance': 'الخدمات المالية',
+  'energy minerals': 'معادن الطاقة',
+  'transportation': 'النقل',
+  'electronic technology': 'التكنولوجيا الإلكترونية',
+  'consumer durables': 'السلع الاستهلاكية المعمرة',
+  'non-energy minerals': 'المعادن غير المعدة للطاقة',
+  'commercial services': 'الخدمات التجارية',
+  'utilities': 'المرافق العامة',
+  'consumer services': 'الخدمات الاستهلاكية',
+  'miscellaneous': 'متنوع',
+  'retail trade': 'تجارة التجزئة',
+  'health services': 'الخدمات الصحية',
+  'distribution services': 'خدمات التوزيع',
+  'industrial services': 'الخدمات الصناعية',
+  'consumer non-durables': 'السلع الاستهلاكية غير المعمرة',
+  'process industries': 'الصناعات التحويلية',
+  'health technology': 'تكنولوجيا الصحة',
+  'producer manufacturing': 'التصنيع الإنتاجي',
+  'technology services': 'خدمات التكنولوجيا',
+  'speculative sector': 'قطاع المضاربة',
+  'communications': 'الاتصالات',
+  'real estate': 'العقارات',
+  'energy': 'الطاقة',
+  'industrial': 'الصناعي',
+  'commercial': 'التجاري',
+  'services': 'الخدمات',
+  'other': 'أخرى'
 };
 
 const getSentiment = (avgChange: number): string => {
@@ -98,7 +108,7 @@ export async function GET(req: Request) {
 
     heatmapData?.forEach((row: any) => {
       const sector = row.sector || 'Other';
-      const sectorAr = SECTOR_AR[sector] || sector;
+      const sectorAr = SECTOR_AR[sector.toLowerCase()] || sector;
       const symbol = row.symbol;
       const name = symbolToName.get(symbol) || symbol;
       const volume = row.volume || 0;
