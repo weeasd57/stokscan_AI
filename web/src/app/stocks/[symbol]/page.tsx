@@ -147,7 +147,7 @@ export default async function StockDetailPage({ params }: PageProps) {
       }
     }
 
-    const chg = Number(latestTech.change_pct);
+    const chg = Number((latestTech as any).change_pct);
     if (!isNaN(chg)) {
       if (chg > 0) score += 5;
       else score -= 5;
@@ -157,8 +157,8 @@ export default async function StockDetailPage({ params }: PageProps) {
   }
 
   let rawSignal = "HOLD";
-  if (latestScan && latestScan.signal) {
-    rawSignal = latestScan.signal.toUpperCase();
+  if (latestScan && (latestScan as any).signal) {
+    rawSignal = (latestScan as any).signal.toUpperCase();
   } else {
     if (computedAIScore >= 65) rawSignal = "BUY";
     else if (computedAIScore <= 40) rawSignal = "SELL";
@@ -174,8 +174,8 @@ export default async function StockDetailPage({ params }: PageProps) {
   const fund = fundRow?.data || {};
   const companyName = fund.name || fund.Name || symbol;
   const sector = fund.sector || fund.Sector || "";
-  const currentPrice = Number(latestPrice?.close ?? latestTech?.close ?? 0);
-  const priceDate = latestPrice?.date || latestTech?.date || new Date().toISOString();
+  const currentPrice = Number((latestPrice as any)?.close ?? (latestTech as any)?.close ?? 0);
+  const priceDate = (latestPrice as any)?.date || (latestTech as any)?.date || new Date().toISOString();
   const description = `تحليل وتوصية سهم ${companyName} (${symbol}) بناءً على الذكاء الاصطناعي والمؤشرات الفنية في البورصة المصرية.`;
 
   const structuredDataGraph = {
@@ -215,7 +215,7 @@ export default async function StockDetailPage({ params }: PageProps) {
         "@id": `https://egxbots.com/stocks/${symbol.toLowerCase()}#analysis`,
         "headline": `تحليل وتوصية ذكاء اصطناعي لسهم ${companyName} (${symbol}) | البورصة المصرية`,
         "description": description,
-        "datePublished": latestScan?.created_at || priceDate,
+        "datePublished": (latestScan as any)?.created_at || priceDate,
         "dateModified": priceDate,
         "author": {
           "@type": "Organization",
