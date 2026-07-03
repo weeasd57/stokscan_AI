@@ -70,7 +70,7 @@ export default async function StockDetailPage({ params }: PageProps) {
     notFound();
   }
 
-  const exchange = fundRow?.exchange || priceCheck?.[0]?.exchange || "EGX";
+  const exchange = fundRow?.exchange || (priceCheck as any)?.[0]?.exchange || "EGX";
 
   // 2. Fetch Latest Price
   const { data: priceRows } = await supabase
@@ -115,27 +115,27 @@ export default async function StockDetailPage({ params }: PageProps) {
 
   // Compute composite AI Score dynamically if DB has no AI Scanner result
   let computedAIScore = 50;
-  if (latestScan && latestScan.precision) {
-    computedAIScore = Math.round(Number(latestScan.precision) * 100);
+  if (latestScan && (latestScan as any).precision) {
+    computedAIScore = Math.round(Number((latestScan as any).precision) * 100);
   } else if (latestTech) {
     let score = 50; // base
-    const rsi = Number(latestTech.rsi_14);
+    const rsi = Number((latestTech as any).rsi_14);
     if (!isNaN(rsi)) {
       if (rsi < 30) score += 15;
       else if (rsi > 70) score -= 15;
       else if (rsi > 50) score += 5;
     }
 
-    const macd = Number(latestTech.macd);
-    const signal = Number(latestTech.macd_signal);
+    const macd = Number((latestTech as any).macd);
+    const signal = Number((latestTech as any).macd_signal);
     if (!isNaN(macd) && !isNaN(signal)) {
       if (macd > signal) score += 15;
       else score -= 15;
     }
 
-    const close = Number(latestTech.close);
-    const ema50 = Number(latestTech.ema_50);
-    const ema200 = Number(latestTech.ema_200);
+    const close = Number((latestTech as any).close);
+    const ema50 = Number((latestTech as any).ema_50);
+    const ema200 = Number((latestTech as any).ema_200);
     if (!isNaN(close)) {
       if (!isNaN(ema50)) {
         if (close > ema50) score += 10;

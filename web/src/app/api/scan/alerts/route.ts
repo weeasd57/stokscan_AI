@@ -63,8 +63,8 @@ export async function POST(req: NextRequest) {
       is_active: true,
     };
 
-    const { data, error } = await supabase
-      .from("technical_alerts")
+    const { data, error } = await (supabase
+      .from("technical_alerts") as any)
       .insert(payload)
       .select()
       .single();

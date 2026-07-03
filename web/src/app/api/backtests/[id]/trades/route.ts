@@ -204,8 +204,8 @@ export async function GET(
 
       const { data: btData, error: btError } = await backtestQuery.single();
 
-      if (!btError && btData && btData.trades_log) {
-        return NextResponse.json(mapTradesLog(btData.trades_log));
+      if (!btError && btData && (btData as any).trades_log) {
+        return NextResponse.json(mapTradesLog((btData as any).trades_log));
       }
     } catch (e) {
       // ignore and try fallback
@@ -254,8 +254,8 @@ export async function GET(
 
       const { data: btData, error: btError } = await backtestQuery.single();
 
-      if (!btError && btData && btData.trades_log) {
-        return NextResponse.json(mapTradesLog(btData.trades_log));
+      if (!btError && btData && (btData as any).trades_log) {
+        return NextResponse.json(mapTradesLog((btData as any).trades_log));
       }
     } catch (e) {
       // ignore
