@@ -84,7 +84,6 @@
 
 #### 3. تحديث رصيد المحفظة وتقييم الصفقات المفتوحة لصفحة Pro
 - [ ] التأكد من أن Step 3 (`update_open_portfolio_positions`) يُبعت إشعار تليجرام لكل صفقة تجاوزت هدف الربح أو وصلت لحد الخسارة.
-- [ ] إضافة تقرير أسبوعي مُفصَّل بأداء المحفظة يُرسل يوم الأحد لمشتركي خدمة `pro`.
 
 #### 4. تحديث بيانات الـ Historical Similarity لصفحة Scanner
 - [ ] التأكد من أن Step 6 (historical_similarity) يخزّن النتائج في Supabase بشكل صحيح حتى يقرأها الموقع مباشرة بدون حساب.
@@ -101,7 +100,6 @@
 | 🔴 عاجل | Error Alert Telegram on Step failure | منع فشل صامت |
 | 🟡 مهم | STEP 2.7: Pre-compute Sector Heatmap | تسريع صفحة Scanner |
 | 🟡 مهم | تحقق Historical Similarity → Supabase | دقة صفحة Scanner |
-| 🟢 تحسين | Weekly Pro Portfolio Telegram Report | تجربة مستخدم Pro |
 
 ---
 
