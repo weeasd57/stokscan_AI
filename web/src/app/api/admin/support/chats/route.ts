@@ -27,6 +27,7 @@ export async function GET(_req: NextRequest) {
       user_name: string | null;
       last_message: string;
       last_at: string;
+      last_message_time: string;
       message_count: number;
     }> = {};
 
@@ -39,6 +40,7 @@ export async function GET(_req: NextRequest) {
           user_name: (msg.user_name as string) || null,
           last_message: (msg.content as string) || "",
           last_at: (msg.created_at as string) || "",
+          last_message_time: (msg.created_at as string) || "",
           message_count: 0,
         };
       }

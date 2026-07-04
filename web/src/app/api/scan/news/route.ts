@@ -19,13 +19,17 @@ export async function GET(req: Request) {
     let query = supabase
       .from("stock_news_sentiment")
       .select("*", { count: "exact" })
-      .order("date", { ascending: false })
-      .range(offset, offset + limit - 1);
+      .order("date", { ascending: false });
 
-    // Search by symbol (no 'title' column exists)
+    // Filter: only show stocks with actual news unless explicitly searched for
     if (search.trim()) {
       query = query.ilike("symbol", `%${search}%`);
+    } else {
+      query = query.gt("news_count", 0);
     }
+
+    // Apply range pagination
+    query = query.range(offset, offset + limit - 1);
 
     // Derive sentiment from score — no sentiment_label column
     if (sentiment === "positive") {
