@@ -1246,10 +1246,22 @@ def _get_exchange_bulk_intraday_data(
         return {}
 
 
+# In-memory cache for inventory (TTL = 5 minutes, avoids 4-8s cold queries per request)
+_inventory_cache: List[Dict[str, Any]] = []
+_inventory_cache_ts: float = 0.0
+_INVENTORY_CACHE_TTL = 300  # seconds
+
+
 def get_supabase_inventory() -> List[Dict[str, Any]]:
     """Call get_inventory_stats RPC and group by country for frontend use."""
+    global _inventory_cache, _inventory_cache_ts
+    import time as _time
+    # Serve from cache if fresh (avoids expensive multi-query calls)
+    if _inventory_cache and (_time.time() - _inventory_cache_ts) < _INVENTORY_CACHE_TTL:
+        return _inventory_cache
+
     _init_supabase()
-    if not supabase: return []
+    if not supabase: return _inventory_cache or []
 
     from api.symbols_local import load_country_summary
     local_summary = load_country_summary()
@@ -1459,10 +1471,13 @@ def get_supabase_inventory() -> List[Dict[str, Any]]:
                 "lastUpdate": None
             })
 
+        _inventory_cache = out
+        _inventory_cache_ts = _time.time()
         return out
     except Exception as e:
         print(f"Error processing inventory stats: {e}")
-    return []
+    # Return stale cache on error rather than empty
+    return _inventory_cache or []
 
 
 def _get_model_cached(model_path: str):
