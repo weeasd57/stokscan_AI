@@ -164,6 +164,67 @@ npx vercel --prod
 # لا يتم استخدامه كـ user-facing backend
 ```
 
+---
+
+### 3️⃣ رفع الكود لـ HuggingFace Space (الطريقة الصحيحة)
+
+> ⚠️ **مهم:** `git push hf main` **لا يعمل** بسبب قيود HuggingFace على ملفات الـ binary (`.pkl` models) — المنصة بقت ترفض LFS وتطلب نظام Xet الجديد. لذلك نستخدم **HuggingFace Hub Python API** لرفع ملفات الكود مباشرة بدون أي مشاكل.
+
+#### المتطلبات
+```powershell
+pip install huggingface_hub
+```
+
+#### الخطوات
+
+**0. عيّن الـ HuggingFace Token (مرة واحدة لكل session):**
+```powershell
+# PowerShell
+$env:HF_TOKEN = "hf_your_token_here"
+```
+
+**1. عدّل ملف `deploy_to_hf.py`** (موجود في جذر المشروع بعد أول استخدام)، وحدّد الملفات التي تغيرت في `FILES_TO_UPLOAD`:
+
+```python
+FILES_TO_UPLOAD = [
+    "api/daily_bot_run.py",         # ← ملفات Python الخلفية
+    "api/free_data_provider.py",
+    "api/main.py",
+    "api/stock_ai.py",
+    "web/src/app/api/scan/news/route.ts",    # ← Next.js API routes
+    "web/src/app/api/admin/support/chats/route.ts",
+    # أضف أي ملفات تغيرت...
+]
+```
+
+**2. شغّل السكريبت:**
+```powershell
+python deploy_to_hf.py
+```
+
+**3. النتيجة المتوقعة:**
+```
+Uploading 16 files to weeasdwee/AI_BOT...
+  OK: api/daily_bot_run.py
+  OK: api/free_data_provider.py
+  ...
+Done: 16 uploaded, 0 failed.
+```
+
+#### الـ Workflow الكامل (GitHub + HuggingFace)
+
+```powershell
+# 1. Commit وارفع على GitHub كالمعتاد
+git add -A
+git commit -m "feat: your changes"
+git push origin main
+
+# 2. ارفع التغييرات لـ HuggingFace Space عبر Hub API
+python deploy_to_hf.py
+```
+
+> 💡 **ملاحظة:** ملفات الـ Models (`.pkl`) والـ `symbols_data/` **لا تحتاج رفع** — هي موجودة بالفعل على HuggingFace من الـ deploy السابق وبتتولد تلقائياً وقت التشغيل.
+
 
 ## 🤝 Contributing
 Contributions are welcome! Please create a Pull Request for any bug fixes or new features.
