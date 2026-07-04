@@ -3,6 +3,7 @@ import { getSupabaseClient } from "@/lib/supabase/route-data";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const revalidate = 3600; // 1 hour (data updated daily)
 
 /** Fallback: build response from model_metadata table directly */
 async function buildFromModelMetadata(exchange: string) {
@@ -68,13 +69,17 @@ export async function GET(req: Request) {
         ...payload,
         cached: true,
         computed_at: cached.computed_at,
+      }, {
+        headers: { 'Cache-Control': 'public, s-maxage=3600, stale-while-revalidate=86400' }
       });
     }
 
     // 2️⃣ Fallback to model_metadata table
     const fallback = await buildFromModelMetadata(exchange);
     if (fallback) {
-      return NextResponse.json(fallback);
+      return NextResponse.json(fallback, {
+        headers: { 'Cache-Control': 'public, s-maxage=3600, stale-while-revalidate=86400' }
+      });
     }
 
     // 3️⃣ Nothing available yet

@@ -1,0 +1,34 @@
+{
+  "scenario": "normal",
+  "vu": 30,
+  "total": 782,
+  "success_rate": 100.0,
+  "rps": 16.18,
+  "p50": 495.4,
+  "p95": 2208.6,
+  "p99": 6075.5,
+  "errors_by_label": {},
+  "p95_by_label": {
+    "/api/scan/sectors/timeline": 1815.9,
+    "/api/market/macro-correlation/data": 1590.6,
+    "/api/market/status": 1708.5,
+    "/scanner/market": 1057.2,
+    "/": 1527.8,
+    "/scanner/technical": 1621.5,
+    "/api/health": 1153.3,
+    "/api/adaptive/recommendation": 1826.5,
+    "/api/scan/sectors/heatmap": 2264.6,
+    "/api/market/macro-correlation/scan": 1726.8,
+    "/api/scan/similarity/published": 7704.4,
+    "/api/symbols/inventory": 2137.2
+  },
+  "comfortable": 30,
+  "maximum": 39,
+  "verdict": "FAIR - Near limit, add edge caching",
+  "notes": [
+    "Vercel free: 100GB bandwidth/month, unlimited serverless (hobby)",
+    "Supabase free: 500MB DB, ~500K API calls/month",
+    "Static pages (/, /scanner/*) cached by Vercel CDN -- near infinite scale",
+    "Dynamic /api/* routes each = 1 Supabase call per user request"
+  ]
+}

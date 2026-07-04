@@ -3,6 +3,7 @@ import { getSupabaseClient } from "@/lib/supabase/route-data";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const revalidate = 3600; // 1 hour (daily data)
 
 export async function GET(req: Request) {
   const incomingUrl = new URL(req.url);
@@ -36,6 +37,8 @@ export async function GET(req: Request) {
         ...payload,
         cached: true,
         computed_at: cached.computed_at,
+      }, {
+        headers: { 'Cache-Control': 'public, s-maxage=3600, stale-while-revalidate=86400' }
       });
     }
 
@@ -46,6 +49,8 @@ export async function GET(req: Request) {
       sectors: [],
       cached: false,
       computed_at: null,
+    }, {
+      headers: { 'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=120' }
     });
   } catch (error: any) {
     console.error("Timeline API error:", error);

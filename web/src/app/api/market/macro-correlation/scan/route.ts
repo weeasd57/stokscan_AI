@@ -3,6 +3,7 @@ import { getSupabaseClient } from "@/lib/supabase/route-data";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const revalidate = 3600;
 
 export async function GET() {
   try {
@@ -25,7 +26,9 @@ export async function GET() {
         typeof data.payload === "string"
           ? JSON.parse(data.payload)
           : data.payload;
-      return NextResponse.json({ ...payload, computed_at: data.computed_at });
+      return NextResponse.json({ ...payload, computed_at: data.computed_at }, {
+        headers: { 'Cache-Control': 'public, s-maxage=3600, stale-while-revalidate=86400' }
+      });
     }
 
     // No data yet — backend will populate on next daily run

@@ -3,6 +3,7 @@ import { getSupabaseClient, toNumber } from "@/lib/supabase/route-data";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const revalidate = 120; // 2 min (market status can change intraday)
 
 export async function GET() {
   try {
@@ -28,7 +29,9 @@ export async function GET() {
       );
     }
 
-    return NextResponse.json(data.payload);
+    return NextResponse.json(data.payload, {
+      headers: { 'Cache-Control': 'public, s-maxage=120, stale-while-revalidate=300' }
+    });
   } catch (error) {
     console.error("market status error:", error);
     return NextResponse.json(

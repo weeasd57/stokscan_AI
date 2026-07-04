@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getSupabaseClient } from "@/lib/supabase/route-data";
 
 export const runtime = "nodejs";
+export const revalidate = 3600; // ISR: 1 hour (data updated daily)
 
 const SECTOR_AR: Record<string, string> = {
   'finance': 'الخدمات المالية',
@@ -63,15 +64,17 @@ export async function GET(req: Request) {
     }
 
     if (!latestRow) {
-      return NextResponse.json({ sectors: [] });
+      return NextResponse.json({ sectors: [] }, {
+        headers: { 'Cache-Control': 'public, s-maxage=120, stale-while-revalidate=300' }
+      });
     }
 
     const latestTime = latestRow.captured_at;
     
-    // Fetch all records for this latest timestamp
+    // Fetch all records for this latest timestamp (explicit columns only)
     const { data: heatmapData, error: dataError } = await supabase
       .from('market_heatmap')
-      .select('*')
+      .select('symbol, sector, change_pct, volume, cap')
       .eq('exchange', 'EGX')
       .eq('captured_at', latestTime);
 
@@ -80,10 +83,9 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: 'Failed to fetch heatmap data' }, { status: 500 });
     }
 
-    // Fetch stock company names to display in the drilldown modal
     const { data: stocksData } = await supabase
       .from('stocks')
-      .select('symbol,name');
+      .select('symbol, name');
     const symbolToName = new Map<string, string>();
     stocksData?.forEach((s: {symbol: string; name: string}) => symbolToName.set(s.symbol, s.name));
 
@@ -153,7 +155,12 @@ export async function GET(req: Request) {
       };
     });
 
-    return NextResponse.json({ sectors: results });
+    return NextResponse.json({ sectors: results }, {
+      headers: {
+        // Data updates once daily — cache 1 hour on Vercel CDN, serve stale 24h while revalidating
+        'Cache-Control': 'public, s-maxage=3600, stale-while-revalidate=86400',
+      }
+    });
 
   } catch (error) {
     console.error('Heatmap API error:', error);

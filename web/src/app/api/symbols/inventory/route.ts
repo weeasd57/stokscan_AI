@@ -3,6 +3,7 @@ import { getSupabaseClient } from "@/lib/supabase/route-data";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const revalidate = 3600;
 
 export async function GET() {
   try {
@@ -19,6 +20,8 @@ export async function GET() {
       if (cacheRow?.payload && Array.isArray(cacheRow.payload)) {
         return NextResponse.json({
           inventory: cacheRow.payload,
+        }, {
+          headers: { 'Cache-Control': 'public, s-maxage=3600, stale-while-revalidate=86400' }
         });
       }
     } catch (cacheErr) {
@@ -49,6 +52,8 @@ export async function GET() {
 
     return NextResponse.json({
       inventory: fallbackInventory,
+    }, {
+      headers: { 'Cache-Control': 'public, s-maxage=3600, stale-while-revalidate=86400' }
     });
   } catch (error) {
     console.error("symbols inventory route error:", error);
