@@ -18,7 +18,7 @@ export async function GET(req: NextRequest) {
       console.error("daily-jobs history error:", error);
       return NextResponse.json({ detail: error.message }, { status: 500 });
     }
-    return NextResponse.json({ history: data || [] });
+    return NextResponse.json({ runs: data || [], history: data || [] });
   } catch {
     return NextResponse.json({ detail: "Internal error" }, { status: 500 });
   }
