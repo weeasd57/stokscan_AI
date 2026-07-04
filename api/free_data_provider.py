@@ -329,26 +329,16 @@ def get_market_status_free(from_date: str = None, period: str = "6mo") -> Dict[s
     egx100_data = []
     usdegp_data = []
     
-    # 1. Fetch existing historical index/forex data from Supabase first
+    # 1. Fetch existing historical index/forex data from Supabase first (single fetch, no loops)
     logger.info("Seeding market status history from Supabase...")
     try:
         from api.stock_ai import _init_supabase, supabase
         _init_supabase()
         if supabase:
-            # Fetch EGX30 history
+            # Fetch EGX30 history (180 days is max 180 rows, no pagination loop needed)
             try:
-                all_data = []
-                page_size = 1000
-                offset = 0
-                while True:
-                    res = supabase.table("stock_prices").select("date,open,high,low,close,volume").eq("symbol", "EGX30").eq("exchange", "INDX").gte("date", from_date).order("date", desc=False).range(offset, offset + page_size - 1).execute()
-                    if not res.data:
-                        break
-                    all_data.extend(res.data)
-                    if len(res.data) < page_size:
-                        break
-                    offset += page_size
-                
+                res = supabase.table("stock_prices").select("date,open,high,low,close,volume").eq("symbol", "EGX30").eq("exchange", "INDX").gte("date", from_date).order("date", desc=False).execute()
+                all_data = res.data or []
                 if all_data:
                     egx30_data = [
                         {
@@ -367,18 +357,8 @@ def get_market_status_free(from_date: str = None, period: str = "6mo") -> Dict[s
             
             # Fetch USD/EGP history
             try:
-                all_data = []
-                page_size = 1000
-                offset = 0
-                while True:
-                    res = supabase.table("stock_prices").select("date,open,high,low,close,volume").eq("symbol", "USDEGP").eq("exchange", "FOREX").gte("date", from_date).order("date", desc=False).range(offset, offset + page_size - 1).execute()
-                    if not res.data:
-                        break
-                    all_data.extend(res.data)
-                    if len(res.data) < page_size:
-                        break
-                    offset += page_size
-                
+                res = supabase.table("stock_prices").select("date,open,high,low,close,volume").eq("symbol", "USDEGP").eq("exchange", "FOREX").gte("date", from_date).order("date", desc=False).execute()
+                all_data = res.data or []
                 if all_data:
                     usdegp_data = [
                         {
