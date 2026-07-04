@@ -329,14 +329,13 @@ def get_market_status_free(from_date: str = None, period: str = "6mo") -> Dict[s
     egx100_data = []
     usdegp_data = []
     
-    # Try Supabase first (most reliable for cached indices)
+    # 1. Fetch existing historical index/forex data from Supabase first
+    logger.info("Seeding market status history from Supabase...")
     try:
         from api.stock_ai import _init_supabase, supabase
         _init_supabase()
         if supabase:
-            logger.info("Fetching market status from Supabase...")
-            
-            # Fetch EGX30
+            # Fetch EGX30 history
             try:
                 all_data = []
                 page_size = 1000
@@ -362,11 +361,11 @@ def get_market_status_free(from_date: str = None, period: str = "6mo") -> Dict[s
                         }
                         for r in all_data
                     ]
-                    logger.info(f"Loaded {len(egx30_data)} EGX30 rows from Supabase")
+                    logger.info(f"Loaded {len(egx30_data)} EGX30 history rows from Supabase")
             except Exception as e:
-                logger.debug(f"Supabase EGX30 fetch failed: {e}")
+                logger.debug(f"Supabase EGX30 history fetch failed: {e}")
             
-            # Fetch USD/EGP
+            # Fetch USD/EGP history
             try:
                 all_data = []
                 page_size = 1000
@@ -392,19 +391,36 @@ def get_market_status_free(from_date: str = None, period: str = "6mo") -> Dict[s
                         }
                         for r in all_data
                     ]
-                    logger.info(f"Loaded {len(usdegp_data)} USD/EGP rows from Supabase")
+                    logger.info(f"Loaded {len(usdegp_data)} USD/EGP history rows from Supabase")
             except Exception as e:
-                logger.debug(f"Supabase USD/EGP fetch failed: {e}")
+                logger.debug(f"Supabase USD/EGP history fetch failed: {e}")
     except Exception as e:
-        logger.debug(f"Supabase connection failed: {e}")
-    
-    # Fall back to yfinance if Supabase didn't work
-    if not egx30_data:
-        logger.info("Supabase unavailable, trying yfinance...")
-        egx30_data = fetch_eod_data_free("EGX30.INDX", period=period)
-    
-    if not usdegp_data:
-        usdegp_data = fetch_eod_data_free("USDEGP.FOREX", period=period)
+        logger.debug(f"Supabase history connection failed: {e}")
+
+    # 2. Fetch fresh recent data from yfinance and merge to append the latest days
+    logger.info("Merging latest business days from yfinance...")
+    try:
+        fresh_egx30 = fetch_eod_data_free("EGX30.INDX", period="1mo")
+        if fresh_egx30:
+            # Merge by date (yfinance overwrites/adds to Supabase history)
+            merged = {r["date"]: r for r in egx30_data}
+            for r in fresh_egx30:
+                merged[r["date"]] = r
+            egx30_data = [merged[d] for d in sorted(merged.keys())]
+            logger.info(f"EGX30 merged to {len(egx30_data)} rows after yfinance fetch")
+    except Exception as e:
+        logger.warning(f"yfinance EGX30 merge failed: {e}")
+
+    try:
+        fresh_usdegp = fetch_eod_data_free("USDEGP.FOREX", period="1mo")
+        if fresh_usdegp:
+            merged = {r["date"]: r for r in usdegp_data}
+            for r in fresh_usdegp:
+                merged[r["date"]] = r
+            usdegp_data = [merged[d] for d in sorted(merged.keys())]
+            logger.info(f"USDEGP merged to {len(usdegp_data)} rows after yfinance fetch")
+    except Exception as e:
+        logger.warning(f"yfinance USDEGP merge failed: {e}")
     
     # EGX100 falls back to EGX30
     egx100_data = egx30_data if not egx100_data else egx100_data

@@ -1817,7 +1817,7 @@ def _refresh_market_status_cache():
                                 "high": float(r.get("high", r.get("High", 0)) or 0),
                                 "low": float(r.get("low", r.get("Low", 0)) or 0),
                                 "close": float(r.get("close", r.get("Close", 0)) or 0),
-                                "volume": float(r.get("volume", r.get("Volume", 0)) or 0),
+                                "volume": int(float(r.get("volume", r.get("Volume", 0)) or 0)),
                             })
                         except Exception:
                             continue
@@ -1839,6 +1839,44 @@ def _refresh_market_status_cache():
             from api.macro_correlation import build_or_update_macro_history
             build_or_update_macro_history()
             print("[MARKET_STATUS] Macro correlation history cache updated successfully")
+
+            # Pre-calculate and cache individual stock macro correlations in Supabase
+            try:
+                from api.symbols_local import load_symbols_for_country
+                from api.macro_correlation import calculate_macro_correlation
+                symbols_data = load_symbols_for_country("Egypt")
+                syms = sorted(set(
+                    str(row.get("Symbol", row.get("symbol", row.get("Code", "")))).strip().upper()
+                    for row in symbols_data
+                    if str(row.get("Symbol", row.get("symbol", row.get("Code", "")))).strip()
+                ))
+                syms = [s for s in syms if s and s != "COMI"]
+
+                print(f"[MARKET_STATUS] Pre-calculating macro correlations for {len(syms)} EGX symbols...")
+                correlation_cache_rows = []
+                for sym in syms:
+                    try:
+                        res_corr = calculate_macro_correlation(sym)
+                        if res_corr and res_corr.get("symbol"):
+                            correlation_cache_rows.append({
+                                "cache_key": f"macro_correlation_{sym}",
+                                "country": "Egypt",
+                                "payload": res_corr,
+                                "computed_at": dt.datetime.now(dt.timezone.utc).isoformat()
+                            })
+                    except Exception as sym_err:
+                        print(f"[MARKET_STATUS] Error calculating correlation for {sym}: {sym_err}")
+
+                if correlation_cache_rows:
+                    from api.stock_ai import supabase as _sb
+                    # Upsert in chunks of 50 to avoid request payload limits
+                    for i in range(0, len(correlation_cache_rows), 50):
+                        chunk = correlation_cache_rows[i:i + 50]
+                        _sb.table("market_cache").upsert(chunk, on_conflict="cache_key,country").execute()
+                    print(f"[MARKET_STATUS] Successfully cached {len(correlation_cache_rows)} individual stock correlations in Supabase")
+            except Exception as e_indiv:
+                print(f"[MARKET_STATUS] Failed to pre-calculate individual correlations: {e_indiv}")
+
         except Exception as me:
             print(f"[MARKET_STATUS] Error updating macro correlation cache: {me}")
             
