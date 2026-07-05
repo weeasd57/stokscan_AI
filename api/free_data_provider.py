@@ -23,41 +23,20 @@ logger = logging.getLogger(__name__)
 
 def fetch_egx_symbols_free() -> Tuple[bool, List[str], str]:
     """
-    Fetch active EGX symbols using free alternatives.
-    Falls back to hardcoded list if scraping fails.
+    Fetch active EGX symbols reliably using local cache and database.
+    Avoids yfinance rate limits.
     """
-    active_symbols = []
-    
-    # Try yfinance first (has EGX data)
     try:
-        import yfinance as yf
-        # Try to fetch EGX30 as a smoke test
-        egx30 = yf.Ticker("^CASE30")  # Cairo Composite Stock Index (EGX30)
-        if egx30.info:
-            # Known major EGX stocks (use as fallback list)
-            active_symbols = [
-                "FWRY.CA", "ABUK.CA", "AMOC.CA", "EAST.CA", "SWDY.CA",
-                "HRHO.CA", "CIEB.CA", "MASR.CA", "COSG.CA", "ETEL.CA",
-                "TMGH.CA", "COMI.CA", "ORDI.CA", "RAYA.CA", "TYCN.CA",
-                "ORCL.CA", "ECAP.CA", "KNOW.CA", "AMLK.CA", "KION.CA",
-                "TORA.CA", "TRID.CA", "NBERG.CA", "MUFH.CA", "AAEB.CA"
-            ]
-            logger.info(f"Fetched {len(active_symbols)} EGX symbols via yfinance")
-            return True, active_symbols, f"Updated EGX inventory with {len(active_symbols)} symbols (yfinance)"
+        from api.intraday_downloader import _fetch_egx_symbols
+        syms = _fetch_egx_symbols()
+        if syms:
+            logger.info(f"Loaded {len(syms)} EGX symbols reliably.")
+            return True, syms, f"Updated EGX inventory with {len(syms)} symbols."
+        else:
+            return False, [], "No EGX symbols found in local cache or database."
     except Exception as e:
-        logger.warning(f"yfinance fetch failed: {e}")
-
-    # Fallback: Use hardcoded list of EGX stocks
-    hardcoded_symbols = [
-        "FWRY.CA", "ABUK.CA", "AMOC.CA", "EAST.CA", "SWDY.CA",
-        "HRHO.CA", "CIEB.CA", "MASR.CA", "COSG.CA", "ETEL.CA",
-        "TMGH.CA", "COMI.CA", "ORDI.CA", "RAYA.CA", "TYCN.CA",
-        "ORCL.CA", "ECAP.CA", "KNOW.CA", "AMLK.CA", "KION.CA",
-        "TORA.CA", "TRID.CA", "NBERG.CA", "MUFH.CA", "AAEB.CA",
-    ]
-    
-    logger.info(f"Using hardcoded fallback list: {len(hardcoded_symbols)} symbols")
-    return True, hardcoded_symbols, "Using fallback EGX symbols list (no API cost)"
+        logger.error(f"Failed to fetch EGX symbols: {e}")
+        return False, [], str(e)
 
 
 # ============================================================================
