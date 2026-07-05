@@ -60,7 +60,7 @@ export async function GET() {
         ? rawConfig.schedule_days
         : Array.isArray(rawConfig.active_days)
         ? rawConfig.active_days
-        : [0, 1, 2, 3, 4],
+        : [0, 1, 2, 3, 6],
       status: rawConfig.status ?? "idle",
       next_run_at: null, // Computed on demand/frontend or left as null
       last_run_at: lastRunAt,
@@ -127,7 +127,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       enabled: merged.use_schedule ?? merged.enabled ?? false,
       run_time: merged.schedule_start_time ?? merged.run_time ?? "16:00",
-      active_days: merged.schedule_days ?? merged.active_days ?? [0, 1, 2, 3, 4],
+      active_days: merged.schedule_days ?? merged.active_days ?? [0, 1, 2, 3, 6],
       status: merged.status ?? "idle",
       ok: true
     });

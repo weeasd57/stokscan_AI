@@ -71,7 +71,7 @@ async function proxyAdminRequest(req: Request, context: { params: { path?: strin
   const headers = new Headers(req.headers);
   headers.delete("host");
   const adminKey = process.env.ADMIN_SECRET_KEY;
-  if (adminKey && path.startsWith("fundamentals/")) {
+  if (adminKey) {
     headers.set("x-admin-key", adminKey);
   }
 

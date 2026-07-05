@@ -133,7 +133,7 @@ def _scheduler_worker():
 
             with _scheduler_lock:
                 enabled = _scheduler_state["enabled"]
-                active_days = _scheduler_state.get("active_days", [0, 1, 2, 3, 4])
+                active_days = _scheduler_state.get("active_days", [0, 1, 2, 3, 6])
 
             if not enabled:
                 with _scheduler_lock:
@@ -142,8 +142,12 @@ def _scheduler_worker():
                 time.sleep(30)
                 continue
 
-            now_utc = datetime.utcnow()
-            now_cairo = now_utc + timedelta(hours=2)
+            try:
+                from zoneinfo import ZoneInfo
+                now_cairo = datetime.now(ZoneInfo("Africa/Cairo"))
+            except Exception:
+                now_cairo = datetime.utcnow() + timedelta(hours=3) # Fallback to UTC+3 (Egypt Summer Time)
+
             run_time_str = _scheduler_state["run_time"]
 
             try:
