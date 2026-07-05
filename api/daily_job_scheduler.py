@@ -94,10 +94,15 @@ def _compute_next_run() -> str:
     except Exception:
         hour, minute = 16, 0
 
-    now = datetime.utcnow() + timedelta(hours=2)
+    try:
+        from zoneinfo import ZoneInfo
+        now = datetime.now(ZoneInfo("Africa/Cairo"))
+    except Exception:
+        now = datetime.utcnow() + timedelta(hours=3)
+
     today = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
 
-    active_days = _scheduler_state.get("active_days", [0, 1, 2, 3, 4])
+    active_days = _scheduler_state.get("active_days", [0, 1, 2, 3, 6])
     for _ in range(8):
         if today.weekday() in active_days and today > now:
             return today.isoformat()
