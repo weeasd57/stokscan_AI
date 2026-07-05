@@ -51,6 +51,8 @@ FILES_TO_UPLOAD = [
     "web/src/app/api/symbols/inventory/route.ts",
     "web/src/app/api/support/message/route.ts",
     "web/src/app/api/support/messages/route.ts",
+    "web/src/app/api/ai_bot/candles/route.ts",
+    "web/src/app/api/ai_bot/telegram/bot_username/route.ts",
 ]
 
 if not HF_TOKEN:
