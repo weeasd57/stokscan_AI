@@ -119,8 +119,46 @@ def fetch_eod_data_free(symbol: str, period: str = "6mo") -> List[Dict[str, Any]
         max_retries = 2
         for attempt in range(max_retries):
             try:
-                ticker = yf.Ticker(yf_symbol)
-                hist = ticker.history(period=period)
+                # First try Cloudflare Proxy if configured (more reliable for Hugging Face)
+                cf_proxy = os.getenv("CF_PROXY_URL")
+                hist = pd.DataFrame()
+                
+                if cf_proxy:
+                    import urllib.parse
+                    # Choose range
+                    r_range = "1y"
+                    if period in ["1mo", "3mo", "6mo", "1y", "2y", "5y", "10y", "max"]:
+                        r_range = period
+                    
+                    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{yf_symbol}?range={r_range}&interval=1d"
+                    url = f"{cf_proxy}?url={urllib.parse.quote(url)}"
+                    
+                    headers = {
+                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                        "Accept": "*/*"
+                    }
+                    r = requests.get(url, headers=headers, timeout=15)
+                    if r.status_code == 200:
+                        chart_res = r.json().get("chart", {}).get("result")
+                        if chart_res and len(chart_res) > 0:
+                            data = chart_res[0]
+                            timestamps = data.get("timestamp", [])
+                            indicators = data.get("indicators", {}).get("quote", [{}])[0]
+                            if timestamps and indicators:
+                                hist = pd.DataFrame({
+                                    "Open": indicators.get("open", []),
+                                    "High": indicators.get("high", []),
+                                    "Low": indicators.get("low", []),
+                                    "Close": indicators.get("close", []),
+                                    "Volume": indicators.get("volume", [])
+                                })
+                                hist.index = pd.to_datetime(timestamps, unit="s")
+                                hist = hist.dropna(subset=["Close", "Open", "High", "Low"], how="any")
+                
+                # If CF proxy failed or is not configured, fallback to standard yfinance
+                if hist.empty:
+                    ticker = yf.Ticker(yf_symbol)
+                    hist = ticker.history(period=period)
                 
                 if not hist.empty:
                     # Convert to EODHD-like format
@@ -138,7 +176,7 @@ def fetch_eod_data_free(symbol: str, period: str = "6mo") -> List[Dict[str, Any]
                             continue
                     
                     if records:
-                        logger.info(f"Fetched {len(records)} EOD records for {symbol} ({yf_symbol}) from yfinance")
+                        logger.info(f"Fetched {len(records)} EOD records for {symbol} ({yf_symbol}) via fallback")
                         return records
             except Exception as e:
                 logger.debug(f"Attempt {attempt+1} failed for {symbol}: {e}")

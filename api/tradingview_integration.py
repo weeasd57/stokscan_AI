@@ -199,6 +199,12 @@ def _try_yahoo_direct_fallback(
             
         url = f"https://query1.finance.yahoo.com/v8/finance/chart/{yf_ticker}?range={r_range}&interval=1d"
         
+        cf_proxy = os.getenv("CF_PROXY_URL")
+        if cf_proxy:
+            import urllib.parse
+            url = f"{cf_proxy}?url={urllib.parse.quote(url)}"
+            print(f"Routing Yahoo request through Cloudflare proxy: {cf_proxy}")
+        
         session = _get_yahoo_session()
         r = session.get(url, timeout=15)
         if r.status_code != 200:
