@@ -321,7 +321,7 @@ def process_exchange_news(exchange: str, symbols: List[str]) -> Tuple[bool, int]
                 "sources": sentiment["sources"]
             }
             
-            stock_ai.supabase.table("stock_news_sentiment").upsert(payload).execute()
+            stock_ai.supabase.table("stock_news_sentiment").upsert(payload, on_conflict="symbol,date").execute()
             processed_count += 1
             
             # Throttling to prevent IP blocking from Google News

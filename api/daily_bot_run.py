@@ -1799,6 +1799,19 @@ def _refresh_market_status_cache():
                     ("EGX100", "INDX", egx100_data),
                     ("USDEGP", "FOREX", usdegp_data),
                 ]
+                
+                # Ensure these index symbols exist in stock_fundamentals to satisfy foreign key constraints
+                for idx_symbol, idx_exchange, _ in INDEX_META:
+                    try:
+                        _sb.table("stock_fundamentals").upsert({
+                            "symbol": idx_symbol,
+                            "exchange": idx_exchange,
+                            "company_name": f"{idx_symbol} Index/Rate",
+                            "updated_at": dt.datetime.now(dt.timezone.utc).isoformat()
+                        }, on_conflict="symbol,exchange").execute()
+                    except Exception as fe:
+                        print(f"[MARKET_STATUS] Warning: Failed to ensure {idx_symbol} in fundamentals: {fe}")
+                        
                 total_upserted = 0
                 for idx_symbol, idx_exchange, idx_rows in INDEX_META:
                     if not idx_rows or not isinstance(idx_rows, list):
