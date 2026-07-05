@@ -10,8 +10,8 @@ from api.tradingview_integration import fetch_tradingview_prices, get_tradingvie
 from api.stock_ai import sync_df_to_supabase, _init_supabase, supabase
 
 class SmartSync:
-    def __init__(self, max_retries: int = 3, retry_delay: int = 10, throttle_delay: float = 0.3,
-                 max_workers: int = 10):
+    def __init__(self, max_retries: int = 3, retry_delay: int = 10, throttle_delay: float = 1.5,
+                 max_workers: int = 2):
         self.max_retries = max_retries
         self.retry_delay = retry_delay
         self.throttle_delay = throttle_delay
