@@ -78,6 +78,49 @@ def fetch_eod_data_free(symbol: str, period: str = "6mo") -> List[Dict[str, Any]
     """
     records = []
     
+    # 1. Try TradingView (tvDatafeed) for EGX indices first since Yahoo Finance has no historical data for them
+    tv_symbol_map = {
+        "EGX30.INDX": ("EGX30", "EGX"),
+        "EGX100.INDX": ("EGX100EWI", "EGX"),
+    }
+    
+    if symbol in tv_symbol_map:
+        try:
+            from tvDatafeed import TvDatafeed, Interval
+            tv = TvDatafeed()
+            tv_sym, tv_exch = tv_symbol_map[symbol]
+            
+            period_bars = {
+                "1mo": 25,
+                "3mo": 75,
+                "6mo": 150,
+                "1y": 300,
+                "2y": 600,
+                "5y": 1500,
+                "10y": 3000,
+                "max": 5000
+            }
+            n_bars = period_bars.get(period, 180)
+            
+            df = tv.get_hist(symbol=tv_sym, exchange=tv_exch, interval=Interval.in_daily, n_bars=n_bars)
+            if df is not None and not df.empty:
+                df = df.reset_index()
+                for _, row in df.iterrows():
+                    records.append({
+                        "date": row["datetime"].strftime("%Y-%m-%d"),
+                        "open": round(float(row.get("open", 0)), 6),
+                        "high": round(float(row.get("high", 0)), 6),
+                        "low": round(float(row.get("low", 0)), 6),
+                        "close": round(float(row.get("close", 0)), 6),
+                        "volume": int(row.get("volume", 0))
+                    })
+                if records:
+                    logger.info(f"Fetched {len(records)} EOD records for {symbol} ({tv_sym}) from tvDatafeed")
+                    return records
+        except Exception as tv_e:
+            logger.warning(f"tvDatafeed fetch failed for {symbol}: {tv_e}")
+
+    # 2. Fallback/Standard yfinance route
     try:
         import yfinance as yf
         import pandas as pd
@@ -116,7 +159,7 @@ def fetch_eod_data_free(symbol: str, period: str = "6mo") -> List[Dict[str, Any]
                             continue
                     
                     if records:
-                        logger.info(f"Fetched {len(records)} EOD records for {symbol} from yfinance")
+                        logger.info(f"Fetched {len(records)} EOD records for {symbol} ({yf_symbol}) from yfinance")
                         return records
             except Exception as e:
                 logger.debug(f"Attempt {attempt+1} failed for {symbol}: {e}")
@@ -311,7 +354,7 @@ def download_historical_batch(symbols: List[str], period: str = "1y") -> Dict[st
 # 6. MIGRATION WRAPPER: Drop-in replacement for EODHD calls
 # ============================================================================
 
-def get_market_status_free(from_date: str = None, period: str = "6mo") -> Dict[str, Any]:
+def get_market_status_free(from_date: str = None, period: str = "1y") -> Dict[str, Any]:
     """
     Get market status (EGX30, EGX100, USD/EGP) without EODHD API key.
     This replaces _refresh_market_status_cache() logic.
@@ -322,7 +365,8 @@ def get_market_status_free(from_date: str = None, period: str = "6mo") -> Dict[s
     3. Use sensible defaults if all else fails
     """
     if from_date is None:
-        from_date = (dt.datetime.now() - dt.timedelta(days=180)).strftime("%Y-%m-%d")
+        # Start from the beginning of the current year (January 1st)
+        from_date = f"{dt.datetime.now().year}-01-01"
     
     # Initialize results
     egx30_data = []
@@ -374,36 +418,68 @@ def get_market_status_free(from_date: str = None, period: str = "6mo") -> Dict[s
                     logger.info(f"Loaded {len(usdegp_data)} USD/EGP history rows from Supabase")
             except Exception as e:
                 logger.debug(f"Supabase USD/EGP history fetch failed: {e}")
+
+            # Fetch EGX100 history
+            try:
+                res = supabase.table("stock_prices").select("date,open,high,low,close,volume").eq("symbol", "EGX100").eq("exchange", "INDX").gte("date", from_date).order("date", desc=False).execute()
+                all_data = res.data or []
+                if all_data:
+                    egx100_data = [
+                        {
+                            "date": r["date"],
+                            "open": float(r.get("open", 0)),
+                            "high": float(r.get("high", 0)),
+                            "low": float(r.get("low", 0)),
+                            "close": float(r.get("close", 0)),
+                            "volume": int(r.get("volume", 0))
+                        }
+                        for r in all_data
+                    ]
+                    logger.info(f"Loaded {len(egx100_data)} EGX100 history rows from Supabase")
+            except Exception as e:
+                logger.debug(f"Supabase EGX100 history fetch failed: {e}")
     except Exception as e:
         logger.debug(f"Supabase history connection failed: {e}")
 
-    # 2. Fetch fresh recent data from yfinance and merge to append the latest days
-    logger.info("Merging latest business days from yfinance...")
+    # 2. Fetch fresh recent data from free providers and merge to append the latest days
+    logger.info("Merging latest business days from free providers...")
     try:
-        fresh_egx30 = fetch_eod_data_free("EGX30.INDX", period="1mo")
+        fresh_egx30 = fetch_eod_data_free("EGX30.INDX", period=period)
         if fresh_egx30:
-            # Merge by date (yfinance overwrites/adds to Supabase history)
+            # Merge by date (overwrites/adds to Supabase history)
             merged = {r["date"]: r for r in egx30_data}
             for r in fresh_egx30:
                 merged[r["date"]] = r
             egx30_data = [merged[d] for d in sorted(merged.keys())]
-            logger.info(f"EGX30 merged to {len(egx30_data)} rows after yfinance fetch")
+            logger.info(f"EGX30 merged to {len(egx30_data)} rows after fetch")
     except Exception as e:
-        logger.warning(f"yfinance EGX30 merge failed: {e}")
+        logger.warning(f"EGX30 merge failed: {e}")
 
     try:
-        fresh_usdegp = fetch_eod_data_free("USDEGP.FOREX", period="1mo")
+        fresh_egx100 = fetch_eod_data_free("EGX100.INDX", period=period)
+        if fresh_egx100:
+            merged = {r["date"]: r for r in egx100_data}
+            for r in fresh_egx100:
+                merged[r["date"]] = r
+            egx100_data = [merged[d] for d in sorted(merged.keys())]
+            logger.info(f"EGX100 merged to {len(egx100_data)} rows after fetch")
+    except Exception as e:
+        logger.warning(f"EGX100 merge failed: {e}")
+
+    try:
+        fresh_usdegp = fetch_eod_data_free("USDEGP.FOREX", period=period)
         if fresh_usdegp:
             merged = {r["date"]: r for r in usdegp_data}
             for r in fresh_usdegp:
                 merged[r["date"]] = r
             usdegp_data = [merged[d] for d in sorted(merged.keys())]
-            logger.info(f"USDEGP merged to {len(usdegp_data)} rows after yfinance fetch")
+            logger.info(f"USDEGP merged to {len(usdegp_data)} rows after fetch")
     except Exception as e:
-        logger.warning(f"yfinance USDEGP merge failed: {e}")
+        logger.warning(f"USDEGP merge failed: {e}")
     
-    # EGX100 falls back to EGX30
-    egx100_data = egx30_data if not egx100_data else egx100_data
+    # EGX100 fallback (if still empty, use EGX30)
+    if not egx100_data:
+        egx100_data = egx30_data
     
     # Calculate regime
     regime = "sideways"

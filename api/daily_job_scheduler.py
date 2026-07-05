@@ -112,6 +112,25 @@ def _scheduler_worker():
 
     while not _stop_event.is_set():
         try:
+            # Poll configuration from Supabase bot_configs to stay in sync with frontend
+            try:
+                from api.stock_ai import _init_supabase, supabase
+                _init_supabase()
+                if supabase:
+                    res = supabase.table("bot_configs").select("config").eq("bot_id", "primary").maybe_single().execute()
+                    if res.data and "config" in res.data:
+                        cfg = res.data["config"] or {}
+                        with _scheduler_lock:
+                            val_use_sched = cfg.get("use_schedule")
+                            _scheduler_state["enabled"] = val_use_sched if val_use_sched is not None else cfg.get("enabled", _scheduler_state["enabled"])
+                            if cfg.get("schedule_start_time") or cfg.get("run_time"):
+                                _scheduler_state["run_time"] = cfg.get("schedule_start_time") or cfg.get("run_time")
+                            raw_days = cfg.get("schedule_days") or cfg.get("active_days")
+                            if isinstance(raw_days, list):
+                                _scheduler_state["active_days"] = raw_days
+            except Exception as sync_err:
+                print(f"[DAILY-JOB-SCHEDULER] Config sync from Supabase failed: {sync_err}")
+
             with _scheduler_lock:
                 enabled = _scheduler_state["enabled"]
                 active_days = _scheduler_state.get("active_days", [0, 1, 2, 3, 4])

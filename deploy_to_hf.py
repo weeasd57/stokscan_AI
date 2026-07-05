@@ -28,7 +28,9 @@ BASE_DIR  = os.path.dirname(os.path.abspath(__file__))
 FILES_TO_UPLOAD = [
     # Python Backend
     "api/daily_bot_run.py",
+    "api/daily_job_scheduler.py",
     "api/free_data_provider.py",
+    "api/health.py",
     "api/main.py",
     "api/stock_ai.py",
     "api/symbols_local.py",

@@ -1757,7 +1757,7 @@ def _refresh_market_status_cache():
     
     try:
         # Fetch market data using free providers
-        res_data = get_market_status_free(period="6mo")
+        res_data = get_market_status_free(period="1y")
         egx30_data = res_data.get("egx30", [])
         egx100_data = res_data.get("egx100", [])
         usdegp_data = res_data.get("usdegp", [])
