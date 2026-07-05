@@ -137,14 +137,24 @@ def fetch_eod_data_free(symbol: str, period: str = "6mo") -> List[Dict[str, Any]
                         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
                         "Accept": "*/*"
                     }
-                    r = requests.get(url, headers=headers, timeout=15)
-                    if r.status_code == 200:
-                        chart_res = r.json().get("chart", {}).get("result")
-                        if chart_res and len(chart_res) > 0:
-                            data = chart_res[0]
-                            timestamps = data.get("timestamp", [])
-                            indicators = data.get("indicators", {}).get("quote", [{}])[0]
-                            if timestamps and indicators:
+                    print(f"[FREE_DATA] Routing {yf_symbol} through proxy: {url}")
+                    try:
+                        r = requests.get(url, headers=headers, timeout=15)
+                        print(f"[FREE_DATA] Proxy response for {yf_symbol}: HTTP {r.status_code}")
+                        if r.status_code == 200:
+                            chart_res = r.json().get("chart", {}).get("result")
+                        else:
+                            print(f"[FREE_DATA] Proxy error body: {r.text[:200]}")
+                            chart_res = None
+                    except Exception as proxy_err:
+                        print(f"[FREE_DATA] Proxy request failed for {yf_symbol}: {proxy_err}")
+                        chart_res = None
+                        
+                    if chart_res and len(chart_res) > 0:
+                        data = chart_res[0]
+                        timestamps = data.get("timestamp", [])
+                        indicators = data.get("indicators", {}).get("quote", [{}])[0]
+                        if timestamps and indicators:
                                 hist = pd.DataFrame({
                                     "Open": indicators.get("open", []),
                                     "High": indicators.get("high", []),

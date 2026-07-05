@@ -206,13 +206,19 @@ def _try_yahoo_direct_fallback(
             print(f"Routing Yahoo request through Cloudflare proxy: {cf_proxy}")
         
         session = _get_yahoo_session()
-        r = session.get(url, timeout=15)
-        if r.status_code != 200:
-            return False, f"Yahoo API returned HTTP {r.status_code}"
-            
-        chart_res = r.json().get("chart", {}).get("result")
-        if not chart_res:
-            return False, "Yahoo API returned empty result"
+        try:
+            r = session.get(url, timeout=15)
+            if r.status_code != 200:
+                print(f"PROXY HTTP ERROR: {r.status_code} - {r.text[:200]}")
+                return False, f"Yahoo API returned HTTP {r.status_code}"
+                
+            chart_res = r.json().get("chart", {}).get("result")
+            if not chart_res:
+                print(f"PROXY EMPTY RESULT: {r.text[:200]}")
+                return False, "Yahoo API returned empty result"
+        except Exception as e:
+            print(f"PROXY EXCEPTION: {str(e)}")
+            return False, f"Yahoo Proxy Exception: {str(e)}"
             
         data = chart_res[0]
         timestamps = data.get("timestamp")

@@ -63,8 +63,8 @@ def main():
     # Upload country_summary
     upload_file_to_supabase("country_summary", "country_summary")
     
-    # Upload all_symbols_by_country
-    upload_file_to_supabase("all_symbols_by_country", "all_symbols_by_country")
+    # Upload all_symbols_by_country (disabled - excessively large and not needed on frontend)
+    # upload_file_to_supabase("all_symbols_by_country", "all_symbols_by_country")
     
     # Upload country symbols
     countries = ["Egypt", "USA", "UK", "Canada", "Brazil", "Argentina"]

@@ -617,11 +617,88 @@ export default function AIScannerPage() {
         setBotsLoading(true);
         setBotsError(null);
         try {
-            const url = user?.id ? `/api/ai_bot/list?user_id=${user.id}` : "/api/ai_bot/list";
-            const res = await fetch(url);
-            if (!res.ok) throw new Error("Failed to fetch AI bots");
-            const data = await res.json();
-            setBots(data.bots || []);
+            // Fetch configs
+            const { data: configsData, error: configsErr } = await supabase
+                .from("bot_configs")
+                .select("*");
+            if (configsErr) throw configsErr;
+
+            // Fetch states
+            const { data: statesData, error: statesErr } = await supabase
+                .from("bot_states")
+                .select("*");
+            if (statesErr) throw statesErr;
+
+            // Fetch subscriptions if user exists
+            let subscriptions: Record<string, any> = {};
+            if (user?.id) {
+                const { data: subsData, error: subsErr } = await supabase
+                    .from("bot_subscriptions")
+                    .select("*")
+                    .eq("user_id", user.id);
+                if (!subsErr && subsData) {
+                    subsData.forEach((s: any) => {
+                        subscriptions[s.bot_id] = s;
+                    });
+                }
+            }
+
+            const stateMap: Record<string, any> = {};
+            if (statesData) {
+                statesData.forEach((s: any) => {
+                    stateMap[s.bot_id] = s.state || {};
+                });
+            }
+
+            const botsList = (configsData || []).map((b: any) => {
+                const config = b.config || {};
+                const bid = b.bot_id || "primary";
+                const bstate = stateMap[bid] || {};
+                const is_subscribed = bid in subscriptions;
+                const sub = subscriptions[bid] || {};
+
+                const active_positions_count = bstate.total_open_positions || (bstate.pos_state ? Object.keys(bstate.pos_state).length : 0);
+                const total_pnl = bstate.total_pnl || 0.0;
+                const win_rate = bstate.win_rate || 0.0;
+                const trades_count = bstate.trades_count || 0;
+
+                return {
+                    bot_id: bid,
+                    name: config.name || b.name || "Bot",
+                    status: (bstate.total_open_positions !== undefined ? "running" : "stopped") as "running" | "stopped",
+                    user_id: config.user_id || b.user_id,
+                    poll_seconds: config.poll_seconds || 60,
+                    max_open_positions: config.max_open_positions || 5,
+                    active_positions_count: active_positions_count,
+                    total_pnl: total_pnl,
+                    win_rate: win_rate,
+                    trades_count: trades_count,
+                    is_subscribed: is_subscribed,
+                    subscription_telegram_chat_id: sub.telegram_chat_id || null,
+                    subscription_notifications_enabled: sub.notifications_enabled !== false,
+                    subscription_target_pct: sub.target_pct || null,
+                    subscription_stop_loss_pct: sub.stop_loss_pct || null,
+                    subscription_max_open_positions: sub.max_open_positions || null,
+                    subscription_pct_cash_per_trade: sub.pct_cash_per_trade || null,
+                    started_at: bstate.saved_at || null,
+                    timeframe: config.timeframe || "1Hour",
+                    target_pct: config.target_pct || 0.10,
+                    stop_loss_pct: config.stop_loss_pct || 0.035,
+                    use_council: config.use_council !== false,
+                    council_threshold: config.council_threshold || 0.25,
+                    king_threshold: config.king_threshold || 0.85,
+                    king_model_path: config.king_model_path || "api/models/KING_CRYPTO.pkl",
+                    council_model_path: config.council_model_path || "api/models/COUNCIL_CRYPTO.pkl",
+                    trading_mode: config.trading_mode || "aggressive",
+                    use_schedule: config.use_schedule || false,
+                    schedule_start_time: config.schedule_start_time || "10:00",
+                    schedule_end_time: config.schedule_end_time || "14:30",
+                    schedule_timezone: config.schedule_timezone || "Africa/Cairo",
+                    schedule_days: config.schedule_days || [0, 1, 2, 3, 4, 5, 6],
+                };
+            });
+
+            setBots(botsList);
         } catch (err: any) {
             setBotsError(err.message || "An error occurred while loading bots.");
         } finally {
@@ -634,12 +711,27 @@ export default function AIScannerPage() {
         setModelsLoading(true);
         setModelsError(null);
         try {
-            const res = await fetch("/api/ai_bot/model_cards");
-            if (!res.ok) throw new Error("Failed to fetch model cards");
-            const data = await res.json();
+            const { data, error } = await supabase
+                .from("model_metadata")
+                .select("name, exchange, accuracy, metadata")
+                .order("created_at", { ascending: false });
+
+            if (error) throw error;
+
+            const formattedData = (data || []).map((row: any) => {
+                const meta = row.metadata || {};
+                return {
+                    name: row.name,
+                    model_name: row.name,
+                    exchange: row.exchange,
+                    accuracy: row.accuracy,
+                    ...meta
+                };
+            });
+
             // Filter out crypto & validator models
             const filtered = selectCanonicalModelCards(
-                (data || []).filter((m: any) => {
+                (formattedData || []).filter((m: any) => {
                     const name = (m.name || m.model_name || "").toUpperCase();
                     const ex = (m.exchange || "").toUpperCase();
                     if (name.includes("CRYPTO") || ex === "CRYPTO") return false;

@@ -2055,17 +2055,11 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
         _append_step_log(step_name, status, details, count, extra)
 
         if not success and status == "failed":
-            try:
-                from api.telegram_bot import get_telegram_bot
-                bot = get_telegram_bot()
-                if bot:
-                    bot.send_notification(
-                        f"⚠️ *تنبيه فشل StokScan AI*:\n"
-                        f"• الخطوة: *{step_name}* فشلت\n"
-                        f"• التفاصيل: {str(details)[:300]}"
-                    )
-            except Exception as e_alert:
-                print(f"[TELEGRAM_ALERT] Failed to send failure alert: {e_alert}")
+            print(
+                f"[TELEGRAM_ALERT] ⚠️ *تنبيه فشل StokScan AI*:\n"
+                f"• الخطوة: *{step_name}* فشلت\n"
+                f"• التفاصيل: {str(details)[:300]}"
+            )
 
     try:
         # Initial status insert
@@ -2393,7 +2387,7 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
                 except Exception as me_err:
                     print(f"[TELEGRAM_DIGEST] Market status read error: {me_err}")
                 
-                bot.send_notification("\n".join(digest_lines))
+                print("\n[DAILY_DIGEST]\n" + "\n".join(digest_lines))
         except Exception as e_telegram:
             print(f"[TELEGRAM_DIGEST] Failed to send daily digest: {e_telegram}")
 

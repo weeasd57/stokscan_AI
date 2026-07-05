@@ -545,27 +545,6 @@ export const AIScannerProvider = ({ children }: { children: ReactNode }) => {
     }, [supabase]);
 
     const fetchPublishedResults = useCallback(async (filters?: { country?: string; model?: string; startDate?: string; endDate?: string }) => {
-        // If no filters are applied, use the cached API endpoint to save database egress
-        if (!filters || (!filters.country && !filters.model && !filters.startDate && !filters.endDate)) {
-            try {
-                const apiRes = await fetch("/api/ai_bot/recommendations?is_landing=true");
-                if (apiRes.ok) {
-                    const scanData = await apiRes.json();
-                    return (scanData || []).map((row: any) => {
-                        return {
-                            ...row,
-                            technical_score: row.technical_score || 0,
-                            fundamental_score: row.fundamental_score || 0,
-                            council_score: row.council_score || 0,
-                            consensus_ratio: row.consensus_ratio || ""
-                        };
-                    });
-                }
-            } catch (err) {
-                console.error("Error fetching cached published results:", err);
-            }
-        }
-
         if (!supabase) return [];
         // Include features column for fallback extraction of technical_score, fundamental_score, sentiment_score
         let query = supabase
@@ -842,10 +821,17 @@ export const AIScannerProvider = ({ children }: { children: ReactNode }) => {
         setRecsLoading(true);
         setRecsError(null);
         try {
-            const url = `/api/ai_bot/recommendations?is_landing=${isLandingPage}`;
-            const apiRes = await fetch(url);
-            if (!apiRes.ok) throw new Error("Failed to fetch recommendations from server");
-            const scanData = await apiRes.json();
+            let query = supabase.from("scan_results").select(
+                "id, batch_id, user_id, symbol, exchange, name, model_name, country, last_close, precision, signal, status, entry_price, target_price, stop_loss, risk_adjusted_return, is_public, created_at, updated_at, exit_price, profit_loss_pct, top_reasons, adjustments, features"
+            );
+            if (isLandingPage) {
+                query = query.eq("is_public", true);
+            }
+            const { data: scanData, error: scanErr } = await query
+                .order("created_at", { ascending: false })
+                .limit(200);
+
+            if (scanErr) throw new Error(scanErr.message);
             if (!scanData || scanData.length === 0) {
                 setRecommendations([]);
                 loadedLandingRef.current = isLandingPage;

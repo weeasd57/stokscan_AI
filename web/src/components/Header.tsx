@@ -158,7 +158,7 @@ export default function Header() {
         const delayDebounce = setTimeout(async () => {
             setSearching(true);
             try {
-                const results = await searchSymbols(searchQuery, undefined, 50, undefined, undefined, "EGX");
+                const results = await searchSymbols(searchQuery, "Egypt", 50, undefined, undefined, "EGX");
                 setSearchResults(results);
             } catch (err) {
                 console.error("Error searching symbols:", err);

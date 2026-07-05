@@ -1612,21 +1612,21 @@ def get_supabase_stats():
     
     try:
         # Get count of intraday bars
-        intraday_res = stock_ai.stock_ai.supabase.table("stock_bars_intraday").select("*", count="exact").limit(1).execute()
+        intraday_res = stock_ai.supabase.table("stock_bars_intraday").select("*", count="exact").limit(1).execute()
         intraday_total = intraday_res.count if intraday_res else 0
         
         # Get count of daily prices
-        prices_res = stock_ai.stock_ai.supabase.table("stock_prices").select("*", count="exact").limit(1).execute()
+        prices_res = stock_ai.supabase.table("stock_prices").select("*", count="exact").limit(1).execute()
         prices_total = prices_res.count if prices_res else 0
         
         # Breakdown by timeframe for intraday
         tf_stats = {}
         for tf in ["1m", "1h", "1d"]:
-            res = stock_ai.stock_ai.supabase.table("stock_bars_intraday").select("*", count="exact").eq("timeframe", tf).limit(1).execute()
+            res = stock_ai.supabase.table("stock_bars_intraday").select("*", count="exact").eq("timeframe", tf).limit(1).execute()
             tf_stats[tf] = res.count if res else 0
             
         # Last daily price date
-        last_daily = stock_ai.stock_ai.supabase.table("stock_prices").select("date").order("date", desc=True).limit(1).execute()
+        last_daily = stock_ai.supabase.table("stock_prices").select("date").order("date", desc=True).limit(1).execute()
         last_date = last_daily.data[0]["date"] if last_daily.data else "n/a"
 
         return {

@@ -35,6 +35,9 @@ FILES_TO_UPLOAD = [
     "api/stock_ai.py",
     "api/symbols_local.py",
     "api/smart_sync.py",
+    "api/tradingview_integration.py",
+    "api/routers/bot.py",
+    "api/upload_symbols.py",
 
     # Next.js API Routes
     "web/src/app/api/admin/support/chats/route.ts",
