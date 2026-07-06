@@ -17,6 +17,43 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
+import ssl
+import threading
+from requests.adapters import HTTPAdapter
+from urllib3.poolmanager import PoolManager
+
+class TLSAdapter(HTTPAdapter):
+    def init_poolmanager(self, connections, maxsize, block=False, **pool_kwargs):
+        context = ssl.create_default_context()
+        try:
+            context.minimum_version = ssl.TLSVersion.TLSv1_2
+            context.maximum_version = ssl.TLSVersion.TLSv1_2
+        except Exception:
+            pass
+        self.poolmanager = PoolManager(
+            num_pools=connections,
+            maxsize=maxsize,
+            block=block,
+            ssl_context=context,
+            **pool_kwargs
+        )
+
+_proxy_session = None
+_proxy_session_lock = threading.Lock()
+
+def _get_proxy_session():
+    global _proxy_session
+    if _proxy_session is None:
+        with _proxy_session_lock:
+            if _proxy_session is None:
+                s = requests.Session()
+                s.headers.update({
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                })
+                s.mount("https://", TLSAdapter())
+                _proxy_session = s
+    return _proxy_session
+
 # ============================================================================
 # 1. FREE ALTERNATIVE: Fetch EGX symbols from local cache or web scrape
 # ============================================================================
@@ -134,12 +171,12 @@ def fetch_eod_data_free(symbol: str, period: str = "6mo") -> List[Dict[str, Any]
                     url = f"{cf_proxy}?url={urllib.parse.quote(url)}"
                     
                     headers = {
-                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
                         "Accept": "*/*"
                     }
                     print(f"[FREE_DATA] Routing {yf_symbol} through proxy: {url}")
                     try:
-                        r = requests.get(url, headers=headers, timeout=15)
+                        session = _get_proxy_session()
+                        r = session.get(url, headers=headers, timeout=15)
                         print(f"[FREE_DATA] Proxy response for {yf_symbol}: HTTP {r.status_code}")
                         if r.status_code == 200:
                             chart_res = r.json().get("chart", {}).get("result")

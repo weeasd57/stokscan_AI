@@ -17,6 +17,26 @@ import threading
 _yahoo_session = None
 _yahoo_session_lock = threading.Lock()
 
+import ssl
+from requests.adapters import HTTPAdapter
+from urllib3.poolmanager import PoolManager
+
+class TLSAdapter(HTTPAdapter):
+    def init_poolmanager(self, connections, maxsize, block=False, **pool_kwargs):
+        context = ssl.create_default_context()
+        try:
+            context.minimum_version = ssl.TLSVersion.TLSv1_2
+            context.maximum_version = ssl.TLSVersion.TLSv1_2
+        except Exception:
+            pass
+        self.poolmanager = PoolManager(
+            num_pools=connections,
+            maxsize=maxsize,
+            block=block,
+            ssl_context=context,
+            **pool_kwargs
+        )
+
 def _get_yahoo_session():
     """Get or create a shared requests.Session with connection pooling."""
     global _yahoo_session
@@ -30,7 +50,8 @@ def _get_yahoo_session():
                 })
                 # Connection pooling: keep up to 20 connections alive
                 adapter = requests.adapters.HTTPAdapter(pool_connections=20, pool_maxsize=20)
-                s.mount("https://", adapter)
+                # Force TLS 1.2 for Cloudflare Proxy requests to avoid TLS 1.3 session ticket bugs on HF
+                s.mount("https://", TLSAdapter())
                 s.mount("http://", adapter)
                 _yahoo_session = s
     return _yahoo_session
