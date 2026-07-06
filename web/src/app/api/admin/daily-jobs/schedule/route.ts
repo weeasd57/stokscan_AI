@@ -8,11 +8,11 @@ export async function GET() {
   try {
     const supabase = getSupabaseClient();
     
-    // 1. Fetch bot configuration
+    // 1. Fetch daily job schedule configuration from market_cache
     const { data: configData, error: configError } = await supabase
-      .from("bot_configs")
-      .select("bot_id, config, updated_at")
-      .eq("bot_id", "primary")
+      .from("market_cache")
+      .select("payload")
+      .eq("cache_key", "daily_job_schedule")
       .maybeSingle();
 
     if (configError) {
@@ -20,7 +20,7 @@ export async function GET() {
       return NextResponse.json({ detail: configError.message }, { status: 500 });
     }
 
-    const rawConfig = (configData?.config || {}) as Record<string, any>;
+    const rawConfig = (configData?.payload || {}) as Record<string, any>;
 
     // 2. Fetch stats and run history from daily_job_runs
     let totalRuns = 0;
@@ -52,17 +52,15 @@ export async function GET() {
       console.error("Failed to query run history for stats:", runsErr);
     }
 
-    // Map backend keys to expected frontend structure
+    // Map keys to expected frontend structure
     const scheduleState = {
-      enabled: rawConfig.use_schedule ?? rawConfig.enabled ?? false,
-      run_time: rawConfig.schedule_start_time ?? rawConfig.run_time ?? "16:00",
-      active_days: Array.isArray(rawConfig.schedule_days)
-        ? rawConfig.schedule_days
-        : Array.isArray(rawConfig.active_days)
+      enabled: rawConfig.enabled ?? false,
+      run_time: rawConfig.run_time ?? "16:00",
+      active_days: Array.isArray(rawConfig.active_days)
         ? rawConfig.active_days
         : [0, 1, 2, 3, 6],
       status: rawConfig.status ?? "idle",
-      next_run_at: null, // Computed on demand/frontend or left as null
+      next_run_at: null,
       last_run_at: lastRunAt,
       last_run_status: lastRunStatus,
       total_runs: totalRuns,
@@ -80,44 +78,45 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const botId = "primary";
     const supabase = getSupabaseClient();
 
     const { data: existing, error: fetchErr } = await supabase
-      .from("bot_configs")
-      .select("config")
-      .eq("bot_id", botId)
-      .single();
+      .from("market_cache")
+      .select("payload")
+      .eq("cache_key", "daily_job_schedule")
+      .maybeSingle();
 
     if (fetchErr) {
       return NextResponse.json({ detail: fetchErr.message }, { status: 404 });
     }
 
-    // Map incoming frontend properties to backend keys
+    const payload = (existing?.payload || {}) as Record<string, any>;
+
+    // Map incoming frontend properties
     const configUpdate: Record<string, any> = {};
     if (body.enabled !== undefined) {
-      configUpdate.use_schedule = body.enabled;
       configUpdate.enabled = body.enabled;
     }
     if (body.run_time !== undefined) {
-      configUpdate.schedule_start_time = body.run_time;
       configUpdate.run_time = body.run_time;
     }
     if (body.active_days !== undefined) {
-      configUpdate.schedule_days = body.active_days;
       configUpdate.active_days = body.active_days;
     }
 
     const merged = { 
-      ...(existing?.config as Record<string, unknown> || {}), 
+      ...payload, 
       ...configUpdate 
     };
-    delete merged.bot_id;
 
     const { error } = await supabase
-      .from("bot_configs")
-      .update({ config: merged, updated_at: new Date().toISOString() })
-      .eq("bot_id", botId);
+      .from("market_cache")
+      .upsert({ 
+        cache_key: "daily_job_schedule",
+        country: "Egypt",
+        payload: merged,
+        computed_at: new Date().toISOString()
+      });
 
     if (error) {
       return NextResponse.json({ detail: error.message }, { status: 400 });
@@ -125,9 +124,9 @@ export async function POST(req: NextRequest) {
     
     // Return updated config state formatted for the frontend
     return NextResponse.json({
-      enabled: merged.use_schedule ?? merged.enabled ?? false,
-      run_time: merged.schedule_start_time ?? merged.run_time ?? "16:00",
-      active_days: merged.schedule_days ?? merged.active_days ?? [0, 1, 2, 3, 6],
+      enabled: merged.enabled ?? false,
+      run_time: merged.run_time ?? "16:00",
+      active_days: merged.active_days ?? [0, 1, 2, 3, 6],
       status: merged.status ?? "idle",
       ok: true
     });

@@ -117,20 +117,20 @@ def _scheduler_worker():
 
     while not _stop_event.is_set():
         try:
-            # Poll configuration from Supabase bot_configs to stay in sync with frontend
+            # Poll configuration from Supabase market_cache to stay in sync with frontend
             try:
                 from api.stock_ai import _init_supabase, supabase
                 _init_supabase()
                 if supabase:
-                    res = supabase.table("bot_configs").select("config").eq("bot_id", "primary").maybe_single().execute()
-                    if res.data and "config" in res.data:
-                        cfg = res.data["config"] or {}
+                    res = supabase.table("market_cache").select("payload").eq("cache_key", "daily_job_schedule").maybe_single().execute()
+                    if res.data and "payload" in res.data:
+                        payload = res.data["payload"] or {}
                         with _scheduler_lock:
-                            val_use_sched = cfg.get("use_schedule")
-                            _scheduler_state["enabled"] = val_use_sched if val_use_sched is not None else cfg.get("enabled", _scheduler_state["enabled"])
-                            if cfg.get("schedule_start_time") or cfg.get("run_time"):
-                                _scheduler_state["run_time"] = cfg.get("schedule_start_time") or cfg.get("run_time")
-                            raw_days = cfg.get("schedule_days") or cfg.get("active_days")
+                            val_use_sched = payload.get("enabled")
+                            _scheduler_state["enabled"] = val_use_sched if val_use_sched is not None else _scheduler_state["enabled"]
+                            if payload.get("run_time"):
+                                _scheduler_state["run_time"] = payload.get("run_time")
+                            raw_days = payload.get("active_days")
                             if isinstance(raw_days, list):
                                 # Convert JS weekdays (0=Sun, 6=Sat) to Python weekdays (0=Mon, 6=Sun)
                                 py_days = [(d - 1) % 7 for d in raw_days]
