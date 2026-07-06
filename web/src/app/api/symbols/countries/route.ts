@@ -1,40 +1,23 @@
 import { NextResponse } from "next/server";
+import { getSupabaseClient } from "@/lib/supabase/route-data";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-function backendBaseUrl(): string {
-  const raw =
-    process.env.PYTHON_BACKEND_URL ||
-    (process.env.VERCEL ? process.env.NEXT_PUBLIC_API_BASE_URL : null) ||
-    "http://127.0.0.1:8000";
-  const base = String(raw).replace(/\/$/, "");
-  if (/localhost:3000|:3000\b/.test(base)) {
-    return "http://127.0.0.1:8000";
-  }
-  return base;
-}
-
-export async function GET(req: Request) {
-  const incomingUrl = new URL(req.url);
-  const search = incomingUrl.searchParams.toString();
-  const targetUrl = `${backendBaseUrl()}/symbols/countries${search ? `?${search}` : ""}`;
-
+export async function GET() {
   try {
-    const upstream = await fetch(targetUrl, {
-      method: "GET",
-      headers: { Accept: "application/json" },
-      cache: "no-store",
-    });
+    const supabase = getSupabaseClient();
+    const { data, error } = await supabase.rpc("get_active_countries");
 
-    const text = await upstream.text();
-    return new Response(text, {
-      status: upstream.status,
-      headers: {
-        "content-type": upstream.headers.get("content-type") || "application/json",
-      },
-    });
-  } catch {
-    return NextResponse.json({ detail: "Upstream request failed" }, { status: 502 });
+    if (error || !data) {
+      console.warn("countries RPC failed, returning Egypt fallback:", error);
+      return NextResponse.json({ countries: ["Egypt"] });
+    }
+
+    const countries = data.map((r: any) => r.country);
+    return NextResponse.json({ countries });
+  } catch (error) {
+    console.error("countries route error:", error);
+    return NextResponse.json({ countries: ["Egypt"] });
   }
 }
