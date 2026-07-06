@@ -132,7 +132,9 @@ def _scheduler_worker():
                                 _scheduler_state["run_time"] = cfg.get("schedule_start_time") or cfg.get("run_time")
                             raw_days = cfg.get("schedule_days") or cfg.get("active_days")
                             if isinstance(raw_days, list):
-                                _scheduler_state["active_days"] = raw_days
+                                # Convert JS weekdays (0=Sun, 6=Sat) to Python weekdays (0=Mon, 6=Sun)
+                                py_days = [(d - 1) % 7 for d in raw_days]
+                                _scheduler_state["active_days"] = py_days
             except Exception as sync_err:
                 print(f"[DAILY-JOB-SCHEDULER] Config sync from Supabase failed: {sync_err}")
 
