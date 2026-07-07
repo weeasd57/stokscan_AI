@@ -12,6 +12,7 @@ import {
     FileText,
     ExternalLink,
     BarChart3,
+    Send,
 } from "lucide-react";
 import { toast } from "sonner";
 

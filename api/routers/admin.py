@@ -4224,6 +4224,100 @@ def update_daily_job_schedule(payload: dict):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/daily-jobs/recommendations-status")
+def get_telegram_recommendations_status():
+    try:
+        from api.stock_ai import supabase
+        # Fetch the telegram_recommendations_sent cache
+        cache_res = supabase.table("market_cache").select("payload").eq("cache_key", "telegram_recommendations_sent").maybe_single().execute()
+        sent_dates = []
+        if cache_res.data and cache_res.data.get("payload"):
+            sent_dates = cache_res.data["payload"].get("sent_dates", [])
+        
+        today_str = datetime.now().strftime("%Y-%m-%d")
+        is_sent = today_str in sent_dates
+        
+        # Fetch today's recommendations (status = open, created in the last 24h)
+        today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+        recs_res = supabase.table("scan_results").select("symbol, name, last_close, target_price, stop_loss, precision, exchange, created_at").eq("status", "open").gte("created_at", today_start).order("precision", desc=True).limit(10).execute()
+        
+        return {
+            "is_sent": is_sent,
+            "date": today_str,
+            "sent_dates": sent_dates,
+            "recommendations": recs_res.data or []
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/daily-jobs/send-telegram-recommendations")
+def send_telegram_recommendations():
+    try:
+        from api.stock_ai import supabase
+        from api.daily_bot_run import _notify_service_subscribers
+        
+        today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+        recs_res = supabase.table("scan_results").select("symbol, name, last_close, target_price, stop_loss, precision, exchange").eq("status", "open").gte("created_at", today_start).order("precision", desc=True).limit(10).execute()
+        
+        recs = recs_res.data or []
+        if not recs:
+            return {"status": "skipped", "message": "No recommendations generated today to send."}
+            
+        web_origin = os.getenv("WEB_ORIGIN", "https://egxbots.com").strip().rstrip("/")
+        current_date = datetime.now().strftime("%Y-%m-%d")
+        
+        msg_lines = [
+            f"🚀 *توصيات الذكاء الاصطناعي الجديدة / New AI Recommendations* 🚀",
+            f"📅 *التاريخ:* `{current_date}`",
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+        ]
+        
+        for idx, r in enumerate(recs):
+            sym = r.get("symbol")
+            ex = r.get("exchange", "EGX")
+            ep = float(r.get("last_close" if r.get("last_close") is not None else "entry_price", 0.0))
+            tp = float(r.get("target_price", 0.0))
+            sl = float(r.get("stop_loss", 0.0))
+            tp2 = round(tp * 1.10, 2)
+            score = round(float(r.get("precision", 0.5)) * 10)
+            name = r.get("name", sym)
+            
+            msg_lines.append(
+                f"🔥 *#{idx+1} {sym}.{ex}* | {name}\n"
+                f"▪️ *الدخول المقترح:* `{ep:.2f}` EGP\n"
+                f"▪️ *الهدف الأول:* `{tp:.2f}` | *الهدف الثاني:* `{tp2:.2f}`\n"
+                f"▪️ *وقف الخسارة:* `{sl:.2f}`\n"
+                f"▪️ *تقييم الزخم (Score):* `{score}/10` ⚡\n"
+                f"━━━━━━━━━━━━━━━━━━━━"
+            )
+            
+        msg_lines.append(
+            f"📈 *إجمالي الإشارات الجديدة:* `{len(recs)}` أسهم\n\n"
+            f"🔗 *لمتابعة الرسوم البيانية والتفاصيل الكاملة:*\n"
+            f"👉 [اضغط هنا لفتح المنصة]({web_origin}/scanner/backtests?tab=bots)"
+        )
+        
+        message = "\n".join(msg_lines)
+        _notify_service_subscribers("stock_score", message)
+        
+        # Update the cache
+        cache_res = supabase.table("market_cache").select("payload").eq("cache_key", "telegram_recommendations_sent").maybe_single().execute()
+        payload = cache_res.data["payload"] if (cache_res.data and cache_res.data.get("payload")) else {"sent_dates": []}
+        if current_date not in payload.get("sent_dates", []):
+            payload.setdefault("sent_dates", []).append(current_date)
+            supabase.table("market_cache").upsert({
+                "cache_key": "telegram_recommendations_sent",
+                "country": "Egypt",
+                "payload": payload,
+                "computed_at": datetime.utcnow().isoformat()
+            }).execute()
+            
+        return {"status": "success", "message": "Recommendations sent to subscribers successfully."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ─── Alert Scheduler Endpoints ───────────────────────────────────────
 
 @router.get("/alert-scheduler/state")

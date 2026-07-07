@@ -2,30 +2,25 @@ import os
 import sys
 
 # Add root folder to sys.path
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from api.free_data_provider import get_market_status_free
-from api.stock_ai import _init_supabase, supabase
-from datetime import datetime, timezone
+from api.daily_bot_run import _refresh_market_status_cache
+from api.scripts.update_market_cache import main as update_market_cache
 
 def run():
-    print("Fetching market status using free provider...")
-    res_data = get_market_status_free(period="6mo")
-    print(f"Fetched. Keys in res_data: {list(res_data.keys())}")
-    
-    _init_supabase()
-    if supabase:
-        print("Upserting to market_cache...")
-        data = {
-            "cache_key": "market_status_Egypt",
-            "country": "Egypt",
-            "payload": res_data,
-            "computed_at": datetime.now(timezone.utc).isoformat()
-        }
-        supabase.table("market_cache").upsert(data).execute()
-        print("Successfully populated market_status_Egypt!")
+    print("🚀 Rebuilding complete market status and macro correlation cache...")
+    ok, msg = _refresh_market_status_cache()
+    if ok:
+        print(f"✅ Success: {msg}")
     else:
-        print("Supabase connection not initialized.")
+        print(f"❌ Failed: {msg}")
+
+    print("\n🚀 Rebuilding sector heatmap and liquidity timeline cache...")
+    try:
+        update_market_cache()
+        print("✅ Success: Sector heatmap and timeline cache refreshed")
+    except Exception as e:
+        print(f"❌ Failed: {e}")
 
 if __name__ == "__main__":
     run()

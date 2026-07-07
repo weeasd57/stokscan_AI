@@ -74,8 +74,20 @@ def main() -> int:
     print("[🛠️] بدء تحديث market_cache …")
     start = time.time()
 
-    payload = _calc_sector_timeline(months=6)
-    _upsert("sector_timeline_6m", payload)
+    # Calculate real sector timeline using the same logic as the API
+    try:
+        from api.routers.scan_tech import get_sectors_timeline
+        payload = get_sectors_timeline(country="Egypt", months=6, force_refresh=True)
+        # Remove caching fields to keep it clean
+        payload.pop("cached", None)
+        payload.pop("cached_at", None)
+        _upsert("sector_timeline_6m", payload)
+        print("[TIMELINE] Real sector timeline cached successfully.")
+    except Exception as e:
+        print(f"[TIMELINE] Error calculating real sector timeline: {e}")
+        # Fallback to mock in case of failure
+        payload = _calc_sector_timeline(months=6)
+        _upsert("sector_timeline_6m", payload)
 
     # يمكن إضافة مفاتيح إضافية هنا بنفس الطريقة.
     elapsed = time.time() - start

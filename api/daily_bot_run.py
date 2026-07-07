@@ -1743,6 +1743,22 @@ async def generate_daily_recommendations(model_name: Optional[str] = None):
         
         _notify_service_subscribers("stock_score", "\n".join(msg_lines))
         print("[RECOMMENDATIONS] Sent beautiful detailed recommendations to Telegram.")
+        
+        # Record today's date in market_cache to track sent status
+        try:
+            cache_res = supabase.table("market_cache").select("payload").eq("cache_key", "telegram_recommendations_sent").maybe_single().execute()
+            payload = cache_res.data["payload"] if (cache_res.data and cache_res.data.get("payload")) else {"sent_dates": []}
+            if current_date not in payload.get("sent_dates", []):
+                payload.setdefault("sent_dates", []).append(current_date)
+                supabase.table("market_cache").upsert({
+                    "cache_key": "telegram_recommendations_sent",
+                    "country": "Egypt",
+                    "payload": payload,
+                    "computed_at": dt.datetime.utcnow().isoformat()
+                }).execute()
+                print("[RECOMMENDATIONS] Logged telegram sent status in market_cache.")
+        except Exception as cache_err:
+            print(f"[RECOMMENDATIONS] Failed to record telegram sent status: {cache_err}")
     except Exception as e:
         print(f"[RECOMMENDATIONS] Telegram notify error: {e}")
 
@@ -1806,7 +1822,10 @@ def _refresh_market_status_cache():
                         _sb.table("stock_fundamentals").upsert({
                             "symbol": idx_symbol,
                             "exchange": idx_exchange,
-                            "company_name": f"{idx_symbol} Index/Rate",
+                            "data": {
+                                "company_name": f"{idx_symbol} Index/Rate",
+                                "country": "Egypt"
+                            },
                             "updated_at": dt.datetime.now(dt.timezone.utc).isoformat()
                         }, on_conflict="symbol,exchange").execute()
                     except Exception as fe:

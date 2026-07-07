@@ -35,14 +35,84 @@ def scrape_live_rates() -> dict:
         }
 
 def fetch_eod_data(symbol: str, from_date: str) -> list:
-    """Fetches end-of-day data using FREE providers (yfinance). No API key required!"""
-    from api.free_data_provider import fetch_eod_data_free
-    
+    """Fetches end-of-day data: tries Supabase first, falls back to free providers (yfinance)."""
+    db_symbol = symbol
+    db_exchange = "FOREX"
+    if "." in symbol:
+        parts = symbol.split(".")
+        db_symbol = parts[0]
+        db_exchange = parts[1]
+
+    # Try Supabase first
     try:
-        return fetch_eod_data_free(symbol, period="6mo")
+        from api.stock_ai import _init_supabase, supabase
+        _init_supabase()
+        if supabase:
+            res = supabase.table("stock_prices").select("date,open,high,low,close,volume").eq("symbol", db_symbol).eq("exchange", db_exchange).gte("date", from_date).order("date", desc=False).execute()
+            if res.data:
+                logger.info(f"Loaded {len(res.data)} records for {symbol} from Supabase")
+                return [
+                    {
+                        "date": r["date"],
+                        "open": float(r.get("open", 0) or 0),
+                        "high": float(r.get("high", 0) or 0),
+                        "low": float(r.get("low", 0) or 0),
+                        "close": float(r.get("close", 0) or 0),
+                        "volume": int(r.get("volume", 0) or 0)
+                    }
+                    for r in res.data
+                ]
+    except Exception as se:
+        logger.debug(f"Failed to fetch {symbol} from Supabase: {se}")
+
+    # Fallback to free providers (yfinance)
+    from api.free_data_provider import fetch_eod_data_free
+    records = []
+    try:
+        records = fetch_eod_data_free(symbol, period="1y")
     except Exception as e:
         logger.error(f"Error fetching {symbol} from free providers: {e}")
         return []
+
+    # If we got records from free providers, upsert them to Supabase so we have them next time
+    if records:
+        try:
+            from api.stock_ai import supabase as _sb
+            if _sb:
+                # Ensure the symbol exists in stock_fundamentals first to satisfy FK constraint
+                try:
+                    _sb.table("stock_fundamentals").upsert({
+                        "symbol": db_symbol,
+                        "exchange": db_exchange,
+                        "data": {
+                            "company_name": f"{db_symbol} Index/Rate",
+                            "country": "Egypt"
+                        },
+                        "updated_at": datetime.datetime.now(datetime.timezone.utc).isoformat()
+                    }, on_conflict="symbol,exchange").execute()
+                except Exception as fe:
+                    logger.debug(f"Failed to ensure fundamentals for {db_symbol}: {fe}")
+
+                batch = []
+                for r in records:
+                    batch.append({
+                        "symbol": db_symbol,
+                        "exchange": db_exchange,
+                        "date": r["date"],
+                        "open": r["open"],
+                        "high": r["high"],
+                        "low": r["low"],
+                        "close": r["close"],
+                        "volume": r["volume"]
+                    })
+                # Upsert in chunks
+                for i in range(0, len(batch), 100):
+                    _sb.table("stock_prices").upsert(batch[i:i+100], on_conflict="symbol,exchange,date").execute()
+                logger.info(f"Upserted {len(records)} records for {symbol} to stock_prices in Supabase")
+        except Exception as ue:
+            logger.debug(f"Failed to upsert EOD data for {symbol} to Supabase: {ue}")
+
+    return records
 
 def get_comi_history_from_db() -> list:
     """Retrieves CIB (COMI) stock price history from Supabase (paginated, recent data)."""

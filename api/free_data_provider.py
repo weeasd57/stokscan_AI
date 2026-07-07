@@ -540,6 +540,28 @@ def get_market_status_free(from_date: str = None, period: str = "1y") -> Dict[st
             logger.info(f"USDEGP merged to {len(usdegp_data)} rows after fetch")
     except Exception as e:
         logger.warning(f"USDEGP merge failed: {e}")
+
+    # Fallback for latest USD/EGP rate using live rates if fetch failed or returned empty
+    try:
+        today_str = dt.datetime.utcnow().strftime("%Y-%m-%d")
+        if not fresh_usdegp or len(usdegp_data) == 0 or usdegp_data[-1]["date"] < today_str:
+            live_rates = fetch_live_rates_free()
+            live_usd = live_rates.get("usd_official", 0)
+            if live_usd > 0:
+                if len(usdegp_data) > 0 and usdegp_data[-1]["date"] == today_str:
+                    usdegp_data[-1]["close"] = live_usd
+                else:
+                    usdegp_data.append({
+                        "date": today_str,
+                        "open": live_usd,
+                        "high": live_usd,
+                        "low": live_usd,
+                        "close": live_usd,
+                        "volume": 0
+                    })
+                logger.info(f"Appended latest live USD/EGP rate ({live_usd}) to history")
+    except Exception as le:
+        logger.warning(f"Failed to append latest live USD/EGP rate: {le}")
     
     # EGX100 fallback (if still empty, use EGX30)
     if not egx100_data:

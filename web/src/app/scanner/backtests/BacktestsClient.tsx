@@ -1432,6 +1432,13 @@ export default function AIScannerPage() {
                                                 
                                                 {/* Highlight Toggle controls */}
                                                 <div className="flex flex-wrap gap-2 font-mono text-[9px]">
+                                                    <Link
+                                                        href={`/chart?symbol=${encodeURIComponent(selectedSimilarityScan.symbol.split(".")[0])}&exchange=${encodeURIComponent(selectedSimilarityScan.symbol.split(".")[1] || "EGX")}`}
+                                                        className="px-2 py-1 border border-zinc-800 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white transition-colors flex items-center gap-1.5 cursor-pointer"
+                                                    >
+                                                        <LineChart className="w-3 h-3 text-amber-400" />
+                                                        {language === "ar" ? "الشارت الفني والمؤشرات" : "Technical Chart & Indicators"}
+                                                    </Link>
                                                     <button 
                                                         onClick={() => {
                                                             const anyHidden = matchedAreas.some((area: any) => !visibleMatches[`Match_${area.matchIndex}`]);
