@@ -26,33 +26,14 @@ BASE_DIR  = os.path.dirname(os.path.abspath(__file__))
 # ─── الملفات المراد رفعها ─────────────────────────────────────────────
 # عدّل هذه القائمة لتشمل الملفات التي تغيرت في آخر commit
 FILES_TO_UPLOAD = [
-    # Python Backend
+    # Python Backend (changed in this deploy)
     "api/daily_bot_run.py",
-    "api/daily_job_scheduler.py",
     "api/free_data_provider.py",
-    "api/health.py",
+    "api/macro_correlation.py",
     "api/main.py",
-    "api/stock_ai.py",
-    "api/symbols_local.py",
-    "api/smart_sync.py",
-    "api/tradingview_integration.py",
-    "api/routers/bot.py",
-    "api/upload_symbols.py",
-
-    # Next.js API Routes
-    "web/src/app/api/admin/support/chats/route.ts",
-    "web/src/app/api/scan/news/route.ts",
-    "web/src/app/api/admin/daily-jobs/history/route.ts",
-    "web/src/app/api/admin/daily-jobs/schedule/route.ts",
-    "web/src/app/api/market/status/route.ts",
-    "web/src/app/api/market/macro-correlation/data/route.ts",
-    "web/src/app/api/scan/sectors/heatmap/route.ts",
-    "web/src/app/api/scan/sectors/timeline/route.ts",
-    "web/src/app/api/symbols/inventory/route.ts",
-    "web/src/app/api/support/message/route.ts",
-    "web/src/app/api/support/messages/route.ts",
-    "web/src/app/api/ai_bot/candles/route.ts",
-    "web/src/app/api/ai_bot/telegram/bot_username/route.ts",
+    "api/routers/admin.py",
+    "api/scripts/update_market_cache.py",
+    "api/symbols_data/market_status.json",
 ]
 
 if not HF_TOKEN:
