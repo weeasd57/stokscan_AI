@@ -202,12 +202,33 @@ class TelegramBot:
                 backoff = 5
                 self._log(f"Sent to {payload['chat_id']} ({len(self._queue)} left)")
             else:
-                self._net_ok = False
-                self._log(
-                    f"Send failed ({backoff}s backoff): {result.get('error', result.get('description', '?'))}"
-                )
-                time.sleep(backoff)
-                backoff = min(backoff * 2, 120)  # max 2 min
+                desc = result.get('description', '')
+                # If it's a Bad Request (like invalid chat_id or bad markdown format), do not retry forever!
+                if "bad request" in desc.lower() or "chat not found" in desc.lower():
+                    self._log(f"Permanent send failure (discarding message): {desc}")
+                    # If it was Markdown, try sending as plain text first before discarding!
+                    if payload.get("parse_mode") == "Markdown":
+                        self._log("Retrying message as plain text fallback...")
+                        payload_plain = payload.copy()
+                        payload_plain.pop("parse_mode", None)
+                        # Clean up basic markdown markers
+                        payload_plain["text"] = payload_plain["text"].replace("*", "").replace("`", "")
+                        result_plain = self._call_api("sendMessage", payload_plain)
+                        if result_plain.get("ok"):
+                            self._queue.popleft()
+                            self._net_ok = True
+                            self._log(f"Sent plain text fallback to {payload['chat_id']}")
+                            continue
+                    
+                    self._queue.popleft()
+                    backoff = 5
+                else:
+                    self._net_ok = False
+                    self._log(
+                        f"Send failed ({backoff}s backoff): {result.get('error', result.get('description', '?'))}"
+                    )
+                    time.sleep(backoff)
+                    backoff = min(backoff * 2, 120)  # max 2 min
 
     # ── long-polling loop ────────────────────────────────────────────
 
