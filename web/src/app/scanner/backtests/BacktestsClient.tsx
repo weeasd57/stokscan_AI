@@ -320,9 +320,6 @@ function TelegramNotificationCard() {
         );
     }
 
-    if (telegramLinked) {
-        return null;
-    }
 
     const joinChannel = () => {
         window.open("https://t.me/THNDR_1", "_blank");
