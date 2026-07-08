@@ -63,6 +63,24 @@ interface DailyScheduleState {
     run_history: { run_at: string; status: string; job_id: string }[];
 }
 
+interface Recommendation {
+    symbol: string;
+    name: string;
+    last_close: number;
+    target_price: number;
+    stop_loss: number;
+    precision: number;
+    exchange: string;
+    created_at: string;
+}
+
+interface TelegramRecommendationsStatus {
+    is_sent: boolean;
+    date: string;
+    sent_dates: string[];
+    recommendations: Recommendation[];
+}
+
 const normalizeSteps = (steps: unknown): StepLog[] => {
     if (Array.isArray(steps)) return steps as StepLog[];
     if (typeof steps !== "string") return [];
@@ -102,18 +120,24 @@ export default function DailyJobsTab() {
     const [triggering, setTriggering] = useState(false);
     const [expandedRun, setExpandedRun] = useState<string | null>(null);
     const [savingSchedule, setSavingSchedule] = useState(false);
+    const [recsStatus, setRecsStatus] = useState<TelegramRecommendationsStatus | null>(null);
+    const [loadingRecs, setLoadingRecs] = useState(false);
+    const [sendingRecs, setSendingRecs] = useState(false);
 
     useEffect(() => {
         fetchJobHistory();
         fetchSchedule();
         fetchLatestSimilarityReport();
+        fetchRecsStatus();
         const interval = setInterval(fetchJobHistory, 15000);
         const schedInterval = setInterval(fetchSchedule, 30000);
         const reportInterval = setInterval(fetchLatestSimilarityReport, 30000);
+        const recsInterval = setInterval(() => fetchRecsStatus(true), 30000);
         return () => {
             clearInterval(interval);
             clearInterval(schedInterval);
             clearInterval(reportInterval);
+            clearInterval(recsInterval);
         };
     }, []);
 
@@ -160,6 +184,38 @@ export default function DailyJobsTab() {
             if (!silent) toast.error("Failed to load similarity report");
         } finally {
             if (!silent) setLoadingReports(false);
+        }
+    };
+
+    const fetchRecsStatus = async (silent = false) => {
+        if (!silent) setLoadingRecs(true);
+        try {
+            const res = await fetch("/api/admin/daily-jobs/recommendations-status");
+            if (res.ok) {
+                const data = await res.json();
+                setRecsStatus(data);
+            }
+        } catch (e) {
+            console.error("Failed to fetch recommendations status:", e);
+        } finally {
+            if (!silent) setLoadingRecs(false);
+        }
+    };
+
+    const sendRecsTelegram = async () => {
+        setSendingRecs(true);
+        try {
+            const res = await fetch("/api/admin/daily-jobs/send-telegram-recommendations", { method: "POST" });
+            if (res.ok) {
+                toast.success("✅ Recommendations sent to Telegram successfully!");
+                fetchRecsStatus(true);
+            } else {
+                toast.error("Failed to send recommendations to Telegram");
+            }
+        } catch (e) {
+            toast.error("Send failed");
+        } finally {
+            setSendingRecs(false);
         }
     };
 
@@ -426,6 +482,100 @@ export default function DailyJobsTab() {
                             </div>
                         )}
                     </div>
+                </div>
+            </div>
+
+            {/* ── Today's Telegram Recommendations Dispatch Card ── */}
+            <div className="border-4 border-black dark:border-white bg-zinc-950 p-6 shadow-[6px_6px_0px_rgba(0,0,0,1)] dark:shadow-[6px_6px_0px_rgba(255,255,255,1)]">
+                <div className="flex items-center justify-between border-b-4 border-black dark:border-white pb-4 mb-6">
+                    <h2 className="text-sm font-black tracking-widest text-zinc-200 uppercase flex items-center gap-2">
+                        <Send className="w-5 h-5 text-sky-400" />
+                        Today's Telegram Recommendations Dispatch
+                    </h2>
+                    <div>
+                        {recsStatus?.is_sent ? (
+                            <span className="px-3 py-1 text-[10px] font-black uppercase border-2 border-black dark:border-white font-mono bg-emerald-500 text-black shadow-[2px_2px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_rgba(255,255,255,1)]">
+                                Sent to Telegram ✅
+                            </span>
+                        ) : (
+                            <span className="px-3 py-1 text-[10px] font-black uppercase border-2 border-black dark:border-white font-mono bg-rose-500 text-white shadow-[2px_2px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_rgba(255,255,255,1)]">
+                                Not Sent ❌
+                            </span>
+                        )}
+                    </div>
+                </div>
+
+                <div className="space-y-4">
+                    {loadingRecs ? (
+                        <div className="text-center py-6 text-zinc-500 font-mono text-xs flex items-center justify-center gap-2">
+                            <RefreshCw className="w-4 h-4 animate-spin text-zinc-400" />
+                            Loading recommendations status...
+                        </div>
+                    ) : !recsStatus?.recommendations || recsStatus.recommendations.length === 0 ? (
+                        <div className="text-center py-6 text-zinc-500 font-mono text-xs">
+                            No recommendations generated today yet (run the daily job to generate them).
+                        </div>
+                    ) : (
+                        <>
+                            <div className="border-2 border-zinc-800 p-4 bg-black/10">
+                                <h3 className="text-xs font-bold text-zinc-400 mb-3 uppercase tracking-wider">
+                                    Recommendations Generated Today ({recsStatus.recommendations.length})
+                                </h3>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                                    {recsStatus.recommendations.map((r, i) => (
+                                        <div key={i} className="border border-zinc-800 p-3 bg-zinc-900/30 flex flex-col justify-between">
+                                            <div>
+                                                <div className="flex items-center justify-between mb-1">
+                                                    <span className="font-mono font-bold text-zinc-200 text-sm">
+                                                        {r.symbol}.{r.exchange}
+                                                    </span>
+                                                    <span className="text-[9px] bg-zinc-800 px-1.5 py-0.5 text-zinc-400 font-mono">
+                                                        Score: {Math.round(r.precision * 10)}/10
+                                                    </span>
+                                                </div>
+                                                <p className="text-xs text-zinc-500 truncate mb-2">{r.name}</p>
+                                            </div>
+                                            <div className="grid grid-cols-3 gap-1 text-[10px] font-mono border-t border-zinc-800/60 pt-2 text-zinc-400">
+                                                <div>
+                                                    <span className="block text-[8px] text-zinc-600 uppercase">Entry</span>
+                                                    {r.last_close.toFixed(2)}
+                                                </div>
+                                                <div>
+                                                    <span className="block text-[8px] text-zinc-600 uppercase">Target</span>
+                                                    {r.target_price.toFixed(2)}
+                                                </div>
+                                                <div>
+                                                    <span className="block text-[8px] text-zinc-600 uppercase">Stop Loss</span>
+                                                    {r.stop_loss.toFixed(2)}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+
+                            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 border-t border-zinc-800/80 pt-4 mt-2">
+                                <p className="text-xs text-zinc-400">
+                                    {recsStatus.is_sent 
+                                        ? "This batch was already broadcasted to Telegram subscribers." 
+                                        : "This batch has NOT been sent to Telegram subscribers yet. You can trigger it manually."
+                                    }
+                                </p>
+                                <button
+                                    onClick={sendRecsTelegram}
+                                    disabled={sendingRecs || recsStatus.recommendations.length === 0}
+                                    className={`w-full sm:w-auto px-6 py-2.5 font-black uppercase text-xs border-2 border-black dark:border-white shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_rgba(255,255,255,1)] hover:translate-y-[2px] hover:translate-x-[2px] hover:shadow-[2px_2px_0px_rgba(0,0,0,1)] dark:hover:shadow-[2px_2px_0px_rgba(255,255,255,1)] transition-all flex items-center justify-center gap-2 ${
+                                        recsStatus.is_sent
+                                            ? "bg-zinc-800 text-zinc-400 cursor-not-allowed"
+                                            : "neobrutal-bg-yellow text-black"
+                                    }`}
+                                >
+                                    <Send className="w-4 h-4" />
+                                    {sendingRecs ? "Broadcasting..." : recsStatus.is_sent ? "Send Again Manually" : "Send to Telegram Now"}
+                                </button>
+                            </div>
+                        </>
+                    )}
                 </div>
             </div>
 

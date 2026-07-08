@@ -719,46 +719,41 @@ def _notify_subscribers_for_symbol(symbol: str, exchange: str, message: str):
 
 
 def _notify_service_subscribers(service_type: str, message: str):
-    """Send notification to all users subscribed to a specific service."""
+    """Send notification to the central Telegram channel/group for all users."""
     try:
         from api.telegram_bot import get_telegram_bot
         bot = get_telegram_bot()
         if not bot:
+            print(f"[SERVICE_NOTIFY] No Telegram bot instance found for {service_type}.")
             return
 
-        # Find subscribers with notifications enabled for this service
-        sub_res = (
-            supabase.table("bot_subscriptions")
-            .select("user_id, telegram_chat_id, notifications_enabled")
-            .eq("service_type", service_type)
-            .eq("notifications_enabled", True)
-            .execute()
-        )
-        if not sub_res.data:
-            return
+        chat_id = getattr(bot, "chat_id", None)
+        is_fallback = (chat_id == -1003699330518 or str(chat_id) == "-1003699330518")
+        
+        if (not chat_id or is_fallback) and bot.bot_instance and getattr(bot.bot_instance.config, "telegram_chat_id", None):
+            chat_id = bot.bot_instance.config.telegram_chat_id
+            is_fallback = False
+            
+        if not chat_id or is_fallback:
+            try:
+                # Query the database bot_configs directly as fallback
+                res = supabase.table("bot_configs").select("telegram_chat_id").eq("bot_id", "primary").maybe_single().execute()
+                if res.data and res.data.get("telegram_chat_id"):
+                    chat_id = res.data["telegram_chat_id"]
+                    is_fallback = False
+            except Exception as db_err:
+                print(f"[SERVICE_NOTIFY] Database lookup for telegram_chat_id failed: {db_err}")
 
-        notified = set()
-        for sub in sub_res.data:
-            user_id = sub.get("user_id")
-            if user_id in notified:
-                continue
-            notified.add(user_id)
+        if not chat_id or is_fallback:
+            env_chat_id = os.getenv("TELEGRAM_CHAT_ID")
+            if env_chat_id:
+                chat_id = env_chat_id
 
-            chat_id = sub.get("telegram_chat_id")
-            if not chat_id:
-                # Fallback to profile telegram_chat_id
-                prof_res = (
-                    supabase.table("profiles")
-                    .select("telegram_chat_id")
-                    .eq("id", user_id)
-                    .maybe_single()
-                    .execute()
-                )
-                if prof_res.data and prof_res.data.get("telegram_chat_id"):
-                    chat_id = prof_res.data["telegram_chat_id"]
-
-            if chat_id:
-                bot.send_notification(message, chat_id=str(chat_id))
+        if chat_id:
+            print(f"[SERVICE_NOTIFY] Broadcasting {service_type} message to central Telegram chat: {chat_id}")
+            bot.send_notification(message, chat_id=str(chat_id))
+        else:
+            print(f"[SERVICE_NOTIFY] Cannot send {service_type} broadcast: No central telegram_chat_id configured.")
     except Exception as e:
         print(f"[SERVICE_NOTIFY] {service_type} notification error: {e}")
 

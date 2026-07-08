@@ -32,6 +32,7 @@ FILES_TO_UPLOAD = [
     "api/macro_correlation.py",
     "api/main.py",
     "api/routers/admin.py",
+    "api/telegram_bot.py",
     "api/scripts/update_market_cache.py",
     "api/symbols_data/market_status.json",
 ]
