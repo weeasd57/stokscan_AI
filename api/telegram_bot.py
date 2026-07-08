@@ -463,12 +463,23 @@ class TelegramBot:
             bal = f"${float(a.equity):.2f} (Cash: ${float(a.cash):.2f})"
         except Exception:
             pass
+
+        # Count Telegram subscribers from profiles
+        sub_count = 0
+        try:
+            from api.stock_ai import supabase
+            res = supabase.table("profiles").select("id", count="exact").not_.is_("telegram_chat_id", "null").neq("telegram_chat_id", "").execute()
+            sub_count = res.count if hasattr(res, "count") else len(res.data or [])
+        except Exception as e:
+            self._log(f"Error counting subscribers: {e}")
+
         self._reply(
             chat_id,
             f"🤖 *Status:* {st.get('status', '?').upper()}\n"
             f"💰 *Equity:* {bal}\n"
             f"🕒 *Last Scan:* {st.get('last_scan') or 'Never'}\n"
-            f"📈 *Coins:* {len(st.get('config', {}).get('coins', []))}",
+            f"📈 *Coins:* {len(st.get('config', {}).get('coins', []))}\n"
+            f"👥 *Subscribers:* `{sub_count}` users",
         )
 
     def _handle_positions(self, chat_id):
