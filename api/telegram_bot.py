@@ -150,7 +150,7 @@ class TelegramBot:
 
     # ── outbound messaging (queued) ──────────────────────────────────
 
-    def send_notification(self, message: str, chat_id: Optional[Any] = None):
+    def send_notification(self, message: str, chat_id: Optional[Any] = None, message_thread_id: Optional[int] = None):
         """Queue a message for delivery.  Returns immediately."""
         targets = set()
         if chat_id:
@@ -174,15 +174,81 @@ class TelegramBot:
             return
 
         for target in targets:
-            try:
-                self._queue.append(
-                    {"chat_id": int(target), "text": message, "parse_mode": "Markdown"}
-                )
-            except ValueError:
-                self._log(f"Invalid target chat ID: {target}")
+            target_str = str(target).strip()
+            local_thread_id = message_thread_id
+            if not target_str.startswith("@") and "_" in target_str:
+                parts = target_str.split("_")
+                target_str = parts[0]
+                try:
+                    local_thread_id = int(float(parts[1]))
+                except ValueError:
+                    pass
+
+            payload = {"text": message, "parse_mode": "Markdown"}
+            if local_thread_id is not None:
+                payload["message_thread_id"] = local_thread_id
+
+            if target_str.startswith("@"):
+                payload["chat_id"] = target_str
+                self._queue.append(payload)
+            else:
+                try:
+                    payload["chat_id"] = int(float(target_str))
+                    self._queue.append(payload)
+                except ValueError:
+                    self._log(f"Invalid target chat ID: {target}")
         self._log(
             f"Queued notification to {len(targets)} targets ({len(self._queue)} in queue)"
         )
+
+    def send_message_with_keyboard(
+        self,
+        text: str,
+        chat_id: Any,
+        buttons: list[list[dict]],
+        parse_mode: str = "Markdown",
+        message_thread_id: Optional[int] = None
+    ):
+        """Queue a message with an inline keyboard markup for delivery.
+
+        Args:
+            text: The message content.
+            chat_id: Telegram chat ID (integer) or channel username (e.g. '@egxbots_channel').
+                     Can also be a composite ID like '-1002083067817_153' representing chat_id and message_thread_id.
+            buttons: A list of rows, where each row is a list of button dicts.
+                     Example: [[{"text": "Open Web", "url": "https://egxbots.com"}]]
+            parse_mode: Markdown or HTML parsing mode.
+            message_thread_id: Optional message thread/topic ID for forum/supergroups.
+        """
+        target_str = str(chat_id).strip()
+        local_thread_id = message_thread_id
+        if not target_str.startswith("@") and "_" in target_str:
+            parts = target_str.split("_")
+            target_str = parts[0]
+            try:
+                local_thread_id = int(float(parts[1]))
+            except ValueError:
+                pass
+
+        payload = {
+            "text": text,
+            "parse_mode": parse_mode,
+            "reply_markup": {"inline_keyboard": buttons}
+        }
+        if local_thread_id is not None:
+            payload["message_thread_id"] = local_thread_id
+
+        if target_str.startswith("@"):
+            payload["chat_id"] = target_str
+            self._queue.append(payload)
+            self._log(f"Queued keyboard message to channel {target_str} (thread: {local_thread_id})")
+        else:
+            try:
+                payload["chat_id"] = int(float(target_str))
+                self._queue.append(payload)
+                self._log(f"Queued keyboard message to chat ID {target_str} (thread: {local_thread_id})")
+            except ValueError:
+                self._log(f"Invalid target chat ID: {chat_id}")
 
     def _sender_loop(self):
         """Background loop: drain the queue whenever the network is up."""
@@ -318,6 +384,21 @@ class TelegramBot:
         )
 
     def _is_admin(self, chat_id):
+        # 1. Check environment variable TELEGRAM_ADMIN_CHAT_ID
+        env_admin = os.getenv("TELEGRAM_ADMIN_CHAT_ID")
+        if env_admin and str(chat_id) == str(env_admin).strip():
+            return True
+
+        # 2. Check support system registered admin ID
+        try:
+            from api.support_chat import load_admin_chat_id
+            support_admin = load_admin_chat_id()
+            if support_admin and str(chat_id) == str(support_admin):
+                return True
+        except Exception:
+            pass
+
+        # 3. Fallback to telegram_chat_id (cleaned of thread suffix)
         admin_chat_id = None
         if self.bot_instance and getattr(
             self.bot_instance.config, "telegram_chat_id", None
@@ -325,7 +406,16 @@ class TelegramBot:
             admin_chat_id = self.bot_instance.config.telegram_chat_id
         if not admin_chat_id:
             admin_chat_id = self.chat_id
-        return admin_chat_id and str(chat_id) == str(admin_chat_id)
+
+        if admin_chat_id:
+            admin_chat_str = str(admin_chat_id).strip()
+            # Clean of thread suffix if present (e.g. -1002083067817_153 -> -1002083067817)
+            if "_" in admin_chat_str:
+                admin_chat_str = admin_chat_str.split("_")[0]
+            if str(chat_id) == admin_chat_str:
+                return True
+
+        return False
 
     def _is_private_chat(self, msg: dict = None):
         chat = (msg or {}).get("chat", {})
