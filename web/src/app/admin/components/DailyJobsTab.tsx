@@ -79,6 +79,7 @@ interface TelegramRecommendationsStatus {
     date: string;
     sent_dates: string[];
     recommendations: Recommendation[];
+    subscriber_count?: number;
 }
 
 const normalizeSteps = (steps: unknown): StepLog[] => {
@@ -492,7 +493,12 @@ export default function DailyJobsTab() {
                         <Send className="w-5 h-5 text-sky-400" />
                         Today's Telegram Recommendations Dispatch
                     </h2>
-                    <div>
+                    <div className="flex items-center gap-3">
+                        {recsStatus?.subscriber_count !== undefined && (
+                            <span className="px-3 py-1 text-[10px] font-black uppercase border-2 border-black dark:border-white font-mono bg-zinc-800 text-zinc-300 shadow-[2px_2px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_rgba(255,255,255,1)]">
+                                Users: {recsStatus.subscriber_count} 👥
+                            </span>
+                        )}
                         {recsStatus?.is_sent ? (
                             <span className="px-3 py-1 text-[10px] font-black uppercase border-2 border-black dark:border-white font-mono bg-emerald-500 text-black shadow-[2px_2px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_rgba(255,255,255,1)]">
                                 Sent to Telegram ✅

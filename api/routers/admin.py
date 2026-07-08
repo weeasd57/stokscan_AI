@@ -4241,11 +4241,20 @@ def get_telegram_recommendations_status():
         today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
         recs_res = supabase.table("scan_results").select("symbol, name, last_close, target_price, stop_loss, precision, exchange, created_at").eq("status", "open").gte("created_at", today_start).order("precision", desc=True).limit(10).execute()
         
+        # Query total profiles with linked telegram_chat_id
+        subscriber_count = 0
+        try:
+            prof_res = supabase.table("profiles").select("id", count="exact").not_.is_("telegram_chat_id", "null").neq("telegram_chat_id", "").execute()
+            subscriber_count = prof_res.count if hasattr(prof_res, "count") else len(prof_res.data or [])
+        except Exception as sub_err:
+            print(f"[RECS_STATUS] Failed to count telegram subscribers: {sub_err}")
+            
         return {
             "is_sent": is_sent,
             "date": today_str,
             "sent_dates": sent_dates,
-            "recommendations": recs_res.data or []
+            "recommendations": recs_res.data or [],
+            "subscriber_count": subscriber_count
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
