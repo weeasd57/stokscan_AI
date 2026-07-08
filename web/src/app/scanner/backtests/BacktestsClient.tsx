@@ -305,31 +305,12 @@ const getBacktestSettings = (bt: Backtest) => {
 
 // ── Telegram Notification Card ──────────────────────────────────────────
 function TelegramNotificationCard() {
-    const { user } = useAuth();
     const { language } = useLanguage();
     const isAr = language === "ar";
     const {
         telegramLinked,
-        telegramChatId: chatId,
-        subscriptions,
         loading,
-        toggling: contextToggling,
-        botUsername,
-        toggleSubscription,
     } = useNotification();
-
-    const notificationsEnabled = subscriptions["stock_score"] ?? false;
-    const toggling = contextToggling["stock_score"] ?? false;
-
-    const toggleNotifications = async () => {
-        await toggleSubscription("stock_score");
-    };
-
-    const connectTelegram = () => {
-        const userId = user?.id || "";
-        const deepLink = `https://t.me/${botUsername}?start=${userId}`;
-        window.open(deepLink, "_blank");
-    };
 
     if (loading) {
         return (
@@ -339,87 +320,43 @@ function TelegramNotificationCard() {
         );
     }
 
+    if (telegramLinked) {
+        return null;
+    }
+
+    const joinChannel = () => {
+        window.open("https://t.me/THNDR_1", "_blank");
+    };
+
     return (
         <div className="border-4 border-black dark:border-white bg-zinc-950 p-5 shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_rgba(255,255,255,1)]">
-            <div className="flex items-center justify-between flex-wrap gap-4">
-                <div className="flex items-center gap-3">
-                    <div className={`w-10 h-10 rounded-full flex items-center justify-center border-2 ${telegramLinked ? 'bg-sky-500/20 border-sky-500/30' : 'bg-zinc-800 border-zinc-700'}`}>
-                        {telegramLinked ? (
-                            <svg className="w-5 h-5 text-sky-400" viewBox="0 0 24 24" fill="currentColor">
-                                <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.562 8.161c-.18 1.897-.962 6.502-1.359 8.627-.168.9-.5 1.201-.82 1.23-.697.064-1.226-.46-1.901-.903-1.056-.692-1.653-1.123-2.678-1.799-1.185-.781-.417-1.21.258-1.911.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.139-5.062 3.345-.479.329-.913.489-1.302.481-.428-.009-1.252-.242-1.865-.441-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.831-2.529 6.998-3.015 3.333-1.386 4.025-1.627 4.476-1.635.099-.002.321.023.465.141.119.098.152.228.168.32.016.092.036.301.02.466z"/>
-                            </svg>
-                        ) : (
-                            <svg className="w-5 h-5 text-zinc-500" viewBox="0 0 24 24" fill="currentColor">
-                                <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.562 8.161c-.18 1.897-.962 6.502-1.359 8.627-.168.9-.5 1.201-.82 1.23-.697.064-1.226-.46-1.901-.903-1.056-.692-1.653-1.123-2.678-1.799-1.185-.781-.417-1.21.258-1.911.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.139-5.062 3.345-.479.329-.913.489-1.302.481-.428-.009-1.252-.242-1.865-.441-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.831-2.529 6.998-3.015 3.333-1.386 4.025-1.627 4.476-1.635.099-.002.321.023.465.141.119.098.152.228.168.32.016.092.036.301.02.466z"/>
-                            </svg>
-                        )}
+            <div className="space-y-4">
+                <div className="flex items-start gap-3">
+                    <div className="w-10 h-10 border-2 border-amber-400 bg-amber-400/15 flex items-center justify-center shrink-0">
+                        <svg className="w-5 h-5 text-amber-400" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.562 8.161c-.18 1.897-.962 6.502-1.359 8.627-.168.9-.5 1.201-.82 1.23-.697.064-1.226-.46-1.901-.903-1.056-.692-1.653-1.123-2.678-1.799-1.185-.781-.417-1.21.258-1.911.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.139-5.062 3.345-.479.329-.913.489-1.302.481-.428-.009-1.252-.242-1.865-.441-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.831-2.529 6.998-3.015 3.333-1.386 4.025-1.627 4.476-1.635.099-.002.321.023.465.141.119.098.152.228.168.32.016.092.036.301.02.466z"/>
+                        </svg>
                     </div>
-                    <div>
+                    <div className="min-w-0">
                         <h3 className="text-sm font-black text-white uppercase tracking-tight">
-                            {isAr ? "إشعارات تليجرام" : "Telegram Alerts"}
+                            {isAr ? "تابع التوصيات والتقارير على تليجرام" : "Follow recommendations & reports on Telegram"}
                         </h3>
-                        <p className="text-[10px] text-zinc-400 font-medium">
-                            {telegramLinked
-                                ? (isAr ? "✅ الحساب مربوط - استلم إشعارات فورية" : "✅ Account linked — receive instant alerts")
-                                : (isAr ? "اربط تليجرام لاستلام إشعارات فورية" : "Connect Telegram for instant alerts")
-                            }
+                        <p className="mt-1 text-[10px] text-zinc-400 font-medium leading-relaxed">
+                            {isAr
+                                ? "اشترك في القناة الرسمية لتلقي التنبيهات وإشارات التداول والتقارير اليومية فور صدورها"
+                                : "Join our official channel to receive daily recommendations, alerts, and market reports instantly"}
                         </p>
                     </div>
                 </div>
 
-                <div className="flex items-center gap-3">
-                    {!telegramLinked ? (
-                        <button
-                            onClick={connectTelegram}
-                            className="h-9 px-4 border-2 border-sky-500 bg-sky-500/10 text-sky-400 hover:bg-sky-500/20 font-bold uppercase text-xs flex items-center gap-2 shadow-[2px_2px_0px_rgba(14,165,233,0.3)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all duration-100"
-                        >
-                            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
-                                <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.562 8.161c-.18 1.897-.962 6.502-1.359 8.627-.168.9-.5 1.201-.82 1.23-.697.064-1.226-.46-1.901-.903-1.056-.692-1.653-1.123-2.678-1.799-1.185-.781-.417-1.21.258-1.911.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.139-5.062 3.345-.479.329-.913.489-1.302.481-.428-.009-1.252-.242-1.865-.441-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.831-2.529 6.998-3.015 3.333-1.386 4.025-1.627 4.476-1.635.099-.002.321.023.465.141.119.098.152.228.168.32.016.092.036.301.02.466z"/>
-                            </svg>
-                            {isAr ? "ربط تليجرام" : "Connect Telegram"}
-                        </button>
-                    ) : (
-                        <>
-                            {/* Notification Toggle */}
-                            <button
-                                onClick={toggleNotifications}
-                                disabled={toggling}
-                                className={`relative h-9 w-16 rounded-full border-2 transition-all duration-200 ${
-                                    notificationsEnabled
-                                        ? 'bg-emerald-500/20 border-emerald-500'
-                                        : 'bg-zinc-800 border-zinc-600'
-                                }`}
-                            >
-                                <div className={`absolute top-1 w-5 h-5 rounded-full bg-white shadow transition-all duration-200 ${
-                                    notificationsEnabled ? 'right-1 left-auto' : 'left-1 right-auto'
-                                }`} />
-                            </button>
-                            <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">
-                                {notificationsEnabled
-                                    ? (isAr ? "مفعل" : "ON")
-                                    : (isAr ? "معطل" : "OFF")
-                                }
-                            </span>
-                        </>
-                    )}
-                </div>
+                <button
+                    onClick={joinChannel}
+                    className="inline-flex h-10 w-full items-center justify-center gap-2 border-2 border-amber-400 bg-amber-400 text-black font-black uppercase text-xs shadow-[2px_2px_0px_rgba(0,0,0,1)] hover:translate-x-[-1px] hover:translate-y-[-1px] hover:shadow-[3px_3px_0px_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all duration-100"
+                >
+                    <span>{isAr ? "الانضمام للقناة" : "Join Channel"}</span>
+                </button>
             </div>
 
-            {/* Info about what notifications include */}
-            {telegramLinked && notificationsEnabled && (
-                <div className="mt-4 pt-4 border-t border-white/5 grid grid-cols-1 md:grid-cols-3 gap-3">
-                    {[
-                        { icon: "🟢", textAr: "إشارات شراء جديدة", textEn: "New Buy Signals" },
-                        { icon: "🎯", textAr: "تعديل الأهداف السعرية", textEn: "Target Adjustments" },
-                        { icon: "🛡️", textAr: "تنبيهات وقف الخسارة", textEn: "Stop Loss Alerts" },
-                    ].map((item, i) => (
-                        <div key={i} className="flex items-center gap-2 text-[10px] font-bold text-zinc-400">
-                            <span className="text-sm">{item.icon}</span>
-                            <span>{isAr ? item.textAr : item.textEn}</span>
-                        </div>
-                    ))}
-                </div>
-            )}
         </div>
     );
 }

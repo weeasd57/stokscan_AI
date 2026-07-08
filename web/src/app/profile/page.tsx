@@ -7,7 +7,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useWatchlist, type SavedSymbol } from "@/contexts/WatchlistContext";
 import { useNotification, type ServiceType } from "@/contexts/NotificationContext";
-import { Loader2, Save, Send, MessageSquare, CheckCircle2, AlertCircle, RefreshCw, Globe, Star, Trash2, Edit3, X, Check, ExternalLink, Target, Shield, Bell, BellOff, Brain, Activity, BarChart3, TrendingUp } from "lucide-react";
+import { Loader2, Save, Send, MessageSquare, CheckCircle2, AlertCircle, RefreshCw, Globe, Star, Trash2, Edit3, X, Check, ExternalLink, Target, Shield, Bell, BellOff, Activity, BarChart3, TrendingUp } from "lucide-react";
 import { toast } from "sonner";
 
 type ProfileRow = {
@@ -36,7 +36,6 @@ export default function ProfilePage() {
     subscriptions,
     loading: subsLoading,
     toggling: togglingSubMap,
-    botUsername,
     toggleSubscription: contextToggleSubscription,
     updateNotificationChannel,
     reloadAll: reloadNotifications,
@@ -276,7 +275,7 @@ export default function ProfilePage() {
 
                   {/* Test Channel Button */}
                   <div className="flex items-center gap-3 mt-4">
-                    <div className={`flex items-center gap-1.5 px-3 py-2 border-4 border-black dark:border-white text-[10px] font-black uppercase tracking-widest transition-all shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_0px_rgba(255,255,255,1)] ${
+                    <div className={`flex-1 flex items-center gap-1.5 px-3 py-2 border-4 border-black dark:border-white text-[10px] font-black uppercase tracking-widest transition-all shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_0px_rgba(255,255,255,1)] ${
                       notificationChannel === "telegram"
                         ? "neobrutal-bg-cyan text-black"
                         : "bg-zinc-200 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400"
@@ -286,33 +285,6 @@ export default function ProfilePage() {
                       }`} />
                       {notificationChannel === "telegram" ? (language === "ar" ? "Telegram مفعّل" : "Telegram Enabled") : (language === "ar" ? "لا يوجد تنبيهات" : "No Alerts")}
                     </div>
-
-                    <button
-                      type="button"
-                      disabled={notificationChannel === null}
-                      onClick={async (e) => {
-                        e.preventDefault();
-                        const btn = e.currentTarget;
-                        btn.disabled = true;
-                        btn.textContent = language === "ar" ? "⏳ جاري الإرسال..." : "⏳ Sending...";
-                        try {
-                          const res = await fetch("/api/ai_bot/telegram/test_notification", {
-                            method: "POST",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({ channel: notificationChannel, user_id: user?.id }),
-                          });
-                          const data = await res.json();
-                          btn.textContent = data.ok ? (language === "ar" ? "✅ تم الإرسال!" : "✅ Sent!") : `❌ ${data.error || "Failed"}`;
-                        } catch {
-                          btn.textContent = language === "ar" ? "❌ خطأ في الاتصال" : "❌ Connection Error";
-                        } finally {
-                          setTimeout(() => { btn.disabled = false; btn.textContent = language === "ar" ? "🔔 اختبار الإشعار" : "🔔 Test Notification"; }, 3000);
-                        }
-                      }}
-                      className="flex-1 h-10 bg-white dark:bg-zinc-800 text-black dark:text-white font-black text-[10px] uppercase tracking-widest border-4 border-black dark:border-white shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_0px_rgba(255,255,255,1)] flex items-center justify-center gap-2 disabled:opacity-30 disabled:cursor-not-allowed"
-                    >
-                      🔔 {language === "ar" ? "اختبار الإشعار" : "Test Notification"}
-                    </button>
                   </div>
                 </div>
 
@@ -355,22 +327,22 @@ export default function ProfilePage() {
 
                       <p className="text-xs text-zinc-700 dark:text-zinc-300 leading-relaxed font-bold">
                         {isAr 
-                          ? "يرجى تشغيل بوت تليجرام والضغط على START لربط معرف الدردشة تلقائياً بحسابك." 
-                          : "Please start our Telegram Bot and press START to automatically link your chat ID to this profile."}
+                          ? "اشترك في قناة التليجرام لمتابعة التوصيات والتقارير اليومية فور صدورها." 
+                          : "Subscribe to our Telegram Channel to receive daily recommendations and reports instantly."}
                       </p>
 
                       <div className="flex flex-col gap-3 w-full">
                         <a
-                          href={`https://t.me/${botUsername}?start=${user.id}`}
+                          href="https://t.me/THNDR_1"
                           target="_blank"
                           rel="noopener noreferrer"
                           className="inline-flex h-12 w-full items-center justify-center gap-2 border-4 border-black dark:border-white bg-amber-300 dark:bg-amber-400 text-black font-black text-xs uppercase tracking-[0.1em] shadow-[3px_3px_0px_rgba(0,0,0,1)] hover:translate-x-[-2px] hover:translate-y-[-2px] hover:shadow-[4px_4px_0px_rgba(0,0,0,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none"
                         >
                           <Send className="w-4 h-4" />
-                          {isAr ? "تشغيل البوت على تليجرام" : "Start Telegram Bot"}
+                          {isAr ? "الانضمام لقناة التليجرام" : "Join Telegram Channel"}
                         </a>
                         <a
-                          href={`https://web.telegram.org/a/#?tgaddr=tg%3A%2F%2Fresolve%3Fdomain%3D${botUsername}%26start%3D${user.id}`}
+                          href="https://web.telegram.org/a/#?tgaddr=tg%3A%2F%2Fresolve%3Fdomain%3DTHNDR_1"
                           target="_blank"
                           rel="noopener noreferrer"
                           className="inline-flex h-10 w-full items-center justify-center gap-2 border-4 border-black dark:border-white bg-white dark:bg-zinc-800 text-black dark:text-white text-[10px] font-black uppercase tracking-[0.1em] shadow-[2px_2px_0px_rgba(0,0,0,1)] hover:translate-x-[-2px] hover:translate-y-[-2px] hover:shadow-[3px_3px_0px_rgba(0,0,0,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none"
@@ -469,7 +441,7 @@ export default function ProfilePage() {
             </p>
           </div>
           <div className="inline-flex items-center justify-center gap-2 h-10 px-4 border-4 border-black dark:border-white bg-zinc-100 dark:bg-zinc-950 text-black dark:text-white font-black text-xs uppercase tracking-widest shadow-[2px_2px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_rgba(255,255,255,1)]">
-            {Object.keys(subscriptions).filter(k => subscriptions[k] === true).length} / 4 {isAr ? "مفعلة" : "Active"}
+            {Object.keys(subscriptions).filter(k => subscriptions[k] === true).length} / 3 {isAr ? "مفعلة" : "Active"}
           </div>
         </div>
 
@@ -490,7 +462,6 @@ export default function ProfilePage() {
               { key: "technical_scanner", labelEn: "Technical Scanner", labelAr: "الماسح الفني", icon: <Activity className="w-5 h-5" />, color: "border-l-cyan-500" },
               { key: "stock_score", labelEn: "Stocks Score", labelAr: "تقييم الأسهم", icon: <BarChart3 className="w-5 h-5" />, color: "border-l-emerald-500" },
               { key: "historical_similarity", labelEn: "Historical Similarity", labelAr: "التشابه التاريخي", icon: <TrendingUp className="w-5 h-5" />, color: "border-l-purple-500" },
-              { key: "ai_bot", labelEn: "AI Bot Signals", labelAr: "إشارات البوت الذكي", icon: <Brain className="w-5 h-5" />, color: "border-l-amber-500" },
             ].map((svc) => {
               const enabled = subscriptions[svc.key] ?? false;
               const toggling = togglingSubMap[svc.key] ?? false;

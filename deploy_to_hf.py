@@ -35,6 +35,9 @@ FILES_TO_UPLOAD = [
     "api/telegram_bot.py",
     "api/scripts/update_market_cache.py",
     "api/symbols_data/market_status.json",
+    # Frontend Telegram channel update
+    "web/src/app/profile/page.tsx",
+    "web/src/app/scanner/backtests/BacktestsClient.tsx",
 ]
 
 if not HF_TOKEN:
