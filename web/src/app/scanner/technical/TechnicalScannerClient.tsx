@@ -1,5 +1,6 @@
 "use client";
 
+import { createPortal } from "react-dom";
 import { useState, useEffect, useMemo } from "react";
 import { 
     Sliders, Search, Loader2, Globe, Database, TrendingUp, X, Filter, 
@@ -77,6 +78,11 @@ export default function TechnicalScannerPage() {
     const [showAlertModal, setShowAlertModal] = useState(false);
     const [alertName, setAlertName] = useState("");
     const [alertSaveError, setAlertSaveError] = useState("");
+    const [mounted, setMounted] = useState(false);
+
+    useEffect(() => {
+        setMounted(true);
+    }, []);
 
     const handleSaveAlert = async () => {
         if (!user || !alertName.trim()) {
@@ -86,6 +92,7 @@ export default function TechnicalScannerPage() {
         setAlertSending(true);
         setAlertSaveError("");
         try {
+            const alertTitle = alertName.trim();
             const filters = {
                 country,
                 limit: 100,
@@ -115,17 +122,37 @@ export default function TechnicalScannerPage() {
                 require_accumulation: requireAccumulation,
                 cmf_min: cmfMin || undefined,
             };
-            const { error: upsertErr } = await supabase
+            const payload = {
+                user_id: user.id,
+                name: alertTitle,
+                filters,
+                is_active: true,
+                last_triggered_at: null,
+                last_triggered_matches: [],
+            };
+
+            const { data: existingAlert, error: lookupErr } = await supabase
                 .from("technical_alerts")
-                .upsert({
-                    user_id: user.id,
-                    name: alertName.trim(),
-                    filters,
-                    is_active: true,
-                    last_triggered_at: null,
-                    last_triggered_matches: [],
-                }, { onConflict: "user_id,name" });
-            if (upsertErr) throw upsertErr;
+                .select("id")
+                .eq("user_id", user.id)
+                .eq("name", alertTitle)
+                .maybeSingle();
+
+            if (lookupErr) throw lookupErr;
+
+            if (existingAlert?.id) {
+                const { error: updateErr } = await supabase
+                    .from("technical_alerts")
+                    .update(payload)
+                    .eq("id", existingAlert.id);
+                if (updateErr) throw updateErr;
+            } else {
+                const { error: insertErr } = await supabase
+                    .from("technical_alerts")
+                    .insert(payload);
+                if (insertErr) throw insertErr;
+            }
+
             setShowAlertModal(false);
             setAlertName("");
         } catch (e: any) {
@@ -2087,73 +2114,76 @@ export default function TechnicalScannerPage() {
             </div>
 
             {/* ── Save Alert Modal ── */}
-            {showAlertModal && (
-                <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-                    <div className="w-full max-w-md border-4 border-black dark:border-white bg-white dark:bg-zinc-900 shadow-[8px_8px_0px_rgba(0,0,0,1)] dark:shadow-[8px_8px_0px_rgba(255,255,255,1)] p-6 space-y-5">
-                        <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-3">
-                                <div className="h-10 w-10 border-4 border-black dark:border-white bg-amber-400 text-black flex items-center justify-center shadow-[3px_3px_0px_rgba(0,0,0,1)] dark:shadow-[3px_3px_0px_rgba(255,255,255,1)]">
-                                    <Bell className="h-5 w-5" />
+            {mounted && showAlertModal
+                ? createPortal(
+                    <div className="fixed inset-0 z-[99999] flex items-center justify-center bg-black/70 backdrop-blur-md p-4">
+                        <div className="w-full max-w-md border-4 border-black dark:border-white bg-white dark:bg-zinc-900 shadow-[10px_10px_0px_rgba(0,0,0,1)] dark:shadow-[10px_10px_0px_rgba(255,255,255,1)] p-6 space-y-5">
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-3">
+                                    <div className="h-10 w-10 border-4 border-black dark:border-white bg-amber-400 text-black flex items-center justify-center shadow-[3px_3px_0px_rgba(0,0,0,1)] dark:shadow-[3px_3px_0px_rgba(255,255,255,1)]">
+                                        <Bell className="h-5 w-5" />
+                                    </div>
+                                    <h2 className="text-xl font-black text-black dark:text-white uppercase tracking-tight">
+                                        {language === "ar" ? "حفظ تنبيه الماسح" : "Save Scanner Alert"}
+                                    </h2>
                                 </div>
-                                <h2 className="text-xl font-black text-black dark:text-white uppercase tracking-tight">
-                                    {language === "ar" ? "حفظ تنبيه الماسح" : "Save Scanner Alert"}
-                                </h2>
+                                <button
+                                    onClick={() => setShowAlertModal(false)}
+                                    className="w-8 h-8 flex items-center justify-center border-2 border-black dark:border-white bg-zinc-100 dark:bg-zinc-800 hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors"
+                                >
+                                    <X className="w-4 h-4" />
+                                </button>
                             </div>
-                            <button
-                                onClick={() => setShowAlertModal(false)}
-                                className="w-8 h-8 flex items-center justify-center border-2 border-black dark:border-white bg-zinc-100 dark:bg-zinc-800 hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors"
-                            >
-                                <X className="w-4 h-4" />
-                            </button>
-                        </div>
 
-                        <p className="text-xs text-zinc-600 dark:text-zinc-400 font-medium">
-                            {language === "ar"
-                                ? "سيتم حفظ إعدادات الماسح الحالية وتشغيلها يومياً. عند ظهور نتائج جديدة سيتم إرسال تنبيه إلى تليجرام."
-                                : "Your current scanner settings will be saved and run daily. New matches will be sent as a Telegram alert."}
-                        </p>
+                            <p className="text-xs text-zinc-600 dark:text-zinc-400 font-medium">
+                                {language === "ar"
+                                    ? "سيتم حفظ إعدادات الماسح الحالية وتشغيلها يومياً. عند ظهور نتائج جديدة سيتم إرسال تنبيه إلى تليجرام."
+                                    : "Your current scanner settings will be saved and run daily. New matches will be sent as a Telegram alert."}
+                            </p>
 
-                        <div>
-                            <label className="block text-xs font-black text-black dark:text-white uppercase tracking-widest mb-2">
-                                {language === "ar" ? "اسم التنبيه" : "Alert Name"}
-                            </label>
-                            <input
-                                type="text"
-                                value={alertName}
-                                onChange={(e) => { setAlertName(e.target.value); setAlertSaveError(""); }}
-                                onKeyDown={(e) => { if (e.key === "Enter") handleSaveAlert(); }}
-                                placeholder={language === "ar" ? "مثال: أسهم oversold" : "e.g. Oversold stocks"}
-                                className="w-full h-12 px-4 border-4 border-black dark:border-white bg-zinc-50 dark:bg-zinc-950 text-black dark:text-white font-bold text-sm placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-amber-400 shadow-[3px_3px_0px_rgba(0,0,0,1)] dark:shadow-[3px_3px_0px_rgba(255,255,255,1)]"
-                                autoFocus
-                            />
-                            {alertSaveError && (
-                                <p className="mt-2 text-xs font-bold text-red-500">{alertSaveError}</p>
-                            )}
-                        </div>
-
-                        <div className="flex gap-3 pt-2">
-                            <button
-                                onClick={() => setShowAlertModal(false)}
-                                className="flex-1 h-12 border-4 border-black dark:border-white bg-zinc-100 dark:bg-zinc-800 text-black dark:text-white font-black text-sm uppercase tracking-widest hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors shadow-[3px_3px_0px_rgba(0,0,0,1)] dark:shadow-[3px_3px_0px_rgba(255,255,255,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none"
-                            >
-                                {language === "ar" ? "إلغاء" : "Cancel"}
-                            </button>
-                            <button
-                                onClick={handleSaveAlert}
-                                disabled={alertSending || !alertName.trim()}
-                                className="flex-1 h-12 border-4 border-black dark:border-white bg-amber-400 text-black font-black text-sm uppercase tracking-widest hover:bg-amber-300 transition-colors shadow-[3px_3px_0px_rgba(0,0,0,1)] dark:shadow-[3px_3px_0px_rgba(255,255,255,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                            >
-                                {alertSending ? (
-                                    <Loader2 className="w-4 h-4 animate-spin" />
-                                ) : (
-                                    <Save className="w-4 h-4" />
+                            <div>
+                                <label className="block text-xs font-black text-black dark:text-white uppercase tracking-widest mb-2">
+                                    {language === "ar" ? "اسم التنبيه" : "Alert Name"}
+                                </label>
+                                <input
+                                    type="text"
+                                    value={alertName}
+                                    onChange={(e) => { setAlertName(e.target.value); setAlertSaveError(""); }}
+                                    onKeyDown={(e) => { if (e.key === "Enter") handleSaveAlert(); }}
+                                    placeholder={language === "ar" ? "مثال: أسهم oversold" : "e.g. Oversold stocks"}
+                                    className="w-full h-12 px-4 border-4 border-black dark:border-white bg-zinc-50 dark:bg-zinc-950 text-black dark:text-white font-bold text-sm placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-amber-400 shadow-[3px_3px_0px_rgba(0,0,0,1)] dark:shadow-[3px_3px_0px_rgba(255,255,255,1)]"
+                                    autoFocus
+                                />
+                                {alertSaveError && (
+                                    <p className="mt-2 text-xs font-bold text-red-500">{alertSaveError}</p>
                                 )}
-                                {language === "ar" ? "حفظ" : "Save"}
-                            </button>
+                            </div>
+
+                            <div className="flex gap-3 pt-2">
+                                <button
+                                    onClick={() => setShowAlertModal(false)}
+                                    className="flex-1 h-12 border-4 border-black dark:border-white bg-zinc-100 dark:bg-zinc-800 text-black dark:text-white font-black text-sm uppercase tracking-widest hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors shadow-[3px_3px_0px_rgba(0,0,0,1)] dark:shadow-[3px_3px_0px_rgba(255,255,255,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none"
+                                >
+                                    {language === "ar" ? "إلغاء" : "Cancel"}
+                                </button>
+                                <button
+                                    onClick={handleSaveAlert}
+                                    disabled={alertSending || !alertName.trim()}
+                                    className="flex-1 h-12 border-4 border-black dark:border-white bg-amber-400 text-black font-black text-sm uppercase tracking-widest hover:bg-amber-300 transition-colors shadow-[3px_3px_0px_rgba(0,0,0,1)] dark:shadow-[3px_3px_0px_rgba(255,255,255,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                                >
+                                    {alertSending ? (
+                                        <Loader2 className="w-4 h-4 animate-spin" />
+                                    ) : (
+                                        <Save className="w-4 h-4" />
+                                    )}
+                                    {language === "ar" ? "حفظ" : "Save"}
+                                </button>
+                            </div>
                         </div>
-                    </div>
-                </div>
-            )}
+                    </div>,
+                    document.body,
+                )
+                : null}
         </div>
     );
 }

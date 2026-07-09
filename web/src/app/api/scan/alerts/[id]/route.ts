@@ -33,7 +33,7 @@ export async function PATCH(
       return NextResponse.json({ error: "Missing is_active parameter" }, { status: 400 });
     }
 
-    const supabase = createSupabaseServerClient();
+    const supabase = createSupabaseServerClient(req);
     const user = await getAuthenticatedUser(supabase);
 
     if (!user) {
@@ -72,7 +72,7 @@ export async function DELETE(
       return NextResponse.json({ error: "Missing alert ID" }, { status: 400 });
     }
 
-    const supabase = createSupabaseServerClient();
+    const supabase = createSupabaseServerClient(req);
     const user = await getAuthenticatedUser(supabase);
 
     if (!user) {

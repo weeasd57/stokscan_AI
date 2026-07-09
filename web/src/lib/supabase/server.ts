@@ -1,27 +1,41 @@
-import { createClient } from '@supabase/supabase-js'
+import { createServerClient } from '@supabase/ssr'
+import { cookies } from 'next/headers'
+import type { NextRequest } from 'next/server'
 
-// Lazy initialization to avoid build-time errors
-let _supabaseServer: ReturnType<typeof createClient> | null = null
-
-function getSupabaseServer() {
-  if (_supabaseServer) return _supabaseServer
-
+function getSupabaseUrlAndAnonKey() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL
-  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY
 
-  if (!supabaseUrl || !supabaseServiceKey) {
+  if (!supabaseUrl || !anonKey) {
     throw new Error('Missing Supabase environment variables')
   }
 
-  _supabaseServer = createClient(supabaseUrl, supabaseServiceKey, {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false
-    }
-  })
-
-  return _supabaseServer
+  return { supabaseUrl, anonKey }
 }
 
-// Only export the function, not a pre-initialized client
-export const createSupabaseServerClient = () => getSupabaseServer()
+export const createSupabaseServerClient = (request?: NextRequest) => {
+  const { supabaseUrl, anonKey } = getSupabaseUrlAndAnonKey()
+  const cookieStore = request?.cookies ?? cookies()
+
+  return createServerClient(supabaseUrl, anonKey, {
+    cookies: {
+      get(name: string) {
+        return cookieStore.get(name)?.value
+      },
+      set(name: string, value: string, options: any) {
+        try {
+          if ("set" in cookieStore) {
+            cookieStore.set({ name, value, ...options })
+          }
+        } catch {}
+      },
+      remove(name: string, options: any) {
+        try {
+          if ("delete" in cookieStore) {
+            cookieStore.delete({ name, ...options })
+          }
+        } catch {}
+      },
+    },
+  })
+}

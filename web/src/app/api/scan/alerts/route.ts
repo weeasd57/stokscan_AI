@@ -18,7 +18,7 @@ async function getAuthenticatedUser(supabase: ReturnType<typeof createSupabaseSe
 
 export async function GET(req: NextRequest) {
   try {
-    const supabase = createSupabaseServerClient();
+    const supabase = createSupabaseServerClient(req);
     const user = await getAuthenticatedUser(supabase);
 
     if (!user) {
@@ -49,7 +49,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Missing required fields (name, filters)" }, { status: 400 });
     }
 
-    const supabase = createSupabaseServerClient();
+    const supabase = createSupabaseServerClient(req);
     const user = await getAuthenticatedUser(supabase);
 
     if (!user) {

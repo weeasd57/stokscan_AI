@@ -13,6 +13,7 @@ export async function GET(req: NextRequest) {
     const offset = page * page_size;
 
     const supabase = getSupabaseClient();
+    
     let query = supabase
       .from("articles")
       .select("*", { count: "exact" })
@@ -24,12 +25,18 @@ export async function GET(req: NextRequest) {
     }
 
     const { data, error, count } = await query;
+
     if (error) {
-      console.error("admin articles error:", error);
       return NextResponse.json({ detail: error.message }, { status: 500 });
     }
-    return NextResponse.json({ data: data || [], total: count || 0, page, page_size });
-  } catch {
+
+    return NextResponse.json({ 
+      data: data || [], 
+      total: count || 0, 
+      page, 
+      page_size 
+    });
+  } catch (e) {
     return NextResponse.json({ detail: "Internal error" }, { status: 500 });
   }
 }
@@ -38,14 +45,19 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const supabase = getSupabaseClient();
+
     const { data, error } = await supabase
       .from("articles")
-      .insert([{ ...body, created_at: new Date().toISOString(), updated_at: new Date().toISOString() }])
+      .insert([body])
       .select()
       .single();
-    if (error) return NextResponse.json({ detail: error.message }, { status: 400 });
+
+    if (error) {
+      return NextResponse.json({ detail: error.message }, { status: 400 });
+    }
+
     return NextResponse.json(data, { status: 201 });
-  } catch {
+  } catch (e) {
     return NextResponse.json({ detail: "Internal error" }, { status: 500 });
   }
 }
