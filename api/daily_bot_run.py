@@ -766,8 +766,8 @@ def _notify_service_subscribers(service_type: str, message: str):
                 if env_chat_id:
                     chat_id = env_chat_id
                 else:
-                    # Use the correct Telegram channel ID from the URL provided
-                    chat_id = -1002083067817
+                    # Use the correct Telegram channel ID with thread from the URL provided
+                    chat_id = "-1002083067817_153"  # Channel + Thread ID
 
             if chat_id and not is_fallback:
                 print(f"[SERVICE_NOTIFY] Fallback: Broadcasting {service_type} to admin channel: {chat_id}")

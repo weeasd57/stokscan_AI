@@ -62,7 +62,8 @@ class TelegramBot:
                 except Exception:
                     pass
             if not self.chat_id:
-                self.chat_id = -1002083067817
+                # Use the correct channel with thread ID
+                self.chat_id = "-1002083067817_153"  # Channel + Thread ID
                 self._log(f"Loaded default fallback chat_id: {self.chat_id}")
 
     def _save_chat_id(self, chat_id: int):
