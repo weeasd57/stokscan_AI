@@ -2,168 +2,135 @@ import { NextResponse } from "next/server";
 import { getSupabaseClient } from "@/lib/supabase/route-data";
 
 export const runtime = "nodejs";
-export const revalidate = 3600; // ISR: 1 hour (data updated daily)
+export const dynamic = "force-dynamic";
 
-const SECTOR_AR: Record<string, string> = {
-  'finance': 'الخدمات المالية',
-  'energy minerals': 'معادن الطاقة',
-  'transportation': 'النقل',
-  'electronic technology': 'التكنولوجيا الإلكترونية',
-  'consumer durables': 'السلع الاستهلاكية المعمرة',
-  'non-energy minerals': 'المعادن غير المعدة للطاقة',
-  'commercial services': 'الخدمات التجارية',
-  'utilities': 'المرافق العامة',
-  'consumer services': 'الخدمات الاستهلاكية',
-  'miscellaneous': 'متنوع',
-  'retail trade': 'تجارة التجزئة',
-  'health services': 'الخدمات الصحية',
-  'distribution services': 'خدمات التوزيع',
-  'industrial services': 'الخدمات الصناعية',
-  'consumer non-durables': 'السلع الاستهلاكية غير المعمرة',
-  'process industries': 'الصناعات التحويلية',
-  'health technology': 'تكنولوجيا الصحة',
-  'producer manufacturing': 'التصنيع الإنتاجي',
-  'technology services': 'خدمات التكنولوجيا',
-  'speculative sector': 'قطاع المضاربة',
-  'communications': 'الاتصالات',
-  'real estate': 'العقارات',
-  'energy': 'الطاقة',
-  'industrial': 'الصناعي',
-  'commercial': 'التجاري',
-  'services': 'الخدمات',
-  'other': 'أخرى'
-};
+const PAGE_SIZE = 1000;
 
-const getSentiment = (avgChange: number): string => {
-  if (avgChange > 1.5) return 'bullish';
-  if (avgChange > 0.3) return 'slightly_bullish';
-  if (avgChange < -1.5) return 'bearish';
-  if (avgChange < -0.3) return 'slightly_bearish';
-  return 'neutral';
-};
+function normalizeDate(value: string | null): string | null {
+  if (!value) return null;
+  const date = value.trim().slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : null;
+}
+
+function pickFundamentalText(payload: any, keys: string[]): string | null {
+  if (!payload || typeof payload !== "object") return null;
+  for (const key of keys) {
+    const value = payload[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return null;
+}
 
 export async function GET(req: Request) {
   const incomingUrl = new URL(req.url);
-  const country = incomingUrl.searchParams.get("country") || "Egypt";
-  
+  const selectedDate = normalizeDate(incomingUrl.searchParams.get("date"));
+  const startDate = normalizeDate(incomingUrl.searchParams.get("start"));
+  const endDate = normalizeDate(incomingUrl.searchParams.get("end"));
+
   try {
     const supabase = getSupabaseClient();
-    
-    // Get the latest captured_at timestamp for EGX
-    const { data: latestRow, error: latestError } = await supabase
-      .from('market_heatmap')
-      .select('captured_at')
-      .eq('exchange', 'EGX')
-      .order('captured_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
 
-    if (latestError) {
-      console.error('Heatmap latest row Supabase error:', latestError);
-      return NextResponse.json({ error: 'Failed to fetch latest heatmap metadata' }, { status: 500 });
+    const { data: latestDates, error: datesError } = await supabase
+      .from("stock_technical_indicators")
+      .select("date")
+      .eq("exchange", "EGX")
+      .order("date", { ascending: false })
+      .limit(2500);
+
+    if (datesError) {
+      console.error("Heatmap dates Supabase error:", datesError);
+      return NextResponse.json({ error: "Failed to fetch heatmap dates" }, { status: 500 });
     }
 
-    if (!latestRow) {
-      return NextResponse.json({ sectors: [] }, {
-        headers: { 'Cache-Control': 'public, s-maxage=120, stale-while-revalidate=300' }
-      });
+    const availableDates = Array.from(
+      new Set<string>((latestDates || []).map((row: any) => String(row.date || "")).filter(Boolean))
+    ).slice(0, 90);
+    if (availableDates.length === 0) {
+      return NextResponse.json({ rows: [], available_dates: [] }, { headers: { "Cache-Control": "no-store" } });
     }
 
-    const latestTime = latestRow.captured_at;
-    
-    // Fetch all records for this latest timestamp (explicit columns only)
-    const { data: heatmapData, error: dataError } = await supabase
-      .from('market_heatmap')
-      .select('symbol, sector, change_pct, volume, cap')
-      .eq('exchange', 'EGX')
-      .eq('captured_at', latestTime);
-
-    if (dataError) {
-      console.error('Heatmap data Supabase error:', dataError);
-      return NextResponse.json({ error: 'Failed to fetch heatmap data' }, { status: 500 });
+    let effectiveDate = selectedDate;
+    if (!effectiveDate || !availableDates.includes(effectiveDate)) {
+      const matchingDate = selectedDate
+        ? availableDates.find((date) => date <= selectedDate)
+        : availableDates[0];
+      effectiveDate = matchingDate || availableDates[0];
     }
 
-    const { data: stocksData } = await supabase
-      .from('stocks')
-      .select('symbol, name');
-    const symbolToName = new Map<string, string>();
-    stocksData?.forEach((s: {symbol: string; name: string}) => symbolToName.set(s.symbol, s.name));
+    const rangeStart = startDate && availableDates.includes(startDate) ? startDate : effectiveDate;
+    const rangeEnd = endDate && availableDates.includes(endDate) ? endDate : effectiveDate;
+    const fromDate = rangeStart <= rangeEnd ? rangeStart : rangeEnd;
+    const toDate = rangeStart <= rangeEnd ? rangeEnd : rangeStart;
+    const rangeDates = availableDates.filter((date) => date >= fromDate && date <= toDate);
 
-    // Group by sector and calculate aggregates
-    const sectors = new Map<string, {
-      sector: string;
-      sector_ar: string;
-      money_flow: number;
-      change_pct: number;
-      stocks_count: number;
-      stocks: Array<{
-        symbol: string;
-        name: string;
-        close: number;
-        change_pct: number;
-        volume: number;
-        money_flow: number;
-      }>;
-    }>();
+    const allRows: any[] = [];
+    for (let offset = 0; offset < 20000; offset += PAGE_SIZE) {
+      const { data, error } = await supabase
+        .from("stock_technical_indicators")
+        .select("symbol,exchange,date,close,volume,change_pct")
+        .eq("exchange", "EGX")
+        .gte("date", fromDate)
+        .lte("date", toDate)
+        .range(offset, offset + PAGE_SIZE - 1);
 
-    let totalMarketCap = 0;
-
-    heatmapData?.forEach((row: any) => {
-      const sector = row.sector || 'Other';
-      const sectorAr = SECTOR_AR[sector.toLowerCase()] || sector;
-      const symbol = row.symbol;
-      const name = symbolToName.get(symbol) || symbol;
-      const volume = row.volume || 0;
-      const cap = row.cap || 0;
-      const changePct = row.change_pct || 0;
-      const close = volume > 0 ? (cap / volume) : 0;
-
-      if (!sectors.has(sector)) {
-        sectors.set(sector, {
-          sector,
-          sector_ar: sectorAr,
-          money_flow: 0,
-          change_pct: 0,
-          stocks_count: 0,
-          stocks: []
-        });
+      if (error) {
+        console.error("Heatmap technical rows Supabase error:", error);
+        return NextResponse.json({ error: "Failed to fetch heatmap rows" }, { status: 500 });
       }
-      
-      const sectorData = sectors.get(sector)!;
-      sectorData.stocks.push({
-        symbol,
-        name,
-        close,
-        change_pct: changePct,
-        volume,
-        money_flow: cap
-      });
-      sectorData.money_flow += cap;
-      sectorData.stocks_count++;
-      totalMarketCap += cap;
-    });
 
-    // Calculate averages and market shares
-    const results = Array.from(sectors.values()).map(sector => {
-      const avgChange = sector.stocks.reduce((sum, s) => sum + s.change_pct, 0) / sector.stocks_count;
-      const marketShare = totalMarketCap > 0 ? (sector.money_flow / totalMarketCap) * 100 : 0;
+      allRows.push(...(data || []));
+      if (!data || data.length < PAGE_SIZE) break;
+    }
+
+    const symbols = allRows.map((row) => row.symbol).filter(Boolean);
+    const fundamentals = new Map<string, any>();
+    for (let i = 0; i < symbols.length; i += 200) {
+      const chunk = symbols.slice(i, i + 200);
+      const { data, error } = await supabase
+        .from("stock_fundamentals")
+        .select("symbol,data")
+        .eq("exchange", "EGX")
+        .in("symbol", chunk);
+
+      if (error) {
+        console.error("Heatmap fundamentals Supabase error:", error);
+        continue;
+      }
+
+      for (const row of data || []) {
+        fundamentals.set(row.symbol, row.data || {});
+      }
+    }
+
+    const rows = allRows.map((row) => {
+      const data = fundamentals.get(row.symbol) || {};
       return {
-        ...sector,
-        change_pct: avgChange,
-        market_share: Number(marketShare.toFixed(2)),
-        sentiment: getSentiment(avgChange)
+        symbol: row.symbol,
+        exchange: row.exchange,
+        date: row.date,
+        close: row.close,
+        volume: row.volume,
+        change_pct: row.change_pct,
+        sector: pickFundamentalText(data, ["sector", "Sector", "sectorName"]) || "Other",
+        industry: pickFundamentalText(data, ["industry", "Industry"]),
+        name: pickFundamentalText(data, ["name", "Name", "companyName", "CompanyName"]) || row.symbol,
       };
     });
 
-    return NextResponse.json({ sectors: results }, {
-      headers: {
-        // Data updates once daily — cache 1 hour on Vercel CDN, serve stale 24h while revalidating
-        'Cache-Control': 'public, s-maxage=3600, stale-while-revalidate=86400',
-      }
-    });
-
+    return NextResponse.json(
+      {
+        rows,
+        selected_date: effectiveDate,
+        requested_date: selectedDate,
+        available_dates: availableDates,
+        range_start: fromDate,
+        range_end: toDate,
+        range_dates: rangeDates,
+      },
+      { headers: { "Cache-Control": "no-store" } }
+    );
   } catch (error) {
-    console.error('Heatmap API error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    console.error("Heatmap API error:", error);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

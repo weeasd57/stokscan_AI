@@ -4495,34 +4495,12 @@ def send_telegram_dispatch(payload: dict):
         if not message or not message.strip():
             raise HTTPException(status_code=400, detail="Message content cannot be empty")
             
-        # Target the configured central channel
-        chat_id = getattr(bot, "chat_id", None)
-        
-        # Fallback lookups as in daily_bot_run.py
-        is_fallback = (chat_id == -1003699330518 or str(chat_id) == "-1003699330518")
-        if (not chat_id or is_fallback) and bot.bot_instance and getattr(bot.bot_instance.config, "telegram_chat_id", None):
-            chat_id = bot.bot_instance.config.telegram_chat_id
-            is_fallback = False
-            
-        if not chat_id or is_fallback:
-            try:
-                from api.stock_ai import supabase
-                res = supabase.table("bot_configs").select("telegram_chat_id").eq("bot_id", "primary").maybe_single().execute()
-                if res.data and res.data.get("telegram_chat_id"):
-                    chat_id = res.data["telegram_chat_id"]
-                    is_fallback = False
-            except Exception:
-                pass
-                
-        if not chat_id or is_fallback:
-            chat_id = os.getenv("TELEGRAM_CHAT_ID")
-            
-        if not chat_id:
-            raise HTTPException(status_code=400, detail="No central Telegram channel ID configured")
-            
-        # Send
+        chat_id = payload.get("chat_id") or os.getenv("TELEGRAM_CHAT_ID") or getattr(bot, "chat_id", None)
+        if str(chat_id or "").strip() in {"", "-1003699330518"}:
+            chat_id = "-1002083067817_153"
+
         bot.send_notification(message, chat_id=str(chat_id))
-        return {"ok": True, "chat_id": chat_id}
+        return {"ok": True, "chat_id": chat_id, "message_thread_id": 153 if str(chat_id).startswith("-1002083067817") else None}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

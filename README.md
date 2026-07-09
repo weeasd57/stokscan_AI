@@ -21,6 +21,11 @@ Advanced AI-driven stock analysis platform. Combining RandomForest models with m
 - **Backtesting Precision**: Displays historical precision for each stock (~60-80% accuracy).
 - **Customizable Models**: Advanced users can tweak Random Forest parameters (trees, depth, split).
 
+### 📡 Market Scanner Experience
+- **Smart Money Heatmap**: Visualizes sector-level liquidity flow with animated date-range playback.
+- **Sector Rotation Wheel**: Adds a second synchronized view that uses the same preloaded frames for smoother transitions.
+- **Local Playback Engine**: The browser now preloads the selected date range and animates frames locally to reduce loading delays.
+
 ### 📈 Technical Scanner
 - **Real-time Filters**: Filter by RSI, MACD, EMA Crossovers, Bollinger Bands, and more.
 - **Smart Screener**: Find stocks in "oversold" or "overbought" conditions with momentum confirmation.
@@ -92,6 +97,13 @@ npm run web:dev
 ```bash
 cd web
 npm run dev
+```
+
+#### 3️⃣ التحقق من البناء قبل الرفع
+```bash
+cd web
+npm test -- --runInBand src/lib/__tests__/heatmapFrames.test.js
+npm run build
 ```
 
 ---

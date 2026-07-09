@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { buildHeatmapFramesFromRows } from "@/lib/heatmapFrames";
 import {
     Loader2, RefreshCw, Landmark,
     ArrowUpRight, ArrowDownRight, AlertTriangle, AlertCircle,
@@ -38,6 +39,108 @@ interface TreemapBox {
     w: number;
     h: number;
 }
+
+const SECTOR_AR: Record<string, string> = {
+    "finance": "الخدمات المالية",
+    "financial services": "الخدمات المالية غير المصرفية",
+    "real estate": "العقارات والتطوير العقاري",
+    "construction": "البناء والتشييد",
+    "materials": "المواد الخام والتعدين",
+    "utilities": "المرافق والطاقة",
+    "health care": "الرعاية الصحية والأدوية",
+    "food & beverage": "الأغذية والمشروبات",
+    "telecom": "الاتصالات وتكنولوجيا المعلومات",
+    "communications": "الاتصالات وتكنولوجيا المعلومات",
+    "chemicals": "الكيماويات والأسمدة",
+    "industrial goods": "الصناعات التحويلية والسلع الصناعية",
+    "speculative sector": "القطاع العام والمضاربة",
+    "other": "أخرى",
+};
+
+const normalizeSector = (sector: string | null | undefined) => {
+    const raw = String(sector || "Other").trim();
+    if (!raw) return "Other";
+    const s = raw.toLowerCase();
+    if (s.includes("real estate") || s.includes("عقارات")) return "Real Estate";
+    if (s.includes("financial") || s.includes("bank") || s.includes("investment") || s.includes("مالية") || s.includes("بنوك")) return "Financial Services";
+    if (s.includes("construction") || s.includes("cement") || s.includes("building") || s.includes("بناء") || s.includes("تشييد")) return "Construction";
+    if (s.includes("material") || s.includes("mining") || s.includes("steel") || s.includes("حديد") || s.includes("تعدين")) return "Materials";
+    if (s.includes("utility") || s.includes("energy") || s.includes("طاقة") || s.includes("مرافق")) return "Utilities";
+    if (s.includes("health") || s.includes("pharma") || s.includes("medical") || s.includes("أدوية")) return "Health Care";
+    if (s.includes("food") || s.includes("beverage") || s.includes("dairy") || s.includes("أغذية") || s.includes("مشروبات")) return "Food & Beverage";
+    if (s.includes("telecom") || s.includes("communication") || s.includes("technology") || s.includes("اتصالات")) return "Telecom";
+    if (s.includes("chemical") || s.includes("fertilizer") || s.includes("كيماويات") || s.includes("أسمدة")) return "Chemicals";
+    if (s.includes("industrial") || s.includes("manufacturing") || s.includes("paper") || s.includes("صناعات")) return "Industrial Goods";
+    return raw;
+};
+
+const getHeatmapSentiment = (changePct: number, flowBias: number) => {
+    if (changePct >= 1.0 && flowBias > 0.05) return "strong_accumulation";
+    if (changePct > 0.0) return "accumulation";
+    if (changePct <= -1.0 && flowBias < -0.05) return "strong_distribution";
+    if (changePct < 0.0) return "distribution";
+    return "neutral";
+};
+
+const buildHeatmapFromRows = (rows: any[] = []) => {
+    const sectorGroups = new Map<string, any>();
+    let totalMarketFlow = 0;
+    let latestDate: string | null = null;
+
+    for (const row of rows) {
+        const close = Number(row.close || 0);
+        const volume = Number(row.volume || 0);
+        if (!close || !volume) continue;
+
+        const moneyFlow = close * volume;
+        const changePct = Number(row.change_pct || 0);
+        const sector = normalizeSector(row.sector);
+        const sectorAr = SECTOR_AR[sector.toLowerCase()] || sector;
+        totalMarketFlow += moneyFlow;
+        if (row.date && (!latestDate || row.date > latestDate)) latestDate = row.date;
+
+        if (!sectorGroups.has(sector)) {
+            sectorGroups.set(sector, {
+                sector,
+                sector_ar: sectorAr,
+                money_flow: 0,
+                change_pct: 0,
+                market_share: 0,
+                stocks_count: 0,
+                stocks: [],
+            });
+        }
+
+        const group = sectorGroups.get(sector);
+        group.money_flow += moneyFlow;
+        group.stocks_count += 1;
+        group.stocks.push({
+            symbol: row.symbol,
+            name: row.name || row.symbol,
+            close,
+            volume,
+            change_pct: changePct,
+            money_flow: moneyFlow,
+        });
+    }
+
+    const sectors = Array.from(sectorGroups.values()).map((sector) => {
+        sector.stocks.sort((a: any, b: any) => b.money_flow - a.money_flow);
+        const weightedChange = sector.money_flow > 0
+            ? sector.stocks.reduce((sum: number, stock: any) => sum + stock.change_pct * stock.money_flow, 0) / sector.money_flow
+            : 0;
+        sector.change_pct = Number(weightedChange.toFixed(2));
+        sector.market_share = totalMarketFlow > 0 ? Number(((sector.money_flow / totalMarketFlow) * 100).toFixed(2)) : 0;
+        sector.sentiment = getHeatmapSentiment(sector.change_pct, sector.change_pct / 100);
+        sector.stocks = sector.stocks.map((stock: any) => ({
+            ...stock,
+            weight_in_sector: sector.money_flow > 0 ? (stock.money_flow / sector.money_flow) * 100 : 0,
+        }));
+        return sector;
+    }).sort((a, b) => b.money_flow - a.money_flow);
+
+    return { sectors, total_market_flow: totalMarketFlow, updated_at: latestDate };
+};
 
 const getBoxColor = (val: number): { bg: string; fg: string } => {
     if (val >= 2.0) return { bg: "#047857", fg: "#ffffff" };
@@ -230,6 +333,110 @@ const SmartMoneyTreemap = ({ sectors, isAr, selectedSector, onSelect }: {
                     </div>
                 );
             })}
+        </div>
+    );
+};
+
+const SectorRotationWheel = ({ sectors, isAr, selectedSector, onSelect }: {
+    sectors: any[];
+    isAr: boolean;
+    selectedSector: any;
+    onSelect: (sec: any) => void;
+}) => {
+    const size = 620;
+    const cx = size / 2;
+    const cy = size / 2;
+    const ringRadius = 210;
+    const maxFlow = Math.max(...(sectors || []).map((sector: any) => Number(sector.money_flow || 0)), 1);
+    const ordered = [...(sectors || [])].sort((a: any, b: any) => String(a.sector).localeCompare(String(b.sector)));
+
+    if (!ordered.length) {
+        return (
+            <div className="flex h-full min-h-[420px] flex-col items-center justify-center gap-3 border-2 border-dashed border-zinc-300 dark:border-zinc-800 text-center">
+                <AlertTriangle className="h-8 w-8 text-zinc-600" />
+                <p className="text-xs font-mono text-zinc-600 dark:text-zinc-500">{isAr ? "لا توجد قطاعات لعرضها حالياً" : "No sectors to display"}</p>
+            </div>
+        );
+    }
+
+    return (
+        <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1.25fr_0.75fr]">
+            <div className="relative min-h-[460px] overflow-hidden border-2 border-black bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950" dir="ltr">
+                <svg viewBox={`0 0 ${size} ${size}`} className="h-full min-h-[460px] w-full">
+                    <defs>
+                        <radialGradient id="wheelCore" cx="50%" cy="50%" r="50%">
+                            <stop offset="0%" stopColor="#111827" stopOpacity="0.95" />
+                            <stop offset="100%" stopColor="#111827" stopOpacity="0.15" />
+                        </radialGradient>
+                        <filter id="wheelShadow" x="-30%" y="-30%" width="160%" height="160%">
+                            <feDropShadow dx="4" dy="4" stdDeviation="0" floodColor="rgba(0,0,0,0.45)" />
+                        </filter>
+                    </defs>
+                    <circle cx={cx} cy={cy} r={ringRadius + 58} fill="none" stroke="currentColor" strokeOpacity="0.08" strokeWidth="2" />
+                    <circle cx={cx} cy={cy} r={ringRadius} fill="none" stroke="currentColor" strokeOpacity="0.12" strokeWidth="2" strokeDasharray="8 8" />
+                    <circle cx={cx} cy={cy} r="76" fill="url(#wheelCore)" stroke="#18181b" strokeWidth="4" />
+                    <text x={cx} y={cy - 6} textAnchor="middle" className="fill-white text-[18px] font-black">SECTOR</text>
+                    <text x={cx} y={cy + 16} textAnchor="middle" className="fill-yellow-200 text-[12px] font-black">ROTATION</text>
+                    {ordered.map((sector: any, index: number) => {
+                        const angle = (Math.PI * 2 * index) / ordered.length - Math.PI / 2;
+                        const x = cx + Math.cos(angle) * ringRadius;
+                        const y = cy + Math.sin(angle) * ringRadius;
+                        const flow = Number(sector.money_flow || 0);
+                        const radius = 24 + Math.sqrt(flow / maxFlow) * 42;
+                        const change = Number(sector.change_pct || 0);
+                        const isUp = change >= 0;
+                        const isSelected = selectedSector && selectedSector.name === sector.sector;
+                        const label = isAr ? sector.sector_ar : sector.sector;
+                        return (
+                            <g key={sector.sector} onClick={() => onSelect({
+                                name: sector.sector,
+                                sector_ar: sector.sector_ar,
+                                value: sector.money_flow,
+                                change_pct: sector.change_pct,
+                                market_share: sector.market_share,
+                                sentiment: sector.sentiment,
+                                stocks: sector.stocks,
+                            })} className="cursor-pointer">
+                                <line x1={cx} y1={cy} x2={x} y2={y} stroke={isUp ? "#10b981" : "#ef4444"} strokeOpacity="0.35" strokeWidth="2" />
+                                <circle cx={x} cy={y} r={radius} fill={isUp ? "#10b981" : "#ef4444"} stroke={isSelected ? "#FFDC58" : "#18181b"} strokeWidth={isSelected ? 5 : 3} filter="url(#wheelShadow)" />
+                                <text x={x} y={y - 5} textAnchor="middle" className="fill-white text-[12px] font-black">
+                                    {label.length > 14 ? `${label.slice(0, 12)}…` : label}
+                                </text>
+                                <text x={x} y={y + 14} textAnchor="middle" className="fill-white text-[11px] font-mono font-black">
+                                    {isUp ? "+" : ""}{change.toFixed(2)}%
+                                </text>
+                            </g>
+                        );
+                    })}
+                </svg>
+            </div>
+            <div className="border-2 border-black bg-white dark:border-zinc-800 dark:bg-zinc-900">
+                <div className={`border-b-2 border-black bg-zinc-100 px-4 py-3 dark:border-zinc-800 dark:bg-zinc-950 ${isAr ? "text-right" : "text-left"}`}>
+                    <p className="text-xs font-black uppercase text-zinc-950 dark:text-white">{isAr ? "ترتيب القطاعات" : "Sector Ranking"}</p>
+                    <p className="text-[10px] font-mono text-zinc-500">{isAr ? "الحجم = السيولة، اللون = الاتجاه" : "Size = liquidity, color = direction"}</p>
+                </div>
+                <div className="max-h-[420px] overflow-y-auto divide-y divide-zinc-200 dark:divide-zinc-800">
+                    {[...ordered].sort((a: any, b: any) => Number(b.money_flow || 0) - Number(a.money_flow || 0)).map((sector: any) => {
+                        const up = Number(sector.change_pct || 0) >= 0;
+                        return (
+                            <button
+                                type="button"
+                                key={sector.sector}
+                                onClick={() => onSelect({ name: sector.sector, sector_ar: sector.sector_ar, value: sector.money_flow, change_pct: sector.change_pct, market_share: sector.market_share, sentiment: sector.sentiment, stocks: sector.stocks })}
+                                className={`flex w-full items-center justify-between gap-3 px-4 py-3 transition-colors hover:bg-[#FFDC58]/20 ${isAr ? "flex-row-reverse text-right" : "text-left"}`}
+                            >
+                                <div className="min-w-0">
+                                    <p className="truncate text-sm font-black text-zinc-950 dark:text-white">{isAr ? sector.sector_ar : sector.sector}</p>
+                                    <p className="text-[10px] font-mono font-bold text-zinc-500">{(Number(sector.money_flow || 0) / 1_000_000).toFixed(0)}M EGP</p>
+                                </div>
+                                <div className={`text-sm font-mono font-black ${up ? "text-emerald-500" : "text-rose-500"}`}>
+                                    {up ? "+" : ""}{Number(sector.change_pct || 0).toFixed(2)}%
+                                </div>
+                            </button>
+                        );
+                    })}
+                </div>
+            </div>
         </div>
     );
 };
@@ -485,6 +692,50 @@ const SectorDrillModal = ({ sector, isAr, t, onClose }: {
 
     if (!mounted || typeof document === "undefined") return null;
     return createPortal(modal, document.body);
+};
+
+const CorrelationNetwork = ({ data, isAr, onPickSymbol }: { data: any; isAr: boolean; onPickSymbol: (sym: string) => void }) => {
+    const nodes = Array.isArray(data?.nodes) ? data.nodes : [];
+    const links = Array.isArray(data?.links) ? data.links : [];
+
+    if (!nodes.length) {
+        return (
+            <div className="flex flex-col items-center justify-center py-14 gap-2 border-2 border-dashed border-zinc-300 dark:border-zinc-800 text-center">
+                <AlertTriangle className="h-7 w-7 text-zinc-500" />
+                <p className="text-xs font-mono text-zinc-500">{isAr ? "لا توجد عقدة ارتباط متاحة حالياً" : "No correlation nodes available yet."}</p>
+            </div>
+        );
+    }
+
+    return (
+        <div className="space-y-4">
+            <div className="grid gap-3 md:grid-cols-2">
+                {nodes.map((node: any) => (
+                    <button
+                        key={node.symbol}
+                        type="button"
+                        onClick={() => onPickSymbol(node.symbol)}
+                        className="flex items-center justify-between gap-3 border-2 border-black bg-zinc-50 px-3 py-2 text-left text-xs font-black uppercase tracking-wider text-zinc-800 shadow-[2px_2px_0px_rgba(0,0,0,0.2)] transition-colors hover:bg-[#FFDC58] dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                    >
+                        <span>{node.symbol}</span>
+                        <span className="font-mono text-[10px] text-zinc-500">{node.weight ?? 0}</span>
+                    </button>
+                ))}
+            </div>
+            {links.length > 0 && (
+                <div className="border-2 border-black bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-900">
+                    <p className="mb-2 text-[10px] font-black uppercase tracking-wider text-zinc-500">{isAr ? "الروابط" : "Connections"}</p>
+                    <div className="flex flex-wrap gap-2">
+                        {links.slice(0, 10).map((link: any, idx: number) => (
+                            <span key={`${link.source}-${link.target}-${idx}`} className="rounded-full border border-black/20 bg-white px-2.5 py-1 text-[10px] font-mono font-bold text-zinc-600 dark:bg-zinc-950 dark:text-zinc-300">
+                                {link.source} → {link.target}
+                            </span>
+                        ))}
+                    </div>
+                </div>
+            )}
+        </div>
+    );
 };
 
 const HEDGE_RATING_META: Record<string, { key: string; cls: string; dot: string }> = {
@@ -915,6 +1166,13 @@ export default function MarketClient() {
     const [activeTab, setActiveTab] = useState<"egx30" | "egx100" | "usdegp">("egx30");
 
     const [heatmapData, setHeatmapData] = useState<any>(null);
+    const [heatmapFrames, setHeatmapFrames] = useState<{ animationDates: string[]; framesByDate: Record<string, any> }>({ animationDates: [], framesByDate: {} });
+    const [heatmapDate, setHeatmapDate] = useState<string>("");
+    const [heatmapStartDate, setHeatmapStartDate] = useState<string>("");
+    const [heatmapEndDate, setHeatmapEndDate] = useState<string>("");
+    const [heatmapFrameIndex, setHeatmapFrameIndex] = useState<number>(0);
+    const [heatmapPlaying, setHeatmapPlaying] = useState<boolean>(false);
+    const [availableHeatmapDates, setAvailableHeatmapDates] = useState<string[]>([]);
     const [heatmapLoading, setHeatmapLoading] = useState<boolean>(true);
     const [heatmapError, setHeatmapError] = useState<string | null>(null);
     const [selectedSector, setSelectedSector] = useState<any>(null);
@@ -935,6 +1193,9 @@ export default function MarketClient() {
     const [corrData, setCorrData] = useState<any>(null);
     const [corrLoading, setCorrLoading] = useState<boolean>(false);
     const [corrError, setCorrError] = useState<string | null>(null);
+    const [correlationMap, setCorrelationMap] = useState<any>(null);
+    const [correlationMapLoading, setCorrelationMapLoading] = useState<boolean>(false);
+    const [correlationMapError, setCorrelationMapError] = useState<string | null>(null);
 
     // Hedge scan states
     const [hedgeScan, setHedgeScan] = useState<any>(null);
@@ -961,19 +1222,71 @@ export default function MarketClient() {
         }
     };
 
-    const fetchHeatmapData = async () => {
+    const applyHeatmapFrame = (nextDate: string, nextIndex?: number) => {
+        const frame = heatmapFrames.framesByDate[nextDate];
+        if (!frame) return false;
+        setHeatmapData(frame);
+        setHeatmapDate(nextDate);
+        if (typeof nextIndex === "number") {
+            setHeatmapFrameIndex(nextIndex);
+        }
+        if (frame.sectors && frame.sectors.length > 0) {
+            const first = frame.sectors[0];
+            setSelectedSector({
+                name: first.sector,
+                sector_ar: first.sector_ar,
+                value: first.money_flow,
+                change_pct: first.change_pct,
+                market_share: first.market_share,
+                sentiment: first.sentiment,
+                stocks: first.stocks,
+            });
+        } else {
+            setSelectedSector(null);
+        }
+        return true;
+    };
+
+    const fetchHeatmapData = async (date?: string, startOverride?: string, endOverride?: string) => {
         setHeatmapLoading(true);
         setHeatmapError(null);
         try {
-            const res = await fetch("/api/scan/sectors/heatmap?country=Egypt");
+            const params = new URLSearchParams({ country: "Egypt" });
+            if (date) params.set("date", date);
+            if (startOverride) params.set("start", startOverride);
+            if (endOverride) params.set("end", endOverride);
+            const res = await fetch(`/api/scan/sectors/heatmap?${params.toString()}`, { cache: "no-store" });
             if (!res.ok) {
                 throw new Error(`Failed to load heatmap data (Status ${res.status})`);
             }
             const payload = await res.json();
-            setHeatmapData(payload);
-            if (payload?.sectors && payload.sectors.length > 0) {
-                const first = payload.sectors[0];
-                // Normalize to the same shape onSelect() uses
+            const { animationDates, framesByDate } = buildHeatmapFramesFromRows(payload?.rows || [], payload?.range_dates || payload?.available_dates || []);
+            const resolvedStart = startOverride || payload?.range_start || "";
+            const resolvedEnd = endOverride || payload?.range_end || "";
+            const resolvedDate = date || payload?.selected_date || animationDates[0] || "";
+            const frameDate = resolvedDate && (framesByDate as Record<string, any>)[resolvedDate] ? resolvedDate : (animationDates[0] || "");
+            const frame = frameDate ? (framesByDate as Record<string, any>)[frameDate] : null;
+            const nextData = frame ? {
+                ...frame,
+                selected_date: frameDate,
+                requested_date: payload?.requested_date || frameDate,
+                range_start: resolvedStart,
+                range_end: resolvedEnd,
+            } : null;
+            setHeatmapFrames({ animationDates, framesByDate });
+            setHeatmapData(nextData);
+            setHeatmapDate(frameDate);
+            setAvailableHeatmapDates(payload?.available_dates || []);
+            if (resolvedStart) setHeatmapStartDate(resolvedStart);
+            if (resolvedEnd) setHeatmapEndDate(resolvedEnd);
+            if (frameDate) {
+                const nextIndex = Math.max(0, animationDates.findIndex((candidate) => candidate === frameDate));
+                setHeatmapFrameIndex(nextIndex >= 0 ? nextIndex : 0);
+            } else {
+                setHeatmapFrameIndex(0);
+            }
+            if (nextData?.sectors && nextData.sectors.length > 0) {
+                const first = nextData.sectors[0];
                 setSelectedSector({
                     name: first.sector,
                     sector_ar: first.sector_ar,
@@ -983,6 +1296,8 @@ export default function MarketClient() {
                     sentiment: first.sentiment,
                     stocks: first.stocks,
                 });
+            } else {
+                setSelectedSector(null);
             }
         } catch (err: any) {
             console.error("Error fetching sector heatmap:", err);
@@ -991,6 +1306,18 @@ export default function MarketClient() {
             setHeatmapLoading(false);
         }
     };
+
+    const handleHeatmapDateChange = (nextDate: string) => {
+        const nextIndex = heatmapFrames.animationDates.findIndex((date) => date === nextDate);
+        if (nextIndex >= 0) {
+            const applied = applyHeatmapFrame(nextDate, nextIndex);
+            if (applied) return;
+        }
+        setHeatmapDate(nextDate);
+        void fetchHeatmapData(nextDate, heatmapStartDate, heatmapEndDate);
+    };
+
+    const heatmapAnimationDates = heatmapFrames.animationDates;
 
     const fetchTimelineData = async (forceRefresh = false) => {
         setTimelineLoading(true);
@@ -1053,6 +1380,26 @@ export default function MarketClient() {
         }
     };
 
+    const fetchCorrelationMap = async (sym: string) => {
+        if (!sym) return;
+        setCorrelationMapLoading(true);
+        setCorrelationMapError(null);
+        setCorrelationMap(null);
+        try {
+            const res = await fetch(`/api/market/macro-correlation/network?symbol=${encodeURIComponent(sym)}`);
+            if (!res.ok) {
+                throw new Error(`Failed to fetch correlation map (Status ${res.status})`);
+            }
+            const payload = await res.json();
+            setCorrelationMap(payload);
+        } catch (err: any) {
+            console.error("Error fetching correlation map:", err);
+            setCorrelationMapError(err.message || "Failed to load correlation map");
+        } finally {
+            setCorrelationMapLoading(false);
+        }
+    };
+
     const fetchHedgeScan = async (forceRefresh = false) => {
         setHedgeLoading(true);
         setHedgeError(null);
@@ -1082,6 +1429,22 @@ export default function MarketClient() {
             void fetchCorrData(selectedCorrSymbol);
         }
     }, [selectedCorrSymbol]);
+
+    useEffect(() => {
+        if (!heatmapPlaying) return;
+        if (heatmapAnimationDates.length <= 1) return;
+        const timer = window.setInterval(() => {
+            setHeatmapFrameIndex((idx) => {
+                const nextIndex = (idx + 1) % heatmapAnimationDates.length;
+                const nextDate = heatmapAnimationDates[nextIndex];
+                if (nextDate) {
+                    applyHeatmapFrame(nextDate, nextIndex);
+                }
+                return nextIndex;
+            });
+        }, 1100);
+        return () => window.clearInterval(timer);
+    }, [heatmapPlaying, heatmapAnimationDates, heatmapFrames.framesByDate]);
 
     const formatDate = (dateStr: string) => {
         if (!dateStr) return "";
@@ -1457,6 +1820,94 @@ export default function MarketClient() {
                     )}
                 </div>
 
+                <div className={`mb-5 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between ${isAr ? "lg:flex-row-reverse" : "lg:flex-row"}`}>
+                    <div className={isAr ? "text-right" : "text-left"}>
+                        <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500">
+                            {isAr ? "أنيميشن خريطة السيولة" : "Liquidity Heatmap Animation"}
+                        </p>
+                        <p className="text-[11px] font-semibold text-zinc-500 dark:text-zinc-400">
+                            {isAr ? "اختر فترة وشغّل الخريطة يوم بيوم. الحساب داخل المتصفح بدون تخزين بيانات جديدة." : "Choose a period and play the heatmap day by day. Computed in your browser without writes."}
+                        </p>
+                    </div>
+                    <div className={`flex flex-wrap items-end gap-2 ${isAr ? "flex-row-reverse" : "flex-row"}`}>
+                        <label className="flex flex-col gap-1">
+                            <span className="text-[9px] font-black uppercase text-zinc-500">{isAr ? "من" : "From"}</span>
+                            <input
+                                type="date"
+                                value={heatmapStartDate}
+                                max={heatmapEndDate || availableHeatmapDates[0] || undefined}
+                                min={availableHeatmapDates[availableHeatmapDates.length - 1] || undefined}
+                                onChange={(event) => {
+                                    setHeatmapStartDate(event.target.value);
+                                    setHeatmapFrameIndex(0);
+                                }}
+                                className="h-10 border-2 border-black dark:border-white bg-white dark:bg-zinc-950 px-3 text-xs font-mono font-black text-zinc-950 dark:text-white shadow-[2px_2px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_rgba(255,255,255,0.2)]"
+                            />
+                        </label>
+                        <label className="flex flex-col gap-1">
+                            <span className="text-[9px] font-black uppercase text-zinc-500">{isAr ? "إلى" : "To"}</span>
+                            <input
+                                type="date"
+                                value={heatmapEndDate}
+                                max={availableHeatmapDates[0] || undefined}
+                                min={heatmapStartDate || availableHeatmapDates[availableHeatmapDates.length - 1] || undefined}
+                                onChange={(event) => {
+                                    setHeatmapEndDate(event.target.value);
+                                    setHeatmapFrameIndex(0);
+                                }}
+                                className="h-10 border-2 border-black dark:border-white bg-white dark:bg-zinc-950 px-3 text-xs font-mono font-black text-zinc-950 dark:text-white shadow-[2px_2px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_rgba(255,255,255,0.2)]"
+                            />
+                        </label>
+                        <input
+                            type="date"
+                            value={heatmapDate}
+                            max={availableHeatmapDates[0] || undefined}
+                            min={availableHeatmapDates[availableHeatmapDates.length - 1] || undefined}
+                            onChange={(event) => handleHeatmapDateChange(event.target.value)}
+                            className="h-10 border-2 border-black dark:border-white bg-white dark:bg-zinc-950 px-3 text-xs font-mono font-black text-zinc-950 dark:text-white shadow-[2px_2px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_rgba(255,255,255,0.2)]"
+                        />
+                        <button
+                            type="button"
+                            onClick={() => void fetchHeatmapData(heatmapDate, heatmapStartDate, heatmapEndDate)}
+                            className="h-10 inline-flex items-center gap-2 border-2 border-black dark:border-white bg-[#FFDC58] px-3 text-[10px] font-black uppercase text-black shadow-[2px_2px_0px_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none"
+                        >
+                            <RefreshCw className={`h-3.5 w-3.5 ${heatmapLoading ? "animate-spin" : ""}`} />
+                            {isAr ? "تحديث" : "Refresh"}
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setHeatmapPlaying((playing) => !playing)}
+                            className="h-10 inline-flex items-center gap-2 border-2 border-black dark:border-white bg-indigo-600 px-3 text-[10px] font-black uppercase text-white shadow-[2px_2px_0px_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none"
+                        >
+                            {heatmapPlaying ? (isAr ? "إيقاف" : "Pause") : (isAr ? "تشغيل" : "Play")}
+                        </button>
+                    </div>
+                </div>
+
+                {heatmapAnimationDates.length > 0 && (
+                    <div className="mb-5 space-y-2">
+                        <input
+                            type="range"
+                            min={0}
+                            max={Math.max(0, heatmapAnimationDates.length - 1)}
+                            value={Math.min(heatmapFrameIndex, Math.max(0, heatmapAnimationDates.length - 1))}
+                            onChange={(event) => {
+                                const nextIndex = Number(event.target.value);
+                                const nextDate = heatmapAnimationDates[nextIndex];
+                                if (nextDate) {
+                                    applyHeatmapFrame(nextDate, nextIndex);
+                                }
+                            }}
+                            className="w-full accent-indigo-600"
+                        />
+                        <div className={`flex items-center justify-between text-[10px] font-mono font-black text-zinc-500 ${isAr ? "flex-row-reverse" : "flex-row"}`}>
+                            <span>{heatmapAnimationDates[0]}</span>
+                            <span className={heatmapPlaying ? "text-emerald-500" : "text-zinc-500"}>{heatmapPlaying ? (isAr ? "تشغيل" : "Playing") : (isAr ? "متوقف" : "Paused")}</span>
+                            <span>{heatmapAnimationDates[heatmapAnimationDates.length - 1]}</span>
+                        </div>
+                    </div>
+                )}
+
                 {heatmapLoading ? (
                     <div className="flex flex-col items-center justify-center min-h-[300px] gap-4">
                         <Loader2 className="w-8 h-8 animate-spin text-[#FFDC58]" />
@@ -1504,6 +1955,24 @@ export default function MarketClient() {
                         {/* Treemap Render Container */}
                         <div className="h-[400px] w-full border-2 border-black dark:border-zinc-800 shadow-[3px_3px_0px_rgba(0,0,0,1)] dark:shadow-[3px_3px_0px_rgba(255,255,255,0.15)]" dir="ltr">
                             <SmartMoneyTreemap
+                                sectors={heatmapData.sectors}
+                                isAr={isAr}
+                                selectedSector={selectedSector}
+                                onSelect={(sec: any) => openDrill(sec)}
+                            />
+                        </div>
+
+                        <div className="mt-6 border-2 border-black bg-white p-4 shadow-[3px_3px_0px_rgba(0,0,0,1)] dark:border-zinc-800 dark:bg-zinc-950 dark:shadow-[3px_3px_0px_rgba(255,255,255,0.15)]">
+                            <div className={`mb-4 flex items-center justify-between gap-2 ${isAr ? "flex-row-reverse" : "flex-row"}`}>
+                                <div className={isAr ? "text-right" : "text-left"}>
+                                    <h4 className="text-sm font-black uppercase tracking-wider text-zinc-950 dark:text-white">{isAr ? "عجلة دوران القطاعات" : "Sector Rotation Wheel"}</h4>
+                                    <p className="text-[10px] font-semibold text-zinc-500 dark:text-zinc-400">{isAr ? "نفس الإطارات المحلية، نفس المؤقت، نفس التوقيت" : "Same local frames, same timer, same playback cadence"}</p>
+                                </div>
+                                <span className="rounded-full border-2 border-black bg-[#FFDC58] px-2.5 py-1 text-[10px] font-black uppercase text-black">
+                                    {heatmapDate || heatmapAnimationDates[0] || "—"}
+                                </span>
+                            </div>
+                            <SectorRotationWheel
                                 sectors={heatmapData.sectors}
                                 isAr={isAr}
                                 selectedSector={selectedSector}
@@ -1771,6 +2240,51 @@ export default function MarketClient() {
                                         <span>{t("market.chart.gold_24k")} ({t("market.chart.normalized")})</span>
                                     </div>
                                 </div>
+                            </div>
+
+                            <div className="border-2 border-black dark:border-zinc-800 p-5 sm:p-6 bg-white dark:bg-zinc-900">
+                                <div className={`flex flex-col sm:flex-row sm:items-end justify-between gap-3 mb-5 ${isAr ? "sm:flex-row-reverse" : "sm:flex-row"}`}>
+                                    <div className={isAr ? "text-right" : "text-left"}>
+                                        <h3 className="text-sm font-black uppercase tracking-wider text-zinc-950 dark:text-white">
+                                            {isAr ? "خريطة ارتباط الأسهم" : "Stock Correlation Map"}
+                                        </h3>
+                                        <p className="text-[11px] font-semibold text-zinc-500 dark:text-zinc-400 mt-1 max-w-2xl">
+                                            {isAr
+                                                ? `شبكة توضح الأسهم التي تتحرك غالباً مع ${selectedCorrSymbol}. إذا تحرك السهم الرئيسي، راقب الأسهم المرتبطة.`
+                                                : `A network of stocks that tend to move with ${selectedCorrSymbol}. If the root stock moves, watch its linked peers.`}
+                                        </p>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => void fetchCorrelationMap(selectedCorrSymbol)}
+                                        className="inline-flex items-center justify-center gap-2 h-10 px-3 border-2 border-black dark:border-white bg-indigo-600 text-white text-[10px] font-black uppercase shadow-[2px_2px_0px_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none"
+                                    >
+                                        <RefreshCw className={`h-3.5 w-3.5 ${correlationMapLoading ? "animate-spin" : ""}`} />
+                                        {isAr ? "تحديث الشبكة" : "Refresh Map"}
+                                    </button>
+                                </div>
+
+                                {correlationMapLoading ? (
+                                    <div className="flex flex-col items-center justify-center py-14 gap-3">
+                                        <Loader2 className="w-8 h-8 animate-spin text-indigo-500" />
+                                        <p className="text-xs font-mono text-zinc-500">
+                                            {isAr ? "جاري بناء شبكة الارتباط بين الأسهم..." : "Building stock-to-stock correlation network..."}
+                                        </p>
+                                    </div>
+                                ) : correlationMapError || !correlationMap ? (
+                                    <div className="flex flex-col items-center justify-center py-14 gap-3 text-center border-2 border-dashed border-zinc-200 dark:border-zinc-800">
+                                        <AlertTriangle className="w-8 h-8 text-amber-500" />
+                                        <p className="text-xs font-mono text-zinc-500">
+                                            {correlationMapError || (isAr ? "لا توجد شبكة ارتباط متاحة حالياً" : "No correlation map available.")}
+                                        </p>
+                                    </div>
+                                ) : (
+                                    <CorrelationNetwork
+                                        data={correlationMap}
+                                        isAr={isAr}
+                                        onPickSymbol={(sym) => setSelectedCorrSymbol(sym)}
+                                    />
+                                )}
                             </div>
 
                             {/* Qualitative insights */}

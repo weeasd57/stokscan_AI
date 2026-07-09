@@ -982,7 +982,12 @@ async def toggle_alert(alert_id: str, req: AlertToggleRequest):
 
 
 @router.get("/sectors/heatmap")
-def get_sectors_heatmap(country: str = "Egypt"):
+def get_sectors_heatmap(
+    country: str = "Egypt", 
+    start_date: str = None, 
+    end_date: str = None,
+    single_date: str = None
+):
     try:
         _init_supabase()
         if not stock_ai.supabase:
@@ -995,6 +1000,8 @@ def get_sectors_heatmap(country: str = "Egypt"):
             raise HTTPException(status_code=404, detail=f"No symbols found for country: {country}")
 
         if not symbols_data:
+            if start_date and end_date:
+                return {"frames_by_date": {}, "available_dates": [], "start_date": start_date, "end_date": end_date}
             return {"sectors": [], "total_market_flow": 0, "updated_at": None}
 
         # Build symbol pairs
@@ -1007,6 +1014,17 @@ def get_sectors_heatmap(country: str = "Egypt"):
             if sym and ex:
                 symbol_pairs.append((sym, ex))
                 company_names[f"{sym}|{ex}"] = name
+
+        # Determine if we're fetching multiple dates or single date
+        if start_date and end_date:
+            return _get_heatmap_date_range(symbol_pairs, company_names, start_date, end_date)
+        elif single_date:
+            return _get_heatmap_single_date(symbol_pairs, company_names, single_date)
+        else:
+            return _get_heatmap_latest(symbol_pairs, company_names)
+
+def _get_heatmap_latest(symbol_pairs, company_names):
+    """Get latest heatmap data (original behavior)"""
 
         # Fetch latest technicals and fundamentals
         tech_rows = _fetch_latest_technical_indicators(symbol_pairs)
@@ -1158,6 +1176,254 @@ def get_sectors_heatmap(country: str = "Egypt"):
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=400, detail=str(e))
+
+
+def _get_heatmap_date_range(symbol_pairs, company_names, start_date: str, end_date: str):
+    """Get heatmap data for a date range - returns all frames"""
+    from datetime import datetime, timedelta
+    
+    # Fetch historical technical indicators for the date range
+    by_exchange = {}
+    for symbol, exchange in symbol_pairs:
+        by_exchange.setdefault(exchange, []).append(symbol)
+
+    tech_rows_by_date = {}
+    fundamentals = _fetch_company_fundamentals(symbol_pairs)
+    
+    for exchange, symbols in by_exchange.items():
+        unique_symbols = list(dict.fromkeys(symbols))
+        for i in range(0, len(unique_symbols), 100):
+            chunk = unique_symbols[i:i + 100]
+            try:
+                query = (
+                    stock_ai.supabase.table("stock_technical_indicators")
+                    .select("symbol,exchange,date,close,volume,change_pct,cmf_20,rsi_14")
+                    .in_("symbol", chunk)
+                    .eq("exchange", exchange)
+                    .gte("date", start_date)
+                    .lte("date", end_date)
+                    .order("date", desc=False)
+                )
+                res = query.execute()
+                if res.data:
+                    for row in res.data:
+                        date = row.get("date")
+                        key = f"{row.get('symbol')}|{row.get('exchange')}"
+                        tech_rows_by_date.setdefault(date, {})[key] = row
+            except Exception as e:
+                print(f"ERROR: heatmap range fetch failed for {exchange}: {e}")
+
+    # Get all available dates and build frames
+    all_dates = sorted(tech_rows_by_date.keys())
+    frames_by_date = {}
+    
+    for date in all_dates:
+        tech_rows = tech_rows_by_date[date]
+        frame_data = _build_heatmap_frame(symbol_pairs, company_names, tech_rows, fundamentals, date)
+        if frame_data['sectors']:  # Only include dates with data
+            frames_by_date[date] = frame_data
+
+    return {
+        "frames_by_date": frames_by_date,
+        "available_dates": list(frames_by_date.keys()),
+        "start_date": start_date,
+        "end_date": end_date,
+        "total_frames": len(frames_by_date)
+    }
+
+
+def _get_heatmap_single_date(symbol_pairs, company_names, date: str):
+    """Get heatmap data for a specific date"""
+    tech_rows = {}
+    by_exchange = {}
+    for symbol, exchange in symbol_pairs:
+        by_exchange.setdefault(exchange, []).append(symbol)
+    
+    fundamentals = _fetch_company_fundamentals(symbol_pairs)
+    
+    for exchange, symbols in by_exchange.items():
+        unique_symbols = list(dict.fromkeys(symbols))
+        for i in range(0, len(unique_symbols), 100):
+            chunk = unique_symbols[i:i + 100]
+            try:
+                query = (
+                    stock_ai.supabase.table("stock_technical_indicators")
+                    .select("symbol,exchange,date,close,volume,change_pct,cmf_20,rsi_14")
+                    .in_("symbol", chunk)
+                    .eq("exchange", exchange)
+                    .eq("date", date)
+                )
+                res = query.execute()
+                if res.data:
+                    for row in res.data:
+                        key = f"{row.get('symbol')}|{row.get('exchange')}"
+                        tech_rows[key] = row
+            except Exception as e:
+                print(f"ERROR: heatmap single date fetch failed for {exchange}: {e}")
+
+    frame_data = _build_heatmap_frame(symbol_pairs, company_names, tech_rows, fundamentals, date)
+    return {
+        **frame_data,
+        "selected_date": date,
+        "requested_date": date
+    }
+
+
+def _build_heatmap_frame(symbol_pairs, company_names, tech_rows, fundamentals, date):
+    """Build a single heatmap frame from technical data"""
+    # Mappings (same as original)
+    SECTOR_MAP_AR = {
+        "Real Estate": "العقارات والتطوير العقاري",
+        "Financial Services": "الخدمات المالية غير المصرفية",
+        "Construction": "البناء والتشييد",
+        "Materials": "المواد الخام والتعدين",
+        "Utilities": "المرافق والطاقة",
+        "Health Care": "الرعاية الصحية والأدوية",
+        "Food & Beverage": "الأغذية والمشروبات",
+        "Telecom": "الاتصالات وتكنولوجيا المعلومات",
+        "Chemicals": "الكيماويات والأسمدة",
+        "Industrial Goods": "الصناعات التحويلية والسلع الصناعية",
+        "Speculative Sector": "القطاع العام والمضاربة"
+    }
+
+    def normalize_sector(sector_str: str) -> str:
+        if not sector_str:
+            return "Speculative Sector"
+        s = sector_str.lower()
+        if "real estate" in s or "عقارات" in s:
+            return "Real Estate"
+        if "financial" in s or "services" in s or "بنوك" in s or "مالية" in s or "banking" in s or "bank" in s or "investment" in s:
+            return "Financial Services"
+        if "construction" in s or "building" in s or "بناء" in s or "تشييد" in s or "تشيد" in s or "cement" in s:
+            return "Construction"
+        if "materials" in s or "mining" in s or "تعدين" in s or "حديد" in s or "مواد خام" in s or "steel" in s:
+            return "Materials"
+        if "utility" in s or "utilities" in s or "energy" in s or "طاقة" in s or "مرافق" in s:
+            return "Utilities"
+        if "health" in s or "pharma" in s or "medical" in s or "أدوية" in s or "رعاية صحية" in s:
+            return "Health Care"
+        if "food" in s or "beverage" in s or "أغذية" in s or "مشروبات" in s or "سكر" in s or "مطاحن" in s or "dairy" in s:
+            return "Food & Beverage"
+        if "telecom" in s or "communication" in s or "technology" in s or "it" in s or "اتصالات" in s or "معلومات" in s:
+            return "Telecom"
+        if "chemical" in s or "fertilizer" in s or "أسمدة" in s or "كيماويات" in s:
+            return "Chemicals"
+        if "industrial" in s or "goods" in s or "manufacturing" in s or "صناعات" in s or "سلع" in s or "paper" in s or "packaging" in s:
+            return "Industrial Goods"
+        return "Speculative Sector"
+
+    # Aggregate data by sector
+    sector_groups = {}
+    total_market_flow = 0.0
+
+    for sym, ex in symbol_pairs:
+        key = f"{sym}|{ex}"
+        tech = tech_rows.get(key)
+        fund = fundamentals.get(key) or {}
+
+        # Extract price and indicators
+        close = _safe_float(tech.get("close") if tech else None)
+        volume = _safe_float(tech.get("volume") if tech else None)
+        change_pct = _safe_float(tech.get("change_pct") if tech else None)
+        cmf = _safe_float(tech.get("cmf_20") if tech else None)
+        rsi = _safe_float(tech.get("rsi_14") if tech else 50.0)
+
+        # Skip if no price/volume (we need to calculate liquidity)
+        if not close or not volume:
+            continue
+
+        money_flow = close * volume
+        total_market_flow += money_flow
+
+        # Get sector
+        raw_sec = fund.get("Sector", fund.get("sector", fund.get("industry", "Speculative Sector")))
+        norm_sec = normalize_sector(raw_sec)
+
+        stock_info = {
+            "symbol": sym,
+            "name": company_names.get(key, sym),
+            "close": close,
+            "volume": volume,
+            "money_flow": money_flow,
+            "change_pct": change_pct,
+            "cmf": cmf,
+            "rsi": rsi
+        }
+
+        sector_groups.setdefault(norm_sec, []).append(stock_info)
+
+    # Compute sector aggregates
+    sectors_list = []
+    for sec_name, stocks in sector_groups.items():
+        sec_money_flow = sum(st["money_flow"] for st in stocks)
+        
+        # Weighted average price change and CMF
+        if sec_money_flow > 0:
+            sec_change_pct = sum(st["change_pct"] * st["money_flow"] for st in stocks) / sec_money_flow
+            sec_cmf = sum(st["cmf"] * st["money_flow"] for st in stocks) / sec_money_flow
+        else:
+            sec_change_pct = sum(st["change_pct"] for st in stocks) / len(stocks) if stocks else 0.0
+            sec_cmf = sum(st["cmf"] for st in stocks) / len(stocks) if stocks else 0.0
+
+        # Sort stocks in sector by money flow descending
+        stocks.sort(key=lambda x: x["money_flow"], reverse=True)
+
+        # Add weight in sector
+        for st in stocks:
+            st["weight_in_sector"] = (st["money_flow"] / sec_money_flow * 100) if sec_money_flow > 0 else 0.0
+
+        # Determine sentiment / state
+        if sec_change_pct >= 1.0 and sec_cmf > 0.05:
+            sentiment = "strong_accumulation"
+        elif sec_change_pct > 0.0:
+            sentiment = "accumulation"
+        elif sec_change_pct <= -1.0 and sec_cmf < -0.05:
+            sentiment = "strong_distribution"
+        elif sec_change_pct < 0.0:
+            sentiment = "distribution"
+        else:
+            sentiment = "neutral"
+
+        sectors_list.append({
+            "sector": sec_name,
+            "sector_ar": SECTOR_MAP_AR.get(sec_name, "القطاع العام والمضاربة"),
+            "money_flow": sec_money_flow,
+            "change_pct": round(sec_change_pct, 2),
+            "cmf": round(sec_cmf, 3),
+            "sentiment": sentiment,
+            "stocks_count": len(stocks),
+            "stocks": stocks
+        })
+
+    # Sort sectors by money flow descending
+    sectors_list.sort(key=lambda x: x["money_flow"], reverse=True)
+
+    # Calculate market share for each sector
+    for sec in sectors_list:
+        sec["market_share"] = round((sec["money_flow"] / total_market_flow * 100), 2) if total_market_flow > 0 else 0.0
+
+    return {
+        "updated_at": date,
+        "total_market_flow": total_market_flow,
+        "sectors": sectors_list
+    }
+
+
+def _get_heatmap_latest(symbol_pairs, company_names):
+    """Get latest heatmap data (original behavior)"""
+    # Fetch latest technicals and fundamentals
+    tech_rows = _fetch_latest_technical_indicators(symbol_pairs)
+    fundamentals = _fetch_company_fundamentals(symbol_pairs)
+
+    # Find latest date
+    latest_date = None
+    for tech in tech_rows.values():
+        if tech and tech.get("date"):
+            if not latest_date or tech.get("date") > latest_date:
+                latest_date = tech.get("date")
+    
+    frame_data = _build_heatmap_frame(symbol_pairs, company_names, tech_rows, fundamentals, latest_date)
+    return frame_data
 
 
 @router.get("/sectors/timeline")

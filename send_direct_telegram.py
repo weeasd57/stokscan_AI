@@ -19,6 +19,7 @@ def send_telegram_message():
         
         # Chat ID from the URL you provided
         chat_id = "-1002083067817"
+        message_thread_id = 153  # Thread ID from the URL
         
         # The message (plain text version)
         message = """🚀 توصيات الذكاء الاصطناعي الجديدة / New AI Recommendations 🚀
@@ -72,7 +73,8 @@ def send_telegram_message():
         # Payload
         payload = {
             "chat_id": chat_id,
-            "text": message
+            "text": message,
+            "message_thread_id": message_thread_id  # Send to specific thread
         }
         
         print(f"📤 Sending to chat_id: {chat_id}")

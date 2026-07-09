@@ -28,15 +28,18 @@ class TelegramBot:
     2. Long-Polling  — when WEBHOOK_URL is NOT set (local development)
     """
 
-    # Use Cloudflare Worker relay if set, otherwise direct (fails on HF)
-    API = os.getenv("TELEGRAM_RELAY_URL", "https://api.telegram.org").rstrip("/")
+    # Use direct Telegram API instead of relay (relay has 404 issues)
+    API = "https://api.telegram.org"
+    DEFAULT_CHANNEL_ID = "-1002083067817"
+    DEFAULT_THREAD_ID = 153
+    LEGACY_BAD_CHAT_IDS = {"-1003699330518"}
 
     def __init__(self, token: str, bot_instance=None):
         self.token = token
         self.bot_instance = bot_instance
         self.loop: Optional[asyncio.AbstractEventLoop] = None
         self.thread: Optional[threading.Thread] = None
-        self.chat_id: Optional[int] = None
+        self.chat_id: Optional[Any] = None
         self.bot_username: Optional[str] = None
         self._ready = False
         self._queue: deque = deque(maxlen=200)  # outbound message queue
@@ -57,14 +60,56 @@ class TelegramBot:
             env_chat_id = os.getenv("TELEGRAM_CHAT_ID")
             if env_chat_id:
                 try:
-                    self.chat_id = int(float(env_chat_id))
+                    self.chat_id = self._normalize_chat_target(env_chat_id)
                     self._log(f"Loaded chat_id from environment: {self.chat_id}")
                 except Exception:
                     pass
             if not self.chat_id:
-                # Use the correct channel with thread ID
-                self.chat_id = "-1002083067817_153"  # Channel + Thread ID
+                self.chat_id = self.DEFAULT_CHANNEL_ID
                 self._log(f"Loaded default fallback chat_id: {self.chat_id}")
+
+        if str(self.chat_id).strip() in self.LEGACY_BAD_CHAT_IDS:
+            self.chat_id = self.DEFAULT_CHANNEL_ID
+            self._log(f"Replaced legacy bad chat_id with default channel: {self.chat_id}")
+
+    def _normalize_chat_target(self, target: Any) -> Any:
+        target_str = str(target).strip()
+        if not target_str or target_str.startswith("@") or "_" in target_str:
+            return target_str
+        return int(float(target_str))
+
+    def _build_send_payload(self, text: str, chat_id: Any, message_thread_id: Optional[int] = None) -> Optional[dict]:
+        target_str = str(chat_id).strip()
+        local_thread_id = message_thread_id
+
+        if target_str in self.LEGACY_BAD_CHAT_IDS:
+            target_str = self.DEFAULT_CHANNEL_ID
+
+        if not target_str.startswith("@") and "_" in target_str:
+            chat_part, thread_part = target_str.split("_", 1)
+            target_str = chat_part
+            try:
+                local_thread_id = int(float(thread_part))
+            except ValueError:
+                pass
+
+        if target_str == self.DEFAULT_CHANNEL_ID and local_thread_id is None:
+            local_thread_id = self.DEFAULT_THREAD_ID
+
+        payload = {"text": text}
+        if local_thread_id is not None:
+            payload["message_thread_id"] = local_thread_id
+
+        if target_str.startswith("@"):
+            payload["chat_id"] = target_str
+            return payload
+
+        try:
+            payload["chat_id"] = int(float(target_str))
+            return payload
+        except ValueError:
+            self._log(f"Invalid target chat ID: {chat_id}")
+            return None
 
     def _save_chat_id(self, chat_id: int):
         self.chat_id = chat_id
@@ -174,32 +219,14 @@ class TelegramBot:
             self._log("Cannot send: no targets or token.")
             return
 
+        queued = 0
         for target in targets:
-            target_str = str(target).strip()
-            local_thread_id = message_thread_id
-            if not target_str.startswith("@") and "_" in target_str:
-                parts = target_str.split("_")
-                target_str = parts[0]
-                try:
-                    local_thread_id = int(float(parts[1]))
-                except ValueError:
-                    pass
-
-            payload = {"text": message, "parse_mode": "Markdown"}
-            if local_thread_id is not None:
-                payload["message_thread_id"] = local_thread_id
-
-            if target_str.startswith("@"):
-                payload["chat_id"] = target_str
+            payload = self._build_send_payload(message, target, message_thread_id)
+            if payload:
                 self._queue.append(payload)
-            else:
-                try:
-                    payload["chat_id"] = int(float(target_str))
-                    self._queue.append(payload)
-                except ValueError:
-                    self._log(f"Invalid target chat ID: {target}")
+                queued += 1
         self._log(
-            f"Queued notification to {len(targets)} targets ({len(self._queue)} in queue)"
+            f"Queued notification to {queued} targets ({len(self._queue)} in queue)"
         )
 
     def send_message_with_keyboard(
@@ -207,7 +234,7 @@ class TelegramBot:
         text: str,
         chat_id: Any,
         buttons: list[list[dict]],
-        parse_mode: str = "Markdown",
+        parse_mode: str = None,  # Changed default to None to avoid formatting issues
         message_thread_id: Optional[int] = None
     ):
         """Queue a message with an inline keyboard markup for delivery.
@@ -218,38 +245,18 @@ class TelegramBot:
                      Can also be a composite ID like '-1002083067817_153' representing chat_id and message_thread_id.
             buttons: A list of rows, where each row is a list of button dicts.
                      Example: [[{"text": "Open Web", "url": "https://egxbots.com"}]]
-            parse_mode: Markdown or HTML parsing mode.
+            parse_mode: Markdown or HTML parsing mode (None for plain text).
             message_thread_id: Optional message thread/topic ID for forum/supergroups.
         """
-        target_str = str(chat_id).strip()
-        local_thread_id = message_thread_id
-        if not target_str.startswith("@") and "_" in target_str:
-            parts = target_str.split("_")
-            target_str = parts[0]
-            try:
-                local_thread_id = int(float(parts[1]))
-            except ValueError:
-                pass
+        payload = self._build_send_payload(text, chat_id, message_thread_id)
+        if not payload:
+            return
+        payload["reply_markup"] = {"inline_keyboard": buttons}
+        if parse_mode:
+            payload["parse_mode"] = parse_mode
 
-        payload = {
-            "text": text,
-            "parse_mode": parse_mode,
-            "reply_markup": {"inline_keyboard": buttons}
-        }
-        if local_thread_id is not None:
-            payload["message_thread_id"] = local_thread_id
-
-        if target_str.startswith("@"):
-            payload["chat_id"] = target_str
-            self._queue.append(payload)
-            self._log(f"Queued keyboard message to channel {target_str} (thread: {local_thread_id})")
-        else:
-            try:
-                payload["chat_id"] = int(float(target_str))
-                self._queue.append(payload)
-                self._log(f"Queued keyboard message to chat ID {target_str} (thread: {local_thread_id})")
-            except ValueError:
-                self._log(f"Invalid target chat ID: {chat_id}")
+        self._queue.append(payload)
+        self._log(f"Queued keyboard message to {payload['chat_id']} (thread: {payload.get('message_thread_id')})")
 
     def _sender_loop(self):
         """Background loop: drain the queue whenever the network is up."""
@@ -271,15 +278,16 @@ class TelegramBot:
             else:
                 desc = result.get('description', '')
                 # If it's a Bad Request (like invalid chat_id or bad markdown format), do not retry forever!
-                if "bad request" in desc.lower() or "chat not found" in desc.lower():
+                if "bad request" in desc.lower() or "chat not found" in desc.lower() or "can't parse entities" in desc.lower():
                     self._log(f"Permanent send failure (discarding message): {desc}")
-                    # If it was Markdown, try sending as plain text first before discarding!
-                    if payload.get("parse_mode") == "Markdown":
+                    # If it failed due to formatting, try as plain text
+                    if ("can't parse entities" in desc.lower() or "parse_mode" in desc.lower()) and payload.get("parse_mode"):
                         self._log("Retrying message as plain text fallback...")
                         payload_plain = payload.copy()
                         payload_plain.pop("parse_mode", None)
                         # Clean up basic markdown markers
-                        payload_plain["text"] = payload_plain["text"].replace("*", "").replace("`", "")
+                        if "text" in payload_plain:
+                            payload_plain["text"] = payload_plain["text"].replace("*", "").replace("`", "").replace("_", "").replace("[", "").replace("]", "")
                         result_plain = self._call_api("sendMessage", payload_plain)
                         if result_plain.get("ok"):
                             self._queue.popleft()
@@ -389,7 +397,7 @@ class TelegramBot:
     def _is_admin(self, chat_id):
         # 1. Check environment variable TELEGRAM_ADMIN_CHAT_ID
         env_admin = os.getenv("TELEGRAM_ADMIN_CHAT_ID")
-        if env_admin and str(chat_id) == str(env_admin).strip():
+        if env_admin and str(chat_id) == str(self._normalize_chat_target(env_admin)):
             return True
 
         # 2. Check support system registered admin ID

@@ -704,7 +704,7 @@ def generate_weekly_performance_report(trigger: str = "manual", chat_id: Optiona
                 bot.send_notification(msg, chat_id=chat_id)
                 print(f"[WEEKLY_REPORT] Sent report on-demand to chat_id: {chat_id}")
         else:
-            _notify_service_subscribers("stock_score", msg)
+            _notify_central_telegram(msg, "weekly_performance_report")
             print("[WEEKLY_REPORT] Broadcasted weekly report to all stock_score subscribers.")
             
     except Exception as e:
@@ -777,6 +777,24 @@ def _notify_service_subscribers(service_type: str, message: str):
                 
     except Exception as e:
         print(f"[SERVICE_NOTIFY] {service_type} notification error: {e}")
+
+
+def _notify_central_telegram(message: str, service_type: str = "central"):
+    """Send a service-level message to the configured public Telegram topic."""
+    try:
+        from api.telegram_bot import get_telegram_bot
+        bot = get_telegram_bot()
+        if not bot:
+            print(f"[CENTRAL_NOTIFY] No Telegram bot instance found for {service_type}.")
+            return
+
+        chat_id = os.getenv("TELEGRAM_CHAT_ID") or getattr(bot, "chat_id", None) or "-1002083067817_153"
+        if str(chat_id).strip() in {"", "-1003699330518"}:
+            chat_id = "-1002083067817_153"
+        bot.send_notification(message, chat_id=str(chat_id))
+        print(f"[CENTRAL_NOTIFY] Queued {service_type} message to {chat_id}")
+    except Exception as e:
+        print(f"[CENTRAL_NOTIFY] {service_type} notification error: {e}")
 
 
 def _normalize_alert_filters(raw_filters: Any) -> Dict[str, Any]:
@@ -965,11 +983,22 @@ def _dispatch_technical_alerts() -> Dict[str, int]:
                 if not matches:
                     continue
 
+                match_symbols = [f"{m['symbol']}.{m['exchange']}" for m in matches[:20]]
+                previous_matches_raw = alert.get("last_triggered_matches") or []
+                previous_matches = [
+                    str(item).strip()
+                    for item in (previous_matches_raw if isinstance(previous_matches_raw, list) else [])
+                    if str(item).strip()
+                ]
+
+                if previous_matches == match_symbols:
+                    print(f"[TECH_ALERTS] Skipping unchanged alert {alert.get('id')} ({alert.get('name')})")
+                    continue
+
                 message = _format_technical_alert_message(alert.get("name") or "Unnamed Alert", country, matches, raw_filters)
                 try:
                     bot.send_notification(message, chat_id=chat_id)
                     sent_count += 1
-                    match_symbols = [f"{m['symbol']}.{m['exchange']}" for m in matches[:20]]
                     supabase.table("technical_alerts").update({
                         "last_triggered_at": dt.datetime.utcnow().isoformat(),
                         "last_triggered_matches": match_symbols,
@@ -1962,7 +1991,7 @@ async def generate_daily_recommendations(model_name: Optional[str] = None):
             f"👉 [اضغط هنا لفتح المنصة]({web_origin}/scanner/backtests?tab=bots)"
         )
         
-        _notify_service_subscribers("stock_score", "\n".join(msg_lines))
+        _notify_central_telegram("\n".join(msg_lines), "daily_recommendations")
         print("[RECOMMENDATIONS] Sent beautiful detailed recommendations to Telegram.")
         
         # Record today's date in market_cache to track sent status
@@ -2403,15 +2432,10 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
             _record_step("news_sentiment", False, str(e)[:200], 0)
             print(f"[NEWS_SENTIMENT] Error: {e}")
 
-        # 2.7 Pre-compute Sector Heatmap
-        print("\n>>> STEP 2.7: Pre-computing and saving Sector Heatmap...")
-        _start_step("precompute_heatmap", "Pre-computing sector heatmap and saving to Supabase")
-        try:
-            ok_heatmap, msg_heatmap = update_market_heatmap()
-            _record_step("precompute_heatmap", ok_heatmap, msg_heatmap, 0)
-        except Exception as e:
-            _record_step("precompute_heatmap", False, str(e)[:200], 0)
-            print(f"[HEATMAP] Error: {e}")
+        # 2.7 Sector heatmap is computed client-side from existing technical rows.
+        print("\n>>> STEP 2.7: Skipping Sector Heatmap precompute (client-side feature)...")
+        _start_step("precompute_heatmap", "Skipped - heatmap is computed client-side")
+        _record_step("precompute_heatmap", True, "Skipped - no Supabase writes needed", 0)
 
         # 3. Update open portfolio positions
         print("\n>>> STEP 3: Updating open portfolio positions...")
@@ -2631,7 +2655,7 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
                 
                 # Send digest to subscribers using the corrected notification system
                 digest_message = "\n".join(digest_lines)
-                _notify_service_subscribers("system_digest", digest_message)
+                _notify_central_telegram(digest_message, "system_digest")
                 print("\n[DAILY_DIGEST]\n" + digest_message)
         except Exception as e_telegram:
             print(f"[TELEGRAM_DIGEST] Failed to send daily digest: {e_telegram}")
