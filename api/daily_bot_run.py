@@ -2255,20 +2255,6 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
                     "target_return": 0.05,
                     "stop_loss": -0.03
                 })
-                # Notify Historical Similarity subscribers
-                try:
-                    top = sorted(results, key=lambda x: x.get("stats", {}).get("win_rate", 0), reverse=True)[:5]
-                    msg_lines = [f"📊 *Historical Similarity Report* — {dt.datetime.now().strftime('%Y-%m-%d')}", ""]
-                    for r in top:
-                        stats = r.get("stats", {})
-                        wr = stats.get("win_rate", 0) * 100
-                        avg = stats.get("average_return", 0) * 100
-                        msg_lines.append(f"• *{r.get('symbol', '—')}* — Win Rate: {wr:.1f}% | Avg Return: {avg:+.2f}%")
-                    msg_lines.append("")
-                    msg_lines.append(f"🔗 Total setups: {len(results)}")
-                    _notify_service_subscribers("historical_similarity", "\n".join(msg_lines))
-                except Exception as e:
-                    print(f"[SIMILARITY] Telegram notify error: {e}")
             _record_step("historical_similarity", True, f"{len(results)} symbols scanned", len(results))
         except Exception as e:
             _record_step("historical_similarity", False, str(e)[:200], 0)

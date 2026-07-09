@@ -52,6 +52,65 @@ export default function ProfilePage() {
   const [editingSymbolId, setEditingSymbolId] = useState<string | null>(null);
   const [watchlistDraft, setWatchlistDraft] = useState({ name: "" });
 
+  // Technical Scanner Alerts states and handlers
+  const [technicalAlerts, setTechnicalAlerts] = useState<any[]>([]);
+  const [loadingAlerts, setLoadingAlerts] = useState(false);
+
+  const fetchTechnicalAlerts = useCallback(async () => {
+    if (!user) return;
+    setLoadingAlerts(true);
+    try {
+      const res = await fetch("/api/scan/alerts");
+      if (res.ok) {
+        const data = await res.json();
+        setTechnicalAlerts(data.alerts || []);
+      }
+    } catch (e) {
+      console.error("Failed to fetch technical alerts:", e);
+    } finally {
+      setLoadingAlerts(false);
+    }
+  }, [user]);
+
+  const toggleAlertActive = async (alertId: string, currentActive: boolean) => {
+    try {
+      const res = await fetch(`/api/scan/alerts/${alertId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ is_active: !currentActive }),
+      });
+      if (res.ok) {
+        toast.success(isAr ? "تم تحديث حالة التنبيه" : "Alert status updated");
+        void fetchTechnicalAlerts();
+      } else {
+        toast.error(isAr ? "فشل تحديث حالة التنبيه" : "Failed to update alert status");
+      }
+    } catch (e) {
+      toast.error(isAr ? "فشل الاتصال بالسيرفر" : "Connection failed");
+    }
+  };
+
+  const deleteAlert = async (alertId: string) => {
+    if (!window.confirm(isAr ? "هل أنت متأكد من حذف هذا التنبيه؟" : "Are you sure you want to delete this alert?")) return;
+    try {
+      const res = await fetch(`/api/scan/alerts/${alertId}`, { method: "DELETE" });
+      if (res.ok) {
+        toast.success(isAr ? "تم حذف التنبيه بنجاح" : "Alert deleted successfully");
+        void fetchTechnicalAlerts();
+      } else {
+        toast.error(isAr ? "فشل حذف التنبيه" : "Failed to delete alert");
+      }
+    } catch (e) {
+      toast.error(isAr ? "فشل الاتصال بالسيرفر" : "Connection failed");
+    }
+  };
+
+  useEffect(() => {
+    if (user) {
+      void fetchTechnicalAlerts();
+    }
+  }, [fetchTechnicalAlerts, user]);
+
   useEffect(() => {
     if (!loading && !user) router.replace("/login");
   }, [loading, router, user]);
@@ -424,7 +483,99 @@ export default function ProfilePage() {
 
       </div>
 
+      {/* ── Technical Scanner Alerts Manager ── */}
+      <section className="relative z-10 neobrutal-card p-6 sm:p-8 space-y-6 bg-white dark:bg-zinc-900 border-4 border-black dark:border-white shadow-[6px_6px_0px_rgba(0,0,0,1)] dark:shadow-[6px_6px_0px_rgba(255,255,255,1)]">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between border-b-4 border-black dark:border-zinc-800 pb-5">
+          <div>
+            <div className="flex items-center gap-3 mb-2">
+              <div className="h-10 w-10 border-4 border-black dark:border-white bg-cyan-500 text-white flex items-center justify-center shadow-[3px_3px_0px_rgba(0,0,0,1)] dark:shadow-[3px_3px_0px_rgba(255,255,255,1)]">
+                <Activity className="h-5 w-5" />
+              </div>
+              <h2 className="text-2xl font-black text-black dark:text-white uppercase tracking-tight">
+                {isAr ? "إدارة تنبيهات الماسح الفني" : "Technical Scanner Alerts"}
+              </h2>
+            </div>
+            <p className="text-xs text-zinc-600 dark:text-zinc-400 font-black uppercase tracking-widest leading-relaxed">
+              {isAr ? "إدارة التنبيهات المخصصة التي قمت بإنشائها وتفعيلها أو إيقافها أو حذفها" : "Manage custom scanner alerts you created, toggle them on/off, or delete them"}
+            </p>
+          </div>
+          <div className="inline-flex items-center justify-center gap-2 h-10 px-4 border-4 border-black dark:border-white bg-zinc-100 dark:bg-zinc-950 text-black dark:text-white font-black text-xs uppercase tracking-widest shadow-[2px_2px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_rgba(255,255,255,1)]">
+            {technicalAlerts.length} {isAr ? "تنبيه" : "Alerts"}
+          </div>
+        </div>
 
+        {loadingAlerts ? (
+          <div className="flex items-center justify-center py-12">
+            <Loader2 className="w-6 h-6 animate-spin text-cyan-500" />
+          </div>
+        ) : technicalAlerts.length === 0 ? (
+          <div className="min-h-[150px] border-4 border-dashed border-black/40 dark:border-white/30 bg-zinc-50 dark:bg-zinc-950/30 flex flex-col items-center justify-center gap-4 text-center p-8">
+            <Activity className="h-8 w-8 text-zinc-400" />
+            <p className="max-w-md text-sm font-bold text-zinc-600 dark:text-zinc-400">
+              {isAr ? "لا توجد تنبيهات مخصصة نشطة حالياً. يمكنك إنشاء تنبيه جديد من صفحة الماسح الفني." : "No custom scanner alerts found. You can create new alerts from the Technical Scanner page."}
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+            {technicalAlerts.map((alert) => {
+              const filterKeys = Object.keys(alert.filters || {}).filter(k => alert.filters[k] !== undefined);
+              return (
+                <div key={alert.id} className="border-4 border-black dark:border-white bg-zinc-50 dark:bg-zinc-950/35 p-4 sm:p-5 shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_rgba(255,255,255,1)] flex flex-col justify-between gap-4">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="min-w-0">
+                      <h3 className="text-base font-black text-black dark:text-white uppercase tracking-tight">{alert.name}</h3>
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {filterKeys.map(k => (
+                          <span key={k} className="border border-black/20 dark:border-white/20 bg-zinc-200 dark:bg-zinc-800 px-1.5 py-0.5 text-[9px] font-mono font-bold text-zinc-600 dark:text-zinc-400 uppercase">
+                            {k.replace(/_/g, " ")}: {String(alert.filters[k])}
+                          </span>
+                        ))}
+                      </div>
+                      
+                      <div className="mt-3 text-[10px] text-zinc-500 font-bold uppercase tracking-wider">
+                        {isAr ? "آخر تشغيل: " : "Last Triggered: "}
+                        <span className="text-zinc-600 dark:text-zinc-300 font-mono">
+                          {alert.last_triggered_at ? new Date(alert.last_triggered_at).toLocaleString() : "Never"}
+                        </span>
+                      </div>
+                      {alert.last_triggered_matches && alert.last_triggered_matches.length > 0 && (
+                        <div className="mt-1 flex flex-wrap gap-1 items-center">
+                          <span className="text-[9px] text-zinc-500 font-black uppercase">{isAr ? "المطابقات:" : "Matches:"}</span>
+                          {alert.last_triggered_matches.slice(0, 5).map((m: string) => (
+                            <span key={m} className="bg-cyan-500/20 text-cyan-600 dark:text-cyan-400 text-[8px] font-black px-1 rounded-sm">{m}</span>
+                          ))}
+                          {alert.last_triggered_matches.length > 5 && (
+                            <span className="text-[8px] text-zinc-400 font-bold">+{alert.last_triggered_matches.length - 5}</span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => toggleAlertActive(alert.id, alert.is_active)}
+                        className={`w-10 h-10 flex items-center justify-center border-4 border-black dark:border-white transition-all shadow-[2px_2px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_rgba(255,255,255,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none ${
+                          alert.is_active ? "bg-emerald-400 text-black" : "bg-rose-500 text-white"
+                        }`}
+                        title={alert.is_active ? (isAr ? "إيقاف التنبيه" : "Deactivate") : (isAr ? "تشغيل التنبيه" : "Activate")}
+                      >
+                        {alert.is_active ? <Bell className="w-5 h-5" /> : <BellOff className="w-5 h-5" />}
+                      </button>
+                      <button
+                        onClick={() => deleteAlert(alert.id)}
+                        className="w-10 h-10 flex items-center justify-center border-4 border-black dark:border-white bg-rose-500 hover:bg-rose-600 text-white transition-all shadow-[2px_2px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_rgba(255,255,255,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none"
+                        title={isAr ? "حذف التنبيه" : "Delete Alert"}
+                      >
+                        <Trash2 className="w-5 h-5" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
 
       <section className="relative z-10 neobrutal-card p-6 sm:p-8 space-y-6 bg-white dark:bg-zinc-900 border-4 border-black dark:border-white shadow-[6px_6px_0px_rgba(0,0,0,1)] dark:shadow-[6px_6px_0px_rgba(255,255,255,1)]">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between border-b-4 border-black dark:border-zinc-800 pb-5">
