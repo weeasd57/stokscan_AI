@@ -62,7 +62,7 @@ class TelegramBot:
                 except Exception:
                     pass
             if not self.chat_id:
-                self.chat_id = -1003699330518
+                self.chat_id = -1002083067817
                 self._log(f"Loaded default fallback chat_id: {self.chat_id}")
 
     def _save_chat_id(self, chat_id: int):
@@ -373,6 +373,8 @@ class TelegramBot:
             self._handle_trades(chat_id)
         elif text.startswith("/weekly"):
             self._handle_weekly(chat_id)
+        elif text.startswith("/daily"):
+            self._handle_daily(chat_id)
         elif text.startswith("/help"):
             self._handle_help(chat_id)
 
@@ -660,11 +662,73 @@ class TelegramBot:
         except Exception as e:
             self._reply(chat_id, f"❌ حدث خطأ أثناء توليد التقرير: {e}")
 
+    def _handle_daily(self, chat_id):
+        # Allow admins or registered profiles
+        is_admin = self._is_admin(chat_id)
+        is_subscriber = False
+        
+        from api.stock_ai import supabase
+        if supabase:
+            try:
+                # Check if chat_id matches any registered profile
+                res = (
+                    supabase.table("profiles")
+                    .select("id")
+                    .eq("telegram_chat_id", str(chat_id))
+                    .execute()
+                )
+                if res.data:
+                    is_subscriber = True
+            except Exception as e:
+                self._log(f"Error checking subscriber profiles: {e}")
+                
+        if not is_admin and not is_subscriber:
+            self._reply(
+                chat_id,
+                "❌ *غير مصرح:* هذا الأمر متاح فقط للمشتركين المسجلين في المنصة.\n"
+                "يرجى ربط حساب التليجرام الخاص بك أولاً عبر صفحة الإعدادات في الموقع باستخدام /start.\n\n"
+                "❌ *Unauthorized:* This command is only available to registered platform users.\n"
+                "Please link your Telegram account in the settings page first.",
+            )
+            return
+
+        self._reply(chat_id, "⏳ جاري إعداد التوصيات اليومية... / Generating daily recommendations...")
+        
+        try:
+            import asyncio
+            from api.daily_bot_run import generate_daily_recommendations
+            
+            # Run the async function
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    # If we're already in an event loop, create a new thread
+                    import concurrent.futures
+                    with concurrent.futures.ThreadPoolExecutor() as executor:
+                        future = executor.submit(asyncio.run, generate_daily_recommendations())
+                        count = future.result()
+                else:
+                    count = asyncio.run(generate_daily_recommendations())
+            except RuntimeError:
+                # Fallback: create new event loop in thread
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    future = executor.submit(asyncio.run, generate_daily_recommendations())
+                    count = future.result()
+            
+            if count and count > 0:
+                self._reply(chat_id, f"✅ تم إرسال {count} توصية يومية جديدة بنجاح! / Successfully sent {count} daily recommendations!")
+            else:
+                self._reply(chat_id, "ℹ️ لا توجد توصيات جديدة اليوم / No new recommendations today")
+        except Exception as e:
+            self._reply(chat_id, f"❌ حدث خطأ أثناء توليد التوصيات اليومية: {e}")
+
     def _handle_help(self, chat_id):
         self._reply(
             chat_id,
             "📋 *الأوامر المتاحة / Available Commands:*\n\n"
             "🔗 /start — ربط حسابك بالمنصة\n"
+            "📊 /daily — التوصيات اليومية الجديدة\n"
             "📊 /weekly — تقرير الأداء الأسبوعي للمنصة\n"
             "📊 /status — حالة البوت *(للمشرف)*\n"
             "📈 /positions — المراكز المفتوحة *(للمشرف)*\n"
@@ -672,6 +736,7 @@ class TelegramBot:
             "❓ /help — عرض هذه القائمة\n\n"
             "━━━━━━━━━━━━━━━━━━━━\n\n"
             "🔗 /start — Link your account\n"
+            "📊 /daily — Daily AI recommendations\n"
             "📊 /weekly — Weekly platform performance report\n"
             "📊 /status — Bot status *(Admin)*\n"
             "📈 /positions — Open positions *(Admin)*\n"
@@ -685,13 +750,14 @@ class TelegramBot:
         """Register bot commands and set the menu button (web_app or commands)."""
         commands = [
             {"command": "start", "description": "🔗 ربط الحساب / Link account"},
+            {"command": "daily", "description": "🚀 التوصيات اليومية / Daily recommendations"},
+            {"command": "weekly", "description": "📊 تقرير الأداء الأسبوعي / Weekly report"},
             {"command": "status", "description": "📊 حالة البوت / Bot status"},
             {
                 "command": "positions",
                 "description": "📈 المراكز المفتوحة / Open positions",
             },
             {"command": "trades", "description": "📜 آخر الصفقات / Recent trades"},
-            {"command": "weekly", "description": "📊 تقرير الأداء الأسبوعي / Weekly report"},
             {"command": "help", "description": "❓ مساعدة / Help"},
         ]
         self._call_api("setMyCommands", {"commands": commands})

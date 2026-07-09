@@ -719,7 +719,7 @@ def _notify_subscribers_for_symbol(symbol: str, exchange: str, message: str):
 
 
 def _notify_service_subscribers(service_type: str, message: str):
-    """Send notification to the central Telegram channel/group for all users."""
+    """Send notification to subscribers via Telegram using registered user profiles."""
     try:
         from api.telegram_bot import get_telegram_bot
         bot = get_telegram_bot()
@@ -727,35 +727,261 @@ def _notify_service_subscribers(service_type: str, message: str):
             print(f"[SERVICE_NOTIFY] No Telegram bot instance found for {service_type}.")
             return
 
-        chat_id = getattr(bot, "chat_id", None)
-        is_fallback = (chat_id == -1003699330518 or str(chat_id) == "-1003699330518")
-        
-        if (not chat_id or is_fallback) and bot.bot_instance and getattr(bot.bot_instance.config, "telegram_chat_id", None):
-            chat_id = bot.bot_instance.config.telegram_chat_id
-            is_fallback = False
+        # Get all registered users with telegram_chat_id from profiles table
+        try:
+            res = (
+                supabase.table("profiles")
+                .select("telegram_chat_id, display_name, username")
+                .not_.is_("telegram_chat_id", "null")
+                .neq("telegram_chat_id", "")
+                .execute()
+            )
             
-        if not chat_id or is_fallback:
-            try:
-                # Query the database bot_configs directly as fallback
-                res = supabase.table("bot_configs").select("telegram_chat_id").eq("bot_id", "primary").maybe_single().execute()
-                if res.data and res.data.get("telegram_chat_id"):
-                    chat_id = res.data["telegram_chat_id"]
-                    is_fallback = False
-            except Exception as db_err:
-                print(f"[SERVICE_NOTIFY] Database lookup for telegram_chat_id failed: {db_err}")
+            subscribers = res.data or []
+            if not subscribers:
+                print(f"[SERVICE_NOTIFY] No subscribers found with valid telegram_chat_id for {service_type}")
+                return
+                
+            sent_count = 0
+            for subscriber in subscribers:
+                chat_id = subscriber.get("telegram_chat_id")
+                if chat_id:
+                    try:
+                        bot.send_notification(message, chat_id=str(chat_id))
+                        sent_count += 1
+                    except Exception as send_err:
+                        print(f"[SERVICE_NOTIFY] Failed to send to {chat_id}: {send_err}")
+            
+            print(f"[SERVICE_NOTIFY] Successfully sent {service_type} message to {sent_count}/{len(subscribers)} subscribers")
+            
+        except Exception as db_err:
+            print(f"[SERVICE_NOTIFY] Database query failed for {service_type}: {db_err}")
+            
+            # Fallback to admin channel if database query fails
+            chat_id = getattr(bot, "chat_id", None)
+            is_fallback = (chat_id == -1003699330518 or str(chat_id) == "-1003699330518")
+            
+            if not chat_id or is_fallback:
+                env_chat_id = os.getenv("TELEGRAM_CHAT_ID")
+                if env_chat_id:
+                    chat_id = env_chat_id
+                else:
+                    # Use the correct Telegram channel ID from the URL provided
+                    chat_id = -1002083067817
 
-        if not chat_id or is_fallback:
-            env_chat_id = os.getenv("TELEGRAM_CHAT_ID")
-            if env_chat_id:
-                chat_id = env_chat_id
-
-        if chat_id:
-            print(f"[SERVICE_NOTIFY] Broadcasting {service_type} message to central Telegram chat: {chat_id}")
-            bot.send_notification(message, chat_id=str(chat_id))
-        else:
-            print(f"[SERVICE_NOTIFY] Cannot send {service_type} broadcast: No central telegram_chat_id configured.")
+            if chat_id and not is_fallback:
+                print(f"[SERVICE_NOTIFY] Fallback: Broadcasting {service_type} to admin channel: {chat_id}")
+                bot.send_notification(message, chat_id=str(chat_id))
+            else:
+                print(f"[SERVICE_NOTIFY] Cannot send {service_type} broadcast: No valid chat_id found.")
+                
     except Exception as e:
         print(f"[SERVICE_NOTIFY] {service_type} notification error: {e}")
+
+
+def _normalize_alert_filters(raw_filters: Any) -> Dict[str, Any]:
+    if isinstance(raw_filters, str):
+        try:
+            parsed = json.loads(raw_filters)
+            return parsed if isinstance(parsed, dict) else {}
+        except Exception:
+            return {}
+    return raw_filters if isinstance(raw_filters, dict) else {}
+
+
+def _build_country_symbol_pairs(country: str) -> List[Tuple[str, str, str]]:
+    from api.symbols_local import load_symbols_for_country
+
+    try:
+        symbols_data = load_symbols_for_country(country)
+    except Exception as exc:
+        print(f"[TECH_ALERTS] Failed to load symbols for {country}: {exc}")
+        return []
+
+    pairs: List[Tuple[str, str, str]] = []
+    for row in symbols_data or []:
+        symbol = str(row.get("Code", row.get("Symbol", ""))).strip()
+        exchange = str(row.get("Exchange", "")).strip()
+        name = str(row.get("Name", "")).strip()
+        if symbol and exchange:
+            pairs.append((symbol, exchange, name))
+    return pairs
+
+
+def _load_telegram_profile_map(user_ids: List[str]) -> Dict[str, Dict[str, Any]]:
+    if not user_ids:
+        return {}
+
+    profile_map: Dict[str, Dict[str, Any]] = {}
+    unique_ids = list(dict.fromkeys([str(uid) for uid in user_ids if uid]))
+    for i in range(0, len(unique_ids), 200):
+        chunk = unique_ids[i:i + 200]
+        try:
+            res = (
+                supabase.table("profiles")
+                .select("id, telegram_chat_id, display_name, username")
+                .in_("id", chunk)
+                .execute()
+            )
+            for row in res.data or []:
+                uid = str(row.get("id") or "").strip()
+                if uid:
+                    profile_map[uid] = row
+        except Exception as exc:
+            print(f"[TECH_ALERTS] Failed to load profiles batch: {exc}")
+    return profile_map
+
+
+def _format_technical_alert_message(alert_name: str, country: str, matches: List[Dict[str, Any]], filters: Dict[str, Any]) -> str:
+    lines = [
+        "🔔 *Technical Alert Triggered / تنبيه ماسح فني*",
+        f"📌 *Alert:* `{alert_name}`",
+        f"🌍 *Market / السوق:* `{country}`",
+        f"🔢 *Matches / النتائج:* `{len(matches)}`",
+    ]
+
+    summary_parts = []
+    for key in ("rsi_min", "rsi_max", "min_price", "above_ema50", "above_ema200", "adx_min", "adx_max", "volume_above_sma20", "golden_cross", "use_ai_filter", "market_cap_min", "market_cap_max", "sector", "industry", "avoid_distribution", "require_accumulation", "cmf_min"):
+        value = filters.get(key)
+        if value not in (None, False, "", []):
+            summary_parts.append(f"{key}={value}")
+    if summary_parts:
+        lines.append(f"⚙️ *Filters:* `{'; '.join(summary_parts[:8])}`")
+
+    lines.append("")
+    for match in matches[:10]:
+        lines.append(
+            f"• *{match['symbol']}* (`{match['exchange']}`) | Close `{match['close']:.2f}` | RSI `{match['rsi']:.1f}` | ADX `{match['adx']:.1f}`"
+        )
+
+    if len(matches) > 10:
+        lines.append(f"_... and {len(matches) - 10} more matches_")
+
+    lines.append("")
+    lines.append("_Daily comparison run against current technical indicators and fundamentals._")
+    return "\n".join(lines)
+
+
+def _dispatch_technical_alerts() -> Dict[str, int]:
+    """Evaluate saved technical alerts and notify each linked user on their Telegram chat."""
+    try:
+        from api.routers.scan_tech import TechFilter, _fetch_company_fundamentals, _fetch_latest_technical_indicators, filter_tech_row
+        from api.telegram_bot import get_telegram_bot
+
+        bot = get_telegram_bot()
+        if not bot:
+            print("[TECH_ALERTS] Telegram bot is unavailable.")
+            return {"alerts": 0, "matches": 0, "sent": 0, "skipped": 0}
+
+        res = (
+            supabase.table("technical_alerts")
+            .select("id, user_id, name, filters, is_active, last_triggered_at, last_triggered_matches")
+            .eq("is_active", True)
+            .execute()
+        )
+        alerts = res.data or []
+        if not alerts:
+            print("[TECH_ALERTS] No active alerts found.")
+            return {"alerts": 0, "matches": 0, "sent": 0, "skipped": 0}
+
+        profile_map = _load_telegram_profile_map([str(a.get("user_id") or "") for a in alerts])
+
+        alerts_by_country: Dict[str, List[Dict[str, Any]]] = {}
+        for alert in alerts:
+            raw_filters = _normalize_alert_filters(alert.get("filters") or {})
+            try:
+                filter_obj = TechFilter(**raw_filters)
+            except Exception as exc:
+                print(f"[TECH_ALERTS] Invalid filters for alert {alert.get('id')}: {exc}")
+                continue
+            country = str(filter_obj.country or raw_filters.get("country") or "Egypt").strip() or "Egypt"
+            alerts_by_country.setdefault(country, []).append({
+                "alert": alert,
+                "filters": raw_filters,
+                "filter_obj": filter_obj,
+            })
+
+        total_matches = 0
+        sent_count = 0
+        skipped_count = 0
+
+        for country, country_alerts in alerts_by_country.items():
+            pairs = _build_country_symbol_pairs(country)
+            if not pairs:
+                print(f"[TECH_ALERTS] No symbols available for country={country}")
+                continue
+
+            tech_pairs = [(symbol, exchange) for symbol, exchange, _ in pairs]
+            tech_rows = _fetch_latest_technical_indicators(tech_pairs)
+            if not tech_rows:
+                print(f"[TECH_ALERTS] No technical rows available for country={country}")
+                continue
+
+            fundamentals_map = _fetch_company_fundamentals(tech_pairs)
+
+            row_lookup: Dict[str, Dict[str, Any]] = {}
+            for symbol, exchange, name in pairs:
+                key = f"{symbol}|{exchange}"
+                row_lookup[key] = {
+                    "symbol": symbol,
+                    "exchange": exchange,
+                    "name": name,
+                    "tech": tech_rows.get(key),
+                    "funds": fundamentals_map.get(key) or {},
+                }
+
+            for item in country_alerts:
+                alert = item["alert"]
+                filter_obj = item["filter_obj"]
+                raw_filters = item["filters"]
+                user_id = str(alert.get("user_id") or "").strip()
+                profile = profile_map.get(user_id, {})
+                chat_id = str(profile.get("telegram_chat_id") or "").strip()
+
+                if not chat_id:
+                    skipped_count += 1
+                    print(f"[TECH_ALERTS] Skipping alert {alert.get('id')} because user {user_id} has no telegram_chat_id")
+                    continue
+
+                matches: List[Dict[str, Any]] = []
+                for row in row_lookup.values():
+                    tech = row.get("tech")
+                    if not tech:
+                        continue
+                    if tech.get("rsi_14") is None or tech.get("close") is None:
+                        continue
+                    if not filter_tech_row(tech, filter_obj, row.get("funds") or {}):
+                        continue
+
+                    matches.append({
+                        "symbol": row["symbol"],
+                        "exchange": row["exchange"],
+                        "close": float(tech.get("close") or 0),
+                        "rsi": float(tech.get("rsi_14") or 0),
+                        "adx": float(tech.get("adx_14") or 0),
+                    })
+
+                total_matches += len(matches)
+                if not matches:
+                    continue
+
+                message = _format_technical_alert_message(alert.get("name") or "Unnamed Alert", country, matches, raw_filters)
+                try:
+                    bot.send_notification(message, chat_id=chat_id)
+                    sent_count += 1
+                    match_symbols = [f"{m['symbol']}.{m['exchange']}" for m in matches[:20]]
+                    supabase.table("technical_alerts").update({
+                        "last_triggered_at": dt.datetime.utcnow().isoformat(),
+                        "last_triggered_matches": match_symbols,
+                    }).eq("id", alert.get("id")).execute()
+                except Exception as send_err:
+                    print(f"[TECH_ALERTS] Failed to send alert {alert.get('id')} to {chat_id}: {send_err}")
+
+        print(f"[TECH_ALERTS] Completed: {len(alerts)} alerts evaluated, {total_matches} matches found, {sent_count} messages sent, {skipped_count} skipped")
+        return {"alerts": len(alerts), "matches": total_matches, "sent": sent_count, "skipped": skipped_count}
+    except Exception as e:
+        print(f"[TECH_ALERTS] Dispatch error: {e}")
+        return {"alerts": 0, "matches": 0, "sent": 0, "skipped": 0}
 
 
 def evaluate_old_recommendations():
@@ -2217,6 +2443,22 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
             _record_step("refresh_market_status_for_gate", False, str(e)[:200], 0)
             print(f"[MARKET_GATE] Could not refresh market status before gate: {e}")
 
+        # 4.6 Evaluate saved technical alerts after market-status preparation
+        print("\n>>> STEP 4.6: Evaluating saved technical alerts...")
+        _start_step("technical_alerts", "Evaluating saved technical scanner alerts")
+        try:
+            alert_stats = _dispatch_technical_alerts()
+            ok_alerts = alert_stats.get("sent", 0) >= 0
+            _record_step(
+                "technical_alerts",
+                ok_alerts,
+                f"{alert_stats.get('alerts', 0)} alerts, {alert_stats.get('matches', 0)} matches, {alert_stats.get('sent', 0)} sent, {alert_stats.get('skipped', 0)} skipped",
+                alert_stats.get("sent", 0),
+            )
+        except Exception as e:
+            _record_step("technical_alerts", False, str(e)[:200], 0)
+            print(f"[TECH_ALERTS] Error: {e}")
+
         # 5. Generate new recommendations
         print("\n>>> STEP 5: Generating new speculative recommendations...")
         _start_step("generate_recommendations", f"Generating recommendations using {model_filter or 'default'} model")
@@ -2387,7 +2629,10 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
                 except Exception as me_err:
                     print(f"[TELEGRAM_DIGEST] Market status read error: {me_err}")
                 
-                print("\n[DAILY_DIGEST]\n" + "\n".join(digest_lines))
+                # Send digest to subscribers using the corrected notification system
+                digest_message = "\n".join(digest_lines)
+                _notify_service_subscribers("system_digest", digest_message)
+                print("\n[DAILY_DIGEST]\n" + digest_message)
         except Exception as e_telegram:
             print(f"[TELEGRAM_DIGEST] Failed to send daily digest: {e_telegram}")
 
