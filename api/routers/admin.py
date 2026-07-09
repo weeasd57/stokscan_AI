@@ -4327,25 +4327,201 @@ def send_telegram_recommendations():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# ─── Alert Scheduler Endpoints ───────────────────────────────────────
+# ─── Telegram Dispatch Endpoints ───────────────────────────────────────
 
-@router.get("/alert-scheduler/state")
-def get_alert_scheduler_state():
+@router.get("/telegram-dispatch/preview")
+def get_telegram_dispatch_preview(type: str = "recommendations"):
     try:
-        from api.tech_alerts_scheduler import get_scheduler_state
-
-        return get_scheduler_state()
+        import datetime as dt
+        from api.stock_ai import supabase
+        
+        if type == "recommendations":
+            # Fetch recommendations from scan_results where status = 'open'
+            current_date = dt.datetime.now().strftime("%Y-%m-%d")
+            res = supabase.table("scan_results") \
+                .select("*") \
+                .eq("status", "open") \
+                .order("precision", desc=True) \
+                .execute()
+            
+            # Filter today's recommendations, fallback to top 10 if none
+            today_recs = [r for r in res.data if r.get("created_at", "").startswith(current_date)]
+            if not today_recs:
+                today_recs = res.data[:10]
+                
+            web_origin = os.getenv("WEB_ORIGIN", "https://egxbots.com").strip().rstrip("/")
+            msg_lines = [
+                f"🚀 *توصيات الذكاء الاصطناعي الجديدة / New AI Recommendations* 🚀",
+                f"📅 *التاريخ:* `{current_date}`",
+                f"━━━━━━━━━━━━━━━━━━━━\n"
+            ]
+            
+            for idx, r in enumerate(today_recs):
+                sym = r.get("symbol")
+                ex = r.get("exchange", "EGX")
+                ep = float(r.get("entry_price", r.get("last_close", 0.0)) or 0.0)
+                tp = float(r.get("target_price", 0.0) or 0.0)
+                sl = float(r.get("stop_loss", 0.0) or 0.0)
+                tp2 = round(tp * 1.10, 2)
+                score = round(float(r.get("precision", 0.5) or 0.5) * 10)
+                name = r.get("name", sym)
+                
+                msg_lines.append(
+                    f"🔥 *#{idx+1} {sym}.{ex}* | {name}\n"
+                    f"▪️ *الدخول المقترح:* `{ep:.2f}` EGP\n"
+                    f"▪️ *الهدف الأول:* `{tp:.2f}` | *الهدف الثاني:* `{tp2:.2f}`\n"
+                    f"▪️ *وقف الخسارة:* `{sl:.2f}`\n"
+                    f"▪️ *تقييم الزخم (Score):* `{score}/10` ⚡\n"
+                    f"━━━━━━━━━━━━━━━━━━━━"
+                )
+                
+            msg_lines.append(
+                f"📈 *إجمالي الإشارات الجديدة:* `{len(today_recs)}` أسهم\n\n"
+                f"🔗 *لمتابعة الرسوم البيانية والتفاصيل الكاملة:*\n"
+                f"👉 [اضغط هنا لفتح المنصة]({web_origin}/scanner/backtests?tab=bots)"
+            )
+            
+            return {"preview": "\n".join(msg_lines), "count": len(today_recs)}
+            
+        elif type == "report":
+            # Fetch latest daily job run
+            res_run = supabase.table("daily_job_runs") \
+                .select("*") \
+                .eq("job_type", "daily_bot") \
+                .order("started_at", desc=True) \
+                .limit(1) \
+                .execute()
+                
+            if not res_run.data:
+                return {"preview": "⚠️ لا توجد تقارير تشغيل مسجلة في قاعدة البيانات.", "count": 0}
+                
+            run_data = res_run.data[0]
+            started_at = run_data.get("started_at")
+            completed_at = run_data.get("completed_at") or dt.datetime.utcnow().isoformat()
+            
+            try:
+                start_dt = dt.datetime.fromisoformat(started_at.replace("Z", "+00:00"))
+                end_dt = dt.datetime.fromisoformat(completed_at.replace("Z", "+00:00"))
+                elapsed = (end_dt - start_dt).total_seconds()
+            except Exception:
+                elapsed = 0.0
+                
+            steps_log = []
+            if run_data.get("steps"):
+                try:
+                    if isinstance(run_data["steps"], str):
+                        steps_log = json.loads(run_data["steps"])
+                    else:
+                        steps_log = run_data["steps"]
+                except Exception:
+                    pass
+                    
+            run_date_str = ""
+            try:
+                run_date_str = start_dt.strftime('%Y-%m-%d %H:%M')
+            except Exception:
+                run_date_str = dt.datetime.now().strftime('%Y-%m-%d %H:%M')
+                
+            digest_lines = [
+                f"🤖 *ملخص التشغيل اليومي لـ StokScan AI*",
+                f"📅 التاريخ: {run_date_str}",
+                f"⏱️ مدة التشغيل الإجمالية: {elapsed:.1f} ثانية",
+                ""
+            ]
+            
+            step_names_ar = {
+                "sync_inventory": "تحديث قائمة الأسهم",
+                "mark_non_listed": "تحديد الأسهم غير المدرجة",
+                "sync_prices": "مزامنة الأسعار",
+                "calculate_indicators": "حساب المؤشرات الفنية",
+                "news_sentiment": "تحليل الأخبار بالذكاء الاصطناعي",
+                "precompute_heatmap": "حساب الـ Heatmap",
+                "update_positions": "تحديث المحفظة",
+                "evaluate_recommendations": "تقييم التوصيات القديمة",
+                "refresh_market_status_for_gate": "تحديث بوابة التوصيات",
+                "generate_recommendations": "توليد التوصيات الجديدة",
+                "historical_similarity": "البحث عن التشابه التاريخي",
+                "weekly_performance_report": "التقرير الأسبوعي للأداء",
+                "refresh_market_status": "تحديث حالة المؤشرات العامة",
+                "weekly_adaptive_retraining": "إعادة التدريب التكيفي"
+            }
+            
+            for step in steps_log:
+                name = step.get("step")
+                status = step.get("status")
+                count = step.get("count", 0)
+                
+                emoji = "✅" if status in ("success", "skipped") else "❌"
+                if status == "skipped":
+                    emoji = "⏭️"
+                
+                step_ar = step_names_ar.get(name, name)
+                line = f"{emoji} *{step_ar}* — {status.upper()}"
+                if count > 0:
+                    line += f" ({count})"
+                digest_lines.append(line)
+                
+            try:
+                res_status = supabase.table("market_cache").select("payload").eq("cache_key", "market_status_Egypt").maybe_single().execute()
+                if res_status.data and res_status.data.get("payload"):
+                    payload_data = res_status.data["payload"]
+                    egx30_change = payload_data.get("egx30", {}).get("change_pct", 0)
+                    egx30_close = payload_data.get("egx30", {}).get("close", 0)
+                    market_state = "Bullish 📈" if egx30_change >= 0 else "Bearish 📉"
+                    digest_lines.append("")
+                    digest_lines.append(f"📊 *حالة السوق اليوم (EGX30)*: {market_state}")
+                    digest_lines.append(f"• الإغلاق: {egx30_close:,.2f} | التغيير: {egx30_change:+.2f}%")
+            except Exception as me_err:
+                print(f"[TELEGRAM_DISPATCH] Market status read error: {me_err}")
+                
+            return {"preview": "\n".join(digest_lines), "count": len(steps_log)}
+            
+        else:
+            raise HTTPException(status_code=400, detail="Invalid preview type")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/alert-scheduler/config")
-def update_alert_scheduler_config(payload: dict):
+@router.post("/telegram-dispatch/send")
+def send_telegram_dispatch(payload: dict):
     try:
-        from api.tech_alerts_scheduler import set_scheduler_config
-
-        set_scheduler_config(payload)
-        return {"ok": True}
+        from api.telegram_bot import get_telegram_bot
+        bot = get_telegram_bot()
+        if not bot:
+            raise HTTPException(status_code=503, detail="Telegram bot not initialized")
+            
+        message = payload.get("message")
+        if not message or not message.strip():
+            raise HTTPException(status_code=400, detail="Message content cannot be empty")
+            
+        # Target the configured central channel
+        chat_id = getattr(bot, "chat_id", None)
+        
+        # Fallback lookups as in daily_bot_run.py
+        is_fallback = (chat_id == -1003699330518 or str(chat_id) == "-1003699330518")
+        if (not chat_id or is_fallback) and bot.bot_instance and getattr(bot.bot_instance.config, "telegram_chat_id", None):
+            chat_id = bot.bot_instance.config.telegram_chat_id
+            is_fallback = False
+            
+        if not chat_id or is_fallback:
+            try:
+                from api.stock_ai import supabase
+                res = supabase.table("bot_configs").select("telegram_chat_id").eq("bot_id", "primary").maybe_single().execute()
+                if res.data and res.data.get("telegram_chat_id"):
+                    chat_id = res.data["telegram_chat_id"]
+                    is_fallback = False
+            except Exception:
+                pass
+                
+        if not chat_id or is_fallback:
+            chat_id = os.getenv("TELEGRAM_CHAT_ID")
+            
+        if not chat_id:
+            raise HTTPException(status_code=400, detail="No central Telegram channel ID configured")
+            
+        # Send
+        bot.send_notification(message, chat_id=str(chat_id))
+        return {"ok": True, "chat_id": chat_id}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

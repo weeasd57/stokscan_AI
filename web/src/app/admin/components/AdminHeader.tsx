@@ -1,6 +1,6 @@
 "use client";
 
-import { Brain, Database, Bot, LineChart, History, Calendar, Sparkles, Clock, Users, BookOpen, MessageSquare } from "lucide-react";
+import { Brain, Database, Bot, LineChart, History, Calendar, Sparkles, Clock, Users, BookOpen, MessageSquare, Send } from "lucide-react";
 
 interface AdminHeaderProps {
     activeMainTab: "data" | "ai" | "backtest" | "bot" | "schedule" | "similarity" | "jobs" | "users" | "articles" | "support";
@@ -15,7 +15,7 @@ export default function AdminHeader({ activeMainTab, setActiveMainTab }: AdminHe
         { id: "backtest", label: "BACKTEST", icon: LineChart, color: "yellow" },
         { id: "similarity", label: "SIMILARITY", icon: History, color: "pink" },
         { id: "jobs", label: "JOBS", icon: Clock, color: "orange" },
-        { id: "schedule", label: "ALERTS", icon: Calendar, color: "amber" },
+        { id: "schedule", label: "TELEGRAM", icon: Send, color: "amber" },
         { id: "users", label: "USERS", icon: Users, color: "blue" },
         { id: "articles", label: "ARTICLES", icon: BookOpen, color: "teal" },
         { id: "support", label: "SUPPORT", icon: MessageSquare, color: "pink" },
