@@ -4383,98 +4383,99 @@ def get_telegram_dispatch_preview(type: str = "recommendations"):
             
             return {"preview": "\n".join(msg_lines), "count": len(today_recs)}
             
-        elif type == "report":
-            # Fetch latest daily job run
-            res_run = supabase.table("daily_job_runs") \
-                .select("*") \
-                .eq("job_type", "daily_bot") \
-                .order("started_at", desc=True) \
-                .limit(1) \
+        elif type == "weekly_report":
+            import datetime as dt
+            from api.stock_ai import supabase
+            
+            seven_days_ago = (dt.datetime.utcnow() - dt.timedelta(days=7)).isoformat()
+            
+            # Fetch closed recommendations in last 7 days
+            res = (
+                supabase.table("scan_results")
+                .select("symbol, exchange, entry_price, exit_price, profit_loss_pct, status, updated_at")
+                .in_("status", ["win", "loss"])
+                .gte("updated_at", seven_days_ago)
                 .execute()
-                
-            if not res_run.data:
-                return {"preview": "⚠️ لا توجد تقارير تشغيل مسجلة في قاعدة البيانات.", "count": 0}
-                
-            run_data = res_run.data[0]
-            started_at = run_data.get("started_at")
-            completed_at = run_data.get("completed_at") or dt.datetime.utcnow().isoformat()
+            )
             
-            try:
-                start_dt = dt.datetime.fromisoformat(started_at.replace("Z", "+00:00"))
-                end_dt = dt.datetime.fromisoformat(completed_at.replace("Z", "+00:00"))
-                elapsed = (end_dt - start_dt).total_seconds()
-            except Exception:
-                elapsed = 0.0
-                
-            steps_log = []
-            if run_data.get("steps"):
-                try:
-                    if isinstance(run_data["steps"], str):
-                        steps_log = json.loads(run_data["steps"])
-                    else:
-                        steps_log = run_data["steps"]
-                except Exception:
-                    pass
-                    
-            run_date_str = ""
-            try:
-                run_date_str = start_dt.strftime('%Y-%m-%d %H:%M')
-            except Exception:
-                run_date_str = dt.datetime.now().strftime('%Y-%m-%d %H:%M')
-                
-            digest_lines = [
-                f"🤖 *ملخص التشغيل اليومي لـ StokScan AI*",
-                f"📅 التاريخ: {run_date_str}",
-                f"⏱️ مدة التشغيل الإجمالية: {elapsed:.1f} ثانية",
-                ""
-            ]
+            closed_recs = res.data or []
+            total_closed = len(closed_recs)
             
-            step_names_ar = {
-                "sync_inventory": "تحديث قائمة الأسهم",
-                "mark_non_listed": "تحديد الأسهم غير المدرجة",
-                "sync_prices": "مزامنة الأسعار",
-                "calculate_indicators": "حساب المؤشرات الفنية",
-                "news_sentiment": "تحليل الأخبار بالذكاء الاصطناعي",
-                "precompute_heatmap": "حساب الـ Heatmap",
-                "update_positions": "تحديث المحفظة",
-                "evaluate_recommendations": "تقييم التوصيات القديمة",
-                "refresh_market_status_for_gate": "تحديث بوابة التوصيات",
-                "generate_recommendations": "توليد التوصيات الجديدة",
-                "historical_similarity": "البحث عن التشابه التاريخي",
-                "weekly_performance_report": "التقرير الأسبوعي للأداء",
-                "refresh_market_status": "تحديث حالة المؤشرات العامة",
-                "weekly_adaptive_retraining": "إعادة التدريب التكيفي"
-            }
+            # Calculate stats
+            win_count = sum(1 for r in closed_recs if r.get("status") == "win")
+            win_rate = (win_count / total_closed * 100) if total_closed > 0 else 0.0
             
-            for step in steps_log:
-                name = step.get("step")
-                status = step.get("status")
-                count = step.get("count", 0)
+            total_pnl = sum(float(r.get("profit_loss_pct") or 0.0) for r in closed_recs)
+            avg_pnl = (total_pnl / total_closed) if total_closed > 0 else 0.0
+            
+            best_trade = None
+            worst_trade = None
+            
+            if closed_recs:
+                sorted_recs = sorted(closed_recs, key=lambda x: float(x.get("profit_loss_pct") or 0.0))
+                worst_trade = sorted_recs[0]
+                best_trade = sorted_recs[-1]
                 
-                emoji = "✅" if status in ("success", "skipped") else "❌"
-                if status == "skipped":
-                    emoji = "⏭️"
+            # Fetch current active/open recommendations (top 5 by creation date or precision)
+            open_res = (
+                supabase.table("scan_results")
+                .select("symbol, exchange, entry_price, last_close, profit_loss_pct, precision, created_at")
+                .eq("status", "open")
+                .order("created_at", desc=True)
+                .limit(5)
+                .execute()
+            )
+            open_recs = open_res.data or []
+            
+            active_lines = []
+            for r in open_recs:
+                sym = r["symbol"]
+                ex = r.get("exchange", "EGX")
+                ep = float(r.get("entry_price") or 0.0)
+                cp = float(r.get("last_close") or ep)
+                pnl = float(r.get("profit_loss_pct") or 0.0)
+                score = round(float(r.get("precision") or 0.5) * 10)
+                icon = "🟢" if pnl >= 0 else "🔴"
+                active_lines.append(
+                    f"▪️ *{sym}.{ex}* | دخول: `{ep:.2f}` | حالي: `{cp:.2f}` ({icon} `{pnl:+.2f}%` | التقييم: `{score}/10`)"
+                )
+            active_positions_str = "\n".join(active_lines) if active_lines else "▫️ لا توجد توصيات مفتوحة حالياً."
+            
+            best_str = "—"
+            if best_trade:
+                best_str = f"*{best_trade['symbol']}.{best_trade.get('exchange', 'EGX')}* بمكسب `{float(best_trade['profit_loss_pct']):+.2f}%` 🚀"
                 
-                step_ar = step_names_ar.get(name, name)
-                line = f"{emoji} *{step_ar}* — {status.upper()}"
-                if count > 0:
-                    line += f" ({count})"
-                digest_lines.append(line)
+            worst_str = "—"
+            if worst_trade:
+                worst_str = f"*{worst_trade['symbol']}.{worst_trade.get('exchange', 'EGX')}* بخسارة `{float(worst_trade['profit_loss_pct']):+.2f}%` 🛡️"
                 
-            try:
-                res_status = supabase.table("market_cache").select("payload").eq("cache_key", "market_status_Egypt").maybe_single().execute()
-                if res_status.data and res_status.data.get("payload"):
-                    payload_data = res_status.data["payload"]
-                    egx30_change = payload_data.get("egx30", {}).get("change_pct", 0)
-                    egx30_close = payload_data.get("egx30", {}).get("close", 0)
-                    market_state = "Bullish 📈" if egx30_change >= 0 else "Bearish 📉"
-                    digest_lines.append("")
-                    digest_lines.append(f"📊 *حالة السوق اليوم (EGX30)*: {market_state}")
-                    digest_lines.append(f"• الإغلاق: {egx30_close:,.2f} | التغيير: {egx30_change:+.2f}%")
-            except Exception as me_err:
-                print(f"[TELEGRAM_DISPATCH] Market status read error: {me_err}")
-                
-            return {"preview": "\n".join(digest_lines), "count": len(steps_log)}
+            start_date_str = (dt.datetime.utcnow() - dt.timedelta(days=7)).strftime("%Y-%m-%d")
+            end_date_str = dt.datetime.utcnow().strftime("%Y-%m-%d")
+            
+            web_origin = os.getenv("WEB_ORIGIN", "https://egxbots.com").strip().rstrip("/")
+            
+            msg = (
+                f"📊 *التقرير الأسبوعي للأداء / Weekly Report* 📊\n"
+                f"📅 *الفترة:* من `{start_date_str}` إلى `{end_date_str}`\n"
+                f"━━━━━━━━━━━━━━━━━━━━\n\n"
+                f"📈 *ملخص الأداء المغلق / Closed Performance Summary:*\n"
+                f"▪️ *الصفقات المغلقة:* `{total_closed}` صفقة\n"
+                f"▪️ *نسبة النجاح (Win Rate):* `{win_rate:.1f}%` 🎯\n"
+                f"▪️ *متوسط العائد لكل صفقة:* `{avg_pnl:+.2f}%`\n"
+                f"▪️ *العائد التراكمي الإجمالي:* `{total_pnl:+.2f}%`\n\n"
+                f"🏆 *أفضل صفقة (Best Trade):*\n"
+                f"▫️ {best_str}\n\n"
+                f"📉 *أسوأ صفقة (Worst Trade):*\n"
+                f"▫️ {worst_str}\n\n"
+                f"━━━━━━━━━━━━━━━━━━━━\n"
+                f"💼 *توصيات مفتوحة حالياً (آخر 5) / Active Positions:*\n"
+                f"{active_positions_str}\n\n"
+                f"━━━━━━━━━━━━━━━━━━━━\n"
+                f"🔗 *لمتابعة الصفقات والتقارير الفنية الكاملة:*\n"
+                f"👉 [اضغط هنا لفتح المنصة]({web_origin}/scanner/backtests?tab=bots)\n"
+            )
+            
+            return {"preview": msg, "count": total_closed}
             
         else:
             raise HTTPException(status_code=400, detail="Invalid preview type")

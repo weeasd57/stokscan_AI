@@ -40,14 +40,14 @@ export default function TelegramDispatchTab() {
         } else {
             setLoadingReport(true);
             try {
-                const res = await fetch("/api/admin/telegram-dispatch/preview?type=report");
+                const res = await fetch("/api/admin/telegram-dispatch/preview?type=weekly_report");
                 if (res.ok) {
                     const data = await res.json();
                     setReportMessage(data.preview || "");
                     setReportCount(data.count ?? 0);
-                    toast.success("Daily digest report preview generated!");
+                    toast.success("Weekly performance report preview generated!");
                 } else {
-                    toast.error("Failed to generate daily report preview");
+                    toast.error("Failed to generate weekly report preview");
                 }
             } catch (err) {
                 console.error(err);
@@ -167,7 +167,7 @@ export default function TelegramDispatchTab() {
                     </button>
                 </div>
 
-                {/* 2. Daily Digest Report Card */}
+                {/* 2. Weekly Performance Report Card */}
                 <div className="border-4 border-black dark:border-white bg-zinc-900/40 p-6 backdrop-blur-xl shadow-[6px_6px_0px_rgba(0,0,0,1)] dark:shadow-[6px_6px_0px_rgba(255,255,255,1)] relative overflow-hidden flex flex-col justify-between">
                     <div>
                         <div className="flex items-center justify-between border-b-4 border-black dark:border-zinc-800 pb-4 mb-6">
@@ -175,15 +175,15 @@ export default function TelegramDispatchTab() {
                                 <div className="p-2.5 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-400">
                                     <CheckCircle2 className="w-5 h-5" />
                                 </div>
-                                <h3 className="text-lg font-black text-white uppercase tracking-tight">Daily Digest Report</h3>
+                                <h3 className="text-lg font-black text-white uppercase tracking-tight">Weekly Performance Report</h3>
                             </div>
                             <span className="text-[10px] font-black bg-purple-600 text-white px-2.5 py-1 rounded-full border-2 border-black">
-                                {reportCount !== null ? `${reportCount} Steps` : "Unloaded"}
+                                {reportCount !== null ? `${reportCount} Trades` : "Unloaded"}
                             </span>
                         </div>
 
                         <p className="text-xs text-zinc-400 font-bold mb-4 uppercase tracking-wider">
-                            Loads the status and metrics of the latest daily bot run job from the database daily run logs.
+                            Loads closed trades performance metrics and active positions for the last 7 days.
                         </p>
 
                         <div className="space-y-4">
@@ -197,7 +197,7 @@ export default function TelegramDispatchTab() {
                                 ) : (
                                     <Eye className="w-4 h-4" />
                                 )}
-                                Generate Digest Report Preview
+                                Generate Weekly Report Preview
                             </button>
 
                             <div className="space-y-2">
@@ -222,7 +222,7 @@ export default function TelegramDispatchTab() {
                         ) : (
                             <Send className="w-4 h-4 text-black" />
                         )}
-                        Broadcast Report to Channel
+                        Broadcast Weekly Report to Channel
                     </button>
                 </div>
             </div>
