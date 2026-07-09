@@ -180,7 +180,7 @@ export default function ScheduleTab() {
                                         <div className="text-[10px] text-zinc-400">Master scanning process toggle</div>
                                     </div>
                                     <Switch.Root
-                                        checked={schedulerState.enabled}
+                                        checked={schedulerState.enabled ?? false}
                                         onCheckedChange={(checked: boolean) => setSchedulerState(prev => prev ? { ...prev, enabled: checked } : null)}
                                         className={`w-11 h-6 rounded-full relative outline-none cursor-pointer transition-colors ${schedulerState.enabled ? 'bg-purple-600' : 'bg-zinc-800'}`}
                                     >
@@ -195,7 +195,7 @@ export default function ScheduleTab() {
                                         <div className="text-[10px] text-zinc-400">Only scan during trading session</div>
                                     </div>
                                     <Switch.Root
-                                        checked={schedulerState.respect_schedule}
+                                        checked={schedulerState.respect_schedule ?? false}
                                         onCheckedChange={(checked: boolean) => setSchedulerState(prev => prev ? { ...prev, respect_schedule: checked } : null)}
                                         className={`w-11 h-6 rounded-full relative outline-none cursor-pointer transition-colors ${schedulerState.respect_schedule ? 'bg-purple-600' : 'bg-zinc-800'}`}
                                     >
@@ -210,7 +210,7 @@ export default function ScheduleTab() {
                                         type="number"
                                         min={1}
                                         max={1440}
-                                        value={schedulerState.interval_minutes}
+                                        value={schedulerState.interval_minutes ?? 30}
                                         onChange={(e) => setSchedulerState(prev => prev ? { ...prev, interval_minutes: parseInt(e.target.value) || 30 } : null)}
                                         className="w-full bg-black/50 border border-zinc-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-purple-500 transition-colors text-white font-mono"
                                     />
@@ -223,7 +223,7 @@ export default function ScheduleTab() {
                                         <input
                                             type="text"
                                             placeholder="10:00"
-                                            value={schedulerState.open_time}
+                                            value={schedulerState.open_time || ""}
                                             onChange={(e) => setSchedulerState(prev => prev ? { ...prev, open_time: e.target.value } : null)}
                                             className="w-full bg-black/50 border border-zinc-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-purple-500 transition-colors text-white font-mono"
                                         />
@@ -233,7 +233,7 @@ export default function ScheduleTab() {
                                         <input
                                             type="text"
                                             placeholder="14:30"
-                                            value={schedulerState.close_time}
+                                            value={schedulerState.close_time || ""}
                                             onChange={(e) => setSchedulerState(prev => prev ? { ...prev, close_time: e.target.value } : null)}
                                             className="w-full bg-black/50 border border-zinc-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-purple-500 transition-colors text-white font-mono"
                                         />
@@ -253,13 +253,13 @@ export default function ScheduleTab() {
                                             { label: "F", val: 4 },
                                             { label: "S", val: 5 }
                                         ].map(day => {
-                                            const isChecked = schedulerState.active_days.includes(day.val);
+                                            const isChecked = Array.isArray(schedulerState?.active_days) && schedulerState.active_days.includes(day.val);
                                             return (
                                                 <button
                                                     key={day.val}
                                                     type="button"
                                                     onClick={() => {
-                                                        const current = schedulerState.active_days;
+                                                        const current = schedulerState.active_days || [];
                                                         const updated = current.includes(day.val)
                                                             ? current.filter(d => d !== day.val)
                                                             : [...current, day.val];
