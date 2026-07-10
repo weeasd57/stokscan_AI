@@ -28,11 +28,20 @@ class TelegramBot:
     2. Long-Polling  — when WEBHOOK_URL is NOT set (local development)
     """
 
-    # Use direct Telegram API instead of relay (relay has 404 issues)
-    API = "https://api.telegram.org"
+    # Telegram API — use TELEGRAM_RELAY_URL (Supabase Edge Function) when available
+    # to bypass HF Spaces network restrictions that block api.telegram.org outbound
+    _DIRECT_API = "https://api.telegram.org"
     DEFAULT_CHANNEL_ID = "-1002083067817"
     DEFAULT_THREAD_ID = 153
     LEGACY_BAD_CHAT_IDS = {"-1003699330518"}
+
+    @property
+    def API(self) -> str:
+        relay = os.getenv("TELEGRAM_RELAY_URL", "").strip().rstrip("/")
+        # Only use relay if it points to an external non-Telegram service
+        if relay and "telegram.org" not in relay:
+            return relay
+        return self._DIRECT_API
 
     def __init__(self, token: str, bot_instance=None):
         self.token = token
@@ -135,12 +144,22 @@ class TelegramBot:
                 pass
 
     def _call_api(self, method: str, payload: dict = None, timeout: int = 30) -> dict:
-        """Single Telegram Bot API call — no retries, fast fail."""
-        url = f"{self.API}/bot{self.token}/{method}"
+        """Single Telegram Bot API call — via relay or direct. No retries, fast fail."""
+        api_base = self.API
+        is_relay = "telegram.org" not in api_base
+
         try:
-            resp = requests.post(url, json=payload or {}, timeout=timeout)
+            if is_relay:
+                # Supabase Edge Function relay: wrap token + method into body
+                url = api_base
+                wrapped = {"token": self.token, "method": method, **(payload or {})}
+                resp = requests.post(url, json=wrapped, timeout=timeout)
+            else:
+                # Direct Telegram API
+                url = f"{api_base}/bot{self.token}/{method}"
+                resp = requests.post(url, json=payload or {}, timeout=timeout)
+
             data = resp.json()
-            # Some Telegram errors return {"ok":false} without "description"
             if not data.get("ok") and "description" not in data:
                 data["description"] = f"HTTP {resp.status_code} — empty response"
             return data
@@ -149,7 +168,7 @@ class TelegramBot:
         except requests.exceptions.ConnectionError as e:
             return {"ok": False, "description": f"ConnectionError: {e}"}
         except json.JSONDecodeError:
-            return {"ok": False, "description": "Non-JSON response from Telegram"}
+            return {"ok": False, "description": "Non-JSON response"}
         except Exception as e:
             return {"ok": False, "description": str(e)}
 
@@ -836,7 +855,8 @@ class TelegramBot:
                 hook = f"{webhook_url.rstrip('/')}/tg-webhook/{self.token}"
                 self._log(f"Setting webhook to: {hook}")
                 backoff = 10
-                for attempt in range(1, 100):
+                # Cap at 10 attempts — if HF blocks Telegram, run in outbound-only mode
+                for attempt in range(1, 11):
                     self._log(f"Webhook attempt {attempt}...")
                     r = self._call_api("setWebhook", {"url": hook})
                     if r.get("ok"):
@@ -846,11 +866,14 @@ class TelegramBot:
                         self._net_ok = True
                         break
                     else:
-                        self._log(
-                            f"Webhook failed: {r.get('error', r.get('description', '?'))}  (next in {backoff}s)"
-                        )
+                        err_desc = r.get("description", r.get("error", "?"))
+                        self._log(f"Webhook failed: {err_desc}  (next in {backoff}s)")
                         time.sleep(backoff)
-                        backoff = min(backoff * 1.5, 300)
+                        backoff = min(backoff * 1.5, 120)
+                else:
+                    self._log("Webhook setup failed after 10 attempts — outbound-only mode (sender still active). ✅")
+                    self._ready = True
+                    self._net_ok = True
             else:
                 # ── LONG-POLLING MODE (local development) ──
                 self._log(
