@@ -1901,9 +1901,9 @@ export default function MarketClient() {
                             <span className="text-[9px] font-black uppercase text-zinc-500">{isAr ? "من" : "From"}</span>
                             <input
                                 type="date"
-                                value={heatmapStartDate}
-                                max={heatmapEndDate || availableHeatmapDates[0] || undefined}
-                                min={availableHeatmapDates[availableHeatmapDates.length - 1] || undefined}
+                                value={heatmapStartDate ? heatmapStartDate.slice(0, 10) : ""}
+                                max={heatmapEndDate ? heatmapEndDate.slice(0, 10) : (availableHeatmapDates[0] ? availableHeatmapDates[0].slice(0, 10) : undefined)}
+                                min={availableHeatmapDates[availableHeatmapDates.length - 1] ? availableHeatmapDates[availableHeatmapDates.length - 1].slice(0, 10) : undefined}
                                 onChange={(event) => {
                                     setHeatmapStartDate(event.target.value);
                                     setHeatmapFrameIndex(0);
@@ -1915,9 +1915,9 @@ export default function MarketClient() {
                             <span className="text-[9px] font-black uppercase text-zinc-500">{isAr ? "إلى" : "To"}</span>
                             <input
                                 type="date"
-                                value={heatmapEndDate}
-                                max={availableHeatmapDates[0] || undefined}
-                                min={heatmapStartDate || availableHeatmapDates[availableHeatmapDates.length - 1] || undefined}
+                                value={heatmapEndDate ? heatmapEndDate.slice(0, 10) : ""}
+                                max={availableHeatmapDates[0] ? availableHeatmapDates[0].slice(0, 10) : undefined}
+                                min={heatmapStartDate ? heatmapStartDate.slice(0, 10) : (availableHeatmapDates[availableHeatmapDates.length - 1] ? availableHeatmapDates[availableHeatmapDates.length - 1].slice(0, 10) : undefined)}
                                 onChange={(event) => {
                                     setHeatmapEndDate(event.target.value);
                                     setHeatmapFrameIndex(0);
@@ -1927,9 +1927,9 @@ export default function MarketClient() {
                         </label>
                         <input
                             type="date"
-                            value={heatmapDate}
-                            max={availableHeatmapDates[0] || undefined}
-                            min={availableHeatmapDates[availableHeatmapDates.length - 1] || undefined}
+                            value={heatmapDate ? heatmapDate.slice(0, 10) : ""}
+                            max={availableHeatmapDates[0] ? availableHeatmapDates[0].slice(0, 10) : undefined}
+                            min={availableHeatmapDates[availableHeatmapDates.length - 1] ? availableHeatmapDates[availableHeatmapDates.length - 1].slice(0, 10) : undefined}
                             onChange={(event) => handleHeatmapDateChange(event.target.value)}
                             className="h-10 border-2 border-black dark:border-white bg-white dark:bg-zinc-950 px-3 text-xs font-mono font-black text-zinc-950 dark:text-white shadow-[2px_2px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_rgba(255,255,255,0.2)]"
                         />
