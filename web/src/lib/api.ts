@@ -1179,6 +1179,12 @@ export type TechFilter = {
 
   cmf_min?: number;
 
+  divergence_type?: string;
+
+  divergence_indicator?: string;
+
+  divergence_min_strength?: number;
+
 };
 
 
@@ -1252,6 +1258,18 @@ export type TechResult = {
   distribution_blocked?: boolean;
 
   distribution_reason?: string | null;
+
+  rsi_divergence?: string;
+
+  macd_divergence?: string;
+
+  stoch_divergence?: string;
+
+  divergence_strength?: number;
+
+  divergence_periods?: number;
+
+  divergence_summary?: string | null;
 
 };
 

@@ -20,7 +20,7 @@ import StockLogo from "@/components/StockLogo";
 import ScannerTemplates, { type ScannerTemplateId } from "@/components/ScannerTemplates";
 import TradingViewChart from "@/components/TradingViewChartDynamic";
 import { isShariaCompliant } from "@/lib/shariaStocks";
-const DEFAULT_PILLS = ["price", "rsi", "marketcap", "sector", "sharia"];
+const DEFAULT_PILLS = ["price", "rsi", "marketcap", "sector", "divergence", "sharia"];
 
 export default function TechnicalScannerPage() {
     const { t, language } = useLanguage();
@@ -64,6 +64,9 @@ export default function TechnicalScannerPage() {
             shariaOnly,
             activeSymbol,
             chartHeight,
+            divergenceType,
+            divergenceIndicator,
+            divergenceMinStrength,
         },
         setTechScanner,
         runTechScan,
@@ -412,6 +415,9 @@ export default function TechnicalScannerPage() {
             requireAccumulation: false,
             cmfMin: "",
             shariaOnly: false,
+            divergenceType: "NONE",
+            divergenceIndicator: "ANY",
+            divergenceMinStrength: "0",
         };
 
         const presets: Record<ScannerTemplateId, Partial<typeof baseUpdate>> = {
@@ -420,6 +426,8 @@ export default function TechnicalScannerPage() {
             volume_breakout: { volumeAboveSma20: true },
             sma_200_breakout: { aboveEma200: true },
             smart_money_flow: { avoidDistribution: true, requireAccumulation: true, cmfMin: "0.05" },
+            rsi_bullish_divergence: { divergenceType: "BULLISH", divergenceIndicator: "RSI", divergenceMinStrength: "40" },
+            bearish_divergence_alert: { divergenceType: "BEARISH", divergenceIndicator: "ANY", divergenceMinStrength: "30" },
         };
 
         setTechScanner({ ...baseUpdate, ...presets[id] });
@@ -1280,6 +1288,102 @@ export default function TechnicalScannerPage() {
                         </div>
                     )
                 };
+            case "divergence":
+                return {
+                    label: language === "ar" ? "التباعدات 🔀" : "Divergences 🔀",
+                    valueDisplay: divergenceType !== "NONE" 
+                        ? `${divergenceIndicator === "ANY" ? (language === "ar" ? "أي مؤشر" : "Any Ind") : divergenceIndicator} ${divergenceType === "BULLISH" ? "🟢" : divergenceType === "BEARISH" ? "🔴" : "🔀"}`
+                        : (language === "ar" ? "الكل" : "Any"),
+                    isActive: divergenceType !== "NONE",
+                    onReset: () => {
+                        setTechScanner({ divergenceType: "NONE", divergenceIndicator: "ANY", divergenceMinStrength: "0" });
+                        removeFilterIfNonDefault("divergence");
+                        setTimeout(() => void runTechScan({ force: true }), 0);
+                    },
+                    renderPopover: () => (
+                        <div className="space-y-3.5 w-64 text-left">
+                            <h4 className="text-xs font-bold text-[#787b86] uppercase tracking-wider">
+                                {language === "ar" ? "فلاتر التباعد الذكية" : "Smart Divergence Filters"}
+                            </h4>
+                            
+                            {/* Type selector */}
+                            <div className="space-y-1">
+                                <label className="text-[10px] text-zinc-400 font-semibold block text-left">
+                                    {language === "ar" ? "الاتجاه" : "Direction"}
+                                </label>
+                                <select
+                                    value={divergenceType}
+                                    onChange={(e) => setTechScanner({ divergenceType: e.target.value })}
+                                    className="w-full h-8 px-2 rounded bg-[#1c2030] border border-[#2a2e39] text-white text-xs focus:outline-none focus:border-[#2962ff] font-medium"
+                                >
+                                    <option value="NONE">{language === "ar" ? "بدون تباعد (الكل)" : "No Divergence (All)"}</option>
+                                    <option value="BULLISH">{language === "ar" ? "🟢 تباعد صعودي (شراء)" : "🟢 Bullish Divergence"}</option>
+                                    <option value="BEARISH">{language === "ar" ? "🔴 تباعد هبوطي (بيع)" : "🔴 Bearish Divergence"}</option>
+                                    <option value="ANY">{language === "ar" ? "🔀 أي تباعد" : "🔀 Any Divergence"}</option>
+                                </select>
+                            </div>
+
+                            {/* Indicator selector */}
+                            <div className="space-y-1">
+                                <label className="text-[10px] text-zinc-400 font-semibold block text-left">
+                                    {language === "ar" ? "المؤشر الفني" : "Technical Indicator"}
+                                </label>
+                                <select
+                                    value={divergenceIndicator}
+                                    disabled={divergenceType === "NONE"}
+                                    onChange={(e) => setTechScanner({ divergenceIndicator: e.target.value })}
+                                    className="w-full h-8 px-2 rounded bg-[#1c2030] border border-[#2a2e39] text-white text-xs focus:outline-none focus:border-[#2962ff] font-medium disabled:opacity-40"
+                                >
+                                    <option value="ANY">{language === "ar" ? "جميع المؤشرات" : "All Indicators"}</option>
+                                    <option value="RSI">RSI (Relative Strength Index)</option>
+                                    <option value="MACD">MACD (Moving Average Convergence Divergence)</option>
+                                    <option value="STOCH">Stochastic %K</option>
+                                </select>
+                            </div>
+
+                            {/* Min Strength Slider */}
+                            <div className="space-y-1.5">
+                                <div className="flex justify-between items-center text-[10px]">
+                                    <span className="text-zinc-400 font-semibold">{language === "ar" ? "الحد الأدنى لقوة التباعد" : "Min Divergence Strength"}</span>
+                                    <span className="text-indigo-400 font-bold font-mono">{divergenceMinStrength}%</span>
+                                </div>
+                                <input
+                                    type="range"
+                                    min="0"
+                                    max="100"
+                                    step="5"
+                                    disabled={divergenceType === "NONE"}
+                                    value={divergenceMinStrength}
+                                    onChange={(e) => setTechScanner({ divergenceMinStrength: e.target.value })}
+                                    className="w-full h-1 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-[#2962ff] disabled:opacity-40"
+                                />
+                            </div>
+
+                            <div className="flex gap-2 pt-1.5">
+                                <button
+                                    onClick={() => {
+                                        setTechScanner({ divergenceType: "NONE", divergenceIndicator: "ANY", divergenceMinStrength: "0" });
+                                        removeFilterIfNonDefault("divergence");
+                                        setActiveFilterPopover(null);
+                                        setTimeout(() => void runTechScan({ force: true }), 0);
+                                    }}
+                                    className="flex-1 h-7 text-[10px] font-bold text-[#b2b5be] hover:text-white bg-[#1c2030] border border-[#2a2e39] rounded"
+                                >
+                                    {language === "ar" ? "إعادة تعيين" : "Reset"}
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        setActiveFilterPopover(null);
+                                        setTimeout(() => void runTechScan({ force: true }), 0);
+                                    }}
+                                    className="flex-1 h-7 text-[10px] font-bold bg-[#2962ff] hover:bg-[#1a4eff] text-white rounded"
+                                >
+                                    {language === "ar" ? "تطبيق" : "Apply"}
+                                </button>
+                            </div>
+                        </div>
+                    )
+                };
             default:
                 return null;
         }
@@ -1304,8 +1408,9 @@ export default function TechnicalScannerPage() {
         if (useAiFilter) count++;
         if (avoidDistribution || requireAccumulation || cmfMin) count++;
         if (shariaOnly) count++;
+        if (divergenceType && divergenceType !== "NONE") count++;
         return count;
-    }, [minPrice, rsiMin, rsiMax, marketCapMin, marketCapMax, sector, industry, aboveEma50, aboveEma200, goldenCross, volumeAboveSma20, aboveVwap20, adxMin, adxMax, atrMin, atrMax, rocMin, rocMax, useAiFilter, avoidDistribution, requireAccumulation, cmfMin, shariaOnly]);
+    }, [minPrice, rsiMin, rsiMax, marketCapMin, marketCapMax, sector, industry, aboveEma50, aboveEma200, goldenCross, volumeAboveSma20, aboveVwap20, adxMin, adxMax, atrMin, atrMax, rocMin, rocMax, useAiFilter, avoidDistribution, requireAccumulation, cmfMin, shariaOnly, divergenceType]);
 
     const hasAnyActiveFilter = activeFiltersCount > 0;
 
@@ -1339,7 +1444,8 @@ export default function TechnicalScannerPage() {
             { id: "roc", label: "Rate of Change (ROC)", desc: "12-period speed momentum indicator", cat: "technical" },
             { id: "marketmaker", label: "Market Maker Flow", desc: "Avoid distribution or require accumulation with CMF 20", cat: "moneyflow" },
             { id: "ai", label: "Random Forest AI Filter", desc: "Machine Learning trade prediction filter", cat: "ai" },
-            { id: "sharia", label: "Sharia-Compliant Stocks", desc: "Show only EGX stocks screened for Islamic Sharia compliance", cat: "security" }
+            { id: "sharia", label: "Sharia-Compliant Stocks", desc: "Show only EGX stocks screened for Islamic Sharia compliance", cat: "security" },
+            { id: "divergence", label: "Technical Divergence", desc: "Scan for RSI, MACD, and Stochastic divergences", cat: "technical" }
         ];
 
         const filteredList = ALL_FILTERS.filter(item => {
@@ -1938,6 +2044,15 @@ export default function TechnicalScannerPage() {
                                                             {isShariaCompliant(r.symbol) && (
                                                                 <span className="inline-flex items-center px-1 py-0.5 bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-[8px] font-black uppercase tracking-wider rounded-sm" title={language === "ar" ? "سهم متوافق شرعياً" : "Sharia-compliant stock"}>
                                                                     {language === "ar" ? "حلال" : "Halal"}
+                                                                </span>
+                                                            )}
+                                                            {r.divergence_summary && (
+                                                                <span className={`inline-flex items-center px-1.5 py-0.5 text-[8px] font-black tracking-wider rounded border ${
+                                                                    r.rsi_divergence === "BULLISH" || r.macd_divergence === "BULLISH" || r.stoch_divergence === "BULLISH"
+                                                                        ? "bg-purple-500/15 border-purple-500/30 text-purple-400" 
+                                                                        : "bg-amber-500/15 border-amber-500/30 text-amber-400"
+                                                                }`} title={r.divergence_summary}>
+                                                                    {r.rsi_divergence === "BULLISH" || r.macd_divergence === "BULLISH" || r.stoch_divergence === "BULLISH" ? "↗" : "↘"}
                                                                 </span>
                                                             )}
                                                         </div>

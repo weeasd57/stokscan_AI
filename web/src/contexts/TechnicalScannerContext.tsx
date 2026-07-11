@@ -57,6 +57,9 @@ export type TechScannerState = {
   shariaOnly: boolean;
   activeSymbol: string | null;
   chartHeight: number;
+  divergenceType: string;
+  divergenceIndicator: string;
+  divergenceMinStrength: string;
 };
 
 type TechnicalScannerContextType = {
@@ -111,6 +114,9 @@ const DEFAULT_STATE: TechScannerState = {
   shariaOnly: false,
   activeSymbol: null,
   chartHeight: 450,
+  divergenceType: "NONE",
+  divergenceIndicator: "ANY",
+  divergenceMinStrength: "0",
 };
 
 const TechnicalScannerContext = createContext<TechnicalScannerContextType | undefined>(undefined);
@@ -162,6 +168,9 @@ function buildFilterKey(filter: TechFilter): string {
     avoid_distribution: filter.avoid_distribution,
     require_accumulation: filter.require_accumulation,
     cmf_min: filter.cmf_min,
+    divergence_type: filter.divergence_type,
+    divergence_indicator: filter.divergence_indicator,
+    divergence_min_strength: filter.divergence_min_strength,
   });
 }
 
@@ -194,6 +203,9 @@ function buildFilterFromState(s: TechScannerState): TechFilter {
     avoid_distribution: s.avoidDistribution,
     require_accumulation: s.requireAccumulation,
     cmf_min: s.cmfMin ? parseFloat(s.cmfMin) : undefined,
+    divergence_type: s.divergenceType !== "NONE" ? s.divergenceType : undefined,
+    divergence_indicator: s.divergenceIndicator !== "ANY" ? s.divergenceIndicator : undefined,
+    divergence_min_strength: s.divergenceMinStrength && parseFloat(s.divergenceMinStrength) > 0 ? parseFloat(s.divergenceMinStrength) / 100 : undefined,
   };
 }
 

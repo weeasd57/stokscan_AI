@@ -285,6 +285,103 @@ def calculate_and_save_indicators(symbol: str, exchange: str = "EGX"):
         _batch_upsert_indicators(records, batch_size=len(records))
 
 
+def _detect_single_divergence(prices: pd.Series, indicator: pd.Series, ind_name: str = "RSI") -> Tuple[str, float, int]:
+    """
+    Detects divergence between a price series and an indicator series over a 15-day window.
+    Returns: (divergence_type, strength, periods)
+    """
+    prices = pd.to_numeric(prices, errors="coerce").ffill().fillna(0.0)
+    indicator = pd.to_numeric(indicator, errors="coerce").ffill().fillna(0.0)
+    
+    if len(prices) < 15 or len(indicator) < 15:
+        return "NONE", 0.0, 0
+
+    try:
+        # Split into recent (last 5 days) and previous (10 days before)
+        price_recent = prices.iloc[-5:]
+        price_prev = prices.iloc[-15:-5]
+        
+        ind_recent = indicator.iloc[-5:]
+        ind_prev = indicator.iloc[-15:-5]
+        
+        price_low_recent = price_recent.min()
+        price_low_prev = price_prev.min()
+        ind_low_recent = ind_recent.min()
+        ind_low_prev = ind_prev.min()
+        
+        price_high_recent = price_recent.max()
+        price_high_prev = price_prev.max()
+        ind_high_recent = ind_recent.max()
+        ind_high_prev = ind_prev.max()
+        
+        # Bullish Divergence: Price makes a lower low, Indicator makes a higher low
+        if price_low_recent < price_low_prev and ind_low_recent > ind_low_prev:
+            price_drop_pct = (price_low_prev - price_low_recent) / (price_low_prev or 1.0)
+            
+            if ind_name == "MACD":
+                ind_std = indicator.std() or 1.0
+                ind_rise_norm = (ind_low_recent - ind_low_prev) / ind_std
+            else:
+                ind_rise_norm = (ind_low_recent - ind_low_prev) / 50.0
+                
+            strength = min(1.0, max(0.3, (price_drop_pct * 12.0) + (ind_rise_norm * 0.7)))
+            
+            try:
+                p_low_rec_idx = price_recent.idxmin()
+                p_low_prev_idx = price_prev.idxmin()
+                pos_rec = prices.index.get_loc(p_low_rec_idx)
+                pos_prev = prices.index.get_loc(p_low_prev_idx)
+                periods = int(pos_rec - pos_prev)
+            except Exception:
+                periods = 10
+                
+            return "BULLISH", float(strength), int(periods)
+            
+        # Bearish Divergence: Price makes a higher high, Indicator makes a lower high
+        if price_high_recent > price_high_prev and ind_high_recent < ind_high_prev:
+            price_rise_pct = (price_high_recent - price_high_prev) / (price_high_prev or 1.0)
+            
+            if ind_name == "MACD":
+                ind_std = indicator.std() or 1.0
+                ind_drop_norm = (ind_high_prev - ind_high_recent) / ind_std
+            else:
+                ind_drop_norm = (ind_high_prev - ind_high_recent) / 50.0
+                
+            strength = min(1.0, max(0.3, (price_rise_pct * 12.0) + (ind_drop_norm * 0.7)))
+            
+            try:
+                p_high_rec_idx = price_recent.idxmax()
+                p_high_prev_idx = price_prev.idxmax()
+                pos_rec = prices.index.get_loc(p_high_rec_idx)
+                pos_prev = prices.index.get_loc(p_high_prev_idx)
+                periods = int(pos_rec - pos_prev)
+            except Exception:
+                periods = 10
+                
+            return "BEARISH", float(strength), int(periods)
+            
+    except Exception as e:
+        print(f"[DIVERGENCE] Error calculating {ind_name} divergence: {e}")
+        
+    return "NONE", 0.0, 0
+
+
+def _build_divergence_summary(rsi_div: str, macd_div: str, stoch_div: str, strength: float, periods: int) -> Optional[str]:
+    divs = []
+    if rsi_div != "NONE":
+        divs.append(f"RSI ({'صعودي' if rsi_div == 'BULLISH' else 'هبوطي'})")
+    if macd_div != "NONE":
+        divs.append(f"MACD ({'صعودي' if macd_div == 'BULLISH' else 'هبوطي'})")
+    if stoch_div != "NONE":
+        divs.append(f"Stochastic ({'صعودي' if stoch_div == 'BULLISH' else 'هبوطي'})")
+        
+    if not divs:
+        return None
+        
+    strength_pct = int(strength * 100)
+    return f"تباعد {' و '.join(divs)} خلال {periods} فترة بقوة {strength_pct}%"
+
+
 def calculate_indicators_for_symbol(symbol: str, exchange: str = "EGX") -> List[Dict[str, Any]]:
     """
     Calculate 20+ technical indicators for a given symbol.
@@ -421,6 +518,33 @@ def calculate_indicators_for_symbol(symbol: str, exchange: str = "EGX") -> List[
     last_indices = df.index[-5:]
     for idx in last_indices:
         date_str = idx.strftime("%Y-%m-%d")
+        
+        # Calculate divergences at each date slice
+        prices_slice = close.loc[:idx]
+        rsi_slice = rsi_14.loc[:idx]
+        macd_slice = macd.loc[:idx]
+        stoch_slice = stoch_k.loc[:idx]
+        
+        rsi_div, rsi_str, rsi_per = _detect_single_divergence(prices_slice, rsi_slice, "RSI")
+        macd_div, macd_str, macd_per = _detect_single_divergence(prices_slice, macd_slice, "MACD")
+        stoch_div, stoch_str, stoch_per = _detect_single_divergence(prices_slice, stoch_slice, "STOCH")
+        
+        div_types = [rsi_div, macd_div, stoch_div]
+        strengths = [rsi_str, macd_str, stoch_str]
+        periods_list = [rsi_per, macd_per, stoch_per]
+        
+        dominant_type = "NONE"
+        dominant_strength = 0.0
+        dominant_periods = 0
+        
+        for d_t, d_s, d_p in zip(div_types, strengths, periods_list):
+            if d_t != "NONE" and d_s > dominant_strength:
+                dominant_type = d_t
+                dominant_strength = d_s
+                dominant_periods = d_p
+                
+        summary_desc = _build_divergence_summary(rsi_div, macd_div, stoch_div, dominant_strength, dominant_periods)
+        
         record = {
             "symbol": symbol,
             "exchange": exchange,
@@ -454,6 +578,12 @@ def calculate_indicators_for_symbol(symbol: str, exchange: str = "EGX") -> List[
             "r_vol": float(r_vol.loc[idx]) if not pd.isna(r_vol.loc[idx]) else None,
             "cci_20": float(cci_20.loc[idx]) if not pd.isna(cci_20.loc[idx]) else None,
             "change_pct": float(change_pct.loc[idx]) if not pd.isna(change_pct.loc[idx]) else None,
+            "rsi_divergence": rsi_div,
+            "macd_divergence": macd_div,
+            "stoch_divergence": stoch_div,
+            "divergence_strength": float(dominant_strength),
+            "divergence_periods": int(dominant_periods),
+            "divergence_summary": summary_desc,
             "calculated_at": calc_ts
         }
         records.append(record)

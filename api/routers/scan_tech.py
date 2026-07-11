@@ -118,7 +118,8 @@ def _fetch_latest_technical_indicators(symbol_pairs: List[tuple[str, str]]) -> D
                     .select(
                         "symbol,exchange,date,close,volume,ema_50,ema_200,rsi_14,momentum_10,"
                         "atr_14,adx_14,stoch_k,stoch_d,cci_20,vwap_20,roc_12,vol_sma20,change_pct,"
-                        "cmf_20,mm_accumulation,mm_distribution"
+                        "cmf_20,mm_accumulation,mm_distribution,"
+                        "rsi_divergence,macd_divergence,stoch_divergence,divergence_strength,divergence_periods,divergence_summary"
                     )
                     .in_("symbol", chunk)
                     .eq("exchange", exchange)
@@ -140,7 +141,8 @@ def _fetch_latest_technical_indicators(symbol_pairs: List[tuple[str, str]]) -> D
                             stock_ai.supabase.table("stock_technical_indicators")
                             .select(
                                 "symbol,exchange,date,close,volume,ema_50,ema_200,rsi_14,momentum_10,"
-                                "atr_14,adx_14,stoch_k,stoch_d,cci_20,vwap_20,roc_12,vol_sma20,change_pct"
+                                "atr_14,adx_14,stoch_k,stoch_d,cci_20,vwap_20,roc_12,vol_sma20,change_pct,"
+                                "rsi_divergence,macd_divergence,stoch_divergence,divergence_strength,divergence_periods,divergence_summary"
                             )
                             .in_("symbol", chunk)
                             .eq("exchange", exchange)
@@ -234,6 +236,10 @@ class TechFilter(BaseModel):
     avoid_distribution: bool = False
     require_accumulation: bool = False
     cmf_min: Optional[float] = None
+    # Divergence Filters
+    divergence_type: Optional[str] = None       # "BULLISH" | "BEARISH" | "ANY"
+    divergence_indicator: Optional[str] = None  # "RSI" | "MACD" | "STOCH" | "ANY"
+    divergence_min_strength: Optional[float] = None
 
 
 def filter_tech_row(tech: dict, f: TechFilter, fundamentals: dict | None = None) -> bool:
@@ -296,6 +302,27 @@ def filter_tech_row(tech: dict, f: TechFilter, fundamentals: dict | None = None)
     if f.cmf_min is not None and mm_values.get("CMF_20", 0.0) < f.cmf_min:
         return False
 
+    # Divergence filter
+    if f.divergence_type and f.divergence_type != "NONE":
+        has_div = False
+        ind_filter = (f.divergence_indicator or "ANY").upper()
+        indicators_to_check = ["rsi", "macd", "stoch"] if ind_filter in ("ANY", "") else [ind_filter.lower()]
+        
+        for ind in indicators_to_check:
+            div_val = tech.get(f"{ind}_divergence", "NONE")
+            if f.divergence_type == "ANY" and div_val != "NONE":
+                has_div = True
+            elif div_val == f.divergence_type:
+                has_div = True
+                
+        if not has_div:
+            return False
+            
+        if f.divergence_min_strength is not None:
+            div_strength = _safe_float(tech.get("divergence_strength", 0.0))
+            if div_strength < f.divergence_min_strength:
+                return False
+
     # Fundamentals
     if f.market_cap_min is not None or f.market_cap_max is not None or f.sector or f.industry:
         funds = fundamentals or {}
@@ -352,6 +379,12 @@ class TechResult(BaseModel):
     mm_distribution: bool = False
     distribution_blocked: bool = False
     distribution_reason: Optional[str] = None
+    rsi_divergence: Optional[str] = "NONE"
+    macd_divergence: Optional[str] = "NONE"
+    stoch_divergence: Optional[str] = "NONE"
+    divergence_strength: Optional[float] = 0.0
+    divergence_periods: Optional[int] = 0
+    divergence_summary: Optional[str] = None
 
     @field_validator('*', mode='before')
     def check_nan(cls, v):
@@ -572,6 +605,12 @@ def scan_technical(
                 mm_distribution=distribution_gate.get("mm_distribution", 0.0) > 0.5,
                 distribution_blocked=distribution_gate.get("blocked", False),
                 distribution_reason=distribution_gate.get("reason"),
+                rsi_divergence=tech.get("rsi_divergence", "NONE"),
+                macd_divergence=tech.get("macd_divergence", "NONE"),
+                stoch_divergence=tech.get("stoch_divergence", "NONE"),
+                divergence_strength=tech.get("divergence_strength", 0.0),
+                divergence_periods=tech.get("divergence_periods", 0),
+                divergence_summary=tech.get("divergence_summary"),
             ))
 
             if len(results) >= f.limit:
@@ -789,6 +828,12 @@ def scan_technical(
                 mm_distribution=distribution_gate.get("mm_distribution", 0.0) > 0.5,
                 distribution_blocked=distribution_gate.get("blocked", False),
                 distribution_reason=distribution_gate.get("reason"),
+                rsi_divergence=tech.get("rsi_divergence", "NONE"),
+                macd_divergence=tech.get("macd_divergence", "NONE"),
+                stoch_divergence=tech.get("stoch_divergence", "NONE"),
+                divergence_strength=tech.get("divergence_strength", 0.0),
+                divergence_periods=tech.get("divergence_periods", 0),
+                divergence_summary=tech.get("divergence_summary"),
             ))
         except Exception:
             continue

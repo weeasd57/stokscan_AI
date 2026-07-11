@@ -9,7 +9,9 @@ export type ScannerTemplateId =
   | "rsi_oversold"
   | "volume_breakout"
   | "sma_200_breakout"
-  | "smart_money_flow";
+  | "smart_money_flow"
+  | "rsi_bullish_divergence"
+  | "bearish_divergence_alert";
 
 const templates: Array<{
   id: ScannerTemplateId;
@@ -64,6 +66,24 @@ const templates: Array<{
     gradient: "from-purple-500/20 via-indigo-500/10 to-transparent",
     accent: "text-purple-300",
     icon: DollarSign,
+  },
+  {
+    id: "rsi_bullish_divergence",
+    titleKey: "scanner.templates.rsi_bullish_divergence.title",
+    descKey: "scanner.templates.rsi_bullish_divergence.desc",
+    riskKey: "scanner.templates.risk.medium",
+    gradient: "from-fuchsia-500/20 via-purple-500/10 to-transparent",
+    accent: "text-fuchsia-300",
+    icon: Sparkles,
+  },
+  {
+    id: "bearish_divergence_alert",
+    titleKey: "scanner.templates.bearish_divergence_alert.title",
+    descKey: "scanner.templates.bearish_divergence_alert.desc",
+    riskKey: "scanner.templates.risk.high",
+    gradient: "from-amber-500/20 via-rose-500/10 to-transparent",
+    accent: "text-amber-300",
+    icon: Activity,
   },
 ];
 
