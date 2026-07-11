@@ -375,12 +375,15 @@ const SectorRotationWheel = ({ sectors, isAr, selectedSector, onSelect }: {
                         <filter id="wheelShadow" x="-30%" y="-30%" width="160%" height="160%">
                             <feDropShadow dx="4" dy="4" stdDeviation="0" floodColor="rgba(0,0,0,0.45)" />
                         </filter>
+                        <filter id="wheelTextOutline" x="-20%" y="-20%" width="140%" height="140%">
+                            <feDropShadow dx="0" dy="1" stdDeviation="0.6" floodColor="rgba(0,0,0,0.85)" />
+                        </filter>
                     </defs>
                     <circle cx={cx} cy={cy} r={ringRadius + 58} fill="none" stroke="currentColor" strokeOpacity="0.08" strokeWidth="2" />
                     <circle cx={cx} cy={cy} r={ringRadius} fill="none" stroke="currentColor" strokeOpacity="0.12" strokeWidth="2" strokeDasharray="8 8" />
                     <circle cx={cx} cy={cy} r="76" fill="url(#wheelCore)" stroke="#18181b" strokeWidth="4" />
-                    <text x={cx} y={cy - 6} textAnchor="middle" className="fill-white text-[18px] font-black">SECTOR</text>
-                    <text x={cx} y={cy + 16} textAnchor="middle" className="fill-yellow-200 text-[12px] font-black">ROTATION</text>
+                    <text x={cx} y={cy - 6} textAnchor="middle" className="fill-white text-[18px] font-black" filter="url(#wheelTextOutline)">SECTOR</text>
+                    <text x={cx} y={cy + 16} textAnchor="middle" className="fill-yellow-200 text-[12px] font-black" filter="url(#wheelTextOutline)">ROTATION</text>
                     {ordered.map((sector: any, index: number) => {
                         const angle = (Math.PI * 2 * index) / ordered.length - Math.PI / 2;
                         const x = cx + Math.cos(angle) * ringRadius;
@@ -391,6 +394,13 @@ const SectorRotationWheel = ({ sectors, isAr, selectedSector, onSelect }: {
                         const isUp = change >= 0;
                         const isSelected = selectedSector && selectedSector.name === sector.sector;
                         const label = isAr ? sector.sector_ar : sector.sector;
+                        // Adaptive font sizes based on bubble radius
+                        const labelSize = Math.max(8, Math.min(13, radius / 4.2));
+                        const changeSize = Math.max(7, Math.min(11, radius / 5));
+                        const showChange = radius >= 30;
+                        const maxLabelChars = radius < 30 ? 7 : radius < 40 ? 9 : 12;
+                        const trimmedLabel = label.length > maxLabelChars ? `${label.slice(0, maxLabelChars - 1)}…` : label;
+                        const labelOffset = showChange ? -4 : 4;
                         return (
                             <g key={sector.sector} onClick={() => onSelect({
                                 name: sector.sector,
@@ -403,12 +413,28 @@ const SectorRotationWheel = ({ sectors, isAr, selectedSector, onSelect }: {
                             })} className="cursor-pointer">
                                 <line x1={cx} y1={cy} x2={x} y2={y} stroke={isUp ? "#10b981" : "#ef4444"} strokeOpacity="0.35" strokeWidth="2" className="transition-all duration-500 ease-in-out" />
                                 <circle cx={x} cy={y} r={radius} fill={isUp ? "#10b981" : "#ef4444"} stroke={isSelected ? "#FFDC58" : "#18181b"} strokeWidth={isSelected ? 5 : 3} filter="url(#wheelShadow)" className="transition-all duration-500 ease-in-out" />
-                                <text x={x} y={y - 5} textAnchor="middle" className="fill-white text-[12px] font-black transition-all duration-500 ease-in-out">
-                                    {label.length > 14 ? `${label.slice(0, 12)}…` : label}
+                                <text
+                                    x={x}
+                                    y={y + labelOffset}
+                                    textAnchor="middle"
+                                    className="fill-white font-black transition-all duration-500 ease-in-out"
+                                    style={{ fontSize: labelSize, paintOrder: "stroke fill", stroke: "rgba(0,0,0,0.55)", strokeWidth: 2.4, strokeLinejoin: "round" }}
+                                    filter="url(#wheelTextOutline)"
+                                >
+                                    {trimmedLabel}
                                 </text>
-                                <text x={x} y={y + 14} textAnchor="middle" className="fill-white text-[11px] font-mono font-black transition-all duration-500 ease-in-out">
-                                    {isUp ? "+" : ""}{change.toFixed(2)}%
-                                </text>
+                                {showChange && (
+                                    <text
+                                        x={x}
+                                        y={y + labelOffset + labelSize + 2}
+                                        textAnchor="middle"
+                                        className="fill-white font-mono font-black transition-all duration-500 ease-in-out"
+                                        style={{ fontSize: changeSize, paintOrder: "stroke fill", stroke: "rgba(0,0,0,0.55)", strokeWidth: 2.2, strokeLinejoin: "round" }}
+                                        filter="url(#wheelTextOutline)"
+                                    >
+                                        {isUp ? "+" : ""}{change.toFixed(2)}%
+                                    </text>
+                                )}
                             </g>
                         );
                     })}

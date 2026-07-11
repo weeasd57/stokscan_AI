@@ -27,6 +27,25 @@ type HeatmapFrameSector = {
   sentiment: string;
 };
 
+const SECTOR_AR: Record<string, string> = {
+  "real estate": "العقارات والتطوير العقاري",
+  "financial services": "الخدمات المالية",
+  "construction": "البناء والتشييد",
+  "materials": "المواد الخام والتعدين",
+  "utilities": "المرافق والطاقة",
+  "health care": "الرعاية الصحية والأدوية",
+  "food & beverage": "الأغذية والمشروبات",
+  "telecom": "الاتصالات وتكنولوجيا المعلومات",
+  "chemicals": "الكيماويات والأسمدة",
+  "industrial goods": "الصناعات التحويلية والسلع الصناعية",
+  "other": "أخرى",
+};
+
+const sectorArabic = (normalizedSector: string): string => {
+  const key = String(normalizedSector || "Other").trim().toLowerCase();
+  return SECTOR_AR[key] || normalizedSector || "Other";
+};
+
 const normalizeSector = (sector: string | number | null | undefined): string => {
   const raw = String(sector || "Other").trim();
   if (!raw) return "Other";
@@ -88,7 +107,7 @@ export const buildHeatmapFramesFromRows = (
       if (!sectorGroups.has(sector)) {
         sectorGroups.set(sector, {
           sector,
-          sector_ar: sector,
+          sector_ar: sectorArabic(sector),
           money_flow: 0,
           change_pct: 0,
           market_share: 0,
