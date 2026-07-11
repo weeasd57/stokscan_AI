@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
+import Link from "next/link";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { buildHeatmapFramesFromRows } from "@/lib/heatmapFrames";
 import {
@@ -643,7 +644,7 @@ const SectorDrillModal = ({ sector, isAr, t, onClose }: {
                                         className={`hover:bg-zinc-50 dark:hover:bg-zinc-900 transition-colors ${isAr ? "text-right" : "text-left"}`}
                                     >
                                         <td className={`px-4 py-3 font-black text-indigo-500 hover:underline ${isAr ? "text-right" : "text-left"}`}>
-                                            <a href={`/stocks/${st.symbol}`}>{st.symbol}</a>
+                                            <Link href={`/stocks/${st.symbol}`}>{st.symbol}</Link>
                                         </td>
                                         <td className={`px-4 py-3 text-zinc-500 dark:text-zinc-400 font-semibold truncate max-w-xs ${isAr ? "text-right" : "text-left"}`}>{st.name}</td>
                                         <td className="px-4 py-3 font-mono font-bold">{(st.close ?? 0).toFixed(2)} <span className="text-[9px] text-zinc-500">EGP</span></td>
