@@ -23,22 +23,62 @@ REPO_ID  = "weeasdwee/AI_BOT"
 REPO_TYPE = "space"
 BASE_DIR  = os.path.dirname(os.path.abspath(__file__))
 
-# ─── الملفات المراد رفعها ─────────────────────────────────────────────
-# عدّل هذه القائمة لتشمل الملفات التي تغيرت في آخر commit
-FILES_TO_UPLOAD = [
-    # Python Backend (changed in this deploy)
+# ─── الملفات المراد رفعها (تلقائياً من Git) ──────────────────────────────────
+import subprocess
+
+def get_git_changes():
+    files = set()
+    try:
+        # Files changed in the last commit
+        res = subprocess.run(["git", "diff", "--name-only", "HEAD~1", "HEAD"], capture_output=True, text=True)
+        if res.returncode == 0:
+            for line in res.stdout.splitlines():
+                if line.strip():
+                    files.add(line.strip())
+        
+        # Files modified but not committed yet
+        res = subprocess.run(["git", "diff", "--name-only"], capture_output=True, text=True)
+        if res.returncode == 0:
+            for line in res.stdout.splitlines():
+                if line.strip():
+                    files.add(line.strip())
+                    
+        # Untracked files
+        res = subprocess.run(["git", "status", "--porcelain"], capture_output=True, text=True)
+        if res.returncode == 0:
+            for line in res.stdout.splitlines():
+                if line.startswith("?? "):
+                    files.add(line[3:].strip())
+    except Exception as e:
+        print(f"⚠ Warning reading git status: {e}")
+    
+    # Filter and format paths
+    valid_files = []
+    for f in sorted(files):
+        clean_path = f.replace("\\", "/").strip()
+        local_path = os.path.join(BASE_DIR, clean_path.replace("/", os.sep))
+        if os.path.isfile(local_path):
+            # Exclude large binary/cache files or package managers
+            if any(x in clean_path for x in [".git/", "package-lock.json", "node_modules/", "deploy_to_hf.py"]):
+                continue
+            valid_files.append(clean_path)
+    return valid_files
+
+# Fallback hardcoded list if git fails
+HARDCODED_FILES = [
     "api/daily_bot_run.py",
     "api/free_data_provider.py",
     "api/macro_correlation.py",
     "api/main.py",
     "api/routers/admin.py",
     "api/telegram_bot.py",
-    "api/scripts/update_market_cache.py",
-    "api/symbols_data/market_status.json",
-    "web/src/app/profile/page.tsx",
-    "web/src/app/scanner/backtests/BacktestsClient.tsx",
-    "web/src/app/admin/components/ScheduleTab.tsx",
+    "api/routers/scan_tech.py",
+    "web/src/app/scanner/market/MarketClient.tsx"
 ]
+
+FILES_TO_UPLOAD = get_git_changes()
+if not FILES_TO_UPLOAD:
+    FILES_TO_UPLOAD = HARDCODED_FILES
 
 if not HF_TOKEN:
     raise SystemExit("❌ Set HF_TOKEN environment variable first:\n   $env:HF_TOKEN='hf_your_token_here'")
