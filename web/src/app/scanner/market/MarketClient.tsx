@@ -724,82 +724,6 @@ const SectorDrillModal = ({ sector, isAr, t, onClose }: {
     return createPortal(modal, document.body);
 };
 
-const CorrelationNetwork = ({ data, rootSymbol, isAr, onPickSymbol }: { data: any; rootSymbol: string; isAr: boolean; onPickSymbol: (sym: string) => void }) => {
-    const nodes = Array.isArray(data?.nodes) ? data.nodes : [];
-
-    if (!nodes.length) {
-        return (
-            <div className="flex flex-col items-center justify-center py-14 gap-2 border-2 border-dashed border-zinc-300 dark:border-zinc-800 text-center">
-                <AlertTriangle className="h-7 w-7 text-zinc-500" />
-                <p className="text-xs font-mono text-zinc-500">{isAr ? "لا توجد عقدة ارتباط متاحة حالياً" : "No correlation nodes available yet."}</p>
-            </div>
-        );
-    }
-
-    const count = nodes.length;
-    // Calculate 2D coordinates for orbiting nodes
-    const peers = nodes.map((node: any, idx: number) => {
-        const angle = (idx * 2 * Math.PI) / Math.max(1, count) - Math.PI / 2; // start from top
-        // Orbit radius: 36% from center
-        const x = 50 + 36 * Math.cos(angle);
-        const y = 50 + 36 * Math.sin(angle);
-        return { ...node, x, y };
-    });
-
-    return (
-        <div className="relative w-full min-h-[380px] border-2 border-black bg-zinc-950/45 dark:bg-zinc-950/95 overflow-hidden flex items-center justify-center p-4">
-            {/* SVG Connecting Lines */}
-            <svg className="absolute inset-0 w-full h-full pointer-events-none text-zinc-500/30 dark:text-zinc-700/50">
-                {peers.map((p: any, idx: number) => (
-                    <line
-                        key={`line-${idx}`}
-                        x1="50%"
-                        y1="50%"
-                        x2={`${p.x}%`}
-                        y2={`${p.y}%`}
-                        stroke="currentColor"
-                        strokeWidth={Math.max(1, (p.weight / 100) * 4)}
-                        strokeDasharray={p.weight < 70 ? "4 4" : undefined}
-                    />
-                ))}
-            </svg>
-
-            {/* Central Root Node */}
-            <div 
-                className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-10 flex flex-col items-center justify-center w-20 h-20 rounded-full border-4 border-black bg-[#FFDC58] text-black shadow-[4px_4px_0px_rgba(0,0,0,1)] select-none text-center"
-            >
-                <span className="font-sans font-black text-sm uppercase leading-none">{rootSymbol}</span>
-                <span className="text-[8px] font-mono font-bold mt-1 uppercase opacity-75">{isAr ? "الأساس" : "Root"}</span>
-            </div>
-
-            {/* Orbiting Peer Nodes */}
-            {peers.map((p: any) => {
-                const colorClass = p.weight >= 85 
-                    ? "bg-emerald-500 border-emerald-600 text-white" 
-                    : p.weight >= 60 
-                    ? "bg-indigo-600 border-indigo-700 text-white" 
-                    : "bg-zinc-700 border-zinc-800 text-zinc-300";
-
-                return (
-                    <button
-                        key={p.symbol}
-                        type="button"
-                        onClick={() => onPickSymbol(p.symbol)}
-                        className={`absolute -translate-x-1/2 -translate-y-1/2 z-20 flex flex-col items-center justify-center w-14 h-14 rounded-full border-2 border-black shadow-[2px_2px_0px_rgba(0,0,0,1)] hover:scale-110 active:scale-95 transition-all duration-200 text-center ${colorClass}`}
-                        style={{
-                            left: `${p.x}%`,
-                            top: `${p.y}%`,
-                        }}
-                    >
-                        <span className="font-sans font-black text-xs uppercase leading-none">{p.symbol}</span>
-                        <span className="text-[8px] font-mono font-bold mt-0.5">{p.weight}%</span>
-                    </button>
-                );
-            })}
-        </div>
-    );
-};
-
 const HEDGE_RATING_META: Record<string, { key: string; cls: string; dot: string }> = {
     "High Protection": { key: "market.hedge_filter_high", cls: "bg-emerald-500/10 border-emerald-500 text-emerald-600 dark:text-emerald-400", dot: "bg-emerald-500" },
     "Moderate Protection": { key: "market.hedge_filter_moderate", cls: "bg-amber-500/10 border-amber-500 text-amber-600 dark:text-amber-400", dot: "bg-amber-500" },
@@ -1255,9 +1179,6 @@ export default function MarketClient() {
     const [corrData, setCorrData] = useState<any>(null);
     const [corrLoading, setCorrLoading] = useState<boolean>(false);
     const [corrError, setCorrError] = useState<string | null>(null);
-    const [correlationMap, setCorrelationMap] = useState<any>(null);
-    const [correlationMapLoading, setCorrelationMapLoading] = useState<boolean>(false);
-    const [correlationMapError, setCorrelationMapError] = useState<string | null>(null);
 
     // Hedge scan states
     const [hedgeScan, setHedgeScan] = useState<any>(null);
@@ -1511,26 +1432,6 @@ export default function MarketClient() {
         }
     };
 
-    const fetchCorrelationMap = async (sym: string) => {
-        if (!sym) return;
-        setCorrelationMapLoading(true);
-        setCorrelationMapError(null);
-        setCorrelationMap(null);
-        try {
-            const res = await fetch(`/api/market/macro-correlation/network?symbol=${encodeURIComponent(sym)}`);
-            if (!res.ok) {
-                throw new Error(`Failed to fetch correlation map (Status ${res.status})`);
-            }
-            const payload = await res.json();
-            setCorrelationMap(payload);
-        } catch (err: any) {
-            console.error("Error fetching correlation map:", err);
-            setCorrelationMapError(err.message || "Failed to load correlation map");
-        } finally {
-            setCorrelationMapLoading(false);
-        }
-    };
-
     const fetchHedgeScan = async (forceRefresh = false) => {
         setHedgeLoading(true);
         setHedgeError(null);
@@ -1560,7 +1461,6 @@ export default function MarketClient() {
     useEffect(() => {
         if (selectedCorrSymbol) {
             void fetchCorrData(selectedCorrSymbol);
-            void fetchCorrelationMap(selectedCorrSymbol);
         }
     }, [selectedCorrSymbol]);
 
@@ -2092,9 +1992,9 @@ export default function MarketClient() {
                 </div>
 
                 {heatmapAnimationDates.length > 0 && (
-                    <div className="mb-6 bg-zinc-900/50 border-2 border-black p-4 space-y-3 dark:border-zinc-800 dark:bg-zinc-950/70">
+                    <div className="mb-6 bg-zinc-100 border-2 border-black p-4 space-y-3 dark:border-zinc-800 dark:bg-zinc-950/70">
                         {/* Custom visual progress bar and date tooltip */}
-                        <div className="flex items-center justify-between text-xs font-mono font-black text-zinc-500">
+                        <div className="flex items-center justify-between text-xs font-mono font-black text-zinc-600 dark:text-zinc-400">
                             <span className="bg-zinc-100 dark:bg-zinc-900 px-2 py-0.5 border border-black/10 dark:border-white/10 rounded">{heatmapAnimationDates[0]}</span>
                             
                             {/* Glowing Date Badge */}
@@ -2459,52 +2359,6 @@ export default function MarketClient() {
                                         <span>{t("market.chart.gold_24k")} ({t("market.chart.normalized")})</span>
                                     </div>
                                 </div>
-                            </div>
-
-                            <div className="border-2 border-black dark:border-zinc-800 p-5 sm:p-6 bg-white dark:bg-zinc-900">
-                                <div className={`flex flex-col sm:flex-row sm:items-end justify-between gap-3 mb-5 ${isAr ? "sm:flex-row-reverse" : "sm:flex-row"}`}>
-                                    <div className={isAr ? "text-right" : "text-left"}>
-                                        <h3 className="text-sm font-black uppercase tracking-wider text-zinc-950 dark:text-white">
-                                            {isAr ? "خريطة ارتباط الأسهم" : "Stock Correlation Map"}
-                                        </h3>
-                                        <p className="text-[11px] font-semibold text-zinc-500 dark:text-zinc-400 mt-1 max-w-2xl">
-                                            {isAr
-                                                ? `شبكة توضح الأسهم التي تتحرك غالباً مع ${selectedCorrSymbol}. إذا تحرك السهم الرئيسي، راقب الأسهم المرتبطة.`
-                                                : `A network of stocks that tend to move with ${selectedCorrSymbol}. If the root stock moves, watch its linked peers.`}
-                                        </p>
-                                    </div>
-                                    <button
-                                        type="button"
-                                        onClick={() => void fetchCorrelationMap(selectedCorrSymbol)}
-                                        className="inline-flex items-center justify-center gap-2 h-10 px-3 border-2 border-black dark:border-white bg-indigo-600 text-white text-[10px] font-black uppercase shadow-[2px_2px_0px_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none"
-                                    >
-                                        <RefreshCw className={`h-3.5 w-3.5 ${correlationMapLoading ? "animate-spin" : ""}`} />
-                                        {isAr ? "تحديث الشبكة" : "Refresh Map"}
-                                    </button>
-                                </div>
-
-                                {correlationMapLoading ? (
-                                    <div className="flex flex-col items-center justify-center py-14 gap-3">
-                                        <Loader2 className="w-8 h-8 animate-spin text-indigo-500" />
-                                        <p className="text-xs font-mono text-zinc-500">
-                                            {isAr ? "جاري بناء شبكة الارتباط بين الأسهم..." : "Building stock-to-stock correlation network..."}
-                                        </p>
-                                    </div>
-                                ) : correlationMapError || !correlationMap ? (
-                                    <div className="flex flex-col items-center justify-center py-14 gap-3 text-center border-2 border-dashed border-zinc-200 dark:border-zinc-800">
-                                        <AlertTriangle className="w-8 h-8 text-amber-500" />
-                                        <p className="text-xs font-mono text-zinc-500">
-                                            {correlationMapError || (isAr ? "لا توجد شبكة ارتباط متاحة حالياً" : "No correlation map available.")}
-                                        </p>
-                                    </div>
-                                ) : (
-                                    <CorrelationNetwork
-                                        data={correlationMap}
-                                        rootSymbol={selectedCorrSymbol}
-                                        isAr={isAr}
-                                        onPickSymbol={(sym) => setSelectedCorrSymbol(sym)}
-                                    />
-                                )}
                             </div>
 
                             {/* Qualitative insights */}
