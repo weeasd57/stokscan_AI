@@ -11,7 +11,7 @@ export async function GET(req: Request) {
     // 1. Fetch latest open AI recommendations
     const { data: recommendations, error: recError } = await supabase
       .from("scan_results")
-      .select("symbol, name, signal, entry_price, target_price, stop_loss, precision, top_reasons, model_name, created_at, council_score")
+      .select("symbol, name, signal, entry_price, target_price, stop_loss, precision, top_reasons, model_name, created_at")
       .eq("country", "Egypt")
       .eq("status", "open")
       .eq("is_public", true)
@@ -126,7 +126,7 @@ export async function GET(req: Request) {
         top_reasons: reasons,
         model_name: rec.model_name || "AI Council",
         created_at: rec.created_at,
-        council_score: Number(rec.council_score || 0),
+        council_score: 0,
       });
     }
 
