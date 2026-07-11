@@ -290,7 +290,7 @@ const SmartMoneyTreemap = ({ sectors, isAr, selectedSector, onSelect }: {
                             sentiment: b.item.sentiment,
                             stocks: b.item.stocks,
                         })}
-                        className="absolute flex flex-col items-center justify-center text-center cursor-pointer transition-all duration-150 hover:z-20 group"
+                        className="absolute flex flex-col items-center justify-center text-center cursor-pointer transition-all duration-500 ease-in-out hover:z-20 group"
                         style={{
                             left: b.x,
                             top: b.y,
@@ -397,12 +397,12 @@ const SectorRotationWheel = ({ sectors, isAr, selectedSector, onSelect }: {
                                 sentiment: sector.sentiment,
                                 stocks: sector.stocks,
                             })} className="cursor-pointer">
-                                <line x1={cx} y1={cy} x2={x} y2={y} stroke={isUp ? "#10b981" : "#ef4444"} strokeOpacity="0.35" strokeWidth="2" />
-                                <circle cx={x} cy={y} r={radius} fill={isUp ? "#10b981" : "#ef4444"} stroke={isSelected ? "#FFDC58" : "#18181b"} strokeWidth={isSelected ? 5 : 3} filter="url(#wheelShadow)" />
-                                <text x={x} y={y - 5} textAnchor="middle" className="fill-white text-[12px] font-black">
+                                <line x1={cx} y1={cy} x2={x} y2={y} stroke={isUp ? "#10b981" : "#ef4444"} strokeOpacity="0.35" strokeWidth="2" className="transition-all duration-500 ease-in-out" />
+                                <circle cx={x} cy={y} r={radius} fill={isUp ? "#10b981" : "#ef4444"} stroke={isSelected ? "#FFDC58" : "#18181b"} strokeWidth={isSelected ? 5 : 3} filter="url(#wheelShadow)" className="transition-all duration-500 ease-in-out" />
+                                <text x={x} y={y - 5} textAnchor="middle" className="fill-white text-[12px] font-black transition-all duration-500 ease-in-out">
                                     {label.length > 14 ? `${label.slice(0, 12)}…` : label}
                                 </text>
-                                <text x={x} y={y + 14} textAnchor="middle" className="fill-white text-[11px] font-mono font-black">
+                                <text x={x} y={y + 14} textAnchor="middle" className="fill-white text-[11px] font-mono font-black transition-all duration-500 ease-in-out">
                                     {isUp ? "+" : ""}{change.toFixed(2)}%
                                 </text>
                             </g>
@@ -1475,7 +1475,7 @@ export default function MarketClient() {
                 }
                 return nextIndex;
             });
-        }, 1100);
+        }, 700);
         return () => window.clearInterval(timer);
     }, [heatmapPlaying, heatmapAnimationDates, heatmapFrames.framesByDate]);
 

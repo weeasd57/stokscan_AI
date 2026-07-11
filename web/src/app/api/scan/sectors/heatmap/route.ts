@@ -30,12 +30,37 @@ export async function GET(req: Request) {
   try {
     const supabase = getSupabaseClient();
 
-    const { data: latestDates, error: datesError } = await supabase
+    // Fetch unique dates using FWRY (active symbol representing EGX trading days)
+    let { data: latestDates, error: datesError } = await supabase
       .from("stock_technical_indicators")
       .select("date")
-      .eq("exchange", "EGX")
+      .eq("symbol", "FWRY")
       .order("date", { ascending: false })
-      .limit(2500);
+      .limit(90);
+
+    // Fallback 1: COMI
+    if (datesError || !latestDates || latestDates.length === 0) {
+      const fb = await supabase
+        .from("stock_technical_indicators")
+        .select("date")
+        .eq("symbol", "COMI")
+        .order("date", { ascending: false })
+        .limit(90);
+      latestDates = fb.data;
+      datesError = fb.error;
+    }
+
+    // Fallback 2: General query (limit 10000 to extract unique dates)
+    if (datesError || !latestDates || latestDates.length === 0) {
+      const fb = await supabase
+        .from("stock_technical_indicators")
+        .select("date")
+        .eq("exchange", "EGX")
+        .order("date", { ascending: false })
+        .limit(10000);
+      latestDates = fb.data;
+      datesError = fb.error;
+    }
 
     if (datesError) {
       console.error("Heatmap dates Supabase error:", datesError);
