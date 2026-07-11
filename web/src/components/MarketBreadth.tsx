@@ -48,9 +48,8 @@ const HealthArc = ({ score }: { score: number }) => {
                 transform="rotate(135 60 60)"
                 className="transition-all duration-700 ease-out"
             />
-            {/* score text */}
-            <text x={60} y={55} textAnchor="middle" className="fill-white text-2xl font-black" style={{ fontSize: 28 }}>{Math.round(pct)}</text>
-            <text x={60} y={72} textAnchor="middle" className="fill-zinc-400 text-xs font-bold" style={{ fontSize: 10 }}>/ 100</text>
+            <text x={60} y={55} textAnchor="middle" className="fill-zinc-950 dark:fill-white text-2xl font-black" style={{ fontSize: 28 }}>{Math.round(pct)}</text>
+            <text x={60} y={72} textAnchor="middle" className="fill-zinc-500 dark:fill-zinc-400 text-xs font-bold" style={{ fontSize: 10 }}>/ 100</text>
         </svg>
     );
 };
@@ -60,9 +59,9 @@ export function MarketHealthScore({ data, isAr }: { data: BreadthData | null; is
     if (!data) return null;
 
     const verdictMap: Record<string, { ar: string; en: string; cls: string }> = {
-        strong:   { ar: "السوق في حالة قوة — فرصة جيدة للشراء", en: "Market is strong — good buying opportunity", cls: "text-emerald-400" },
-        moderate: { ar: "السوق متذبذب — كن حذراً واختر بعناية", en: "Market is mixed — be selective", cls: "text-amber-400" },
-        weak:     { ar: "السوق ضعيف — تجنب الشراء وراقب فقط", en: "Market is weak — avoid buying, watch only", cls: "text-rose-400" },
+        strong:   { ar: "السوق في حالة قوة — فرصة جيدة للشراء", en: "Market is strong — good buying opportunity", cls: "text-emerald-600 dark:text-emerald-400" },
+        moderate: { ar: "السوق متذبذب — كن حذراً واختر بعناية", en: "Market is mixed — be selective", cls: "text-amber-600 dark:text-amber-400" },
+        weak:     { ar: "السوق ضعيف — تجنب الشراء وراقب فقط", en: "Market is weak — avoid buying, watch only", cls: "text-rose-600 dark:text-rose-400" },
     };
     const verdict = verdictMap[data.health_label] || verdictMap.moderate;
 
@@ -101,28 +100,28 @@ export function MarketBreadthStrip({ data, isAr }: { data: BreadthData | null; i
             label: isAr ? "صاعدة" : "Advancing",
             value: `${data.advancing}`,
             sub: `/ ${data.declining} ${isAr ? "هابطة" : "declining"}`,
-            cls: data.advancing > data.declining ? "text-emerald-400" : "text-rose-400",
+            cls: data.advancing > data.declining ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400",
         },
         {
             icon: <Activity className="w-4 h-4 text-indigo-400" />,
             label: isAr ? "فوق EMA200" : "Above EMA200",
             value: `${data.pct_above_ema200.toFixed(0)}%`,
             sub: isAr ? "اتجاه صاعد" : "long-term uptrend",
-            cls: data.pct_above_ema200 > 50 ? "text-emerald-400" : "text-rose-400",
+            cls: data.pct_above_ema200 > 50 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400",
         },
         {
             icon: <BarChart3 className="w-4 h-4 text-amber-400" />,
             label: isAr ? "متوسط RSI" : "Avg RSI",
             value: `${data.avg_rsi.toFixed(0)}`,
             sub: data.avg_rsi > 60 ? (isAr ? "مشبع شراء" : "overbought zone") : data.avg_rsi < 40 ? (isAr ? "مشبع بيع" : "oversold zone") : (isAr ? "منطقة متوسطة" : "neutral zone"),
-            cls: data.avg_rsi > 60 ? "text-rose-400" : data.avg_rsi < 40 ? "text-emerald-400" : "text-zinc-300",
+            cls: data.avg_rsi > 60 ? "text-rose-600 dark:text-rose-400" : data.avg_rsi < 40 ? "text-emerald-600 dark:text-emerald-400" : "text-zinc-950 dark:text-zinc-300",
         },
         {
             icon: <TrendingDown className="w-4 h-4 text-cyan-400" />,
             label: isAr ? "نشاط السيولة" : "Volume Activity",
             value: `${data.volume_ratio.toFixed(1)}x`,
             sub: data.volume_ratio > 1.5 ? (isAr ? "نشاط عالي" : "high activity") : data.volume_ratio < 0.7 ? (isAr ? "نشاط منخفض" : "low activity") : (isAr ? "نشاط عادي" : "normal"),
-            cls: data.volume_ratio > 1.5 ? "text-emerald-400" : data.volume_ratio < 0.7 ? "text-rose-400" : "text-zinc-300",
+            cls: data.volume_ratio > 1.5 ? "text-emerald-600 dark:text-emerald-400" : data.volume_ratio < 0.7 ? "text-rose-600 dark:text-rose-400" : "text-zinc-950 dark:text-zinc-300",
         },
     ];
 
@@ -156,7 +155,7 @@ export function TopMovers({ gainers, losers, isAr }: { gainers: Mover[]; losers:
     if (!gainers.length && !losers.length) return null;
 
     const renderTable = (items: Mover[], type: "gain" | "loss") => {
-        const color = type === "gain" ? "text-emerald-400" : "text-rose-400";
+        const color = type === "gain" ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400";
         const headerBg = type === "gain" ? "bg-emerald-500/10" : "bg-rose-500/10";
         const icon = type === "gain"
             ? <TrendingUp className="w-4 h-4 text-emerald-500" />
@@ -184,7 +183,7 @@ export function TopMovers({ gainers, losers, isAr }: { gainers: Mover[]; losers:
                                 <div className="text-[9px] text-zinc-500 font-semibold truncate">{m.name || m.symbol}</div>
                             </div>
                             <div className={`text-right ${isAr ? "ml-3" : "mr-3"}`}>
-                                <div className="text-xs font-mono font-bold text-zinc-300">{m.close.toFixed(2)}</div>
+                                <div className="text-xs font-mono font-bold text-zinc-950 dark:text-zinc-300">{m.close.toFixed(2)}</div>
                                 <div className="text-[9px] font-mono text-zinc-500">RSI {m.rsi_14?.toFixed(0) || "—"}</div>
                             </div>
                             <div className={`font-mono font-black text-sm ${color} min-w-[60px] ${isAr ? "text-left" : "text-right"}`}>

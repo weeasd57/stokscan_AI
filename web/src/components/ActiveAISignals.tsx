@@ -44,7 +44,7 @@ export function ActiveAISignals({ signals, isAr }: { signals: AISignal[]; isAr: 
                 {signals.map((sig) => {
                     const isBuy = sig.signal === "BUY";
                     const isPnlPositive = sig.pnl_pct >= 0;
-                    const pnlColor = isPnlPositive ? "text-emerald-400" : "text-rose-400";
+                    const pnlColor = isPnlPositive ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400";
                     
                     // Calc slider percentage progress between entry, current, target
                     const range = Math.abs(sig.target_price - sig.entry_price) || 1;
@@ -88,15 +88,15 @@ export function ActiveAISignals({ signals, isAr }: { signals: AISignal[]; isAr: 
                                 <div className="grid grid-cols-3 gap-2 py-2 border-y border-zinc-100 dark:border-zinc-900 mb-4 text-center">
                                     <div>
                                         <div className="text-[9px] font-black uppercase text-zinc-500 mb-0.5">{isAr ? "وقف الخسارة" : "Stop Loss"}</div>
-                                        <div className="text-xs font-mono font-bold text-rose-400">{sig.stop_loss.toFixed(2)}</div>
+                                        <div className="text-xs font-mono font-bold text-rose-600 dark:text-rose-400">{sig.stop_loss.toFixed(2)}</div>
                                     </div>
                                     <div>
                                         <div className="text-[9px] font-black uppercase text-zinc-500 mb-0.5">{isAr ? "الدخول" : "Entry"}</div>
-                                        <div className="text-xs font-mono font-bold text-zinc-300">{sig.entry_price.toFixed(2)}</div>
+                                        <div className="text-xs font-mono font-bold text-zinc-950 dark:text-zinc-300">{sig.entry_price.toFixed(2)}</div>
                                     </div>
                                     <div>
                                         <div className="text-[9px] font-black uppercase text-zinc-500 mb-0.5">{isAr ? "الهدف" : "Target"}</div>
-                                        <div className="text-xs font-mono font-bold text-emerald-400">{sig.target_price.toFixed(2)}</div>
+                                        <div className="text-xs font-mono font-bold text-emerald-600 dark:text-emerald-400">{sig.target_price.toFixed(2)}</div>
                                     </div>
                                 </div>
 
@@ -123,7 +123,7 @@ export function ActiveAISignals({ signals, isAr }: { signals: AISignal[]; isAr: 
                                         </span>
                                         <div className="space-y-1">
                                             {sig.top_reasons.slice(0, 2).map((reason, idx) => (
-                                                <div key={idx} className={`flex items-start gap-1.5 text-[10px] text-zinc-400 font-semibold leading-relaxed ${isAr ? "flex-row-reverse text-right" : ""}`}>
+                                                <div key={idx} className={`flex items-start gap-1.5 text-[10px] text-zinc-700 dark:text-zinc-400 font-semibold leading-relaxed ${isAr ? "flex-row-reverse text-right" : ""}`}>
                                                     <Sparkles className="w-3 h-3 text-[#FFDC58] shrink-0 mt-0.5" />
                                                     <span>{reason}</span>
                                                 </div>
@@ -137,11 +137,11 @@ export function ActiveAISignals({ signals, isAr }: { signals: AISignal[]; isAr: 
                             <div className={`flex items-center justify-between border-t border-zinc-100 dark:border-zinc-900 pt-3 mt-4 text-[9px] font-mono text-zinc-500 ${isAr ? "flex-row-reverse" : ""}`}>
                                 <div className="flex items-center gap-1">
                                     <span>Model:</span>
-                                    <span className="text-zinc-300 font-bold">{sig.model_name}</span>
+                                    <span className="text-zinc-950 dark:text-zinc-300 font-bold">{sig.model_name}</span>
                                 </div>
                                 <div className="flex items-center gap-1.5">
                                     <span>{isAr ? "نسبة الثقة:" : "Confidence:"}</span>
-                                    <span className="text-emerald-400 font-bold">{(sig.precision * 100).toFixed(0)}%</span>
+                                    <span className="text-emerald-600 dark:text-emerald-400 font-bold">{(sig.precision * 100).toFixed(0)}%</span>
                                 </div>
                             </div>
                         </div>
@@ -187,11 +187,11 @@ export function DailyAnalysisSummary({
                         </div>
                         <div>
                             {isAr ? "الأسهم الصاعدة:" : "Advancing:"}{" "}
-                            <span className="text-emerald-400 font-bold">{advancing}</span>
+                            <span className="text-emerald-600 dark:text-emerald-400 font-bold">{advancing}</span>
                         </div>
                         <div>
                             {isAr ? "الأسهم الهابطة:" : "Declining:"}{" "}
-                            <span className="text-rose-400 font-bold">{declining}</span>
+                            <span className="text-rose-600 dark:text-rose-400 font-bold">{declining}</span>
                         </div>
                     </div>
                     <p className="text-[11px] leading-relaxed text-zinc-600 dark:text-zinc-400 pt-1">
