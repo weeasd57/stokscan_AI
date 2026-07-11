@@ -35,6 +35,9 @@ export async function POST(req: Request) {
       avoid_distribution,
       require_accumulation,
       cmf_min,
+      divergence_type,
+      divergence_indicator,
+      divergence_min_strength,
     } = body;
 
     const supabase = getSupabaseClient();
@@ -72,7 +75,13 @@ export async function POST(req: Request) {
       vwap_20,
       cmf_20,
       mm_accumulation,
-      mm_distribution
+      mm_distribution,
+      rsi_divergence,
+      macd_divergence,
+      stoch_divergence,
+      divergence_strength,
+      divergence_periods,
+      divergence_summary
     `;
 
     let query = supabase
@@ -158,7 +167,24 @@ export async function POST(req: Request) {
       return NextResponse.json({ results: [], scanned_count: 0 });
     }
 
-    const scannedSymbols = indicators.map((ind: any) => ind.symbol);
+    // Sort in memory by date descending to ensure the latest row comes first for deduplication
+    const sortedIndicators = [...(indicators || [])].sort((a: any, b: any) => {
+      const timeA = a.date ? new Date(a.date).getTime() : 0;
+      const timeB = b.date ? new Date(b.date).getTime() : 0;
+      return timeB - timeA;
+    });
+
+    const uniqueIndicatorsMap = new Map<string, any>();
+    sortedIndicators.forEach((ind: any) => {
+      const key = `${ind.symbol}-${ind.exchange}`;
+      if (!uniqueIndicatorsMap.has(key)) {
+        uniqueIndicatorsMap.set(key, ind);
+      }
+    });
+
+    const dedupedIndicators = Array.from(uniqueIndicatorsMap.values());
+
+    const scannedSymbols = dedupedIndicators.map((ind: any) => ind.symbol);
 
     // 3. Fetch fundamentals for these symbols
     const { data: fundamentals } = await supabase
@@ -189,7 +215,7 @@ export async function POST(req: Request) {
     // 5. Apply filters and calculate scores in memory
     const scanned: any[] = [];
 
-    for (const tech of indicators) {
+    for (const tech of dedupedIndicators) {
       const close = toNumber(tech.close);
       const rsi = toNumber(tech.rsi_14);
       const ema20 = toNumber(tech.ema_20);
@@ -258,6 +284,31 @@ export async function POST(req: Request) {
       const precision = scanMap.get(tech.symbol);
       if (use_ai_filter) {
         if (precision === undefined || precision < min_ai_precision) continue;
+      }
+
+      // Divergence Filters
+      if (divergence_type && divergence_type !== "NONE") {
+        let hasDiv = false;
+        const indFilter = (divergence_indicator || "ANY").toUpperCase();
+        const indicatorsToCheck = indFilter === "ANY" || indFilter === ""
+          ? ["rsi", "macd", "stoch"]
+          : [indFilter.toLowerCase()];
+          
+        for (const indName of indicatorsToCheck) {
+          const divVal = tech[`${indName}_divergence`] || "NONE";
+          if (divergence_type === "ANY" && divVal !== "NONE") {
+            hasDiv = true;
+          } else if (divVal === divergence_type) {
+            hasDiv = true;
+          }
+        }
+        
+        if (!hasDiv) continue;
+        
+        if (divergence_min_strength !== undefined) {
+          const strength = tech.divergence_strength !== undefined ? toNumber(tech.divergence_strength) : 0.0;
+          if (strength < divergence_min_strength) continue;
+        }
       }
 
       // Calculate Technical Score (Acceleration Score 0-10)
@@ -416,6 +467,12 @@ export async function POST(req: Request) {
         mm_distribution: mm_distribution > 0.5,
         distribution_blocked: distribution_blocked,
         distribution_reason: distribution_reason,
+        rsi_divergence: tech.rsi_divergence || "NONE",
+        macd_divergence: tech.macd_divergence || "NONE",
+        stoch_divergence: tech.stoch_divergence || "NONE",
+        divergence_strength: tech.divergence_strength !== undefined ? toNumber(tech.divergence_strength) : 0.0,
+        divergence_periods: tech.divergence_periods !== undefined ? toNumber(tech.divergence_periods) : 0,
+        divergence_summary: tech.divergence_summary || null,
       });
 
       if (scanned.length >= limit) {
