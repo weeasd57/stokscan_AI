@@ -1292,7 +1292,7 @@ export default function TechnicalScannerPage() {
                 return {
                     label: language === "ar" ? "التباعدات 🔀" : "Divergences 🔀",
                     valueDisplay: divergenceType !== "NONE" 
-                        ? `${divergenceIndicator === "ANY" ? (language === "ar" ? "أي مؤشر" : "Any Ind") : divergenceIndicator} ${divergenceType === "BULLISH" ? "🟢" : divergenceType === "BEARISH" ? "🔴" : "🔀"}`
+                        ? `${divergenceIndicator === "ANY" ? (language === "ar" ? "أي مؤشر" : "Any") : divergenceIndicator} ${divergenceType === "BULLISH" ? "🟢" : divergenceType === "BEARISH" ? "🔴" : "🔀"}`
                         : (language === "ar" ? "الكل" : "Any"),
                     isActive: divergenceType !== "NONE",
                     onReset: () => {
@@ -1301,7 +1301,7 @@ export default function TechnicalScannerPage() {
                         setTimeout(() => void runTechScan({ force: true }), 0);
                     },
                     renderPopover: () => (
-                        <div className="space-y-3.5 w-64 text-left">
+                        <div className="space-y-3.5">
                             <h4 className="text-xs font-bold text-[#787b86] uppercase tracking-wider">
                                 {language === "ar" ? "فلاتر التباعد الذكية" : "Smart Divergence Filters"}
                             </h4>
@@ -1314,7 +1314,7 @@ export default function TechnicalScannerPage() {
                                 <select
                                     value={divergenceType}
                                     onChange={(e) => setTechScanner({ divergenceType: e.target.value })}
-                                    className="w-full h-8 px-2 rounded bg-[#1c2030] border border-[#2a2e39] text-white text-xs focus:outline-none focus:border-[#2962ff] font-medium"
+                                    className="w-full h-8.5 px-3 rounded-lg bg-[#1c2030] border border-[#2a2e39] text-white text-xs focus:outline-none focus:border-[#2962ff] focus:ring-1 focus:ring-[#2962ff]/30 font-semibold cursor-pointer transition-all duration-200"
                                 >
                                     <option value="NONE">{language === "ar" ? "بدون تباعد (الكل)" : "No Divergence (All)"}</option>
                                     <option value="BULLISH">{language === "ar" ? "🟢 تباعد صعودي (شراء)" : "🟢 Bullish Divergence"}</option>
@@ -1332,7 +1332,7 @@ export default function TechnicalScannerPage() {
                                     value={divergenceIndicator}
                                     disabled={divergenceType === "NONE"}
                                     onChange={(e) => setTechScanner({ divergenceIndicator: e.target.value })}
-                                    className="w-full h-8 px-2 rounded bg-[#1c2030] border border-[#2a2e39] text-white text-xs focus:outline-none focus:border-[#2962ff] font-medium disabled:opacity-40"
+                                    className="w-full h-8.5 px-3 rounded-lg bg-[#1c2030] border border-[#2a2e39] text-white text-xs focus:outline-none focus:border-[#2962ff] focus:ring-1 focus:ring-[#2962ff]/30 font-semibold cursor-pointer transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed"
                                 >
                                     <option value="ANY">{language === "ar" ? "جميع المؤشرات" : "All Indicators"}</option>
                                     <option value="RSI">RSI (Relative Strength Index)</option>
@@ -1345,7 +1345,7 @@ export default function TechnicalScannerPage() {
                             <div className="space-y-1.5">
                                 <div className="flex justify-between items-center text-[10px]">
                                     <span className="text-zinc-400 font-semibold">{language === "ar" ? "الحد الأدنى لقوة التباعد" : "Min Divergence Strength"}</span>
-                                    <span className="text-indigo-400 font-bold font-mono">{divergenceMinStrength}%</span>
+                                    <span className="text-indigo-400 font-bold font-mono bg-indigo-500/10 px-1.5 py-0.5 rounded">{divergenceMinStrength}%</span>
                                 </div>
                                 <input
                                     type="range"
@@ -1355,11 +1355,11 @@ export default function TechnicalScannerPage() {
                                     disabled={divergenceType === "NONE"}
                                     value={divergenceMinStrength}
                                     onChange={(e) => setTechScanner({ divergenceMinStrength: e.target.value })}
-                                    className="w-full h-1 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-[#2962ff] disabled:opacity-40"
+                                    className="w-full h-1 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-[#2962ff] disabled:opacity-30 disabled:cursor-not-allowed"
                                 />
                             </div>
 
-                            <div className="flex gap-2 pt-1.5">
+                            <div className="flex gap-2 pt-1">
                                 <button
                                     onClick={() => {
                                         setTechScanner({ divergenceType: "NONE", divergenceIndicator: "ANY", divergenceMinStrength: "0" });
@@ -1367,7 +1367,7 @@ export default function TechnicalScannerPage() {
                                         setActiveFilterPopover(null);
                                         setTimeout(() => void runTechScan({ force: true }), 0);
                                     }}
-                                    className="flex-1 h-7 text-[10px] font-bold text-[#b2b5be] hover:text-white bg-[#1c2030] border border-[#2a2e39] rounded"
+                                    className="flex-1 h-7.5 text-[10px] font-bold text-zinc-400 hover:text-white bg-[#1c2030] border border-[#2a2e39] rounded-lg transition-all duration-150 hover:bg-[#202538]"
                                 >
                                     {language === "ar" ? "إعادة تعيين" : "Reset"}
                                 </button>
@@ -1376,7 +1376,7 @@ export default function TechnicalScannerPage() {
                                         setActiveFilterPopover(null);
                                         setTimeout(() => void runTechScan({ force: true }), 0);
                                     }}
-                                    className="flex-1 h-7 text-[10px] font-bold bg-[#2962ff] hover:bg-[#1a4eff] text-white rounded"
+                                    className="flex-1 h-7.5 text-[10px] font-bold bg-[#2962ff] hover:bg-[#1a4eff] active:bg-[#0c3eff] text-white rounded-lg transition-all duration-150 shadow-[0_0_10px_rgba(41,98,255,0.3)] hover:shadow-[0_0_15px_rgba(41,98,255,0.5)]"
                                 >
                                     {language === "ar" ? "تطبيق" : "Apply"}
                                 </button>
