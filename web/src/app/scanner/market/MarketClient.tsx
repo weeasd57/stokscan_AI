@@ -1252,20 +1252,43 @@ export default function MarketClient() {
         setHeatmapError(null);
         try {
             const params = new URLSearchParams({ country: "Egypt" });
-            if (date) params.set("date", date);
-            if (startOverride) params.set("start", startOverride);
-            if (endOverride) params.set("end", endOverride);
+            if (date) {
+                params.set("single_date", date);
+                params.set("date", date);
+            }
+            if (startOverride) {
+                params.set("start_date", startOverride);
+                params.set("start", startOverride);
+            }
+            if (endOverride) {
+                params.set("end_date", endOverride);
+                params.set("end", endOverride);
+            }
             const res = await fetch(`/api/scan/sectors/heatmap?${params.toString()}`, { cache: "no-store" });
             if (!res.ok) {
                 throw new Error(`Failed to load heatmap data (Status ${res.status})`);
             }
             const payload = await res.json();
-            const { animationDates, framesByDate } = buildHeatmapFramesFromRows(payload?.rows || [], payload?.range_dates || payload?.available_dates || []);
-            const resolvedStart = startOverride || payload?.range_start || "";
-            const resolvedEnd = endOverride || payload?.range_end || "";
-            const resolvedDate = date || payload?.selected_date || animationDates[0] || "";
-            const frameDate = resolvedDate && (framesByDate as Record<string, any>)[resolvedDate] ? resolvedDate : (animationDates[0] || "");
-            const frame = frameDate ? (framesByDate as Record<string, any>)[frameDate] : null;
+            
+            let animationDates: string[] = [];
+            let framesByDate: Record<string, any> = {};
+
+            if (payload?.frames_by_date) {
+                framesByDate = payload.frames_by_date;
+                animationDates = payload.available_dates || Object.keys(framesByDate).sort();
+            } else if (payload?.sectors) {
+                const frameDate = (payload.updated_at || date || "").slice(0, 10) || new Date().toISOString().split('T')[0];
+                framesByDate = { [frameDate]: payload };
+                animationDates = [frameDate];
+            }
+
+            const resolvedStart = startOverride || payload?.range_start || payload?.start_date || "";
+            const resolvedEnd = endOverride || payload?.range_end || payload?.end_date || "";
+            const resolvedDate = date || payload?.selected_date || (animationDates.length > 0 ? animationDates[0] : "");
+            
+            // Resolve correct current frame date and data
+            const frameDate = resolvedDate && framesByDate[resolvedDate] ? resolvedDate : (animationDates[0] || "");
+            const frame = frameDate ? framesByDate[frameDate] : null;
             const nextData = frame ? {
                 ...frame,
                 selected_date: frameDate,
@@ -1273,18 +1296,24 @@ export default function MarketClient() {
                 range_start: resolvedStart,
                 range_end: resolvedEnd,
             } : null;
+
             setHeatmapFrames({ animationDates, framesByDate });
             setHeatmapData(nextData);
             setHeatmapDate(frameDate);
-            setAvailableHeatmapDates(payload?.available_dates || []);
+            
+            // Fallback for available dates if range response doesn't have it at top level
+            setAvailableHeatmapDates(payload?.available_dates || animationDates);
+            
             if (resolvedStart) setHeatmapStartDate(resolvedStart);
             if (resolvedEnd) setHeatmapEndDate(resolvedEnd);
+            
             if (frameDate) {
                 const nextIndex = Math.max(0, animationDates.findIndex((candidate) => candidate === frameDate));
                 setHeatmapFrameIndex(nextIndex >= 0 ? nextIndex : 0);
             } else {
                 setHeatmapFrameIndex(0);
             }
+
             if (nextData?.sectors && nextData.sectors.length > 0) {
                 const first = nextData.sectors[0];
                 setSelectedSector({
