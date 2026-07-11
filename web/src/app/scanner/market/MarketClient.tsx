@@ -1273,7 +1273,11 @@ export default function MarketClient() {
             let animationDates: string[] = [];
             let framesByDate: Record<string, any> = {};
 
-            if (payload?.frames_by_date) {
+            if (payload?.rows) {
+                const parsed = buildHeatmapFramesFromRows(payload.rows, payload.range_dates || payload.available_dates || []);
+                animationDates = parsed.animationDates;
+                framesByDate = parsed.framesByDate;
+            } else if (payload?.frames_by_date) {
                 framesByDate = payload.frames_by_date;
                 animationDates = payload.available_dates || Object.keys(framesByDate).sort();
             } else if (payload?.sectors) {
