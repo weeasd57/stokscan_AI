@@ -9,11 +9,13 @@ import {
     Loader2, RefreshCw, Landmark,
     ArrowUpRight, ArrowDownRight, AlertTriangle, AlertCircle,
     DollarSign, Activity, Layers, Search, ChevronDown, Check, X,
-    Play, Pause
+    Play, Pause, Cpu
 } from "lucide-react";
 import {
     ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid
 } from "recharts";
+import { MarketHealthScore, MarketBreadthStrip, TopMovers } from "@/components/MarketBreadth";
+import { ActiveAISignals, DailyAnalysisSummary } from "@/components/ActiveAISignals";
 
 interface MarketDataPoint {
     date: string;
@@ -1238,6 +1240,12 @@ export default function MarketClient() {
     const [hedgeFilter, setHedgeFilter] = useState<"all" | "high" | "moderate" | "low">("all");
     const [hedgeQuery, setHedgeQuery] = useState<string>("");
 
+    // Market Breadth & AI Signals states
+    const [breadthData, setBreadthData] = useState<any>(null);
+    const [breadthLoading, setBreadthLoading] = useState<boolean>(true);
+    const [aiSignals, setAiSignals] = useState<any[]>([]);
+    const [aiSignalsLoading, setAiSignalsLoading] = useState<boolean>(true);
+
     const fetchMarketStatus = async () => {
         setLoading(true);
         setError(null);
@@ -1253,6 +1261,36 @@ export default function MarketClient() {
             setError(err.message || "Failed to load market data");
         } finally {
             setLoading(false);
+        }
+    };
+
+    const fetchBreadthData = async () => {
+        setBreadthLoading(true);
+        try {
+            const res = await fetch("/api/market/breadth");
+            if (res.ok) {
+                const data = await res.json();
+                setBreadthData(data);
+            }
+        } catch (err) {
+            console.error("Failed to fetch market breadth data:", err);
+        } finally {
+            setBreadthLoading(false);
+        }
+    };
+
+    const fetchAISignals = async () => {
+        setAiSignalsLoading(true);
+        try {
+            const res = await fetch("/api/market/ai-signals");
+            if (res.ok) {
+                const data = await res.json();
+                setAiSignals(data.signals || []);
+            }
+        } catch (err) {
+            console.error("Failed to fetch AI signals:", err);
+        } finally {
+            setAiSignalsLoading(false);
         }
     };
 
@@ -1489,6 +1527,8 @@ export default function MarketClient() {
         void fetchMarketStatus();
         void fetchHeatmapData();
         void fetchCorrSymbols();
+        void fetchBreadthData();
+        void fetchAISignals();
     }, []);
 
     useEffect(() => {
@@ -1695,6 +1735,29 @@ export default function MarketClient() {
                 </div>
             </div>
 
+            {/* Market Breadth & Health Dashboard */}
+            {breadthLoading && (
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8 animate-pulse">
+                    <div className="h-32 border-2 border-black dark:border-zinc-800 bg-zinc-900/50" />
+                    <div className="lg:col-span-2 grid grid-cols-2 md:grid-cols-4 gap-2">
+                        <div className="h-24 border-2 border-black dark:border-zinc-800 bg-zinc-900/50" />
+                        <div className="h-24 border-2 border-black dark:border-zinc-800 bg-zinc-900/50" />
+                        <div className="h-24 border-2 border-black dark:border-zinc-800 bg-zinc-900/50" />
+                        <div className="h-24 border-2 border-black dark:border-zinc-800 bg-zinc-900/50" />
+                    </div>
+                </div>
+            )}
+            {!breadthLoading && breadthData && (
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+                    <div className="lg:col-span-1">
+                        <MarketHealthScore data={breadthData} isAr={isAr} />
+                    </div>
+                    <div className="lg:col-span-2">
+                        <MarketBreadthStrip data={breadthData} isAr={isAr} />
+                    </div>
+                </div>
+            )}
+
             {/* Metrics Cards Grid */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10 font-sans font-medium">
                 {/* EGX 30 Card */}
@@ -1861,6 +1924,38 @@ export default function MarketClient() {
                             <AlertTriangle className="w-8 h-8 text-zinc-600" />
                             <p className="text-xs font-mono text-zinc-600 dark:text-zinc-500">{t("market.no_data")}</p>
                         </div>
+                    )}
+                </div>
+            </div>
+
+            {/* Today's Opportunities Section */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-10">
+                <div className="lg:col-span-2">
+                    {aiSignalsLoading && (
+                        <div className="space-y-3">
+                            <div className={`flex items-center gap-2 ${isAr ? "flex-row-reverse" : ""}`}>
+                                <Cpu className="w-5 h-5 text-[#FFDC58] animate-pulse" />
+                                <div className="h-4 w-40 bg-zinc-900/50 rounded animate-pulse" />
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div className="h-48 border-2 border-black dark:border-zinc-800 bg-zinc-900/50 animate-pulse" />
+                                <div className="h-48 border-2 border-black dark:border-zinc-800 bg-zinc-900/50 animate-pulse" />
+                            </div>
+                        </div>
+                    )}
+                    {!aiSignalsLoading && (
+                        <ActiveAISignals signals={aiSignals} isAr={isAr} />
+                    )}
+                </div>
+                <div className="lg:col-span-1">
+                    {breadthLoading && (
+                        <div className="space-y-3">
+                            <div className="h-6 w-32 bg-zinc-900/50 rounded animate-pulse" />
+                            <div className="h-80 border-2 border-black dark:border-zinc-800 bg-zinc-900/50 animate-pulse" />
+                        </div>
+                    )}
+                    {!breadthLoading && breadthData && (
+                        <TopMovers gainers={breadthData.top_gainers || []} losers={breadthData.top_losers || []} isAr={isAr} />
                     )}
                 </div>
             </div>
@@ -2402,6 +2497,17 @@ export default function MarketClient() {
                     )}
                 </div>
 
+            {/* Daily Analysis Summary Card */}
+            {!breadthLoading && breadthData && (
+                <div className="mt-10">
+                    <DailyAnalysisSummary
+                        healthScore={breadthData.health_score}
+                        advancing={breadthData.advancing}
+                        declining={breadthData.declining}
+                        isAr={isAr}
+                    />
+                </div>
+            )}
         </div>
     );
 }
