@@ -65,8 +65,8 @@ export function ActiveAISignals({ signals, isAr }: { signals: AISignal[]; isAr: 
                                             <a href={`/stocks/${sig.symbol}`} className="text-base font-black text-indigo-500 hover:underline">{sig.symbol}</a>
                                             <span className={`px-2 py-0.5 text-[9px] font-black uppercase tracking-wider rounded border ${
                                                 isBuy 
-                                                    ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400" 
-                                                    : "bg-rose-500/10 border-rose-500/20 text-rose-400"
+                                                    ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-600 dark:text-emerald-400" 
+                                                    : "bg-rose-500/10 border-rose-500/20 text-rose-600 dark:text-rose-400"
                                             }`}>
                                                 {isBuy ? (isAr ? "شراء" : "BUY") : (isAr ? "بيع" : "SELL")}
                                             </span>
