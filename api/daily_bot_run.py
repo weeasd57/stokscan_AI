@@ -909,6 +909,102 @@ def _notify_service_subscribers(service_type: str, message: str):
         print(f"[SERVICE_NOTIFY] {service_type} notification error: {e}")
 
 
+def _dispatch_similarity_notifications(results: List[Dict[str, Any]]):
+    """Format and send daily similarity scan notifications to telegram subscribers."""
+    try:
+        from api.telegram_bot import get_telegram_bot
+        bot = get_telegram_bot()
+        if not bot:
+            print("[SIMILARITY_NOTIFY] Telegram bot is unavailable.")
+            return
+
+        # Find the best matches: win_rate >= 60% (0.6) and total_cases >= 3
+        best_scans = []
+        for r in results:
+            stats = r.get("stats") or {}
+            win_rate = stats.get("win_rate", 0.0)
+            total_cases = stats.get("total_cases", 0)
+            if win_rate >= 0.6 and total_cases >= 3:
+                best_scans.append(r)
+                
+        # Limit to top 5
+        top_scans = best_scans[:5]
+        if not top_scans:
+            print("[SIMILARITY_NOTIFY] No similarity matches passed the notification threshold.")
+            return
+
+        # Format message
+        current_date = dt.datetime.now().strftime("%Y-%m-%d")
+        web_origin = os.getenv("WEB_ORIGIN", "https://egxbots.com").strip().rstrip("/")
+        
+        msg_lines = [
+            f"🔎 *تقرير تشابه الأنماط التاريخية / Daily Historical Similarity* 🔎",
+            f"📅 *التاريخ:* `{current_date}`",
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+        ]
+        
+        for idx, scan in enumerate(top_scans):
+            sym = scan.get("symbol", "").split(".")[0]
+            stats = scan.get("stats") or {}
+            win_rate = stats.get("win_rate", 0.0) * 100
+            avg_return = stats.get("average_return", 0.0) * 100
+            cases = stats.get("total_cases", 0)
+            
+            # Find max similarity percentage from matches
+            max_sim = max([m.get("similarity", 0.0) for m in scan.get("matches", [])], default=0.0) * 100
+            
+            msg_lines.append(
+                f"📈 *#{idx+1} {sym}* | EGX\n"
+                f"▪️ *نسبة النجاح التاريخية (Win Rate):* `{win_rate:.1f}%` 🔥\n"
+                f"▪️ *متوسط العائد التاريخي:* `{avg_return:+.1f}%`\n"
+                f"▪️ *عدد الحالات المشابهة:* `{cases}` حالات\n"
+                f"▪️ *نسبة التطابق الأقصى:* `{max_sim:.1f}%`\n"
+                f"━━━━━━━━━━━━━━━━━━━━"
+            )
+            
+        msg_lines.append(
+            f"🔗 *لفتح صفحة التشابه التاريخي ومقارنة الرسوم البيانية:*\n"
+            f"👉 [اضغط هنا لفتح المنصة]({web_origin}/scanner/technical?tab=similarity)"
+        )
+        
+        message = "\n".join(msg_lines)
+        
+        # Get chat IDs of users subscribed to historical_similarity
+        try:
+            res = (
+                supabase.table("bot_subscriptions")
+                .select("telegram_chat_id")
+                .eq("service_type", "historical_similarity")
+                .eq("notifications_enabled", True)
+                .not_.is_("telegram_chat_id", "null")
+                .neq("telegram_chat_id", "")
+                .execute()
+            )
+            
+            chat_ids = [str(r.get("telegram_chat_id")) for r in res.data or [] if r.get("telegram_chat_id")]
+            chat_ids = list(dict.fromkeys(chat_ids))
+            
+            if not chat_ids:
+                print("[SIMILARITY_NOTIFY] No subscribers found with active historical_similarity notifications.")
+                return
+                
+            sent_count = 0
+            for chat_id in chat_ids:
+                try:
+                    bot.send_notification(message, chat_id=chat_id)
+                    sent_count += 1
+                except Exception as send_err:
+                    print(f"[SIMILARITY_NOTIFY] Failed to send notification to {chat_id}: {send_err}")
+                    
+            print(f"[SIMILARITY_NOTIFY] Sent similarity notifications to {sent_count}/{len(chat_ids)} subscribers.")
+            
+        except Exception as db_err:
+            print(f"[SIMILARITY_NOTIFY] Database query failed: {db_err}")
+            
+    except Exception as e:
+        print(f"[SIMILARITY_NOTIFY] Error: {e}")
+
+
 def _notify_central_telegram(message: str, service_type: str = "central"):
     """Send a service-level message to the configured public Telegram topic."""
     try:
@@ -989,12 +1085,12 @@ def _format_technical_alert_message(alert_name: str, country: str, matches: List
     ]
 
     summary_parts = []
-    for key in ("rsi_min", "rsi_max", "min_price", "above_ema50", "above_ema200", "adx_min", "adx_max", "volume_above_sma20", "golden_cross", "use_ai_filter", "market_cap_min", "market_cap_max", "sector", "industry", "avoid_distribution", "require_accumulation", "cmf_min"):
+    for key in ("rsi_min", "rsi_max", "min_price", "above_ema50", "above_ema200", "adx_min", "adx_max", "volume_above_sma20", "golden_cross", "use_ai_filter", "market_cap_min", "market_cap_max", "sector", "industry", "avoid_distribution", "require_accumulation", "cmf_min", "divergence_type", "divergence_indicator", "divergence_min_strength"):
         value = filters.get(key)
         if value not in (None, False, "", []):
             summary_parts.append(f"{key}={value}")
     if summary_parts:
-        lines.append(f"⚙️ *Filters:* `{'; '.join(summary_parts[:8])}`")
+        lines.append(f"⚙️ *Filters:* `{'; '.join(summary_parts[:10])}`")
 
     lines.append("")
     for match in matches[:10]:
@@ -2759,6 +2855,11 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
                     "target_return": 0.05,
                     "stop_loss": -0.03
                 })
+                # Send telegram notifications to similarity subscribers
+                try:
+                    _dispatch_similarity_notifications(results)
+                except Exception as notify_err:
+                    print(f"[SIMILARITY] Failed to send subscriber notifications: {notify_err}")
             _record_step("historical_similarity", True, f"{len(results)} symbols scanned", len(results))
         except Exception as e:
             _record_step("historical_similarity", False, str(e)[:200], 0)

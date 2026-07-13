@@ -118,7 +118,6 @@ def _fetch_latest_technical_indicators(symbol_pairs: List[tuple[str, str]]) -> D
                     .select(
                         "symbol,exchange,date,close,volume,ema_50,ema_200,rsi_14,momentum_10,"
                         "atr_14,adx_14,stoch_k,stoch_d,cci_20,vwap_20,roc_12,vol_sma20,change_pct,"
-                        "cmf_20,mm_accumulation,mm_distribution,"
                         "rsi_divergence,macd_divergence,stoch_divergence,divergence_strength,divergence_periods,divergence_summary"
                     )
                     .in_("symbol", chunk)

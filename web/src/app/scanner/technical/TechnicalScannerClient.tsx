@@ -124,6 +124,9 @@ export default function TechnicalScannerPage() {
                 avoid_distribution: avoidDistribution,
                 require_accumulation: requireAccumulation,
                 cmf_min: cmfMin || undefined,
+                divergence_type: divergenceType !== "NONE" ? divergenceType : undefined,
+                divergence_indicator: divergenceIndicator !== "ANY" ? divergenceIndicator : undefined,
+                divergence_min_strength: divergenceMinStrength && parseFloat(divergenceMinStrength) > 0 ? parseFloat(divergenceMinStrength) / 100 : undefined,
             };
             const payload = {
                 user_id: user.id,
@@ -380,6 +383,9 @@ export default function TechnicalScannerPage() {
             requireAccumulation: false,
             cmfMin: "",
             shariaOnly: false,
+            divergenceType: "NONE",
+            divergenceIndicator: "ANY",
+            divergenceMinStrength: "0",
         });
         setVisibleFilters(DEFAULT_PILLS);
         setActiveFilterPopover(null);

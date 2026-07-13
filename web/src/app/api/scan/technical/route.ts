@@ -111,7 +111,7 @@ export async function POST(req: Request) {
 
     let { data: indicators, error } = await query
       .limit(1000) // Fetch a larger pool to allow client-side filters (joins)
-      .order('symbol', { ascending: true });
+      .order('date', { ascending: false });
 
     if (error) {
       // Fallback query without the missing fields (if legacy schema is in place)
@@ -136,7 +136,13 @@ export async function POST(req: Request) {
         macd,
         macd_signal,
         r_vol,
-        vwap_20
+        vwap_20,
+        rsi_divergence,
+        macd_divergence,
+        stoch_divergence,
+        divergence_strength,
+        divergence_periods,
+        divergence_summary
       `;
       let fallbackQuery = supabase
         .from('stock_technical_indicators')
@@ -154,7 +160,7 @@ export async function POST(req: Request) {
 
       const fallbackResult = await fallbackQuery
         .limit(1000)
-        .order('symbol', { ascending: true });
+        .order('date', { ascending: false });
 
       indicators = fallbackResult.data;
       if (fallbackResult.error) {
