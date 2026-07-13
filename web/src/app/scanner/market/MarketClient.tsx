@@ -1522,8 +1522,8 @@ export default function MarketClient() {
             // Fallback for available dates if range response doesn't have it at top level
             setAvailableHeatmapDates(payload?.available_dates || animationDates);
             
-            if (resolvedStart) setHeatmapStartDate(resolvedStart);
-            if (resolvedEnd) setHeatmapEndDate(resolvedEnd);
+            if (startOverride) setHeatmapStartDate(startOverride);
+            if (endOverride) setHeatmapEndDate(endOverride);
             
             if (frameDate) {
                 const nextIndex = Math.max(0, animationDates.findIndex((candidate) => candidate === frameDate));
@@ -1561,7 +1561,10 @@ export default function MarketClient() {
             if (applied) return;
         }
         setHeatmapDate(nextDate);
-        void fetchHeatmapData(nextDate, heatmapStartDate, heatmapEndDate);
+        setHeatmapStartDate("");
+        setHeatmapEndDate("");
+        setHeatmapFrames({ animationDates: [], framesByDate: {} });
+        void fetchHeatmapData(nextDate);
     };
 
     const heatmapAnimationDates = heatmapFrames.animationDates;
