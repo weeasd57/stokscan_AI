@@ -7,6 +7,9 @@ import SupportChatWidget from "@/components/SupportChatWidget";
 
 export const metadata = {
   metadataBase: new URL('https://egxbots.com'),
+  alternates: {
+    canonical: 'https://egxbots.com',
+  },
   title: {
     default: "EGX BOTS | تحليل البورصة المصرية بالذكاء الاصطناعي",
     template: "%s | EGX BOTS"
@@ -66,7 +69,7 @@ export default function RootLayout({
   children: ReactNode;
 }>) {
   return (
-    <html lang="en" dir="ltr" suppressHydrationWarning>
+    <html lang="ar" dir="ltr" suppressHydrationWarning>
       <head>
         <script
           type="application/ld+json"
