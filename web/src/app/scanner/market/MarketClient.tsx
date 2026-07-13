@@ -572,6 +572,200 @@ const SearchableSymbolSelect = ({ symbols, value, onChange, isAr, t }: {
     );
 };
 
+const HeatmapAnimationModal = ({
+    isAr,
+    t,
+    onClose,
+    heatmapStartDate,
+    setHeatmapStartDate,
+    heatmapEndDate,
+    setHeatmapEndDate,
+    heatmapPlaying,
+    setHeatmapPlaying,
+    heatmapFrameIndex,
+    setHeatmapFrameIndex,
+    heatmapAnimationDates,
+    applyHeatmapFrame,
+    availableHeatmapDates,
+    fetchHeatmapData,
+    heatmapLoading,
+}: {
+    isAr: boolean;
+    t: (k: string) => string;
+    onClose: () => void;
+    heatmapStartDate: string;
+    setHeatmapStartDate: (val: string) => void;
+    heatmapEndDate: string;
+    setHeatmapEndDate: (val: string) => void;
+    heatmapPlaying: boolean;
+    setHeatmapPlaying: (val: boolean | ((prev: boolean) => boolean)) => void;
+    heatmapFrameIndex: number;
+    setHeatmapFrameIndex: (val: number) => void;
+    heatmapAnimationDates: string[];
+    applyHeatmapFrame: (date: string, idx: number) => boolean;
+    availableHeatmapDates: string[];
+    fetchHeatmapData: (date?: string, start?: string, end?: string) => Promise<void>;
+    heatmapLoading: boolean;
+}) => {
+    const [mounted, setMounted] = useState(false);
+    useEffect(() => setMounted(true), []);
+
+    useEffect(() => {
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key === "Escape") onClose();
+        };
+        document.addEventListener("keydown", onKey);
+        const prev = document.body.style.overflow;
+        document.body.style.overflow = "hidden";
+        return () => {
+            document.removeEventListener("keydown", onKey);
+            document.body.style.overflow = prev;
+        };
+    }, [onClose]);
+
+    return (
+        <div
+            className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-6"
+            dir={isAr ? "rtl" : "ltr"}
+            role="dialog"
+            aria-modal="true"
+        >
+            <div
+                className="absolute inset-0 bg-black/60 dark:bg-black/80 backdrop-blur-sm"
+                onClick={onClose}
+            />
+            <div className="relative z-10 w-full max-w-md border-4 border-black dark:border-white bg-white dark:bg-zinc-950 shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] dark:shadow-[8px_8px_0px_0px_rgba(255,255,255,0.2)]">
+                {/* Header */}
+                <div className="flex items-center justify-between p-5 border-b-4 border-black dark:border-zinc-800 bg-[#FFDC58]">
+                    <div className={isAr ? "text-right" : "text-left"}>
+                        <h3 className="text-base font-black text-black uppercase tracking-tight flex items-center gap-2">
+                            <Play className="w-4 h-4 fill-current text-black" />
+                            {isAr ? "أنيميشن السيولة التاريخية" : "Historical Liquidity Animation"}
+                        </h3>
+                    </div>
+                    <button
+                        onClick={onClose}
+                        className="w-8 h-8 border-2 border-black bg-black text-[#FFDC58] flex items-center justify-center cursor-pointer active:translate-x-[1px] active:translate-y-[1px] transition-all hover:bg-zinc-800"
+                    >
+                        <X className="w-3.5 h-3.5" />
+                    </button>
+                </div>
+
+                {/* Content */}
+                <div className="p-5 space-y-4">
+                    <p className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">
+                        {isAr 
+                            ? "اختر فترة زمنية لتشغيل خريطة السيولة التاريخية يوماً بعد يوم. الحساب يتم محلياً في المتصفح." 
+                            : "Choose a period to play the heatmap day by day. Computed locally in your browser."}
+                    </p>
+
+                    <div className="flex gap-4">
+                        <label className="flex-1 flex flex-col gap-1 text-left">
+                            <span className="text-[9px] font-black uppercase text-zinc-500">{isAr ? "من" : "From"}</span>
+                            <input
+                                type="date"
+                                value={heatmapStartDate ? heatmapStartDate.slice(0, 10) : ""}
+                                max={heatmapEndDate ? heatmapEndDate.slice(0, 10) : (availableHeatmapDates[0] ? availableHeatmapDates[0].slice(0, 10) : undefined)}
+                                min={availableHeatmapDates[availableHeatmapDates.length - 1] ? availableHeatmapDates[availableHeatmapDates.length - 1].slice(0, 10) : undefined}
+                                onChange={(event) => {
+                                    const nextVal = event.target.value;
+                                    setHeatmapStartDate(nextVal);
+                                    setHeatmapFrameIndex(0);
+                                    if (nextVal && heatmapEndDate) {
+                                        void fetchHeatmapData(undefined, nextVal, heatmapEndDate);
+                                    }
+                                }}
+                                className="w-full h-10 border-2 border-black dark:border-white bg-white dark:bg-zinc-950 px-3 text-xs font-mono font-black text-zinc-950 dark:text-white shadow-[2px_2px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_rgba(255,255,255,0.2)]"
+                            />
+                        </label>
+                        <label className="flex-1 flex flex-col gap-1 text-left">
+                            <span className="text-[9px] font-black uppercase text-zinc-500">{isAr ? "إلى" : "To"}</span>
+                            <input
+                                type="date"
+                                value={heatmapEndDate ? heatmapEndDate.slice(0, 10) : ""}
+                                max={availableHeatmapDates[0] ? availableHeatmapDates[0].slice(0, 10) : undefined}
+                                min={heatmapStartDate ? heatmapStartDate.slice(0, 10) : (availableHeatmapDates[availableHeatmapDates.length - 1] ? availableHeatmapDates[availableHeatmapDates.length - 1].slice(0, 10) : undefined)}
+                                onChange={(event) => {
+                                    const nextVal = event.target.value;
+                                    setHeatmapEndDate(nextVal);
+                                    setHeatmapFrameIndex(0);
+                                    if (heatmapStartDate && nextVal) {
+                                        void fetchHeatmapData(undefined, heatmapStartDate, nextVal);
+                                    }
+                                }}
+                                className="w-full h-10 border-2 border-black dark:border-white bg-white dark:bg-zinc-950 px-3 text-xs font-mono font-black text-zinc-950 dark:text-white shadow-[2px_2px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_rgba(255,255,255,0.2)]"
+                            />
+                        </label>
+                    </div>
+
+                    {heatmapAnimationDates.length > 0 ? (
+                        <div className="bg-zinc-50 border-2 border-black p-4 space-y-3 dark:border-zinc-800 dark:bg-zinc-900/40">
+                            <div className="flex items-center justify-between text-[10px] font-mono font-black text-zinc-500">
+                                <span>{heatmapAnimationDates[0]}</span>
+                                <span className="px-2.5 py-0.5 bg-indigo-600 text-white font-black rounded text-[10px] animate-pulse">
+                                    {heatmapAnimationDates[heatmapFrameIndex]}
+                                </span>
+                                <span>{heatmapAnimationDates[heatmapAnimationDates.length - 1]}</span>
+                            </div>
+                            
+                            <div className="relative pt-1 flex items-center">
+                                <input
+                                    type="range"
+                                    min={0}
+                                    max={Math.max(0, heatmapAnimationDates.length - 1)}
+                                    value={Math.min(heatmapFrameIndex, Math.max(0, heatmapAnimationDates.length - 1))}
+                                    onChange={(event) => {
+                                        const nextIndex = Number(event.target.value);
+                                        const nextDate = heatmapAnimationDates[nextIndex];
+                                        if (nextDate) {
+                                            applyHeatmapFrame(nextDate, nextIndex);
+                                        }
+                                    }}
+                                    className="w-full h-2 rounded-lg bg-zinc-200 dark:bg-zinc-800 appearance-none cursor-pointer accent-indigo-600"
+                                    style={{
+                                        background: `linear-gradient(to right, #4f46e5 0%, #4f46e5 ${((heatmapFrameIndex) / Math.max(1, heatmapAnimationDates.length - 1)) * 100}%, ${isAr ? '#1f2937' : '#e5e7eb'} ${((heatmapFrameIndex) / Math.max(1, heatmapAnimationDates.length - 1)) * 100}%, ${isAr ? '#1f2937' : '#e5e7eb'} 100%)`
+                                    }}
+                                />
+                            </div>
+
+                            <div className="flex justify-center pt-2">
+                                <button
+                                    type="button"
+                                    onClick={() => setHeatmapPlaying((playing) => !playing)}
+                                    className="h-9 inline-flex items-center gap-2 border-2 border-black dark:border-white bg-indigo-600 px-4 text-[10px] font-black uppercase text-white shadow-[2px_2px_0px_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none hover:bg-indigo-700 transition-colors"
+                                >
+                                    {heatmapPlaying ? (
+                                        <>
+                                            <Pause className="w-3 h-3 fill-current" />
+                                            {isAr ? "إيقاف مؤقت" : "Pause"}
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Play className="w-3 h-3 fill-current" />
+                                            {isAr ? "تشغيل الأنيميشن" : "Play"}
+                                        </>
+                                    )}
+                                </button>
+                            </div>
+                        </div>
+                    ) : (
+                        <div className="text-center py-4 text-xs font-bold text-zinc-400">
+                            {heatmapLoading ? (
+                                <span className="flex items-center justify-center gap-2">
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                    {isAr ? "جاري تحميل البيانات..." : "Loading dates..."}
+                                </span>
+                            ) : (
+                                <span>{isAr ? "يرجى تحديد فترة زمنية صالحة لتحميل الفريمات." : "Please select a valid range to load animation."}</span>
+                            )}
+                        </div>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+};
+
 const SectorDrillModal = ({ sector, isAr, t, onClose }: {
     sector: any;
     isAr: boolean;
@@ -1158,6 +1352,7 @@ export default function MarketClient() {
     const [heatmapEndDate, setHeatmapEndDate] = useState<string>("");
     const [heatmapFrameIndex, setHeatmapFrameIndex] = useState<number>(0);
     const [heatmapPlaying, setHeatmapPlaying] = useState<boolean>(false);
+    const [animationDialogOpen, setAnimationDialogOpen] = useState<boolean>(false);
     const [availableHeatmapDates, setAvailableHeatmapDates] = useState<string[]>([]);
     const [heatmapLoading, setHeatmapLoading] = useState<boolean>(true);
     const [heatmapError, setHeatmapError] = useState<string | null>(null);
@@ -1912,120 +2107,42 @@ export default function MarketClient() {
                 <div className={`mb-5 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between ${isAr ? "lg:flex-row-reverse" : "lg:flex-row"}`}>
                     <div className={isAr ? "text-right" : "text-left"}>
                         <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500">
-                            {isAr ? "أنيميشن خريطة السيولة" : "Liquidity Heatmap Animation"}
+                            {isAr ? "خريطة سيولة الأموال الذكية" : "Smart Money Flow Heatmap"}
                         </p>
                         <p className="text-[11px] font-semibold text-zinc-500 dark:text-zinc-400">
-                            {isAr ? "اختر فترة وشغّل الخريطة يوم بيوم. الحساب داخل المتصفح بدون تخزين بيانات جديدة." : "Choose a period and play the heatmap day by day. Computed in your browser without writes."}
+                            {isAr ? "تتبع توزيع وحركة السيولة في القطاعات المختلفة والأسهم التابعة لها." : "Track the distribution and rotation of liquidity across sectors and their constituent stocks."}
                         </p>
                     </div>
-                    <div className={`flex flex-wrap items-end gap-2 ${isAr ? "flex-row-reverse" : "flex-row"}`}>
+                    <div className={`flex flex-wrap items-end gap-2.5 ${isAr ? "flex-row-reverse" : "flex-row"}`}>
                         <label className="flex flex-col gap-1">
-                            <span className="text-[9px] font-black uppercase text-zinc-500">{isAr ? "من" : "From"}</span>
+                            <span className="text-[9px] font-black uppercase text-zinc-500">{isAr ? "تاريخ اليوم الحالي" : "Current Date"}</span>
                             <input
                                 type="date"
-                                value={heatmapStartDate ? heatmapStartDate.slice(0, 10) : ""}
-                                max={heatmapEndDate ? heatmapEndDate.slice(0, 10) : (availableHeatmapDates[0] ? availableHeatmapDates[0].slice(0, 10) : undefined)}
-                                min={availableHeatmapDates[availableHeatmapDates.length - 1] ? availableHeatmapDates[availableHeatmapDates.length - 1].slice(0, 10) : undefined}
-                                onChange={(event) => {
-                                    const nextVal = event.target.value;
-                                    setHeatmapStartDate(nextVal);
-                                    setHeatmapFrameIndex(0);
-                                    if (nextVal && heatmapEndDate) {
-                                        void fetchHeatmapData(undefined, nextVal, heatmapEndDate);
-                                    }
-                                }}
-                                className="h-10 border-2 border-black dark:border-white bg-white dark:bg-zinc-950 px-3 text-xs font-mono font-black text-zinc-950 dark:text-white shadow-[2px_2px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_rgba(255,255,255,0.2)]"
-                            />
-                        </label>
-                        <label className="flex flex-col gap-1">
-                            <span className="text-[9px] font-black uppercase text-zinc-500">{isAr ? "إلى" : "To"}</span>
-                            <input
-                                type="date"
-                                value={heatmapEndDate ? heatmapEndDate.slice(0, 10) : ""}
+                                value={heatmapDate ? heatmapDate.slice(0, 10) : ""}
                                 max={availableHeatmapDates[0] ? availableHeatmapDates[0].slice(0, 10) : undefined}
-                                min={heatmapStartDate ? heatmapStartDate.slice(0, 10) : (availableHeatmapDates[availableHeatmapDates.length - 1] ? availableHeatmapDates[availableHeatmapDates.length - 1].slice(0, 10) : undefined)}
-                                onChange={(event) => {
-                                    const nextVal = event.target.value;
-                                    setHeatmapEndDate(nextVal);
-                                    setHeatmapFrameIndex(0);
-                                    if (heatmapStartDate && nextVal) {
-                                        void fetchHeatmapData(undefined, heatmapStartDate, nextVal);
-                                    }
-                                }}
+                                min={availableHeatmapDates[availableHeatmapDates.length - 1] ? availableHeatmapDates[availableHeatmapDates.length - 1].slice(0, 10) : undefined}
+                                onChange={(event) => handleHeatmapDateChange(event.target.value)}
                                 className="h-10 border-2 border-black dark:border-white bg-white dark:bg-zinc-950 px-3 text-xs font-mono font-black text-zinc-950 dark:text-white shadow-[2px_2px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_rgba(255,255,255,0.2)]"
                             />
                         </label>
-                        <input
-                            type="date"
-                            value={heatmapDate ? heatmapDate.slice(0, 10) : ""}
-                            max={availableHeatmapDates[0] ? availableHeatmapDates[0].slice(0, 10) : undefined}
-                            min={availableHeatmapDates[availableHeatmapDates.length - 1] ? availableHeatmapDates[availableHeatmapDates.length - 1].slice(0, 10) : undefined}
-                            onChange={(event) => handleHeatmapDateChange(event.target.value)}
-                            className="h-10 border-2 border-black dark:border-white bg-white dark:bg-zinc-950 px-3 text-xs font-mono font-black text-zinc-950 dark:text-white shadow-[2px_2px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_rgba(255,255,255,0.2)]"
-                        />
                         <button
                             type="button"
-                            onClick={() => void fetchHeatmapData(heatmapDate, heatmapStartDate, heatmapEndDate)}
-                            className="h-10 inline-flex items-center gap-2 border-2 border-black dark:border-white bg-[#FFDC58] px-3 text-[10px] font-black uppercase text-black shadow-[2px_2px_0px_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none hover:bg-[#FFDC58]/80 transition-colors"
+                            onClick={() => void fetchHeatmapData(heatmapDate)}
+                            className="h-10 inline-flex items-center gap-2 border-2 border-black dark:border-white bg-[#FFDC58] px-3.5 text-[10px] font-black uppercase text-black shadow-[2px_2px_0px_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none hover:bg-[#FFDC58]/80 transition-colors"
                         >
                             <RefreshCw className={`h-3.5 w-3.5 ${heatmapLoading ? "animate-spin" : ""}`} />
                             {isAr ? "تحديث" : "Refresh"}
                         </button>
                         <button
                             type="button"
-                            onClick={() => setHeatmapPlaying((playing) => !playing)}
+                            onClick={() => setAnimationDialogOpen(true)}
                             className="h-10 inline-flex items-center gap-2 border-2 border-black dark:border-white bg-indigo-600 px-4 text-[10px] font-black uppercase text-white shadow-[2px_2px_0px_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none hover:bg-indigo-700 transition-colors"
                         >
-                            {heatmapPlaying ? (
-                                <>
-                                    <Pause className="w-3.5 h-3.5 fill-current" />
-                                    {isAr ? "إيقاف" : "Pause"}
-                                </>
-                            ) : (
-                                <>
-                                    <Play className="w-3.5 h-3.5 fill-current" />
-                                    {isAr ? "تشغيل" : "Play"}
-                                </>
-                            )}
+                            <Play className="w-3.5 h-3.5 fill-current text-white" />
+                            {isAr ? "تشغيل الأنيميشن 🎦" : "Play Animation 🎦"}
                         </button>
                     </div>
                 </div>
-
-                {heatmapAnimationDates.length > 0 && (
-                    <div className="mb-6 bg-zinc-100 border-2 border-black p-4 space-y-3 dark:border-zinc-800 dark:bg-zinc-950/70">
-                        {/* Custom visual progress bar and date tooltip */}
-                        <div className="flex items-center justify-between text-xs font-mono font-black text-zinc-600 dark:text-zinc-400">
-                            <span className="bg-zinc-100 dark:bg-zinc-900 px-2 py-0.5 border border-black/10 dark:border-white/10 rounded">{heatmapAnimationDates[0]}</span>
-                            
-                            {/* Glowing Date Badge */}
-                            <span className="px-3 py-1 bg-indigo-600 text-white font-black text-[11px] rounded border border-indigo-500 shadow-[0_0_12px_rgba(99,102,241,0.4)] tracking-wide animate-pulse">
-                                {isAr ? "التاريخ الحالي: " : "Active Date: "} {heatmapAnimationDates[heatmapFrameIndex]}
-                            </span>
-                            
-                            <span className="bg-zinc-100 dark:bg-zinc-900 px-2 py-0.5 border border-black/10 dark:border-white/10 rounded">{heatmapAnimationDates[heatmapAnimationDates.length - 1]}</span>
-                        </div>
-                        
-                        <div className="relative pt-1 flex items-center">
-                            <input
-                                type="range"
-                                min={0}
-                                max={Math.max(0, heatmapAnimationDates.length - 1)}
-                                value={Math.min(heatmapFrameIndex, Math.max(0, heatmapAnimationDates.length - 1))}
-                                onChange={(event) => {
-                                    const nextIndex = Number(event.target.value);
-                                    const nextDate = heatmapAnimationDates[nextIndex];
-                                    if (nextDate) {
-                                        applyHeatmapFrame(nextDate, nextIndex);
-                                    }
-                                }}
-                                className="w-full h-2 rounded-lg bg-zinc-200 dark:bg-zinc-800 appearance-none cursor-pointer accent-indigo-600"
-                                style={{
-                                    background: `linear-gradient(to right, #4f46e5 0%, #4f46e5 ${((heatmapFrameIndex) / Math.max(1, heatmapAnimationDates.length - 1)) * 100}%, ${isAr ? '#1f2937' : '#e5e7eb'} ${((heatmapFrameIndex) / Math.max(1, heatmapAnimationDates.length - 1)) * 100}%, ${isAr ? '#1f2937' : '#e5e7eb'} 100%)`
-                                }}
-                            />
-                        </div>
-                    </div>
-                )}
 
                 {heatmapLoading ? (
                     <div className="flex flex-col items-center justify-center min-h-[300px] gap-4">
@@ -2144,6 +2261,28 @@ export default function MarketClient() {
                     isAr={isAr}
                     t={t}
                     onClose={() => setDrillOpen(false)}
+                />
+            )}
+
+            {/* Heatmap Animation Modal */}
+            {animationDialogOpen && (
+                <HeatmapAnimationModal
+                    isAr={isAr}
+                    t={t}
+                    onClose={() => setAnimationDialogOpen(false)}
+                    heatmapStartDate={heatmapStartDate}
+                    setHeatmapStartDate={setHeatmapStartDate}
+                    heatmapEndDate={heatmapEndDate}
+                    setHeatmapEndDate={setHeatmapEndDate}
+                    heatmapPlaying={heatmapPlaying}
+                    setHeatmapPlaying={setHeatmapPlaying}
+                    heatmapFrameIndex={heatmapFrameIndex}
+                    setHeatmapFrameIndex={setHeatmapFrameIndex}
+                    heatmapAnimationDates={heatmapAnimationDates}
+                    applyHeatmapFrame={applyHeatmapFrame}
+                    availableHeatmapDates={availableHeatmapDates}
+                    fetchHeatmapData={fetchHeatmapData}
+                    heatmapLoading={heatmapLoading}
                 />
             )}
 
