@@ -177,6 +177,14 @@ def get_tradingview_exchange(symbol: str) -> str:
     return suffix
 
 
+# ── Yahoo Proxy Circuit Breaker ──────────────────────────────────────
+# After N consecutive proxy failures, skip the proxy entirely for
+# the rest of this process to avoid wasting minutes on SSL errors.
+_yahoo_proxy_fail_count = 0
+_YAHOO_PROXY_FAIL_THRESHOLD = 3
+_yahoo_proxy_tripped = False
+
+
 def _try_yahoo_direct_fallback(
     upper: str,
     base_symbol: str,
@@ -189,6 +197,8 @@ def _try_yahoo_direct_fallback(
     Direct Yahoo Finance API fallback. Fetches the raw JSON from Yahoo Finance
     query API to bypass yfinance JSONDecodeErrors and timezone issues.
     """
+    global _yahoo_proxy_fail_count, _yahoo_proxy_tripped
+
     if timeframe.lower() not in ["1d", "1day", "daily"]:
         return False, "Yahoo fallback only supports daily data"
     
@@ -221,10 +231,13 @@ def _try_yahoo_direct_fallback(
         url = f"https://query1.finance.yahoo.com/v8/finance/chart/{yf_ticker}?range={r_range}&interval=1d"
         
         cf_proxy = os.getenv("CF_PROXY_URL")
-        if cf_proxy:
+        if cf_proxy and not _yahoo_proxy_tripped:
             import urllib.parse
             url = f"{cf_proxy}?url={urllib.parse.quote(url)}"
             print(f"Routing Yahoo request through Cloudflare proxy: {cf_proxy}")
+        elif _yahoo_proxy_tripped:
+            print(f"[CIRCUIT BREAKER] Yahoo proxy disabled after {_YAHOO_PROXY_FAIL_THRESHOLD} consecutive failures — skipping proxy for {upper}")
+            return False, f"Yahoo proxy circuit breaker tripped ({_yahoo_proxy_fail_count} consecutive failures)"
         
         session = _get_yahoo_session()
         try:
@@ -237,8 +250,16 @@ def _try_yahoo_direct_fallback(
             if not chart_res:
                 print(f"PROXY EMPTY RESULT: {r.text[:200]}")
                 return False, "Yahoo API returned empty result"
+            # Reset circuit breaker on success
+            _yahoo_proxy_fail_count = 0
         except Exception as e:
             print(f"PROXY EXCEPTION: {str(e)}")
+            # Increment circuit breaker counter
+            if cf_proxy and ("SSL" in str(e) or "ConnectionError" in str(e) or "Max retries" in str(e)):
+                _yahoo_proxy_fail_count += 1
+                if _yahoo_proxy_fail_count >= _YAHOO_PROXY_FAIL_THRESHOLD:
+                    _yahoo_proxy_tripped = True
+                    print(f"[CIRCUIT BREAKER] Yahoo proxy TRIPPED after {_yahoo_proxy_fail_count} consecutive SSL failures — disabling proxy for remaining symbols")
             return False, f"Yahoo Proxy Exception: {str(e)}"
             
         data = chart_res[0]

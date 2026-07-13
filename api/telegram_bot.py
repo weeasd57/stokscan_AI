@@ -843,11 +843,19 @@ class TelegramBot:
             self._log("Waiting 5s for network baseline...")
             time.sleep(5)
 
-            # 4. Resolve bot username
-            me = self._call_api("getMe")
-            if me.get("ok"):
-                self.bot_username = me["result"].get("username", "")
-                self._log(f"Bot is @{self.bot_username}")
+            # 4. Resolve bot username (retry up to 5 times)
+            for _get_me_attempt in range(1, 6):
+                me = self._call_api("getMe")
+                if me.get("ok") and isinstance(me.get("result"), dict):
+                    self.bot_username = me["result"].get("username", "")
+                    self._log(f"Bot is @{self.bot_username}")
+                    break
+                else:
+                    err = me.get("description", "no result key")
+                    self._log(f"getMe attempt {_get_me_attempt}/5 failed: {err}")
+                    time.sleep(5 * _get_me_attempt)
+            else:
+                self._log("getMe failed after 5 attempts — continuing without bot username")
 
             webhook_url = os.getenv("WEBHOOK_URL")
             if webhook_url:
