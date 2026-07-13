@@ -1354,9 +1354,10 @@ export async function scanTech(filter: TechFilter, signal?: AbortSignal): Promis
         avoid_distribution: filter.avoid_distribution ?? false,
 
         require_accumulation: filter.require_accumulation ?? false,
-
-        cmf_min: filter.cmf_min
-
+        cmf_min: filter.cmf_min,
+        divergence_type: filter.divergence_type,
+        divergence_indicator: filter.divergence_indicator,
+        divergence_min_strength: filter.divergence_min_strength
       }),
 
       cache: "no-store",

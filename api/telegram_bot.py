@@ -149,15 +149,10 @@ class TelegramBot:
         is_relay = "telegram.org" not in api_base
 
         try:
-            if is_relay:
-                # Supabase Edge Function relay: wrap token + method into body
-                url = api_base
-                wrapped = {"token": self.token, "method": method, **(payload or {})}
-                resp = requests.post(url, json=wrapped, timeout=timeout)
-            else:
-                # Direct Telegram API
-                url = f"{api_base}/bot{self.token}/{method}"
-                resp = requests.post(url, json=payload or {}, timeout=timeout)
+            # Both direct and relay expect f"{api_base}/bot{token}/{method}"
+            # where the relay acts as a path-based HTTP proxy.
+            url = f"{api_base.rstrip('/')}/bot{self.token}/{method}"
+            resp = requests.post(url, json=payload or {}, timeout=timeout)
 
             data = resp.json()
             if not data.get("ok") and "description" not in data:

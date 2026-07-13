@@ -1627,20 +1627,110 @@ def update_open_portfolio_positions():
             "last_portfolio_update": dt.datetime.utcnow().isoformat(),
         })
 
-        update_data = {
-            "entry_price": entry_price,
-            "status_price": current_price,
-            "metadata": metadata,
-            "updated_at": dt.datetime.utcnow().isoformat(),
-        }
-        if not pos.get("entry_at"):
-            update_data["entry_at"] = pos.get("added_at") or dt.datetime.utcnow().isoformat()
+        # Check target/stop loss exit conditions
+        target_price = pos.get("target_price")
+        stop_price = pos.get("stop_price")
+        
+        hi = float(latest.get("high") or current_price)
+        lo = float(latest.get("low") or current_price)
+        
+        exited = False
+        exit_price = current_price
+        status_val = "open"
+        exit_reason = ""
+        
+        # Stop loss check (pessimistic / risk-first check)
+        if stop_price is not None and lo <= float(stop_price):
+            exited = True
+            exit_price = float(stop_price)
+            status_val = "hit_stop"
+            exit_reason = "hit_stop"
+        elif target_price is not None and hi >= float(target_price):
+            exited = True
+            exit_reason = "hit_target"
+            exit_price = float(target_price)
+            status_val = "hit_target"
 
-        try:
-            supabase.table("positions").update(update_data).eq("id", pos["id"]).eq("status", "open").execute()
-            print(f"[POSITIONS] Updated {raw_symbol}: current={current_price:.4f}, change={change_pct:+.2f}%")
-        except Exception as upd_err:
-            print(f"[POSITIONS] Update failed for {raw_symbol}: {upd_err}")
+        if exited:
+            pnl_pct = ((exit_price - entry_price) / entry_price) * 100.0
+            metadata["exit_reason"] = exit_reason
+            metadata["exit_price"] = round(exit_price, 6)
+            metadata["exit_pnl_pct"] = round(pnl_pct, 4)
+            metadata["exit_at"] = dt.datetime.utcnow().isoformat()
+            
+            update_data = {
+                "status": status_val,
+                "status_price": exit_price,
+                "status_at": dt.datetime.utcnow().isoformat(),
+                "metadata": metadata,
+                "updated_at": dt.datetime.utcnow().isoformat(),
+            }
+            try:
+                supabase.table("positions").update(update_data).eq("id", pos["id"]).eq("status", "open").execute()
+                print(f"[POSITIONS] Exited position {raw_symbol}: {exit_reason} at {exit_price:.4f} ({pnl_pct:+.2f}%)")
+            except Exception as upd_err:
+                print(f"[POSITIONS] Exit update failed for {raw_symbol}: {upd_err}")
+                continue
+
+            # Send Telegram Notification
+            try:
+                from api.telegram_bot import get_telegram_bot
+                bot = get_telegram_bot()
+                
+                emoji = "🎉🎯" if status_val == "hit_target" else "🛡️⚠️"
+                status_text_ar = "توصية ناجحة (تحقيق الهدف) ✅" if status_val == "hit_target" else "تفعيل وقف الخسارة 🛡️"
+                status_text_en = "Target Hit (Profit) ✅" if status_val == "hit_target" else "Stop Loss Hit (Loss) 🛡️"
+                
+                msg = (
+                    f"{emoji} *إغلاق صفقة في المحفظة / Closed Portfolio Position* 🏁\n"
+                    f"━━━━━━━━━━━━━━━━━━━━\n"
+                    f"💎 *السهم / Symbol:* `{raw_symbol}`\n"
+                    f"📌 *النتيجة / Outcome:* {status_text_ar} / {status_text_en}\n"
+                    f"📈 *سعر الدخول / Entry:* `{entry_price:.2f}` EGP\n"
+                    f"💰 *سعر الخروج / Exit:* `{exit_price:.2f}` EGP\n"
+                    f"📊 *صافي العائد / Return:* `{pnl_pct:+.2f}%`\n"
+                    f"━━━━━━━━━━━━━━━━━━━━\n"
+                )
+                
+                user_id = pos.get("user_id")
+                telegram_chat_id = None
+                if user_id:
+                    prof_res = (
+                        supabase.table("profiles")
+                        .select("telegram_chat_id")
+                        .eq("id", user_id)
+                        .maybe_single()
+                        .execute()
+                    )
+                    if prof_res and prof_res.data:
+                        telegram_chat_id = prof_res.data.get("telegram_chat_id")
+                
+                if bot:
+                    if telegram_chat_id:
+                        bot.send_notification(msg, chat_id=str(telegram_chat_id))
+                        print(f"[POSITIONS] Sent exit notification to user {user_id} (chat_id: {telegram_chat_id})")
+                    else:
+                        _notify_central_telegram(msg, "portfolio_exit")
+                        print(f"[POSITIONS] No telegram_chat_id found for user {user_id}, sent to central channel")
+                else:
+                    print(f"[POSITIONS] Telegram bot not initialized, could not send notification.")
+            except Exception as e_notify:
+                print(f"[POSITIONS] Telegram exit notification failed for {raw_symbol}: {e_notify}")
+        else:
+            update_data = {
+                "entry_price": entry_price,
+                "status_price": current_price,
+                "metadata": metadata,
+                "updated_at": dt.datetime.utcnow().isoformat(),
+            }
+            if not pos.get("entry_at"):
+                update_data["entry_at"] = pos.get("added_at") or dt.datetime.utcnow().isoformat()
+
+            try:
+                supabase.table("positions").update(update_data).eq("id", pos["id"]).eq("status", "open").execute()
+                print(f"[POSITIONS] Updated {raw_symbol}: current={current_price:.4f}, change={change_pct:+.2f}%")
+            except Exception as upd_err:
+                print(f"[POSITIONS] Update failed for {raw_symbol}: {upd_err}")
 
 
 def generate_arabic_rationale(result: dict) -> dict:
@@ -2454,11 +2544,16 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
         _append_step_log(step_name, status, details, count, extra)
 
         if not success and status == "failed":
-            print(
-                f"[TELEGRAM_ALERT] ⚠️ *تنبيه فشل StokScan AI*:\n"
+            alert_msg = (
+                f"⚠️ *تنبيه فشل StokScan AI*:\n"
                 f"• الخطوة: *{step_name}* فشلت\n"
                 f"• التفاصيل: {str(details)[:300]}"
             )
+            print(f"[TELEGRAM_ALERT] Sending immediate step failure alert to Telegram: {alert_msg}")
+            try:
+                _notify_central_telegram(alert_msg, f"step_failure_{step_name}")
+            except Exception as e_alert:
+                print(f"[TELEGRAM_ALERT] Failed to send immediate step failure alert: {e_alert}")
 
     try:
         # Initial status insert
@@ -2562,10 +2657,15 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
             _record_step("news_sentiment", False, str(e)[:200], 0)
             print(f"[NEWS_SENTIMENT] Error: {e}")
 
-        # 2.7 Sector heatmap is computed client-side from existing technical rows.
-        print("\n>>> STEP 2.7: Skipping Sector Heatmap precompute (client-side feature)...")
-        _start_step("precompute_heatmap", "Skipped - heatmap is computed client-side")
-        _record_step("precompute_heatmap", True, "Skipped - no Supabase writes needed", 0)
+        # 2.7 Pre-compute and save Sector Heatmap
+        print("\n>>> STEP 2.7: Pre-computing and saving Sector Heatmap...")
+        _start_step("precompute_heatmap", "Pre-computing and saving Sector Heatmap to Supabase")
+        try:
+            ok_h, msg_h = update_market_heatmap()
+            _record_step("precompute_heatmap", ok_h, msg_h, 0)
+        except Exception as e:
+            _record_step("precompute_heatmap", False, str(e)[:200], 0)
+            print(f"[HEATMAP] Error pre-computing heatmap: {e}")
 
         # 3. Update open portfolio positions
         print("\n>>> STEP 3: Updating open portfolio positions...")
@@ -2643,6 +2743,14 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
                 max_workers=15
             )
             if results:
+                # Prune old similarity reports (older than 7 days) to prevent db bloat
+                try:
+                    seven_days_ago = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=7)).isoformat()
+                    supabase.table("similarity_reports").delete().lt("updated_at", seven_days_ago).execute()
+                    print("[SIMILARITY] Pruned similarity reports older than 7 days.")
+                except Exception as del_err:
+                    print(f"[SIMILARITY] Failed to prune old similarity reports: {del_err}")
+
                 published = publish_similarity_report({
                     "name": f"Daily Similarity Scan - {dt.datetime.now().strftime('%Y-%m-%d %H:%M')}",
                     "scans": results,
@@ -2731,12 +2839,6 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
             bot = get_telegram_bot()
             if bot:
                 elapsed = (dt.datetime.now(dt.timezone.utc) - dt.datetime.fromisoformat(job_start_time.replace("Z", "+00:00"))).total_seconds()
-                digest_lines = [
-                    f"🤖 *ملخص التشغيل اليومي لـ StokScan AI*",
-                    f"📅 التاريخ: {dt.datetime.now().strftime('%Y-%m-%d %H:%M')}",
-                    f"⏱️ مدة التشغيل الإجمالية: {elapsed:.1f} ثانية",
-                    ""
-                ]
                 
                 step_names_ar = {
                     "sync_inventory": "تحديث قائمة الأسهم",
@@ -2755,6 +2857,26 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
                     "weekly_adaptive_retraining": "إعادة التدريب التكيفي"
                 }
 
+                # Find recommendations count and failed steps
+                recs_count = 0
+                warnings_or_errors = []
+                for step in steps_log:
+                    name = step.get("step")
+                    status = step.get("status")
+                    if name == "generate_recommendations":
+                        recs_count = step.get("count", 0)
+                    if status == "failed":
+                        warnings_or_errors.append(f"• *{step_names_ar.get(name, name)}*: {step.get('details')}")
+
+                digest_lines = [
+                    f"🤖 *ملخص التشغيل اليومي لـ StokScan AI*",
+                    f"📅 التاريخ: {dt.datetime.now().strftime('%Y-%m-%d %H:%M')}",
+                    f"⏱️ مدة التشغيل الإجمالية: {elapsed:.1f} ثانية",
+                    f"✨ التوصيات الجديدة المولدة اليوم: *{recs_count}*",
+                    "",
+                    "📋 *حالة خطوات التشغيل اليومية:*",
+                ]
+
                 for step in steps_log:
                     name = step.get("step")
                     status = step.get("status")
@@ -2766,7 +2888,7 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
                     
                     step_ar = step_names_ar.get(name, name)
                     line = f"{emoji} *{step_ar}* — {status.upper()}"
-                    if count > 0:
+                    if count > 0 and name != "generate_recommendations":
                         line += f" ({count})"
                     digest_lines.append(line)
                 
@@ -2783,6 +2905,11 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
                 except Exception as me_err:
                     print(f"[TELEGRAM_DIGEST] Market status read error: {me_err}")
                 
+                if warnings_or_errors:
+                    digest_lines.append("")
+                    digest_lines.append("🚨 *الأخطاء والتحذيرات التي حدثت:*")
+                    digest_lines.extend(warnings_or_errors)
+
                 # Send digest to subscribers using the corrected notification system
                 digest_message = "\n".join(digest_lines)
                 _notify_central_telegram(digest_message, "system_digest")
