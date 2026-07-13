@@ -615,15 +615,14 @@ const HeatmapAnimationModal = ({
             if (e.key === "Escape") onClose();
         };
         document.addEventListener("keydown", onKey);
-        const prev = document.body.style.overflow;
-        document.body.style.overflow = "hidden";
         return () => {
             document.removeEventListener("keydown", onKey);
-            document.body.style.overflow = prev;
         };
     }, [onClose]);
 
-    return (
+    if (!mounted) return null;
+
+    return createPortal(
         <div
             className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-6"
             dir={isAr ? "rtl" : "ltr"}
@@ -762,7 +761,8 @@ const HeatmapAnimationModal = ({
                     )}
                 </div>
             </div>
-        </div>
+        </div>,
+        document.body
     );
 };
 
