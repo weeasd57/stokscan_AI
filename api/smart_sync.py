@@ -38,7 +38,11 @@ class SmartSync:
                     return True, msg
                 
                 last_error = msg
-                if "rate limit" in msg.lower() or "error" in msg.lower():
+                msg_lower = msg.lower()
+                if "404" in msg_lower or "not found" in msg_lower or "delisted" in msg_lower:
+                    print(f"Attempt {attempt + 1} failed for {symbol} (Not Found): {msg}. Skipping retries.")
+                    return False, msg
+                elif "rate limit" in msg_lower or "error" in msg_lower:
                     print(f"Attempt {attempt + 1} failed for {symbol}: {msg}. Retrying in {self.retry_delay}s...")
                     time.sleep(self.retry_delay)
                 else:

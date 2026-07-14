@@ -969,7 +969,17 @@ def _dispatch_similarity_notifications(results: List[Dict[str, Any]]):
         
         message = "\n".join(msg_lines)
         
-        # Get chat IDs of users subscribed to historical_similarity
+        # 1. Send to the specific Telegram topic for Historical Similarity (Topic 151)
+        try:
+            from api.telegram_bot import get_telegram_bot
+            bot = get_telegram_bot()
+            if bot:
+                bot.send_notification(message, chat_id="-1002083067817_151")
+                print(f"[SIMILARITY_NOTIFY] Sent report to public channel topic 151.")
+        except Exception as e:
+            print(f"[SIMILARITY_NOTIFY] Failed to send to public channel: {e}")
+        
+        # 2. Get chat IDs of users subscribed to historical_similarity
         try:
             res = (
                 supabase.table("bot_subscriptions")
