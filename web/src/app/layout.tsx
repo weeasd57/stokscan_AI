@@ -4,6 +4,7 @@ import Providers from "@/app/providers";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import SupportChatWidget from "@/components/SupportChatWidget";
+import { Analytics } from "@vercel/analytics/react";
 
 export const metadata = {
   metadataBase: new URL('https://egxbots.com'),
@@ -145,6 +146,7 @@ export default function RootLayout({
           </main>
           <Footer />
           <SupportChatWidget />
+          <Analytics />
         </Providers>
       </body>
     </html>
