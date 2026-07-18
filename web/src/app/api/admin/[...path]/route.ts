@@ -3,6 +3,7 @@ import { getSupabaseClient } from "@/lib/supabase/route-data";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 60; // Vercel max for Hobby plan (60s)
 
 function getBackendBaseUrl() {
   return (
@@ -79,12 +80,16 @@ async function proxyAdminRequest(req: Request, context: { params: { path?: strin
   const body = method === "GET" || method === "HEAD" ? undefined : await req.arrayBuffer();
 
   try {
+    // Streaming & training routes need longer timeout
+    const isStreamingRoute = path.includes("stream") || path.includes("train");
+    const timeoutMs = isStreamingRoute ? 55000 : 10000;
+
     const backendRes = await fetch(backendUrl.toString(), {
       method,
       headers,
       body,
       cache: "no-store",
-      signal: AbortSignal.timeout(10000),
+      signal: AbortSignal.timeout(timeoutMs),
     });
 
     const contentType = backendRes.headers.get("content-type") || "";

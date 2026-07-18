@@ -22,12 +22,38 @@ export async function GET(req: NextRequest) {
       .eq("cache_key", cacheKey)
       .maybeSingle();
 
-    if (error || !cacheRow?.payload) {
-      console.error(`Failed to fetch symbols from cache key ${cacheKey}:`, error);
-      return NextResponse.json({ results: [] });
+    let allSymbols: Array<any> = [];
+
+    if (!error && cacheRow?.payload && Array.isArray(cacheRow.payload)) {
+      allSymbols = cacheRow.payload;
+    } else {
+      // Fallback: query directly from symbols table in Supabase
+      console.warn(`Cache miss for ${cacheKey} — falling back to symbols table`);
+      let symbolQuery = supabase
+        .from("symbols")
+        .select("symbol, exchange, name, country, type, currency")
+        .eq("isListed", true)
+        .limit(2000);
+
+      if (country) symbolQuery = symbolQuery.eq("country", country);
+      if (exchange) symbolQuery = symbolQuery.ilike("exchange", exchange);
+
+      const { data: symbolRows, error: symErr } = await symbolQuery;
+      if (!symErr && symbolRows) {
+        allSymbols = symbolRows.map((s: any) => ({
+          Symbol: s.symbol,
+          Exchange: s.exchange,
+          Name: s.name,
+          Country: s.country,
+          Type: s.type,
+          Currency: s.currency,
+        }));
+      } else {
+        console.error(`Failed to fetch symbols from cache key ${cacheKey}:`, error);
+        return NextResponse.json({ results: [] });
+      }
     }
 
-    const allSymbols = cacheRow.payload as Array<any>;
     if (!Array.isArray(allSymbols)) {
       return NextResponse.json({ results: [] });
     }
