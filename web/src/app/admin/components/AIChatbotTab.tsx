@@ -155,7 +155,7 @@ export default function AIChatbotTab() {
                                         type="text"
                                         value={settings.api_url}
                                         onChange={(e) => setSettings({ ...settings, api_url: e.target.value })}
-                                        className="w-full bg-zinc-100 dark:bg-zinc-950 border-2 border-black dark:border-zinc-700 px-4 py-3 font-mono text-sm focus:border-indigo-500 focus:outline-none transition-colors"
+                                        className="w-full bg-zinc-100 dark:bg-zinc-950 text-black dark:text-white border-2 border-black dark:border-zinc-700 px-4 py-3 font-mono text-sm focus:border-indigo-500 focus:outline-none transition-colors"
                                         placeholder="https://api.agentrouter.org/v1"
                                     />
                                 </div>
@@ -168,7 +168,7 @@ export default function AIChatbotTab() {
                                         type="password"
                                         value={settings.api_key}
                                         onChange={(e) => setSettings({ ...settings, api_key: e.target.value })}
-                                        className="w-full bg-zinc-100 dark:bg-zinc-950 border-2 border-black dark:border-zinc-700 px-4 py-3 font-mono text-sm focus:border-indigo-500 focus:outline-none transition-colors"
+                                        className="w-full bg-zinc-100 dark:bg-zinc-950 text-black dark:text-white border-2 border-black dark:border-zinc-700 px-4 py-3 font-mono text-sm focus:border-indigo-500 focus:outline-none transition-colors"
                                         placeholder="sk-..."
                                     />
                                 </div>
@@ -180,7 +180,7 @@ export default function AIChatbotTab() {
                                     <select
                                         value={settings.model}
                                         onChange={(e) => setSettings({ ...settings, model: e.target.value })}
-                                        className="w-full bg-zinc-100 dark:bg-zinc-950 border-2 border-black dark:border-zinc-700 px-4 py-3 font-mono text-sm focus:border-indigo-500 focus:outline-none transition-colors appearance-none cursor-pointer"
+                                        className="w-full bg-zinc-100 dark:bg-zinc-950 text-black dark:text-white border-2 border-black dark:border-zinc-700 px-4 py-3 font-mono text-sm focus:border-indigo-500 focus:outline-none transition-colors appearance-none cursor-pointer"
                                     >
                                         <optgroup label="Anthropic">
                                             <option value="claude-3-5-sonnet-20240620">Claude 3.5 Sonnet</option>
@@ -218,7 +218,7 @@ export default function AIChatbotTab() {
                                 <textarea
                                     value={settings.system_prompt}
                                     onChange={(e) => setSettings({ ...settings, system_prompt: e.target.value })}
-                                    className="w-full h-64 bg-zinc-100 dark:bg-zinc-950 border-2 border-black dark:border-zinc-700 px-4 py-3 font-mono text-sm focus:border-indigo-500 focus:outline-none transition-colors resize-none"
+                                    className="w-full h-64 bg-zinc-100 dark:bg-zinc-950 text-black dark:text-white border-2 border-black dark:border-zinc-700 px-4 py-3 font-mono text-sm focus:border-indigo-500 focus:outline-none transition-colors resize-none"
                                     placeholder="You are a helpful AI assistant for the users of this platform..."
                                 />
                             </div>
