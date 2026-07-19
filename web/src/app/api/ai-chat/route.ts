@@ -82,7 +82,10 @@ export async function POST(req: NextRequest) {
         if (!response.ok) {
             const errText = await response.text();
             console.error("AgentRouter API Error:", errText);
-            return NextResponse.json({ detail: "Failed to communicate with AI provider." }, { status: response.status });
+            return NextResponse.json({ 
+                detail: "Failed to communicate with AI provider.", 
+                provider_error: errText 
+            }, { status: response.status });
         }
 
         let data;
