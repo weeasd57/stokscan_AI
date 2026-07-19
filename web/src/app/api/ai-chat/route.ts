@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getSupabaseClient } from "@/lib/supabase/route-data";
 
 export const runtime = "nodejs";
@@ -6,10 +7,11 @@ export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
     try {
-        const supabase = getSupabaseClient();
+        const authClient = createSupabaseServerClient(req);
+        const supabase = getSupabaseClient(); // Service role client for DB
 
         // 1. Authenticate user
-        const { data: { session }, error: authError } = await supabase.auth.getSession();
+        const { data: { session }, error: authError } = await authClient.auth.getSession();
         if (authError || !session?.user) {
             return NextResponse.json({ detail: "Unauthorized" }, { status: 401 });
         }

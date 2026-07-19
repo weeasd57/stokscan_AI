@@ -24,30 +24,30 @@ export default function ChatWidget() {
         return (
             <button
                 onClick={() => setIsOpen(true)}
-                className="fixed bottom-6 right-6 h-14 w-14 rounded-full bg-indigo-600 hover:bg-indigo-500 shadow-xl shadow-indigo-600/20 flex items-center justify-center text-white transition-all hover:scale-105 z-50 animate-in fade-in zoom-in duration-300"
+                className="fixed bottom-6 right-6 h-14 w-14 rounded-full bg-amber-500 hover:bg-amber-400 border-3 border-black text-black flex items-center justify-center shadow-[4px_4px_0px_0px_#000000] dark:shadow-[4px_4px_0px_0px_rgba(255,255,255,0.4)] transition-all hover:scale-105 active:translate-y-1 active:shadow-none z-50 animate-in fade-in zoom-in duration-300"
             >
-                <MessageSquare className="h-7 w-7" />
+                <Sparkles className="h-6 w-6 text-black" />
             </button>
         );
     }
 
     return (
-        <div className="fixed bottom-6 right-6 w-[380px] h-[600px] max-h-[80vh] rounded-2xl bg-zinc-950/95 backdrop-blur-xl border border-zinc-800 shadow-2xl flex flex-col z-50 animate-in fade-in slide-in-from-bottom-5 duration-300 overflow-hidden">
+        <div className="fixed bottom-6 right-6 w-[380px] h-[600px] max-h-[80vh] rounded-2xl bg-white/95 dark:bg-zinc-950/95 backdrop-blur-xl border border-zinc-200 dark:border-zinc-800 shadow-2xl flex flex-col z-50 animate-in fade-in slide-in-from-bottom-5 duration-300 overflow-hidden">
             {/* Header */}
-            <div className="flex items-center justify-between p-4 border-b border-zinc-800 bg-zinc-900/50">
-                <div className="flex items-center gap-2 text-white font-medium">
+            <div className="flex items-center justify-between p-4 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/50">
+                <div className="flex items-center gap-2 text-black dark:text-white font-medium">
                     <div className="p-1.5 rounded-lg bg-indigo-500/10">
                         <Sparkles className="h-4 w-4 text-indigo-400" />
                     </div>
                     AI Assistant
                 </div>
                 <div className="flex items-center gap-3">
-                    <div className="text-xs font-medium px-2 py-1 bg-zinc-800 rounded-full text-zinc-300">
+                    <div className="text-xs font-medium px-2 py-1 bg-zinc-200 dark:bg-zinc-800 rounded-full text-zinc-600 dark:text-zinc-300">
                         {remainingQuota}/4 Left
                     </div>
                     <button
                         onClick={() => setIsOpen(false)}
-                        className="p-1.5 rounded-lg text-zinc-400 hover:bg-zinc-800 hover:text-white transition-colors"
+                        className="p-1.5 rounded-lg text-zinc-500 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-800 hover:text-black dark:hover:text-white transition-colors"
                     >
                         <X className="h-5 w-5" />
                     </button>
@@ -69,21 +69,21 @@ export default function ChatWidget() {
                     >
                         <div className={`
                             h-8 w-8 rounded-full flex items-center justify-center shrink-0
-                            ${msg.role === "user" ? "bg-zinc-800 text-zinc-400" : "bg-indigo-600 text-white"}
+                            ${msg.role === "user" ? "bg-zinc-200 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400" : "bg-amber-500 text-black"}
                         `}>
-                            {msg.role === "user" ? <User className="h-4 w-4" /> : <Bot className="h-4 w-4" />}
+                            {msg.role === "user" ? <User className="h-4 w-4" /> : <Sparkles className="h-4 w-4" />}
                         </div>
                         <div className={`
                             max-w-[80%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed
                             ${msg.role === "user"
-                                ? "bg-zinc-800 text-zinc-100 rounded-tr-none"
-                                : "bg-indigo-500/10 border border-indigo-500/20 text-zinc-100 rounded-tl-none"}
+                                ? "bg-zinc-100 dark:bg-zinc-800 text-black dark:text-zinc-100 rounded-tr-none"
+                                : "bg-amber-500/10 border border-amber-500/20 text-black dark:text-zinc-100 rounded-tl-none"}
                         `}>
                             <div className="whitespace-pre-wrap">{msg.content}</div>
                             {msg.actions && (
                                 <div className="mt-3 flex gap-2">
                                     {msg.actions.map((act, i) => (
-                                        <button key={i} className="text-xs bg-indigo-500 hover:bg-indigo-600 px-3 py-1.5 rounded-full text-white transition-colors">
+                                        <button key={i} className="text-xs bg-amber-500 hover:bg-amber-600 px-3 py-1.5 rounded-full text-black font-medium transition-colors">
                                             {act.label}
                                         </button>
                                     ))}
@@ -94,13 +94,13 @@ export default function ChatWidget() {
                 ))}
                 {isLoading && (
                     <div className="flex gap-3">
-                        <div className="h-8 w-8 rounded-full bg-indigo-600 flex items-center justify-center shrink-0">
-                            <Bot className="h-4 w-4 text-white" />
+                        <div className="h-8 w-8 rounded-full bg-amber-500 flex items-center justify-center shrink-0">
+                            <Sparkles className="h-4 w-4 text-black" />
                         </div>
-                        <div className="bg-indigo-500/10 border border-indigo-500/20 rounded-2xl rounded-tl-none px-4 py-3 flex items-center gap-2">
-                            <div className="h-2 w-2 bg-indigo-400 rounded-full animate-bounce [animation-delay:-0.3s]"></div>
-                            <div className="h-2 w-2 bg-indigo-400 rounded-full animate-bounce [animation-delay:-0.15s]"></div>
-                            <div className="h-2 w-2 bg-indigo-400 rounded-full animate-bounce"></div>
+                        <div className="bg-amber-500/10 border border-amber-500/20 rounded-2xl rounded-tl-none px-4 py-3 flex items-center gap-2">
+                            <div className="h-2 w-2 bg-amber-400 rounded-full animate-bounce [animation-delay:-0.3s]"></div>
+                            <div className="h-2 w-2 bg-amber-400 rounded-full animate-bounce [animation-delay:-0.15s]"></div>
+                            <div className="h-2 w-2 bg-amber-400 rounded-full animate-bounce"></div>
                         </div>
                     </div>
                 )}
@@ -108,19 +108,19 @@ export default function ChatWidget() {
             </div>
 
             {/* Input */}
-            <div className="p-4 border-t border-zinc-800 bg-zinc-900/50">
+            <div className="p-4 border-t border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/50">
                 <form onSubmit={handleSubmit} className="flex gap-2">
                     <input
                         type="text"
                         value={input}
                         onChange={(e) => setInput(e.target.value)}
                         placeholder="Ask anything..."
-                        className="flex-1 h-10 rounded-xl bg-zinc-950 border border-zinc-800 px-3 text-sm text-zinc-100 placeholder:text-zinc-500 focus:border-indigo-500 focus:outline-none transition-colors"
+                        className="flex-1 h-10 rounded-xl bg-white dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-800 px-3 text-sm text-black dark:text-zinc-100 placeholder:text-zinc-500 focus:border-amber-500 focus:outline-none transition-colors"
                     />
                     <button
                         type="submit"
                         disabled={isLoading || !input.trim()}
-                        className="h-10 w-10 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:hover:bg-indigo-600 text-white flex items-center justify-center transition-all"
+                        className="h-10 w-10 rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-50 disabled:hover:bg-amber-500 text-black flex items-center justify-center transition-all"
                     >
                         {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                     </button>
