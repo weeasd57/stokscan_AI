@@ -26,7 +26,7 @@ interface ChatContextType {
     messages: ChatMessage[];
     sendMessage: (text: string) => Promise<void>;
     isLoading: boolean;
-    hasKey: boolean;
+    remainingQuota: number;
 }
 
 const ChatContext = createContext<ChatContextType | undefined>(undefined);
@@ -41,10 +41,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [isLoading, setIsLoading] = useState(false);
 
-    // API Keys & Config
-    const [openRouterKey, setOpenRouterKey] = useState<string | null>(null);
-    const [customRules, setCustomRules] = useState<string | null>(null);
-    const [hasKey, setHasKey] = useState(false);
+    const [remainingQuota, setRemainingQuota] = useState<number>(4);
 
     // Initial Welcome Message
     useEffect(() => {
@@ -57,27 +54,11 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         ]);
     }, []);
 
-    // Load API Keys
+    // Initialize Context
     useEffect(() => {
         if (!user) return;
-
-        async function loadKeys() {
-            const { data } = await supabase
-                .from("profiles")
-                .select("openrouter_api_key, custom_ai_rules")
-                .eq("id", user!.id)
-                .maybeSingle();
-
-            if (data?.openrouter_api_key) {
-                setOpenRouterKey(data.openrouter_api_key);
-                setHasKey(true);
-            }
-            if (data?.custom_ai_rules) {
-                setCustomRules(data.custom_ai_rules);
-            }
-        }
-        loadKeys();
-    }, [user, supabase]);
+        // Optional: Pre-fetch quota if needed, but the API will return it on first message.
+    }, [user]);
 
     const handleAction = useCallback((action: ChatAction) => {
         if (action.type === "navigate") {
@@ -101,59 +82,45 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         setIsLoading(true);
 
         try {
-            if (!hasKey || !openRouterKey) {
-                // Fallback or Mock response if no key
-                setTimeout(() => {
-                    setMessages(prev => [...prev, {
-                        role: "assistant",
-                        content: "Please add your OpenRouter API Key in the Profile page to enable real AI responses. For now, I can only provide basic navigation help.",
-                        timestamp: Date.now(),
-                        actions: [{ label: "Go to Profile", type: "navigate", value: "/profile" }]
-                    }]);
-                    setIsLoading(false);
-                }, 1000);
+            if (remainingQuota <= 0) {
+                setMessages(prev => [...prev, {
+                    role: "assistant",
+                    content: "Daily limit reached. You can send up to 4 messages per day. Please come back tomorrow!",
+                    timestamp: Date.now()
+                }]);
+                setIsLoading(false);
                 return;
             }
 
-            // Real OpenRouter Call (Example implementation, assuming OpenRouter is preferred)
-            const systemPrompt = `You are a Stock Market AI Assistant integrated into the "EGX Bots" app.
-            
-            APP CONTEXT:
-            - Home: Dashboard with popular stocks.
-            - AI Scanner: Random Forest predictions.
-            - Technical Scanner: Filter by RSI, MACD, etc.
-            - Comparison: Compare stocks side-by-side.
-            
-            USER RULES: ${customRules || "None"}
-            
-            Be concise, helpful, and professional. Format outputs with Markdown.
-            If the user asks to scan for bullish stocks, suggest setting Technical Scanner to RSI > 50 and Price > EMA 200.
-            `;
- 
-            // Using OpenRouter instead of Gemini
-            const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+            const response = await fetch("/api/ai-chat", {
                 method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    "Authorization": `Bearer ${openRouterKey}`,
-                    "HTTP-Referer": window.location.origin,
-                    "X-Title": "EGX Bots"
-                },
-                body: JSON.stringify({
-                    model: "google/gemini-flash-1.5", // Still can use Gemini via OpenRouter if desired, or move to GPT-4o-mini
-                    messages: [
-                        { role: "system", content: systemPrompt },
-                        { role: "user", content: text }
-                    ]
-                })
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ message: text })
             });
 
             const data = await response.json();
-            const replyText = data.choices?.[0]?.message?.content || "Sorry, I couldn't process that.";
+            
+            if (response.status === 429) {
+                setRemainingQuota(0);
+                setMessages(prev => [...prev, {
+                    role: "assistant",
+                    content: data.detail || "Daily limit reached. You can send up to 4 messages per day.",
+                    timestamp: Date.now()
+                }]);
+                return;
+            }
+
+            if (!response.ok) {
+                throw new Error(data.detail || "Failed to communicate with AI");
+            }
+
+            if (data.remaining_quota !== undefined) {
+                setRemainingQuota(data.remaining_quota);
+            }
 
             setMessages(prev => [...prev, {
                 role: "assistant",
-                content: replyText,
+                content: data.reply || "Sorry, I couldn't process that.",
                 timestamp: Date.now()
             }]);
 
@@ -169,7 +136,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     };
 
     return (
-        <ChatContext.Provider value={{ isOpen, setIsOpen, messages, sendMessage, isLoading, hasKey }}>
+        <ChatContext.Provider value={{ isOpen, setIsOpen, messages, sendMessage, isLoading, remainingQuota }}>
             {children}
         </ChatContext.Provider>
     );
