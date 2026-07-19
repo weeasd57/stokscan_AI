@@ -910,7 +910,7 @@ def _notify_service_subscribers(service_type: str, message: str):
 
 
 def _dispatch_similarity_notifications(results: List[Dict[str, Any]]):
-    """Format and send daily similarity scan notifications to telegram subscribers."""
+    """Format and send daily similarity scan report to the public Telegram channel topic."""
     try:
         from api.telegram_bot import get_telegram_bot
         bot = get_telegram_bot()
@@ -969,47 +969,13 @@ def _dispatch_similarity_notifications(results: List[Dict[str, Any]]):
         
         message = "\n".join(msg_lines)
         
-        # 1. Send to the specific Telegram topic for Historical Similarity (Topic 151)
+        # Send to the public Telegram channel topic for Historical Similarity (Topic 151)
+        SIMILARITY_TOPIC_CHAT_ID = "-1002083067817_151"
         try:
-            from api.telegram_bot import get_telegram_bot
-            bot = get_telegram_bot()
-            if bot:
-                bot.send_notification(message, chat_id="-1002083067817_151")
-                print(f"[SIMILARITY_NOTIFY] Sent report to public channel topic 151.")
+            bot.send_notification(message, chat_id=SIMILARITY_TOPIC_CHAT_ID)
+            print(f"[SIMILARITY_NOTIFY] Sent report to public channel topic 151.")
         except Exception as e:
-            print(f"[SIMILARITY_NOTIFY] Failed to send to public channel: {e}")
-        
-        # 2. Get chat IDs of users subscribed to historical_similarity
-        try:
-            res = (
-                supabase.table("bot_subscriptions")
-                .select("telegram_chat_id")
-                .eq("service_type", "historical_similarity")
-                .eq("notifications_enabled", True)
-                .not_.is_("telegram_chat_id", "null")
-                .neq("telegram_chat_id", "")
-                .execute()
-            )
-            
-            chat_ids = [str(r.get("telegram_chat_id")) for r in res.data or [] if r.get("telegram_chat_id")]
-            chat_ids = list(dict.fromkeys(chat_ids))
-            
-            if not chat_ids:
-                print("[SIMILARITY_NOTIFY] No subscribers found with active historical_similarity notifications.")
-                return
-                
-            sent_count = 0
-            for chat_id in chat_ids:
-                try:
-                    bot.send_notification(message, chat_id=chat_id)
-                    sent_count += 1
-                except Exception as send_err:
-                    print(f"[SIMILARITY_NOTIFY] Failed to send notification to {chat_id}: {send_err}")
-                    
-            print(f"[SIMILARITY_NOTIFY] Sent similarity notifications to {sent_count}/{len(chat_ids)} subscribers.")
-            
-        except Exception as db_err:
-            print(f"[SIMILARITY_NOTIFY] Database query failed: {db_err}")
+            print(f"[SIMILARITY_NOTIFY] Failed to send to public channel topic: {e}")
             
     except Exception as e:
         print(f"[SIMILARITY_NOTIFY] Error: {e}")
