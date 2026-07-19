@@ -86,12 +86,12 @@ export async function POST(req: NextRequest) {
         }
 
         let data;
+        const rawText = await response.text();
         try {
-            data = await response.json();
+            data = JSON.parse(rawText);
         } catch (parseError) {
-            const rawText = await response.text();
             console.error("Failed to parse JSON from provider. Raw response:", rawText);
-            return NextResponse.json({ detail: "AI provider returned an invalid format (not JSON). Please check your BASE URL." }, { status: 502 });
+            return NextResponse.json({ detail: "AI provider returned an invalid format. Please check your BASE URL." }, { status: 502 });
         }
         
         const replyText = data.choices?.[0]?.message?.content || "Sorry, I couldn't generate a response.";
