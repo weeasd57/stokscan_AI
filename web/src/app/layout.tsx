@@ -12,19 +12,19 @@ export const metadata = {
     canonical: 'https://egxbots.com',
   },
   title: {
-    default: "EGX BOTS | تحليل البورصة المصرية بالذكاء الاصطناعي",
+    default: "EGX BOTS | تحليل البورصة المصرية بالذكاء الاصطناعي وشات بوت ذكي",
     template: "%s | EGX BOTS"
   },
-  description: "منصة EGX BOTS (egxbots) هي منصة متقدمة لتحليل الأسهم المصرية باستخدام الذكاء الاصطناعي، الماسح الفني، والمحاكاة التاريخية وإشارات السوق.",
-  keywords: ["EGX BOTS", "egxbots", "egx bots", "إي جي إكس بوتس", "البورصة المصرية", "EGX", "ذكاء اصطناعي", "تحليل أسهم", "تداول آلي", "إشارات تداول"],
+  description: "منصة EGX BOTS (egxbots) هي منصة متقدمة لتحليل الأسهم المصرية باستخدام الذكاء الاصطناعي، الماسح الفني، المحاكاة التاريخية، وشات بوت تفاعلي ذكي للإجابة على كل أسئلتك عن السوق.",
+  keywords: ["EGX BOTS", "egxbots", "egx bots", "إي جي إكس بوتس", "البورصة المصرية", "EGX", "ذكاء اصطناعي", "تحليل أسهم", "تداول آلي", "إشارات تداول", "شات بوت ذكي", "AI Chatbot", "مساعد ذكي للبورصة"],
   authors: [{ name: "EGX BOTS Team" }],
   creator: "EGX BOTS",
   openGraph: {
     type: "website",
     locale: "ar_EG",
     url: "https://egxbots.com",
-    title: "EGX BOTS | تحليل البورصة المصرية بالذكاء الاصطناعي",
-    description: "منصة EGX BOTS (egxbots) لتحليل الأسهم المصرية بالذكاء الاصطناعي والماسح الفني والمحاكاة التاريخية.",
+    title: "EGX BOTS | تحليل البورصة المصرية بالذكاء الاصطناعي وشات بوت ذكي",
+    description: "منصة EGX BOTS (egxbots) لتحليل الأسهم المصرية بالذكاء الاصطناعي، الماسح الفني، المحاكاة التاريخية، ومساعد ذكي (AI Chatbot) للإجابة على استفساراتك.",
     siteName: "EGX BOTS",
     images: [
       {
@@ -37,8 +37,8 @@ export const metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: "EGX BOTS | AI Stock Analysis",
-    description: "AI-driven stock analysis platform for EGX with technical scanning and backtests.",
+    title: "EGX BOTS | AI Stock Analysis & Interactive Chatbot",
+    description: "AI-driven stock analysis platform for EGX with technical scanning, backtests, and a smart interactive AI Chatbot.",
     images: ["/dashboard_preview.png"],
   },
   manifest: "/favicon_io/site.webmanifest",
