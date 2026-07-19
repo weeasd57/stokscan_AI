@@ -59,9 +59,38 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ detail: "Chatbot is not configured properly." }, { status: 500 });
         }
 
-        const systemPrompt = settings.system_prompt || "You are a helpful AI Assistant.";
+        let systemPrompt = settings.system_prompt || "You are a helpful AI Assistant.";
         const model = settings.model || "claude-opus-4-6";
         const apiUrl = settings.api_url || "https://api.agentrouter.org/v1";
+
+        // Fetch Live Site Data to Inject into Prompt
+        try {
+            const adminKey = process.env.ADMIN_SECRET_KEY || "";
+            const backendUrl = process.env.PYTHON_BACKEND_URL || process.env.API_BASE_URL || "http://127.0.0.1:8000";
+            
+            // Fetch stats and models concurrently
+            const [statsRes, modelsRes] = await Promise.all([
+                fetch(`${backendUrl}/ai_bot/supabase-stats`, { cache: 'no-store' }),
+                fetch(`${backendUrl}/admin/train/models`, {
+                    headers: { "x-admin-key": adminKey },
+                    cache: 'no-store'
+                })
+            ]);
+
+            if (statsRes.ok && modelsRes.ok) {
+                const stats = await statsRes.json();
+                const models = await modelsRes.json();
+                
+                // Inject into prompt
+                systemPrompt += `\n\n=== Live Site Data ===\n`;
+                systemPrompt += `- Total Daily Price Rows: ${stats.stock_prices?.rows || 0}\n`;
+                systemPrompt += `- Last Update Date: ${stats.stock_prices?.last_date || 'N/A'}\n`;
+                systemPrompt += `- Total Intraday Rows: ${stats.stock_bars_intraday?.rows || 0}\n`;
+                systemPrompt += `- AI Models Available: ${models.length ? models.join(", ") : "None"}\n`;
+            }
+        } catch (dataErr) {
+            console.error("Failed to fetch live site data for prompt injection:", dataErr);
+        }
 
         // 5. Call AgentRouter API
         const response = await fetch(`${apiUrl}/chat/completions`, {
