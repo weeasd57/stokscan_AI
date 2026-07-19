@@ -71,11 +71,11 @@ export default function AdminHeader({ activeMainTab, setActiveMainTab }: AdminHe
 
             {/* Main Navigation Header */}
             <header className="sticky top-[126px] z-40 w-full border-b-4 border-black dark:border-white bg-white dark:bg-zinc-950">
-                <div className="max-w-[1920px] mx-auto px-4 md:px-8 py-4">
+                <div className="max-w-[1920px] mx-auto px-4 md:px-8 py-3">
                     
                     {/* Navigation Tabs */}
-                    <nav className="relative w-full overflow-x-auto pb-2 md:pb-0 -mx-4 px-4 md:mx-0 md:px-0 scrollbar-hide">
-                        <div className="flex items-stretch gap-2 min-w-max md:min-w-0 md:justify-start">
+                    <nav className="w-full overflow-x-auto pb-1 scrollbar-hide">
+                        <div className="flex flex-wrap items-center gap-2 max-w-full">
                             {tabs.map((tab) => {
                                 const isActive = activeMainTab === tab.id;
                                 const Icon = tab.icon;
@@ -86,22 +86,22 @@ export default function AdminHeader({ activeMainTab, setActiveMainTab }: AdminHe
                                         key={tab.id}
                                         onClick={() => setActiveMainTab(tab.id)}
                                         className={`
-                                            group relative px-4 md:px-6 py-3 border-4 border-black dark:border-white font-black text-[10px] md:text-xs uppercase tracking-widest
+                                            group relative px-3 md:px-4 py-2 border-2 md:border-4 border-black dark:border-white font-black text-[10px] md:text-xs uppercase tracking-wider md:tracking-widest shrink-0
                                             transition-all duration-100
                                             ${isActive
-                                                ? `${bgClass} text-black shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_rgba(255,255,255,1)] translate-x-0 translate-y-0`
+                                                ? `${bgClass} text-black shadow-[3px_3px_0px_rgba(0,0,0,1)] md:shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[3px_3px_0px_rgba(255,255,255,1)] dark:md:shadow-[4px_4px_0px_rgba(255,255,255,1)] translate-x-0 translate-y-0`
                                                 : "bg-white dark:bg-zinc-900 text-black dark:text-white shadow-[2px_2px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_rgba(255,255,255,1)] hover:translate-x-[-1px] hover:translate-y-[-1px] hover:shadow-[3px_3px_0px_rgba(0,0,0,1)] dark:hover:shadow-[3px_3px_0px_rgba(255,255,255,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none"
                                             }
                                         `}
                                     >
-                                        <div className="flex items-center gap-2">
-                                            <Icon className={`w-4 h-4 ${isActive ? 'text-black' : 'text-zinc-600 dark:text-zinc-400 group-hover:text-black dark:group-hover:text-white'}`} />
+                                        <div className="flex items-center gap-1.5 md:gap-2">
+                                            <Icon className={`w-3.5 h-3.5 md:w-4 md:h-4 ${isActive ? 'text-black' : 'text-zinc-600 dark:text-zinc-400 group-hover:text-black dark:group-hover:text-white'}`} />
                                             <span>{tab.label}</span>
                                         </div>
                                         
                                         {/* Active Indicator Dot */}
                                         {isActive && (
-                                            <div className="absolute -top-1 -right-1 w-3 h-3 bg-black dark:bg-white border-2 border-black dark:border-white rounded-full animate-pulse" />
+                                            <div className="absolute -top-1 -right-1 w-2.5 h-2.5 md:w-3 md:h-3 bg-black dark:bg-white border-2 border-black dark:border-white rounded-full animate-pulse" />
                                         )}
                                     </button>
                                 );
