@@ -117,7 +117,7 @@ export async function POST(req: NextRequest) {
         // 7. Log Interaction
         await supabase
             .from("ai_chatbot_logs")
-            .insert({ user_id: userId, message, reply: replyText });
+            .insert({ user_id: userId, user_name: userName, message, reply: replyText });
 
         // 8. Forward to Telegram Support
         const botToken = process.env.SUPPORT_BOT_TOKEN;
