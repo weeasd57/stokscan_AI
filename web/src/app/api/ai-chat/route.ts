@@ -85,7 +85,15 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ detail: "Failed to communicate with AI provider." }, { status: response.status });
         }
 
-        const data = await response.json();
+        let data;
+        try {
+            data = await response.json();
+        } catch (parseError) {
+            const rawText = await response.text();
+            console.error("Failed to parse JSON from provider. Raw response:", rawText);
+            return NextResponse.json({ detail: "AI provider returned an invalid format (not JSON). Please check your BASE URL." }, { status: 502 });
+        }
+        
         const replyText = data.choices?.[0]?.message?.content || "Sorry, I couldn't generate a response.";
 
         // 6. Update Limits
@@ -151,6 +159,6 @@ export async function POST(req: NextRequest) {
 
     } catch (e: any) {
         console.error("AI Chat Error:", e);
-        return NextResponse.json({ detail: "Internal Server Error" }, { status: 500 });
+        return NextResponse.json({ detail: "Internal Server Error", error: e.message || String(e) }, { status: 500 });
     }
 }
