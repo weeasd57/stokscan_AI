@@ -102,6 +102,26 @@ export default function Footer() {
                   {t("footer.disclaimer")}
                 </Link>
               </li>
+              <li>
+                <a
+                  href="https://www.facebook.com/profile.php?id=61591573919902"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sm text-zinc-500 dark:text-zinc-500 light:text-gray-600 hover:text-indigo-400 dark:hover:text-indigo-400 light:hover:text-indigo-600 transition-colors"
+                >
+                  {t("footer.facebook")}
+                </a>
+              </li>
+              <li>
+                <a
+                  href="https://web.telegram.org/a/#-1002083067817_153"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sm text-zinc-500 dark:text-zinc-500 light:text-gray-600 hover:text-indigo-400 dark:hover:text-indigo-400 light:hover:text-indigo-600 transition-colors"
+                >
+                  {t("footer.telegram")}
+                </a>
+              </li>
             </ul>
           </div>
         </div>

@@ -521,6 +521,8 @@ const translations: Record<string, Record<Language, string>> = {
     "footer.blogs": { en: "Market Blogs", ar: "مدونات السوق" },
     "footer.faq": { en: "FAQ", ar: "الأسئلة الشائعة" },
     "footer.disclaimer": { en: "Disclaimer", ar: "إخلاء المسؤولية" },
+    "footer.facebook": { en: "Facebook Page", ar: "صفحة فيسبوك" },
+    "footer.telegram": { en: "Telegram Channel", ar: "قناة تليجرام" },
     "footer.copyright": {
         en: "© 2026 EGX BOTS. Built for EGX analysis.",
         ar: "© 2026 EGX BOTS. صُمم لتحليل البورصة المصرية."
