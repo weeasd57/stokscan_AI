@@ -11,13 +11,31 @@ export async function GET(
   try {
     const { userId } = await context.params;
     const supabase = getSupabaseClient();
-    const { data, error } = await supabase
+
+    // Query profile
+    const { data: profile, error: profileErr } = await supabase
       .from("profiles")
-      .select("id, display_name, language, telegram_chat_id, whatsapp_number, notification_channel, created_at, updated_at")
+      .select("*")
       .eq("id", userId)
       .single();
-    if (error) return NextResponse.json({ detail: error.message }, { status: 404 });
-    return NextResponse.json(data);
+
+    if (profileErr) return NextResponse.json({ detail: profileErr.message }, { status: 404 });
+
+    // Query related tables safely
+    const [subRes, botSubRes, posRes, scanRes] = await Promise.all([
+      supabase.from("subscriptions").select("*").eq("user_id", userId).maybeSingle().catch(() => ({ data: null })),
+      supabase.from("bot_subscriptions").select("*").eq("user_id", userId).catch(() => ({ data: [] })),
+      supabase.from("positions").select("*").eq("user_id", userId).catch(() => ({ data: [] })),
+      supabase.from("scan_results").select("*").limit(10).catch(() => ({ data: [] })),
+    ]);
+
+    return NextResponse.json({
+      profile: profile || {},
+      subscription: subRes?.data || null,
+      bot_subscriptions: botSubRes?.data || [],
+      open_positions: posRes?.data || [],
+      recent_scans: scanRes?.data || [],
+    });
   } catch {
     return NextResponse.json({ detail: "Internal error" }, { status: 500 });
   }
@@ -31,7 +49,11 @@ export async function PATCH(
     const { userId } = await context.params;
     const body = await req.json();
     // Only allow safe fields to be updated
-    const allowedFields = ["display_name", "language", "telegram_chat_id", "whatsapp_number", "notification_channel"];
+    const allowedFields = [
+      "display_name", "language", "telegram_chat_id", "whatsapp_number", 
+      "notification_channel", "default_target_pct", "default_stop_pct",
+      "gemini_api_key", "openrouter_api_key", "custom_ai_rules"
+    ];
     const safeBody: Record<string, unknown> = {};
     for (const field of allowedFields) {
       if (field in body) safeBody[field] = body[field];
