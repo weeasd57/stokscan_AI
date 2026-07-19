@@ -148,13 +148,34 @@ export default function AIChatbotTab() {
                                 <label className="text-xs font-bold uppercase tracking-wider text-zinc-500 mb-2 flex items-center gap-2">
                                     <Sparkles className="w-4 h-4" /> AI Model
                                 </label>
-                                <input
-                                    type="text"
+                                <select
                                     value={settings.model}
                                     onChange={(e) => setSettings({ ...settings, model: e.target.value })}
-                                    className="w-full bg-zinc-100 dark:bg-zinc-950 border-2 border-black dark:border-zinc-700 px-4 py-3 font-mono text-sm focus:border-indigo-500 focus:outline-none transition-colors"
-                                    placeholder="claude-opus-4-6"
-                                />
+                                    className="w-full bg-zinc-100 dark:bg-zinc-950 border-2 border-black dark:border-zinc-700 px-4 py-3 font-mono text-sm focus:border-indigo-500 focus:outline-none transition-colors appearance-none cursor-pointer"
+                                >
+                                    <optgroup label="Anthropic">
+                                        <option value="claude-3-5-sonnet-20240620">Claude 3.5 Sonnet</option>
+                                        <option value="claude-3-opus-20240229">Claude 3 Opus</option>
+                                        <option value="claude-3-haiku-20240307">Claude 3 Haiku</option>
+                                    </optgroup>
+                                    <optgroup label="OpenAI">
+                                        <option value="gpt-4o">GPT-4o</option>
+                                        <option value="gpt-4o-mini">GPT-4o Mini</option>
+                                        <option value="gpt-4-turbo">GPT-4 Turbo</option>
+                                    </optgroup>
+                                    <optgroup label="Google">
+                                        <option value="gemini-1.5-pro-latest">Gemini 1.5 Pro</option>
+                                        <option value="gemini-1.5-flash-latest">Gemini 1.5 Flash</option>
+                                    </optgroup>
+                                    <optgroup label="Meta / Open Source">
+                                        <option value="llama-3-70b-instruct">Llama 3 (70B)</option>
+                                        <option value="mixtral-8x7b-instruct">Mixtral 8x7B</option>
+                                    </optgroup>
+                                    <optgroup label="Other">
+                                        {/* Add current model if it's not in the list so it doesn't break */}
+                                        <option value={settings.model}>{settings.model}</option>
+                                    </optgroup>
+                                </select>
                             </div>
                         </div>
                     </div>
