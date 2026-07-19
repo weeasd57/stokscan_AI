@@ -38,13 +38,17 @@ def paymob_checkout(req: CheckoutRequest):
         )
 
     # 2. Determine price in EGP cents
-    # Default exchange rate: 1 USD = 50 EGP
-    # Plan pricing: Pro = $29 (1450 EGP), Enterprise = $99 (4950 EGP)
     plan_clean = req.plan_id.strip().lower()
     if plan_clean == "pro":
         amount_egp = 1450
     elif plan_clean == "enterprise":
         amount_egp = 4950
+    elif plan_clean.startswith("donate_"):
+        # Extract donation amount, e.g. donate_100 -> 100 EGP
+        try:
+            amount_egp = int(plan_clean.split("_")[1])
+        except ValueError:
+            amount_egp = 100
     else:
         # Fallback/dynamic pricing lookup if needed, otherwise default to Pro price
         amount_egp = 1450

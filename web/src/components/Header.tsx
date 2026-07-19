@@ -7,7 +7,7 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { useTheme } from "@/contexts/ThemeContext";
 import {
     Globe, BarChart2, Brain, Activity, Menu, X, User, ChevronDown,
-    Search, Loader2, Sun, Moon, TrendingUp,
+    Search, Loader2, Sun, Moon, TrendingUp, Heart
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
@@ -379,6 +379,14 @@ export default function Header() {
                             <span className="hidden xl:inline">{language === "ar" ? "EN" : "AR"}</span>
                         </button>
 
+                        <Link
+                            href="/donate"
+                            className="hidden md:flex h-9 px-3 items-center justify-center gap-1.5 rounded-xl bg-[#ff6b6b] border-3 border-black text-black font-black uppercase tracking-wider hover:scale-105 hover:rotate-2 hover:shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] transition-all whitespace-nowrap"
+                            title={language === "ar" ? "ادعم المشروع" : "Donate"}
+                        >
+                            <Heart className="h-4 w-4 fill-black" />
+                            <span className="text-[10px] md:text-xs hidden lg:inline">{language === "ar" ? "ادعمنا" : "Donate"}</span>
+                        </Link>
                         {user ? (
                             <div className="relative hidden md:block">
                                 <button
