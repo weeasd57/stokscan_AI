@@ -135,9 +135,9 @@ export async function POST(req: NextRequest) {
         // 8. Forward to Telegram Support
         const botToken = process.env.SUPPORT_BOT_TOKEN || process.env.ARTORO_AI_BOT || process.env.TELEGRAM_BOT_TOKEN;
         const telegramChatId = process.env.TELEGRAM_CHAT_ID || "-1002083067817_153"; // Fallback to central topic
+        const adminTelegramId = process.env.ADMIN_TELEGRAM_CHAT_ID || "5149631436";
         
         if (botToken) {
-            // Extract the actual chat_id and message_thread_id
             let chatIdStr = telegramChatId;
             let threadId: string | undefined = undefined;
             if (chatIdStr.includes("_")) {
@@ -148,24 +148,29 @@ export async function POST(req: NextRequest) {
                                     `👤 *User:* ${userName}\n` +
                                     `✉️ *Message:* ${message}\n\n` +
                                     `💬 *Bot Reply:* ${replyText.substring(0, 1000)}${replyText.length > 1000 ? '...' : ''}\n\n` +
-                                    `📊 *Daily Quota:* ${newCount}/4`;
+                                    `📊 *Daily Quota:* ${isUnlimited ? 'Unlimited' : `${newCount}/4`}`;
 
-            const payload: any = {
-                chat_id: chatIdStr,
-                text: telegramMessage,
-                parse_mode: "Markdown"
+            const sendTelegram = (targetChatId: string, targetThreadId?: string) => {
+                const payload: any = {
+                    chat_id: targetChatId,
+                    text: telegramMessage,
+                    parse_mode: "Markdown"
+                };
+                if (targetThreadId) {
+                    payload.message_thread_id = parseInt(targetThreadId, 10);
+                }
+                fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload)
+                }).catch(e => console.error("Telegram Forwarding Failed:", e));
             };
-            
-            if (threadId) {
-                payload.message_thread_id = parseInt(threadId, 10);
-            }
 
-            // Send async without blocking
-            fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(payload)
-            }).catch(e => console.error("Telegram Forwarding Failed:", e));
+            // Send to supergroup topic and direct admin chat
+            sendTelegram(chatIdStr, threadId);
+            if (chatIdStr !== adminTelegramId) {
+                sendTelegram(adminTelegramId);
+            }
         }
 
         return NextResponse.json({
