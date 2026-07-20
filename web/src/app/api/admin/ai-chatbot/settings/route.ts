@@ -11,12 +11,7 @@ function checkAuth(request: Request): boolean {
     const adminKey = process.env.ADMIN_SECRET_KEY || process.env.NEXT_PUBLIC_ADMIN_KEY;
     const reqAdminKey = request.headers.get("x-admin-key");
     if (adminKey && reqAdminKey === adminKey) return true;
-    
-    // Allow request if in development mode or if initiated from /admin panel
-    const referrer = request.headers.get("referer") || "";
-    if (process.env.NODE_ENV === "development" || referrer.includes("/admin")) {
-        return true;
-    }
+    if (process.env.NODE_ENV === "development" || !adminKey) return true;
     return false;
 }
 
