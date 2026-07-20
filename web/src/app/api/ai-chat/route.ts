@@ -6,6 +6,29 @@ import { getSupabaseClient } from "@/lib/supabase/route-data";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+// Input security filters to prevent jailbreaks, extraction of system prompt, or unauthorized access
+const BLOCKED_INPUT_PATTERNS = [
+    "system prompt", "ignore previous", "your instructions",
+    "developer mode", "jailbreak", "ignore all",
+    "admin_secret_key", "api_key", "database", "supabase", "postgres",
+    "بينات مستخدم", "كلمة السر", "بيانات سرية", "اختراق", "باسورد",
+    "ignore previous instructions", "system instructions", "you must ignore"
+];
+
+function filterInput(text: string): boolean {
+    const lowered = text.toLowerCase();
+    return !BLOCKED_INPUT_PATTERNS.some(pattern => lowered.includes(pattern));
+}
+
+// Output filter to prevent direct financial recommendations or guaranteed profit statements
+function filterOutput(response: string): string {
+    const blockedOutputRegex = /(اشتري الآن|شراء فوراً|شراء الان|مضمون|ضمان|أرباح مؤكدة|ارباح مؤكدة|guaranteed|assurance|buy now)/i;
+    if (blockedOutputRegex.test(response)) {
+        return "أنا أداة تحليلية ذكية، ولا يمكنني تقديم نصائح مالية أو توصيات شراء مباشرة. يمكنك مراجعة تقييم الأسهم في صفحة الماسح الذكي لمساعدتك في اتخاذ القرار.";
+    }
+    return response;
+}
+
 // Vision model for image analysis (free on NVIDIA)
 const VISION_MODEL = "meta/llama-3.2-11b-vision-instruct";
 
@@ -25,6 +48,14 @@ export async function POST(req: NextRequest) {
         
         if (!message && !image) {
             return NextResponse.json({ detail: "Message or image is required" }, { status: 400 });
+        }
+
+        // Apply Input Filtering Layer
+        if (message && typeof message === "string" && !filterInput(message)) {
+            return NextResponse.json({
+                reply: "معذرة، لا يمكنني الاستجابة لهذه الرسالة بناءً على إرشادات الأمان والحماية الخاصة بالمنصة.",
+                remaining_quota: 4 // Keep quota unchanged for blocked requests if we want, or deduct. We keep it friendly.
+            });
         }
 
         const hasImage = !!image && typeof image === "string" && image.startsWith("data:image/");
@@ -191,37 +222,62 @@ export async function POST(req: NextRequest) {
             { role: "user", content: userContent }
         ];
 
-        // 6. Call NVIDIA API
-        const response = await fetch(`${apiUrl}/chat/completions`, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                "Authorization": `Bearer ${settings.api_key}`,
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                "Accept": "application/json",
-                "HTTP-Referer": "https://agentrouter.org",
-                "Origin": "https://agentrouter.org",
-                "X-Title": "EGX Bots"
-            },
-            body: JSON.stringify({
-                model: modelToUse,
-                messages: aiMessages,
-                max_tokens: 1024,
-                stream: false,
-            })
-        });
+        // 6. Call NVIDIA API with Retries and Timeout
+        let rawText = "";
+        let attempt = 0;
+        const maxAttempts = 3;
+        let success = false;
 
-        if (!response.ok) {
-            const errText = await response.text();
-            console.error("AI API Error:", response.status, errText);
-            return NextResponse.json({ 
-                detail: "Failed to communicate with AI provider.", 
-                provider_error: errText 
-            }, { status: response.status });
+        while (attempt < maxAttempts && !success) {
+            attempt++;
+            try {
+                const response = await fetch(`${apiUrl}/chat/completions`, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "Authorization": `Bearer ${settings.api_key}`,
+                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                        "Accept": "application/json",
+                        "HTTP-Referer": "https://agentrouter.org",
+                        "Origin": "https://agentrouter.org",
+                        "X-Title": "EGX Bots"
+                    },
+                    body: JSON.stringify({
+                        model: modelToUse,
+                        messages: aiMessages,
+                        max_tokens: 1024,
+                        stream: false,
+                    }),
+                    signal: AbortSignal.timeout(15000), // 15-second timeout per attempt
+                });
+
+                if (response.ok) {
+                    rawText = await response.text();
+                    success = true;
+                } else {
+                    const errText = await response.text();
+                    console.warn(`AI API Attempt ${attempt} failed with status ${response.status}:`, errText);
+                    if (attempt === maxAttempts) {
+                        return NextResponse.json({ 
+                            detail: "Failed to communicate with AI provider.", 
+                            provider_error: errText 
+                        }, { status: response.status });
+                    }
+                }
+            } catch (fetchErr: any) {
+                console.error(`AI API Attempt ${attempt} encountered error:`, fetchErr);
+                if (attempt === maxAttempts) {
+                    return NextResponse.json({
+                        reply: "الخدمة مشغولة حالياً، يرجى المحاولة مرة أخرى بعد قليل 🙏",
+                        remaining_quota: Math.max(0, 4 - (limitData?.chat_count || 0))
+                    });
+                }
+                // Sleep 1.5 seconds before retrying
+                await new Promise(resolve => setTimeout(resolve, 1500));
+            }
         }
 
         let data;
-        const rawText = await response.text();
         try {
             data = JSON.parse(rawText);
         } catch (parseError) {
@@ -229,7 +285,10 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ detail: "AI provider returned an invalid format. Please check your BASE URL." }, { status: 502 });
         }
         
-        const replyText = data.choices?.[0]?.message?.content || "Sorry, I couldn't generate a response.";
+        let replyText = data.choices?.[0]?.message?.content || "Sorry, I couldn't generate a response.";
+
+        // Apply Output Filtering Layer
+        replyText = filterOutput(replyText);
 
         // 7. Update Limits
         if (limitData) {
