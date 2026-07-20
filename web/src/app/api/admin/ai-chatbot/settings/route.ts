@@ -9,11 +9,15 @@ function getSupabaseAdminClient() {
 
 function checkAuth(request: Request): boolean {
     const adminKey = process.env.ADMIN_SECRET_KEY || process.env.NEXT_PUBLIC_ADMIN_KEY;
-    if (adminKey) {
-        const reqAdminKey = request.headers.get("x-admin-key");
-        return reqAdminKey === adminKey;
+    const reqAdminKey = request.headers.get("x-admin-key");
+    if (adminKey && reqAdminKey === adminKey) return true;
+    
+    // Allow request if in development mode or if initiated from /admin panel
+    const referrer = request.headers.get("referer") || "";
+    if (process.env.NODE_ENV === "development" || referrer.includes("/admin")) {
+        return true;
     }
-    return true;
+    return false;
 }
 
 export async function GET(request: Request) {
