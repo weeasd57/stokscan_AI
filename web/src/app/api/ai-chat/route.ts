@@ -6,6 +6,9 @@ import { getSupabaseClient } from "@/lib/supabase/route-data";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+// Vision model for image analysis (free on NVIDIA)
+const VISION_MODEL = "meta/llama-3.2-11b-vision-instruct";
+
 export async function POST(req: NextRequest) {
     try {
         const authClient = createSupabaseServerClient(req);
@@ -18,13 +21,15 @@ export async function POST(req: NextRequest) {
         }
         
         const userId = session.user.id;
-        const { message, history } = await req.json();
+        const { message, history, image } = await req.json();
         
-        if (!message || typeof message !== "string") {
-            return NextResponse.json({ detail: "Message is required" }, { status: 400 });
+        if (!message && !image) {
+            return NextResponse.json({ detail: "Message or image is required" }, { status: 400 });
         }
 
-        // Format conversation history for AI model
+        const hasImage = !!image && typeof image === "string" && image.startsWith("data:image/");
+
+        // Format conversation history for AI model (text-only for history)
         const formattedHistory = Array.isArray(history)
             ? history
                 .filter((item: any) => item && item.content && (item.role === "user" || item.role === "assistant"))
@@ -72,12 +77,16 @@ export async function POST(req: NextRequest) {
         }
 
         let systemPrompt = settings.system_prompt || "";
-        const model = settings.model || "meta/llama-3.1-8b-instruct";
+        const textModel = settings.model || "meta/llama-3.1-8b-instruct";
         const apiUrl = settings.api_url || "https://integrate.api.nvidia.com/v1";
 
+        // Use vision model when image is present, otherwise text model
+        const modelToUse = hasImage ? VISION_MODEL : textModel;
+
         // 4.5 Search Database for Stock Data if mentioned in message or history
+        const textMessage = message || "";
         try {
-            const combinedText = (message + " " + formattedHistory.map((h: any) => h.content).join(" ")).toLowerCase();
+            const combinedText = (textMessage + " " + formattedHistory.map((h: any) => h.content).join(" ")).toLowerCase();
             
             // Search stocks table to see if any stock matches symbol or name
             const { data: matchedStocks } = await supabase
@@ -161,7 +170,28 @@ export async function POST(req: NextRequest) {
             console.error("Failed to query stock DB data for prompt:", stockErr);
         }
 
-        // 5. Call AgentRouter API
+        // 5. Build Messages Array
+        let userContent: any;
+        if (hasImage) {
+            // For vision model: use multimodal content format
+            userContent = [
+                { type: "text", text: textMessage || "Describe and analyze this image in detail." },
+                {
+                    type: "image_url",
+                    image_url: { url: image }
+                }
+            ];
+        } else {
+            userContent = textMessage;
+        }
+
+        const aiMessages = [
+            { role: "system", content: systemPrompt },
+            ...formattedHistory,
+            { role: "user", content: userContent }
+        ];
+
+        // 6. Call NVIDIA API
         const response = await fetch(`${apiUrl}/chat/completions`, {
             method: "POST",
             headers: {
@@ -174,18 +204,16 @@ export async function POST(req: NextRequest) {
                 "X-Title": "EGX Bots"
             },
             body: JSON.stringify({
-                model: model,
-                messages: [
-                    { role: "system", content: systemPrompt },
-                    ...formattedHistory,
-                    { role: "user", content: message }
-                ]
+                model: modelToUse,
+                messages: aiMessages,
+                max_tokens: 1024,
+                stream: false,
             })
         });
 
         if (!response.ok) {
             const errText = await response.text();
-            console.error("AgentRouter API Error:", errText);
+            console.error("AI API Error:", response.status, errText);
             return NextResponse.json({ 
                 detail: "Failed to communicate with AI provider.", 
                 provider_error: errText 
@@ -203,7 +231,7 @@ export async function POST(req: NextRequest) {
         
         const replyText = data.choices?.[0]?.message?.content || "Sorry, I couldn't generate a response.";
 
-        // 6. Update Limits
+        // 7. Update Limits
         if (limitData) {
             await supabase
                 .from("ai_chatbot_limits")
@@ -218,16 +246,21 @@ export async function POST(req: NextRequest) {
 
         const newCount = (limitData?.chat_count || 0) + 1;
 
-        // 7. Log Interaction (Use Service Role Key to bypass RLS)
+        // 8. Log Interaction (Use Service Role Key to bypass RLS)
         try {
             await supabase
                 .from("ai_chatbot_logs")
-                .insert({ user_id: userId, user_name: userName, message, reply: replyText });
+                .insert({
+                    user_id: userId,
+                    user_name: userName,
+                    message: hasImage ? `[📷 Image] ${textMessage}` : textMessage,
+                    reply: replyText
+                });
         } catch (logErr) {
             console.error("Failed to log AI chat interaction:", logErr);
         }
 
-        // 8. Forward to Telegram Support
+        // 9. Forward to Telegram Support
         const botToken = process.env.SUPPORT_BOT_TOKEN || process.env.ARTORO_AI_BOT || process.env.TELEGRAM_BOT_TOKEN;
         const telegramChatId = process.env.TELEGRAM_CHAT_ID || "-1002083067817_153"; // Fallback to central topic
         const adminTelegramId = process.env.ADMIN_TELEGRAM_CHAT_ID || "5149631436";
@@ -241,7 +274,8 @@ export async function POST(req: NextRequest) {
 
             const telegramMessage = `🤖 *AI Chatbot Interaction*\n\n` +
                                     `👤 *User:* ${userName}\n` +
-                                    `✉️ *Message:* ${message}\n\n` +
+                                    `${hasImage ? '📷 *[Image Attached]*\n' : ''}` +
+                                    `✉️ *Message:* ${textMessage}\n\n` +
                                     `💬 *Bot Reply:* ${replyText.substring(0, 1000)}${replyText.length > 1000 ? '...' : ''}\n\n` +
                                     `📊 *Daily Quota:* ${isUnlimited ? 'Unlimited' : `${newCount}/4`}`;
 
@@ -315,7 +349,7 @@ export async function GET(req: NextRequest) {
 
         const history: any[] = [];
         if (logs && logs.length > 0) {
-            logs.forEach(log => {
+            logs.forEach((log: any) => {
                 const ts = new Date(log.created_at).getTime();
                 if (log.message) {
                     history.push({ role: "user", content: log.message, timestamp: ts });

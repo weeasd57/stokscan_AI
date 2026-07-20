@@ -11,6 +11,7 @@ export type ChatMessage = {
     role: "user" | "assistant" | "system";
     content: string;
     timestamp: number;
+    imageUrl?: string; // base64 data URL for image messages
     actions?: ChatAction[];
 };
 
@@ -24,7 +25,7 @@ interface ChatContextType {
     isOpen: boolean;
     setIsOpen: (v: boolean) => void;
     messages: ChatMessage[];
-    sendMessage: (text: string) => Promise<void>;
+    sendMessage: (text: string, imageBase64?: string) => Promise<void>;
     isLoading: boolean;
     remainingQuota: number;
 }
@@ -45,7 +46,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
     const WELCOME_MSG: ChatMessage = {
         role: "assistant",
-        content: "Hello! I am your AI Market Assistant. I can help you analyze stocks, explain indicators, or navigate the app. How can I help today?",
+        content: "Hello! I am your AI Market Assistant. I can help you analyze stocks, explain indicators, or navigate the app. You can also send me an image 📷 to analyze. How can I help today?",
         timestamp: Date.now(),
     };
 
@@ -70,7 +71,12 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     useEffect(() => {
         if (messages.length > 0) {
             try {
-                localStorage.setItem("egxbots_chat_history", JSON.stringify(messages));
+                // Don't persist large image base64 to localStorage to avoid quota issues
+                const toCache = messages.map(m => ({
+                    ...m,
+                    imageUrl: m.imageUrl ? "[image]" : undefined
+                }));
+                localStorage.setItem("egxbots_chat_history", JSON.stringify(toCache));
             } catch (e) {
                 console.error("Failed to cache chat history");
             }
@@ -102,21 +108,24 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     const handleAction = useCallback((action: ChatAction) => {
         if (action.type === "navigate") {
             router.push(action.value);
-            setIsOpen(false); // Optional: close on nav
+            setIsOpen(false);
         } else if (action.type === "function") {
-            // Handle specific triggers
             if (action.value === "SCAN_TECH_BULLISH") {
                 setTechScanner(prev => ({ ...prev, rsiMin: "50", rsiMax: "70", aboveEma200: true }));
                 router.push("/scanner/technical");
             }
-            // Add more actions here
         }
     }, [router, setTechScanner]);
 
-    const sendMessage = async (text: string) => {
-        if (!text.trim()) return;
+    const sendMessage = async (text: string, imageBase64?: string) => {
+        if (!text.trim() && !imageBase64) return;
 
-        const newUserMsg: ChatMessage = { role: "user", content: text, timestamp: Date.now() };
+        const newUserMsg: ChatMessage = {
+            role: "user",
+            content: text || (imageBase64 ? "📷 [Image attached]" : ""),
+            timestamp: Date.now(),
+            imageUrl: imageBase64,
+        };
         setMessages(prev => [...prev, newUserMsg]);
         setIsLoading(true);
 
@@ -134,7 +143,11 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             const response = await fetch("/api/ai-chat", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ message: text, history: messages })
+                body: JSON.stringify({
+                    message: text || "Describe and analyze this image.",
+                    history: messages.map(m => ({ role: m.role, content: m.content })),
+                    image: imageBase64 || undefined,
+                })
             });
 
             const data = await response.json();

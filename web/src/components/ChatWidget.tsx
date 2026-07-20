@@ -3,8 +3,8 @@
 import { useChat, ChatMessage } from "@/contexts/ChatContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useRouter } from "next/navigation";
-import { Send, X, Sparkles, User, Loader2, Lock, Maximize2, Minimize2, LogIn, UserPlus } from "lucide-react";
-import { useState, useRef, useEffect } from "react";
+import { Send, X, Sparkles, User, Loader2, Lock, Maximize2, Minimize2, LogIn, UserPlus, ImagePlus, XCircle } from "lucide-react";
+import { useState, useRef, useEffect, useCallback } from "react";
 
 export default function ChatWidget() {
     const { isOpen, setIsOpen, messages, sendMessage, isLoading, remainingQuota } = useChat();
@@ -12,17 +12,44 @@ export default function ChatWidget() {
     const router = useRouter();
     const [input, setInput] = useState("");
     const [isExpanded, setIsExpanded] = useState(false);
+    const [imagePreview, setImagePreview] = useState<string | null>(null); // base64 data URL
     const bottomRef = useRef<HTMLDivElement>(null);
+    const fileInputRef = useRef<HTMLInputElement>(null);
 
     useEffect(() => {
         bottomRef.current?.scrollIntoView({ behavior: "smooth" });
     }, [messages, isOpen, isLoading]);
 
+    const handleImageSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        // Max 4MB
+        if (file.size > 4 * 1024 * 1024) {
+            alert("Image too large. Max size is 4MB.");
+            return;
+        }
+
+        const reader = new FileReader();
+        reader.onload = () => {
+            setImagePreview(reader.result as string);
+        };
+        reader.readAsDataURL(file);
+
+        // Reset file input so same file can be re-selected
+        e.target.value = "";
+    }, []);
+
+    const clearImage = useCallback(() => {
+        setImagePreview(null);
+    }, []);
+
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        if (!input.trim() || !user || isLoading) return;
-        sendMessage(input);
+        if ((!input.trim() && !imagePreview) || !user || isLoading) return;
+        sendMessage(input, imagePreview || undefined);
         setInput("");
+        setImagePreview(null);
     };
 
     if (!isOpen) {
@@ -142,46 +169,17 @@ export default function ChatWidget() {
                                         ? "bg-zinc-100 dark:bg-zinc-800 text-black dark:text-zinc-100 rounded-tr-none"
                                         : "bg-amber-500/10 border border-amber-500/20 text-black dark:text-zinc-100 rounded-tl-none"}
                                 `}>
-                                    <div className="whitespace-pre-wrap">
-                                        {(() => {
-                                            const content = msg.content || "";
-                                            const regex = /\[([^\]]+)\]\(([^)]+)\)/g;
-                                            const parts = [];
-                                            let lastIndex = 0;
-                                            let match;
-
-                                            while ((match = regex.exec(content)) !== null) {
-                                                if (match.index > lastIndex) {
-                                                    parts.push(content.substring(lastIndex, match.index));
-                                                }
-                                                const linkText = match[1];
-                                                const linkUrl = match[2];
-                                                parts.push(
-                                                    <a
-                                                        key={match.index}
-                                                        href={linkUrl}
-                                                        onClick={(e) => {
-                                                            if (linkUrl.startsWith("/")) {
-                                                                e.preventDefault();
-                                                                router.push(linkUrl);
-                                                                setIsOpen(false);
-                                                            }
-                                                        }}
-                                                        className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400 font-bold underline hover:text-amber-500 transition-colors mx-0.5"
-                                                    >
-                                                        {linkText}
-                                                    </a>
-                                                );
-                                                lastIndex = regex.lastIndex;
-                                            }
-
-                                            if (lastIndex < content.length) {
-                                                parts.push(content.substring(lastIndex));
-                                            }
-
-                                            return parts.length > 0 ? parts : content;
-                                        })()}
-                                    </div>
+                                    {/* Show image thumbnail if present */}
+                                    {msg.imageUrl && msg.imageUrl !== "[image]" && (
+                                        <div className="mb-2">
+                                            <img
+                                                src={msg.imageUrl}
+                                                alt="Attached"
+                                                className="max-w-full max-h-48 rounded-lg border border-zinc-300 dark:border-zinc-700 object-contain"
+                                            />
+                                        </div>
+                                    )}
+                                    <div className="whitespace-pre-wrap">{msg.content}</div>
                                 </div>
                             </div>
                         ))}
@@ -206,22 +204,59 @@ export default function ChatWidget() {
             {/* Input Form */}
             <div className="p-4 border-t border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/50 shrink-0">
                 {user ? (
-                    <form onSubmit={handleSubmit} className="flex gap-2">
-                        <input
-                            type="text"
-                            value={input}
-                            onChange={(e) => setInput(e.target.value)}
-                            placeholder="اسأل عن أي سهم في البورصة المصرية..."
-                            className="flex-1 h-10 rounded-xl bg-white dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-800 px-3 text-sm text-black dark:text-zinc-100 placeholder:text-zinc-500 focus:border-amber-500 focus:outline-none transition-colors"
-                        />
-                        <button
-                            type="submit"
-                            disabled={isLoading || !input.trim()}
-                            className="h-10 w-10 rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-50 disabled:hover:bg-amber-500 text-black flex items-center justify-center transition-all"
-                        >
-                            {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                        </button>
-                    </form>
+                    <div>
+                        {/* Image Preview */}
+                        {imagePreview && (
+                            <div className="mb-2 relative inline-block">
+                                <img
+                                    src={imagePreview}
+                                    alt="Preview"
+                                    className="max-h-20 rounded-lg border-2 border-amber-500/40 object-contain"
+                                />
+                                <button
+                                    onClick={clearImage}
+                                    className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-0.5 hover:bg-red-600 transition-colors shadow-md"
+                                    title="Remove image"
+                                >
+                                    <XCircle className="h-4 w-4" />
+                                </button>
+                            </div>
+                        )}
+                        <form onSubmit={handleSubmit} className="flex gap-2">
+                            {/* Hidden file input */}
+                            <input
+                                ref={fileInputRef}
+                                type="file"
+                                accept="image/png,image/jpeg,image/webp,image/gif"
+                                className="hidden"
+                                onChange={handleImageSelect}
+                            />
+                            {/* Image upload button */}
+                            <button
+                                type="button"
+                                onClick={() => fileInputRef.current?.click()}
+                                disabled={isLoading}
+                                className="h-10 w-10 shrink-0 rounded-xl bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 border border-zinc-300 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 flex items-center justify-center transition-all disabled:opacity-50"
+                                title="إرفاق صورة للتحليل"
+                            >
+                                <ImagePlus className="h-4 w-4" />
+                            </button>
+                            <input
+                                type="text"
+                                value={input}
+                                onChange={(e) => setInput(e.target.value)}
+                                placeholder={imagePreview ? "أضف وصف للصورة (اختياري)..." : "اسأل عن أي سهم في البورصة المصرية..."}
+                                className="flex-1 h-10 rounded-xl bg-white dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-800 px-3 text-sm text-black dark:text-zinc-100 placeholder:text-zinc-500 focus:border-amber-500 focus:outline-none transition-colors"
+                            />
+                            <button
+                                type="submit"
+                                disabled={isLoading || (!input.trim() && !imagePreview)}
+                                className="h-10 w-10 rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-50 disabled:hover:bg-amber-500 text-black flex items-center justify-center transition-all"
+                            >
+                                {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                            </button>
+                        </form>
+                    </div>
                 ) : (
                     <div className="text-center text-xs text-zinc-500 dark:text-zinc-400 py-1">
                         🔒 سجل الدخول أولاً لتتمكن من كتابة وإرسال الأسئلة.
