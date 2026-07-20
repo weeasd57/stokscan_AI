@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import Providers from "@/app/providers";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
-import SupportChatWidget from "@/components/SupportChatWidget";
+import ChatWidget from "@/components/ChatWidget";
 import { Analytics } from "@vercel/analytics/react";
 
 export const metadata = {
@@ -145,7 +145,7 @@ export default function RootLayout({
             {children}
           </main>
           <Footer />
-          <SupportChatWidget />
+          <ChatWidget />
           <Analytics />
         </Providers>
       </body>

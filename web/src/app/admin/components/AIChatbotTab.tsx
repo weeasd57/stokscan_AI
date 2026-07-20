@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Loader2, Save, Sparkles, MessageSquare, KeyRound, Link as LinkIcon, Settings2, User, RefreshCw } from "lucide-react";
+import { Loader2, Save, Sparkles, MessageSquare, KeyRound, Link as LinkIcon, Settings2, User, RefreshCw, Eye, EyeOff } from "lucide-react";
 import { toast } from "sonner";
 import SupportTab from "./SupportTab";
 
@@ -9,11 +9,12 @@ export default function AIChatbotTab() {
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [logsLoading, setLogsLoading] = useState(true);
+    const [showApiKey, setShowApiKey] = useState(false);
     
     const [settings, setSettings] = useState({
-        api_url: "https://api.agentrouter.org/v1",
+        api_url: "https://integrate.api.nvidia.com/v1",
         api_key: "",
-        model: "claude-opus-4-6",
+        model: "meta/llama-3.1-8b-instruct",
         system_prompt: ""
     });
 
@@ -27,20 +28,22 @@ export default function AIChatbotTab() {
 
     const fetchSettings = async () => {
         try {
-            const res = await fetch("/api/admin/ai-chatbot");
+            const res = await fetch("/api/admin/ai-chatbot/settings", {
+                headers: { "x-admin-key": localStorage.getItem("adminKey") || "" }
+            });
             if (res.ok) {
                 const data = await res.json();
                 if (data.api_url) {
                     setSettings({
-                        api_url: data.api_url || "https://api.agentrouter.org/v1",
+                        api_url: data.api_url || "https://integrate.api.nvidia.com/v1",
                         api_key: data.api_key || "",
-                        model: data.model || "claude-opus-4-6",
+                        model: data.model || "meta/llama-3.1-8b-instruct",
                         system_prompt: data.system_prompt || ""
                     });
                 }
             }
-        } catch (e) {
-            console.error("Failed to load AI settings");
+        } catch (error) {
+            console.error("Error fetching settings:", error);
         } finally {
             setLoading(false);
         }
@@ -64,11 +67,15 @@ export default function AIChatbotTab() {
     const handleSave = async () => {
         setSaving(true);
         try {
-            const res = await fetch("/api/admin/ai-chatbot", {
+            const res = await fetch("/api/admin/ai-chatbot/settings", {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: {
+                    "Content-Type": "application/json",
+                    "x-admin-key": localStorage.getItem("adminKey") || ""
+                },
                 body: JSON.stringify(settings)
             });
+            
             if (res.ok) {
                 toast.success("AI settings saved successfully!");
             } else {
@@ -156,21 +163,40 @@ export default function AIChatbotTab() {
                                         value={settings.api_url}
                                         onChange={(e) => setSettings({ ...settings, api_url: e.target.value })}
                                         className="w-full bg-zinc-100 dark:bg-zinc-950 text-black dark:text-white border-2 border-black dark:border-zinc-700 px-4 py-3 font-mono text-sm focus:border-indigo-500 focus:outline-none transition-colors"
-                                        placeholder="https://api.agentrouter.org/v1"
+                                        placeholder="https://integrate.api.nvidia.com/v1"
                                     />
                                 </div>
 
                                 <div>
-                                    <label className="text-xs font-bold uppercase tracking-wider text-zinc-500 mb-2 flex items-center gap-2">
-                                        <KeyRound className="w-4 h-4" /> API Key
+                                    <label className="text-xs font-bold uppercase tracking-wider text-zinc-500 mb-2 flex items-center justify-between">
+                                        <span className="flex items-center gap-2">
+                                            <KeyRound className="w-4 h-4" /> API Key
+                                        </span>
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowApiKey(!showApiKey)}
+                                            className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1 font-bold"
+                                        >
+                                            {showApiKey ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                                            {showApiKey ? "إخفاء" : "إظهار المفتاح"}
+                                        </button>
                                     </label>
-                                    <input
-                                        type="password"
-                                        value={settings.api_key}
-                                        onChange={(e) => setSettings({ ...settings, api_key: e.target.value })}
-                                        className="w-full bg-zinc-100 dark:bg-zinc-950 text-black dark:text-white border-2 border-black dark:border-zinc-700 px-4 py-3 font-mono text-sm focus:border-indigo-500 focus:outline-none transition-colors"
-                                        placeholder="sk-..."
-                                    />
+                                    <div className="relative">
+                                        <input
+                                            type={showApiKey ? "text" : "password"}
+                                            value={settings.api_key}
+                                            onChange={(e) => setSettings({ ...settings, api_key: e.target.value })}
+                                            className="w-full bg-zinc-100 dark:bg-zinc-950 text-black dark:text-white border-2 border-black dark:border-zinc-700 px-4 py-3 font-mono text-sm focus:border-indigo-500 focus:outline-none transition-colors pr-10"
+                                            placeholder="nvapi-..."
+                                        />
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowApiKey(!showApiKey)}
+                                            className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-black dark:hover:text-white"
+                                        >
+                                            {showApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                                        </button>
+                                    </div>
                                 </div>
 
                                 <div>
@@ -182,16 +208,27 @@ export default function AIChatbotTab() {
                                         onChange={(e) => setSettings({ ...settings, model: e.target.value })}
                                         className="w-full bg-zinc-100 dark:bg-zinc-950 text-black dark:text-white border-2 border-black dark:border-zinc-700 px-4 py-3 font-mono text-sm focus:border-indigo-500 focus:outline-none transition-colors appearance-none cursor-pointer"
                                     >
+                                        <optgroup label="NVIDIA NIM (Free Endpoints)">
+                                            <option value="meta/llama-3.1-8b-instruct">NVIDIA: Llama 3.1 8B (Free & Super Fast)</option>
+                                            <option value="meta/llama-3.1-70b-instruct">NVIDIA: Llama 3.1 70B (Free)</option>
+                                            <option value="nvidia/llama-3.1-nemotron-70b-instruct">NVIDIA: Nemotron 70B (Free)</option>
+                                            <option value="meta/llama-3.3-70b-instruct">NVIDIA: Llama 3.3 70B (Free)</option>
+                                        </optgroup>
+                                        <optgroup label="OpenRouter (Free Endpoints)">
+                                            <option value="google/gemini-2.0-flash-exp:free">OpenRouter: Gemini 2.0 Flash (Free)</option>
+                                            <option value="meta-llama/llama-3.3-70b-instruct:free">OpenRouter: Llama 3.3 70B (Free)</option>
+                                            <option value="deepseek/deepseek-r1:free">OpenRouter: DeepSeek R1 (Free)</option>
+                                        </optgroup>
                                         <optgroup label="Agent Router Models">
                                             <option value="claude-opus-4-6">Claude Opus 4-6</option>
-                                            <option value="claude-opus-4-7">Claude Opus 4-7</option>
-                                            <option value="claude-opus-4-8">Claude Opus 4-8</option>
                                             <option value="glm-5.2">GLM-5.2</option>
                                             <option value="gpt-5.5">GPT-5.5</option>
                                         </optgroup>
-                                        <optgroup label="Other">
-                                            <option value={settings.model}>{settings.model}</option>
-                                        </optgroup>
+                                        {!["meta/llama-3.1-8b-instruct", "meta/llama-3.1-70b-instruct", "nvidia/llama-3.1-nemotron-70b-instruct", "meta/llama-3.3-70b-instruct", "google/gemini-2.0-flash-exp:free", "meta-llama/llama-3.3-70b-instruct:free", "deepseek/deepseek-r1:free", "claude-opus-4-6", "glm-5.2", "gpt-5.5"].includes(settings.model) && settings.model && (
+                                            <optgroup label="Other">
+                                                <option value={settings.model}>{settings.model}</option>
+                                            </optgroup>
+                                        )}
                                     </select>
                                 </div>
                             </div>

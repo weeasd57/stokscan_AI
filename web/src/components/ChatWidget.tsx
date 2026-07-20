@@ -42,8 +42,8 @@ export default function ChatWidget() {
                     AI Assistant
                 </div>
                 <div className="flex items-center gap-3">
-                    <div className="text-xs font-medium px-2 py-1 bg-zinc-200 dark:bg-zinc-800 rounded-full text-zinc-600 dark:text-zinc-300">
-                        {remainingQuota}/4 Left
+                    <div className="text-xs font-medium px-2.5 py-1 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 rounded-full">
+                        {remainingQuota >= 99 ? "Unlimited ♾️" : `${remainingQuota}/4 Left`}
                     </div>
                     <button
                         onClick={() => setIsOpen(false)}

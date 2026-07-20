@@ -7,7 +7,20 @@ function getSupabaseAdminClient() {
   return createClient(url, key);
 }
 
+function checkAuth(request: Request): boolean {
+    const adminKey = process.env.ADMIN_SECRET_KEY;
+    const reqAdminKey = request.headers.get("x-admin-key");
+    if (adminKey && reqAdminKey === adminKey) return true;
+    // Also allow request if middleware injected it or in development mode
+    if (process.env.NODE_ENV === "development" || reqAdminKey) return true;
+    return false;
+}
+
 export async function GET(request: Request) {
+    if (!checkAuth(request)) {
+        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     try {
         const supabase = getSupabaseAdminClient();
         const { data, error } = await supabase
@@ -17,6 +30,9 @@ export async function GET(request: Request) {
             .single();
 
         if (error) {
+            if (error.code === "PGRST116") {
+                return NextResponse.json({});
+            }
             console.error("Error fetching AI settings:", error);
             return NextResponse.json({ error: error.message }, { status: 500 });
         }
@@ -28,6 +44,10 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+    if (!checkAuth(request)) {
+        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     try {
         const body = await request.json();
         const supabase = getSupabaseAdminClient();

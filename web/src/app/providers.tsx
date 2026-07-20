@@ -9,7 +9,7 @@ import { AIScannerProvider } from "@/contexts/AIScannerContext";
 import { TechnicalScannerProvider } from "@/contexts/TechnicalScannerContext";
 import { ThemeProvider } from "@/contexts/ThemeContext";
 import { NotificationProvider } from "@/contexts/NotificationContext";
-import { SupportChatProvider } from "@/contexts/SupportChatContext";
+import { ChatProvider } from "@/contexts/ChatContext";
 
 if (typeof window !== "undefined") {
   const originalFetch = window.fetch;
@@ -52,21 +52,21 @@ export default function Providers({ children }: { children: ReactNode }) {
   return (
     <ThemeProvider>
       <AuthProvider>
-        <SupportChatProvider>
           <LanguageProvider>
             <NotificationProvider>
               <WatchlistProvider>
                 <AppStateProvider>
-                  <TechnicalScannerProvider>
-                    <AIScannerProvider>
-                      {children}
-                    </AIScannerProvider>
-                  </TechnicalScannerProvider>
+                  <AIScannerProvider>
+                    <TechnicalScannerProvider>
+                      <ChatProvider>
+                        {children}
+                      </ChatProvider>
+                    </TechnicalScannerProvider>
+                  </AIScannerProvider>
                 </AppStateProvider>
               </WatchlistProvider>
             </NotificationProvider>
           </LanguageProvider>
-        </SupportChatProvider>
       </AuthProvider>
     </ThemeProvider>
   );
