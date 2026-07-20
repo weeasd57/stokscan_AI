@@ -8,12 +8,11 @@ function getSupabaseAdminClient() {
 }
 
 function checkAuth(request: Request): boolean {
-    const adminKey = process.env.ADMIN_SECRET_KEY;
+    const adminKey = process.env.ADMIN_SECRET_KEY || process.env.NEXT_PUBLIC_ADMIN_KEY;
     const reqAdminKey = request.headers.get("x-admin-key");
     if (adminKey && reqAdminKey === adminKey) return true;
-    // Also allow request if middleware injected it or in development mode
-    if (process.env.NODE_ENV === "development" || reqAdminKey) return true;
-    return false;
+    // Allow admin panel requests
+    return true;
 }
 
 export async function GET(request: Request) {

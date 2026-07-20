@@ -30,8 +30,9 @@ export default function AIChatbotTab() {
 
     const fetchSettings = async () => {
         try {
+            const adminKey = process.env.NEXT_PUBLIC_ADMIN_KEY || localStorage.getItem("adminKey") || "";
             const res = await fetch("/api/admin/ai-chatbot/settings", {
-                headers: { "x-admin-key": localStorage.getItem("adminKey") || "" }
+                headers: { "x-admin-key": adminKey }
             });
             if (res.ok) {
                 const data = await res.json();
@@ -69,11 +70,12 @@ export default function AIChatbotTab() {
     const handleSave = async () => {
         setSaving(true);
         try {
+            const adminKey = process.env.NEXT_PUBLIC_ADMIN_KEY || localStorage.getItem("adminKey") || "";
             const res = await fetch("/api/admin/ai-chatbot/settings", {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
-                    "x-admin-key": localStorage.getItem("adminKey") || ""
+                    "x-admin-key": adminKey
                 },
                 body: JSON.stringify(settings)
             });
