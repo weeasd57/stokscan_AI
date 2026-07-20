@@ -9,10 +9,9 @@ function getSupabaseAdminClient() {
 
 function checkAuth(request: Request): boolean {
     const adminKey = process.env.ADMIN_SECRET_KEY || process.env.NEXT_PUBLIC_ADMIN_KEY;
+    if (!adminKey) return true;
     const reqAdminKey = request.headers.get("x-admin-key");
-    if (adminKey && reqAdminKey === adminKey) return true;
-    // Allow admin panel requests
-    return true;
+    return reqAdminKey === adminKey;
 }
 
 export async function GET(request: Request) {
