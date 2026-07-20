@@ -23,7 +23,7 @@ export async function GET(_req: NextRequest) {
         const formattedLogs = (data || []).map((log: any) => ({
             id: log.id,
             user_id: log.user_id,
-            user_name: log.profiles?.display_name || log.profiles?.username || "Unknown",
+            user_name: log.user_name || log.profiles?.display_name || log.profiles?.username || "Guest User",
             telegram_chat_id: log.profiles?.telegram_chat_id || null,
             message: log.message,
             reply: log.reply,
