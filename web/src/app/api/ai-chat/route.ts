@@ -18,11 +18,19 @@ export async function POST(req: NextRequest) {
         }
         
         const userId = session.user.id;
-        const { message } = await req.json();
+        const { message, history } = await req.json();
         
         if (!message || typeof message !== "string") {
             return NextResponse.json({ detail: "Message is required" }, { status: 400 });
         }
+
+        // Format conversation history for AI model
+        const formattedHistory = Array.isArray(history)
+            ? history
+                .filter((item: any) => item && item.content && (item.role === "user" || item.role === "assistant"))
+                .slice(-8)
+                .map((item: any) => ({ role: item.role, content: String(item.content) }))
+            : [];
 
         // 2. Fetch User Profile
         const { data: profile } = await supabase
@@ -63,9 +71,97 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ detail: "Chatbot is not configured properly." }, { status: 500 });
         }
 
-        const systemPrompt = settings.system_prompt || "You are a helpful AI Assistant.";
+        let systemPrompt = settings.system_prompt || "أنت محلل فني ومالي خبير لمنصة EGX Bots للبورصة المصرية.";
         const model = settings.model || "meta/llama-3.1-8b-instruct";
         const apiUrl = settings.api_url || "https://integrate.api.nvidia.com/v1";
+
+        // 4.5 Search Database for Stock Data if mentioned in message or history
+        try {
+            const combinedText = (message + " " + formattedHistory.map((h: any) => h.content).join(" ")).toLowerCase();
+            
+            // Search stocks table to see if any stock matches symbol or name
+            const { data: matchedStocks } = await supabase
+                .from("stocks")
+                .select("symbol, name")
+                .limit(100);
+
+            let targetSymbol = "";
+            let targetStockName = "";
+
+            if (matchedStocks && matchedStocks.length > 0) {
+                for (const s of matchedStocks) {
+                    const sym = (s.symbol || "").toLowerCase();
+                    const name = (s.name || "").toLowerCase();
+                    // Basic keyword match
+                    if (sym.length >= 2 && combinedText.includes(sym)) {
+                        targetSymbol = s.symbol;
+                        targetStockName = s.name;
+                        break;
+                    }
+                    if (name.length >= 3 && combinedText.includes(name)) {
+                        targetSymbol = s.symbol;
+                        targetStockName = s.name;
+                        break;
+                    }
+                }
+            }
+
+            // Common Arabic name mapping fallbacks
+            if (!targetSymbol) {
+                const arabicMap: Record<string, string> = {
+                    "موبكو": "MFPC", "أبو قير": "ABUK", "التجاري الدولي": "COMI", "سي أي كابيتال": "CICP",
+                    "فوري": "FWRY", "سويدي": "SWDY", "طلعت مصطفى": "TMGH", "بلتون": "BTFH",
+                    "حديد عز": "ESRS", "إعمار": "EMFD", "هيرمس": "HRHO", "أموك": "AMOC", "مصر للألومنيوم": "EGAL"
+                };
+                for (const [key, sym] of Object.entries(arabicMap)) {
+                    if (combinedText.includes(key)) {
+                        targetSymbol = sym;
+                        targetStockName = key;
+                        break;
+                    }
+                }
+            }
+
+            // If a stock was identified, fetch real numbers from DB
+            if (targetSymbol) {
+                const [priceRes, techRes, scanRes] = await Promise.all([
+                    supabase.from("stock_prices").select("*").eq("symbol", targetSymbol).order("date", { ascending: false }).limit(1).maybeSingle(),
+                    supabase.from("stock_technical_indicators").select("*").eq("symbol", targetSymbol).order("date", { ascending: false }).limit(1).maybeSingle(),
+                    supabase.from("scan_results").select("*").eq("symbol", targetSymbol).order("created_at", { ascending: false }).limit(1).maybeSingle()
+                ]);
+
+                const priceData = priceRes.data;
+                const techData = techRes.data;
+                const scanData = scanRes.data;
+
+                if (priceData || techData || scanData) {
+                    systemPrompt += `\n\n=== Real-Time Database Data for Stock: ${targetSymbol} (${targetStockName}) ===\n`;
+                    if (priceData) {
+                        systemPrompt += `- Latest Date: ${priceData.date}\n`;
+                        systemPrompt += `- Close Price: EGP ${priceData.close} (Open: ${priceData.open}, High: ${priceData.high}, Low: ${priceData.low})\n`;
+                        systemPrompt += `- Volume: ${priceData.volume}\n`;
+                    }
+                    if (techData) {
+                        systemPrompt += `- Change %: ${techData.change_pct}%\n`;
+                        systemPrompt += `- RSI (14): ${techData.rsi_14}\n`;
+                        systemPrompt += `- MACD: ${techData.macd} (Signal: ${techData.macd_signal}, Hist: ${techData.macd_histogram})\n`;
+                        systemPrompt += `- Moving Averages: SMA20=${techData.sma_20}, SMA50=${techData.sma_50}, SMA200=${techData.sma_200}\n`;
+                        systemPrompt += `- Bollinger Bands: Upper=${techData.bb_upper}, Middle=${techData.bb_middle}, Lower=${techData.bb_lower}\n`;
+                        if (techData.divergence_summary) {
+                            systemPrompt += `- Technical Divergence: ${techData.divergence_summary}\n`;
+                        }
+                    }
+                    if (scanData) {
+                        systemPrompt += `- AI Model Signal: ${scanData.signal} (Model Precision: ${scanData.precision}%)\n`;
+                        if (scanData.target_price) systemPrompt += `- AI Target Price: EGP ${scanData.target_price}\n`;
+                        if (scanData.stop_loss) systemPrompt += `- AI Stop Loss: EGP ${scanData.stop_loss}\n`;
+                    }
+                    systemPrompt += `Instructions: Use these EXACT numbers in your response to give the user a clear, data-driven analysis of ${targetSymbol}.\n`;
+                }
+            }
+        } catch (stockErr) {
+            console.error("Failed to query stock DB data for prompt:", stockErr);
+        }
 
         // 5. Call AgentRouter API
         const response = await fetch(`${apiUrl}/chat/completions`, {
@@ -83,6 +179,7 @@ export async function POST(req: NextRequest) {
                 model: model,
                 messages: [
                     { role: "system", content: systemPrompt },
+                    ...formattedHistory,
                     { role: "user", content: message }
                 ]
             })

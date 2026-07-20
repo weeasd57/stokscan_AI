@@ -95,7 +95,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             const response = await fetch("/api/ai-chat", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ message: text })
+                body: JSON.stringify({ message: text, history: messages })
             });
 
             const data = await response.json();
