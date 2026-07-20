@@ -71,7 +71,7 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ detail: "Chatbot is not configured properly." }, { status: 500 });
         }
 
-        let systemPrompt = settings.system_prompt || "أنت محلل فني ومالي خبير لمنصة EGX Bots للبورصة المصرية.";
+        let systemPrompt = settings.system_prompt || "";
         const model = settings.model || "meta/llama-3.1-8b-instruct";
         const apiUrl = settings.api_url || "https://integrate.api.nvidia.com/v1";
 
@@ -92,7 +92,6 @@ export async function POST(req: NextRequest) {
                 for (const s of matchedStocks) {
                     const sym = (s.symbol || "").toLowerCase();
                     const name = (s.name || "").toLowerCase();
-                    // Basic keyword match
                     if (sym.length >= 2 && combinedText.includes(sym)) {
                         targetSymbol = s.symbol;
                         targetStockName = s.name;
@@ -122,7 +121,7 @@ export async function POST(req: NextRequest) {
                 }
             }
 
-            // If a stock was identified, fetch real numbers from DB
+            // If a stock was identified, append ONLY the raw stock data numbers
             if (targetSymbol) {
                 const [priceRes, techRes, scanRes] = await Promise.all([
                     supabase.from("stock_prices").select("*").eq("symbol", targetSymbol).order("date", { ascending: false }).limit(1).maybeSingle(),
@@ -156,7 +155,6 @@ export async function POST(req: NextRequest) {
                         if (scanData.target_price) systemPrompt += `- AI Target Price: EGP ${scanData.target_price}\n`;
                         if (scanData.stop_loss) systemPrompt += `- AI Stop Loss: EGP ${scanData.stop_loss}\n`;
                     }
-                    systemPrompt += `Instructions: Use these EXACT numbers in your response to give the user a clear, data-driven analysis of ${targetSymbol}.\n`;
                 }
             }
         } catch (stockErr) {
