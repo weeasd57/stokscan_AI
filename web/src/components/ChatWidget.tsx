@@ -142,7 +142,46 @@ export default function ChatWidget() {
                                         ? "bg-zinc-100 dark:bg-zinc-800 text-black dark:text-zinc-100 rounded-tr-none"
                                         : "bg-amber-500/10 border border-amber-500/20 text-black dark:text-zinc-100 rounded-tl-none"}
                                 `}>
-                                    <div className="whitespace-pre-wrap">{msg.content}</div>
+                                    <div className="whitespace-pre-wrap">
+                                        {(() => {
+                                            const content = msg.content || "";
+                                            const regex = /\[([^\]]+)\]\(([^)]+)\)/g;
+                                            const parts = [];
+                                            let lastIndex = 0;
+                                            let match;
+
+                                            while ((match = regex.exec(content)) !== null) {
+                                                if (match.index > lastIndex) {
+                                                    parts.push(content.substring(lastIndex, match.index));
+                                                }
+                                                const linkText = match[1];
+                                                const linkUrl = match[2];
+                                                parts.push(
+                                                    <a
+                                                        key={match.index}
+                                                        href={linkUrl}
+                                                        onClick={(e) => {
+                                                            if (linkUrl.startsWith("/")) {
+                                                                e.preventDefault();
+                                                                router.push(linkUrl);
+                                                                setIsOpen(false);
+                                                            }
+                                                        }}
+                                                        className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400 font-bold underline hover:text-amber-500 transition-colors mx-0.5"
+                                                    >
+                                                        {linkText}
+                                                    </a>
+                                                );
+                                                lastIndex = regex.lastIndex;
+                                            }
+
+                                            if (lastIndex < content.length) {
+                                                parts.push(content.substring(lastIndex));
+                                            }
+
+                                            return parts.length > 0 ? parts : content;
+                                        })()}
+                                    </div>
                                 </div>
                             </div>
                         ))}
