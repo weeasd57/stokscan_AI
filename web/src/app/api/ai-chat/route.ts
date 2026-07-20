@@ -280,3 +280,56 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ detail: "Internal Server Error", error: e.message || String(e) }, { status: 500 });
     }
 }
+
+export async function GET(req: NextRequest) {
+    try {
+        const authClient = createSupabaseServerClient(req);
+        const supabase = getSupabaseClient();
+
+        const { data: { session } } = await authClient.auth.getSession();
+        if (!session?.user) {
+            return NextResponse.json({ history: [], remaining_quota: 4 });
+        }
+
+        const userId = session.user.id;
+        const userEmail = session.user.email || "";
+        const isUnlimited = ["weeessd57@gmail.com", "user@gmail.com", "weeasd57@gmail.com"].includes(userEmail.toLowerCase());
+
+        // Fetch user's limit for today
+        const today = new Date().toISOString().split("T")[0];
+        const { data: limitData } = await supabase
+            .from("ai_chatbot_limits")
+            .select("chat_count")
+            .eq("user_id", userId)
+            .eq("date", today)
+            .maybeSingle();
+
+        const used = limitData?.chat_count || 0;
+        const remaining_quota = isUnlimited ? 999 : Math.max(0, 4 - used);
+
+        // Fetch user's past logs
+        const { data: logs } = await supabase
+            .from("ai_chatbot_logs")
+            .select("id, message, reply, created_at")
+            .eq("user_id", userId)
+            .order("created_at", { ascending: true })
+            .limit(50);
+
+        const history: any[] = [];
+        if (logs && logs.length > 0) {
+            logs.forEach(log => {
+                const ts = new Date(log.created_at).getTime();
+                if (log.message) {
+                    history.push({ role: "user", content: log.message, timestamp: ts });
+                }
+                if (log.reply) {
+                    history.push({ role: "assistant", content: log.reply, timestamp: ts + 100 });
+                }
+            });
+        }
+
+        return NextResponse.json({ history, remaining_quota });
+    } catch (e: any) {
+        return NextResponse.json({ history: [], remaining_quota: 4 });
+    }
+}

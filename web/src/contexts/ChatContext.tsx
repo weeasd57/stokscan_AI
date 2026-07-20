@@ -43,21 +43,60 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
     const [remainingQuota, setRemainingQuota] = useState<number>(4);
 
-    // Initial Welcome Message
+    const WELCOME_MSG: ChatMessage = {
+        role: "assistant",
+        content: "Hello! I am your AI Market Assistant. I can help you analyze stocks, explain indicators, or navigate the app. How can I help today?",
+        timestamp: Date.now(),
+    };
+
+    // Load initial history from localStorage
     useEffect(() => {
-        setMessages([
-            {
-                role: "assistant",
-                content: "Hello! I am your AI Market Assistant. I can help you analyze stocks, explain indicators, or navigate the app. How can I help today?",
-                timestamp: Date.now(),
+        try {
+            const cached = localStorage.getItem("egxbots_chat_history");
+            if (cached) {
+                const parsed = JSON.parse(cached);
+                if (Array.isArray(parsed) && parsed.length > 0) {
+                    setMessages(parsed);
+                    return;
+                }
             }
-        ]);
+        } catch (e) {
+            console.error("Failed to load cached chat history");
+        }
+        setMessages([WELCOME_MSG]);
     }, []);
 
-    // Initialize Context
+    // Save messages to localStorage whenever updated
     useEffect(() => {
-        if (!user) return;
-        // Optional: Pre-fetch quota if needed, but the API will return it on first message.
+        if (messages.length > 0) {
+            try {
+                localStorage.setItem("egxbots_chat_history", JSON.stringify(messages));
+            } catch (e) {
+                console.error("Failed to cache chat history");
+            }
+        }
+    }, [messages]);
+
+    // Fetch latest history and quota from server on mount / auth change
+    useEffect(() => {
+        const fetchHistoryAndQuota = async () => {
+            try {
+                const res = await fetch("/api/ai-chat");
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.remaining_quota !== undefined) {
+                        setRemainingQuota(data.remaining_quota);
+                    }
+                    if (Array.isArray(data.history) && data.history.length > 0) {
+                        setMessages([WELCOME_MSG, ...data.history]);
+                    }
+                }
+            } catch (e) {
+                console.error("Failed to fetch chat history from server:", e);
+            }
+        };
+
+        fetchHistoryAndQuota();
     }, [user]);
 
     const handleAction = useCallback((action: ChatAction) => {
