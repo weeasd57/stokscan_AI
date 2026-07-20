@@ -21,7 +21,7 @@ export default function AIChatbotTab() {
     const [logs, setLogs] = useState<any[]>([]);
     const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
     const [searchUserQuery, setSearchUserQuery] = useState("");
-    const [viewMode, setViewMode] = useState<"ai_config" | "support_chats">("support_chats");
+    const [viewMode, setViewMode] = useState<"ai_config" | "support_chats">("ai_config");
 
     useEffect(() => {
         fetchSettings();
