@@ -267,16 +267,13 @@ export default function AIChatbotTab() {
                                         onChange={(e) => setSettings({ ...settings, model: e.target.value })}
                                         className="w-full bg-zinc-100 dark:bg-zinc-950 text-black dark:text-white border-2 border-black dark:border-zinc-700 px-4 py-3 font-mono text-sm focus:border-indigo-500 focus:outline-none transition-colors appearance-none cursor-pointer"
                                     >
-                                        <optgroup label="NVIDIA NIM (Free Endpoints)">
-                                            <option value="z-ai/glm-5.2">NVIDIA: GLM-5.2 (MoE 753B - Free & Powerful)</option>
-                                            <option value="openai/gpt-oss-120b">NVIDIA: GPT OSS 120B (OpenAI Open Model)</option>
-                                            <option value="deepseek-ai/deepseek-v4-pro">NVIDIA: DeepSeek V4 Pro (1M Context MoE)</option>
-                                            <option value="deepseek-ai/deepseek-v4-flash">NVIDIA: DeepSeek V4 Flash (Reasoning AI)</option>
-                                            <option value="moonshotai/kimi-k2.6">NVIDIA: Kimi K2.6 (Moonshot AI)</option>
-                                            <option value="meta/llama-3.3-70b-instruct">NVIDIA: Llama 3.3 70B (Smartest General LLM)</option>
-                                            <option value="meta/llama-3.2-11b-vision-instruct">NVIDIA: Llama 3.2 11B Vision (Multimodal/Image)</option>
-                                            <option value="meta/llama-3.1-8b-instruct">NVIDIA: Llama 3.1 8B (Free & Super Fast)</option>
+                                        <optgroup label="NVIDIA NIM (Verified Fast Endpoints)">
+                                            <option value="meta/llama-3.1-8b-instruct">NVIDIA: Llama 3.1 8B (⚡ Ultra-Fast 1-2s Response - Default)</option>
+                                            <option value="meta/llama-3.2-11b-vision-instruct">NVIDIA: Llama 3.2 11B Vision (📷 Multimodal Image/Portfolio Analysis)</option>
+                                            <option value="deepseek-ai/deepseek-v4-flash">NVIDIA: DeepSeek V4 Flash (🧠 Financial Reasoning AI)</option>
+                                            <option value="deepseek-ai/deepseek-v4-pro">NVIDIA: DeepSeek V4 Pro (🔥 1M Context MoE Model)</option>
                                         </optgroup>
+
 
 
                                         <optgroup label="OpenRouter (Free Endpoints)">

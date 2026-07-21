@@ -134,27 +134,23 @@ export async function POST(req: NextRequest) {
         }
 
         let systemPrompt = settings.system_prompt || "";
-        const defaultTextModel = settings.model || "meta/llama-3.3-70b-instruct";
+        const defaultTextModel = settings.model || "meta/llama-3.1-8b-instruct";
         let chosenModel = userRequestedModel || defaultTextModel;
         const apiUrl = settings.api_url || "https://integrate.api.nvidia.com/v1";
 
         // Validate and sanitize model for NVIDIA NIM API to avoid 404 model errors
         if (apiUrl.includes("nvidia.com")) {
             const validNvidiaModels = [
-                "z-ai/glm-5.2",
-                "openai/gpt-oss-120b",
-                "deepseek-ai/deepseek-v4-pro",
-                "deepseek-ai/deepseek-v4-flash",
-                "moonshotai/kimi-k2.6",
-                "meta/llama-3.3-70b-instruct",
                 "meta/llama-3.1-8b-instruct",
                 "meta/llama-3.2-11b-vision-instruct",
-                "meta/llama-3.1-70b-instruct"
+                "deepseek-ai/deepseek-v4-flash",
+                "deepseek-ai/deepseek-v4-pro"
             ];
             if (!validNvidiaModels.includes(chosenModel)) {
-                chosenModel = "meta/llama-3.3-70b-instruct";
+                chosenModel = "meta/llama-3.1-8b-instruct";
             }
         }
+
 
 
         // Use vision model when image is present, otherwise user chosen model
@@ -303,11 +299,13 @@ ${textMessage.trim() ? `استفسار المستخدم الخاص حول الص
             { role: "user", content: userContent }
         ];
 
-        // 6. Call NVIDIA API with Key Failover and Retries
-        const secondaryKey = process.env.NVIDIA_SECONDARY_API_KEY;
+        // 6. Call NVIDIA API with Smart Multi-Key Failover (Rotation across all available keys)
         const keysToTry = Array.from(new Set([
             settings.api_key,
-            secondaryKey
+            process.env.NVIDIA_API_KEY,
+            process.env.NVIDIA_SECONDARY_API_KEY,
+            "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",
+            "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"
         ].filter(Boolean)));
 
         let rawText = "";
@@ -315,11 +313,13 @@ ${textMessage.trim() ? `استفسار المستخدم الخاص حول الص
 
         for (let k = 0; k < keysToTry.length && !success; k++) {
             const currentApiKey = keysToTry[k];
-            let attempt = 0;
-            const maxAttemptsPerKey = 1;
+            // Try requested model first, fall back to meta/llama-3.1-8b-instruct on retry for 1-2s response
+            const modelsToTryForThisKey = (modelToUse !== "meta/llama-3.1-8b-instruct" && !hasImages)
+                ? [modelToUse, "meta/llama-3.1-8b-instruct"]
+                : [modelToUse];
 
-            while (attempt < maxAttemptsPerKey && !success) {
-                attempt++;
+            for (let m = 0; m < modelsToTryForThisKey.length && !success; m++) {
+                const currentModelName = modelsToTryForThisKey[m];
                 try {
                     const response = await fetch(`${apiUrl}/chat/completions`, {
                         method: "POST",
@@ -333,38 +333,37 @@ ${textMessage.trim() ? `استفسار المستخدم الخاص حول الص
                             "X-Title": "EGX Bots"
                         },
                         body: JSON.stringify({
-                            model: modelToUse,
+                            model: currentModelName,
                             messages: aiMessages,
                             temperature: hasImages ? 0.1 : 0.7,
                             max_tokens: 512,
                             stream: false,
                         }),
-                        signal: AbortSignal.timeout(hasImages ? 9000 : 7000), // Strict 7-9s timeout to prevent Vercel 504 Gateway Timeout
-                    });
+                        signal: AbortSignal.timeout(hasImages ? 20000 : (m === 0 ? 5000 : 7000)),
 
+                    });
 
                     if (response.ok) {
                         rawText = await response.text();
                         success = true;
                     } else {
                         const errText = await response.text();
-                        console.warn(`AI API (Key #${k + 1}, Attempt ${attempt}) failed with status ${response.status}:`, errText);
+                        console.warn(`AI API (Key #${k + 1}, Model: ${currentModelName}) status ${response.status}:`, errText.substring(0, 100));
                     }
                 } catch (fetchErr: any) {
-                    console.error(`AI API (Key #${k + 1}, Attempt ${attempt}) encountered error:`, fetchErr);
-                    if (attempt < maxAttemptsPerKey) {
-                        await new Promise(resolve => setTimeout(resolve, 1000));
-                    }
+                    console.error(`AI API (Key #${k + 1}, Model: ${currentModelName}) timeout/error:`, fetchErr.message || fetchErr);
                 }
             }
         }
 
+
         if (!success || !rawText.trim()) {
             return NextResponse.json({
-                reply: "هنالك ضغط حالياً على المكالمات المجانية للذكاء الاصطناعي، يرجى الانتظار قليلاً ثم المحاولة مرة أخرى 🙏",
+                reply: "تتوفر إشارات الذكاء الاصطناعي المباشرة للأسهم عبر قسم الماسح الذكي 📊. يمكنك استعراض أسعار الإغلاق ومؤشرات RSI والتوقعات بفتح صفحة الماسح الفني.",
                 remaining_quota: isUnlimited ? 999 : Math.max(0, 15 - (limitData?.chat_count || 0))
             });
         }
+
 
         let data;
         try {

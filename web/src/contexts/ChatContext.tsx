@@ -1,10 +1,7 @@
 "use client";
 
 import { createContext, useContext, useState, ReactNode, useEffect, useCallback, useRef } from "react";
-import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { useAuth } from "@/contexts/AuthContext";
-import { useTechnicalScanner } from "@/contexts/TechnicalScannerContext";
-import { useRouter } from "next/navigation";
 import { ChatSession } from "@/components/chat/ChatSidebar";
 
 export type ChatMessage = {
@@ -24,14 +21,10 @@ type ChatAction = {
 };
 
 export const AVAILABLE_AI_MODELS = [
-    { id: "z-ai/glm-5.2", name: "GLM 5.2", badgeAr: "عملاق 📊", badgeEn: "GLM 5.2 📊", descAr: "نموذج Z-AI GLM 5.2 بسعة 753B لعمليات الاستدلال المعقدة", descEn: "Z-AI GLM 5.2 MoE 753B model for complex reasoning" },
-    { id: "openai/gpt-oss-120b", name: "GPT OSS 120B", badgeAr: "جديد 🤖", badgeEn: "OpenAI Open 🤖", descAr: "موديل OpenAI المفتوح المصدر سعة 120B بارامتر للتحليلات", descEn: "OpenAI open-source 120B model for high-tier analysis" },
-    { id: "deepseek-ai/deepseek-v4-pro", name: "DeepSeek V4 Pro", badgeAr: "العملاق 🔥", badgeEn: "Ultra MoE 🔥", descAr: "نموذج ديب سيك V4 الأحدث بسياق 1M وسرعة تحليلائيات", descEn: "Latest DeepSeek V4 Pro model with 1M context" },
-    { id: "deepseek-ai/deepseek-v4-flash", name: "DeepSeek V4 Flash", badgeAr: "تفكير عالي 🧠", badgeEn: "Reasoning 🧠", descAr: "متخصص في الاستنتاج البرمجي والمالي العميق", descEn: "Specialized in deep reasoning and financial logic" },
-    { id: "moonshotai/kimi-k2.6", name: "Kimi K2.6", badgeAr: "جديد 🌙", badgeEn: "Kimi 🌙", descAr: "موديل Moonshot Kimi لتفسير المستندات والسياق الطويل", descEn: "Moonshot AI Kimi model for long context" },
-    { id: "meta/llama-3.3-70b-instruct", name: "Llama 3.3 70B", badgeAr: "الأذكى ✨", badgeEn: "Smartest ✨", descAr: "نموذج الذكاء الاصطناعي الأقوى لتحليل البورصة", descEn: "Most capable model for stock analysis" },
-    { id: "meta/llama-3.2-11b-vision-instruct", name: "Llama 3.2 Vision", badgeAr: "رؤية الصور 📷", badgeEn: "Vision 📷", descAr: "متخصص في قراءة وتحليل صور الشاشات والمحافظ", descEn: "Specialized in analyzing portfolio screenshots" },
-    { id: "meta/llama-3.1-8b-instruct", name: "Llama 3.1 8B", badgeAr: "سريع ⚡", badgeEn: "Fast ⚡", descAr: "فائق السرعة للإجابات المباشرة السريعة", descEn: "Ultra-fast response for simple queries" },
+    { id: "meta/llama-3.1-8b-instruct", name: "Llama 3.1 8B", badgeAr: "فائق السرعة ⚡", badgeEn: "Ultra Fast ⚡", descAr: "استجابة صواريخ خلال 1-2 ثانية بتحليل مباشر للبورصة", descEn: "Ultra-fast 1-2s response for instant EGX stock analysis" },
+    { id: "meta/llama-3.2-11b-vision-instruct", name: "Llama 3.2 Vision", badgeAr: "رؤية الصور 📷", badgeEn: "Vision 📷", descAr: "متخصص في قراءة وتحليل صور الشاشات والمحافظ المالية", descEn: "Specialized in analyzing portfolio screenshots" },
+    { id: "deepseek-ai/deepseek-v4-flash", name: "DeepSeek V4 Flash", badgeAr: "تفكير عالي 🧠", badgeEn: "Reasoning 🧠", descAr: "نموذج الاستدلال الفني والمالي والتفكير المعمق", descEn: "Specialized in deep reasoning and financial logic" },
+    { id: "deepseek-ai/deepseek-v4-pro", name: "DeepSeek V4 Pro", badgeAr: "العملاق 🔥", badgeEn: "Ultra MoE 🔥", descAr: "نموذج ديب سيك V4 الأحدث بسياق 1M وسرعة تحليل", descEn: "Latest DeepSeek V4 Pro model with 1M context" },
 ];
 
 interface ChatContextType {
@@ -55,30 +48,104 @@ interface ChatContextType {
 
 const ChatContext = createContext<ChatContextType | undefined>(undefined);
 
+// Local Storage Persistence Helpers
+function getStoredSessions(): ChatSession[] {
+    if (typeof window === "undefined") return [];
+    try {
+        const raw = localStorage.getItem("egxbots_chat_sessions_v2");
+        return raw ? JSON.parse(raw) : [];
+    } catch {
+        return [];
+    }
+}
+
+function saveStoredSessions(sessions: ChatSession[]) {
+    if (typeof window === "undefined") return;
+    try {
+        localStorage.setItem("egxbots_chat_sessions_v2", JSON.stringify(sessions));
+    } catch (e) {
+        console.error("Failed to save sessions to localStorage:", e);
+    }
+}
+
+function getStoredMessages(sessionId: string): ChatMessage[] {
+    if (typeof window === "undefined" || !sessionId) return [];
+    try {
+        const raw = localStorage.getItem(`egxbots_msgs_${sessionId}`);
+        return raw ? JSON.parse(raw) : [];
+    } catch {
+        return [];
+    }
+}
+
+function saveStoredMessages(sessionId: string, msgs: ChatMessage[]) {
+    if (typeof window === "undefined" || !sessionId) return;
+    try {
+        const cleanMsgs = msgs.map(m => ({
+            ...m,
+            imageUrl: m.imageUrl ? "[image]" : undefined,
+            images: m.images ? m.images.map(() => "[image]") : undefined
+        }));
+        localStorage.setItem(`egxbots_msgs_${sessionId}`, JSON.stringify(cleanMsgs));
+    } catch (e) {
+        console.error("Failed to save messages to localStorage:", e);
+    }
+}
+
 export function ChatProvider({ children }: { children: ReactNode }) {
     const { user } = useAuth();
-    const { setTechScanner } = useTechnicalScanner();
-    const router = useRouter();
 
     const [isOpen, setIsOpen] = useState(false);
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     const [remainingQuota, setRemainingQuota] = useState<number>(15);
-    const [selectedModel, setSelectedModelState] = useState<string>("meta/llama-3.3-70b-instruct");
-    const [sessions, setSessions] = useState<ChatSession[]>([]);
-    const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+    const [selectedModel, setSelectedModelState] = useState<string>("meta/llama-3.1-8b-instruct");
+    const [sessions, setSessionsState] = useState<ChatSession[]>([]);
+    const [activeSessionId, setActiveSessionIdState] = useState<string | null>(null);
     const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(true);
 
+    const sessionMessagesCache = useRef<Record<string, ChatMessage[]>>({});
+    const loadingSessionIds = useRef<Record<string, boolean>>({});
+    const activeSessionIdRef = useRef<string | null>(activeSessionId);
+
+    const setActiveSessionId = useCallback((id: string | null) => {
+        activeSessionIdRef.current = id;
+        setActiveSessionIdState(id);
+    }, []);
+
     const messagesRef = useRef<ChatMessage[]>(messages);
+
+    const setSessions = useCallback((updater: ChatSession[] | ((prev: ChatSession[]) => ChatSession[])) => {
+        setSessionsState(prev => {
+            const next = typeof updater === "function" ? updater(prev) : updater;
+            saveStoredSessions(next);
+            return next;
+        });
+    }, []);
+
     useEffect(() => {
         messagesRef.current = messages;
-    }, [messages]);
+        if (activeSessionId && messages.length > 0) {
+            sessionMessagesCache.current[activeSessionId] = messages;
+            saveStoredMessages(activeSessionId, messages);
+        }
+    }, [messages, activeSessionId]);
 
-    const WELCOME_MSG: ChatMessage = {
-        role: "assistant",
-        content: "أهلاً بك! أنا مساعدك الذكي البورصة المصرية (EGX AI Assistant). يمكنك الاستفسار عن الأسهم، إشارات الـ AI، قراءة صور المحافظ والشاشات 📷، وتصدير الجداول والمخططات لإكسيل.",
-        timestamp: 0,
-    };
+    // Load initial sessions from localStorage on mount
+    useEffect(() => {
+        const localSessions = getStoredSessions();
+        if (localSessions.length > 0) {
+            setSessionsState(localSessions);
+            const latest = localSessions[0];
+            setActiveSessionId(latest.id);
+            const localMsgs = getStoredMessages(latest.id);
+            if (localMsgs.length > 0) {
+                setMessages(localMsgs);
+                messagesRef.current = localMsgs;
+                sessionMessagesCache.current[latest.id] = localMsgs;
+            }
+        }
+    }, [setActiveSessionId]);
 
     useEffect(() => {
         const savedModel = localStorage.getItem("egxbots_selected_model");
@@ -92,14 +159,27 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         localStorage.setItem("egxbots_selected_model", model);
     }, []);
 
-    // Fetch sessions list from backend
     const fetchSessions = useCallback(async () => {
         try {
             const res = await fetch("/api/ai-chat?action=sessions");
             if (res.ok) {
                 const data = await res.json();
                 if (Array.isArray(data.sessions)) {
-                    setSessions(data.sessions);
+                    setSessions(prevLocal => {
+                        const localMap = new Map(prevLocal.map(s => [s.id, s]));
+                        data.sessions.forEach((srvS: ChatSession) => {
+                            localMap.set(srvS.id, srvS);
+                        });
+                        const merged = Array.from(localMap.values());
+                        merged.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
+                        return merged;
+                    });
+
+                    if (!activeSessionIdRef.current && data.sessions.length > 0) {
+                        const latestId = data.sessions[0].id;
+                        setActiveSessionId(latestId);
+                        fetchSessionMessages(latestId);
+                    }
                 }
                 if (data.remaining_quota !== undefined) {
                     setRemainingQuota(data.remaining_quota);
@@ -108,70 +188,96 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         } catch (e) {
             console.error("Failed to fetch chat sessions:", e);
         }
-    }, []);
+    }, [setActiveSessionId, setSessions]);
 
-    // Switch active session and fetch its messages
-    const switchSession = useCallback(async (sessionId: string) => {
-        setActiveSessionId(sessionId);
-        setIsLoading(true);
+    const fetchSessionMessages = async (sessionId: string) => {
         try {
             const res = await fetch(`/api/ai-chat?session_id=${sessionId}`);
             if (res.ok) {
                 const data = await res.json();
                 if (Array.isArray(data.history) && data.history.length > 0) {
-                    setMessages([WELCOME_MSG, ...data.history]);
-                    messagesRef.current = [WELCOME_MSG, ...data.history];
-                } else {
-                    setMessages([WELCOME_MSG]);
-                    messagesRef.current = [WELCOME_MSG];
+                    sessionMessagesCache.current[sessionId] = data.history;
+                    saveStoredMessages(sessionId, data.history);
+
+                    if (activeSessionIdRef.current === sessionId) {
+                        setMessages(data.history);
+                        messagesRef.current = data.history;
+                    }
                 }
             }
         } catch (e) {
-            console.error("Failed to load session messages:", e);
-        } finally {
-            setIsLoading(false);
+            console.error("Failed to load session messages from server:", e);
         }
-    }, []);
+    };
 
-    // Start a new chat session
+    // Switch active session instantly while preserving per-session loading state
+    const switchSession = useCallback(async (sessionId: string) => {
+        setActiveSessionId(sessionId);
+
+        // Preserve and sync loading status for target session
+        const isTargetLoading = !!loadingSessionIds.current[sessionId];
+        setIsLoading(isTargetLoading);
+
+        // 1. Memory Cache
+        if (sessionMessagesCache.current[sessionId] && sessionMessagesCache.current[sessionId].length > 0) {
+            setMessages(sessionMessagesCache.current[sessionId]);
+            messagesRef.current = sessionMessagesCache.current[sessionId];
+        } else {
+            // 2. localStorage
+            const localMsgs = getStoredMessages(sessionId);
+            if (localMsgs.length > 0) {
+                setMessages(localMsgs);
+                messagesRef.current = localMsgs;
+                sessionMessagesCache.current[sessionId] = localMsgs;
+            } else {
+                setMessages([]);
+                messagesRef.current = [];
+            }
+        }
+
+        // 3. Fetch background sync from server
+        await fetchSessionMessages(sessionId);
+    }, [setActiveSessionId]);
+
     const createNewSession = useCallback(() => {
         setActiveSessionId(null);
-        setMessages([WELCOME_MSG]);
-        messagesRef.current = [WELCOME_MSG];
-    }, []);
+        setMessages([]);
+        messagesRef.current = [];
+        setIsLoading(false);
+    }, [setActiveSessionId]);
 
-    // Delete a session
     const deleteSession = useCallback(async (sessionId: string) => {
-        try {
-            const res = await fetch(`/api/ai-chat?session_id=${sessionId}`, { method: "DELETE" });
-            if (res.ok) {
-                setSessions(prev => prev.filter(s => s.id !== sessionId));
-                if (activeSessionId === sessionId) {
-                    createNewSession();
-                }
-            }
-        } catch (e) {
-            console.error("Failed to delete chat session:", e);
+        delete sessionMessagesCache.current[sessionId];
+        delete loadingSessionIds.current[sessionId];
+        if (typeof window !== "undefined") {
+            localStorage.removeItem(`egxbots_msgs_${sessionId}`);
         }
-    }, [activeSessionId, createNewSession]);
+        setSessions(prev => prev.filter(s => s.id !== sessionId));
 
-    // Rename a session
-    const renameSession = useCallback(async (sessionId: string, newTitle: string) => {
+        if (activeSessionIdRef.current === sessionId) {
+            createNewSession();
+        }
+
         try {
-            const res = await fetch("/api/ai-chat", {
+            await fetch(`/api/ai-chat?session_id=${sessionId}`, { method: "DELETE" });
+        } catch (e) {
+            console.error("Failed to delete chat session from server:", e);
+        }
+    }, [createNewSession, setSessions]);
+
+    const renameSession = useCallback(async (sessionId: string, newTitle: string) => {
+        setSessions(prev => prev.map(s => s.id === sessionId ? { ...s, title: newTitle } : s));
+        try {
+            await fetch("/api/ai-chat", {
                 method: "PUT",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ session_id: sessionId, title: newTitle })
             });
-            if (res.ok) {
-                setSessions(prev => prev.map(s => s.id === sessionId ? { ...s, title: newTitle } : s));
-            }
         } catch (e) {
-            console.error("Failed to rename session:", e);
+            console.error("Failed to rename session on server:", e);
         }
-    }, []);
+    }, [setSessions]);
 
-    // Initial load on mount or user change
     useEffect(() => {
         fetchSessions();
     }, [user, fetchSessions]);
@@ -183,6 +289,23 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
         if (!text.trim() && imagesList.length === 0) return;
 
+        let currentSessionId = activeSessionIdRef.current;
+        if (!currentSessionId) {
+            currentSessionId = typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : "session-" + Date.now();
+            setActiveSessionId(currentSessionId);
+            
+            const sessionTitle = text.trim() 
+                ? text.trim().substring(0, 32) + (text.length > 32 ? "..." : "")
+                : (imagesList.length > 0 ? "تحليل صورة محفظة" : "محادثة جديدة");
+
+            setSessions(prev => [{
+                id: currentSessionId!,
+                title: sessionTitle,
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString()
+            }, ...prev]);
+        }
+
         const newUserMsg: ChatMessage = {
             role: "user",
             content: text || (imagesList.length > 0 ? `📷 [${imagesList.length} Images attached]` : ""),
@@ -191,22 +314,43 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             images: imagesList.length > 0 ? imagesList : undefined,
         };
 
-        const historySnapshot = [...messagesRef.current];
-        const nextMessages = [...historySnapshot, newUserMsg];
-        setMessages(nextMessages);
-        messagesRef.current = nextMessages;
-        setIsLoading(true);
+        const existingSessionMsgs = sessionMessagesCache.current[currentSessionId] || messagesRef.current;
+        const nextMessages = [...existingSessionMsgs, newUserMsg];
+
+        if (activeSessionIdRef.current === currentSessionId) {
+            setMessages(nextMessages);
+            messagesRef.current = nextMessages;
+        }
+
+        sessionMessagesCache.current[currentSessionId] = nextMessages;
+        saveStoredMessages(currentSessionId, nextMessages);
+
+        // Mark loading state for this session
+        loadingSessionIds.current[currentSessionId] = true;
+        if (activeSessionIdRef.current === currentSessionId) {
+            setIsLoading(true);
+        }
+
+        const appendAssistantResponse = (assistantMsg: ChatMessage) => {
+            const currentMsgs = sessionMessagesCache.current[currentSessionId!] || [];
+            const updated = [...currentMsgs, assistantMsg];
+
+            sessionMessagesCache.current[currentSessionId!] = updated;
+            saveStoredMessages(currentSessionId!, updated);
+
+            if (activeSessionIdRef.current === currentSessionId) {
+                setMessages(updated);
+                messagesRef.current = updated;
+            }
+        };
 
         try {
             if (remainingQuota <= 0) {
-                const limitMsg: ChatMessage = {
+                appendAssistantResponse({
                     role: "assistant",
                     content: "وصلت للحد الأقصى اليومي (15 رسالة يومياً). يرجى العودة غداً أو تواصل مع الدعم الفني!",
                     timestamp: Date.now()
-                };
-                setMessages(prev => [...prev, limitMsg]);
-                messagesRef.current = [...messagesRef.current, limitMsg];
-                setIsLoading(false);
+                });
                 return;
             }
 
@@ -215,22 +359,20 @@ export function ChatProvider({ children }: { children: ReactNode }) {
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                     message: text || "قم بقراءة وتحليل هذه الصورة المرفقة.",
-                    history: historySnapshot.map(m => ({ role: m.role, content: m.content })),
+                    history: existingSessionMsgs.map(m => ({ role: m.role, content: m.content })),
                     images: imagesList.length > 0 ? imagesList : undefined,
                     image: imagesList[0] || undefined,
                     model: selectedModel,
-                    session_id: activeSessionId || undefined,
+                    session_id: currentSessionId,
                 })
             });
 
             if (response.status === 504 || response.status === 502) {
-                const timeoutMsg: ChatMessage = {
+                appendAssistantResponse({
                     role: "assistant",
                     content: "استغرقت الاستجابة وقتاً أطول من المعتاد بسبب الضغط على الموديل. يرجى إعادة المحاولة أو اختيار موديل أسرع مثل Llama 3.1 8B ⚡",
                     timestamp: Date.now()
-                };
-                setMessages(prev => [...prev, timeoutMsg]);
-                messagesRef.current = [...messagesRef.current, timeoutMsg];
+                });
                 return;
             }
 
@@ -238,13 +380,11 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             
             if (response.status === 429) {
                 setRemainingQuota(0);
-                const limitMsg: ChatMessage = {
+                appendAssistantResponse({
                     role: "assistant",
                     content: data.detail || "وصلت للحد الأقصى اليومي 15 رسالة.",
                     timestamp: Date.now()
-                };
-                setMessages(prev => [...prev, limitMsg]);
-                messagesRef.current = [...messagesRef.current, limitMsg];
+                });
                 return;
             }
 
@@ -252,35 +392,29 @@ export function ChatProvider({ children }: { children: ReactNode }) {
                 throw new Error(data.detail || "Failed to communicate with AI");
             }
 
-            if (data.session_id) {
-                setActiveSessionId(data.session_id);
-                fetchSessions();
-            }
-
             if (data.remaining_quota !== undefined) {
                 setRemainingQuota(data.remaining_quota);
             }
 
-            const assistantMsg: ChatMessage = {
+            appendAssistantResponse({
                 role: "assistant",
                 content: data.reply || "معذرة، لم أتمكن من معالجة هذا الطلب.",
                 timestamp: Date.now()
-            };
-            setMessages(prev => [...prev, assistantMsg]);
-            messagesRef.current = [...messagesRef.current, assistantMsg];
+            });
 
         } catch (err: any) {
-            const errorMsg: ChatMessage = {
+            appendAssistantResponse({
                 role: "assistant",
                 content: "حدث خطأ أثناء الاتصال بالذكاء الاصطناعي.",
                 timestamp: Date.now()
-            };
-            setMessages(prev => [...prev, errorMsg]);
-            messagesRef.current = [...messagesRef.current, errorMsg];
+            });
         } finally {
-            setIsLoading(false);
+            loadingSessionIds.current[currentSessionId] = false;
+            if (activeSessionIdRef.current === currentSessionId) {
+                setIsLoading(false);
+            }
         }
-    }, [remainingQuota, selectedModel, activeSessionId, fetchSessions]);
+    }, [remainingQuota, selectedModel, setActiveSessionId, setSessions]);
 
     return (
         <ChatContext.Provider value={{ 

@@ -20,10 +20,11 @@ export function FormattedChatMessage({ content, role }: FormattedChatMessageProp
     // Render Mermaid diagrams on client side
     useEffect(() => {
         if (mermaidCode && mermaidContainerRef.current) {
+            const isDark = document.documentElement.classList.contains("dark");
             import("mermaid").then((mermaid) => {
                 mermaid.default.initialize({
                     startOnLoad: false,
-                    theme: "dark",
+                    theme: isDark ? "dark" : "default",
                     securityLevel: "loose",
                 });
                 const id = "mermaid-" + Math.random().toString(36).substring(2, 9);
@@ -39,7 +40,7 @@ export function FormattedChatMessage({ content, role }: FormattedChatMessageProp
     }, [mermaidCode]);
 
     if (role === "user") {
-        return <div className="dir-auto whitespace-pre-wrap">{content}</div>;
+        return <div className="dir-auto whitespace-pre-wrap text-zinc-900 dark:text-zinc-100">{content}</div>;
     }
 
     // Parse Markdown tables if present in assistant message
@@ -47,14 +48,10 @@ export function FormattedChatMessage({ content, role }: FormattedChatMessageProp
 
     // Format Arabic/English mixed text with unicode-bidi isolation
     const renderFormattedText = (text: string) => {
-        // Strip mermaid blocks from text view to avoid rendering raw code
         let cleanText = text.replace(/```mermaid\s+[\s\S]*?```/g, "").trim();
-
-        // Split text by lines
         const lines = cleanText.split("\n");
 
         return lines.map((line, idx) => {
-            // If line is part of a markdown table, we render table separately below
             if (line.trim().startsWith("|") && line.trim().endsWith("|")) {
                 return null;
             }
@@ -63,25 +60,23 @@ export function FormattedChatMessage({ content, role }: FormattedChatMessageProp
                 return <div key={idx} className="h-2" />;
             }
 
-            // Highlighting headers/bullet points
             const isBullet = line.trim().startsWith("- ") || line.trim().startsWith("* ");
             const lineContent = isBullet ? line.trim().substring(2) : line;
 
             return (
                 <div 
                     key={idx} 
-                    className={`leading-relaxed text-sm md:text-base my-1 dir-auto text-zinc-100 ${isBullet ? 'flex items-start gap-2 pr-2' : ''}`}
+                    className={`leading-relaxed text-sm md:text-base my-1 dir-auto text-zinc-900 dark:text-zinc-100 ${isBullet ? 'flex items-start gap-2 pr-2' : ''}`}
                 >
-                    {isBullet && <span className="text-emerald-400 font-bold mt-1">•</span>}
+                    {isBullet && <span className="text-emerald-600 dark:text-emerald-400 font-bold mt-1">•</span>}
                     <span className="flex-1">
                         {lineContent.split(/(\d+(?:[,.]\d+)*|\b[A-Z]{2,6}\b|EGP|\$\d+)/g).map((part, pIdx) => {
-                            // Isolate numbers, tickers (like COMI, ABUK), and EGP currency
                             if (/^(\d+(?:[,.]\d+)*|\b[A-Z]{2,6}\b|EGP|\$\d+)$/.test(part)) {
                                 return (
                                     <span 
                                         key={pIdx} 
                                         dir="ltr" 
-                                        className="inline-block px-1 font-mono font-bold text-amber-300 dark:text-emerald-300 bg-zinc-800/60 rounded"
+                                        className="inline-block px-1.5 py-0.5 font-mono font-bold text-amber-700 dark:text-amber-300 bg-amber-500/10 dark:bg-zinc-800/80 border border-amber-500/20 dark:border-zinc-700 rounded text-xs md:text-sm"
                                         style={{ unicodeBidi: "isolate" }}
                                     >
                                         {part}
@@ -105,8 +100,8 @@ export function FormattedChatMessage({ content, role }: FormattedChatMessageProp
 
             {/* Mermaid Diagram Box */}
             {mermaidCode && (
-                <div className="my-4 p-4 bg-zinc-950 border border-zinc-800 rounded-xl overflow-x-auto shadow-inner">
-                    <div className="text-xs font-bold text-emerald-400 mb-2 flex items-center gap-1">
+                <div className="my-4 p-4 bg-zinc-100 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl overflow-x-auto shadow-sm">
+                    <div className="text-xs font-bold text-emerald-600 dark:text-emerald-400 mb-2 flex items-center gap-1">
                         📊 رسم بياني تفاعلي (Diagram)
                     </div>
                     <div ref={mermaidContainerRef} className="flex justify-center items-center min-h-[120px]" />
@@ -115,10 +110,10 @@ export function FormattedChatMessage({ content, role }: FormattedChatMessageProp
 
             {/* Interactive Excel Exportable Table */}
             {parsedTable && (
-                <div className="my-4 border border-zinc-800 rounded-xl overflow-hidden bg-zinc-900/90 shadow-lg">
-                    <div className="flex items-center justify-between px-4 py-2 bg-zinc-950 border-b border-zinc-800">
-                        <span className="text-xs font-bold text-emerald-400 flex items-center gap-2">
-                            <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
+                <div className="my-4 border border-zinc-200 dark:border-zinc-800 rounded-xl overflow-hidden bg-white dark:bg-zinc-900/90 shadow-md">
+                    <div className="flex items-center justify-between px-4 py-2 bg-zinc-50 dark:bg-zinc-950 border-b border-zinc-200 dark:border-zinc-800">
+                        <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-2">
+                            <FileSpreadsheet className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
                             جدول تحليلي جاهز للتصدير
                         </span>
                         <button
@@ -137,9 +132,9 @@ export function FormattedChatMessage({ content, role }: FormattedChatMessageProp
                     <div className="overflow-x-auto">
                         <table className="w-full text-xs md:text-sm text-right border-collapse">
                             <thead>
-                                <tr className="bg-zinc-800/80 text-zinc-200 border-b border-zinc-700">
+                                <tr className="bg-zinc-100 dark:bg-zinc-800/80 text-zinc-900 dark:text-zinc-200 border-b border-zinc-200 dark:border-zinc-700">
                                     {parsedTable.headers.map((h, i) => (
-                                        <th key={i} className="px-3 py-2.5 font-bold border-l border-zinc-700/50 last:border-l-0">
+                                        <th key={i} className="px-3 py-2.5 font-bold border-l border-zinc-200 dark:border-zinc-700/50 last:border-l-0">
                                             {h}
                                         </th>
                                     ))}
@@ -147,9 +142,9 @@ export function FormattedChatMessage({ content, role }: FormattedChatMessageProp
                             </thead>
                             <tbody>
                                 {parsedTable.rows.map((row, rIdx) => (
-                                    <tr key={rIdx} className="border-b border-zinc-800 hover:bg-zinc-800/40 transition-colors">
+                                    <tr key={rIdx} className="border-b border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800/40 transition-colors">
                                         {row.map((cell, cIdx) => (
-                                            <td key={cIdx} className="px-3 py-2 border-l border-zinc-800/50 last:border-l-0 text-zinc-300 font-mono">
+                                            <td key={cIdx} className="px-3 py-2 border-l border-zinc-200 dark:border-zinc-800/50 last:border-l-0 text-zinc-800 dark:text-zinc-300 font-mono">
                                                 {cell}
                                             </td>
                                         ))}

@@ -265,7 +265,20 @@ export default function ChatWidget() {
                                 </div>
                             )}
 
+                            {messages.length === 0 && (
+                                <div className="h-full flex flex-col items-center justify-center text-center p-6 space-y-3 my-auto min-h-[260px] dir-rtl">
+                                    <div className="p-3 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
+                                        <Sparkles className="h-7 w-7" />
+                                    </div>
+                                    <h3 className="font-bold text-base text-black dark:text-white">كيف يمكنني مساعدتك اليوم؟</h3>
+                                    <p className="text-xs text-zinc-400 max-w-[300px] leading-relaxed">
+                                        اختر سهمًا للتحليل، أو استفسر عن مؤشرات RSI والمحافظ المالية، أو أرفق صورة للتحليل الفوري 📊
+                                    </p>
+                                </div>
+                            )}
+
                             {messages.map((msg, idx) => (
+
                                 <div
                                     key={idx}
                                     className={`flex gap-3 ${msg.role === "user" ? "flex-row-reverse" : "flex-row"}`}

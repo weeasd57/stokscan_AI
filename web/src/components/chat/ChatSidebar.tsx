@@ -52,7 +52,7 @@ export function ChatSidebar({
         return (
             <button
                 onClick={onToggle}
-                className="p-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg transition-colors border border-zinc-700 m-2"
+                className="p-2 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 rounded-lg transition-colors border border-zinc-300 dark:border-zinc-700 m-2 shadow-sm"
                 title="فتح قائمة المحادثات (Sidebar)"
             >
                 <PanelLeft className="w-5 h-5" />
@@ -61,9 +61,9 @@ export function ChatSidebar({
     }
 
     return (
-        <aside className="w-64 bg-zinc-950 border-r border-zinc-800 flex flex-col h-full text-right select-none transition-all duration-200">
+        <aside className="w-64 bg-zinc-50 dark:bg-zinc-950 border-r border-zinc-200 dark:border-zinc-800 flex flex-col h-full text-right select-none transition-all duration-200">
             {/* Top Header & New Chat Button */}
-            <div className="p-3 border-b border-zinc-800 flex items-center justify-between gap-2">
+            <div className="p-3 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between gap-2">
                 <button
                     onClick={onNewChat}
                     className="flex-1 flex items-center justify-center gap-2 py-2.5 px-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm rounded-xl transition-all shadow-md active:scale-95"
@@ -73,7 +73,7 @@ export function ChatSidebar({
                 </button>
                 <button
                     onClick={onToggle}
-                    className="p-2 hover:bg-zinc-800 text-zinc-400 hover:text-white rounded-lg transition-colors"
+                    className="p-2 hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-500 dark:text-zinc-400 hover:text-black dark:hover:text-white rounded-lg transition-colors"
                     title="إغلاق الشريط الجانبي"
                 >
                     <PanelLeftClose className="w-5 h-5" />
@@ -83,7 +83,7 @@ export function ChatSidebar({
             {/* Sessions List */}
             <div className="flex-1 overflow-y-auto p-2 space-y-1">
                 {sessions.length === 0 ? (
-                    <div className="text-center text-xs text-zinc-500 py-8">
+                    <div className="text-center text-xs text-zinc-400 dark:text-zinc-500 py-8">
                         لا توجد محادثات سابقة
                     </div>
                 ) : (
@@ -97,12 +97,12 @@ export function ChatSidebar({
                                 onClick={() => onSelectSession(s.id)}
                                 className={`group flex items-center justify-between p-2.5 rounded-xl cursor-pointer text-xs font-medium transition-all ${
                                     isActive
-                                        ? "bg-zinc-800 text-emerald-400 font-bold border border-zinc-700"
-                                        : "text-zinc-400 hover:bg-zinc-900 hover:text-zinc-200"
+                                        ? "bg-amber-500/10 dark:bg-zinc-800 text-amber-700 dark:text-emerald-400 font-bold border border-amber-500/30 dark:border-zinc-700 shadow-sm"
+                                        : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200/60 dark:hover:bg-zinc-900 hover:text-black dark:hover:text-zinc-200"
                                 }`}
                             >
                                 <div className="flex items-center gap-2 truncate flex-1 min-w-0">
-                                    <MessageSquare className={`w-3.5 h-3.5 flex-shrink-0 ${isActive ? "text-emerald-400" : "text-zinc-500"}`} />
+                                    <MessageSquare className={`w-3.5 h-3.5 flex-shrink-0 ${isActive ? "text-amber-600 dark:text-emerald-400" : "text-zinc-400 dark:text-zinc-500"}`} />
 
                                     {isEditing ? (
                                         <input
@@ -117,7 +117,7 @@ export function ChatSidebar({
                                                 }
                                             }}
                                             onClick={(e) => e.stopPropagation()}
-                                            className="bg-zinc-900 border border-emerald-500 text-white px-1.5 py-0.5 rounded text-xs w-full outline-none"
+                                            className="bg-white dark:bg-zinc-900 border border-amber-500 dark:border-emerald-500 text-black dark:text-white px-1.5 py-0.5 rounded text-xs w-full outline-none"
                                             autoFocus
                                         />
                                     ) : (
@@ -131,7 +131,7 @@ export function ChatSidebar({
                                         <>
                                             <button
                                                 onClick={(e) => handleSaveRename(s.id, e)}
-                                                className="p-1 text-emerald-400 hover:text-emerald-300"
+                                                className="p-1 text-emerald-600 dark:text-emerald-400 hover:text-emerald-500"
                                             >
                                                 <Check className="w-3.5 h-3.5" />
                                             </button>
@@ -140,7 +140,7 @@ export function ChatSidebar({
                                                     e.stopPropagation();
                                                     setEditingId(null);
                                                 }}
-                                                className="p-1 text-zinc-400 hover:text-white"
+                                                className="p-1 text-zinc-400 hover:text-zinc-600 dark:hover:text-white"
                                             >
                                                 <X className="w-3.5 h-3.5" />
                                             </button>
@@ -149,7 +149,7 @@ export function ChatSidebar({
                                         <>
                                             <button
                                                 onClick={(e) => handleStartRename(s, e)}
-                                                className="p-1 text-zinc-400 hover:text-white transition-colors"
+                                                className="p-1 text-zinc-400 hover:text-zinc-600 dark:hover:text-white transition-colors"
                                                 title="تعديل الاسم"
                                             >
                                                 <Edit2 className="w-3 h-3" />
@@ -159,7 +159,7 @@ export function ChatSidebar({
                                                     e.stopPropagation();
                                                     onDeleteSession(s.id);
                                                 }}
-                                                className="p-1 text-zinc-500 hover:text-rose-400 transition-colors"
+                                                className="p-1 text-zinc-400 hover:text-rose-500 transition-colors"
                                                 title="حذف المحادثة"
                                             >
                                                 <Trash2 className="w-3 h-3" />
