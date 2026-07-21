@@ -23,11 +23,19 @@ type ChatAction = {
 };
 
 export const AVAILABLE_AI_MODELS = [
+    { id: "z-ai/glm-5.2", name: "GLM 5.2", badgeAr: "عملاق 📊", badgeEn: "GLM 5.2 📊", descAr: "نموذج Z-AI GLM 5.2 بسعة 753B لعمليات الاستدلال المعقدة", descEn: "Z-AI GLM 5.2 MoE 753B model for complex reasoning" },
+    { id: "openai/gpt-oss-120b", name: "GPT OSS 120B", badgeAr: "جديد 🤖", badgeEn: "OpenAI Open 🤖", descAr: "موديل OpenAI المفتوح المصدر سعة 120B بارامتر للتحليلات", descEn: "OpenAI open-source 120B model for high-tier analysis" },
+    { id: "deepseek-ai/deepseek-v4-pro", name: "DeepSeek V4 Pro", badgeAr: "العملاق 🔥", badgeEn: "Ultra MoE 🔥", descAr: "نموذج ديب سيك V4 الأحدث بسياق 1M وسرعة تحليلائيات", descEn: "Latest DeepSeek V4 Pro model with 1M context" },
+    { id: "deepseek-ai/deepseek-v4-flash", name: "DeepSeek V4 Flash", badgeAr: "تفكير عالي 🧠", badgeEn: "Reasoning 🧠", descAr: "متخصص في الاستنتاج البرمجي والمالي العميق", descEn: "Specialized in deep reasoning and financial logic" },
+    { id: "moonshotai/kimi-k2.6", name: "Kimi K2.6", badgeAr: "جديد 🌙", badgeEn: "Kimi 🌙", descAr: "موديل Moonshot Kimi لتفسير المستندات والسياق الطويل", descEn: "Moonshot AI Kimi model for long context" },
     { id: "meta/llama-3.3-70b-instruct", name: "Llama 3.3 70B", badgeAr: "الأذكى ✨", badgeEn: "Smartest ✨", descAr: "نموذج الذكاء الاصطناعي الأقوى لتحليل البورصة", descEn: "Most capable model for stock analysis" },
-    { id: "z-ai/glm-5.2", name: "GLM 5.2", badgeAr: "تحليلي 📊", badgeEn: "Analytical 📊", descAr: "متخصص في التفكير والتحليل المالي المعقد", descEn: "Specialized in reasoning and financial math" },
-    { id: "nvidia/nemotron-4-340b-instruct", name: "Nemotron 340B", badgeAr: "عملاق 🚀", badgeEn: "Pro 🚀", descAr: "أحد أضخم الموديلات لمعالجة البيانات بدقة", descEn: "Ultra-large model for data precision" },
+    { id: "meta/llama-3.2-11b-vision-instruct", name: "Llama 3.2 Vision", badgeAr: "رؤية الصور 📷", badgeEn: "Vision 📷", descAr: "متخصص في قراءة وتحليل صور الشاشات والمحافظ", descEn: "Specialized in analyzing portfolio screenshots" },
     { id: "meta/llama-3.1-8b-instruct", name: "Llama 3.1 8B", badgeAr: "سريع ⚡", badgeEn: "Fast ⚡", descAr: "فائق السرعة للإجابات المباشرة السريعة", descEn: "Ultra-fast response for simple queries" },
 ];
+
+
+
+
 
 interface ChatContextType {
     isOpen: boolean;

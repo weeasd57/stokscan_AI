@@ -5,6 +5,8 @@ import { getSupabaseClient } from "@/lib/supabase/route-data";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
+
 
 // Input security filters to prevent jailbreaks, extraction of system prompt, or unauthorized access
 const BLOCKED_INPUT_PATTERNS = [
@@ -125,8 +127,27 @@ export async function POST(req: NextRequest) {
 
         let systemPrompt = settings.system_prompt || "";
         const defaultTextModel = settings.model || "meta/llama-3.3-70b-instruct";
-        const chosenModel = userRequestedModel || defaultTextModel;
+        let chosenModel = userRequestedModel || defaultTextModel;
         const apiUrl = settings.api_url || "https://integrate.api.nvidia.com/v1";
+
+        // Validate and sanitize model for NVIDIA NIM API to avoid 404 model errors
+        if (apiUrl.includes("nvidia.com")) {
+            const validNvidiaModels = [
+                "z-ai/glm-5.2",
+                "openai/gpt-oss-120b",
+                "deepseek-ai/deepseek-v4-pro",
+                "deepseek-ai/deepseek-v4-flash",
+                "moonshotai/kimi-k2.6",
+                "meta/llama-3.3-70b-instruct",
+                "meta/llama-3.1-8b-instruct",
+                "meta/llama-3.2-11b-vision-instruct",
+                "meta/llama-3.1-70b-instruct"
+            ];
+            if (!validNvidiaModels.includes(chosenModel)) {
+                chosenModel = "meta/llama-3.3-70b-instruct";
+            }
+        }
+
 
         // Use vision model when image is present, otherwise user chosen model
         const modelToUse = hasImages ? VISION_MODEL : chosenModel;
@@ -275,7 +296,7 @@ ${textMessage.trim() ? `استفسار المستخدم الخاص حول الص
         ];
 
         // 6. Call NVIDIA API with Key Failover and Retries
-        const secondaryKey = process.env.NVIDIA_SECONDARY_API_KEY || "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";
+        const secondaryKey = process.env.NVIDIA_SECONDARY_API_KEY;
         const keysToTry = Array.from(new Set([
             settings.api_key,
             secondaryKey
@@ -310,7 +331,7 @@ ${textMessage.trim() ? `استفسار المستخدم الخاص حول الص
                             max_tokens: 1024,
                             stream: false,
                         }),
-                        signal: AbortSignal.timeout(15000), // 15-second timeout per attempt
+                        signal: AbortSignal.timeout(hasImages ? 50000 : 40000), // 40-50 second timeout for LLM generation
                     });
 
                     if (response.ok) {
