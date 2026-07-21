@@ -7,6 +7,9 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
+// Memory store for tracking duplicate portfolio total values per user session
+const portfolioTotalsByUser = new Map<string, Set<string>>();
+
 
 // Input security filters to prevent jailbreaks, extraction of system prompt, or unauthorized access
 const BLOCKED_INPUT_PATTERNS = [
@@ -31,10 +34,10 @@ function filterOutput(response: string): string {
     return response;
 }
 
-// Vision model configuration - Use NVIDIA free models
+// Vision model configuration - Use 11B Vision model (fastest and available across all API tiers)
 const NVIDIA_VISION_MODELS = [
-    "meta/llama-3.2-90b-vision-instruct",
     "meta/llama-3.2-11b-vision-instruct",
+    "meta/llama-3.2-90b-vision-instruct"
 ];
 
 const VISION_MODEL = NVIDIA_VISION_MODELS[0];
@@ -61,29 +64,6 @@ export async function POST(req: NextRequest) {
         
         const imageList = rawImages.filter(img => typeof img === "string" && img.startsWith("data:image/"));
         const hasImages = imageList.length > 0;
-
-        // Pre-process image with lightweight hints only. Serverless deployments do not
-        // reliably provide Python/Tesseract, so OCR is left to the vision model.
-        let ocrHints = "";
-        
-        if (hasImages) {
-            try {
-                // Attempt basic pattern matching on common EGX symbols visible in base64 images
-                // This helps guide the Vision model to focus on correct data extraction
-                const sampleSymbols = ["ABUK", "COMI", "HBCO", "FWRY", "SWDY", "TMGH", "ESRS", "EMFD", "MFPC", "ATQA", "BTFH", "MILS", "CPCI", "TYCN", "UTOP"];
-                const mentionedSymbols = sampleSymbols.filter(sym => 
-                    (message && message.toUpperCase().includes(sym)) || 
-                    imageList.some(img => img.includes(sym))
-                );
-                if (mentionedSymbols.length > 0) {
-                    ocrHints = `\n🔍 **رموز محتملة في الصورة:** ${mentionedSymbols.join(", ")}`;
-                }
-                
-                // Python OCR subprocess removed for Vercel serverless compatibility
-            } catch (ocrErr) {
-                console.error("OCR hint extraction failed:", ocrErr);
-            }
-        }
 
         if (!message && !hasImages) {
             return NextResponse.json({ detail: "Message or image is required" }, { status: 400 });
@@ -129,9 +109,9 @@ export async function POST(req: NextRequest) {
             .eq("id", userId)
             .single();
 
-        const userName = profile?.display_name || profile?.username || session.user.email || "Unknown User";
+        const userName = profile?.display_name || profile?.username || user.email || "Unknown User";
 
-        const userEmail = session.user.email || "";
+        const userEmail = user.email || "";
         const isUnlimited = ["weeessd57@gmail.com", "user@gmail.com", "weeasd57@gmail.com"].includes(userEmail.toLowerCase());
 
         // 3. Enforce Daily Limit (Skipped for unlimited users)
@@ -151,22 +131,15 @@ export async function POST(req: NextRequest) {
         }
 
         // 4. Fetch Chatbot Settings
-        const { data: settings, error: settingsError } = await supabase
-            .from("ai_chatbot_settings")
-            .select("*")
-            .eq("id", 1)
-            .single();
+        let systemPrompt = `🚫 قاعدة صارمة ومطلقة ضد الاختلاق (Anti-Hallucination Rule #1):
+- ممنوع منعاً باتاً اختراع، تكميل، أو تخمين أي أرقام، أسعار، نسب، أسهم، أو إجمالي محفظة من خيالك أبداً.
+- عند استلام صورة محفظة أو شاشة تداول، استخرج فقط الأسهم والأرقام المكتوبة والمقروءة وضوحاً في الصورة. إذا كانت الصورة غير واضحة أو ناقصة، يمنع اختراع بقية أرقام المحفظة!
+- لا تخترع أي أرقام أو أسعار أو إحصائيات غير موجودة صراحة في البيانات المرفقة (=== REAL-TIME DATABASE DATA ===).
+- إذا طلب المستخدم "أقوى الأسهم"، "توصيات"، أو "ترتيب لأسهم" ولم تكن هذه البيانات مرفقة لك صراحةً، **يُمنع اختراع أي سهم من خيالك!** اعتذر بلباقة واطلب منه تحديد رمز سهم معين (مثل COMI).
+- إذا سألك عن سهم معين ولم تجد بياناته، أو سألك عن وضع السوق العام ولا تملك بياناته، اعتذر بلباقة واطلب منه تحديد سهم لتحليله.
 
-        if (settingsError || !settings) {
-            return NextResponse.json({ detail: "Chatbot is not configured properly." }, { status: 500 });
-        }
-
-        let systemPrompt = `أنت المساعد الذكي المالي والمحلل الفني الأول للبورصة المصرية على منصة EGX Bots.
-
-🚫 قاعدة صارمة ضد الاختلاق (Anti-Hallucination):
-ممنوع منعاً باتاً اختراع أي رقم أو نسبة أو تاريخ أو إحصائية غير موجودة صراحة في البيانات المرفقة أعلاه من قاعدة البيانات (=== REAL-TIME DATABASE DATA ===).
-لو عامل معين (مثل التوصية أو رادار القطاع) مفيهوش بيانات حقيقية متاحة لهذا السهم، اكتب بوضوح: "البيانات غير متوفرة حالياً لهذا العامل" بدل اختراع رقم أو نسبة.
-إياك أن تقوم باختراع أرقام محفظة أو نسب أرباح من وحي الخيال أبداً.
+أنت المساعد الذكي المالي والمحلل الفني الأول للبورصة المصرية على منصة EGX Bots.
+التاريخ والوقت الحالي: ${new Date().toLocaleString("ar-EG", { timeZone: "Africa/Cairo" })}
 
 المبادئ والشخصية التي يجب أن تتحدث وتلتزم بها دائماً:
 
@@ -196,7 +169,7 @@ export async function POST(req: NextRequest) {
 
 4. 🎯 **أزرار الاقتراحات الذكية (بناءً على السياق):**
    بدل الأزرار العامة، حط أزرار تعكس أسئلة المتداولين الحقيقية:
-   - للأسهم الفردية: [قارن بـ COMI] [هل في تجميع مؤسسي؟] [شبه ده حصل امتى؟] [قد إيه بعيد عن الحد؟]
+   - للأسهم الفردية: [قارن بـ COMI] [هل في تجميع مؤسسي؟] [قد إيه بعيد عن الحد؟]
    - للقطاعات: [البنوك ماشية إزاي؟] [مين الأقوى في القطاع؟] [القطاع طالع ولا نازل؟]
    - للسوق: [EGX30 حالته إيه؟] [في أخبار مؤثرة؟] [الدولار عامل إيه؟]
 
@@ -210,8 +183,9 @@ export async function POST(req: NextRequest) {
    - "هذا التحليل لا يعتبر نصيحة مالية"
    - "استشر مستشارك المالي قبل اتخاذ القرار"
 
-6. 📋 **نموذج رد تحليل سهم محدد (استخدمه فقط عند طلب تحليل سهم):**
-
+6. 📋 **طريقة الرد (مرونة وذكاء):**
+   - **إذا كانت رسالة المستخدم مجرد تحية أو سؤال عام (مثل "هاي"، "صباح الخير"، "إزيك"):** رد عليه بترحيب طبيعي جداً وبسيط كمساعد ذكي للبورصة، ولا تذكر أي قوالب أو تطلب منه "عنوان تحليل".
+   - **إذا سأل المستخدم عن سهم محدد (وتم تزويدك ببياناته أدناه):** استخدم هذا القالب المنظم:
 📌 [رمز السهم] — [اسم السهم]
 ────────────────────
 🔹 الوضع الفني: [طالع بقوة / قافل على قد نفسه / بياع مسيطر]
@@ -225,18 +199,29 @@ export async function POST(req: NextRequest) {
 ✅ تحليل EGX Bots مبني على [242 سهم مصري + بيانات تاريخية من 2019] — مش نصيحة استثمار، القرار ليك.
 `;
 
+        // 4. Fetch Chatbot Settings
+        const { data: settings, error: settingsError } = await supabase
+            .from("ai_chatbot_settings")
+            .select("*")
+            .eq("id", 1)
+            .single();
+
+        if (settingsError || !settings) {
+            return NextResponse.json({ detail: "Chatbot is not configured properly." }, { status: 500 });
+        }
+
         const defaultTextModel = settings.model || "meta/llama-3.1-8b-instruct";
         let chosenModel = userRequestedModel || defaultTextModel;
-        const apiUrl = settings.api_url || "https://integrate.api.nvidia.com/v1";
+        let apiUrl = settings.api_url || "https://integrate.api.nvidia.com/v1";
 
         if (apiUrl.includes("nvidia.com")) {
-            const validNvidiaModels = [
+            const validModels = [
                 "meta/llama-3.1-8b-instruct",
                 "meta/llama-3.2-11b-vision-instruct",
                 "deepseek-ai/deepseek-v4-flash",
                 "deepseek-ai/deepseek-v4-pro"
             ];
-            if (!validNvidiaModels.includes(chosenModel)) {
+            if (!validModels.includes(chosenModel)) {
                 chosenModel = "meta/llama-3.1-8b-instruct";
             }
         }
@@ -379,7 +364,6 @@ export async function POST(req: NextRequest) {
                 dynamicSuggestedButtons = [
                     `قارن بـ ${compareSymbol}`,
                     `هل في تجميع مؤسسي على ${targetSymbol}؟`,
-                    `شبه ده حصل امتى في ${targetSymbol}؟`,
                     `قد إيه بعيد عن الحد اليومي؟`
                 ];
 
@@ -442,8 +426,7 @@ export async function POST(req: NextRequest) {
                 dynamicSuggestedButtons = [
                     "البنوك ماشية إزاي؟",
                     "مين الأقوى في القطاع؟",
-                    "القطاع طالع ولا نازل؟",
-                    "رادار القطاع دلوقتي"
+                    "القطاع طالع ولا نازل؟"
                 ];
             } else if (combinedText.includes("egx30") || combinedText.includes("السوق") || combinedText.includes("market")) {
                 // Market-wide buttons
@@ -459,7 +442,7 @@ export async function POST(req: NextRequest) {
                     "حلل لي ABUK",
                     "أقوى الأسهم النهارده",
                     "البنوك حالتها إيه؟",
-                    "رادار القطاع"
+                    "مقارنة أسهم البورصة"
                 ];
             }
         } catch (stockErr) {
@@ -468,16 +451,59 @@ export async function POST(req: NextRequest) {
 
 
 
-        // 5. Build Messages Array
+        // 5. Build Messages Array & Pre-process Vision OCR
         let userContent: any;
         if (hasImages) {
+            // Point 3: Tesseract.js Ultra-Fast Node.js OCR Pre-Processing (Max 3s Cap)
+            let ocrExtractedText = "";
+            try {
+                const ocrPromise = (async () => {
+                    const tesseract = await import("tesseract.js");
+                    const firstImg = imageList[0];
+                    if (firstImg && typeof firstImg === "string") {
+                        const result = await tesseract.recognize(firstImg, "eng");
+                        return result?.data?.text?.trim() || "";
+                    }
+                    return "";
+                })();
+
+                const timeoutCap = new Promise<string>((resolve) => setTimeout(() => resolve(""), 3000));
+                ocrExtractedText = await Promise.race([ocrPromise, timeoutCap]);
+                if (ocrExtractedText) {
+                    console.log("Ultra-fast Tesseract OCR text length:", ocrExtractedText.length);
+                }
+            } catch (tessErr: any) {
+                console.warn("Tesseract.js OCR pre-processing skipped:", tessErr.message || tessErr);
+            }
+
+            // Point 4: Red-Flag Detection for Duplicate Portfolio Totals across images in session
+            let duplicateTotalWarning = "";
+            try {
+                const userTotals = portfolioTotalsByUser.get(userId) || new Set<string>();
+
+                // Check text matches in history or OCR
+                const numberMatches = (formattedHistory.map((h: any) => h.content).join(" ") + " " + ocrExtractedText)
+                    .match(/(?:إجمالي|إجمالي المحفظة|القيمة الكلية|total)[:\s]*([0-9.,]+)/gi);
+
+                if (numberMatches) {
+                    for (const match of numberMatches) {
+                        const cleanNum = match.replace(/[^0-9.]/g, "");
+                        if (cleanNum && cleanNum.length >= 3) {
+                            if (userTotals.has(cleanNum)) {
+                                duplicateTotalWarning = "\n⚠️ تنبيه داخلي: تم اكتشاف تكرار لـ إجمالي المحفظة من صور سابقة، تأكد من استخراج البيانات بدقة من الصورة الحالية فقط دون نسخ الصورة السابقة.";
+                                break;
+                            }
+                            userTotals.add(cleanNum);
+                        }
+                    }
+                    portfolioTotalsByUser.set(userId, userTotals);
+                }
+            } catch (dupErr) {
+                console.warn("Duplicate total check skipped:", dupErr);
+            }
+
             systemPrompt = `أنت أداة استخراج نصوص متطورة (OCR) متخصصة في تحليل صور شاشات محافظ الأسهم وتطبيقات التداول.
 مهمتك هي قراءة واستخراج الأسهم والمحفظة والأسعار من الصورة المرفقة بدقة بالغة وبدون أي تأليف أو اختراع رموز غير موجودة.
-
-${ocrExtractedText ? `نص مبدئي مستخرج عبر OCR:
-${ocrExtractedText}
-
-استخدم هذا النص للتحقق من الأرقام، لكن الأولوية لما تراه في الصورة.` : ""}
 
 القواعد الصارمة:
 1. يمنع منعاً باتاً كتابة أو ذكر أي سهم غير موجود صراحةً في الصورة.
@@ -487,7 +513,8 @@ ${ocrExtractedText}
 5. الإجابة يجب أن تكون باللغة العربية فقط وبشكل مباشر.`;
 
             const promptText = `استخرج كافة رموز الأسهم وأرقامها من هذه الصورة. اكتب قائمة بكل ما يمكنك قراءته بوضوح باللغة العربية.
-
+${ocrExtractedText ? `\n[مساعدة قراءة الحروف من Tesseract OCR]:\n${ocrExtractedText.substring(0, 1000)}\n` : ""}
+${duplicateTotalWarning}
 ${textMessage.trim() ? `ملاحظة المستخدم: ${textMessage}` : ""}`;
 
             // NVIDIA NIM vision models accept at most 1 image per request payload
@@ -508,11 +535,11 @@ ${textMessage.trim() ? `ملاحظة المستخدم: ${textMessage}` : ""}`;
             { role: "user", content: userContent }
         ];
 
-        // 6. Call NVIDIA API using keys from environment only.
+        // 6. Call API using keys from environment only (no hardcoded fallbacks in source).
         const keysToTry = Array.from(new Set([
             process.env.NVIDIA_API_KEY,
             process.env.NVIDIA_SECONDARY_API_KEY,
-        ].filter(Boolean)));
+        ].filter((k): k is string => Boolean(k))));
 
         if (keysToTry.length === 0) {
             return NextResponse.json({ detail: "AI service not configured" }, { status: 500 });
@@ -524,7 +551,7 @@ ${textMessage.trim() ? `ملاحظة المستخدم: ${textMessage}` : ""}`;
         for (let k = 0; k < keysToTry.length && !success; k++) {
             const currentApiKey = keysToTry[k];
             
-            // For images: Try vision models in priority order (90B -> 11B)
+            // For images: Try 11B vision model first for high speed and availability, fallback to 90B
             // For text: Try requested model first, fallback to 8B for speed
             let modelsToTryForThisKey: string[];
             if (hasImages) {
@@ -556,7 +583,7 @@ ${textMessage.trim() ? `ملاحظة المستخدم: ${textMessage}` : ""}`;
                             max_tokens: hasImages ? 1024 : 512,
                             stream: false,
                         }),
-                        signal: AbortSignal.timeout(hasImages ? 30000 : (m === 0 ? 15000 : 8000)),  // Give first attempt more room on free tiers
+                        signal: AbortSignal.timeout(hasImages ? 35000 : (m === 0 ? 22000 : 8000)),  // 22s for first attempt, 8s for fallback
 
                     });
 
@@ -576,9 +603,14 @@ ${textMessage.trim() ? `ملاحظة المستخدم: ${textMessage}` : ""}`;
 
 
         if (!success || !rawText.trim()) {
+            const fallbackText = hasImages
+                ? `⚠️ **صعوبة قراءة الصورة حالياً**\n\nالطريقتان الأسرع:\n1. 📝 اكتب رموز الأسهم يدوياً — مثلاً: "حلل ABUK و COMI"\n2. 📸 أرسل صورة أوضح لشاشة المحفظة\n\nأو افتح الماسح الذكي 📊 لعرض البيانات مباشرة.`
+                : "تتوفر إشارات الذكاء الاصطناعي المباشرة للأسهم عبر قسم الماسح الذكي 📊. يمكنك استعراض أسعار الإغلاق ومؤشرات RSI والتوقعات بفتح صفحة الماسح الفني.";
+
             return NextResponse.json({
-                reply: "تتوفر إشارات الذكاء الاصطناعي المباشرة للأسهم عبر قسم الماسح الذكي 📊. يمكنك استعراض أسعار الإغلاق ومؤشرات RSI والتوقعات بفتح صفحة الماسح الفني.",
-                remaining_quota: isUnlimited ? 999 : Math.max(0, 15 - (limitData?.chat_count || 0))
+                reply: fallbackText,
+                remaining_quota: isUnlimited ? 999 : Math.max(0, 15 - (limitData?.chat_count || 0)),
+                suggested_buttons: [] // Hide smart buttons on fallback error
             });
         }
 
@@ -593,6 +625,31 @@ ${textMessage.trim() ? `ملاحظة المستخدم: ${textMessage}` : ""}`;
         
         let replyText = data.choices?.[0]?.message?.content || "عذراً، لم أتمكن من معالجة طلبك.";
         console.log("NVIDIA RAW RESPONSE:", replyText);
+
+        // DB-First Vision Enforcer: Match extracted symbols from Vision reply with Supabase real data
+        if (hasImages && replyText) {
+            try {
+                const extractedSymbols = Array.from(new Set([
+                    ...(replyText.match(/\b[A-Za-z]{4}\b/g) || []).map((s: any) => s.toUpperCase())
+                ])).slice(0, 5);
+
+                if (extractedSymbols.length > 0) {
+                    const { data: dbStocks } = await supabase
+                        .from("stock_prices")
+                        .select("symbol, date, close, volume")
+                        .in("symbol", extractedSymbols)
+                        .order("date", { ascending: false })
+                        .limit(extractedSymbols.length);
+
+                    if (dbStocks && dbStocks.length > 0) {
+                        const verifiedData = dbStocks.map((s: any) => `• **${s.symbol}**: السعر الأخير في البورصة = EGP ${s.close} (حجم التداول: ${s.volume})`).join("\n");
+                        replyText += `\n\n📊 **بيانات سريعة مؤكدة من قاعدة بيانات البورصة:**\n${verifiedData}`;
+                    }
+                }
+            } catch (dbErr) {
+                console.warn("DB Vision Symbol Lookup error:", dbErr);
+            }
+        }
 
         if (hasImages && replyText) {
             // Clean up OCR/Vision artifacts and English captions
