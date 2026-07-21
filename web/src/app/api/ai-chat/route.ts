@@ -167,6 +167,10 @@ export async function POST(req: NextRequest) {
    💵 **حساسية الدولار والغاز:**
    مثال: "القطاع ده مرتبط بسعر الغاز، تابع نشرة البنك المركزي" أو "البنوك بتستفيد من ارتفاع الفايدة"
 
+   📰 **الوعي الكامل بالسوق والأخبار (Market & News Awareness):**
+   - أنت على دراية كاملة بأحدث اتجاهات السوق العام والقطاعات من جدول market_cache والأخبار والتحليلات الوجدانية من stock_news_sentiment.
+   - عندما يسألك المستخدم عن وضع السوق، الاقتصاد، الأخبار الأخيرة، أو اتجاه قطاع معين، استعن بهذه البيانات المرفقة لإعطائه رؤية واعية وتحليلية متكاملة.
+
 4. 🎯 **أزرار الاقتراحات الذكية (بناءً على السياق):**
    بدل الأزرار العامة، حط أزرار تعكس أسئلة المتداولين الحقيقية:
    - للأسهم الفردية: [قارن بـ COMI] [هل في تجميع مؤسسي؟] [قد إيه بعيد عن الحد؟]
@@ -372,20 +376,22 @@ export async function POST(req: NextRequest) {
                 const wantsHistory = combinedText.includes("شهر") || combinedText.includes("تاريخ") || combinedText.includes("اكسيل") || combinedText.includes("جدول") || combinedText.includes("ايام") || combinedText.includes("اسبوع") || combinedText.includes("سابق");
                 const limitCount = wantsHistory ? 30 : 1;
 
-                const [priceRes, techRes, scanRes] = await Promise.all([
+                const [priceRes, techRes, scanRes, newsRes] = await Promise.all([
                     supabase.from("stock_prices").select("*").eq("symbol", targetSymbol).order("date", { ascending: false }).limit(limitCount),
                     supabase.from("stock_technical_indicators").select("*").eq("symbol", targetSymbol).order("date", { ascending: false }).limit(limitCount),
-                    supabase.from("scan_results").select("*").eq("symbol", targetSymbol).order("created_at", { ascending: false }).limit(1).maybeSingle()
+                    supabase.from("scan_results").select("*").eq("symbol", targetSymbol).order("created_at", { ascending: false }).limit(1).maybeSingle(),
+                    supabase.from("stock_news_sentiment").select("*").eq("symbol", targetSymbol).order("date", { ascending: false }).limit(3)
                 ]);
 
                 const priceDataArray = priceRes.data || [];
                 const techDataArray = techRes.data || [];
                 const scanData = scanRes.data;
+                const stockNews = newsRes.data || [];
 
                 const latestPrice = priceDataArray[0];
                 const latestTech = techDataArray[0];
 
-                if (latestPrice || latestTech || scanData) {
+                if (latestPrice || latestTech || scanData || stockNews.length > 0) {
                     systemPrompt += `\n\n=== 🔴 REAL-TIME SUPABASE DATABASE DATA FOR STOCK: ${targetSymbol} (${targetStockName}) ===\n`;
                     systemPrompt += `CRITICAL INSTRUCTION: You MUST use the exact real-time live numbers and current year 2026 provided below. Do NOT output old dates like 2024 or incorrect stock names.\n`;
                     systemPrompt += `- Stock Symbol: ${targetSymbol}\n`;
@@ -419,6 +425,18 @@ export async function POST(req: NextRequest) {
                         if (scanData.target_price) systemPrompt += `- AI Target Price: EGP ${scanData.target_price}\n`;
                         if (scanData.stop_loss) systemPrompt += `- AI Stop Loss: EGP ${scanData.stop_loss}\n`;
                     }
+
+                    if (stockNews.length > 0) {
+                        systemPrompt += `\n[LATEST NEWS & SENTIMENT FOR ${targetSymbol}]\n`;
+                        stockNews.forEach((n: any) => {
+                            const score = n.sentiment_score || 0;
+                            const sentimentText = score > 0.1 ? "إيجابي 🟢" : score < -0.1 ? "سلبي 🔴" : "حيادي ⚪";
+                            const headlinesStr = Array.isArray(n.headlines) ? n.headlines.join(" | ") : (n.headlines || "");
+                            systemPrompt += `- Date: ${n.date} | Sentiment: ${sentimentText} (Score: ${score}) | Headlines: ${headlinesStr}\n`;
+                        });
+                        systemPrompt += `[END NEWS FOR ${targetSymbol}]\n`;
+                    }
+
                     systemPrompt += `=== END OF DATABASE DATA ===\n`;
                 }
             } else if (combinedText.includes("قطاع") || combinedText.includes("sector") || combinedText.includes("بنوك") || combinedText.includes("أسمدة")) {
@@ -445,6 +463,35 @@ export async function POST(req: NextRequest) {
                     "مقارنة أسهم البورصة"
                 ];
             }
+            // 4.5 Fetch General Market Status (market_cache) & Top Market News (stock_news_sentiment)
+            const [marketCacheRes, topNewsRes] = await Promise.all([
+                supabase.from("market_cache").select("payload, computed_at").eq("cache_key", "market_status_Egypt").maybeSingle(),
+                supabase.from("stock_news_sentiment").select("*").gt("news_count", 0).order("date", { ascending: false }).limit(5)
+            ]);
+
+            if (marketCacheRes?.data?.payload) {
+                const mPayload = marketCacheRes.data.payload;
+                systemPrompt += `\n\n=== 🌐 REAL-TIME EGX MARKET STATUS & MACRO ECONOMY DATA ===\n`;
+                systemPrompt += `- Market Status/Regime: ${JSON.stringify(mPayload.market_status || mPayload.regime || mPayload.status || "مستقر/متوازن")}\n`;
+                if (mPayload.egx30_summary || mPayload.summary || mPayload.market_summary) {
+                    systemPrompt += `- EGX30 & Market Overview: ${JSON.stringify(mPayload.egx30_summary || mPayload.summary || mPayload.market_summary)}\n`;
+                }
+                if (mPayload.sectors || mPayload.sector_summary) {
+                    systemPrompt += `- Sector Performance: ${JSON.stringify(mPayload.sectors || mPayload.sector_summary)}\n`;
+                }
+                systemPrompt += `=== END OF MARKET STATUS ===\n`;
+            }
+
+            if (topNewsRes?.data && topNewsRes.data.length > 0) {
+                systemPrompt += `\n=== 📰 LATEST TOP EGX MARKET NEWS & HEADLINES ===\n`;
+                topNewsRes.data.forEach((n: any) => {
+                    const score = n.sentiment_score || 0;
+                    const sentimentText = score > 0.1 ? "إيجابي 🟢" : score < -0.1 ? "سلبي 🔴" : "حيادي ⚪";
+                    const headlineStr = Array.isArray(n.headlines) ? (n.headlines[0] || n.symbol) : (n.headlines || n.symbol);
+                    systemPrompt += `- [${n.symbol}] (${n.date}): ${headlineStr} (مؤشر التفاؤل: ${sentimentText})\n`;
+                });
+                systemPrompt += `=== END OF TOP MARKET NEWS ===\n`;
+            }
         } catch (stockErr) {
             console.error("Failed to query stock DB data for prompt:", stockErr);
         }
@@ -454,26 +501,28 @@ export async function POST(req: NextRequest) {
         // 5. Build Messages Array & Pre-process Vision OCR
         let userContent: any;
         if (hasImages) {
-            // Point 3: Tesseract.js Ultra-Fast Node.js OCR Pre-Processing (Max 3s Cap)
+            // Point 3: Tesseract.js Ultra-Fast Node.js OCR Pre-Processing (Local only, bypassed on Vercel serverless to prevent worker-script 129 exit crash)
             let ocrExtractedText = "";
-            try {
-                const ocrPromise = (async () => {
-                    const tesseract = await import("tesseract.js");
-                    const firstImg = imageList[0];
-                    if (firstImg && typeof firstImg === "string") {
-                        const result = await tesseract.recognize(firstImg, "eng");
-                        return result?.data?.text?.trim() || "";
-                    }
-                    return "";
-                })();
+            if (!process.env.VERCEL) {
+                try {
+                    const ocrPromise = (async () => {
+                        const tesseract = await import("tesseract.js");
+                        const firstImg = imageList[0];
+                        if (firstImg && typeof firstImg === "string") {
+                            const result = await tesseract.recognize(firstImg, "eng");
+                            return result?.data?.text?.trim() || "";
+                        }
+                        return "";
+                    })();
 
-                const timeoutCap = new Promise<string>((resolve) => setTimeout(() => resolve(""), 3000));
-                ocrExtractedText = await Promise.race([ocrPromise, timeoutCap]);
-                if (ocrExtractedText) {
-                    console.log("Ultra-fast Tesseract OCR text length:", ocrExtractedText.length);
+                    const timeoutCap = new Promise<string>((resolve) => setTimeout(() => resolve(""), 3000));
+                    ocrExtractedText = await Promise.race([ocrPromise, timeoutCap]);
+                    if (ocrExtractedText) {
+                        console.log("Ultra-fast Tesseract OCR text length:", ocrExtractedText.length);
+                    }
+                } catch (tessErr: any) {
+                    console.warn("Tesseract.js OCR pre-processing skipped:", tessErr.message || tessErr);
                 }
-            } catch (tessErr: any) {
-                console.warn("Tesseract.js OCR pre-processing skipped:", tessErr.message || tessErr);
             }
 
             // Point 4: Red-Flag Detection for Duplicate Portfolio Totals across images in session
