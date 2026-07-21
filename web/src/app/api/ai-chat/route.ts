@@ -96,7 +96,7 @@ export async function POST(req: NextRequest) {
                         console.log("✅ OCR preprocessing successful:", ocrExtractedText.substring(0, 100));
                     }
                 } catch (ocrErr) {
-                    console.warn("⚠️ OCR preprocessing failed (Tesseract not installed?):", ocrErr.message);
+                    console.warn("⚠️ OCR preprocessing failed (Tesseract not installed?):", ocrErr instanceof Error ? ocrErr.message : String(ocrErr));
                     // Continue without OCR - Vision model will try alone
                 }
             } catch (ocrErr) {
