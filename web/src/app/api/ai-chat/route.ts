@@ -272,85 +272,104 @@ export async function POST(req: NextRequest) {
         let dynamicSuggestedButtons: string[] = [];
 
         try {
-            const combinedText = (textMessage + " " + formattedHistory.map((h: any) => h.content).join(" ")).toLowerCase();
-            const promptWords = textMessage.trim().split(/[\s,.-]+/).map((w: string) => w.replace(/[^a-zA-Z0-9]/g, "").toUpperCase()).filter((w: string) => w.length >= 2);
-
             let targetSymbol = "";
             let targetStockName = "";
 
-            // 1. Direct Supabase exact symbol lookup for any word in user prompt (e.g. ABUK, COMI, FWRY)
-            if (promptWords.length > 0) {
-                const { data: exactMatches } = await supabase
-                    .from("stocks")
-                    .select("symbol, name")
-                    .in("symbol", promptWords)
-                    .limit(1);
+            // Preload exact DB matches for all words in prompt and history to avoid DB queries in loops
+            const allWords = new Set<string>();
+            const textMessageWords = textMessage.trim().split(/[\s,.-]+/).map((w: string) => w.replace(/[^a-zA-Z0-9]/g, "").toUpperCase()).filter((w: string) => w.length >= 2);
+            textMessageWords.forEach((w: string) => allWords.add(w));
+            
+            formattedHistory.forEach((h: any) => {
+                const words = (h.content || "").trim().split(/[\s,.-]+/).map((w: string) => w.replace(/[^a-zA-Z0-9]/g, "").toUpperCase()).filter((w: string) => w.length >= 2);
+                words.forEach((w: string) => allWords.add(w));
+            });
 
-                if (exactMatches && exactMatches.length > 0) {
-                    targetSymbol = exactMatches[0].symbol;
-                    targetStockName = exactMatches[0].name;
-                }
+            let preloadedExactStocks: any[] = [];
+            if (allWords.size > 0) {
+                const { data } = await supabase.from("stocks").select("symbol, name").in("symbol", Array.from(allWords)).limit(20);
+                if (data) preloadedExactStocks = data;
             }
 
-            // 2. Arabic & English Common Stock Alias Mapping
-            if (!targetSymbol) {
-                const stockAliases: Record<string, { sym: string; name: string }> = {
-                    "abuk": { sym: "ABUK", name: "أبو قير للأسمدة والصناعات الكيماوية" },
-                    "أبو قير": { sym: "ABUK", name: "أبو قير للأسمدة والصناعات الكيماوية" },
-                    "ابو قير": { sym: "ABUK", name: "أبو قير للأسمدة والصناعات الكيماوية" },
-                    "comi": { sym: "COMI", name: "البنك التجاري الدولي (CIB)" },
-                    "التجاري الدولي": { sym: "COMI", name: "البنك التجاري الدولي (CIB)" },
-                    "cib": { sym: "COMI", name: "البنك التجاري الدولي (CIB)" },
-                    "موبكو": { sym: "MFPC", name: "مصر لإنتاج الأسمدة (موبكو)" },
-                    "mfpc": { sym: "MFPC", name: "مصر لإنتاج الأسمدة (موبكو)" },
-                    "فوري": { sym: "FWRY", name: "فوري تكنولوجيا البنوك والمدفوعات الإلكترونية" },
-                    "fwry": { sym: "FWRY", name: "فوري تكنولوجيا البنوك والمدفوعات الإلكترونية" },
-                    "سويدي": { sym: "SWDY", name: "السويدي إلكتريك" },
-                    "swdy": { sym: "SWDY", name: "السويدي إلكتريك" },
-                    "طلعت مصطفى": { sym: "TMGH", name: "مجموعة طلعت مصطفى القابضة" },
-                    "tmgh": { sym: "TMGH", name: "مجموعة طلعت مصطفى القابضة" },
-                    "بلتون": { sym: "BTFH", name: "بلتون القابضة" },
-                    "btfh": { sym: "BTFH", name: "بلتون القابضة" },
-                    "حديد عز": { sym: "ESRS", name: "عز للدخيلة للحديد والصلب" },
-                    "esrs": { sym: "ESRS", name: "عز للدخيلة للحديد والصلب" },
-                    "إعمار": { sym: "EMFD", name: "إعمار مصر للتنمية" },
-                    "emfd": { sym: "EMFD", name: "إعمار مصر للتنمية" },
-                    "أموك": { sym: "AMOC", name: "الإسكندرية للزيوت المعدنية (أموك)" },
-                    "amoc": { sym: "AMOC", name: "الإسكندرية للزيوت المعدنية (أموك)" },
-                    "مصر للألومنيوم": { sym: "EGAL", name: "مصر للألومنيوم" },
-                    "egal": { sym: "EGAL", name: "مصر للألومنيوم" },
-                };
+            const { data: matchedStocks } = await supabase.from("stocks").select("symbol, name").limit(150);
+            const allStocks = matchedStocks || [];
 
+            const stockAliases: Record<string, { sym: string; name: string }> = {
+                "abuk": { sym: "ABUK", name: "أبو قير للأسمدة والصناعات الكيماوية" },
+                "أبو قير": { sym: "ABUK", name: "أبو قير للأسمدة والصناعات الكيماوية" },
+                "ابو قير": { sym: "ABUK", name: "أبو قير للأسمدة والصناعات الكيماوية" },
+                "comi": { sym: "COMI", name: "البنك التجاري الدولي (CIB)" },
+                "التجاري الدولي": { sym: "COMI", name: "البنك التجاري الدولي (CIB)" },
+                "cib": { sym: "COMI", name: "البنك التجاري الدولي (CIB)" },
+                "موبكو": { sym: "MFPC", name: "مصر لإنتاج الأسمدة (موبكو)" },
+                "mfpc": { sym: "MFPC", name: "مصر لإنتاج الأسمدة (موبكو)" },
+                "فوري": { sym: "FWRY", name: "فوري تكنولوجيا البنوك والمدفوعات الإلكترونية" },
+                "fwry": { sym: "FWRY", name: "فوري تكنولوجيا البنوك والمدفوعات الإلكترونية" },
+                "سويدي": { sym: "SWDY", name: "السويدي إلكتريك" },
+                "swdy": { sym: "SWDY", name: "السويدي إلكتريك" },
+                "طلعت مصطفى": { sym: "TMGH", name: "مجموعة طلعت مصطفى القابضة" },
+                "tmgh": { sym: "TMGH", name: "مجموعة طلعت مصطفى القابضة" },
+                "بلتون": { sym: "BTFH", name: "بلتون القابضة" },
+                "btfh": { sym: "BTFH", name: "بلتون القابضة" },
+                "حديد عز": { sym: "ESRS", name: "عز للدخيلة للحديد والصلب" },
+                "esrs": { sym: "ESRS", name: "عز للدخيلة للحديد والصلب" },
+                "إعمار": { sym: "EMFD", name: "إعمار مصر للتنمية" },
+                "emfd": { sym: "EMFD", name: "إعمار مصر للتنمية" },
+                "أموك": { sym: "AMOC", name: "الإسكندرية للزيوت المعدنية (أموك)" },
+                "amoc": { sym: "AMOC", name: "الإسكندرية للزيوت المعدنية (أموك)" },
+                "مصر للألومنيوم": { sym: "EGAL", name: "مصر للألومنيوم" },
+                "egal": { sym: "EGAL", name: "مصر للألومنيوم" },
+            };
+
+            const findSymbolInText = (msgText: string) => {
+                if (!msgText) return null;
+                const msgLower = msgText.toLowerCase();
+                const msgWords = msgText.trim().split(/[\s,.-]+/).map((w: string) => w.replace(/[^a-zA-Z0-9]/g, "").toUpperCase()).filter((w: string) => w.length >= 2);
+
+                // 1. Direct exact symbol lookup
+                for (const word of msgWords) {
+                    const exact = preloadedExactStocks.find(s => s.symbol === word);
+                    if (exact) return { sym: exact.symbol, name: exact.name };
+                }
+
+                // 2. Arabic & English Common Stock Alias Mapping
                 for (const [alias, info] of Object.entries(stockAliases)) {
-                    if (combinedText.includes(alias)) {
-                        targetSymbol = info.sym;
-                        targetStockName = info.name;
+                    if (msgLower.includes(alias)) return { sym: info.sym, name: info.name };
+                }
+
+                // 3. Regex Word Boundary Search across all Supabase stocks
+                for (const s of allStocks) {
+                    const sym = (s.symbol || "").trim();
+                    if (sym.length >= 3) {
+                        const wordRegex = new RegExp(`\\b${sym}\\b`, "i");
+                        if (wordRegex.test(msgLower)) return { sym: s.symbol, name: s.name };
+                    }
+                }
+
+                return null;
+            };
+
+            // Analyze CURRENT message first
+            let found = findSymbolInText(textMessage);
+            if (found) {
+                targetSymbol = found.sym;
+                targetStockName = found.name;
+            }
+
+            // If not found in current message, analyze HISTORY from NEWEST to OLDEST
+            if (!targetSymbol) {
+                for (let i = formattedHistory.length - 1; i >= 0; i--) {
+                    found = findSymbolInText(formattedHistory[i].content);
+                    if (found) {
+                        targetSymbol = found.sym;
+                        targetStockName = found.name;
                         break;
                     }
                 }
             }
 
-            // 3. Regex Word Boundary Search across all Supabase stocks
-            if (!targetSymbol) {
-                const { data: matchedStocks } = await supabase
-                    .from("stocks")
-                    .select("symbol, name")
-                    .limit(150);
+            const combinedText = (textMessage + " " + formattedHistory.map((h: any) => h.content).join(" ")).toLowerCase();
 
-                if (matchedStocks && matchedStocks.length > 0) {
-                    for (const s of matchedStocks) {
-                        const sym = (s.symbol || "").trim();
-                        if (sym.length >= 3) {
-                            const wordRegex = new RegExp(`\\b${sym}\\b`, "i");
-                            if (wordRegex.test(combinedText)) {
-                                targetSymbol = s.symbol;
-                                targetStockName = s.name;
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
 
             // Dynamic Smart Buttons based on context
             if (targetSymbol) {
