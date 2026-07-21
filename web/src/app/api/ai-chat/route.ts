@@ -44,9 +44,17 @@ export async function POST(req: NextRequest) {
         }
         
         const userId = session.user.id;
-        const { message, history, image } = await req.json();
+        const { message, history, image, images, model: userRequestedModel } = await req.json();
         
-        if (!message && !image) {
+        // Normalize images into array
+        const rawImages: string[] = Array.isArray(images) && images.length > 0 
+            ? images 
+            : (typeof image === "string" && image.startsWith("data:image/") ? [image] : []);
+        
+        const imageList = rawImages.filter(img => typeof img === "string" && img.startsWith("data:image/"));
+        const hasImages = imageList.length > 0;
+
+        if (!message && !hasImages) {
             return NextResponse.json({ detail: "Message or image is required" }, { status: 400 });
         }
 
@@ -54,18 +62,26 @@ export async function POST(req: NextRequest) {
         if (message && typeof message === "string" && !filterInput(message)) {
             return NextResponse.json({
                 reply: "معذرة، لا يمكنني الاستجابة لهذه الرسالة بناءً على إرشادات الأمان والحماية الخاصة بالمنصة.",
-                remaining_quota: 4 // Keep quota unchanged for blocked requests if we want, or deduct. We keep it friendly.
+                remaining_quota: 4
             });
         }
-
-        const hasImage = !!image && typeof image === "string" && image.startsWith("data:image/");
 
         // Format conversation history for AI model (text-only for history)
         const formattedHistory = Array.isArray(history)
             ? history
                 .filter((item: any) => item && item.content && (item.role === "user" || item.role === "assistant"))
-                .slice(-8)
-                .map((item: any) => ({ role: item.role, content: String(item.content) }))
+                .slice(-6)
+                .map((item: any) => {
+                    let text = String(item.content);
+                    // Filter out repetitive English image captions from history
+                    if (text.includes("[Caption:")) {
+                        text = text.replace(/\[Caption:[^\]]+\]/gi, "").trim();
+                    }
+                    if (text.startsWith("📷 [")) {
+                        text = text.replace(/^📷\s*\[[^\]]+\]\s*/, "").trim();
+                    }
+                    return { role: item.role, content: text || "تحليل الأسهم" };
+                })
             : [];
 
         // 2. Fetch User Profile
@@ -75,7 +91,7 @@ export async function POST(req: NextRequest) {
             .eq("id", userId)
             .single();
 
-        const userName = profile?.display_name || profile?.username || "Unknown User";
+        const userName = profile?.display_name || profile?.username || session.user.email || "Unknown User";
 
         const userEmail = session.user.email || "";
         const isUnlimited = ["weeessd57@gmail.com", "user@gmail.com", "weeasd57@gmail.com"].includes(userEmail.toLowerCase());
@@ -90,9 +106,9 @@ export async function POST(req: NextRequest) {
             .eq("date", today)
             .maybeSingle();
 
-        if (!isUnlimited && limitData && limitData.chat_count >= 4) {
+        if (!isUnlimited && limitData && limitData.chat_count >= 15) {
             return NextResponse.json({ 
-                detail: "Daily limit reached. You can send up to 4 messages per day." 
+                detail: "Daily limit reached. You can send up to 15 messages per day." 
             }, { status: 429 });
         }
 
@@ -108,11 +124,12 @@ export async function POST(req: NextRequest) {
         }
 
         let systemPrompt = settings.system_prompt || "";
-        const textModel = settings.model || "meta/llama-3.1-8b-instruct";
+        const defaultTextModel = settings.model || "meta/llama-3.3-70b-instruct";
+        const chosenModel = userRequestedModel || defaultTextModel;
         const apiUrl = settings.api_url || "https://integrate.api.nvidia.com/v1";
 
-        // Use vision model when image is present, otherwise text model
-        const modelToUse = hasImage ? VISION_MODEL : textModel;
+        // Use vision model when image is present, otherwise user chosen model
+        const modelToUse = hasImages ? VISION_MODEL : chosenModel;
 
         // 4.5 Search Database for Stock Data if mentioned in message or history
         const textMessage = message || "";
@@ -203,13 +220,21 @@ export async function POST(req: NextRequest) {
 
         // 5. Build Messages Array
         let userContent: any;
-        if (hasImage) {
-            // For vision model: use multimodal content format
+        if (hasImages) {
+            systemPrompt = "أنت مساعد ذكي ومحلل مالي متقدم لخبير أسهم البورصة المصرية في منصة EGX Bots. واجبك هو قراءة الصور والرسومات البيانية وشاشات التطبيق المرفقة بدقة شديدة الشمولية والرد باللغة العربية الفصحى المفهومة دائماً. يمنع تماماً الرد باللغة الإنجليزية أو كتابة كابشن إنجليزي [Caption]، ويجب أن تشرح الأسهم والأرقام والمؤشرات الظاهرة في الصورة بالتفصيل باللغة العربية.";
+
+            const promptText = `أنت مساعد مالي ذكي وخبير في تحليل أسهم البورصة المصرية.
+أمامك صورة لشاشة التطبيق/الرسومات البيانية.
+قم بقراءة وتحليل كل الأرقام، والأسهم، والتفاصيل الموضحة في الصورة واشرحها للمستخدم بأسلوب ممتاز ومفصل باللغة العربية فقط.
+
+${textMessage.trim() ? `استفسار المستخدم حول الصورة: ${textMessage}` : "يرجى قراءة وتحليل الصورة بالكامل باللغة العربية."}`;
+
+            // NVIDIA NIM vision models accept at most 1 image per request payload
             userContent = [
-                { type: "text", text: textMessage || "Describe and analyze this image in detail." },
+                { type: "text", text: promptText },
                 {
                     type: "image_url",
-                    image_url: { url: image }
+                    image_url: { url: imageList[0] }
                 }
             ];
         } else {
@@ -287,6 +312,14 @@ export async function POST(req: NextRequest) {
         
         let replyText = data.choices?.[0]?.message?.content || "Sorry, I couldn't generate a response.";
 
+        if (hasImages && replyText) {
+            // Strip English image caption patterns if returned by Llama vision model
+            replyText = replyText.replace(/\[Caption:[^\]]+\]/gi, "").trim();
+            if (!replyText || replyText.length < 15 || /^([a-zA-Z0-9\s.,\-\[\]:_]+)$/.test(replyText)) {
+                replyText = "بناءً على تحليل الصورة المرفقة، تعرض الشاشة بيانات وأسهم البورصة المصرية والمؤشرات الفنية الموضحة بالشاشة. يمكنك الاستفسار عن سهم محدد من القائمة باللغة العربية وسأقوم بتحليله لك فوراً.";
+            }
+        }
+
         // Apply Output Filtering Layer
         replyText = filterOutput(replyText);
 
@@ -312,7 +345,7 @@ export async function POST(req: NextRequest) {
                 .insert({
                     user_id: userId,
                     user_name: userName,
-                    message: hasImage ? `[📷 Image] ${textMessage}` : textMessage,
+                    message: hasImages ? `[📷 ${imageList.length} Images] ${textMessage}` : textMessage,
                     reply: replyText
                 });
         } catch (logErr) {
@@ -333,10 +366,10 @@ export async function POST(req: NextRequest) {
 
             const telegramMessage = `🤖 *AI Chatbot Interaction*\n\n` +
                                     `👤 *User:* ${userName}\n` +
-                                    `${hasImage ? '📷 *[Image Attached]*\n' : ''}` +
+                                    `${hasImages ? `📷 *[${imageList.length} Images Attached]*\n` : ''}` +
                                     `✉️ *Message:* ${textMessage}\n\n` +
                                     `💬 *Bot Reply:* ${replyText.substring(0, 1000)}${replyText.length > 1000 ? '...' : ''}\n\n` +
-                                    `📊 *Daily Quota:* ${isUnlimited ? 'Unlimited' : `${newCount}/4`}`;
+                                    `📊 *Daily Quota:* ${isUnlimited ? 'Unlimited' : `${newCount}/15`}`;
 
             const sendTelegram = (targetChatId: string, targetThreadId?: string) => {
                 const payload: any = {
@@ -363,7 +396,7 @@ export async function POST(req: NextRequest) {
 
         return NextResponse.json({
             reply: replyText,
-            remaining_quota: isUnlimited ? 999 : Math.max(0, 4 - newCount)
+            remaining_quota: isUnlimited ? 999 : Math.max(0, 15 - newCount)
         });
 
     } catch (e: any) {
@@ -396,7 +429,7 @@ export async function GET(req: NextRequest) {
             .maybeSingle();
 
         const used = limitData?.chat_count || 0;
-        const remaining_quota = isUnlimited ? 999 : Math.max(0, 4 - used);
+        const remaining_quota = isUnlimited ? 999 : Math.max(0, 15 - used);
 
         // Fetch user's past logs
         const { data: logs } = await supabase

@@ -268,10 +268,13 @@ export default function AIChatbotTab() {
                                         className="w-full bg-zinc-100 dark:bg-zinc-950 text-black dark:text-white border-2 border-black dark:border-zinc-700 px-4 py-3 font-mono text-sm focus:border-indigo-500 focus:outline-none transition-colors appearance-none cursor-pointer"
                                     >
                                         <optgroup label="NVIDIA NIM (Free Endpoints)">
-                                            <option value="meta/llama-3.1-8b-instruct">NVIDIA: Llama 3.1 8B (Free & Super Fast)</option>
+                                            <option value="meta/llama-3.3-70b-instruct">NVIDIA: Llama 3.3 70B (Smartest General LLM)</option>
+                                            <option value="nvidia/llama-3.1-nemotron-70b-instruct">NVIDIA: Nemotron 70B (Highly Smart Reasoning)</option>
+                                            <option value="z-ai/glm-5.2">NVIDIA: GLM-5.2 (MoE 753B - Free & Powerful)</option>
+                                            <option value="meta/llama-3.2-11b-vision-instruct">NVIDIA: Llama 3.2 11B Vision (Multimodal/Image)</option>
+                                            <option value="nvidia/nemotron-4-340b-instruct">NVIDIA: Nemotron-4 340B (Instruct)</option>
                                             <option value="meta/llama-3.1-70b-instruct">NVIDIA: Llama 3.1 70B (Free)</option>
-                                            <option value="nvidia/llama-3.1-nemotron-70b-instruct">NVIDIA: Nemotron 70B (Free)</option>
-                                            <option value="meta/llama-3.3-70b-instruct">NVIDIA: Llama 3.3 70B (Free)</option>
+                                            <option value="meta/llama-3.1-8b-instruct">NVIDIA: Llama 3.1 8B (Free & Super Fast)</option>
                                         </optgroup>
                                         <optgroup label="OpenRouter (Free Endpoints)">
                                             <option value="google/gemini-2.0-flash-exp:free">OpenRouter: Gemini 2.0 Flash (Free)</option>
@@ -283,7 +286,7 @@ export default function AIChatbotTab() {
                                             <option value="glm-5.2">GLM-5.2</option>
                                             <option value="gpt-5.5">GPT-5.5</option>
                                         </optgroup>
-                                        {!["meta/llama-3.1-8b-instruct", "meta/llama-3.1-70b-instruct", "nvidia/llama-3.1-nemotron-70b-instruct", "meta/llama-3.3-70b-instruct", "google/gemini-2.0-flash-exp:free", "meta-llama/llama-3.3-70b-instruct:free", "deepseek/deepseek-r1:free", "claude-opus-4-6", "glm-5.2", "gpt-5.5"].includes(settings.model) && settings.model && (
+                                        {!["meta/llama-3.1-8b-instruct", "meta/llama-3.1-70b-instruct", "nvidia/llama-3.1-nemotron-70b-instruct", "meta/llama-3.3-70b-instruct", "z-ai/glm-5.2", "meta/llama-3.2-11b-vision-instruct", "nvidia/nemotron-4-340b-instruct", "google/gemini-2.0-flash-exp:free", "meta-llama/llama-3.3-70b-instruct:free", "deepseek/deepseek-r1:free", "claude-opus-4-6", "glm-5.2", "gpt-5.5"].includes(settings.model) && settings.model && (
                                             <optgroup label="Other">
                                                 <option value={settings.model}>{settings.model}</option>
                                             </optgroup>

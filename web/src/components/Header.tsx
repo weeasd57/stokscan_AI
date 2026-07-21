@@ -474,34 +474,39 @@ export default function Header() {
                             onClick={() => setMobileMenuOpen(false)}
                             aria-hidden="true"
                         />
-                        <div className="app-panel-strong md:hidden rounded-2xl animate-in slide-in-from-top-2 duration-200 overflow-hidden relative z-[101]">
-                            <div className="flex items-center justify-between px-3 pt-2.5 pb-1">
-                                <span className="text-[9px] font-black uppercase tracking-[0.2em] text-zinc-600">Menu</span>
+                        <div className="md:hidden fixed top-0 left-0 right-0 z-[101] bg-white dark:bg-zinc-950 border-b-4 border-black dark:border-white animate-in slide-in-from-top-2 duration-200 overflow-hidden max-h-[85vh] overflow-y-auto">
+                            {/* Mobile menu header */}
+                            <div className="flex items-center justify-between px-4 py-3 border-b-2 border-zinc-200 dark:border-zinc-800">
+                                <span className="text-sm font-black uppercase tracking-wider text-black dark:text-white">Menu</span>
                                 <button
                                     onClick={() => setMobileMenuOpen(false)}
-                                    className="app-icon-button h-7 w-7 flex items-center justify-center rounded-lg"
+                                    className="h-10 w-10 flex items-center justify-center rounded-xl bg-zinc-100 dark:bg-zinc-800 border-2 border-black dark:border-zinc-600 active:scale-95 transition-transform"
                                     aria-label="Close menu"
                                 >
-                                    <X className="h-3.5 w-3.5" />
+                                    <X className="h-5 w-5 text-black dark:text-white" />
                                 </button>
                             </div>
 
-                            <div className="px-1.5 pb-1 flex flex-col gap-0.5">
+                            {/* Nav links */}
+                            <div className="px-3 py-2 flex flex-col gap-1">
                                 {navItems.map((item) => {
                                     const isActive = checkActive(item.href, item.activePath);
                                     return (
                                         <Link
                                             key={item.href}
                                             href={item.href}
-                                            className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider transition-all ${
-                                                isActive ? "bg-white text-zinc-950" : "text-zinc-400 hover:text-white hover:bg-white/5"
+                                            onClick={() => setMobileMenuOpen(false)}
+                                            className={`flex items-center gap-3 px-4 py-3.5 rounded-xl text-sm font-bold tracking-wide transition-all ${
+                                                isActive 
+                                                    ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-2 border-amber-500/30" 
+                                                    : "text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 border-2 border-transparent"
                                             }`}
                                         >
                                             {item.icon}
-                                            <span className="flex items-center gap-1.5">
+                                            <span className="flex items-center gap-2">
                                                 {item.label}
                                                 {item.badge && (
-                                                    <span className="px-1 py-0.5 rounded-[4px] bg-indigo-600 text-white text-[8px] font-black uppercase">
+                                                    <span className="px-1.5 py-0.5 rounded-md bg-indigo-600 text-white text-[9px] font-black uppercase">
                                                         {item.badge}
                                                     </span>
                                                 )}
@@ -511,29 +516,31 @@ export default function Header() {
                                 })}
                             </div>
 
-                            <div className="h-px bg-white/5 mx-3" />
+                            {/* Divider */}
+                            <div className="h-px bg-zinc-200 dark:bg-zinc-800 mx-4" />
 
-                            <div className="flex items-center gap-2 p-2">
-                                <button onClick={toggleTheme} className="app-icon-button flex items-center justify-center h-8 w-8 rounded-xl" aria-label="Toggle theme">
-                                    {theme === "dark" ? <Sun className="h-3.5 w-3.5" /> : <Moon className="h-3.5 w-3.5" />}
+                            {/* Bottom actions */}
+                            <div className="flex items-center gap-2 p-3">
+                                <button onClick={toggleTheme} className="flex items-center justify-center h-11 w-11 rounded-xl bg-zinc-100 dark:bg-zinc-800 border-2 border-zinc-300 dark:border-zinc-700 active:scale-95 transition-transform" aria-label="Toggle theme">
+                                    {theme === "dark" ? <Sun className="h-4 w-4 text-amber-500" /> : <Moon className="h-4 w-4 text-zinc-600" />}
                                 </button>
                                 <button
                                     onClick={() => setLanguage(language === "ar" ? "en" : "ar")}
-                                    className="app-icon-button flex items-center gap-1.5 h-8 px-3 rounded-xl text-xs font-bold flex-1 justify-center"
+                                    className="flex items-center gap-2 h-11 px-4 rounded-xl bg-zinc-100 dark:bg-zinc-800 border-2 border-zinc-300 dark:border-zinc-700 text-sm font-bold flex-1 justify-center text-black dark:text-white active:scale-95 transition-transform"
                                 >
-                                    <Globe className="h-3.5 w-3.5" />
+                                    <Globe className="h-4 w-4" />
                                     <span>{language === "ar" ? "English" : "العربية"}</span>
                                 </button>
                                 {!user ? (
-                                    <Link href="/login" className="app-primary-action flex items-center justify-center h-8 px-4 rounded-xl text-xs font-bold uppercase flex-1">
+                                    <Link href="/login" onClick={() => setMobileMenuOpen(false)} className="flex items-center justify-center h-11 px-5 rounded-xl bg-amber-500 text-black text-sm font-black uppercase flex-1 border-2 border-black active:scale-95 transition-transform shadow-[3px_3px_0px_0px_#000]">
                                         {t("auth.login")}
                                     </Link>
                                 ) : (
                                     <>
-                                        <Link href="/profile" className="app-icon-button flex items-center justify-center h-8 px-3 rounded-xl text-xs font-bold flex-1">
-                                            <User className="h-3.5 w-3.5" />
+                                        <Link href="/profile" onClick={() => setMobileMenuOpen(false)} className="flex items-center justify-center h-11 px-4 rounded-xl bg-zinc-100 dark:bg-zinc-800 border-2 border-zinc-300 dark:border-zinc-700 text-sm font-bold flex-1 text-black dark:text-white active:scale-95 transition-transform">
+                                            <User className="h-4 w-4" />
                                         </Link>
-                                        <button onClick={() => signOut()} className="flex items-center justify-center h-8 px-3 rounded-xl bg-red-500/10 text-red-400 text-xs font-bold flex-1">
+                                        <button onClick={() => signOut()} className="flex items-center justify-center h-11 px-4 rounded-xl bg-red-500/10 text-red-500 border-2 border-red-500/30 text-sm font-bold flex-1 active:scale-95 transition-transform">
                                             {t("auth.logout")}
                                         </button>
                                     </>

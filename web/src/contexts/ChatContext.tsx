@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useState, ReactNode, useEffect, useCallback } from "react";
+import { createContext, useContext, useState, ReactNode, useEffect, useCallback, useRef } from "react";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTechnicalScanner } from "@/contexts/TechnicalScannerContext";
@@ -11,7 +11,8 @@ export type ChatMessage = {
     role: "user" | "assistant" | "system";
     content: string;
     timestamp: number;
-    imageUrl?: string; // base64 data URL for image messages
+    imageUrl?: string; // base64 data URL for single image message (backward compat)
+    images?: string[]; // Array of base64 data URLs for multi-image messages
     actions?: ChatAction[];
 };
 
@@ -21,13 +22,22 @@ type ChatAction = {
     value: string; // URL or function name
 };
 
+export const AVAILABLE_AI_MODELS = [
+    { id: "meta/llama-3.3-70b-instruct", name: "Llama 3.3 70B", badgeAr: "الأذكى ✨", badgeEn: "Smartest ✨", descAr: "نموذج الذكاء الاصطناعي الأقوى لتحليل البورصة", descEn: "Most capable model for stock analysis" },
+    { id: "z-ai/glm-5.2", name: "GLM 5.2", badgeAr: "تحليلي 📊", badgeEn: "Analytical 📊", descAr: "متخصص في التفكير والتحليل المالي المعقد", descEn: "Specialized in reasoning and financial math" },
+    { id: "nvidia/nemotron-4-340b-instruct", name: "Nemotron 340B", badgeAr: "عملاق 🚀", badgeEn: "Pro 🚀", descAr: "أحد أضخم الموديلات لمعالجة البيانات بدقة", descEn: "Ultra-large model for data precision" },
+    { id: "meta/llama-3.1-8b-instruct", name: "Llama 3.1 8B", badgeAr: "سريع ⚡", badgeEn: "Fast ⚡", descAr: "فائق السرعة للإجابات المباشرة السريعة", descEn: "Ultra-fast response for simple queries" },
+];
+
 interface ChatContextType {
     isOpen: boolean;
     setIsOpen: (v: boolean) => void;
     messages: ChatMessage[];
-    sendMessage: (text: string, imageBase64?: string) => Promise<void>;
+    sendMessage: (text: string, imageInput?: string | string[]) => Promise<void>;
     isLoading: boolean;
     remainingQuota: number;
+    selectedModel: string;
+    setSelectedModel: (model: string) => void;
 }
 
 const ChatContext = createContext<ChatContextType | undefined>(undefined);
@@ -41,12 +51,30 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     const [isOpen, setIsOpen] = useState(false);
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [isLoading, setIsLoading] = useState(false);
+    const [remainingQuota, setRemainingQuota] = useState<number>(15);
+    const [selectedModel, setSelectedModelState] = useState<string>("meta/llama-3.3-70b-instruct");
 
-    const [remainingQuota, setRemainingQuota] = useState<number>(4);
+    // Keep ref in sync for instant closure access inside async handlers
+    const messagesRef = useRef<ChatMessage[]>(messages);
+    useEffect(() => {
+        messagesRef.current = messages;
+    }, [messages]);
+
+    useEffect(() => {
+        const savedModel = localStorage.getItem("egxbots_selected_model");
+        if (savedModel && AVAILABLE_AI_MODELS.some(m => m.id === savedModel)) {
+            setSelectedModelState(savedModel);
+        }
+    }, []);
+
+    const setSelectedModel = useCallback((model: string) => {
+        setSelectedModelState(model);
+        localStorage.setItem("egxbots_selected_model", model);
+    }, []);
 
     const WELCOME_MSG: ChatMessage = {
         role: "assistant",
-        content: "Hello! I am your AI Market Assistant. I can help you analyze stocks, explain indicators, or navigate the app. You can also send me an image 📷 to analyze. How can I help today?",
+        content: "Hello! I am your AI Market Assistant. I can help you analyze stocks, explain indicators, or navigate the app. You can also send me images 📷 to analyze. How can I help today?",
         timestamp: Date.now(),
     };
 
@@ -58,6 +86,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
                 const parsed = JSON.parse(cached);
                 if (Array.isArray(parsed) && parsed.length > 0) {
                     setMessages(parsed);
+                    messagesRef.current = parsed;
                     return;
                 }
             }
@@ -65,6 +94,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             console.error("Failed to load cached chat history");
         }
         setMessages([WELCOME_MSG]);
+        messagesRef.current = [WELCOME_MSG];
     }, []);
 
     // Save messages to localStorage whenever updated
@@ -74,7 +104,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
                 // Don't persist large image base64 to localStorage to avoid quota issues
                 const toCache = messages.map(m => ({
                     ...m,
-                    imageUrl: m.imageUrl ? "[image]" : undefined
+                    imageUrl: m.imageUrl ? "[image]" : undefined,
+                    images: m.images ? m.images.map(() => "[image]") : undefined,
                 }));
                 localStorage.setItem("egxbots_chat_history", JSON.stringify(toCache));
             } catch (e) {
@@ -85,16 +116,29 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
     // Fetch latest history and quota from server on mount / auth change
     useEffect(() => {
+        let isMounted = true;
+
         const fetchHistoryAndQuota = async () => {
             try {
                 const res = await fetch("/api/ai-chat");
+                if (!isMounted) return;
+
                 if (res.ok) {
                     const data = await res.json();
+                    if (!isMounted) return;
+
                     if (data.remaining_quota !== undefined) {
                         setRemainingQuota(data.remaining_quota);
                     }
                     if (Array.isArray(data.history) && data.history.length > 0) {
-                        setMessages([WELCOME_MSG, ...data.history]);
+                        setMessages(prev => {
+                            const serverUserMessages = new Set(data.history.map((h: any) => h.content));
+                            const unsavedLocal = prev.filter(m => m.role === "user" && !serverUserMessages.has(m.content));
+
+                            const combined = [WELCOME_MSG, ...data.history, ...unsavedLocal];
+                            messagesRef.current = combined;
+                            return combined;
+                        });
                     }
                 }
             } catch (e) {
@@ -103,6 +147,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         };
 
         fetchHistoryAndQuota();
+
+        return () => {
+            isMounted = false;
+        };
     }, [user]);
 
     const handleAction = useCallback((action: ChatAction) => {
@@ -117,25 +165,39 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         }
     }, [router, setTechScanner]);
 
-    const sendMessage = async (text: string, imageBase64?: string) => {
-        if (!text.trim() && !imageBase64) return;
+    const sendMessage = useCallback(async (text: string, imageInput?: string | string[]) => {
+        const imagesList: string[] = Array.isArray(imageInput) 
+            ? imageInput 
+            : (imageInput ? [imageInput] : []);
+
+        if (!text.trim() && imagesList.length === 0) return;
 
         const newUserMsg: ChatMessage = {
             role: "user",
-            content: text || (imageBase64 ? "📷 [Image attached]" : ""),
+            content: text || (imagesList.length > 0 ? `📷 [${imagesList.length} Images attached]` : ""),
             timestamp: Date.now(),
-            imageUrl: imageBase64,
+            imageUrl: imagesList[0] || undefined,
+            images: imagesList.length > 0 ? imagesList : undefined,
         };
-        setMessages(prev => [...prev, newUserMsg]);
+
+        // Capture history snapshot before appending new user message
+        const historySnapshot = [...messagesRef.current];
+
+        // Immediately update state and ref
+        const nextMessages = [...historySnapshot, newUserMsg];
+        setMessages(nextMessages);
+        messagesRef.current = nextMessages;
         setIsLoading(true);
 
         try {
             if (remainingQuota <= 0) {
-                setMessages(prev => [...prev, {
+                const limitMsg: ChatMessage = {
                     role: "assistant",
-                    content: "Daily limit reached. You can send up to 4 messages per day. Please come back tomorrow!",
+                    content: "Daily limit reached. You can send up to 15 messages per day. Please come back tomorrow!",
                     timestamp: Date.now()
-                }]);
+                };
+                setMessages(prev => [...prev, limitMsg]);
+                messagesRef.current = [...messagesRef.current, limitMsg];
                 setIsLoading(false);
                 return;
             }
@@ -144,9 +206,11 @@ export function ChatProvider({ children }: { children: ReactNode }) {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
-                    message: text || "Describe and analyze this image.",
-                    history: messages.map(m => ({ role: m.role, content: m.content })),
-                    image: imageBase64 || undefined,
+                    message: text || "Describe and analyze these attached images.",
+                    history: historySnapshot.map(m => ({ role: m.role, content: m.content })),
+                    images: imagesList.length > 0 ? imagesList : undefined,
+                    image: imagesList[0] || undefined,
+                    model: selectedModel,
                 })
             });
 
@@ -154,11 +218,13 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             
             if (response.status === 429) {
                 setRemainingQuota(0);
-                setMessages(prev => [...prev, {
+                const limitMsg: ChatMessage = {
                     role: "assistant",
-                    content: data.detail || "Daily limit reached. You can send up to 4 messages per day.",
+                    content: data.detail || "Daily limit reached. You can send up to 15 messages per day.",
                     timestamp: Date.now()
-                }]);
+                };
+                setMessages(prev => [...prev, limitMsg]);
+                messagesRef.current = [...messagesRef.current, limitMsg];
                 return;
             }
 
@@ -170,25 +236,38 @@ export function ChatProvider({ children }: { children: ReactNode }) {
                 setRemainingQuota(data.remaining_quota);
             }
 
-            setMessages(prev => [...prev, {
+            const assistantMsg: ChatMessage = {
                 role: "assistant",
                 content: data.reply || "Sorry, I couldn't process that.",
                 timestamp: Date.now()
-            }]);
+            };
+            setMessages(prev => [...prev, assistantMsg]);
+            messagesRef.current = [...messagesRef.current, assistantMsg];
 
-        } catch (err) {
-            setMessages(prev => [...prev, {
+        } catch (err: any) {
+            const errorMsg: ChatMessage = {
                 role: "assistant",
                 content: "Error communicating with AI service.",
                 timestamp: Date.now()
-            }]);
+            };
+            setMessages(prev => [...prev, errorMsg]);
+            messagesRef.current = [...messagesRef.current, errorMsg];
         } finally {
             setIsLoading(false);
         }
-    };
+    }, [remainingQuota, selectedModel]);
 
     return (
-        <ChatContext.Provider value={{ isOpen, setIsOpen, messages, sendMessage, isLoading, remainingQuota }}>
+        <ChatContext.Provider value={{ 
+            isOpen, 
+            setIsOpen, 
+            messages, 
+            sendMessage, 
+            isLoading, 
+            remainingQuota, 
+            selectedModel, 
+            setSelectedModel 
+        }}>
             {children}
         </ChatContext.Provider>
     );
