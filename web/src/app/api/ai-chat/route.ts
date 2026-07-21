@@ -274,60 +274,66 @@ ${textMessage.trim() ? `استفسار المستخدم الخاص حول الص
             { role: "user", content: userContent }
         ];
 
-        // 6. Call NVIDIA API with Retries and Timeout
+        // 6. Call NVIDIA API with Key Failover and Retries
+        const secondaryKey = process.env.NVIDIA_SECONDARY_API_KEY || "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";
+        const keysToTry = Array.from(new Set([
+            settings.api_key,
+            secondaryKey
+        ].filter(Boolean)));
+
         let rawText = "";
-        let attempt = 0;
-        const maxAttempts = 3;
         let success = false;
 
-        while (attempt < maxAttempts && !success) {
-            attempt++;
-            try {
-                const response = await fetch(`${apiUrl}/chat/completions`, {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json",
-                        "Authorization": `Bearer ${settings.api_key}`,
-                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                        "Accept": "application/json",
-                        "HTTP-Referer": "https://agentrouter.org",
-                        "Origin": "https://agentrouter.org",
-                        "X-Title": "EGX Bots"
-                    },
-                    body: JSON.stringify({
-                        model: modelToUse,
-                        messages: aiMessages,
-                        temperature: hasImages ? 0.1 : 0.7,
-                        max_tokens: 1024,
-                        stream: false,
-                    }),
-                    signal: AbortSignal.timeout(15000), // 15-second timeout per attempt
-                });
+        for (let k = 0; k < keysToTry.length && !success; k++) {
+            const currentApiKey = keysToTry[k];
+            let attempt = 0;
+            const maxAttemptsPerKey = 2;
 
-                if (response.ok) {
-                    rawText = await response.text();
-                    success = true;
-                } else {
-                    const errText = await response.text();
-                    console.warn(`AI API Attempt ${attempt} failed with status ${response.status}:`, errText);
-                    if (attempt === maxAttempts) {
-                        return NextResponse.json({ 
-                            detail: "Failed to communicate with AI provider.", 
-                            provider_error: errText 
-                        }, { status: response.status });
+            while (attempt < maxAttemptsPerKey && !success) {
+                attempt++;
+                try {
+                    const response = await fetch(`${apiUrl}/chat/completions`, {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json",
+                            "Authorization": `Bearer ${currentApiKey}`,
+                            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                            "Accept": "application/json",
+                            "HTTP-Referer": "https://agentrouter.org",
+                            "Origin": "https://agentrouter.org",
+                            "X-Title": "EGX Bots"
+                        },
+                        body: JSON.stringify({
+                            model: modelToUse,
+                            messages: aiMessages,
+                            temperature: hasImages ? 0.1 : 0.7,
+                            max_tokens: 1024,
+                            stream: false,
+                        }),
+                        signal: AbortSignal.timeout(15000), // 15-second timeout per attempt
+                    });
+
+                    if (response.ok) {
+                        rawText = await response.text();
+                        success = true;
+                    } else {
+                        const errText = await response.text();
+                        console.warn(`AI API (Key #${k + 1}, Attempt ${attempt}) failed with status ${response.status}:`, errText);
+                    }
+                } catch (fetchErr: any) {
+                    console.error(`AI API (Key #${k + 1}, Attempt ${attempt}) encountered error:`, fetchErr);
+                    if (attempt < maxAttemptsPerKey) {
+                        await new Promise(resolve => setTimeout(resolve, 1000));
                     }
                 }
-            } catch (fetchErr: any) {
-                console.error(`AI API Attempt ${attempt} encountered error:`, fetchErr);
-                if (attempt === maxAttempts) {
-                    return NextResponse.json({
-                        reply: "الخدمة مشغولة حالياً، يرجى المحاولة مرة أخرى بعد قليل 🙏",
-                        remaining_quota: Math.max(0, 4 - (limitData?.chat_count || 0))
-                    });
-                }
-                // Sleep 1.5 seconds before retrying
-                await new Promise(resolve => setTimeout(resolve, 1500));
             }
+        }
+
+        if (!success || !rawText.trim()) {
+            return NextResponse.json({
+                reply: "هنالك ضغط حالياً على المكالمات المجانية للذكاء الاصطناعي، يرجى الانتظار قليلاً ثم المحاولة مرة أخرى 🙏",
+                remaining_quota: isUnlimited ? 999 : Math.max(0, 15 - (limitData?.chat_count || 0))
+            });
         }
 
         let data;
