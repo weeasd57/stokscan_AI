@@ -20,6 +20,54 @@ const BLOCKED_INPUT_PATTERNS = [
     "ignore previous instructions", "system instructions", "you must ignore"
 ];
 
+type UserIntent = "Count" | "YesNo" | "Compare" | "Analyze" | "News" | "Portfolio" | "Recommendation" | "ActionAdvice" | "Sector" | "Education" | "Emotional" | "Dividends" | "General";
+
+async function detectIntent(message: string, apiKey: string): Promise<UserIntent> {
+    if (!message || message.trim() === "") return "General";
+    if (message.includes("صورة") || message.includes("محفظة")) return "Portfolio";
+    
+    const lower = message.toLowerCase();
+    if (/كام|كم عدد|عددي|كم/.test(lower)) return "Count";
+    if (/أشتري إيه|ترشحلي|توصية|توصيات|سهم كويس|أدخل في إيه|ادخل في ايه|توصيه/.test(lower)) return "Recommendation";
+    if (/أبيع|ابيع|أحتفظ|احتفظ|أوقف خسارة|وقف خسارة|اخرج ولا|اصبر|أصبر/.test(lower)) return "ActionAdvice";
+    if (/هل|تجميع|مؤسسي|في مشتري|مشتري/.test(lower)) return "YesNo";
+    if (/ولا|أو|مقارنة|قارن|vs/i.test(lower)) return "Compare";
+    if (/قطاع|قطاعات|عقارات|بنوك|أدوية|بتروكيماويات|اسمدة/.test(lower)) return "Sector";
+    if (/أخبار|خبر|اخبار/.test(lower)) return "News";
+    if (/يعني إيه|يعني ايه|إيه هو|ايه هو|اشرح|شرح|كيف يعمل|مؤشر|فوليوم|سيولة/.test(lower)) return "Education";
+    if (/خسران|فلوسي|السوق وحش|زعلان|نصابة|اتمرجنت|خسارة كبيرة/.test(lower)) return "Emotional";
+    if (/كوبون|توزيع|أرباح|ارباح|جمعية عمومية|مجاني/.test(lower)) return "Dividends";
+    
+    try {
+        const res = await fetch("https://integrate.api.nvidia.com/v1/chat/completions", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${apiKey}`
+            },
+            body: JSON.stringify({
+                model: "meta/llama-3.1-8b-instruct",
+                messages: [
+                    {
+                        role: "system",
+                        content: `You are an Intent Classifier. Categorize the user's message into EXACTLY ONE of these intents: Count, YesNo, Compare, Analyze, News, Portfolio, Recommendation, ActionAdvice, Sector, Education, Emotional, Dividends, General. Output ONLY the word.`
+                    },
+                    { role: "user", content: message }
+                ],
+                max_tokens: 15,
+                temperature: 0.1
+            })
+        });
+        const json = await res.json();
+        const intentText = json.choices?.[0]?.message?.content?.trim() || "General";
+        const valid = ["Count", "YesNo", "Compare", "Analyze", "News", "Portfolio", "Recommendation", "ActionAdvice", "Sector", "Education", "Emotional", "Dividends", "General"];
+        if (valid.includes(intentText)) return intentText as UserIntent;
+    } catch (e) {
+        console.warn("Intent detection failed", e);
+    }
+    return "General";
+}
+
 function filterInput(text: string): boolean {
     const lowered = text.toLowerCase();
     return !BLOCKED_INPUT_PATTERNS.some(pattern => lowered.includes(pattern));
@@ -130,78 +178,106 @@ export async function POST(req: NextRequest) {
             }, { status: 429 });
         }
 
-        // 4. Fetch Chatbot Settings
+        // 3.5 Prepare API Keys and Intent Engine
+        const keysToTry = Array.from(new Set([
+            process.env.NVIDIA_API_KEY,
+            process.env.NVIDIA_SECONDARY_API_KEY,
+        ].filter((k): k is string => Boolean(k))));
+
+        if (keysToTry.length === 0) {
+            return NextResponse.json({ detail: "AI service not configured" }, { status: 500 });
+        }
+        const primaryApiKey = keysToTry[0];
+        
+        const textMessage = message || "";
+        const userIntent = hasImages ? "Portfolio" : await detectIntent(textMessage, primaryApiKey);
+        
+        // 4. Fetch Chatbot Settings & Build Dynamic System Prompt based on Intent
         let systemPrompt = `🚫 قاعدة صارمة ومطلقة ضد الاختلاق (Anti-Hallucination Rule #1):
-- ممنوع منعاً باتاً اختراع، تكميل، أو تخمين أي أرقام، أسعار، نسب، أسهم، أو إجمالي محفظة من خيالك أبداً.
-- عند استلام صورة محفظة أو شاشة تداول، استخرج فقط الأسهم والأرقام المكتوبة والمقروءة وضوحاً في الصورة. إذا كانت الصورة غير واضحة أو ناقصة، يمنع اختراع بقية أرقام المحفظة!
-- لا تخترع أي أرقام أو أسعار أو إحصائيات غير موجودة صراحة في البيانات المرفقة (=== REAL-TIME DATABASE DATA ===).
-- إذا طلب المستخدم "أقوى الأسهم"، "توصيات"، أو "ترتيب لأسهم" ولم تكن هذه البيانات مرفقة لك صراحةً، **يُمنع اختراع أي سهم من خيالك!** اعتذر بلباقة واطلب منه تحديد رمز سهم معين (مثل COMI).
-- إذا سألك عن سهم معين ولم تجد بياناته، أو سألك عن وضع السوق العام ولا تملك بياناته، اعتذر بلباقة واطلب منه تحديد سهم لتحليله.
+- ممنوع منعاً باتاً اختراع، تكميل، أو تخمين أي أرقام، أسعار، نسب، أسهم.
+- لا تخترع أي أرقام أو أسعار أو إحصائيات غير موجودة صراحة في البيانات المرفقة.
+- إذا طلب المستخدم "أقوى الأسهم" ولم تكن في البيانات، يُمنع الاختراع.
 
 أنت المساعد الذكي المالي والمحلل الفني الأول للبورصة المصرية على منصة EGX Bots.
 التاريخ والوقت الحالي: ${new Date().toLocaleString("ar-EG", { timeZone: "Africa/Cairo" })}
 
-المبادئ والشخصية التي يجب أن تتحدث وتلتزم بها دائماً:
+🗣️ **لغة البورصة المصرية الحقيقية:**
+استخدم لغة "البورصجية" (مثل: طالع بقوة، في تجميع، قافل على قد نفسه).
 
-1. 🗣️ **التحدث بلغة البورصة المصرية الحقيقية (لغة البورصجية):**
-   - "طالع بقوة" ❌ لا تقل "في اتجاه صعودي"
-   - "في تجميع" ❌ لا تقل "زيادة في حجم الشراء"
-   - "قافل على قد نفسه" ❌ لا تقل "تداول جانبي"
-   - "بياع مسيطر" ❌ لا تقل "ضغط بيعي"
-   - "السهم ماشي كويس" ❌ لا تقل "الأداء جيد"
-   - "واخد ريحته" ❌ لا تقل "في استراحة"
-   - "كاسر المقاومة" ❌ لا تقل "اخترق مستوى المقاومة"
-
-2. 🏷️ **مصطلحات منصة EGX Bots بالعربي (إلزامي):**
-   - "ماسح EGX الفني" ❌ لا تقل "Technical Scanner"
-   - "كاشف الحد اليومي" ❌ لا تقل "Circuit Breaker Check"
-
-3. 📊 **عوامل التحليل الإلزامية (فقط بناءً على البيانات المقدمة لك):**
-   
-   ⚠️ **القرب من الحد اليومي (كاشف الحد اليومي):**
-   مثال: "السهم بعيد 3% بس عن الحد الأعلى، يعني لسه فيه مساحة" أو "قرب من الحد السفلي، حاله حاله"
-   
-   💧 **السيولة والفوليوم:**
-   مثال: "السهم ده من الأسهم قليلة التداول، احذر من الدخول بكمية كبيرة" أو "سيولة عالية، بتدخل وتخرج براحتك"
-   
-   💵 **حساسية الدولار والغاز:**
-   مثال: "القطاع ده مرتبط بسعر الغاز، تابع نشرة البنك المركزي" أو "البنوك بتستفيد من ارتفاع الفايدة"
-
-   📰 **الوعي الكامل بالسوق والأخبار (Market & News Awareness):**
-   - أنت على دراية كاملة بأحدث اتجاهات السوق العام والقطاعات من جدول market_cache والأخبار والتحليلات الوجدانية من stock_news_sentiment.
-   - عندما يسألك المستخدم عن وضع السوق، الاقتصاد، الأخبار الأخيرة، أو اتجاه قطاع معين، استعن بهذه البيانات المرفقة لإعطائه رؤية واعية وتحليلية متكاملة.
-
-4. 🎯 **أزرار الاقتراحات الذكية (بناءً على السياق):**
-   بدل الأزرار العامة، حط أزرار تعكس أسئلة المتداولين الحقيقية:
-   - للأسهم الفردية: [قارن بـ COMI] [هل في تجميع مؤسسي؟] [قد إيه بعيد عن الحد؟]
-   - للقطاعات: [البنوك ماشية إزاي؟] [مين الأقوى في القطاع؟] [القطاع طالع ولا نازل؟]
-   - للسوق: [EGX30 حالته إيه؟] [في أخبار مؤثرة؟] [الدولار عامل إيه؟]
-
-5. ✅ **التنصل والخاتمة الموحدة (إلزامي):**
-   اختم كل رد بالسطر التالي **بالضبط** بدون أي تغيير:
-   
-   "✅ تحليل EGX Bots مبني على [242 سهم مصري + بيانات تاريخية من 2019] — مش نصيحة استثمار، القرار ليك."
-   
-   ❌ **ممنوع منعاً باتاً** كتابة جمل روتينية زي:
-   - "يرجى ملاحظة أن هذه التحليلات هي قراءة رقمية استرشادية"
-   - "هذا التحليل لا يعتبر نصيحة مالية"
-   - "استشر مستشارك المالي قبل اتخاذ القرار"
-
-6. 📋 **طريقة الرد (مرونة وذكاء):**
-   - **إذا كانت رسالة المستخدم مجرد تحية أو سؤال عام (مثل "هاي"، "صباح الخير"، "إزيك"):** رد عليه بترحيب طبيعي جداً وبسيط كمساعد ذكي للبورصة، ولا تذكر أي قوالب أو تطلب منه "عنوان تحليل".
-   - **إذا سأل المستخدم عن سهم محدد (وتم تزويدك ببياناته أدناه):** استخدم هذا القالب المنظم:
-📌 [رمز السهم] — [اسم السهم]
-────────────────────
-🔹 الوضع الفني: [طالع بقوة / قافل على قد نفسه / بياع مسيطر]
-🔹 قرب من الحد اليومي (كاشف الحد اليومي): [X%]
-🔹 السيولة: [عالية / متوسطة / ضعيفة] — [تعليق]
-🔹 توصية الـ AI: [صعودي / متحفظ / سلبي] — ثقة X% (فقط إن وجدت التوصية في البيانات)
-
-7. 🛠️ **الاستجابة للأوامر المباشرة (إلزامي):**
-إذا طلب المستخدم تنسيق بيانات سابقة (مثل: "طلعهم اكسيل"، "جدول"، "ملخص")، يجب عليك تنفيذ طلبه الحرفي وتنسيق البيانات المطلوبة مباشرة في جدول (Markdown Table) بدون استخدام قالب التحليل المذكور أعلاه، وبدون إضافة أي معلومات خارجية.
-
-✅ تحليل EGX Bots مبني على [242 سهم مصري + بيانات تاريخية من 2019] — مش نصيحة استثمار، القرار ليك.
+🎯 **تعليمات الإجابة الخاصة بنوع السؤال (${userIntent}):**
 `;
+
+        switch (userIntent) {
+            case "Count":
+                systemPrompt += `- المستخدم يسأل عن عدد شيء معين.
+- أجب برقم فقط، متبوعاً بجملة واحدة قصيرة جداً توضح العدد.
+- مثال: "يوجد 4 أخبار إيجابية اليوم." أو "يوجد سهمين صاعدين."
+- ممنوع ذكر تفاصيل أو قوائم طويلة، فقط العدد المطلوب.`;
+                break;
+            case "YesNo":
+                systemPrompt += `- المستخدم يسأل سؤال نعم أو لا (مثل: هل يوجد تجميع؟ هل السهم صاعد؟).
+- أجب بـ (نعم) أو (لا) صريحة في بداية الرد.
+- أتبعها بجملة واحدة تبريرية من البيانات المرفقة.
+- مثال: "نعم، السهم به تجميع واضح بسبب ارتفاع السيولة."`;
+                break;
+            case "Compare":
+                systemPrompt += `- المستخدم يقارن بين سهمين أو أكثر.
+- استخدم جدول مقارنة صغير وبسيط (Markdown Table) للمؤشرات.
+- اكتب سطر خلاصة تحت الجدول يوضح أيهما الأفضل فنياً باختصار.`;
+                break;
+            case "News":
+                systemPrompt += `- المستخدم يسأل عن أخبار.
+- أجب بأهم خبرين فقط بأسلوب مختصر ومباشر.
+- لا تذكر تحليلات فنية (MACD, RSI) ما لم تُسأل عنها.`;
+                break;
+            case "Portfolio":
+                systemPrompt += `- المستخدم أرسل صورة محفظة أو يسأل عنها.
+- استخرج الأسهم والأرقام المكتوبة فقط في قائمة نقطية.
+- لا تقدم نصائح مالية، اقرأ البيانات المكتوبة فقط بصيغة (الاسم: القيمة).`;
+                break;
+            case "Recommendation":
+                systemPrompt += `- المستخدم يطلب توصية مباشرة بالاسم (أشتري إيه؟).
+- يمنع منعاً باتاً ذكر اسم سهم من خيالك أو تقديم نصيحة شراء مباشرة.
+- أجب بأنك أداة تحليل ذكية ولست مستشاراً مالياً، ثم وجهه لمتابعة كاشف الحد اليومي أو الأسهم ذات السيولة العالية في السوق كأمثلة للدراسة.`;
+                break;
+            case "ActionAdvice":
+                systemPrompt += `- المستخدم يطلب قراراً صريحاً بالبيع أو الشراء أو وقف الخسارة.
+- يمنع تماماً إعطاء أمر مباشر "بيع" أو "اشتري".
+- بدلاً من ذلك، حدد له بوضوح أرقام الدعم والمقاومة، واتجاه السهم الحالي، ثم أخبره أن "القرار النهائي يرجع لإدارة محفظتك".`;
+                break;
+            case "Sector":
+                systemPrompt += `- المستخدم يسأل عن قطاع معين.
+- ركز بنسبة 100% على أداء هذا القطاع من بيانات السوق المرفقة (Sectors).
+- اذكر ما إذا كان القطاع يستقطب سيولة أم يشهد جني أرباح.`;
+                break;
+            case "Education":
+                systemPrompt += `- المستخدم يسأل سؤالاً تعليمياً (مثل شرح مؤشر أو مصطلح).
+- اشرح المفهوم بأسلوب مبسط جداً وبلغة البورصجية.
+- لا تسرد أرقاماً، بل أعطِ مثالاً عملياً بسيطاً يسهل فهمه.`;
+                break;
+            case "Emotional":
+                systemPrompt += `- المستخدم يشعر بالإحباط، الخسارة، أو يتحدث بانفعال عن السوق.
+- تعاطف معه باحترافية، وذكره أن أسواق المال تمر بدورات صعود وهبوط.
+- انصحه بأهمية "إدارة المخاطر" وتفعيل "وقف الخسارة" لحماية رأس المال، وازرع فيه الأمل بحذر دون وعود كاذبة.`;
+                break;
+            case "Dividends":
+                systemPrompt += `- المستخدم يسأل عن توزيعات الأرباح، الكوبونات، أو الجمعيات العمومية.
+- أخبره بوضوح ولباقة أنه لا تتوفر لديك بيانات اللحظية للكوبونات في الوقت الحالي.
+- وضح أن تخصصك هو قراءة حركة الأسعار والسيولة الفنية، واطلب منه مراجعة الشاشة الرسمية للشركة.`;
+                break;
+            case "Analyze":
+                systemPrompt += `- المستخدم يطلب تحليل فني أو استعراض لوضع السوق.
+- أجب بنقاط سريعة (Bullet points) توضح الاتجاه، الدعم، والمقاومة، أو الخلاصة المفيدة.
+- لا تسرد أرقاماً لا معنى لها، أعطِ الخلاصة المفيدة فقط وبجمل قصيرة.`;
+                break;
+            case "General":
+            default:
+                systemPrompt += `- أجب باختصار وبأسلوب ذكي لا يتعدى 3 أسطر.
+- كن مباشراً وموجزاً، لا تكتب تقارير مطولة إذا لم يُطلب منك.`;
+                break;
+        }
+
+        systemPrompt += `\n\n✅ **التنصل والخاتمة (إلزامي):**\nاختم كل رد بالسطر التالي بالضبط بدون تغيير:\n"✅ تحليل EGX Bots مبني على بيانات حية — مش نصيحة استثمار، القرار ليك."`;
 
         // 4. Fetch Chatbot Settings
         const { data: settings, error: settingsError } = await supabase
@@ -233,7 +309,6 @@ export async function POST(req: NextRequest) {
         const modelToUse = hasImages ? VISION_MODEL : chosenModel;
 
         // 4.5 Search Database for Stock Data if mentioned in message or history
-        const textMessage = message || "";
         let dynamicSuggestedButtons: string[] = [];
 
         try {
@@ -393,51 +468,46 @@ export async function POST(req: NextRequest) {
 
                 if (latestPrice || latestTech || scanData || stockNews.length > 0) {
                     systemPrompt += `\n\n=== 🔴 REAL-TIME SUPABASE DATABASE DATA FOR STOCK: ${targetSymbol} (${targetStockName}) ===\n`;
-                    systemPrompt += `CRITICAL INSTRUCTION: You MUST use the exact real-time live numbers and current year 2026 provided below. Do NOT output old dates like 2024 or incorrect stock names.\n`;
+                    systemPrompt += `CRITICAL INSTRUCTION: You MUST use the exact real-time live numbers provided below.\n`;
                     systemPrompt += `- Stock Symbol: ${targetSymbol}\n`;
                     systemPrompt += `- Official Stock Name: ${targetStockName}\n`;
                     
-                    if (limitCount > 1 && priceDataArray.length > 0) {
-                        systemPrompt += `\n[HISTORICAL DATA FOR LAST ${priceDataArray.length} TRADING DAYS]\n`;
-                        systemPrompt += `Date | Close | Volume | Change% | RSI | MACD\n`;
-                        for (let i = 0; i < priceDataArray.length; i++) {
-                            const p = priceDataArray[i];
-                            const t = techDataArray.find((tech: any) => tech.date === p.date) || {};
-                            systemPrompt += `${p.date} | ${p.close} | ${p.volume} | ${t.change_pct || 0}% | ${t.rsi_14 || 'N/A'} | ${t.macd || 'N/A'}\n`;
-                        }
-                        systemPrompt += `[END HISTORICAL DATA]\n\n`;
-                    } else if (latestPrice) {
-                        systemPrompt += `- Current Live Date: ${latestPrice.date} (Year 2026)\n`;
-                        systemPrompt += `- Latest Close Price: EGP ${latestPrice.close} (Open: EGP ${latestPrice.open}, High: EGP ${latestPrice.high}, Low: EGP ${latestPrice.low})\n`;
+                    if (limitCount > 1 && priceDataArray.length > 0 && userIntent !== "News") {
+                        systemPrompt += `\n[Historical Price Data - Last ${priceDataArray.length} Days]:\n`;
+                        systemPrompt += `Date | Close | High | Low | Volume\n`;
+                        priceDataArray.forEach((p: any) => {
+                            systemPrompt += `${p.date} | ${p.close_price} | ${p.high_price} | ${p.low_price} | ${p.volume}\n`;
+                        });
+                    } else if (latestPrice && userIntent !== "News") {
+                        systemPrompt += `- Latest Close Price: ${latestPrice.close_price} (Date: ${latestPrice.date})\n`;
                         systemPrompt += `- Trading Volume: ${latestPrice.volume}\n`;
                     }
-                    
-                    if (latestTech && limitCount === 1) {
-                        systemPrompt += `- Daily Change %: ${latestTech.change_pct}%\n`;
+
+                    if (latestTech && userIntent !== "News") {
+                        systemPrompt += `\n[Technical Indicators]:\n`;
                         systemPrompt += `- RSI (14): ${latestTech.rsi_14}\n`;
-                        systemPrompt += `- MACD: ${latestTech.macd} (Signal: ${latestTech.macd_signal}, Histogram: ${latestTech.macd_histogram})\n`;
-                        systemPrompt += `- Moving Averages: SMA20=EGP ${latestTech.sma_20}, SMA50=EGP ${latestTech.sma_50}, SMA200=EGP ${latestTech.sma_200}\n`;
-                        systemPrompt += `- Bollinger Bands: Upper=EGP ${latestTech.bb_upper}, Middle=EGP ${latestTech.bb_middle}, Lower=EGP ${latestTech.bb_lower}\n`;
+                        systemPrompt += `- MACD: ${latestTech.macd} (Signal: ${latestTech.macd_signal})\n`;
+                        systemPrompt += `- Bollinger Bands: Upper ${latestTech.bollinger_upper}, Lower ${latestTech.bollinger_lower}\n`;
+                        systemPrompt += `- CMF (Chaikin Money Flow - Tagmaee/Tasreef Indicator): ${latestTech.cmf}\n`;
                     }
 
-                    if (scanData) {
-                        systemPrompt += `- AI Model Recommendation: ${scanData.signal} (Precision: ${scanData.precision}%)\n`;
-                        if (scanData.target_price) systemPrompt += `- AI Target Price: EGP ${scanData.target_price}\n`;
-                        if (scanData.stop_loss) systemPrompt += `- AI Stop Loss: EGP ${scanData.stop_loss}\n`;
+                    if (scanData && userIntent !== "News") {
+                        systemPrompt += `\n[AI Technical Scanner Signal]:\n`;
+                        systemPrompt += `- Signal: ${scanData.signal}\n`;
+                        if (scanData.precision) systemPrompt += `- Precision Score: ${scanData.precision}%\n`;
                     }
-
-                    if (stockNews.length > 0) {
-                        systemPrompt += `\n[LATEST NEWS & SENTIMENT FOR ${targetSymbol}]\n`;
+                    
+                    if (stockNews.length > 0 && (userIntent === "News" || userIntent === "Count" || userIntent === "Analyze" || userIntent === "General")) {
+                        systemPrompt += `\n[Latest News & Sentiment]:\n`;
                         stockNews.forEach((n: any) => {
                             const score = n.sentiment_score || 0;
-                            const sentimentText = score > 0.1 ? "إيجابي 🟢" : score < -0.1 ? "سلبي 🔴" : "حيادي ⚪";
-                            const headlinesStr = Array.isArray(n.headlines) ? n.headlines.join(" | ") : (n.headlines || "");
-                            systemPrompt += `- Date: ${n.date} | Sentiment: ${sentimentText} (Score: ${score}) | Headlines: ${headlinesStr}\n`;
+                            const sentimentText = score > 0.1 ? "إيجابي" : score < -0.1 ? "سلبي" : "حيادي";
+                            const headlineStr = Array.isArray(n.headlines) ? n.headlines[0] : n.headlines;
+                            systemPrompt += `- Date: ${n.date} | Sentiment: ${sentimentText} (${score}) | Count: ${n.news_count} | Headline: ${headlineStr}\n`;
                         });
-                        systemPrompt += `[END NEWS FOR ${targetSymbol}]\n`;
                     }
 
-                    systemPrompt += `=== END OF DATABASE DATA ===\n`;
+                    systemPrompt += `\n=== END OF DATA ===\n`;
                 }
             } else if (combinedText.includes("قطاع") || combinedText.includes("sector") || combinedText.includes("بنوك") || combinedText.includes("أسمدة")) {
                 // Sector-related buttons
@@ -464,33 +534,36 @@ export async function POST(req: NextRequest) {
                 ];
             }
             // 4.5 Fetch General Market Status (market_cache) & Top Market News (stock_news_sentiment)
-            const [marketCacheRes, topNewsRes] = await Promise.all([
-                supabase.from("market_cache").select("payload, computed_at").eq("cache_key", "market_status_Egypt").maybeSingle(),
-                supabase.from("stock_news_sentiment").select("*").gt("news_count", 0).order("date", { ascending: false }).limit(5)
-            ]);
+            // Skip fetching market/news context if Intent is purely Portfolio or Compare
+            if (userIntent !== "Portfolio" && userIntent !== "Compare") {
+                const [marketCacheRes, topNewsRes] = await Promise.all([
+                    supabase.from("market_cache").select("payload, computed_at").eq("cache_key", "market_status_Egypt").maybeSingle(),
+                    supabase.from("stock_news_sentiment").select("*").gt("news_count", 0).order("date", { ascending: false }).limit(5)
+                ]);
 
-            if (marketCacheRes?.data?.payload) {
-                const mPayload = marketCacheRes.data.payload;
-                systemPrompt += `\n\n=== 🌐 REAL-TIME EGX MARKET STATUS & MACRO ECONOMY DATA ===\n`;
-                systemPrompt += `- Market Status/Regime: ${JSON.stringify(mPayload.market_status || mPayload.regime || mPayload.status || "مستقر/متوازن")}\n`;
-                if (mPayload.egx30_summary || mPayload.summary || mPayload.market_summary) {
-                    systemPrompt += `- EGX30 & Market Overview: ${JSON.stringify(mPayload.egx30_summary || mPayload.summary || mPayload.market_summary)}\n`;
+                if (marketCacheRes?.data?.payload && userIntent !== "News") {
+                    const mPayload = marketCacheRes.data.payload;
+                    systemPrompt += `\n\n=== 🌐 REAL-TIME EGX MARKET STATUS & MACRO ECONOMY DATA ===\n`;
+                    systemPrompt += `- Market Status/Regime: ${JSON.stringify(mPayload.market_status || mPayload.regime || mPayload.status || "مستقر/متوازن")}\n`;
+                    if (mPayload.egx30_summary || mPayload.summary || mPayload.market_summary) {
+                        systemPrompt += `- EGX30 & Market Overview: ${JSON.stringify(mPayload.egx30_summary || mPayload.summary || mPayload.market_summary)}\n`;
+                    }
+                    if (mPayload.sectors || mPayload.sector_summary) {
+                        systemPrompt += `- Sector Performance: ${JSON.stringify(mPayload.sectors || mPayload.sector_summary)}\n`;
+                    }
+                    systemPrompt += `=== END OF MARKET STATUS ===\n`;
                 }
-                if (mPayload.sectors || mPayload.sector_summary) {
-                    systemPrompt += `- Sector Performance: ${JSON.stringify(mPayload.sectors || mPayload.sector_summary)}\n`;
-                }
-                systemPrompt += `=== END OF MARKET STATUS ===\n`;
-            }
 
-            if (topNewsRes?.data && topNewsRes.data.length > 0) {
-                systemPrompt += `\n=== 📰 LATEST TOP EGX MARKET NEWS & HEADLINES ===\n`;
-                topNewsRes.data.forEach((n: any) => {
-                    const score = n.sentiment_score || 0;
-                    const sentimentText = score > 0.1 ? "إيجابي 🟢" : score < -0.1 ? "سلبي 🔴" : "حيادي ⚪";
-                    const headlineStr = Array.isArray(n.headlines) ? (n.headlines[0] || n.symbol) : (n.headlines || n.symbol);
-                    systemPrompt += `- [${n.symbol}] (${n.date}): ${headlineStr} (مؤشر التفاؤل: ${sentimentText})\n`;
-                });
-                systemPrompt += `=== END OF TOP MARKET NEWS ===\n`;
+                if (topNewsRes?.data && topNewsRes.data.length > 0 && (userIntent === "News" || userIntent === "Count" || userIntent === "Analyze" || userIntent === "General")) {
+                    systemPrompt += `\n=== 📰 LATEST TOP EGX MARKET NEWS & HEADLINES ===\n`;
+                    topNewsRes.data.forEach((n: any) => {
+                        const score = n.sentiment_score || 0;
+                        const sentimentText = score > 0.1 ? "إيجابي 🟢" : score < -0.1 ? "سلبي 🔴" : "حيادي ⚪";
+                        const headlineStr = Array.isArray(n.headlines) ? (n.headlines[0] || n.symbol) : (n.headlines || n.symbol);
+                        systemPrompt += `- [${n.symbol}] (${n.date}): ${headlineStr} (مؤشر التفاؤل: ${sentimentText})\n`;
+                    });
+                    systemPrompt += `=== END OF TOP MARKET NEWS ===\n`;
+                }
             }
         } catch (stockErr) {
             console.error("Failed to query stock DB data for prompt:", stockErr);
@@ -584,16 +657,7 @@ ${textMessage.trim() ? `ملاحظة المستخدم: ${textMessage}` : ""}`;
             { role: "user", content: userContent }
         ];
 
-        // 6. Call API using keys from environment only (no hardcoded fallbacks in source).
-        const keysToTry = Array.from(new Set([
-            process.env.NVIDIA_API_KEY,
-            process.env.NVIDIA_SECONDARY_API_KEY,
-        ].filter((k): k is string => Boolean(k))));
-
-        if (keysToTry.length === 0) {
-            return NextResponse.json({ detail: "AI service not configured" }, { status: 500 });
-        }
-
+        // 6. Call API using keys from environment only
         let rawText = "";
         let success = false;
 
