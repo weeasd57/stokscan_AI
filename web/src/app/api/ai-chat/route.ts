@@ -68,22 +68,29 @@ export async function POST(req: NextRequest) {
             });
         }
 
-        // Format conversation history for AI model (text-only for history)
+        // Format conversation history for AI model (text-only for history, max 4 turns)
         const formattedHistory = Array.isArray(history)
             ? history
                 .filter((item: any) => item && item.content && (item.role === "user" || item.role === "assistant"))
-                .slice(-6)
+                .slice(-4)
                 .map((item: any) => {
                     let text = String(item.content);
-                    // Filter out repetitive English image captions from history
+                    // Filter out repetitive English image captions or long repetitive template text
                     if (text.includes("[Caption:")) {
                         text = text.replace(/\[Caption:[^\]]+\]/gi, "").trim();
                     }
                     if (text.startsWith("📷 [")) {
                         text = text.replace(/^📷\s*\[[^\]]+\]\s*/, "").trim();
                     }
+                    if (text.includes("The image depicts a screenshot of")) {
+                        text = "تحليل صورة الشاشة والمحفظة.";
+                    }
+                    if (text.length > 500) {
+                        text = text.substring(0, 500) + "...";
+                    }
                     return { role: item.role, content: text || "تحليل الأسهم" };
                 })
+
             : [];
 
         // 2. Fetch User Profile
@@ -308,7 +315,7 @@ ${textMessage.trim() ? `استفسار المستخدم الخاص حول الص
         for (let k = 0; k < keysToTry.length && !success; k++) {
             const currentApiKey = keysToTry[k];
             let attempt = 0;
-            const maxAttemptsPerKey = 2;
+            const maxAttemptsPerKey = 1;
 
             while (attempt < maxAttemptsPerKey && !success) {
                 attempt++;
@@ -328,11 +335,12 @@ ${textMessage.trim() ? `استفسار المستخدم الخاص حول الص
                             model: modelToUse,
                             messages: aiMessages,
                             temperature: hasImages ? 0.1 : 0.7,
-                            max_tokens: 1024,
+                            max_tokens: 512,
                             stream: false,
                         }),
-                        signal: AbortSignal.timeout(hasImages ? 50000 : 40000), // 40-50 second timeout for LLM generation
+                        signal: AbortSignal.timeout(hasImages ? 9000 : 7000), // Strict 7-9s timeout to prevent Vercel 504 Gateway Timeout
                     });
+
 
                     if (response.ok) {
                         rawText = await response.text();

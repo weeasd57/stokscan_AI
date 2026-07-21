@@ -242,6 +242,17 @@ export function ChatProvider({ children }: { children: ReactNode }) {
                 })
             });
 
+            if (response.status === 504 || response.status === 502) {
+                const timeoutMsg: ChatMessage = {
+                    role: "assistant",
+                    content: "استغرقت الاستجابة وقتاً أطول من المعتاد بسبب الضغط على الموديل. يرجى إعادة المحاولة أو اختيار موديل أسرع مثل Llama 3.1 8B ⚡",
+                    timestamp: Date.now()
+                };
+                setMessages(prev => [...prev, timeoutMsg]);
+                messagesRef.current = [...messagesRef.current, timeoutMsg];
+                return;
+            }
+
             const data = await response.json();
             
             if (response.status === 429) {
@@ -259,6 +270,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             if (!response.ok) {
                 throw new Error(data.detail || "Failed to communicate with AI");
             }
+
 
             if (data.remaining_quota !== undefined) {
                 setRemainingQuota(data.remaining_quota);
