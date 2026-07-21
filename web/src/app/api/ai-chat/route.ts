@@ -142,6 +142,12 @@ export async function POST(req: NextRequest) {
                     if (text.includes("The image depicts a screenshot of")) {
                         text = "تحليل صورة الشاشة والمحفظة.";
                     }
+                    // Strip old hallucinated button lists from history so AI doesn't mimic them in old sessions
+                    if (text.includes("أزرار الاقتراحات") || text.includes("[قارن بـ")) {
+                        text = text.replace(/.*أزرار الاقتراحات.*?\n/gi, "")
+                                   .replace(/•\s*\[[^\]]+\]/gi, "")
+                                   .replace(/اختر أزرار الاقتراحات.*?\n/gi, "").trim();
+                    }
                     if (text.length > 500) {
                         text = text.substring(0, 500) + "...";
                     }
@@ -668,7 +674,7 @@ ${textMessage.trim() ? `ملاحظة المستخدم: ${textMessage}` : ""}`;
             // For text: Try requested model first, fallback to 8B for speed
             let modelsToTryForThisKey: string[];
             if (hasImages) {
-                modelsToTryForThisKey = NVIDIA_VISION_MODELS; // Try 90B first, then 11B
+                modelsToTryForThisKey = NVIDIA_VISION_MODELS; // Try 11B vision model first for speed, then 90B
             } else {
                 modelsToTryForThisKey = (modelToUse !== "meta/llama-3.1-8b-instruct")
                     ? [modelToUse, "meta/llama-3.1-8b-instruct"]
