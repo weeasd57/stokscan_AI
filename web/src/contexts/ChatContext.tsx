@@ -75,7 +75,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     const WELCOME_MSG: ChatMessage = {
         role: "assistant",
         content: "Hello! I am your AI Market Assistant. I can help you analyze stocks, explain indicators, or navigate the app. You can also send me images 📷 to analyze. How can I help today?",
-        timestamp: Date.now(),
+        timestamp: 0,
     };
 
     // Load initial history from localStorage
@@ -114,28 +114,48 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         }
     }, [messages]);
 
+    const isLoadingRef = useRef(isLoading);
+    useEffect(() => {
+        isLoadingRef.current = isLoading;
+    }, [isLoading]);
+
     // Fetch latest history and quota from server on mount / auth change
     useEffect(() => {
         let isMounted = true;
 
         const fetchHistoryAndQuota = async () => {
+            // Do not sync/overwrite history if AI is actively replying to avoid cancelling/losing in-flight responses
+            if (isLoadingRef.current) return;
+
             try {
                 const res = await fetch("/api/ai-chat");
-                if (!isMounted) return;
+                if (!isMounted || isLoadingRef.current) return;
 
                 if (res.ok) {
                     const data = await res.json();
-                    if (!isMounted) return;
+                    if (!isMounted || isLoadingRef.current) return;
 
                     if (data.remaining_quota !== undefined) {
                         setRemainingQuota(data.remaining_quota);
                     }
                     if (Array.isArray(data.history) && data.history.length > 0) {
                         setMessages(prev => {
-                            const serverUserMessages = new Set(data.history.map((h: any) => h.content));
-                            const unsavedLocal = prev.filter(m => m.role === "user" && !serverUserMessages.has(m.content));
+                            if (isLoadingRef.current) return prev;
 
-                            const combined = [WELCOME_MSG, ...data.history, ...unsavedLocal];
+                            // Build a Set of all server message contents
+                            const serverContents = new Set(data.history.map((h: any) => h.content));
+
+                            // Preserve all local messages (user AND assistant) not yet returned by server history
+                            const localOnly = prev.filter(m => 
+                                m.content !== WELCOME_MSG.content && 
+                                !serverContents.has(m.content)
+                            );
+
+                            const combined = [WELCOME_MSG, ...data.history, ...localOnly];
+
+                            // Sort by timestamp to guarantee perfect chronological order
+                            combined.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+
                             messagesRef.current = combined;
                             return combined;
                         });
