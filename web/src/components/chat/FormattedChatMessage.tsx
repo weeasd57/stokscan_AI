@@ -2,22 +2,23 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import { parseMarkdownTable, exportTableToExcel } from "@/lib/excelExport";
-import { FileSpreadsheet, Download, Check } from "lucide-react";
+import { FileSpreadsheet, Download, Check, Sparkles } from "lucide-react";
 
 interface FormattedChatMessageProps {
     content: string;
     role: "user" | "assistant" | "system";
+    suggestedButtons?: string[];
+    onButtonClick?: (text: string) => void;
+    showSuggestedButtons?: boolean;
 }
 
-export function FormattedChatMessage({ content, role }: FormattedChatMessageProps) {
+export function FormattedChatMessage({ content, role, suggestedButtons, onButtonClick, showSuggestedButtons = true }: FormattedChatMessageProps) {
     const [copied, setCopied] = useState(false);
     const mermaidContainerRef = useRef<HTMLDivElement>(null);
 
-    // Extract mermaid blocks if present
     const mermaidMatch = content.match(/```mermaid\s+([\s\S]*?)```/);
     const mermaidCode = mermaidMatch ? mermaidMatch[1].trim() : null;
 
-    // Render Mermaid diagrams on client side
     useEffect(() => {
         if (mermaidCode && mermaidContainerRef.current) {
             const isDark = document.documentElement.classList.contains("dark");
@@ -43,10 +44,8 @@ export function FormattedChatMessage({ content, role }: FormattedChatMessageProp
         return <div className="dir-auto whitespace-pre-wrap text-zinc-900 dark:text-zinc-100">{content}</div>;
     }
 
-    // Parse Markdown tables if present in assistant message
     const parsedTable = parseMarkdownTable(content);
 
-    // Format Arabic/English mixed text with unicode-bidi isolation
     const renderFormattedText = (text: string) => {
         let cleanText = text.replace(/```mermaid\s+[\s\S]*?```/g, "").trim();
         const lines = cleanText.split("\n");
@@ -90,6 +89,10 @@ export function FormattedChatMessage({ content, role }: FormattedChatMessageProp
             );
         });
     };
+
+    const actionButtons = (suggestedButtons && suggestedButtons.length > 0)
+        ? suggestedButtons
+        : ["قارن بـ COMI", "هل في تجميع مؤسسي؟", "شبه ده حصل امتى؟", "قد إيه بعيد عن الحد؟"];
 
     return (
         <div className="space-y-3 w-full text-right" dir="rtl">
@@ -153,6 +156,23 @@ export function FormattedChatMessage({ content, role }: FormattedChatMessageProp
                             </tbody>
                         </table>
                     </div>
+                </div>
+            )}
+
+            {/* Quick Action Interactive Buttons */}
+            {role === "assistant" && onButtonClick && showSuggestedButtons && (
+                <div className="pt-2 flex flex-wrap gap-1.5 justify-start">
+                    {actionButtons.map((btnText, bIdx) => (
+                        <button
+                            key={bIdx}
+                            type="button"
+                            onClick={() => onButtonClick(btnText)}
+                            className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30 font-bold text-xs transition-all shadow-sm active:scale-95 cursor-pointer"
+                        >
+                            <Sparkles className="w-3 h-3 text-amber-500" />
+                            <span>{btnText}</span>
+                        </button>
+                    ))}
                 </div>
             )}
         </div>

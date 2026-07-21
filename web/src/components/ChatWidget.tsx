@@ -165,12 +165,12 @@ export default function ChatWidget() {
     return (
         <div 
             className={`
-                fixed z-[9999] flex bg-white/95 dark:bg-zinc-950/95 backdrop-blur-xl border border-zinc-200 dark:border-zinc-800 shadow-2xl transition-all duration-300 overflow-hidden
+                fixed z-[9999] flex bg-white/95 dark:bg-[#09090b]/95 backdrop-blur-2xl border border-zinc-200 dark:border-zinc-800 shadow-2xl transition-all duration-500 overflow-hidden ring-1 ring-amber-500/10 dark:ring-amber-500/20
                 max-md:inset-0 max-md:w-full max-md:h-full max-md:rounded-none max-md:pt-[env(safe-area-inset-top,20px)] max-md:pb-[env(safe-area-inset-bottom,10px)]
-                md:bottom-6 md:right-6 md:rounded-2xl md:min-w-[400px] md:min-h-[500px] md:max-w-[95vw] md:max-h-[92vh]
+                md:rounded-2xl md:min-w-[400px] md:min-h-[500px] md:max-w-[100vw] md:max-h-[100vh]
                 ${isExpanded 
-                    ? "md:w-[960px] md:h-[820px] md:max-h-[88vh]" 
-                    : "md:w-[700px] md:h-[640px] md:max-h-[78vh]"
+                    ? "md:top-4 md:bottom-4 md:left-4 md:right-4 md:w-[calc(100vw-2rem)] md:h-[calc(100vh-2rem)] md:shadow-[0_0_50px_-12px_rgba(245,158,11,0.15)]" 
+                    : "md:bottom-6 md:right-6 md:top-auto md:left-auto md:w-[700px] md:h-[680px]"
                 }
             `}
         >
@@ -191,7 +191,7 @@ export default function ChatWidget() {
             {/* Main Chat Container */}
             <div className="flex-1 flex flex-col h-full min-w-0">
                 {/* Header */}
-                <div className="flex items-center justify-between p-4 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/50 shrink-0">
+                <div className="flex items-center justify-between p-4 border-b border-amber-500/20 bg-gradient-to-l from-amber-50/50 to-transparent dark:from-amber-950/20 dark:to-transparent shrink-0">
                     <div className="flex items-center gap-2 text-black dark:text-white font-medium">
                         <div className="p-1.5 rounded-lg bg-amber-500/10">
                             <Sparkles className="h-4 w-4 text-amber-500" />
@@ -281,19 +281,19 @@ export default function ChatWidget() {
 
                                 <div
                                     key={idx}
-                                    className={`flex gap-3 ${msg.role === "user" ? "flex-row-reverse" : "flex-row"}`}
+                                    className="flex gap-4 w-full max-w-3xl mx-auto"
                                 >
                                     <div className={`
-                                        h-8 w-8 rounded-full flex items-center justify-center shrink-0
+                                        h-8 w-8 rounded-full flex items-center justify-center shrink-0 mt-1
                                         ${msg.role === "user" ? "bg-zinc-200 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400" : "bg-amber-500 text-black"}
                                     `}>
-                                        {msg.role === "user" ? <User className="h-4 w-4" /> : <Sparkles className="h-4 w-4" />}
+                                        {msg.role === "user" ? <User className="h-5 w-5" /> : <Sparkles className="h-5 w-5" />}
                                     </div>
                                     <div className={`
-                                        max-w-[85%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed
+                                        flex-1 rounded-2xl text-base leading-relaxed
                                         ${msg.role === "user"
-                                            ? "bg-zinc-100 dark:bg-zinc-800 text-black dark:text-zinc-100 rounded-tr-none"
-                                            : "bg-amber-500/10 border border-amber-500/20 text-black dark:text-zinc-100 rounded-tl-none"}
+                                            ? "bg-zinc-100 dark:bg-zinc-800 text-black dark:text-zinc-100 px-5 py-3"
+                                            : "bg-transparent text-black dark:text-zinc-100 px-2 py-3"}
                                     `}>
                                         {/* Show image thumbnails if present */}
                                         {((msg.images && msg.images.length > 0) || (msg.imageUrl && msg.imageUrl !== "[image]")) && (
@@ -308,17 +308,24 @@ export default function ChatWidget() {
                                                 ))}
                                             </div>
                                         )}
-                                        <FormattedChatMessage content={msg.content} role={msg.role} />
+                                        <FormattedChatMessage 
+                                            content={msg.content} 
+                                            role={msg.role} 
+                                            suggestedButtons={msg.suggestedButtons}
+                                            showSuggestedButtons={idx === messages.length - 1}
+                                            onButtonClick={(btnText) => sendMessage(btnText)}
+                                        />
+
                                     </div>
                                 </div>
                             ))}
 
                             {isLoading && (
-                                <div className="flex gap-3">
-                                    <div className="h-8 w-8 rounded-full bg-amber-500 flex items-center justify-center shrink-0">
-                                        <Sparkles className="h-4 w-4 text-black" />
+                                <div className="flex gap-4 w-full max-w-3xl mx-auto">
+                                    <div className="h-8 w-8 rounded-full bg-amber-500 flex items-center justify-center shrink-0 mt-1">
+                                        <Sparkles className="h-5 w-5 text-black" />
                                     </div>
-                                    <div className="bg-amber-500/10 border border-amber-500/20 rounded-2xl rounded-tl-none px-4 py-3 flex items-center gap-2">
+                                    <div className="flex-1 bg-transparent px-2 py-4 flex items-center gap-2">
                                         <div className="h-2 w-2 bg-amber-400 rounded-full animate-bounce [animation-delay:-0.3s]"></div>
                                         <div className="h-2 w-2 bg-amber-400 rounded-full animate-bounce [animation-delay:-0.15s]"></div>
                                         <div className="h-2 w-2 bg-amber-400 rounded-full animate-bounce"></div>

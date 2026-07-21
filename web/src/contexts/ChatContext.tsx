@@ -12,7 +12,9 @@ export type ChatMessage = {
     imageUrl?: string;
     images?: string[];
     actions?: ChatAction[];
+    suggestedButtons?: string[];
 };
+
 
 type ChatAction = {
     label: string;
@@ -399,8 +401,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             appendAssistantResponse({
                 role: "assistant",
                 content: data.reply || "معذرة، لم أتمكن من معالجة هذا الطلب.",
-                timestamp: Date.now()
+                timestamp: Date.now(),
+                suggestedButtons: Array.isArray(data.suggested_buttons) ? data.suggested_buttons : undefined
             });
+
 
         } catch (err: any) {
             appendAssistantResponse({
