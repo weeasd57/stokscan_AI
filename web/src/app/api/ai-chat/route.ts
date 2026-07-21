@@ -160,50 +160,87 @@ export async function POST(req: NextRequest) {
         const textMessage = message || "";
         try {
             const combinedText = (textMessage + " " + formattedHistory.map((h: any) => h.content).join(" ")).toLowerCase();
-            
-            // Search stocks table to see if any stock matches symbol or name
-            const { data: matchedStocks } = await supabase
-                .from("stocks")
-                .select("symbol, name")
-                .limit(100);
+            const promptWords = textMessage.trim().split(/[\s,.-]+/).map((w: string) => w.replace(/[^a-zA-Z0-9]/g, "").toUpperCase()).filter((w: string) => w.length >= 2);
+
 
             let targetSymbol = "";
             let targetStockName = "";
 
-            if (matchedStocks && matchedStocks.length > 0) {
-                for (const s of matchedStocks) {
-                    const sym = (s.symbol || "").toLowerCase();
-                    const name = (s.name || "").toLowerCase();
-                    if (sym.length >= 2 && combinedText.includes(sym)) {
-                        targetSymbol = s.symbol;
-                        targetStockName = s.name;
-                        break;
-                    }
-                    if (name.length >= 3 && combinedText.includes(name)) {
-                        targetSymbol = s.symbol;
-                        targetStockName = s.name;
-                        break;
-                    }
+            // 1. Direct Supabase exact symbol lookup for any word in user prompt (e.g. ABUK, COMI, FWRY)
+            if (promptWords.length > 0) {
+                const { data: exactMatches } = await supabase
+                    .from("stocks")
+                    .select("symbol, name")
+                    .in("symbol", promptWords)
+                    .limit(1);
+
+                if (exactMatches && exactMatches.length > 0) {
+                    targetSymbol = exactMatches[0].symbol;
+                    targetStockName = exactMatches[0].name;
                 }
             }
 
-            // Common Arabic name mapping fallbacks
+            // 2. Arabic & English Common Stock Alias Mapping
             if (!targetSymbol) {
-                const arabicMap: Record<string, string> = {
-                    "موبكو": "MFPC", "أبو قير": "ABUK", "التجاري الدولي": "COMI", "سي أي كابيتال": "CICP",
-                    "فوري": "FWRY", "سويدي": "SWDY", "طلعت مصطفى": "TMGH", "بلتون": "BTFH",
-                    "حديد عز": "ESRS", "إعمار": "EMFD", "هيرمس": "HRHO", "أموك": "AMOC", "مصر للألومنيوم": "EGAL"
+                const stockAliases: Record<string, { sym: string; name: string }> = {
+                    "abuk": { sym: "ABUK", name: "أبو قير للأسمدة والصناعات الكيماوية" },
+                    "أبو قير": { sym: "ABUK", name: "أبو قير للأسمدة والصناعات الكيماوية" },
+                    "ابو قير": { sym: "ABUK", name: "أبو قير للأسمدة والصناعات الكيماوية" },
+                    "comi": { sym: "COMI", name: "البنك التجاري الدولي (CIB)" },
+                    "التجاري الدولي": { sym: "COMI", name: "البنك التجاري الدولي (CIB)" },
+                    "cib": { sym: "COMI", name: "البنك التجاري الدولي (CIB)" },
+                    "موبكو": { sym: "MFPC", name: "مصر لإنتاج الأسمدة (موبكو)" },
+                    "mfpc": { sym: "MFPC", name: "مصر لإنتاج الأسمدة (موبكو)" },
+                    "فوري": { sym: "FWRY", name: "فوري تكنولوجيا البنوك والمدفوعات الإلكترونية" },
+                    "fwry": { sym: "FWRY", name: "فوري تكنولوجيا البنوك والمدفوعات الإلكترونية" },
+                    "سويدي": { sym: "SWDY", name: "السويدي إلكتريك" },
+                    "swdy": { sym: "SWDY", name: "السويدي إلكتريك" },
+                    "طلعت مصطفى": { sym: "TMGH", name: "مجموعة طلعت مصطفى القابضة" },
+                    "tmgh": { sym: "TMGH", name: "مجموعة طلعت مصطفى القابضة" },
+                    "بلتون": { sym: "BTFH", name: "بلتون القابضة" },
+                    "btfh": { sym: "BTFH", name: "بلتون القابضة" },
+                    "حديد عز": { sym: "ESRS", name: "عز للدخيلة للحديد والصلب" },
+                    "esrs": { sym: "ESRS", name: "عز للدخيلة للحديد والصلب" },
+                    "إعمار": { sym: "EMFD", name: "إعمار مصر للتنمية" },
+                    "emfd": { sym: "EMFD", name: "إعمار مصر للتنمية" },
+                    "أموك": { sym: "AMOC", name: "الإسكندرية للزيوت المعدنية (أموك)" },
+                    "amoc": { sym: "AMOC", name: "الإسكندرية للزيوت المعدنية (أموك)" },
+                    "مصر للألومنيوم": { sym: "EGAL", name: "مصر للألومنيوم" },
+                    "egal": { sym: "EGAL", name: "مصر للألومنيوم" },
                 };
-                for (const [key, sym] of Object.entries(arabicMap)) {
-                    if (combinedText.includes(key)) {
-                        targetSymbol = sym;
-                        targetStockName = key;
+
+                for (const [alias, info] of Object.entries(stockAliases)) {
+                    if (combinedText.includes(alias)) {
+                        targetSymbol = info.sym;
+                        targetStockName = info.name;
                         break;
                     }
                 }
             }
 
-            // If a stock was identified, append ONLY the raw stock data numbers
+            // 3. Regex Word Boundary Search across all Supabase stocks (prevents 'ab' matching 'abuk')
+            if (!targetSymbol) {
+                const { data: matchedStocks } = await supabase
+                    .from("stocks")
+                    .select("symbol, name")
+                    .limit(150);
+
+                if (matchedStocks && matchedStocks.length > 0) {
+                    for (const s of matchedStocks) {
+                        const sym = (s.symbol || "").trim();
+                        if (sym.length >= 3) {
+                            const wordRegex = new RegExp(`\\b${sym}\\b`, "i");
+                            if (wordRegex.test(combinedText)) {
+                                targetSymbol = s.symbol;
+                                targetStockName = s.name;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 4. Fetch Exact Real-Time Database Data for targetSymbol from Supabase
             if (targetSymbol) {
                 const [priceRes, techRes, scanRes] = await Promise.all([
                     supabase.from("stock_prices").select("*").eq("symbol", targetSymbol).order("date", { ascending: false }).limit(1).maybeSingle(),
@@ -216,32 +253,34 @@ export async function POST(req: NextRequest) {
                 const scanData = scanRes.data;
 
                 if (priceData || techData || scanData) {
-                    systemPrompt += `\n\n=== Real-Time Database Data for Stock: ${targetSymbol} (${targetStockName}) ===\n`;
+                    systemPrompt += `\n\n=== 🔴 REAL-TIME SUPABASE DATABASE DATA FOR STOCK: ${targetSymbol} (${targetStockName}) ===\n`;
+                    systemPrompt += `CRITICAL INSTRUCTION: You MUST use the exact real-time live numbers and current year 2026 provided below. Do NOT output old dates like 2024 or incorrect stock names.\n`;
+                    systemPrompt += `- Stock Symbol: ${targetSymbol}\n`;
+                    systemPrompt += `- Official Stock Name: ${targetStockName}\n`;
                     if (priceData) {
-                        systemPrompt += `- Latest Date: ${priceData.date}\n`;
-                        systemPrompt += `- Close Price: EGP ${priceData.close} (Open: ${priceData.open}, High: ${priceData.high}, Low: ${priceData.low})\n`;
-                        systemPrompt += `- Volume: ${priceData.volume}\n`;
+                        systemPrompt += `- Current Live Date: ${priceData.date} (Year 2026)\n`;
+                        systemPrompt += `- Latest Close Price: EGP ${priceData.close} (Open: EGP ${priceData.open}, High: EGP ${priceData.high}, Low: EGP ${priceData.low})\n`;
+                        systemPrompt += `- Trading Volume: ${priceData.volume}\n`;
                     }
                     if (techData) {
-                        systemPrompt += `- Change %: ${techData.change_pct}%\n`;
+                        systemPrompt += `- Daily Change %: ${techData.change_pct}%\n`;
                         systemPrompt += `- RSI (14): ${techData.rsi_14}\n`;
-                        systemPrompt += `- MACD: ${techData.macd} (Signal: ${techData.macd_signal}, Hist: ${techData.macd_histogram})\n`;
-                        systemPrompt += `- Moving Averages: SMA20=${techData.sma_20}, SMA50=${techData.sma_50}, SMA200=${techData.sma_200}\n`;
-                        systemPrompt += `- Bollinger Bands: Upper=${techData.bb_upper}, Middle=${techData.bb_middle}, Lower=${techData.bb_lower}\n`;
-                        if (techData.divergence_summary) {
-                            systemPrompt += `- Technical Divergence: ${techData.divergence_summary}\n`;
-                        }
+                        systemPrompt += `- MACD: ${techData.macd} (Signal: ${techData.macd_signal}, Histogram: ${techData.macd_histogram})\n`;
+                        systemPrompt += `- Moving Averages: SMA20=EGP ${techData.sma_20}, SMA50=EGP ${techData.sma_50}, SMA200=EGP ${techData.sma_200}\n`;
+                        systemPrompt += `- Bollinger Bands: Upper=EGP ${techData.bb_upper}, Middle=EGP ${techData.bb_middle}, Lower=EGP ${techData.bb_lower}\n`;
                     }
                     if (scanData) {
-                        systemPrompt += `- AI Model Signal: ${scanData.signal} (Model Precision: ${scanData.precision}%)\n`;
+                        systemPrompt += `- AI Model Recommendation: ${scanData.signal} (Precision: ${scanData.precision}%)\n`;
                         if (scanData.target_price) systemPrompt += `- AI Target Price: EGP ${scanData.target_price}\n`;
                         if (scanData.stop_loss) systemPrompt += `- AI Stop Loss: EGP ${scanData.stop_loss}\n`;
                     }
+                    systemPrompt += `=== END OF DATABASE DATA ===\n`;
                 }
             }
         } catch (stockErr) {
             console.error("Failed to query stock DB data for prompt:", stockErr);
         }
+
 
         // 5. Build Messages Array
         let userContent: any;
