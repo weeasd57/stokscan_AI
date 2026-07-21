@@ -634,15 +634,24 @@ ${textMessage.trim() ? `ملاحظة المستخدم: ${textMessage}` : ""}`;
                 ])).slice(0, 5);
 
                 if (extractedSymbols.length > 0) {
-                    const { data: dbStocks } = await supabase
-                        .from("stock_prices")
-                        .select("symbol, date, close, volume")
-                        .in("symbol", extractedSymbols)
-                        .order("date", { ascending: false })
-                        .limit(extractedSymbols.length);
+                    const [pricesRes, stocksRes, techRes] = await Promise.all([
+                        supabase.from("stock_prices").select("symbol, date, close, volume").in("symbol", extractedSymbols).order("date", { ascending: false }).limit(extractedSymbols.length),
+                        supabase.from("stocks").select("symbol, name").in("symbol", extractedSymbols),
+                        supabase.from("stock_technical_indicators").select("symbol, change_pct").in("symbol", extractedSymbols).order("date", { ascending: false }).limit(extractedSymbols.length)
+                    ]);
 
-                    if (dbStocks && dbStocks.length > 0) {
-                        const verifiedData = dbStocks.map((s: any) => `• **${s.symbol}**: السعر الأخير في البورصة = EGP ${s.close} (حجم التداول: ${s.volume})`).join("\n");
+                    const prices = pricesRes.data || [];
+                    const stocks = stocksRes.data || [];
+                    const techs = techRes.data || [];
+
+                    if (prices.length > 0) {
+                        const verifiedData = prices.map((p: any) => {
+                            const sInfo = stocks.find((s: any) => s.symbol === p.symbol);
+                            const tInfo = techs.find((t: any) => t.symbol === p.symbol);
+                            const nameStr = sInfo ? ` (${sInfo.name})` : "";
+                            const changeStr = tInfo ? `, التغير اليومي = ${tInfo.change_pct}%` : "";
+                            return `• **${p.symbol}**${nameStr}: السعر الأخير في البورصة = EGP ${p.close}${changeStr} (حجم التداول: ${p.volume})`;
+                        }).join("\n");
                         replyText += `\n\n📊 **بيانات سريعة مؤكدة من قاعدة بيانات البورصة:**\n${verifiedData}`;
                     }
                 }
