@@ -35,37 +35,100 @@ export default function ChatWidget() {
         bottomRef.current?.scrollIntoView({ behavior: "smooth" });
     }, [messages, isOpen, isLoading]);
 
-    const handleImageSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (!file) return;
+async function combineImagesSideBySide(imagesBase64: string[]): Promise<string> {
+    if (imagesBase64.length <= 1) return imagesBase64[0] || "";
 
-        if (file.size > 4 * 1024 * 1024) {
-            alert(language === "ar" ? "حجم الصورة كبير جداً (الأقصى 4MB)" : "Image too large (Max 4MB)");
-            return;
-        }
+    try {
+        const loadedImages: HTMLImageElement[] = await Promise.all(
+            imagesBase64.map(src => new Promise<HTMLImageElement>((resolve, reject) => {
+                const img = new Image();
+                img.onload = () => resolve(img);
+                img.onerror = reject;
+                img.src = src;
+            }))
+        );
 
-        const reader = new FileReader();
-        reader.onload = () => {
-            if (typeof reader.result === "string") {
-                setImagePreviews([reader.result]);
+        const targetHeight = 800;
+        const scaledWidths = loadedImages.map(img => (img.width / img.height) * targetHeight);
+        const totalWidth = scaledWidths.reduce((sum, w) => sum + w, 0) + (loadedImages.length - 1) * 12;
+
+        const canvas = document.createElement("canvas");
+        canvas.width = totalWidth;
+        canvas.height = targetHeight;
+        const ctx = canvas.getContext("2d");
+
+        if (!ctx) return imagesBase64[0];
+
+        ctx.fillStyle = "#09090b";
+        ctx.fillRect(0, 0, totalWidth, targetHeight);
+
+        let currentX = 0;
+        loadedImages.forEach((img, i) => {
+            const w = scaledWidths[i];
+            ctx.drawImage(img, currentX, 0, w, targetHeight);
+            currentX += w;
+            if (i < loadedImages.length - 1) {
+                ctx.fillStyle = "#f59e0b"; // accent separator
+                ctx.fillRect(currentX, 0, 12, targetHeight);
+                currentX += 12;
             }
-        };
-        reader.readAsDataURL(file);
+        });
+
+        return canvas.toDataURL("image/jpeg", 0.85);
+    } catch (e) {
+        console.error("Failed to combine images side-by-side:", e);
+        return imagesBase64[0];
+    }
+}
+
+    const handleImageSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+        const files = Array.from(e.target.files || []);
+        if (files.length === 0) return;
+
+        const validFiles = files.slice(0, 3 - imagePreviews.length);
+
+        validFiles.forEach(file => {
+            if (file.size > 4 * 1024 * 1024) {
+                alert(language === "ar" ? "حجم الصورة كبير جداً (الأقصى 4MB)" : "Image too large (Max 4MB)");
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = () => {
+                if (typeof reader.result === "string") {
+                    const resultStr = reader.result;
+                    setImagePreviews(prev => [...prev, resultStr]);
+                }
+            };
+            reader.readAsDataURL(file);
+        });
 
         // Reset file input so same file can be re-selected
         e.target.value = "";
-    }, [language]);
+    }, [imagePreviews.length, language]);
 
     const removeImage = useCallback((index: number) => {
         setImagePreviews(prev => prev.filter((_, i) => i !== index));
     }, []);
 
-    const handleSubmit = (e: React.FormEvent) => {
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         if ((!input.trim() && imagePreviews.length === 0) || !user || isLoading) return;
-        sendMessage(input, imagePreviews.length > 0 ? imagePreviews : undefined);
+
+        const textToSend = input;
+        const currentPreviews = [...imagePreviews];
+
         setInput("");
         setImagePreviews([]);
+
+        let finalImagePayload: string | undefined = undefined;
+        if (currentPreviews.length === 1) {
+            finalImagePayload = currentPreviews[0];
+        } else if (currentPreviews.length > 1) {
+            finalImagePayload = await combineImagesSideBySide(currentPreviews);
+        }
+
+        await sendMessage(textToSend, finalImagePayload);
     };
 
     if (!isOpen) {
