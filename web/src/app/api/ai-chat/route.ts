@@ -232,7 +232,7 @@ export async function POST(req: NextRequest) {
 
                 if (stockList && stockList.length > 0) {
                     stockPricesContext = "أسعار أسهم البورصة المصرية الحالية بالسوق المتاحة في قاعدة البيانات:\n" +
-                        stockList.map(s => `${s.symbol} (${s.name_ar || ''}): ${s.close_price} EGP`).join(", ");
+                        stockList.map((s: any) => `${s.symbol} (${s.name_ar || ''}): ${s.close_price} EGP`).join(", ");
                 }
             } catch (pricesErr) {
                 console.error("Failed to query stock prices reference:", pricesErr);
