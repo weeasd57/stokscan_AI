@@ -46,7 +46,8 @@ export async function POST(req: NextRequest) {
         }
         
         const userId = session.user.id;
-        const { message, history, image, images, model: userRequestedModel } = await req.json();
+        const { message, history, image, images, model: userRequestedModel, session_id: inputSessionId } = await req.json();
+
         
         // Normalize images into array
         const rawImages: string[] = Array.isArray(images) && images.length > 0 
@@ -401,8 +402,55 @@ ${textMessage.trim() ? `استفسار المستخدم الخاص حول الص
 
         const newCount = (limitData?.chat_count || 0) + 1;
 
-        // 8. Log Interaction (Use Service Role Key to bypass RLS)
+        // 8. Log Interaction & Manage Multi-Session Threads
+        let activeSessionId = inputSessionId;
         try {
+            if (!activeSessionId) {
+                const sessionTitle = textMessage.trim() 
+                    ? textMessage.trim().substring(0, 32) + (textMessage.length > 32 ? "..." : "")
+                    : (hasImages ? "تحليل صورة محفظة" : "محادثة جديدة");
+
+                const { data: newSession } = await supabase
+                    .from("ai_chat_sessions")
+                    .insert({
+                        user_id: userId,
+                        title: sessionTitle,
+                        created_at: new Date().toISOString(),
+                        updated_at: new Date().toISOString()
+                    })
+                    .select("id")
+                    .single();
+
+                if (newSession) {
+                    activeSessionId = newSession.id;
+                }
+            } else {
+                await supabase
+                    .from("ai_chat_sessions")
+                    .update({ updated_at: new Date().toISOString() })
+                    .eq("id", activeSessionId)
+                    .eq("user_id", userId);
+            }
+
+            if (activeSessionId) {
+                await supabase.from("ai_chat_messages").insert([
+                    {
+                        session_id: activeSessionId,
+                        user_id: userId,
+                        role: "user",
+                        content: textMessage || (hasImages ? "📷 [تحليل صورة محفظة]" : ""),
+                        image_url: imageList[0] || null
+                    },
+                    {
+                        session_id: activeSessionId,
+                        user_id: userId,
+                        role: "assistant",
+                        content: replyText
+                    }
+                ]);
+            }
+
+            // Also log to legacy logs
             await supabase
                 .from("ai_chatbot_logs")
                 .insert({
@@ -412,7 +460,7 @@ ${textMessage.trim() ? `استفسار المستخدم الخاص حول الص
                     reply: replyText
                 });
         } catch (logErr) {
-            console.error("Failed to log AI chat interaction:", logErr);
+            console.error("Failed to save multi-session chat message:", logErr);
         }
 
         // 9. Forward to Telegram Support
@@ -459,8 +507,10 @@ ${textMessage.trim() ? `استفسار المستخدم الخاص حول الص
 
         return NextResponse.json({
             reply: replyText,
+            session_id: activeSessionId,
             remaining_quota: isUnlimited ? 999 : Math.max(0, 15 - newCount)
         });
+
 
     } catch (e: any) {
         console.error("AI Chat Error:", e);
@@ -475,12 +525,16 @@ export async function GET(req: NextRequest) {
 
         const { data: { session } } = await authClient.auth.getSession();
         if (!session?.user) {
-            return NextResponse.json({ history: [], remaining_quota: 4 });
+            return NextResponse.json({ history: [], sessions: [], remaining_quota: 4 });
         }
 
         const userId = session.user.id;
         const userEmail = session.user.email || "";
         const isUnlimited = ["weeessd57@gmail.com", "user@gmail.com", "weeasd57@gmail.com"].includes(userEmail.toLowerCase());
+
+        const url = new URL(req.url);
+        const action = url.searchParams.get("action");
+        const sessionId = url.searchParams.get("session_id");
 
         // Fetch user's limit for today
         const today = new Date().toISOString().split("T")[0];
@@ -494,7 +548,38 @@ export async function GET(req: NextRequest) {
         const used = limitData?.chat_count || 0;
         const remaining_quota = isUnlimited ? 999 : Math.max(0, 15 - used);
 
-        // Fetch user's past logs
+        // Fetch list of sessions
+        if (action === "sessions") {
+            const { data: sessions } = await supabase
+                .from("ai_chat_sessions")
+                .select("id, title, created_at, updated_at")
+                .eq("user_id", userId)
+                .order("updated_at", { ascending: false });
+
+            return NextResponse.json({ sessions: sessions || [], remaining_quota });
+        }
+
+        // Fetch messages for a specific session
+        if (sessionId) {
+            const { data: messages } = await supabase
+                .from("ai_chat_messages")
+                .select("id, role, content, image_url, created_at")
+                .eq("session_id", sessionId)
+                .eq("user_id", userId)
+                .order("created_at", { ascending: true });
+
+            const formatted = (messages || []).map((m: any) => ({
+                id: m.id,
+                role: m.role,
+                content: m.content,
+                imageUrl: m.image_url || undefined,
+                timestamp: new Date(m.created_at).getTime()
+            }));
+
+            return NextResponse.json({ history: formatted, remaining_quota });
+        }
+
+        // Default fallback to past logs
         const { data: logs } = await supabase
             .from("ai_chatbot_logs")
             .select("id, message, reply, created_at")
@@ -517,6 +602,63 @@ export async function GET(req: NextRequest) {
 
         return NextResponse.json({ history, remaining_quota });
     } catch (e: any) {
-        return NextResponse.json({ history: [], remaining_quota: 4 });
+        return NextResponse.json({ history: [], sessions: [], remaining_quota: 4 });
     }
 }
+
+export async function DELETE(req: NextRequest) {
+    try {
+        const authClient = createSupabaseServerClient(req);
+        const supabase = getSupabaseClient();
+
+        const { data: { session } } = await authClient.auth.getSession();
+        if (!session?.user) {
+            return NextResponse.json({ detail: "Unauthorized" }, { status: 401 });
+        }
+
+        const url = new URL(req.url);
+        const sessionId = url.searchParams.get("session_id");
+
+        if (!sessionId) {
+            return NextResponse.json({ detail: "Session ID required" }, { status: 400 });
+        }
+
+        await supabase
+            .from("ai_chat_sessions")
+            .delete()
+            .eq("id", sessionId)
+            .eq("user_id", session.user.id);
+
+        return NextResponse.json({ success: true });
+    } catch (e: any) {
+        return NextResponse.json({ detail: e.message }, { status: 500 });
+    }
+}
+
+export async function PUT(req: NextRequest) {
+    try {
+        const authClient = createSupabaseServerClient(req);
+        const supabase = getSupabaseClient();
+
+        const { data: { session } } = await authClient.auth.getSession();
+        if (!session?.user) {
+            return NextResponse.json({ detail: "Unauthorized" }, { status: 401 });
+        }
+
+        const { session_id, title } = await req.json();
+        if (!session_id || !title) {
+            return NextResponse.json({ detail: "session_id and title required" }, { status: 400 });
+        }
+
+        await supabase
+            .from("ai_chat_sessions")
+            .update({ title, updated_at: new Date().toISOString() })
+            .eq("id", session_id)
+            .eq("user_id", session.user.id);
+
+        return NextResponse.json({ success: true });
+    } catch (e: any) {
+        return NextResponse.json({ detail: e.message }, { status: 500 });
+    }
+}
+

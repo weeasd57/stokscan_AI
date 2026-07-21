@@ -5,21 +5,22 @@ import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTechnicalScanner } from "@/contexts/TechnicalScannerContext";
 import { useRouter } from "next/navigation";
+import { ChatSession } from "@/components/chat/ChatSidebar";
 
-// Simple message type
 export type ChatMessage = {
+    id?: string;
     role: "user" | "assistant" | "system";
     content: string;
     timestamp: number;
-    imageUrl?: string; // base64 data URL for single image message (backward compat)
-    images?: string[]; // Array of base64 data URLs for multi-image messages
+    imageUrl?: string;
+    images?: string[];
     actions?: ChatAction[];
 };
 
 type ChatAction = {
     label: string;
     type: "navigate" | "function";
-    value: string; // URL or function name
+    value: string;
 };
 
 export const AVAILABLE_AI_MODELS = [
@@ -33,10 +34,6 @@ export const AVAILABLE_AI_MODELS = [
     { id: "meta/llama-3.1-8b-instruct", name: "Llama 3.1 8B", badgeAr: "سريع ⚡", badgeEn: "Fast ⚡", descAr: "فائق السرعة للإجابات المباشرة السريعة", descEn: "Ultra-fast response for simple queries" },
 ];
 
-
-
-
-
 interface ChatContextType {
     isOpen: boolean;
     setIsOpen: (v: boolean) => void;
@@ -46,6 +43,14 @@ interface ChatContextType {
     remainingQuota: number;
     selectedModel: string;
     setSelectedModel: (model: string) => void;
+    sessions: ChatSession[];
+    activeSessionId: string | null;
+    createNewSession: () => void;
+    switchSession: (sessionId: string) => Promise<void>;
+    deleteSession: (sessionId: string) => Promise<void>;
+    renameSession: (sessionId: string, newTitle: string) => Promise<void>;
+    isSidebarOpen: boolean;
+    setIsSidebarOpen: (v: boolean) => void;
 }
 
 const ChatContext = createContext<ChatContextType | undefined>(undefined);
@@ -54,19 +59,26 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     const { user } = useAuth();
     const { setTechScanner } = useTechnicalScanner();
     const router = useRouter();
-    const supabase = createSupabaseBrowserClient();
 
     const [isOpen, setIsOpen] = useState(false);
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     const [remainingQuota, setRemainingQuota] = useState<number>(15);
     const [selectedModel, setSelectedModelState] = useState<string>("meta/llama-3.3-70b-instruct");
+    const [sessions, setSessions] = useState<ChatSession[]>([]);
+    const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+    const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(true);
 
-    // Keep ref in sync for instant closure access inside async handlers
     const messagesRef = useRef<ChatMessage[]>(messages);
     useEffect(() => {
         messagesRef.current = messages;
     }, [messages]);
+
+    const WELCOME_MSG: ChatMessage = {
+        role: "assistant",
+        content: "أهلاً بك! أنا مساعدك الذكي البورصة المصرية (EGX AI Assistant). يمكنك الاستفسار عن الأسهم، إشارات الـ AI، قراءة صور المحافظ والشاشات 📷، وتصدير الجداول والمخططات لإكسيل.",
+        timestamp: 0,
+    };
 
     useEffect(() => {
         const savedModel = localStorage.getItem("egxbots_selected_model");
@@ -80,118 +92,89 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         localStorage.setItem("egxbots_selected_model", model);
     }, []);
 
-    const WELCOME_MSG: ChatMessage = {
-        role: "assistant",
-        content: "Hello! I am your AI Market Assistant. I can help you analyze stocks, explain indicators, or navigate the app. You can also send me images 📷 to analyze. How can I help today?",
-        timestamp: 0,
-    };
-
-    // Load initial history from localStorage
-    useEffect(() => {
+    // Fetch sessions list from backend
+    const fetchSessions = useCallback(async () => {
         try {
-            const cached = localStorage.getItem("egxbots_chat_history");
-            if (cached) {
-                const parsed = JSON.parse(cached);
-                if (Array.isArray(parsed) && parsed.length > 0) {
-                    setMessages(parsed);
-                    messagesRef.current = parsed;
-                    return;
+            const res = await fetch("/api/ai-chat?action=sessions");
+            if (res.ok) {
+                const data = await res.json();
+                if (Array.isArray(data.sessions)) {
+                    setSessions(data.sessions);
+                }
+                if (data.remaining_quota !== undefined) {
+                    setRemainingQuota(data.remaining_quota);
                 }
             }
         } catch (e) {
-            console.error("Failed to load cached chat history");
+            console.error("Failed to fetch chat sessions:", e);
         }
+    }, []);
+
+    // Switch active session and fetch its messages
+    const switchSession = useCallback(async (sessionId: string) => {
+        setActiveSessionId(sessionId);
+        setIsLoading(true);
+        try {
+            const res = await fetch(`/api/ai-chat?session_id=${sessionId}`);
+            if (res.ok) {
+                const data = await res.json();
+                if (Array.isArray(data.history) && data.history.length > 0) {
+                    setMessages([WELCOME_MSG, ...data.history]);
+                    messagesRef.current = [WELCOME_MSG, ...data.history];
+                } else {
+                    setMessages([WELCOME_MSG]);
+                    messagesRef.current = [WELCOME_MSG];
+                }
+            }
+        } catch (e) {
+            console.error("Failed to load session messages:", e);
+        } finally {
+            setIsLoading(false);
+        }
+    }, []);
+
+    // Start a new chat session
+    const createNewSession = useCallback(() => {
+        setActiveSessionId(null);
         setMessages([WELCOME_MSG]);
         messagesRef.current = [WELCOME_MSG];
     }, []);
 
-    // Save messages to localStorage whenever updated
-    useEffect(() => {
-        if (messages.length > 0) {
-            try {
-                // Don't persist large image base64 to localStorage to avoid quota issues
-                const toCache = messages.map(m => ({
-                    ...m,
-                    imageUrl: m.imageUrl ? "[image]" : undefined,
-                    images: m.images ? m.images.map(() => "[image]") : undefined,
-                }));
-                localStorage.setItem("egxbots_chat_history", JSON.stringify(toCache));
-            } catch (e) {
-                console.error("Failed to cache chat history");
-            }
-        }
-    }, [messages]);
-
-    const isLoadingRef = useRef(isLoading);
-    useEffect(() => {
-        isLoadingRef.current = isLoading;
-    }, [isLoading]);
-
-    // Fetch latest history and quota from server on mount / auth change
-    useEffect(() => {
-        let isMounted = true;
-
-        const fetchHistoryAndQuota = async () => {
-            // Do not sync/overwrite history if AI is actively replying to avoid cancelling/losing in-flight responses
-            if (isLoadingRef.current) return;
-
-            try {
-                const res = await fetch("/api/ai-chat");
-                if (!isMounted || isLoadingRef.current) return;
-
-                if (res.ok) {
-                    const data = await res.json();
-                    if (!isMounted || isLoadingRef.current) return;
-
-                    if (data.remaining_quota !== undefined) {
-                        setRemainingQuota(data.remaining_quota);
-                    }
-                    if (Array.isArray(data.history) && data.history.length > 0) {
-                        setMessages(prev => {
-                            if (isLoadingRef.current) return prev;
-
-                            // Build a Set of all server message contents
-                            const serverContents = new Set(data.history.map((h: any) => h.content));
-
-                            // Preserve all local messages (user AND assistant) not yet returned by server history
-                            const localOnly = prev.filter(m => 
-                                m.content !== WELCOME_MSG.content && 
-                                !serverContents.has(m.content)
-                            );
-
-                            const combined = [WELCOME_MSG, ...data.history, ...localOnly];
-
-                            // Sort by timestamp to guarantee perfect chronological order
-                            combined.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
-
-                            messagesRef.current = combined;
-                            return combined;
-                        });
-                    }
+    // Delete a session
+    const deleteSession = useCallback(async (sessionId: string) => {
+        try {
+            const res = await fetch(`/api/ai-chat?session_id=${sessionId}`, { method: "DELETE" });
+            if (res.ok) {
+                setSessions(prev => prev.filter(s => s.id !== sessionId));
+                if (activeSessionId === sessionId) {
+                    createNewSession();
                 }
-            } catch (e) {
-                console.error("Failed to fetch chat history from server:", e);
             }
-        };
-
-        fetchHistoryAndQuota();
-
-        return () => {
-            isMounted = false;
-        };
-    }, [user]);
-
-    const handleAction = useCallback((action: ChatAction) => {
-        if (action.type === "navigate") {
-            router.push(action.value);
-            setIsOpen(false);
-        } else if (action.type === "function") {
-            if (action.value === "SCAN_TECH_BULLISH") {
-                setTechScanner(prev => ({ ...prev, rsiMin: "50", rsiMax: "70", aboveEma200: true }));
-                router.push("/scanner/technical");
-            }
+        } catch (e) {
+            console.error("Failed to delete chat session:", e);
         }
-    }, [router, setTechScanner]);
+    }, [activeSessionId, createNewSession]);
+
+    // Rename a session
+    const renameSession = useCallback(async (sessionId: string, newTitle: string) => {
+        try {
+            const res = await fetch("/api/ai-chat", {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ session_id: sessionId, title: newTitle })
+            });
+            if (res.ok) {
+                setSessions(prev => prev.map(s => s.id === sessionId ? { ...s, title: newTitle } : s));
+            }
+        } catch (e) {
+            console.error("Failed to rename session:", e);
+        }
+    }, []);
+
+    // Initial load on mount or user change
+    useEffect(() => {
+        fetchSessions();
+    }, [user, fetchSessions]);
 
     const sendMessage = useCallback(async (text: string, imageInput?: string | string[]) => {
         const imagesList: string[] = Array.isArray(imageInput) 
@@ -208,10 +191,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             images: imagesList.length > 0 ? imagesList : undefined,
         };
 
-        // Capture history snapshot before appending new user message
         const historySnapshot = [...messagesRef.current];
-
-        // Immediately update state and ref
         const nextMessages = [...historySnapshot, newUserMsg];
         setMessages(nextMessages);
         messagesRef.current = nextMessages;
@@ -221,7 +201,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             if (remainingQuota <= 0) {
                 const limitMsg: ChatMessage = {
                     role: "assistant",
-                    content: "Daily limit reached. You can send up to 15 messages per day. Please come back tomorrow!",
+                    content: "وصلت للحد الأقصى اليومي (15 رسالة يومياً). يرجى العودة غداً أو تواصل مع الدعم الفني!",
                     timestamp: Date.now()
                 };
                 setMessages(prev => [...prev, limitMsg]);
@@ -234,11 +214,12 @@ export function ChatProvider({ children }: { children: ReactNode }) {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
-                    message: text || "Describe and analyze these attached images.",
+                    message: text || "قم بقراءة وتحليل هذه الصورة المرفقة.",
                     history: historySnapshot.map(m => ({ role: m.role, content: m.content })),
                     images: imagesList.length > 0 ? imagesList : undefined,
                     image: imagesList[0] || undefined,
                     model: selectedModel,
+                    session_id: activeSessionId || undefined,
                 })
             });
 
@@ -259,7 +240,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
                 setRemainingQuota(0);
                 const limitMsg: ChatMessage = {
                     role: "assistant",
-                    content: data.detail || "Daily limit reached. You can send up to 15 messages per day.",
+                    content: data.detail || "وصلت للحد الأقصى اليومي 15 رسالة.",
                     timestamp: Date.now()
                 };
                 setMessages(prev => [...prev, limitMsg]);
@@ -271,6 +252,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
                 throw new Error(data.detail || "Failed to communicate with AI");
             }
 
+            if (data.session_id) {
+                setActiveSessionId(data.session_id);
+                fetchSessions();
+            }
 
             if (data.remaining_quota !== undefined) {
                 setRemainingQuota(data.remaining_quota);
@@ -278,7 +263,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
             const assistantMsg: ChatMessage = {
                 role: "assistant",
-                content: data.reply || "Sorry, I couldn't process that.",
+                content: data.reply || "معذرة، لم أتمكن من معالجة هذا الطلب.",
                 timestamp: Date.now()
             };
             setMessages(prev => [...prev, assistantMsg]);
@@ -287,7 +272,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         } catch (err: any) {
             const errorMsg: ChatMessage = {
                 role: "assistant",
-                content: "Error communicating with AI service.",
+                content: "حدث خطأ أثناء الاتصال بالذكاء الاصطناعي.",
                 timestamp: Date.now()
             };
             setMessages(prev => [...prev, errorMsg]);
@@ -295,7 +280,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         } finally {
             setIsLoading(false);
         }
-    }, [remainingQuota, selectedModel]);
+    }, [remainingQuota, selectedModel, activeSessionId, fetchSessions]);
 
     return (
         <ChatContext.Provider value={{ 
@@ -306,7 +291,15 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             isLoading, 
             remainingQuota, 
             selectedModel, 
-            setSelectedModel 
+            setSelectedModel,
+            sessions,
+            activeSessionId,
+            createNewSession,
+            switchSession,
+            deleteSession,
+            renameSession,
+            isSidebarOpen,
+            setIsSidebarOpen
         }}>
             {children}
         </ChatContext.Provider>
