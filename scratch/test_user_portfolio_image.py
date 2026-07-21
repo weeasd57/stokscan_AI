@@ -143,7 +143,10 @@ def main():
         print(f"❌ Image not found at: {IMAGE_PATH}")
         return
 
-    api_key = get_db_api_key() or os.getenv("NVIDIA_SECONDARY_API_KEY", "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")
+    api_key = get_db_api_key() or os.getenv("NVIDIA_SECONDARY_API_KEY") or os.getenv("NVIDIA_API_KEY")
+    if not api_key:
+        print("❌ NVIDIA_API_KEY or NVIDIA_SECONDARY_API_KEY is required")
+        return
     print(f"🔑 Using API Key: {api_key[:10]}...")
 
     print("🖼️ Reading and encoding image to base64...")

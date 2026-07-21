@@ -1,7 +1,10 @@
+import os
 import requests
 
 url = "https://integrate.api.nvidia.com/v1/chat/completions"
-api_key = "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"
+api_key = os.getenv("NVIDIA_API_KEY") or os.getenv("NVIDIA_SECONDARY_API_KEY")
+if not api_key:
+    raise SystemExit("NVIDIA_API_KEY or NVIDIA_SECONDARY_API_KEY is required")
 
 headers = {
     "Authorization": f"Bearer {api_key}",

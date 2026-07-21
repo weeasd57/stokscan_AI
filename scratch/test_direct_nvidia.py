@@ -1,11 +1,15 @@
 import urllib.request
 import json
+import os
 import sys
 
 sys.stdout.reconfigure(encoding='utf-8')
 
 def test_abuk_prompt():
-    api_key = "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"
+    api_key = os.getenv("NVIDIA_API_KEY") or os.getenv("NVIDIA_SECONDARY_API_KEY")
+    if not api_key:
+        print("NVIDIA_API_KEY or NVIDIA_SECONDARY_API_KEY is required")
+        return
     model = "meta/llama-3.1-8b-instruct"
     url = "https://integrate.api.nvidia.com/v1/chat/completions"
     

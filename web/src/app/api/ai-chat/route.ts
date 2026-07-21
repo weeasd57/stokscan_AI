@@ -13,7 +13,7 @@ const BLOCKED_INPUT_PATTERNS = [
     "system prompt", "ignore previous", "your instructions",
     "developer mode", "jailbreak", "ignore all",
     "admin_secret_key", "api_key", "database", "supabase", "postgres",
-    "بينات مستخدم", "كلمة السر", "بيانات سرية", "اختراق", "باسورد",
+    "بيانات مستخدم", "قاعدة بيانات", "كلمة السر", "بيانات سرية", "اختراق", "باسورد",
     "ignore previous instructions", "system instructions", "you must ignore"
 ];
 
@@ -45,12 +45,12 @@ export async function POST(req: NextRequest) {
         const supabase = getSupabaseClient(); // Service role client for DB
 
         // 1. Authenticate user
-        const { data: { session }, error: authError } = await authClient.auth.getSession();
-        if (authError || !session?.user) {
+        const { data: { user }, error: authError } = await authClient.auth.getUser();
+        if (authError || !user) {
             return NextResponse.json({ detail: "Unauthorized" }, { status: 401 });
         }
         
-        const userId = session.user.id;
+        const userId = user.id;
         const { message, history, image, images, model: userRequestedModel, session_id: inputSessionId } = await req.json();
 
         
@@ -62,9 +62,9 @@ export async function POST(req: NextRequest) {
         const imageList = rawImages.filter(img => typeof img === "string" && img.startsWith("data:image/"));
         const hasImages = imageList.length > 0;
 
-        // Pre-process image with OCR hints (detect stock symbols via regex)
+        // Pre-process image with lightweight hints only. Serverless deployments do not
+        // reliably provide Python/Tesseract, so OCR is left to the vision model.
         let ocrHints = "";
-        let ocrExtractedText = "";
         
         if (hasImages) {
             try {
@@ -79,26 +79,7 @@ export async function POST(req: NextRequest) {
                     ocrHints = `\n🔍 **رموز محتملة في الصورة:** ${mentionedSymbols.join(", ")}`;
                 }
                 
-                // Try Tesseract OCR preprocessing (if available)
-                try {
-                    const { execSync } = require('child_process');
-                    const firstImage = imageList[0];
-                    
-                    // Call Python OCR helper
-                    const ocrResult = execSync(
-                        `python web/ocr_helper.py "${firstImage}"`,
-                        { encoding: 'utf-8', timeout: 10000 }
-                    );
-                    
-                    const ocrData = JSON.parse(ocrResult);
-                    if (ocrData.success && ocrData.text) {
-                        ocrExtractedText = ocrData.text;
-                        console.log("✅ OCR preprocessing successful:", ocrExtractedText.substring(0, 100));
-                    }
-                } catch (ocrErr) {
-                    console.warn("⚠️ OCR preprocessing failed (Tesseract not installed?):", ocrErr instanceof Error ? ocrErr.message : String(ocrErr));
-                    // Continue without OCR - Vision model will try alone
-                }
+                // Python OCR subprocess removed for Vercel serverless compatibility
             } catch (ocrErr) {
                 console.error("OCR hint extraction failed:", ocrErr);
             }
@@ -176,11 +157,16 @@ export async function POST(req: NextRequest) {
             .eq("id", 1)
             .single();
 
-        if (settingsError || !settings || !settings.api_key) {
+        if (settingsError || !settings) {
             return NextResponse.json({ detail: "Chatbot is not configured properly." }, { status: 500 });
         }
 
         let systemPrompt = `أنت المساعد الذكي المالي والمحلل الفني الأول للبورصة المصرية على منصة EGX Bots.
+
+🚫 قاعدة صارمة ضد الاختلاق (Anti-Hallucination):
+ممنوع منعاً باتاً اختراع أي رقم أو نسبة أو تاريخ أو إحصائية غير موجودة صراحة في البيانات المرفقة أعلاه من قاعدة البيانات (=== REAL-TIME DATABASE DATA ===).
+لو عامل معين (مثل التوصية أو رادار القطاع) مفيهوش بيانات حقيقية متاحة لهذا السهم، اكتب بوضوح: "البيانات غير متوفرة حالياً لهذا العامل" بدل اختراع رقم أو نسبة.
+إياك أن تقوم باختراع أرقام محفظة أو نسب أرباح من وحي الخيال أبداً.
 
 المبادئ والشخصية التي يجب أن تتحدث وتلتزم بها دائماً:
 
@@ -195,14 +181,9 @@ export async function POST(req: NextRequest) {
 
 2. 🏷️ **مصطلحات منصة EGX Bots بالعربي (إلزامي):**
    - "ماسح EGX الفني" ❌ لا تقل "Technical Scanner"
-   - "شبه ده" ❌ لا تقل "Historical Similarity"
-   - "رادار القطاع" ❌ لا تقل "Sector Comparison"
    - "كاشف الحد اليومي" ❌ لا تقل "Circuit Breaker Check"
 
-3. 📊 **عوامل التحليل الإلزامية (أدرجها دائماً بأسلوب حي):**
-   
-   🔗 **علاقة القطاع ورادار القطاع:**
-   مثال: "البنوك كلها بتتحرك مع بعض، وACIB طالع معاهم بـ 1.7%" أو "قطاع الأسمدة تحت الضغط، وABUK نازل معاه"
+3. 📊 **عوامل التحليل الإلزامية (فقط بناءً على البيانات المقدمة لك):**
    
    ⚠️ **القرب من الحد اليومي (كاشف الحد اليومي):**
    مثال: "السهم بعيد 3% بس عن الحد الأعلى، يعني لسه فيه مساحة" أو "قرب من الحد السفلي، حاله حاله"
@@ -212,9 +193,6 @@ export async function POST(req: NextRequest) {
    
    💵 **حساسية الدولار والغاز:**
    مثال: "القطاع ده مرتبط بسعر الغاز، تابع نشرة البنك المركزي" أو "البنوك بتستفيد من ارتفاع الفايدة"
-   
-   🏛️ **النمط التاريخي المشابه (شبه ده):**
-   مثال: "شبه ده حصل 7 مرات، نجح 5 منهم بمتوسط +8%" أو "النمط ده نادر، آخر مرة كان في مارس 2025"
 
 4. 🎯 **أزرار الاقتراحات الذكية (بناءً على السياق):**
    بدل الأزرار العامة، حط أزرار تعكس أسئلة المتداولين الحقيقية:
@@ -237,11 +215,9 @@ export async function POST(req: NextRequest) {
 📌 [رمز السهم] — [اسم السهم]
 ────────────────────
 🔹 الوضع الفني: [طالع بقوة / قافل على قد نفسه / بياع مسيطر]
-🔹 مقارنة بالقطاع (رادار القطاع): [القطاع +X% — السهم بيتحرك معاه / ضد القطاع]
 🔹 قرب من الحد اليومي (كاشف الحد اليومي): [X%]
 🔹 السيولة: [عالية / متوسطة / ضعيفة] — [تعليق]
-🔹 حالة مشابهة (شبه ده): [نجح X من Y مرة، متوسط الربح +Z%]
-🔹 توصية الـ AI: [صعودي / متحفظ / سلبي] — ثقة X%
+🔹 توصية الـ AI: [صعودي / متحفظ / سلبي] — ثقة X% (فقط إن وجدت التوصية في البيانات)
 
 7. 🛠️ **الاستجابة للأوامر المباشرة (إلزامي):**
 إذا طلب المستخدم تنسيق بيانات سابقة (مثل: "طلعهم اكسيل"، "جدول"، "ملخص")، يجب عليك تنفيذ طلبه الحرفي وتنسيق البيانات المطلوبة مباشرة في جدول (Markdown Table) بدون استخدام قالب التحليل المذكور أعلاه، وبدون إضافة أي معلومات خارجية.
@@ -291,9 +267,6 @@ export async function POST(req: NextRequest) {
                 if (data) preloadedExactStocks = data;
             }
 
-            const { data: matchedStocks } = await supabase.from("stocks").select("symbol, name").limit(150);
-            const allStocks = matchedStocks || [];
-
             const stockAliases: Record<string, { sym: string; name: string }> = {
                 "abuk": { sym: "ABUK", name: "أبو قير للأسمدة والصناعات الكيماوية" },
                 "أبو قير": { sym: "ABUK", name: "أبو قير للأسمدة والصناعات الكيماوية" },
@@ -337,15 +310,6 @@ export async function POST(req: NextRequest) {
                     if (msgLower.includes(alias)) return { sym: info.sym, name: info.name };
                 }
 
-                // 3. Regex Word Boundary Search across all Supabase stocks
-                for (const s of allStocks) {
-                    const sym = (s.symbol || "").trim();
-                    if (sym.length >= 3) {
-                        const wordRegex = new RegExp(`\\b${sym}\\b`, "i");
-                        if (wordRegex.test(msgLower)) return { sym: s.symbol, name: s.name };
-                    }
-                }
-
                 return null;
             };
 
@@ -364,6 +328,43 @@ export async function POST(req: NextRequest) {
                         targetSymbol = found.sym;
                         targetStockName = found.name;
                         break;
+                    }
+                }
+            }
+
+            if (!targetSymbol) {
+                const { data: matchedStocks } = await supabase.from("stocks").select("symbol, name").limit(150);
+                const allStocks = matchedStocks || [];
+
+                const findSymbolInAllStocks = (msgText: string) => {
+                    if (!msgText) return null;
+                    const msgLower = msgText.toLowerCase();
+
+                    for (const s of allStocks) {
+                        const sym = (s.symbol || "").trim();
+                        if (sym.length >= 3) {
+                            const wordRegex = new RegExp(`\\b${sym}\\b`, "i");
+                            if (wordRegex.test(msgLower)) return { sym: s.symbol, name: s.name };
+                        }
+                    }
+
+                    return null;
+                };
+
+                found = findSymbolInAllStocks(textMessage);
+                if (found) {
+                    targetSymbol = found.sym;
+                    targetStockName = found.name;
+                }
+
+                if (!targetSymbol) {
+                    for (let i = formattedHistory.length - 1; i >= 0; i--) {
+                        found = findSymbolInAllStocks(formattedHistory[i].content);
+                        if (found) {
+                            targetSymbol = found.sym;
+                            targetStockName = found.name;
+                            break;
+                        }
                     }
                 }
             }
@@ -507,14 +508,15 @@ ${textMessage.trim() ? `ملاحظة المستخدم: ${textMessage}` : ""}`;
             { role: "user", content: userContent }
         ];
 
-        // 6. Call NVIDIA API with Smart Multi-Key Failover (Rotation across all available keys)
+        // 6. Call NVIDIA API using keys from environment only.
         const keysToTry = Array.from(new Set([
-            settings.api_key,
             process.env.NVIDIA_API_KEY,
             process.env.NVIDIA_SECONDARY_API_KEY,
-            "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",
-            "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"
         ].filter(Boolean)));
+
+        if (keysToTry.length === 0) {
+            return NextResponse.json({ detail: "AI service not configured" }, { status: 500 });
+        }
 
         let rawText = "";
         let success = false;
@@ -554,7 +556,7 @@ ${textMessage.trim() ? `ملاحظة المستخدم: ${textMessage}` : ""}`;
                             max_tokens: hasImages ? 1024 : 512,
                             stream: false,
                         }),
-                        signal: AbortSignal.timeout(hasImages ? 30000 : (m === 0 ? 5000 : 7000)),  // Longer timeout for 90B model
+                        signal: AbortSignal.timeout(hasImages ? 30000 : (m === 0 ? 15000 : 8000)),  // Give first attempt more room on free tiers
 
                     });
 
@@ -706,6 +708,7 @@ ${textMessage.trim() ? `ملاحظة المستخدم: ${textMessage}` : ""}`;
         const botToken = process.env.SUPPORT_BOT_TOKEN || process.env.ARTORO_AI_BOT || process.env.TELEGRAM_BOT_TOKEN;
         const telegramChatId = process.env.TELEGRAM_CHAT_ID || "-1002083067817_153"; // Fallback to central topic
         const adminTelegramId = process.env.ADMIN_TELEGRAM_CHAT_ID || "5149631436";
+        const forwardFullChat = process.env.FORWARD_AI_CHAT_TEXT === "true";
         
         if (botToken) {
             let chatIdStr = telegramChatId;
@@ -714,12 +717,18 @@ ${textMessage.trim() ? `ملاحظة المستخدم: ${textMessage}` : ""}`;
                 [chatIdStr, threadId] = chatIdStr.split("_");
             }
 
-            const telegramMessage = `🤖 *AI Chatbot Interaction*\n\n` +
-                                    `👤 *User:* ${userName}\n` +
-                                    `${hasImages ? `📷 *[${imageList.length} Images Attached]*\n` : ''}` +
-                                    `✉️ *Message:* ${textMessage}\n\n` +
-                                    `💬 *Bot Reply:* ${replyText.substring(0, 1000)}${replyText.length > 1000 ? '...' : ''}\n\n` +
-                                    `📊 *Daily Quota:* ${isUnlimited ? 'Unlimited' : `${newCount}/15`}`;
+            const telegramMessage = forwardFullChat
+                ? `🤖 *AI Chatbot Interaction*\n\n` +
+                  `👤 *User:* ${userName}\n` +
+                  `${hasImages ? `📷 *[${imageList.length} Images Attached]*\n` : ''}` +
+                  `✉️ *Message:* ${textMessage}\n\n` +
+                  `💬 *Bot Reply:* ${replyText.substring(0, 1000)}${replyText.length > 1000 ? '...' : ''}\n\n` +
+                  `📊 *Daily Quota:* ${isUnlimited ? 'Unlimited' : `${newCount}/15`}`
+                : `🤖 *AI Chatbot Interaction*\n\n` +
+                  `👤 *User:* ${userName}\n` +
+                  `${hasImages ? `📷 *[${imageList.length} Images Attached]*\n` : ''}` +
+                  `📊 *Daily Quota:* ${isUnlimited ? 'Unlimited' : `${newCount}/15`}\n` +
+                  `🔒 *Content:* ${hasImages ? 'Image analysis completed' : 'Text analysis completed'}`;
 
             const sendTelegram = (targetChatId: string, targetThreadId?: string) => {
                 const payload: any = {
@@ -763,13 +772,13 @@ export async function GET(req: NextRequest) {
         const authClient = createSupabaseServerClient(req);
         const supabase = getSupabaseClient();
 
-        const { data: { session } } = await authClient.auth.getSession();
-        if (!session?.user) {
+        const { data: { user } } = await authClient.auth.getUser();
+        if (!user) {
             return NextResponse.json({ history: [], sessions: [], remaining_quota: 4 });
         }
 
-        const userId = session.user.id;
-        const userEmail = session.user.email || "";
+        const userId = user.id;
+        const userEmail = user.email || "";
         const isUnlimited = ["weeessd57@gmail.com", "user@gmail.com", "weeasd57@gmail.com"].includes(userEmail.toLowerCase());
 
         const url = new URL(req.url);
@@ -851,8 +860,8 @@ export async function DELETE(req: NextRequest) {
         const authClient = createSupabaseServerClient(req);
         const supabase = getSupabaseClient();
 
-        const { data: { session } } = await authClient.auth.getSession();
-        if (!session?.user) {
+        const { data: { user } } = await authClient.auth.getUser();
+        if (!user) {
             return NextResponse.json({ detail: "Unauthorized" }, { status: 401 });
         }
 
@@ -867,7 +876,7 @@ export async function DELETE(req: NextRequest) {
             .from("ai_chat_sessions")
             .delete()
             .eq("id", sessionId)
-            .eq("user_id", session.user.id);
+            .eq("user_id", user.id);
 
         return NextResponse.json({ success: true });
     } catch (e: any) {
@@ -880,8 +889,8 @@ export async function PUT(req: NextRequest) {
         const authClient = createSupabaseServerClient(req);
         const supabase = getSupabaseClient();
 
-        const { data: { session } } = await authClient.auth.getSession();
-        if (!session?.user) {
+        const { data: { user } } = await authClient.auth.getUser();
+        if (!user) {
             return NextResponse.json({ detail: "Unauthorized" }, { status: 401 });
         }
 
@@ -894,11 +903,10 @@ export async function PUT(req: NextRequest) {
             .from("ai_chat_sessions")
             .update({ title, updated_at: new Date().toISOString() })
             .eq("id", session_id)
-            .eq("user_id", session.user.id);
+            .eq("user_id", user.id);
 
         return NextResponse.json({ success: true });
     } catch (e: any) {
         return NextResponse.json({ detail: e.message }, { status: 500 });
     }
 }
-

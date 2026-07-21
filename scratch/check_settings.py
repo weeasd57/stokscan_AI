@@ -85,10 +85,6 @@ if __name__ == "__main__":
         
     keys_to_test["NVIDIA_SECONDARY_API_KEY"] = os.getenv("NVIDIA_SECONDARY_API_KEY")
     keys_to_test["ENV_NVIDIA_API_KEY"] = os.getenv("NVIDIA_API_KEY")
-    
-    # Add route.ts static fallback keys to test
-    keys_to_test["STATIC_FALLBACK_1"] = "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"
-    keys_to_test["STATIC_FALLBACK_2"] = "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"
 
     for name, key in keys_to_test.items():
         if key:

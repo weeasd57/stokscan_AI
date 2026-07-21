@@ -1,5 +1,6 @@
 import urllib.request
 import json
+import os
 import time
 import sys
 
@@ -14,7 +15,10 @@ models_to_test = [
     ("deepseek-ai/deepseek-v4-pro", "DeepSeek V4 Pro")
 ]
 
-api_key = "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"
+api_key = os.getenv("NVIDIA_API_KEY") or os.getenv("NVIDIA_SECONDARY_API_KEY")
+if not api_key:
+    print("NVIDIA_API_KEY or NVIDIA_SECONDARY_API_KEY is required")
+    sys.exit(1)
 url = "https://integrate.api.nvidia.com/v1/chat/completions"
 
 for model_id, model_name in models_to_test:
