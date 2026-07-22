@@ -36,6 +36,21 @@ export default function ChatWidget() {
     const [isExpanded, setIsExpanded] = useState(false);
     const [imagePreviews, setImagePreviews] = useState<string[]>([]);
     const [modelMenuOpen, setModelMenuOpen] = useState(false);
+    const [loadingStep, setLoadingStep] = useState<1 | 2 | 3>(1);
+
+    useEffect(() => {
+        if (!isLoading) {
+            setLoadingStep(1);
+            return;
+        }
+        setLoadingStep(1);
+        const timer1 = setTimeout(() => setLoadingStep(2), 1600);
+        const timer2 = setTimeout(() => setLoadingStep(3), 3600);
+        return () => {
+            clearTimeout(timer1);
+            clearTimeout(timer2);
+        };
+    }, [isLoading]);
     
     const bottomRef = useRef<HTMLDivElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -321,14 +336,26 @@ export default function ChatWidget() {
                             ))}
 
                             {isLoading && (
-                                <div className="flex gap-4 w-full max-w-3xl mx-auto">
-                                    <div className="h-8 w-8 rounded-full bg-amber-500 flex items-center justify-center shrink-0 mt-1">
-                                        <Sparkles className="h-5 w-5 text-black" />
+                                <div className="flex gap-3 w-full max-w-3xl mx-auto items-center p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 dark:bg-amber-500/5 transition-all duration-300">
+                                    <div className="h-8 w-8 rounded-full bg-amber-500 flex items-center justify-center shrink-0 shadow-md">
+                                        <Sparkles className="h-4 w-4 text-black animate-spin" />
                                     </div>
-                                    <div className="flex-1 bg-transparent px-2 py-4 flex items-center gap-2">
-                                        <div className="h-2 w-2 bg-amber-400 rounded-full animate-bounce [animation-delay:-0.3s]"></div>
-                                        <div className="h-2 w-2 bg-amber-400 rounded-full animate-bounce [animation-delay:-0.15s]"></div>
-                                        <div className="h-2 w-2 bg-amber-400 rounded-full animate-bounce"></div>
+                                    <div className="flex-1 flex flex-col gap-0.5 overflow-hidden">
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-xs font-bold text-amber-600 dark:text-amber-400 transition-all duration-300">
+                                                {loadingStep === 1 && (imagePreviews.length > 0 ? "🧠 جاري قراءة الصورة واستيعاب السؤال..." : "🧠 جاري قراءة السؤال واستيعاب السياق...")}
+                                                {loadingStep === 2 && "🔍 جاري استعلام بيانات وأسعار البورصة المصرية..."}
+                                                {loadingStep === 3 && "📊 جاري صياغة التقرير المالي والرد النهائي..."}
+                                            </span>
+                                        </div>
+                                        <span className="text-[11px] text-zinc-500 dark:text-zinc-400 font-medium">
+                                            مرحلة {loadingStep} من 3
+                                        </span>
+                                    </div>
+                                    <div className="flex items-center gap-1 shrink-0">
+                                        <div className={`h-2 w-2 rounded-full transition-all duration-300 ${loadingStep === 1 ? "bg-amber-500 scale-125 animate-bounce" : "bg-zinc-400 dark:bg-zinc-600"}`}></div>
+                                        <div className={`h-2 w-2 rounded-full transition-all duration-300 ${loadingStep === 2 ? "bg-amber-500 scale-125 animate-bounce" : "bg-zinc-400 dark:bg-zinc-600"}`}></div>
+                                        <div className={`h-2 w-2 rounded-full transition-all duration-300 ${loadingStep === 3 ? "bg-amber-500 scale-125 animate-bounce" : "bg-zinc-400 dark:bg-zinc-600"}`}></div>
                                     </div>
                                 </div>
                             )}
