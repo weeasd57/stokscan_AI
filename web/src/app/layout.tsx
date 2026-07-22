@@ -28,20 +28,20 @@ export const metadata = {
     siteName: "EGX BOTS",
     images: [
       {
-        url: "https://egxbots.com/dashboard_preview.png",
-        secureUrl: "https://egxbots.com/dashboard_preview.png",
-        width: 1200,
-        height: 630,
+        url: "https://egxbots.com/icon-512.png",
+        secureUrl: "https://egxbots.com/icon-512.png",
+        width: 512,
+        height: 512,
         type: "image/png",
-        alt: "EGX BOTS Dashboard Preview",
+        alt: "EGX BOTS Logo",
       },
     ],
   },
   twitter: {
-    card: "summary_large_image",
+    card: "summary",
     title: "EGX BOTS | AI Stock Analysis & Interactive Chatbot",
     description: "AI-driven stock analysis platform for EGX with technical scanning, backtests, and a smart interactive AI Chatbot.",
-    images: ["https://egxbots.com/dashboard_preview.png"],
+    images: ["https://egxbots.com/icon-512.png"],
   },
   manifest: "/favicon_io/site.webmanifest",
   icons: {
