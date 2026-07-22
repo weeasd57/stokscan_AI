@@ -28,9 +28,11 @@ export const metadata = {
     siteName: "EGX BOTS",
     images: [
       {
-        url: "/dashboard_preview.png",
+        url: "https://egxbots.com/dashboard_preview.png",
+        secureUrl: "https://egxbots.com/dashboard_preview.png",
         width: 1200,
         height: 630,
+        type: "image/png",
         alt: "EGX BOTS Dashboard Preview",
       },
     ],
@@ -39,7 +41,7 @@ export const metadata = {
     card: "summary_large_image",
     title: "EGX BOTS | AI Stock Analysis & Interactive Chatbot",
     description: "AI-driven stock analysis platform for EGX with technical scanning, backtests, and a smart interactive AI Chatbot.",
-    images: ["/dashboard_preview.png"],
+    images: ["https://egxbots.com/dashboard_preview.png"],
   },
   manifest: "/favicon_io/site.webmanifest",
   icons: {
