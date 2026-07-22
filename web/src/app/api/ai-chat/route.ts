@@ -28,14 +28,14 @@ async function detectIntent(message: string, apiKey: string): Promise<UserIntent
     
     const lower = message.toLowerCase();
     if (/كام|كم عدد|عددي|كم/.test(lower)) return "Count";
-    if (/أشتري إيه|ترشحلي|توصية|توصيات|سهم كويس|أدخل في إيه|ادخل في ايه|توصيه/.test(lower)) return "Recommendation";
-    if (/أبيع|ابيع|أحتفظ|احتفظ|أوقف خسارة|وقف خسارة|اخرج ولا|اصبر|أصبر/.test(lower)) return "ActionAdvice";
-    if (/هل|تجميع|مؤسسي|في مشتري|مشتري/.test(lower)) return "YesNo";
+    if (/أشتري إيه|ترشحلي|توصية|توصيات|سهم كويس|أدخل في إيه|ادخل في ايه|توصيه|سهم حلو|أدخل ولا|ادخل ولا/.test(lower)) return "Recommendation";
+    if (/أبيع|ابيع|أحتفظ|احتفظ|أوقف خسارة|وقف خسارة|اخرج ولا|اصبر|أصبر|أنسل|انسل|أخلع|اخلع|أمسك|امسك/.test(lower)) return "ActionAdvice";
+    if (/هل|تجميع|مؤسسي|في مشتري|مشتري|تمام ولا|حلو ده|حلو دا|فيها خير/.test(lower)) return "YesNo";
     if (/ولا|أو|مقارنة|قارن|vs/i.test(lower)) return "Compare";
-    if (/قطاع|قطاعات|عقارات|بنوك|أدوية|بتروكيماويات|اسمدة/.test(lower)) return "Sector";
+    if (/قطاع|قطاعات|عقارات|بنوك|أدوية|بتروكيماويات|اسمدة|أسمدة/.test(lower)) return "Sector";
     if (/أخبار|خبر|اخبار/.test(lower)) return "News";
     if (/يعني إيه|يعني ايه|إيه هو|ايه هو|اشرح|شرح|كيف يعمل|مؤشر|فوليوم|سيولة/.test(lower)) return "Education";
-    if (/خسران|فلوسي|السوق وحش|زعلان|نصابة|اتمرجنت|خسارة كبيرة/.test(lower)) return "Emotional";
+    if (/خسران|فلوسي|السوق وحش|زعلان|نصابة|اتمرجنت|خسارة كبيرة|نازلة للركب/.test(lower)) return "Emotional";
     if (/كوبون|توزيع|أرباح|ارباح|جمعية عمومية|مجاني/.test(lower)) return "Dividends";
     
     try {
@@ -362,6 +362,32 @@ export async function POST(req: NextRequest) {
                 "amoc": { sym: "AMOC", name: "الإسكندرية للزيوت المعدنية (أموك)" },
                 "مصر للألومنيوم": { sym: "EGAL", name: "مصر للألومنيوم" },
                 "egal": { sym: "EGAL", name: "مصر للألومنيوم" },
+                "سيدي كرير": { sym: "SKPC", name: "سيدي كرير للبتروكيماويات" },
+                "سيدبيك": { sym: "SKPC", name: "سيدي كرير للبتروكيماويات" },
+                "skpc": { sym: "SKPC", name: "سيدي كرير للبتروكيماويات" },
+                "إي فاينانس": { sym: "EFIH", name: "إي فاينانس للاستثمارات المالية والرقمية" },
+                "اي فاينانس": { sym: "EFIH", name: "إي فاينانس للاستثمارات المالية والرقمية" },
+                "efih": { sym: "EFIH", name: "إي فاينانس للاستثمارات المالية والرقمية" },
+                "مدينة مصر": { sym: "MASR", name: "مدينة مصر للإسكان والتعمير" },
+                "مدينة نصر": { sym: "MASR", name: "مدينة مصر للإسكان والتعمير" },
+                "masr": { sym: "MASR", name: "مدينة مصر للإسكان والتعمير" },
+                "بالم هيلز": { sym: "PHDC", name: "بالم هيلز للتعمير" },
+                "phdc": { sym: "PHDC", name: "بالم هيلز للتعمير" },
+                "جهينة": { sym: "JUFO", name: "جهينة للصناعات الغذائية" },
+                "jufo": { sym: "JUFO", name: "جهينة للصناعات الغذائية" },
+                "دومتي": { sym: "DOMT", name: "الصناعات الغذائية العربية (دومتي)" },
+                "domt": { sym: "DOMT", name: "الصناعات الغذائية العربية (دومتي)" },
+                "كليوباترا": { sym: "CLHO", name: "مجموعة مستشفيات كليوباترا" },
+                "clho": { sym: "CLHO", name: "مجموعة مستشفيات كليوباترا" },
+                "أبو ظبي": { sym: "ADIB", name: "مصرف أبو ظبي الإسلامي - مصر" },
+                "ابو ظبي": { sym: "ADIB", name: "مصرف أبو ظبي الإسلامي - مصر" },
+                "adib": { sym: "ADIB", name: "مصرف أبو ظبي الإسلامي - مصر" },
+                "قناة السويس": { sym: "CANA", name: "بنك قناة السويس" },
+                "cana": { sym: "CANA", name: "بنك قناة السويس" },
+                "سوديك": { sym: "OCDI", name: "السادس من أكتوبر للتنمية والاستثمار (سوديك)" },
+                "ocdi": { sym: "OCDI", name: "السادس من أكتوبر للتنمية والاستثمار (سوديك)" },
+                "ابن سينا": { sym: "ISPH", name: "ابن سينا فارما" },
+                "isph": { sym: "ISPH", name: "ابن سينا فارما" },
             };
 
             const findSymbolInText = (msgText: string) => {
@@ -402,8 +428,36 @@ export async function POST(req: NextRequest) {
                 }
             }
 
+            // 3. Fallback for Niche / Unpopular Stocks (Dynamic DB Fuzzy Search across ALL EGX stocks)
             if (!targetSymbol) {
-                const { data: matchedStocks } = await supabase.from("stocks").select("symbol, name").limit(150);
+                const textWords = textMessage.trim().split(/[\s,.-]+/).filter((w: string) => w.length >= 3);
+                const historyWords = formattedHistory.map((h: any) => h.content).join(" ").split(/[\s,.-]+/).filter((w: string) => w.length >= 3);
+                const candidateWords = Array.from(new Set([...textWords, ...historyWords])).slice(0, 5);
+
+                if (candidateWords.length > 0) {
+                    const orFilters = candidateWords.map((w: string) => `name.ilike.%${w}%,symbol.ilike.%${w}%`).join(",");
+                    const { data: fuzzyMatches } = await supabase
+                        .from("stocks")
+                        .select("symbol, name")
+                        .or(orFilters)
+                        .limit(5);
+
+                    if (fuzzyMatches && fuzzyMatches.length > 0) {
+                        // Priority given to exact textMessage match if any
+                        const textLower = textMessage.toLowerCase();
+                        const best = fuzzyMatches.find((s: any) => 
+                            textLower.includes(s.symbol.toLowerCase()) || 
+                            (s.name && textLower.includes(s.name.toLowerCase().split(" ")[0]))
+                        ) || fuzzyMatches[0];
+
+                        targetSymbol = best.symbol;
+                        targetStockName = best.name;
+                    }
+                }
+            }
+
+            if (!targetSymbol) {
+                const { data: matchedStocks } = await supabase.from("stocks").select("symbol, name").limit(300);
                 const allStocks = matchedStocks || [];
 
                 const findSymbolInAllStocks = (msgText: string) => {
@@ -630,18 +684,20 @@ export async function POST(req: NextRequest) {
                 console.warn("Duplicate total check skipped:", dupErr);
             }
 
-            systemPrompt = `أنت أداة استخراج نصوص متطورة (OCR) متخصصة في تحليل صور شاشات محافظ الأسهم وتطبيقات التداول.
-مهمتك هي قراءة واستخراج الأسهم والمحفظة والأسعار من الصورة المرفقة بدقة بالغة وبدون أي تأليف أو اختراع رموز غير موجودة.
+            systemPrompt = `أنت المساعد المالي الخبير والمحلل الفني الأول للبورصة المصرية على منصة EGX Bots.
+مهمتك هي قراءة شاشة المحفظة المرفقة، استخراج الأسهم بدقة، وتقديم **تقييم مالي وفني ذكي ومبسط للمحفظة**.
 
-القواعد الصارمة:
-1. يمنع منعاً باتاً كتابة أو ذكر أي سهم غير موجود صراحةً في الصورة.
-2. استخرج كافة الأرقام المقابلة أو المرتبطة بهذا السهم (مثل: سعر السهم الحالي، التغير، عدد الأسهم، متوسط التكلفة، القيمة السوقية، الربح/الخسارة).
-3. لا تقم بأي تحليل أو إعطاء نصائح، فقط اقرأ واكتب ما تراه.
-4. اعرض البيانات المستخرجة في قائمة نقطية عمودية (Bulleted List) بصيغة (الاسم: القيمة). يمنع تماماً استخدام الجداول (Tables) لمنع أخطاء التنسيق.
-5. الإجابة يجب أن تكون باللغة العربية فقط وبشكل مباشر.`;
+📋 **قواعد التحليل والعرض الإلزامية:**
+1. **استخراج البيانات:** استخرج رموز الأسهم (Symbols) ونسب الربح/الخسارة أو الأسعار المكتوبة من الصورة بدقة دون اختراع أسهم غير موجودة.
+2. **تقييم أداء المحفظة:**
+   - حدد الأسهم الأكثر ربحية والأسهم التي تشهد ضغطاً أو تراجعاً.
+   - قيم مدى تنوع المحفظة وتوازن المخاطر بها بأسلوب البورصجية الذكي.
+3. **نصيحة المحلل:** قدم ملخصاً تنفيذياً كودياً يقترح التعامل مع المحفظة (مثل: تفعيل وقف الخسارة للأسهم الهابطة، أو جني أرباح جزئي، أو متابعة السيولة).
+4. **التنسيق:** استخدم التنسيق المنظم ذو الأيقونات والأسطر الواضحة بدون جداول معقدة.
+5. **اللغة:** الإجابة باللغة العربية الاحترافية البسيطة.`;
 
-            const promptText = `استخرج كافة رموز الأسهم وأرقامها من هذه الصورة. اكتب قائمة بكل ما يمكنك قراءته بوضوح باللغة العربية.
-${ocrExtractedText ? `\n[مساعدة قراءة الحروف من Tesseract OCR]:\n${ocrExtractedText.substring(0, 1000)}\n` : ""}
+            const promptText = `اقرأ المحفظة المرفقة وحللها ذكياً: استخرج الأسهم، وقدم تقييماً كاملاً للأداء والمخاطر.
+${ocrExtractedText ? `\n[بيانات قراءة الحروف التلقائية]:\n${ocrExtractedText.substring(0, 1000)}\n` : ""}
 ${duplicateTotalWarning}
 ${textMessage.trim() ? `ملاحظة المستخدم: ${textMessage}` : ""}`;
 
@@ -767,11 +823,13 @@ ${textMessage.trim() ? `ملاحظة المستخدم: ${textMessage}` : ""}`;
                         const verifiedData = prices.map((p: any) => {
                             const sInfo = stocks.find((s: any) => s.symbol === p.symbol);
                             const tInfo = techs.find((t: any) => t.symbol === p.symbol);
-                            const nameStr = sInfo ? ` (${sInfo.name})` : "";
-                            const changeStr = tInfo ? `, التغير اليومي = ${tInfo.change_pct}%` : "";
-                            return `• **${p.symbol}**${nameStr}: السعر الأخير في البورصة = EGP ${p.close}${changeStr} (حجم التداول: ${p.volume})`;
+                            const cleanName = (sInfo && sInfo.name && sInfo.name !== "null") ? ` (${sInfo.name})` : "";
+                            const changeVal = tInfo && typeof tInfo.change_pct === "number" ? tInfo.change_pct : null;
+                            const changeStr = changeVal !== null ? `, التغير اليومي: ${changeVal >= 0 ? "+" : ""}${changeVal.toFixed(2)}%` : "";
+                            const priceStr = typeof p.close === "number" ? p.close.toFixed(2) : p.close;
+                            return `• **${p.symbol}**${cleanName}: السعر الأخير = ${priceStr} ج.م${changeStr}`;
                         }).join("\n");
-                        replyText += `\n\n📊 **بيانات سريعة مؤكدة من قاعدة بيانات البورصة:**\n${verifiedData}`;
+                        replyText += `\n\n🟢 **بيانات البورصة اللحظية للأسهم المكتشفة:**\n${verifiedData}`;
                     }
                 }
             } catch (dbErr) {
