@@ -43,7 +43,15 @@ export async function generateFinalResponse(
     }
 
 
-    const finalSystemPrompt = `You are EGX Bots AI Assistant for the Egyptian Stock Exchange (EGX).
+    let finalSystemPrompt = `You are EGX Bots AI Assistant for the Egyptian Stock Exchange (EGX).`;
+
+    if (plannerResult.intent === "general_chat") {
+        finalSystemPrompt += `
+
+You can respond to the user's message conversationally in Arabic. Be polite, friendly, and helpful.
+Do NOT output any tables, charts, or fake financial data. If the user asks general questions about the stock market or greetings, you can answer them generally and friendly.`;
+    } else {
+        finalSystemPrompt += `
 
 🚨 ZERO HALLUCINATION POLICY 🚨
 Use ONLY provided data. Never invent financial information.
@@ -61,6 +69,7 @@ ${plannerResult.image_summary ? `\n=== IMAGE DATA ===\n${plannerResult.image_sum
 ${liveDataString ? `\n=== DATABASE DATA ===\n${liveDataString}\n=== END ===\n` : ""}
 
 Respond in Arabic. Be factual and helpful.`;
+    }
 
     // Sanitize aiMessages so text models (like DeepSeek V4 Flash) don't crash on image_url objects
     const sanitizedAiMessages = aiMessages.slice(1).map((msg: any) => {

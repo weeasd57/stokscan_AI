@@ -169,8 +169,7 @@ export async function POST(req: NextRequest) {
         await updateSessionState(supabase, activeSessionId, userId, plannerResult.session_update);
 
         // --- STEP 4: EXECUTE TOOLS ---
-        console.log(`[BOT STAGE] Executing database tools: ${JSON.stringify(plannerResult.tools)}...`);
-        const liveDataString = await executeTools(supabase, plannerResult);
+        const liveDataString = plannerResult.intent === "general_chat" ? "" : await executeTools(supabase, plannerResult);
         console.log(`[BOT STAGE] Tools execution completed. Data size: ${liveDataString ? liveDataString.length : 0} chars.`);
 
         // --- STEP 5: FINAL LLM GENERATION ---
