@@ -15,6 +15,7 @@ export default function ChatWidget() {
         setIsOpen, 
         messages, 
         sendMessage, 
+        stopResponding,
         isLoading, 
         remainingQuota, 
         selectedModel, 
@@ -352,6 +353,17 @@ export default function ChatWidget() {
                                             مرحلة {loadingStep} من 3
                                         </span>
                                     </div>
+
+                                    <button
+                                        type="button"
+                                        onClick={stopResponding}
+                                        className="flex items-center gap-1 bg-red-500/10 hover:bg-red-500/20 text-red-600 dark:text-red-400 border border-red-500/30 rounded-xl px-2.5 py-1 text-xs font-bold transition-all shrink-0 mr-2"
+                                        title={language === "ar" ? "إيقاف الاستجابة" : "Stop Responding"}
+                                    >
+                                        <X className="h-3.5 w-3.5" />
+                                        <span>{language === "ar" ? "إيقاف" : "Stop"}</span>
+                                    </button>
+
                                     <div className="flex items-center gap-1 shrink-0">
                                         <div className={`h-2 w-2 rounded-full transition-all duration-300 ${loadingStep === 1 ? "bg-amber-500 scale-125 animate-bounce" : "bg-zinc-400 dark:bg-zinc-600"}`}></div>
                                         <div className={`h-2 w-2 rounded-full transition-all duration-300 ${loadingStep === 2 ? "bg-amber-500 scale-125 animate-bounce" : "bg-zinc-400 dark:bg-zinc-600"}`}></div>

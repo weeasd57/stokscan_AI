@@ -34,6 +34,7 @@ interface ChatContextType {
     setIsOpen: (v: boolean) => void;
     messages: ChatMessage[];
     sendMessage: (text: string, imageInput?: string | string[]) => Promise<void>;
+    stopResponding: () => void;
     isLoading: boolean;
     remainingQuota: number;
     selectedModel: string;
@@ -109,10 +110,20 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     const sessionMessagesCache = useRef<Record<string, ChatMessage[]>>({});
     const loadingSessionIds = useRef<Record<string, boolean>>({});
     const activeSessionIdRef = useRef<string | null>(activeSessionId);
+    const abortControllerRef = useRef<AbortController | null>(null);
 
     const setActiveSessionId = useCallback((id: string | null) => {
         activeSessionIdRef.current = id;
         setActiveSessionIdState(id);
+    }, []);
+
+    const stopResponding = useCallback(() => {
+        if (abortControllerRef.current) {
+            abortControllerRef.current.abort();
+            abortControllerRef.current = null;
+            setIsLoading(false);
+            loadingSessionIds.current = {};
+        }
     }, []);
 
     const messagesRef = useRef<ChatMessage[]>(messages);
@@ -356,9 +367,15 @@ export function ChatProvider({ children }: { children: ReactNode }) {
                 return;
             }
 
+            if (abortControllerRef.current) {
+                abortControllerRef.current.abort();
+            }
+            abortControllerRef.current = new AbortController();
+
             const response = await fetch("/api/ai-chat", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
+                signal: abortControllerRef.current.signal,
                 body: JSON.stringify({
                     message: text || "قم بقراءة وتحليل هذه الصورة المرفقة.",
                     history: existingSessionMsgs.map(m => ({ role: m.role, content: m.content })),
@@ -405,14 +422,23 @@ export function ChatProvider({ children }: { children: ReactNode }) {
                 suggestedButtons: Array.isArray(data.suggested_buttons) ? data.suggested_buttons : undefined
             });
 
-
         } catch (err: any) {
-            appendAssistantResponse({
-                role: "assistant",
-                content: "حدث خطأ أثناء الاتصال بالذكاء الاصطناعي.",
-                timestamp: Date.now()
-            });
+            if (err.name === "AbortError" || err.message === "The user aborted a request.") {
+                console.log("Chat request aborted by user");
+                appendAssistantResponse({
+                    role: "assistant",
+                    content: "تم إيقاف الاستجابة بناءً على طلبك.",
+                    timestamp: Date.now()
+                });
+            } else {
+                appendAssistantResponse({
+                    role: "assistant",
+                    content: "حدث خطأ أثناء الاتصال بالذكاء الاصطناعي.",
+                    timestamp: Date.now()
+                });
+            }
         } finally {
+            abortControllerRef.current = null;
             loadingSessionIds.current[currentSessionId] = false;
             if (activeSessionIdRef.current === currentSessionId) {
                 setIsLoading(false);
@@ -426,6 +452,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             setIsOpen, 
             messages, 
             sendMessage, 
+            stopResponding,
             isLoading, 
             remainingQuota, 
             selectedModel, 
