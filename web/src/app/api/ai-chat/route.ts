@@ -215,12 +215,16 @@ ${liveDataString ? `\n=== DATABASE DATA ===\n${liveDataString}\n=== END ===\n` :
                 const key = keysToTry.find(k => k);
                 if (key) {
                     const startCompTime = Date.now();
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 4000); // Strict 4-second timeout
+
                     const res = await fetch("https://integrate.api.nvidia.com/v1/chat/completions", {
                         method: "POST",
                         headers: {
                             "Content-Type": "application/json",
                             "Authorization": `Bearer ${key}`
                         },
+                        signal: controller.signal,
                         body: JSON.stringify({
                             model: "deepseek-ai/deepseek-v4-flash",
                             messages: messagesToSendCompare,
@@ -228,6 +232,9 @@ ${liveDataString ? `\n=== DATABASE DATA ===\n${liveDataString}\n=== END ===\n` :
                             max_tokens: 1024
                         })
                     });
+
+                    clearTimeout(timeoutId);
+
                     if (res.ok) {
                         const data = await res.json();
                         console.log(`[BOT STAGE] Comparison model (DeepSeek) finished in ${Date.now() - startCompTime}ms`);

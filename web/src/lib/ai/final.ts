@@ -53,7 +53,8 @@ Rules:
 2. If no clear data available, say so honestly  
 3. Never create fake numbers, companies, or financial metrics
 4. Always cite your source
-5. The image has been pre-processed and its text/content is provided under === IMAGE DATA ===. Do NOT state that no image is attached, instead analyze the provided image data.
+5. The user's query asks to analyze an image. Since you are a text model, we have extracted the image text/contents for you and provided them under the === IMAGE DATA === section below.
+6. Do NOT apologize, do NOT mention that you are a text-only model or that you cannot see/view the image, and do NOT say "No image attached" (لا توجد صورة مرفقة). Directly perform the financial analysis and read the numbers from the === IMAGE DATA === block as if you are looking at the image yourself.
 
 ${plannerResult.image_summary ? `\n=== IMAGE DATA ===\n${plannerResult.image_summary}\n=== END ===\n` : ""}
 ${liveDataString ? `\n=== DATABASE DATA ===\n${liveDataString}\n=== END ===\n` : ""}
@@ -80,12 +81,16 @@ Respond in Arabic. Be factual and helpful.`;
     for (const key of apiKeys) {
         for (const modelName of modelsToTry) {
             try {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 12000); // 12-second timeout per model try
+
                 const res = await fetch("https://integrate.api.nvidia.com/v1/chat/completions", {
                     method: "POST",
                     headers: {
                         "Content-Type": "application/json",
                         "Authorization": `Bearer ${key}`
                     },
+                    signal: controller.signal,
                     body: JSON.stringify({
                         model: modelName,
                         messages: messagesToSend,
@@ -93,6 +98,8 @@ Respond in Arabic. Be factual and helpful.`;
                         max_tokens: 1024
                     })
                 });
+
+                clearTimeout(timeoutId);
 
                 if (res.ok) {
                     const data = await res.json();

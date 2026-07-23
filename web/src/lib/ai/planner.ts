@@ -72,7 +72,7 @@ Analyze user request and return JSON with this exact structure:
 - Return ONLY the JSON, no extra text`;
 
     const recentHistoryText = (history || []).slice(-6).map((h: any) => `${h.role}: ${h.content}`).join("\n");
-    const userPromptText = `Current Session:\n${JSON.stringify(session)}\n\nRecent History:\n${recentHistoryText}\n\nUser Request:\n${message || "Analyze input"}`;
+    const userPromptText = `Current Session:\n${JSON.stringify(session)}\n\nRecent History:\n${recentHistoryText}\n\nUser Request:\n${message || "Analyze input"}\n\n⚠️ CRITICAL instruction: You MUST return ONLY a valid JSON object starting with '{' and ending with '}'. Do NOT write any conversational text, explanations, or steps (like 'To analyze the image...'). Respond only with the JSON data.`;
 
     const plannerModels = hasImages 
         ? ["meta/llama-3.2-11b-vision-instruct", "meta/llama-3.2-90b-vision-instruct"] 
