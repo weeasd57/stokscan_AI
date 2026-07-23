@@ -68,13 +68,14 @@ Analyze user request and return JSON with this exact structure:
 - For news: use intent "stock_news" with tools ["get_news"]
 - For recommendations or signals: use intent "recommendation" with tools ["get_recommendations"]
 - If the request is a general market, news, index, or recommendation query, do NOT include stock symbols from the session context in the entities.symbols list.
+- ⚠️ CRITICAL: In "image_summary" or "summary" or any other string value in your JSON, NEVER use double quotes ("). If you need to quote a stock symbol, name, or index, use single quotes (') instead. This is extremely important to prevent JSON parsing syntax errors!
 - Return ONLY the JSON, no extra text`;
 
     const recentHistoryText = (history || []).slice(-6).map((h: any) => `${h.role}: ${h.content}`).join("\n");
     const userPromptText = `Current Session:\n${JSON.stringify(session)}\n\nRecent History:\n${recentHistoryText}\n\nUser Request:\n${message || "Analyze input"}`;
 
     const plannerModels = hasImages 
-        ? ["meta/llama-3.2-90b-vision-instruct", "meta/llama-3.2-11b-vision-instruct"] 
+        ? ["meta/llama-3.2-11b-vision-instruct", "meta/llama-3.2-90b-vision-instruct"] 
         : ["meta/llama-3.1-8b-instruct", "meta/llama-3.1-70b-instruct"];
 
     let userContent: any;
@@ -188,7 +189,7 @@ Analyze user request and return JSON with this exact structure:
                                 wants_table: Boolean(parsed.entities?.wants_table || isAggregateTableRequest || hasImages)
                             },
                             tools: Array.from(new Set(toolsList)),
-                            image_summary: imageSummary,
+                            image_summary: imageSummary || (hasImages ? "تحليل البيانات والصورة المرفقة من المحفظة." : null),
                             session_update: {
                                 current_symbol: parsed.session_update?.current_symbol || resolvedSymbols[0] || session.current_symbol,
                                 last_symbols: Array.isArray(parsed.session_update?.last_symbols)
@@ -218,6 +219,7 @@ Analyze user request and return JSON with this exact structure:
         confidence: 0.8,
         entities: { symbols: fallbackSymbols, sector: null, wants_table: Boolean(hasImages) },
         tools: fallbackSymbols.length > 0 ? ["get_stock"] : [],
+        image_summary: hasImages ? "تحليل البيانات والصورة المرفقة من المحفظة." : undefined,
         session_update: { current_symbol: fallbackSymbols[0] || session.current_symbol, last_symbols: session.last_symbols, summary: message }
     };
 }
