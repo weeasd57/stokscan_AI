@@ -37,10 +37,16 @@ export async function runPlanner(
     // Fully General & Dynamic Intent & Tool Router Prompt
     const plannerSystemPrompt = `You are EGX Bots Master Planner for the Egyptian Stock Exchange.
 
-${hasImages ? `**ANALYZE THE IMAGE:**
-Look at the financial image and extract ONLY the stock symbols, prices, and values visible in this new image.
-⚠️ CRITICAL: Ignore any stock symbols mentioned in 'Current Session' or 'Recent History' unless they are clearly visible in the new image itself. Do not carry over old symbols.
-Provide clear description in Arabic of what financial content is visible.
+${hasImages ? `**ANALYZE THE IMAGE CAREFULLY:**
+CRITICAL INSTRUCTIONS:
+1. Extract ALL stock symbols visible in the image - do NOT miss any symbols
+2. Look at EVERY row, cell, and section of the financial image
+3. Include symbols from tables, lists, charts, and any text in the image
+4. Extract stock prices, percentage changes, and company names if visible
+5. ⚠️ IMPORTANT: Ignore any stock symbols mentioned in 'Current Session' or 'Recent History' unless they are clearly visible in the new image itself
+6. Provide detailed Arabic description of ALL financial content visible in the image
+
+EXAMPLE: If you see 5 stocks in the image, you MUST extract all 5 symbols, not just 2 or 3.
 
 ` : ""}**YOUR TASK:**
 Analyze user request and return JSON with this exact structure:
@@ -48,35 +54,39 @@ Analyze user request and return JSON with this exact structure:
   "intent": "portfolio",
   "confidence": 0.95,
   "entities": {
-    "symbols": ["STOCK_SYMBOLS_FROM_IMAGE"],
+    "symbols": ["ALL_STOCK_SYMBOLS_FROM_IMAGE"],
     "sector": null,
     "wants_table": true,
     "timeframe": null
   },
   "tools": ["get_stock"],
-  "image_summary": "Arabic description of image content",
+  "image_summary": "وصف تفصيلي بالعربية لكل محتوى الصورة المالية بما في ذلك جميع رموز الأسهم المرئية",
   "session_update": {
     "current_symbol": "FIRST_SYMBOL",
-    "last_symbols": ["ALL_SYMBOLS"],
-    "summary": "portfolio analysis"
+    "last_symbols": ["ALL_SYMBOLS_IN_ORDER"],
+    "summary": "portfolio analysis with all visible stocks"
   }
 }
 
 **RULES:**
-- For images: use intent "portfolio" and extract visible stock symbols
+- For images: use intent "portfolio" and extract ALL visible stock symbols (do not miss any)
 - For USD/market queries: use intent "market_summary" with tools ["get_market","get_indices"]  
 - For news: use intent "stock_news" with tools ["get_news"]
 - For recommendations or signals: use intent "recommendation" with tools ["get_recommendations"]
 - For greetings, general chat, or conversational requests (e.g. 'hello', 'say X', 'how are you', etc.): use intent "general_chat" with tools [] and entities.symbols [].
 - If the request is a general market, news, index, or recommendation query, do NOT include stock symbols from the session context in the entities.symbols list.
 - ⚠️ CRITICAL: In "image_summary" or "summary" or any other string value in your JSON, NEVER use double quotes ("). If you need to quote a stock symbol, name, or index, use single quotes (') instead. This is extremely important to prevent JSON parsing syntax errors!
+- ⚠️ FOR IMAGES: Count the visible stocks carefully and ensure your symbols array length matches the count
 - Return ONLY the JSON, no extra text`;
 
     const recentHistoryText = (history || []).slice(-6).map((h: any) => `${h.role}: ${h.content}`).join("\n");
-    const userPromptText = `Current Session:\n${JSON.stringify(session)}\n\nRecent History:\n${recentHistoryText}\n\nUser Request:\n${message || "Analyze input"}\n\n⚠️ CRITICAL instruction: You MUST return ONLY a valid JSON object starting with '{' and ending with '}'. Do NOT write any conversational text, explanations, or steps (like 'To analyze the image...'). Respond only with the JSON data.`;
+    const imageInstructions = hasImages 
+        ? `\n\n⚠️⚠️⚠️ CRITICAL IMAGE EXTRACTION RULES ⚠️⚠️⚠️\n- You MUST extract EVERY stock symbol visible in the image\n- Count the stocks carefully: if you see 5 stocks, extract 5 symbols\n- Look at ALL rows in tables, ALL items in lists\n- Do NOT skip any visible stock information\n- Double-check you haven't missed any symbols before responding\n` 
+        : "";
+    const userPromptText = `Current Session:\n${JSON.stringify(session)}\n\nRecent History:\n${recentHistoryText}\n\nUser Request:\n${message || "Analyze input"}${imageInstructions}\n\n⚠️ CRITICAL instruction: You MUST return ONLY a valid JSON object starting with '{' and ending with '}'. Do NOT write any conversational text, explanations, or steps (like 'To analyze the image...'). Respond only with the JSON data.`;
 
     const plannerModels = hasImages 
-        ? ["meta/llama-3.2-11b-vision-instruct", "meta/llama-3.2-90b-vision-instruct"] 
+        ? ["meta/llama-3.2-90b-vision-instruct", "meta/llama-3.2-11b-vision-instruct"] 
         : ["meta/llama-3.1-8b-instruct", "meta/llama-3.1-70b-instruct"];
 
     let userContent: any;
@@ -104,8 +114,8 @@ Analyze user request and return JSON with this exact structure:
                             { role: "system", content: plannerSystemPrompt },
                             { role: "user", content: userContent }
                         ],
-                        max_tokens: 500,
-                        temperature: 0.1
+                        max_tokens: 800,
+                        temperature: 0.05
                     })
                 });
 
@@ -115,7 +125,8 @@ Analyze user request and return JSON with this exact structure:
                     
                     // ⚠️ DEBUG: Log vision model response for images
                     if (hasImages) {
-                        console.log(`🔍 Vision Model (${modelName}) Raw Response:`, rawContent.substring(0, 200));
+                        console.log(`🔍 Vision Model (${modelName}) Raw Response:`, rawContent.substring(0, 300));
+                        console.log(`🔍 Full Raw Content Length: ${rawContent.length} characters`);
                     }
                     
                     let jsonMatch = rawContent.match(/\{[\s\S]*\}/);
@@ -129,8 +140,9 @@ Analyze user request and return JSON with this exact structure:
                                 console.log(`🔍 Vision Parsed Result:`, {
                                     intent: parsed.intent,
                                     symbols: parsed.entities?.symbols,
+                                    symbolsCount: parsed.entities?.symbols?.length || 0,
                                     image_summary_length: parsed.image_summary?.length || 0,
-                                    image_summary_preview: parsed.image_summary?.substring(0, 100) || "EMPTY"
+                                    image_summary_preview: parsed.image_summary?.substring(0, 150) || "EMPTY"
                                 });
                             }
                         } catch (parseError) {
