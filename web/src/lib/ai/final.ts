@@ -55,6 +55,7 @@ Rules:
 4. Always cite your source
 5. The user's query asks to analyze an image. Since you are a text model, we have extracted the image text/contents for you and provided them under the === IMAGE DATA === section below.
 6. Do NOT apologize, do NOT mention that you are a text-only model or that you cannot see/view the image, and do NOT say "No image attached" (لا توجد صورة مرفقة). Directly perform the financial analysis and read the numbers from the === IMAGE DATA === block as if you are looking at the image yourself.
+7. 📊 FORMATTING RULE: Whenever you present lists of stocks, prices, technical indicators, recommendations, signals, or news sentiments, you MUST organize and format them in a clean, beautiful Markdown table (جدول). Do NOT present them as plain text lists or numbered items. Ensure table headers are in Arabic and clearly represent the columns.
 
 ${plannerResult.image_summary ? `\n=== IMAGE DATA ===\n${plannerResult.image_summary}\n=== END ===\n` : ""}
 ${liveDataString ? `\n=== DATABASE DATA ===\n${liveDataString}\n=== END ===\n` : ""}
