@@ -1,32 +1,34 @@
 import { SessionState } from "./types";
 
-const memoryStore = new Map<string, SessionState>();
-
 export async function loadSessionState(supabase: any, sessionId: string, userId: string): Promise<SessionState> {
     if (!sessionId) {
         return { current_symbol: null, last_symbols: [], summary: null };
     }
 
-    if (memoryStore.has(sessionId)) {
-        return memoryStore.get(sessionId)!;
-    }
-
     try {
         const { data: sessionData } = await supabase
             .from("ai_chat_sessions")
-            .select("title, updated_at")
+            .select("title, state")
             .eq("id", sessionId)
+            .eq("user_id", userId)
             .maybeSingle();
 
-        const state: SessionState = {
+        if (sessionData?.state) {
+            const state = sessionData.state as any;
+            return {
+                current_symbol: state.current_symbol || null,
+                last_symbols: Array.isArray(state.last_symbols) ? state.last_symbols : [],
+                summary: state.summary || sessionData.title || null
+            };
+        }
+
+        return {
             current_symbol: null,
             last_symbols: [],
             summary: sessionData?.title || null
         };
-
-        memoryStore.set(sessionId, state);
-        return state;
     } catch (e) {
+        console.warn("Failed to load session state from Supabase:", e);
         return { current_symbol: null, last_symbols: [], summary: null };
     }
 }
@@ -48,6 +50,18 @@ export async function updateSessionState(
         summary: update.summary !== undefined ? update.summary : current.summary
     };
 
-    memoryStore.set(sessionId, updated);
+    try {
+        await supabase
+            .from("ai_chat_sessions")
+            .update({
+                state: updated,
+                updated_at: new Date().toISOString()
+            })
+            .eq("id", sessionId)
+            .eq("user_id", userId);
+    } catch (e) {
+        console.warn("Failed to update session state in Supabase:", e);
+    }
+
     return updated;
 }

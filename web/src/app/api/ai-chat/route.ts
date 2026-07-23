@@ -24,7 +24,7 @@ function filterInput(text: string): boolean {
 }
 
 function filterOutput(response: string): string {
-    const blockedOutputRegex = /(اشتري الآن|شراء فوراً|شراء الان|مضمون 100%|ضمان أرباح|guaranteed profit)/i;
+    const blockedOutputRegex = /(اشتري الآن|شراء فوراً|شراء الان|مضمون|ضمان|أرباح مؤكدة|guaranteed|assurance|buy now)/i;
     if (blockedOutputRegex.test(response)) {
         return "أنا أداة تحليلية ذكية، ولا يمكنني تقديم نصائح مالية أو توصيات شراء مباشرة. يمكنك مراجعة تقييم الأسهم في صفحة الماسح الذكي لمساعدتك في اتخاذ القرار.";
     }
@@ -103,61 +103,7 @@ export async function POST(req: NextRequest) {
         }
         const apiKey = keysToTry[0];
 
-        // --- STEP 1: LOAD SESSION ---
-        const sessionState = await loadSessionState(supabase, inputSessionId, userId);
-
-        // --- STEP 2: RUN PLANNER ---
-        const plannerResult = await runPlanner(message || "", imageList, sessionState, formattedHistory, keysToTry);
-        
-        // --- STEP 3: UPDATE SESSION ---
-        await updateSessionState(supabase, inputSessionId, userId, plannerResult.session_update);
-
-        // --- STEP 4: EXECUTE TOOLS ---
-        const liveDataString = await executeTools(supabase, plannerResult);
-
-        // --- STEP 5: FINAL LLM GENERATION ---
-        const aiMessages = [
-            { role: "system", content: "system" },
-            ...formattedHistory,
-            { 
-                role: "user", 
-                content: hasImages 
-                    ? [
-                        { type: "text", text: message || "Analyze image" },
-                        { type: "image_url", image_url: { url: imageList[0] } }
-                      ] 
-                    : message 
-            }
-        ];
-
-        let replyText = await generateFinalResponse(
-            message || "", 
-            imageList, 
-            liveDataString, 
-            plannerResult, 
-            aiMessages, 
-            keysToTry, 
-            userRequestedModel
-        );
-
-        replyText = filterOutput(replyText);
-
-        // Update Limits
-        if (limitData) {
-            await supabase
-                .from("ai_chatbot_limits")
-                .update({ chat_count: limitData.chat_count + 1 })
-                .eq("user_id", userId)
-                .eq("date", today);
-        } else {
-            await supabase
-                .from("ai_chatbot_limits")
-                .insert({ user_id: userId, date: today, chat_count: 1 });
-        }
-
-        const newCount = (limitData?.chat_count || 0) + 1;
-
-        // Manage Multi-Session Threads & History
+        // --- STEP 1: RESOLVE SESSION ID & LOAD SESSION ---
         let activeSessionId = inputSessionId;
         try {
             if (!activeSessionId) {
@@ -181,7 +127,113 @@ export async function POST(req: NextRequest) {
                     .eq("id", activeSessionId)
                     .eq("user_id", userId);
             }
+        } catch (dbErr) {
+            console.error("Failed to resolve session ID:", dbErr);
+        }
 
+        const sessionState = await loadSessionState(supabase, activeSessionId, userId);
+
+        // --- STEP 2: RUN PLANNER ---
+        const plannerResult = await runPlanner(message || "", imageList, sessionState, formattedHistory, keysToTry);
+        
+        // --- STEP 3: UPDATE SESSION ---
+        await updateSessionState(supabase, activeSessionId, userId, plannerResult.session_update);
+
+        // --- STEP 4: EXECUTE TOOLS ---
+        const liveDataString = await executeTools(supabase, plannerResult);
+
+        // --- STEP 5: FINAL LLM GENERATION ---
+        const aiMessages = [
+            { role: "system", content: "system" },
+            ...formattedHistory,
+            { 
+                role: "user", 
+                content: message || (hasImages ? "تحليل البيانات والصورة المرفقة" : "") 
+            }
+        ];
+
+        let replyText = await generateFinalResponse(
+            message || "", 
+            imageList, 
+            liveDataString, 
+            plannerResult, 
+            aiMessages, 
+            keysToTry, 
+            userRequestedModel
+        );
+
+        replyText = filterOutput(replyText);
+
+        // Fetch raw response of the comparison model (DeepSeek V4 Flash) without post-processing
+        let debugModel2Raw = "";
+        try {
+            const finalSystemPrompt = `You are EGX Bots AI Assistant for the Egyptian Stock Exchange (EGX).
+🚨 ZERO HALLUCINATION POLICY 🚨
+Use ONLY provided data. Never invent financial information.
+Respond in Arabic. Be factual and helpful.
+
+${plannerResult.image_summary ? `\n=== IMAGE DATA ===\n${plannerResult.image_summary}\n=== END ===\n` : ""}
+${liveDataString ? `\n=== DATABASE DATA ===\n${liveDataString}\n=== END ===\n` : ""}`;
+
+            const sanitizedAiMessages = aiMessages.slice(1).map((msg: any) => {
+                if (Array.isArray(msg.content)) {
+                    const textParts = msg.content
+                        .filter((part: any) => part && part.type === "text" && part.text)
+                        .map((part: any) => part.text)
+                        .join(" ");
+                    return { role: msg.role, content: textParts || message || "تحليل البيانات والصورة" };
+                }
+                return msg;
+            });
+
+            const messagesToSendCompare = [
+                { role: "system", content: finalSystemPrompt },
+                ...sanitizedAiMessages
+            ];
+
+            const key = keysToTry.find(k => k);
+            if (key) {
+                const res = await fetch("https://integrate.api.nvidia.com/v1/chat/completions", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "Authorization": `Bearer ${key}`
+                    },
+                    body: JSON.stringify({
+                        model: "deepseek-ai/deepseek-v4-flash",
+                        messages: messagesToSendCompare,
+                        temperature: 0.2,
+                        max_tokens: 1024
+                    })
+                });
+                if (res.ok) {
+                    const data = await res.json();
+                    debugModel2Raw = data.choices?.[0]?.message?.content || "";
+                } else {
+                    debugModel2Raw = `Failed to fetch: ${res.status}`;
+                }
+            }
+        } catch (err: any) {
+            debugModel2Raw = `Error: ${err.message}`;
+        }
+
+        // Update Limits
+        if (limitData) {
+            await supabase
+                .from("ai_chatbot_limits")
+                .update({ chat_count: limitData.chat_count + 1 })
+                .eq("user_id", userId)
+                .eq("date", today);
+        } else {
+            await supabase
+                .from("ai_chatbot_limits")
+                .insert({ user_id: userId, date: today, chat_count: 1 });
+        }
+
+        const newCount = (limitData?.chat_count || 0) + 1;
+
+        // Manage History Messages Logging
+        try {
             if (activeSessionId) {
                 await supabase.from("ai_chat_messages").insert([
                     {
@@ -202,7 +254,7 @@ export async function POST(req: NextRequest) {
                 ]);
             }
         } catch (dbErr) {
-            console.error("Failed to log chat interaction to DB:", dbErr);
+            console.error("Failed to log chat messages to DB:", dbErr);
         }
 
         let dynamicSuggestedButtons: string[] = [];
@@ -226,7 +278,10 @@ export async function POST(req: NextRequest) {
             session_id: activeSessionId,
             remaining_quota: isUnlimited ? 999 : Math.max(0, 15 - newCount),
             suggested_buttons: dynamicSuggestedButtons,
-            session_state: plannerResult.session_update
+            session_state: plannerResult.session_update,
+            debug: {
+                model_2_raw_response: debugModel2Raw
+            }
         });
 
     } catch (error: any) {
