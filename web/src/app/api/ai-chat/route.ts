@@ -106,16 +106,34 @@ export async function POST(req: NextRequest) {
         // --- STEP 1: RESOLVE SESSION ID & LOAD SESSION ---
         let activeSessionId = inputSessionId;
         try {
-            if (!activeSessionId) {
+            let sessionExists = false;
+            if (activeSessionId) {
+                const { data: existing } = await supabase
+                    .from("ai_chat_sessions")
+                    .select("id")
+                    .eq("id", activeSessionId)
+                    .eq("user_id", userId)
+                    .maybeSingle();
+                if (existing) {
+                    sessionExists = true;
+                }
+            }
+
+            if (!activeSessionId || !sessionExists) {
                 const sessionTitle = message?.trim().substring(0, 32) || (hasImages ? "تحليل صورة محفظة" : "محادثة جديدة");
+                const insertPayload: any = {
+                    title: sessionTitle,
+                    user_id: userId,
+                    created_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString()
+                };
+                if (activeSessionId) {
+                    insertPayload.id = activeSessionId;
+                }
+
                 const { data: newSession } = await supabase
                     .from("ai_chat_sessions")
-                    .insert({
-                        user_id: userId,
-                        title: sessionTitle,
-                        created_at: new Date().toISOString(),
-                        updated_at: new Date().toISOString()
-                    })
+                    .insert(insertPayload)
                     .select("id")
                     .single();
 
