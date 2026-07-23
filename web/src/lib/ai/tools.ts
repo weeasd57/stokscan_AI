@@ -242,7 +242,7 @@ export async function executeTools(supabase: any, plannerResult: PlannerResult):
                 
                 // تجميع الأخبار حسب التاريخ
                 const newsByDate = new Map<string, any[]>();
-                newsData.forEach(item => {
+                newsData.forEach((item: any) => {
                     const dateKey = item.date || todayStr;
                     if (!newsByDate.has(dateKey)) {
                         newsByDate.set(dateKey, []);
