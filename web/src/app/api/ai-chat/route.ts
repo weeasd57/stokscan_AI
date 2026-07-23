@@ -65,7 +65,7 @@ export async function POST(req: NextRequest) {
         const formattedHistory = Array.isArray(history)
             ? history
                 .filter((item: any) => item && item.content && (item.role === "user" || item.role === "assistant"))
-                .slice(-4)
+                .slice(-10)
                 .map((item: any) => {
                     let contentStr = String(item.content)
                         .replace(/\s*✅\s*تحليل EGX Bots مبني على بيانات حية[^\n]*/g, "")

@@ -23,6 +23,7 @@ export async function runPlanner(
         };
     }
 
+    const isAggregateTableRequest = /كل البيانات|جدول|كل الأسهم|جدول بالشات|ملخص المحادثة/i.test(message);
     const defaultModel = "meta/llama-3.1-8b-instruct";
 
     const plannerSystemPrompt = `You are EGX Bots Master Planner & Router.
@@ -46,7 +47,7 @@ Rules:
 - Resolve ambiguous pronouns (e.g. "الأولاني", "السهم ده") to current_symbol ("${session.current_symbol || ''}").
 - Output raw valid JSON ONLY. No text around JSON.`;
 
-    const recentHistoryText = (history || []).slice(-4).map((h: any) => `${h.role}: ${h.content}`).join("\n");
+    const recentHistoryText = (history || []).slice(-6).map((h: any) => `${h.role}: ${h.content}`).join("\n");
     const userPromptContent = `Current Session:\n${JSON.stringify(session)}\n\nRecent History:\n${recentHistoryText}\n\nUser Request:\n${message || "Analyze request"}`;
 
     for (const key of apiKeys) {
@@ -82,18 +83,22 @@ Rules:
                         .map((s: string) => String(s).toUpperCase())
                         .filter((s: string) => s !== "EXTRACTED_SYMBOL" && s !== "SYMBOL1");
 
+                    const resolvedSymbols = isAggregateTableRequest && session.last_symbols?.length 
+                        ? Array.from(new Set([...symbols, ...session.last_symbols])) 
+                        : symbols;
+
                     return {
-                        intent: parsed.intent || "general_chat",
+                        intent: isAggregateTableRequest ? "stock_analysis" : (parsed.intent || "general_chat"),
                         confidence: parsed.confidence || 0.95,
                         entities: {
-                            symbols: Array.from(new Set(symbols)),
+                            symbols: resolvedSymbols,
                             sector: parsed.entities?.sector || null,
-                            wants_table: Boolean(parsed.entities?.wants_table)
+                            wants_table: Boolean(parsed.entities?.wants_table || isAggregateTableRequest)
                         },
-                        tools: Array.isArray(parsed.tools) ? parsed.tools : [],
+                        tools: resolvedSymbols.length > 0 ? Array.from(new Set([...(parsed.tools || []), "get_stock"])) : (parsed.tools || []),
                         session_update: {
-                            current_symbol: symbols[0] || session.current_symbol,
-                            last_symbols: Array.from(new Set([...symbols, ...(session.last_symbols || [])])).slice(0, 5),
+                            current_symbol: resolvedSymbols[0] || session.current_symbol,
+                            last_symbols: Array.from(new Set([...resolvedSymbols, ...(session.last_symbols || [])])).slice(0, 15),
                             summary: parsed.session_update?.summary || null
                         }
                     };
@@ -104,11 +109,15 @@ Rules:
         }
     }
 
+    const fallbackSymbols = isAggregateTableRequest && session.last_symbols?.length 
+        ? session.last_symbols 
+        : (session.current_symbol ? [session.current_symbol] : []);
+
     return {
-        intent: "general_chat",
+        intent: isAggregateTableRequest ? "stock_analysis" : "general_chat",
         confidence: 0.8,
-        entities: { symbols: session.current_symbol ? [session.current_symbol] : [], sector: null, wants_table: false },
-        tools: session.current_symbol ? ["get_stock"] : [],
-        session_update: { current_symbol: session.current_symbol, last_symbols: session.last_symbols, summary: null }
+        entities: { symbols: fallbackSymbols, sector: null, wants_table: isAggregateTableRequest },
+        tools: fallbackSymbols.length > 0 ? ["get_stock"] : [],
+        session_update: { current_symbol: fallbackSymbols[0] || session.current_symbol, last_symbols: session.last_symbols, summary: null }
     };
 }

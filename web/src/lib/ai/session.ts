@@ -43,7 +43,7 @@ export async function updateSessionState(
     const updated: SessionState = {
         current_symbol: update.current_symbol !== undefined ? update.current_symbol : current.current_symbol,
         last_symbols: update.last_symbols 
-            ? Array.from(new Set([...update.last_symbols, ...(current.last_symbols || [])])).slice(0, 5) 
+            ? Array.from(new Set([...update.last_symbols, ...(current.last_symbols || [])])).slice(0, 15) 
             : current.last_symbols,
         summary: update.summary !== undefined ? update.summary : current.summary
     };
