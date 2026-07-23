@@ -33,6 +33,7 @@ function filterOutput(response: string): string {
 
 export async function POST(req: NextRequest) {
     try {
+        const totalRequestStartTime = Date.now();
         const authClient = createSupabaseServerClient(req);
         const supabase = getSupabaseClient();
 
@@ -120,6 +121,7 @@ export async function POST(req: NextRequest) {
             }
 
             if (!activeSessionId || !sessionExists) {
+                console.log(`[BOT STAGE] Session ID ${activeSessionId || 'none'} not found in DB. Inserting new session...`);
                 const sessionTitle = message?.trim().substring(0, 32) || (hasImages ? "تحليل صورة محفظة" : "محادثة جديدة");
                 const insertPayload: any = {
                     title: sessionTitle,
@@ -137,8 +139,12 @@ export async function POST(req: NextRequest) {
                     .select("id")
                     .single();
 
-                if (newSession) activeSessionId = newSession.id;
+                if (newSession) {
+                    activeSessionId = newSession.id;
+                    console.log(`[BOT STAGE] Created new session ID: ${activeSessionId}`);
+                }
             } else {
+                console.log(`[BOT STAGE] Session ID ${activeSessionId} verified in DB. Updating timestamp...`);
                 await supabase
                     .from("ai_chat_sessions")
                     .update({ updated_at: new Date().toISOString() })
@@ -146,21 +152,29 @@ export async function POST(req: NextRequest) {
                     .eq("user_id", userId);
             }
         } catch (dbErr) {
-            console.error("Failed to resolve session ID:", dbErr);
+            console.error("[BOT STAGE] Error in session resolution:", dbErr);
         }
 
+        console.log(`[BOT STAGE] Loading session state for session ID: ${activeSessionId}...`);
         const sessionState = await loadSessionState(supabase, activeSessionId, userId);
+        console.log(`[BOT STAGE] Session State loaded: Symbol = ${sessionState.current_symbol}, List = ${JSON.stringify(sessionState.last_symbols)}`);
 
         // --- STEP 2: RUN PLANNER ---
+        console.log(`[BOT STAGE] Running planner model to detect intent and tools...`);
         const plannerResult = await runPlanner(message || "", imageList, sessionState, formattedHistory, keysToTry);
+        console.log(`[BOT STAGE] Planner output: Intent = ${plannerResult.intent}, Tools = ${JSON.stringify(plannerResult.tools)}, Symbols = ${JSON.stringify(plannerResult.entities?.symbols)}`);
         
         // --- STEP 3: UPDATE SESSION ---
+        console.log(`[BOT STAGE] Updating session state in DB...`);
         await updateSessionState(supabase, activeSessionId, userId, plannerResult.session_update);
 
         // --- STEP 4: EXECUTE TOOLS ---
+        console.log(`[BOT STAGE] Executing database tools: ${JSON.stringify(plannerResult.tools)}...`);
         const liveDataString = await executeTools(supabase, plannerResult);
+        console.log(`[BOT STAGE] Tools execution completed. Data size: ${liveDataString ? liveDataString.length : 0} chars.`);
 
         // --- STEP 5: FINAL LLM GENERATION ---
+        console.log(`[BOT STAGE] Starting final LLM generation using model: ${userRequestedModel || "default"}`);
         const aiMessages = [
             { role: "system", content: "system" },
             ...formattedHistory,
@@ -170,22 +184,11 @@ export async function POST(req: NextRequest) {
             }
         ];
 
-        let replyText = await generateFinalResponse(
-            message || "", 
-            imageList, 
-            liveDataString, 
-            plannerResult, 
-            aiMessages, 
-            keysToTry, 
-            userRequestedModel
-        );
-
-        replyText = filterOutput(replyText);
-
-        // Fetch raw response of the comparison model (DeepSeek V4 Flash) without post-processing
-        let debugModel2Raw = "";
-        try {
-            const finalSystemPrompt = `You are EGX Bots AI Assistant for the Egyptian Stock Exchange (EGX).
+        // Prepare comparison fetch logic in a function
+        const fetchComparisonPromise = async (): Promise<string> => {
+            try {
+                console.log("[BOT STAGE] Starting comparison model (DeepSeek V4 Flash) in parallel...");
+                const finalSystemPrompt = `You are EGX Bots AI Assistant for the Egyptian Stock Exchange (EGX).
 🚨 ZERO HALLUCINATION POLICY 🚨
 Use ONLY provided data. Never invent financial information.
 Respond in Arabic. Be factual and helpful.
@@ -193,47 +196,71 @@ Respond in Arabic. Be factual and helpful.
 ${plannerResult.image_summary ? `\n=== IMAGE DATA ===\n${plannerResult.image_summary}\n=== END ===\n` : ""}
 ${liveDataString ? `\n=== DATABASE DATA ===\n${liveDataString}\n=== END ===\n` : ""}`;
 
-            const sanitizedAiMessages = aiMessages.slice(1).map((msg: any) => {
-                if (Array.isArray(msg.content)) {
-                    const textParts = msg.content
-                        .filter((part: any) => part && part.type === "text" && part.text)
-                        .map((part: any) => part.text)
-                        .join(" ");
-                    return { role: msg.role, content: textParts || message || "تحليل البيانات والصورة" };
-                }
-                return msg;
-            });
-
-            const messagesToSendCompare = [
-                { role: "system", content: finalSystemPrompt },
-                ...sanitizedAiMessages
-            ];
-
-            const key = keysToTry.find(k => k);
-            if (key) {
-                const res = await fetch("https://integrate.api.nvidia.com/v1/chat/completions", {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json",
-                        "Authorization": `Bearer ${key}`
-                    },
-                    body: JSON.stringify({
-                        model: "deepseek-ai/deepseek-v4-flash",
-                        messages: messagesToSendCompare,
-                        temperature: 0.2,
-                        max_tokens: 1024
-                    })
+                const sanitizedAiMessages = aiMessages.slice(1).map((msg: any) => {
+                    if (Array.isArray(msg.content)) {
+                        const textParts = msg.content
+                            .filter((part: any) => part && part.type === "text" && part.text)
+                            .map((part: any) => part.text)
+                            .join(" ");
+                        return { role: msg.role, content: textParts || message || "تحليل البيانات والصورة" };
+                    }
+                    return msg;
                 });
-                if (res.ok) {
-                    const data = await res.json();
-                    debugModel2Raw = data.choices?.[0]?.message?.content || "";
-                } else {
-                    debugModel2Raw = `Failed to fetch: ${res.status}`;
+
+                const messagesToSendCompare = [
+                    { role: "system", content: finalSystemPrompt },
+                    ...sanitizedAiMessages
+                ];
+
+                const key = keysToTry.find(k => k);
+                if (key) {
+                    const startCompTime = Date.now();
+                    const res = await fetch("https://integrate.api.nvidia.com/v1/chat/completions", {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json",
+                            "Authorization": `Bearer ${key}`
+                        },
+                        body: JSON.stringify({
+                            model: "deepseek-ai/deepseek-v4-flash",
+                            messages: messagesToSendCompare,
+                            temperature: 0.2,
+                            max_tokens: 1024
+                        })
+                    });
+                    if (res.ok) {
+                        const data = await res.json();
+                        console.log(`[BOT STAGE] Comparison model (DeepSeek) finished in ${Date.now() - startCompTime}ms`);
+                        return data.choices?.[0]?.message?.content || "";
+                    } else {
+                        return `Failed to fetch: ${res.status}`;
+                    }
                 }
+                return "";
+            } catch (err: any) {
+                console.error("[BOT STAGE] Error in comparison model fetch:", err);
+                return `Error: ${err.message}`;
             }
-        } catch (err: any) {
-            debugModel2Raw = `Error: ${err.message}`;
-        }
+        };
+
+        const startTimeMain = Date.now();
+        // Run both fetches concurrently!
+        const [replyTextRaw, debugModel2Raw] = await Promise.all([
+            generateFinalResponse(
+                message || "", 
+                imageList, 
+                liveDataString, 
+                plannerResult, 
+                aiMessages, 
+                keysToTry, 
+                userRequestedModel
+            ),
+            fetchComparisonPromise()
+        ]);
+
+        console.log(`[BOT STAGE] Main LLM response finished in ${Date.now() - startTimeMain}ms`);
+
+        let replyText = filterOutput(replyTextRaw);
 
         // Update Limits
         if (limitData) {
@@ -290,6 +317,8 @@ ${liveDataString ? `\n=== DATABASE DATA ===\n${liveDataString}\n=== END ===\n` :
                 "البنوك حالتها إيه؟"
             ];
         }
+
+        console.log(`[BOT STAGE] <<< Request completed successfully in ${Date.now() - totalRequestStartTime}ms. Session ID: ${activeSessionId}`);
 
         return NextResponse.json({
             reply: replyText,
