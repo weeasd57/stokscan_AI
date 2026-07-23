@@ -12,12 +12,136 @@ interface FormattedChatMessageProps {
     showSuggestedButtons?: boolean;
 }
 
-export function FormattedChatMessage({ content, role, suggestedButtons, onButtonClick, showSuggestedButtons = true }: FormattedChatMessageProps) {
+type ContentBlock = 
+    | { type: "text"; content: string }
+    | { type: "table"; headers: string[]; rows: string[][] };
+
+function parseContentBlocks(content: string): ContentBlock[] {
+    const blocks: ContentBlock[] = [];
+    const lines = content.split("\n");
+    let currentTextLines: string[] = [];
+    let currentTableLines: string[] = [];
+    let inTable = false;
+
+    const flushText = () => {
+        if (currentTextLines.length > 0) {
+            blocks.push({ type: "text", content: currentTextLines.join("\n") });
+            currentTextLines = [];
+        }
+    };
+
+    const flushTable = () => {
+        if (currentTableLines.length > 0) {
+            const tableLines = currentTableLines.map(l => l.trim()).filter(Boolean);
+            const contentLines = tableLines.filter(line => !/^\|[\s:\-|\+]+\|$/.test(line));
+            
+            if (contentLines.length >= 2) {
+                const headers = contentLines[0]
+                    .split("|")
+                    .slice(1, -1)
+                    .map(cell => cell.trim());
+                const rows = contentLines.slice(1).map(line =>
+                    line
+                        .split("|")
+                        .slice(1, -1)
+                        .map(cell => cell.trim())
+                );
+                if (headers.length > 0 && rows.length > 0) {
+                    blocks.push({ type: "table", headers, rows });
+                } else {
+                    currentTextLines.push(...currentTableLines);
+                }
+            } else {
+                currentTextLines.push(...currentTableLines);
+            }
+            currentTableLines = [];
+        }
+    };
+
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const trimmed = line.trim();
+        const isTableLine = trimmed.startsWith("|") && trimmed.endsWith("|");
+
+        if (isTableLine) {
+            if (!inTable) {
+                flushText();
+                inTable = true;
+            }
+            currentTableLines.push(line);
+        } else {
+            if (inTable) {
+                flushTable();
+                inTable = false;
+            }
+            currentTextLines.push(line);
+        }
+    }
+
+    if (inTable) {
+        flushTable();
+    } else {
+        flushText();
+    }
+
+    return blocks;
+}
+
+function ExportableTable({ headers, rows }: { headers: string[]; rows: string[][] }) {
     const [copied, setCopied] = useState(false);
+    return (
+        <div className="my-4 border border-zinc-200 dark:border-zinc-800 rounded-xl overflow-hidden bg-white dark:bg-zinc-900/90 shadow-md">
+            <div className="flex items-center justify-between px-4 py-2 bg-zinc-50 dark:bg-zinc-950 border-b border-zinc-200 dark:border-zinc-800">
+                <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-2">
+                    <FileSpreadsheet className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                    جدول تحليلي جاهز للتصدير
+                </span>
+                <button
+                    onClick={() => {
+                        exportTableToExcel(headers, rows);
+                        setCopied(true);
+                        setTimeout(() => setCopied(false), 2000);
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-lg transition-all shadow-md active:scale-95"
+                >
+                    {copied ? <Check className="w-3.5 h-3.5" /> : <Download className="w-3.5 h-3.5" />}
+                    {copied ? "تم التحميل!" : "تصدير لإكسيل (Excel)"}
+                </button>
+            </div>
+
+            <div className="overflow-x-auto">
+                <table className="w-full text-xs md:text-sm text-right border-collapse">
+                    <thead>
+                        <tr className="bg-zinc-100 dark:bg-zinc-800/80 text-zinc-900 dark:text-zinc-200 border-b border-zinc-200 dark:border-zinc-700">
+                            {headers.map((h, i) => (
+                                <th key={i} className="px-3 py-2.5 font-bold border-l border-zinc-200 dark:border-zinc-700/50 last:border-l-0">
+                                    {h}
+                                </th>
+                            ))}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {rows.map((row, rIdx) => (
+                            <tr key={rIdx} className="border-b border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800/40 transition-colors">
+                                {row.map((cell, cIdx) => (
+                                    <td key={cIdx} className="px-3 py-2 border-l border-zinc-200 dark:border-zinc-800/50 last:border-l-0 text-zinc-800 dark:text-zinc-300 font-mono">
+                                        {cell}
+                                    </td>
+                                ))}
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    );
+}
+
+export function FormattedChatMessage({ content, role, suggestedButtons, onButtonClick, showSuggestedButtons = true }: FormattedChatMessageProps) {
     const [copiedText, setCopiedText] = useState(false);
     const mermaidContainerRef = useRef<HTMLDivElement>(null);
 
-    const mermaidMatch = content.match(/```mermaid\s+([\s\S]*?)```/);
+    const mermaidMatch = content.match(/```mermaid\s+([\s\S]*?)```/g);
     const mermaidCode = mermaidMatch ? mermaidMatch[1].trim() : null;
 
     useEffect(() => {
@@ -64,7 +188,7 @@ export function FormattedChatMessage({ content, role, suggestedButtons, onButton
         );
     }
 
-    const parsedTable = parseMarkdownTable(content);
+    const blocks = parseContentBlocks(content);
 
     const renderFormattedText = (text: string) => {
         let cleanText = text.replace(/```mermaid\s+[\s\S]*?```/g, "").trim();
@@ -116,10 +240,20 @@ export function FormattedChatMessage({ content, role, suggestedButtons, onButton
 
     return (
         <div className="space-y-3 w-full text-right" dir="rtl">
-            {/* Formatted Text Content */}
-            <div className="space-y-1">
-                {renderFormattedText(content)}
-            </div>
+            {/* Render each block in order */}
+            {blocks.map((block, bIdx) => {
+                if (block.type === "text") {
+                    return (
+                        <div key={bIdx} className="space-y-1">
+                            {renderFormattedText(block.content)}
+                        </div>
+                    );
+                } else {
+                    return (
+                        <ExportableTable key={bIdx} headers={block.headers} rows={block.rows} />
+                    );
+                }
+            })}
 
             {/* Mermaid Diagram Box */}
             {mermaidCode && (
@@ -128,54 +262,6 @@ export function FormattedChatMessage({ content, role, suggestedButtons, onButton
                         📊 رسم بياني تفاعلي (Diagram)
                     </div>
                     <div ref={mermaidContainerRef} className="flex justify-center items-center min-h-[120px]" />
-                </div>
-            )}
-
-            {/* Interactive Excel Exportable Table */}
-            {parsedTable && (
-                <div className="my-4 border border-zinc-200 dark:border-zinc-800 rounded-xl overflow-hidden bg-white dark:bg-zinc-900/90 shadow-md">
-                    <div className="flex items-center justify-between px-4 py-2 bg-zinc-50 dark:bg-zinc-950 border-b border-zinc-200 dark:border-zinc-800">
-                        <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-2">
-                            <FileSpreadsheet className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-                            جدول تحليلي جاهز للتصدير
-                        </span>
-                        <button
-                            onClick={() => {
-                                exportTableToExcel(parsedTable.headers, parsedTable.rows);
-                                setCopied(true);
-                                setTimeout(() => setCopied(false), 2000);
-                            }}
-                            className="flex items-center gap-1.5 px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-lg transition-all shadow-md active:scale-95"
-                        >
-                            {copied ? <Check className="w-3.5 h-3.5" /> : <Download className="w-3.5 h-3.5" />}
-                            {copied ? "تم التحميل!" : "تصدير لإكسيل (Excel)"}
-                        </button>
-                    </div>
-
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-xs md:text-sm text-right border-collapse">
-                            <thead>
-                                <tr className="bg-zinc-100 dark:bg-zinc-800/80 text-zinc-900 dark:text-zinc-200 border-b border-zinc-200 dark:border-zinc-700">
-                                    {parsedTable.headers.map((h, i) => (
-                                        <th key={i} className="px-3 py-2.5 font-bold border-l border-zinc-200 dark:border-zinc-700/50 last:border-l-0">
-                                            {h}
-                                        </th>
-                                    ))}
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {parsedTable.rows.map((row, rIdx) => (
-                                    <tr key={rIdx} className="border-b border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800/40 transition-colors">
-                                        {row.map((cell, cIdx) => (
-                                            <td key={cIdx} className="px-3 py-2 border-l border-zinc-200 dark:border-zinc-800/50 last:border-l-0 text-zinc-800 dark:text-zinc-300 font-mono">
-                                                {cell}
-                                            </td>
-                                        ))}
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
                 </div>
             )}
 

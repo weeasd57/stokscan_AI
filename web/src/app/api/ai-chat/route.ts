@@ -186,9 +186,13 @@ export async function POST(req: NextRequest) {
 
         // Prepare comparison fetch logic in a function
         const fetchComparisonPromise = async (): Promise<string> => {
-            try {
-                console.log("[BOT STAGE] Starting comparison model (DeepSeek V4 Flash) in parallel...");
-                const finalSystemPrompt = `You are EGX Bots AI Assistant for the Egyptian Stock Exchange (EGX).
+            const comparisonModels = [
+                "deepseek-ai/deepseek-v4-flash",
+                "meta/llama-3.1-8b-instruct",
+                "mistralai/mistral-7b-instruct-v0.3"
+            ];
+
+            const finalSystemPrompt = `You are EGX Bots AI Assistant for the Egyptian Stock Exchange (EGX).
 🚨 ZERO HALLUCINATION POLICY 🚨
 Use ONLY provided data. Never invent financial information.
 Respond in Arabic. Be factual and helpful.
@@ -196,58 +200,64 @@ Respond in Arabic. Be factual and helpful.
 ${plannerResult.image_summary ? `\n=== IMAGE DATA ===\n${plannerResult.image_summary}\n=== END ===\n` : ""}
 ${liveDataString ? `\n=== DATABASE DATA ===\n${liveDataString}\n=== END ===\n` : ""}`;
 
-                const sanitizedAiMessages = aiMessages.slice(1).map((msg: any) => {
-                    if (Array.isArray(msg.content)) {
-                        const textParts = msg.content
-                            .filter((part: any) => part && part.type === "text" && part.text)
-                            .map((part: any) => part.text)
-                            .join(" ");
-                        return { role: msg.role, content: textParts || message || "تحليل البيانات والصورة" };
-                    }
-                    return msg;
-                });
+            const sanitizedAiMessages = aiMessages.slice(1).map((msg: any) => {
+                if (Array.isArray(msg.content)) {
+                    const textParts = msg.content
+                        .filter((part: any) => part && part.type === "text" && part.text)
+                        .map((part: any) => part.text)
+                        .join(" ");
+                    return { role: msg.role, content: textParts || message || "تحليل البيانات والصورة" };
+                }
+                return msg;
+            });
 
-                const messagesToSendCompare = [
-                    { role: "system", content: finalSystemPrompt },
-                    ...sanitizedAiMessages
-                ];
+            const messagesToSendCompare = [
+                { role: "system", content: finalSystemPrompt },
+                ...sanitizedAiMessages
+            ];
 
-                const key = keysToTry.find(k => k);
-                if (key) {
-                    const startCompTime = Date.now();
-                    const controller = new AbortController();
-                    const timeoutId = setTimeout(() => controller.abort(), 4000); // Strict 4-second timeout
+            // Loop through keys and comparison models to ensure a response is always generated!
+            for (const key of keysToTry) {
+                for (const modelName of comparisonModels) {
+                    try {
+                        console.log(`[BOT STAGE] Trying comparison model (${modelName}) in parallel...`);
+                        const startCompTime = Date.now();
+                        const controller = new AbortController();
+                        const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 seconds timeout per try
 
-                    const res = await fetch("https://integrate.api.nvidia.com/v1/chat/completions", {
-                        method: "POST",
-                        headers: {
-                            "Content-Type": "application/json",
-                            "Authorization": `Bearer ${key}`
-                        },
-                        signal: controller.signal,
-                        body: JSON.stringify({
-                            model: "deepseek-ai/deepseek-v4-flash",
-                            messages: messagesToSendCompare,
-                            temperature: 0.2,
-                            max_tokens: 1024
-                        })
-                    });
+                        const res = await fetch("https://integrate.api.nvidia.com/v1/chat/completions", {
+                            method: "POST",
+                            headers: {
+                                "Content-Type": "application/json",
+                                "Authorization": `Bearer ${key}`
+                            },
+                            signal: controller.signal,
+                            body: JSON.stringify({
+                                model: modelName,
+                                messages: messagesToSendCompare,
+                                temperature: 0.2,
+                                max_tokens: 1024
+                            })
+                        });
 
-                    clearTimeout(timeoutId);
+                        clearTimeout(timeoutId);
 
-                    if (res.ok) {
-                        const data = await res.json();
-                        console.log(`[BOT STAGE] Comparison model (DeepSeek) finished in ${Date.now() - startCompTime}ms`);
-                        return data.choices?.[0]?.message?.content || "";
-                    } else {
-                        return `Failed to fetch: ${res.status}`;
+                        if (res.ok) {
+                            const data = await res.json();
+                            const reply = data.choices?.[0]?.message?.content?.trim();
+                            if (reply) {
+                                console.log(`[BOT STAGE] Comparison model (${modelName}) succeeded in ${Date.now() - startCompTime}ms`);
+                                return reply;
+                            }
+                        } else {
+                            console.warn(`[BOT STAGE] Comparison model (${modelName}) failed with status: ${res.status}`);
+                        }
+                    } catch (err: any) {
+                        console.warn(`[BOT STAGE] Comparison model (${modelName}) failed/timed out: ${err.message}`);
                     }
                 }
-                return "";
-            } catch (err: any) {
-                console.error("[BOT STAGE] Error in comparison model fetch:", err);
-                return `Error: ${err.message}`;
             }
+            return "All comparison fallback models and keys were exhausted without success.";
         };
 
         const startTimeMain = Date.now();
