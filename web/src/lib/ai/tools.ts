@@ -318,7 +318,7 @@ export async function executeTools(supabase: any, plannerResult: PlannerResult):
                 
                 // تجميع أحدث بيانات لكل مؤشر
                 const latestIndices = new Map<string, any>();
-                indexData.forEach(item => {
+                indexData.forEach((item: any) => {
                     if (!latestIndices.has(item.symbol) || 
                         (latestIndices.get(item.symbol)?.date || "") < (item.date || "")) {
                         latestIndices.set(item.symbol, item);
