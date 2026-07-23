@@ -9,7 +9,6 @@ export async function runPlanner(
 ): Promise<PlannerResult> {
     const hasImages = imageList && imageList.length > 0;
 
-    // For Image Requests: Direct pass to Vision LLM without forcing hardcoded JSON prompts or DB overrides
     if (hasImages) {
         return {
             intent: "image_analysis",
@@ -26,28 +25,25 @@ export async function runPlanner(
 
     const defaultModel = "meta/llama-3.1-8b-instruct";
 
-    const plannerSystemPrompt = `You are the EGX Bots Master Planner & Intent Router for the Egyptian Stock Exchange (EGX).
-Your job is to analyze the user request, resolve stock references/pronouns (e.g. "الأولاني", "السهم ده", "ده") using Current Session & History, and return ONLY a valid JSON matching this EXACT SCHEMA:
-
+    const plannerSystemPrompt = `You are EGX Bots Master Planner & Router.
+Analyze the user input, resolve pronouns using session state, and output raw JSON matching:
 {
   "intent": "stock_analysis" | "compare_stocks" | "stock_news" | "market_summary" | "portfolio" | "general_chat",
   "confidence": 0.95,
   "entities": {
-    "symbols": ["EXTRACTED_SYMBOL"],
+    "symbols": [],
     "sector": null,
     "wants_table": false
   },
   "tools": ["get_stock", "get_news", "get_market", "compare_stocks"],
   "session_update": {
-    "current_symbol": "EXTRACTED_SYMBOL",
-    "last_symbols": ["EXTRACTED_SYMBOL"],
-    "summary": "Brief summary of query"
+    "current_symbol": null,
+    "last_symbols": [],
+    "summary": null
   }
 }
-
 Rules:
-- Resolve ambiguous pronouns like "الأولاني" or "السهم ده" to current_symbol ("${session.current_symbol || ''}") or last_symbols (${JSON.stringify(session.last_symbols)}).
-- Available tools: ["get_stock", "get_news", "get_market", "get_sector", "compare_stocks"].
+- Resolve ambiguous pronouns (e.g. "الأولاني", "السهم ده") to current_symbol ("${session.current_symbol || ''}").
 - Output raw valid JSON ONLY. No text around JSON.`;
 
     const recentHistoryText = (history || []).slice(-4).map((h: any) => `${h.role}: ${h.content}`).join("\n");
