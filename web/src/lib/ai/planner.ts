@@ -1,6 +1,63 @@
 import { SessionState, PlannerResult } from "./types";
 import { createHash } from "crypto";
 
+const VALID_SYMBOLS = [
+    'AALR', 'ABUK', 'ACAMD', 'ACAP', 'ADCI', 'ADPC', 'AFMC', 'AIH', 'AJWA', 'ALUM',
+    'APPC', 'ARAB', 'AREH', 'ARVA', 'ATQA', 'AXPH', 'BIOC', 'BTFH', 'CIEB', 'CNFN',
+    'COPR', 'CPCI', 'CRST', 'EEII', 'EFID', 'EFIH', 'EGAL', 'EGBE', 'EGCH', 'EGREF',
+    'EGSA', 'EGTS', 'EGX30', 'EHDR', 'EITP', 'ELKA', 'ELSH', 'EOSB', 'ETRS', 'FAIT',
+    'FERC', 'FWRY', 'GBCO', 'GDWA', 'GGCC', 'GGRN', 'GMCI', 'GOUR', 'GSSC', 'ICFC',
+    'IDRE', 'INFI', 'IRON', 'ISMA', 'ISPH', 'KABO', 'KASABF', 'KRDI', 'KZPC', 'LUTS',
+    'MASR', 'MBSC', 'MCQE', 'MENA', 'MFPC', 'MFSC', 'MICH', 'MILS', 'MOIL', 'MOSC',
+    'MPCO', 'MTIE', 'NEDA', 'NHPS', 'NINH', 'PHTV', 'POUL', 'PRDC', 'RACC', 'RTVC',
+    'RUBX', 'SAUD', 'SCEM', 'SCTS', 'SEIG', 'SIPC', 'SNFC', 'SPIN', 'SWDY', 'TANM',
+    'TMGH', 'TRTO', 'TWSA', 'UEFM', 'UNIT', 'USDEGP', 'VALU', 'VLMRA', 'WATP'
+];
+
+function getLevenshteinDistance(a: string, b: string): number {
+    const matrix = [];
+    for (let i = 0; i <= b.length; i++) {
+        matrix[i] = [i];
+    }
+    for (let j = 0; j <= a.length; j++) {
+        matrix[0][j] = j;
+    }
+    for (let i = 1; i <= b.length; i++) {
+        for (let j = 1; j <= a.length; j++) {
+            if (b.charAt(i - 1) === a.charAt(j - 1)) {
+                matrix[i][j] = matrix[i - 1][j - 1];
+            } else {
+                matrix[i][j] = Math.min(
+                    matrix[i - 1][j - 1] + 1, // substitution
+                    matrix[i][j - 1] + 1,     // insertion
+                    matrix[i - 1][j] + 1      // deletion
+                );
+            }
+        }
+    }
+    return matrix[b.length][a.length];
+}
+
+export function correctStockSymbol(symbol: string): string {
+    const upperSym = symbol.trim().toUpperCase();
+    if (VALID_SYMBOLS.includes(upperSym)) {
+        return upperSym;
+    }
+
+    let bestMatch = upperSym;
+    let minDistance = 2; // Maximum edit distance allowed
+
+    for (const valid of VALID_SYMBOLS) {
+        const dist = getLevenshteinDistance(upperSym, valid);
+        if (dist < minDistance) {
+            minDistance = dist;
+            bestMatch = valid;
+        }
+    }
+
+    return bestMatch;
+}
+
 // In-Memory Image Cache
 const imageCache = new Map<string, PlannerResult>();
 
@@ -39,14 +96,14 @@ export async function runPlanner(
 
 ${hasImages ? `**ANALYZE THE IMAGE CAREFULLY:**
 CRITICAL INSTRUCTIONS:
-1. Extract ALL stock symbols visible in the image - do NOT miss any symbols
-2. Look at EVERY row, cell, and section of the financial image
-3. Include symbols from tables, lists, charts, and any text in the image
-4. Extract stock prices, percentage changes, and company names if visible
-5. ⚠️ IMPORTANT: Ignore any stock symbols mentioned in 'Current Session' or 'Recent History' unless they are clearly visible in the new image itself
-6. Provide detailed Arabic description of ALL financial content visible in the image
+1. Extract ALL stock symbols visible in the image - do NOT miss any symbols.
+2. Look at EVERY row, cell, and section of the financial image.
+3. For each stock symbol, extract the exact values, numbers, and percentages shown next to it (such as the portfolio position value, current price, change amount, and change percentage).
+4. Include all of these details (symbols, prices, values, changes) in a clear table format or list inside the "image_summary" field so that the final text model can read them.
+5. ⚠️ IMPORTANT: Ignore any stock symbols mentioned in 'Current Session' or 'Recent History' unless they are clearly visible in the new image itself.
+6. Provide a detailed Arabic description of ALL financial content visible in the image in the "image_summary" field.
 
-EXAMPLE: If you see 5 stocks in the image, you MUST extract all 5 symbols, not just 2 or 3.
+EXAMPLE: If you see 4 stocks in the image, you MUST extract all 4 symbols, and list the exact prices and values for each in the "image_summary" description.
 
 ` : ""}**YOUR TASK:**
 Analyze user request and return JSON with this exact structure:
@@ -177,7 +234,7 @@ Analyze user request and return JSON with this exact structure:
                             : (parsed.session_update?.current_symbol ? [parsed.session_update.current_symbol] : []);
 
                         const symbols = rawSymbols
-                            .map((s: string) => String(s).toUpperCase())
+                            .map((s: string) => correctStockSymbol(String(s).toUpperCase()))
                             .filter((s: string) => s !== "EXTRACTED_SYMBOL" && s !== "SYMBOL1" && s !== "PRIMARY_SYMBOL");
 
                         const isAggregateTableRequest = /كل البيانات|جدول|كل الأسهم|جدول بالشات|ملخص المحادثة/i.test(message);
@@ -204,9 +261,11 @@ Analyze user request and return JSON with this exact structure:
                             tools: Array.from(new Set(toolsList)),
                             image_summary: imageSummary || (hasImages ? "تحليل البيانات والصورة المرفقة من المحفظة." : null),
                             session_update: {
-                                current_symbol: parsed.session_update?.current_symbol || resolvedSymbols[0] || session.current_symbol,
+                                current_symbol: parsed.session_update?.current_symbol 
+                                    ? correctStockSymbol(parsed.session_update.current_symbol) 
+                                    : resolvedSymbols[0] || session.current_symbol,
                                 last_symbols: Array.isArray(parsed.session_update?.last_symbols)
-                                    ? parsed.session_update.last_symbols.map((s: string) => String(s).toUpperCase())
+                                    ? parsed.session_update.last_symbols.map((s: string) => correctStockSymbol(String(s).toUpperCase()))
                                     : Array.from(new Set([...resolvedSymbols, ...(session.last_symbols || [])])).slice(0, 15),
                                 summary: message || parsed.session_update?.summary || (hasImages ? "تحليل صورة" : null)
                             }
@@ -226,13 +285,17 @@ Analyze user request and return JSON with this exact structure:
         }
     }
 
-    const fallbackSymbols = hasImages ? [] : (session.current_symbol ? [session.current_symbol] : []);
+    const fallbackSymbols = hasImages ? [] : (session.current_symbol ? [correctStockSymbol(session.current_symbol)] : []);
     return {
         intent: hasImages ? "portfolio" : "general_chat",
         confidence: 0.8,
         entities: { symbols: fallbackSymbols, sector: null, wants_table: Boolean(hasImages) },
         tools: fallbackSymbols.length > 0 ? ["get_stock"] : [],
         image_summary: hasImages ? "تحليل البيانات والصورة المرفقة من المحفظة." : undefined,
-        session_update: { current_symbol: fallbackSymbols[0] || session.current_symbol, last_symbols: session.last_symbols, summary: message }
+        session_update: { 
+            current_symbol: fallbackSymbols[0] || session.current_symbol, 
+            last_symbols: session.last_symbols ? session.last_symbols.map((s: string) => correctStockSymbol(s)) : [], 
+            summary: message 
+        }
     };
 }
