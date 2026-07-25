@@ -58,6 +58,119 @@ export function correctStockSymbol(symbol: string): string {
     return bestMatch;
 }
 
+const ARABIC_NAME_MAPPINGS: { [key: string]: string } = {
+    "العربية لاستصلاح": "AALR",
+    "العربيه لاستصلاح": "AALR",
+    "ابوقير": "ABUK",
+    "ابو قير": "ABUK",
+    "المحابس": "ACAMD",
+    "مطاحن الاسكندرية": "AFMC",
+    "مطاحن الإسكندرية": "AFMC",
+    "الاستثمار والتنمية": "AIH",
+    "الاستثمار والتنميه": "AIH",
+    "مصر للالومنيوم": "EGAL",
+    "مصر للألومنيوم": "EGAL",
+    "كيما": "EGCH",
+    "المصرية للاتصالات": "ETEL",
+    "المصريه للاتصالات": "ETEL",
+    "بنك فيصل": "FAIT",
+    "فوري": "FWRY",
+    "فورى": "FWRY",
+    "جي بي": "GBCO",
+    "جى بى": "GBCO",
+    "غبور": "GBCO",
+    "الجيزة للمقاولات": "GGCC",
+    "الجيزه للمقاولات": "GGCC",
+    "التعمير والاسكان": "HDBK",
+    "التعمير والإسكان": "HDBK",
+    "مصر الجديدة": "HELI",
+    "مصر الجديده": "HELI",
+    "هيرميس": "HRHO",
+    "هيرمس": "HRHO",
+    "ابن سينا": "ISPH",
+    "جهينة": "JUFO",
+    "جهينه": "JUFO",
+    "نهر الخير": "KRDI",
+    "القاهرة الوطنية": "KWIN",
+    "القاهره الوطنيه": "KWIN",
+    "مدينة مصر": "MASR",
+    "مدينه مصر": "MASR",
+    "مدينة نصر": "MASR",
+    "موبكو": "MFPC",
+    "مابكو": "MFPC",
+    "مطاحن شمال": "MILS",
+    "مينا فارم": "MIPH",
+    "ماريديف": "MOIL",
+    "المنصورة للدواجن": "MPCO",
+    "المنصوره للدواجن": "MPCO",
+    "سوديك": "OCDI",
+    "عبور لاند": "OLFI",
+    "اوراسكوم": "ORAS",
+    "أوراسكوم": "ORAS",
+    "النساجون": "ORWE",
+    "بالم هيلز": "PHDC",
+    "القاهرة للدواجن": "POUL",
+    "القاهره للدواجن": "POUL",
+    "قطر الوطني": "QNBE",
+    "راية": "RAYA",
+    "رايه": "RAYA",
+    "راميدا": "RMDA",
+    "البركة": "SAUD",
+    "البركه": "SAUD",
+    "سيدي كرير": "SKPC",
+    "سيدى كرير": "SKPC",
+    "سماد مصر": "SMFR",
+    "ايجيفرت": "SMFR",
+    "إيجيفرت": "SMFR",
+    "السويدي": "SWDY",
+    "السويدى": "SWDY",
+    "تنمية للاسكان": "TANM",
+    "تنميه للاسكان": "TANM",
+    "التنمية للإسكان": "TANM",
+    "التنميه للاسكان": "TANM",
+    "تنمية للاستثمار": "TANM",
+    "طاقة عربية": "TAQA",
+    "طاقه عربيه": "TAQA",
+    "طلعت مصطفى": "TMGH",
+    "طلعت مصطفى القابضة": "TMGH",
+    "طلعت مصطفى القابضه": "TMGH",
+    "طلعت مصطفي": "TMGH",
+    "المتحدة للاسكان": "UNIT",
+    "المتحده للاسكان": "UNIT",
+    "فاليو": "VALU",
+    "زهراء المعادي": "ZMID"
+};
+
+export function extractSymbolsFromText(text: string): string[] {
+    const textUpper = text.toUpperCase();
+    const found: string[] = [];
+
+    const tokens = textUpper.split(/[^A-Z0-9]/).map(t => t.trim()).filter(Boolean);
+    for (const token of tokens) {
+        if (VALID_SYMBOLS.includes(token)) {
+            found.push(token);
+        }
+    }
+
+    const normalizedText = text
+        .replace(/[أإآ]/g, "ا")
+        .replace(/ة/g, "ه")
+        .toLowerCase();
+
+    for (const [key, symbol] of Object.entries(ARABIC_NAME_MAPPINGS)) {
+        const normalizedKey = key
+            .replace(/[أإآ]/g, "ا")
+            .replace(/ة/g, "ه")
+            .toLowerCase();
+
+        if (normalizedText.includes(normalizedKey)) {
+            found.push(symbol);
+        }
+    }
+
+    return Array.from(new Set(found));
+}
+
 // In-Memory Image Cache
 const imageCache = new Map<string, PlannerResult>();
 
@@ -229,21 +342,37 @@ Analyze user request and return JSON with this exact structure:
                         
                         // Continue with processing if parsed successfully
                         if (parsed) {
+                        const symbolsTextExtracted = extractSymbolsFromText(message);
                         const rawSymbols = Array.isArray(parsed.entities?.symbols) 
                             ? parsed.entities.symbols 
                             : (parsed.session_update?.current_symbol ? [parsed.session_update.current_symbol] : []);
 
-                        const symbols = rawSymbols
-                            .map((s: string) => correctStockSymbol(String(s).toUpperCase()))
-                            .filter((s: string) => s !== "EXTRACTED_SYMBOL" && s !== "SYMBOL1" && s !== "PRIMARY_SYMBOL");
+                        const symbols = Array.from(new Set([
+                            ...rawSymbols.map((s: string) => correctStockSymbol(String(s).toUpperCase())),
+                            ...symbolsTextExtracted
+                        ]))
+                        .filter((s: string) => VALID_SYMBOLS.includes(s))
+                        .filter((s: string) => s !== "EXTRACTED_SYMBOL" && s !== "SYMBOL1" && s !== "PRIMARY_SYMBOL");
+
+                        const isHistoryQuery = /سيره كام سهم|ذكرنا كام سهم|سيرة كام سهم|سياق المحادثة|تاريخ الشات|الملخص|قلنا ايه/i.test(message);
+                        let finalIntent = parsed.intent || (hasImages ? "portfolio" : "general_chat");
+                        if (isHistoryQuery) {
+                            finalIntent = "general_chat";
+                        } else if (symbols.length > 0 && finalIntent === "general_chat") {
+                            finalIntent = "portfolio";
+                        }
 
                         const isAggregateTableRequest = /كل البيانات|جدول|كل الأسهم|جدول بالشات|ملخص المحادثة/i.test(message);
-                        const resolvedSymbols = isAggregateTableRequest && session.last_symbols?.length 
-                            ? Array.from(new Set([...symbols, ...session.last_symbols])) 
-                            : symbols;
+                        const resolvedSymbols = finalIntent === "general_chat"
+                            ? []
+                            : (isAggregateTableRequest && session.last_symbols?.length 
+                                ? Array.from(new Set([...symbols, ...session.last_symbols])) 
+                                : symbols);
 
-                        const toolsList: string[] = Array.isArray(parsed.tools) ? parsed.tools : [];
-                        if (resolvedSymbols.length > 0 && !toolsList.includes("get_stock")) {
+                        const toolsList: string[] = finalIntent === "general_chat" 
+                            ? [] 
+                            : (Array.isArray(parsed.tools) ? parsed.tools : []);
+                        if (resolvedSymbols.length > 0 && !toolsList.includes("get_stock") && finalIntent !== "general_chat") {
                             toolsList.push("get_stock");
                         }
 
@@ -251,22 +380,26 @@ Analyze user request and return JSON with this exact structure:
                         const isValidVision = validateImageExtraction(imageSummary);
 
                         const result: PlannerResult = {
-                            intent: parsed.intent || (hasImages ? "portfolio" : "general_chat"),
+                            intent: finalIntent,
                             confidence: parsed.confidence || 0.95,
                             entities: {
                                 symbols: resolvedSymbols,
                                 sector: parsed.entities?.sector || null,
-                                wants_table: Boolean(parsed.entities?.wants_table || isAggregateTableRequest || hasImages)
+                                wants_table: Boolean(parsed.entities?.wants_table || isAggregateTableRequest || hasImages) && finalIntent !== "general_chat"
                             },
                             tools: Array.from(new Set(toolsList)),
                             image_summary: imageSummary || (hasImages ? "تحليل البيانات والصورة المرفقة من المحفظة." : null),
                             session_update: {
-                                current_symbol: parsed.session_update?.current_symbol 
-                                    ? correctStockSymbol(parsed.session_update.current_symbol) 
-                                    : resolvedSymbols[0] || session.current_symbol,
-                                last_symbols: Array.isArray(parsed.session_update?.last_symbols)
-                                    ? parsed.session_update.last_symbols.map((s: string) => correctStockSymbol(String(s).toUpperCase()))
-                                    : Array.from(new Set([...resolvedSymbols, ...(session.last_symbols || [])])).slice(0, 15),
+                                current_symbol: finalIntent === "general_chat" 
+                                    ? session.current_symbol 
+                                    : (parsed.session_update?.current_symbol 
+                                        ? correctStockSymbol(parsed.session_update.current_symbol) 
+                                        : resolvedSymbols[0] || session.current_symbol),
+                                last_symbols: finalIntent === "general_chat"
+                                    ? (session.last_symbols || [])
+                                    : (Array.isArray(parsed.session_update?.last_symbols)
+                                        ? parsed.session_update.last_symbols.map((s: string) => correctStockSymbol(String(s).toUpperCase()))
+                                        : Array.from(new Set([...resolvedSymbols, ...(session.last_symbols || [])])).slice(0, 15)),
                                 summary: message || parsed.session_update?.summary || (hasImages ? "تحليل صورة" : null)
                             }
                         };
