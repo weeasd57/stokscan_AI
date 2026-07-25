@@ -1,5 +1,34 @@
 import { SessionState, PlannerResult } from "./types";
 import { createHash } from "crypto";
+import { getSupabaseClient } from "@/lib/supabase/route-data";
+
+let cachedStocks: Array<{ symbol: string; name: string }> | null = null;
+let lastCacheTime = 0;
+const CACHE_TTL = 1000 * 60 * 60 * 24; // 24 hours
+
+async function getStocksList(): Promise<string> {
+    const now = Date.now();
+    if (!cachedStocks || (now - lastCacheTime > CACHE_TTL)) {
+        try {
+            const supabase = getSupabaseClient();
+            const { data } = await supabase
+                .from("stocks")
+                .select("symbol, name")
+                .eq("is_active", true);
+            if (data && data.length > 0) {
+                cachedStocks = data;
+                lastCacheTime = now;
+            }
+        } catch (e) {
+            console.warn("Failed to fetch stocks for planner cache", e);
+        }
+    }
+    
+    if (cachedStocks && cachedStocks.length > 0) {
+        return cachedStocks.map(s => `- ${s.symbol}: ${s.name}`).join("\n");
+    }
+    return "";
+}
 
 const VALID_SYMBOLS = [
     'AALR', 'ABUK', 'ACAMD', 'ACAP', 'ADCI', 'ADPC', 'AFMC', 'AIH', 'AJWA', 'ALUM',
@@ -205,7 +234,12 @@ export async function runPlanner(
     }
 
     // Fully General & Dynamic Intent & Tool Router Prompt
+    const stocksListStr = await getStocksList();
     const plannerSystemPrompt = `You are EGX Bots Master Planner for the Egyptian Stock Exchange.
+
+${stocksListStr ? `=== ACTIVE EGX STOCKS IN DATABASE (Use this list to map Arabic or English stock queries to their exact symbols) ===
+${stocksListStr}
+=== END OF LIST ===` : ""}
 
 ${hasImages ? `**ANALYZE THE IMAGE CAREFULLY:**
 CRITICAL INSTRUCTIONS:
