@@ -48,8 +48,13 @@ export async function generateFinalResponse(
     if (plannerResult.intent === "general_chat") {
         finalSystemPrompt += `
 
-You can respond to the user's message conversationally in Arabic. Be polite, friendly, and helpful.
-Do NOT output any tables, charts, or fake financial data. If the user asks general questions about the stock market or greetings, you can answer them generally and friendly.`;
+أنت الآن في وضع الدردشة العامة (General Chat).
+توجيهات الرد:
+1. أجب على رسالة المستخدم بشكل طبيعي وودي باللغة العربية (الفصحى أو اللهجة المصرية حسب سياق العميل).
+2. إذا سألك المستخدم عن سياق المحادثة أو تاريخ الشات (مثال: "ذكرنا كم سهم؟" أو "ماذا قلنا سابقاً؟")، قم بقراءة تاريخ الشات المرفق في الرسائل السابقة وأجب بدقة عما تم ذكره.
+3. لا ترفض الإجابة بشكل آلي أو روبوتي لمجرد وجود كلمة "سهم" في السؤال. يُسمح لك تماماً بالإجابة على الأسئلة الحوارية والعامة مثل تعريفات الأسهم أو عدد الأسهم المذكورة في الشات.
+4. تجنب التكرار أو العبارات الروبوتية مثل "قبل أن تبتعد في السهم". تحدث بلغة عربية سليمة وواضحة وطبيعية.
+5. لا تقم باختراع بيانات مالية أو أسعار حية من عندك. إذا سألك عن سعر سهم معين أو تحليل مالي، وضح له بلطف أنه يمكنه كتابة اسم السهم للبحث عنه وجلب بياناته الحية.`;
     } else {
         finalSystemPrompt += `
 
