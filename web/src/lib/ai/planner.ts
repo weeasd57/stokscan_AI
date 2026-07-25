@@ -30,7 +30,34 @@ async function getStocksList(): Promise<string> {
     return "";
 }
 
-const VALID_SYMBOLS = [
+let cachedValidSymbols: string[] = [];
+let lastSymbolsCacheTime = 0;
+
+async function loadValidSymbols(): Promise<string[]> {
+    const now = Date.now();
+    if (cachedValidSymbols.length === 0 || (now - lastSymbolsCacheTime > CACHE_TTL)) {
+        try {
+            const supabase = getSupabaseClient();
+            const { data } = await supabase
+                .from("stocks")
+                .select("symbol")
+                .eq("is_active", true);
+            if (data && data.length > 0) {
+                cachedValidSymbols = data.map((s: any) => s.symbol.toUpperCase());
+                lastSymbolsCacheTime = now;
+            }
+        } catch (e) {
+            console.warn("Failed to fetch symbols from DB for validation cache", e);
+        }
+    }
+    
+    if (cachedValidSymbols.length === 0) {
+        cachedValidSymbols = STATIC_VALID_SYMBOLS;
+    }
+    return cachedValidSymbols;
+}
+
+const STATIC_VALID_SYMBOLS = [
     'AALR', 'ABUK', 'ACAMD', 'ACAP', 'ADCI', 'ADPC', 'AFMC', 'AIH', 'AJWA', 'ALUM',
     'APPC', 'ARAB', 'AREH', 'ARVA', 'ATQA', 'AXPH', 'BIOC', 'BTFH', 'CIEB', 'CNFN',
     'COPR', 'CPCI', 'CRST', 'EEII', 'EFID', 'EFIH', 'EGAL', 'EGBE', 'EGCH', 'EGREF',
@@ -67,16 +94,16 @@ function getLevenshteinDistance(a: string, b: string): number {
     return matrix[b.length][a.length];
 }
 
-export function correctStockSymbol(symbol: string): string {
+export function correctStockSymbol(symbol: string, validSymbols: string[]): string {
     const upperSym = symbol.trim().toUpperCase();
-    if (VALID_SYMBOLS.includes(upperSym)) {
+    if (validSymbols.includes(upperSym)) {
         return upperSym;
     }
 
     let bestMatch = upperSym;
     let minDistance = 2; // Maximum edit distance allowed
 
-    for (const valid of VALID_SYMBOLS) {
+    for (const valid of validSymbols) {
         const dist = getLevenshteinDistance(upperSym, valid);
         if (dist < minDistance) {
             minDistance = dist;
@@ -170,13 +197,13 @@ const ARABIC_NAME_MAPPINGS: { [key: string]: string } = {
     "زهراء المعادي": "ZMID"
 };
 
-export function extractSymbolsFromText(text: string): string[] {
+export function extractSymbolsFromText(text: string, validSymbols: string[]): string[] {
     const textUpper = text.toUpperCase();
     const found: string[] = [];
 
     const tokens = textUpper.split(/[^A-Z0-9]/).map(t => t.trim()).filter(Boolean);
     for (const token of tokens) {
-        if (VALID_SYMBOLS.includes(token)) {
+        if (validSymbols.includes(token)) {
             found.push(token);
         }
     }
@@ -217,6 +244,7 @@ export async function runPlanner(
     history: any[],
     apiKeys: string[]
 ): Promise<PlannerResult> {
+    const validSymbols = await loadValidSymbols();
     const hasImages = imageList && imageList.length > 0;
 
     // Image Caching Check
@@ -376,16 +404,16 @@ Analyze user request and return JSON with this exact structure:
                         
                         // Continue with processing if parsed successfully
                         if (parsed) {
-                        const symbolsTextExtracted = extractSymbolsFromText(message);
+                        const symbolsTextExtracted = extractSymbolsFromText(message, validSymbols);
                         const rawSymbols = Array.isArray(parsed.entities?.symbols) 
                             ? parsed.entities.symbols 
                             : (parsed.session_update?.current_symbol ? [parsed.session_update.current_symbol] : []);
 
                         const symbols = Array.from(new Set([
-                            ...rawSymbols.map((s: string) => correctStockSymbol(String(s).toUpperCase())),
+                            ...rawSymbols.map((s: string) => correctStockSymbol(String(s).toUpperCase(), validSymbols)),
                             ...symbolsTextExtracted
                         ]))
-                        .filter((s: string) => VALID_SYMBOLS.includes(s))
+                        .filter((s: string) => validSymbols.includes(s))
                         .filter((s: string) => s !== "EXTRACTED_SYMBOL" && s !== "SYMBOL1" && s !== "PRIMARY_SYMBOL");
 
                         const isHistoryQuery = /سيره كام سهم|ذكرنا كام سهم|سيرة كام سهم|سياق المحادثة|تاريخ الشات|الملخص|قلنا ايه/i.test(message);
@@ -427,12 +455,12 @@ Analyze user request and return JSON with this exact structure:
                                 current_symbol: finalIntent === "general_chat" 
                                     ? session.current_symbol 
                                     : (parsed.session_update?.current_symbol 
-                                        ? correctStockSymbol(parsed.session_update.current_symbol) 
+                                        ? correctStockSymbol(parsed.session_update.current_symbol, validSymbols) 
                                         : resolvedSymbols[0] || session.current_symbol),
                                 last_symbols: finalIntent === "general_chat"
                                     ? (session.last_symbols || [])
                                     : (Array.isArray(parsed.session_update?.last_symbols)
-                                        ? parsed.session_update.last_symbols.map((s: string) => correctStockSymbol(String(s).toUpperCase()))
+                                        ? parsed.session_update.last_symbols.map((s: string) => correctStockSymbol(String(s).toUpperCase(), validSymbols))
                                         : Array.from(new Set([...resolvedSymbols, ...(session.last_symbols || [])])).slice(0, 15)),
                                 summary: message || parsed.session_update?.summary || (hasImages ? "تحليل صورة" : null)
                             }
@@ -452,7 +480,7 @@ Analyze user request and return JSON with this exact structure:
         }
     }
 
-    const fallbackSymbols = hasImages ? [] : (session.current_symbol ? [correctStockSymbol(session.current_symbol)] : []);
+    const fallbackSymbols = hasImages ? [] : (session.current_symbol ? [correctStockSymbol(session.current_symbol, validSymbols)] : []);
     return {
         intent: hasImages ? "portfolio" : "general_chat",
         confidence: 0.8,
@@ -461,7 +489,7 @@ Analyze user request and return JSON with this exact structure:
         image_summary: hasImages ? "تحليل البيانات والصورة المرفقة من المحفظة." : undefined,
         session_update: { 
             current_symbol: fallbackSymbols[0] || session.current_symbol, 
-            last_symbols: session.last_symbols ? session.last_symbols.map((s: string) => correctStockSymbol(s)) : [], 
+            last_symbols: session.last_symbols ? session.last_symbols.map((s: string) => correctStockSymbol(s, validSymbols)) : [], 
             summary: message 
         }
     };
