@@ -4,7 +4,7 @@ import { useChat, AVAILABLE_AI_MODELS } from "@/contexts/ChatContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useRouter } from "next/navigation";
-import { Send, X, Sparkles, User, Loader2, Lock, Maximize2, Minimize2, LogIn, UserPlus, ImagePlus, XCircle, Cpu, ChevronDown, Check } from "lucide-react";
+import { Send, X, Sparkles, User, Loader2, Lock, Maximize2, Minimize2, LogIn, UserPlus, ImagePlus, XCircle, Cpu, ChevronDown, Check, PanelLeft } from "lucide-react";
 import { useState, useRef, useEffect, useCallback } from "react";
 import { ChatSidebar } from "@/components/chat/ChatSidebar";
 import { FormattedChatMessage } from "@/components/chat/FormattedChatMessage";
@@ -209,6 +209,15 @@ export default function ChatWidget() {
                 {/* Header */}
                 <div className="flex items-center justify-between p-4 border-b border-amber-500/20 bg-gradient-to-l from-amber-50/50 to-transparent dark:from-amber-950/20 dark:to-transparent shrink-0">
                     <div className="flex items-center gap-2 text-black dark:text-white font-medium">
+                        {user && (
+                            <button
+                                onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+                                className="md:hidden p-1.5 rounded-lg text-zinc-500 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-800 transition-colors"
+                                title="قائمة المحادثات"
+                            >
+                                <PanelLeft className="h-4 w-4" />
+                            </button>
+                        )}
                         <div className="p-1.5 rounded-lg bg-amber-500/10">
                             <Sparkles className="h-4 w-4 text-amber-500" />
                         </div>
@@ -238,7 +247,7 @@ export default function ChatWidget() {
                 </div>
 
                 {/* Messages Body */}
-                <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                <div className="flex-1 overflow-y-auto p-2 sm:p-4 space-y-3 sm:space-y-4">
                     {!user ? (
                         <div className="h-full flex flex-col items-center justify-center text-center p-6 space-y-4 my-auto min-h-[300px]">
                             <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-500">
@@ -306,10 +315,10 @@ export default function ChatWidget() {
                                         {msg.role === "user" ? <User className="h-5 w-5" /> : <Sparkles className="h-5 w-5" />}
                                     </div>
                                     <div className={`
-                                        flex-1 rounded-2xl text-base leading-relaxed
+                                        flex-1 rounded-2xl p-3 sm:p-4 text-xs sm:text-sm max-w-full leading-relaxed
                                         ${msg.role === "user"
-                                            ? "bg-zinc-100 dark:bg-zinc-800 text-black dark:text-zinc-100 px-5 py-3"
-                                            : "bg-transparent text-black dark:text-zinc-100 px-2 py-3"}
+                                            ? "bg-zinc-100 dark:bg-zinc-800 text-black dark:text-zinc-100"
+                                            : "bg-transparent text-black dark:text-zinc-100"}
                                     `}>
                                         {/* Show image thumbnails if present */}
                                         {((msg.images && msg.images.length > 0) || (msg.imageUrl && msg.imageUrl !== "[image]") || msg.imagePreviewUrl) && (
@@ -482,7 +491,7 @@ export default function ChatWidget() {
                                             </button>
 
                                             {modelMenuOpen && (
-                                                <div className="absolute bottom-full mb-2 left-0 w-72 bg-white/95 dark:bg-zinc-900/95 backdrop-blur-xl border border-zinc-200 dark:border-zinc-800 shadow-2xl rounded-2xl p-1.5 z-[100] animate-in fade-in zoom-in-95 duration-150 space-y-1">
+                                                <div className="absolute bottom-full mb-2 left-0 w-72 max-w-[calc(100vw-2.5rem)] bg-white/95 dark:bg-zinc-900/95 backdrop-blur-xl border border-zinc-200 dark:border-zinc-800 shadow-2xl rounded-2xl p-1.5 z-[100] animate-in fade-in zoom-in-95 duration-150 space-y-1">
                                                     <div className="px-2 py-1 text-[10px] font-black uppercase text-zinc-400 tracking-wider">
                                                         {language === "ar" ? "اختر موديل الذكاء الاصطناعي" : "Select AI Model"}
                                                     </div>

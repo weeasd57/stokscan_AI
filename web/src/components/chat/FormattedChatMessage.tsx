@@ -258,12 +258,12 @@ function ExportableTable({ headers, rows }: { headers: string[]; rows: string[][
                 </button>
             </div>
 
-            <div className="overflow-x-auto">
-                <table className="w-full text-xs md:text-sm text-right border-collapse">
+            <div className="w-full overflow-x-auto my-2 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-sm scrollbar-thin">
+                <table className="w-full text-[11px] sm:text-xs text-right border-collapse">
                     <thead>
                         <tr className="bg-zinc-100 dark:bg-zinc-800/80 text-zinc-900 dark:text-zinc-200 border-b border-zinc-200 dark:border-zinc-700">
                             {headers.map((h, i) => (
-                                <th key={i} className="px-3 py-2.5 font-bold border-l border-zinc-200 dark:border-zinc-700/50 last:border-l-0">
+                                <th key={i} className="px-2 py-1.5 sm:px-3 sm:py-2 text-[11px] sm:text-xs whitespace-nowrap font-bold border-l border-zinc-200 dark:border-zinc-700/50 last:border-l-0">
                                     {h}
                                 </th>
                             ))}
@@ -273,7 +273,7 @@ function ExportableTable({ headers, rows }: { headers: string[]; rows: string[][
                         {rows.map((row, rIdx) => (
                             <tr key={rIdx} className="border-b border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800/40 transition-colors">
                                 {row.map((cell, cIdx) => (
-                                    <td key={cIdx} className="px-3 py-2 border-l border-zinc-200 dark:border-zinc-800/50 last:border-l-0 text-zinc-800 dark:text-zinc-300 font-mono">
+                                    <td key={cIdx} className="px-2 py-1.5 sm:px-3 sm:py-2 text-[11px] sm:text-xs whitespace-nowrap border-l border-zinc-200 dark:border-zinc-800/50 last:border-l-0 text-zinc-800 dark:text-zinc-300 font-mono">
                                         {cell}
                                     </td>
                                 ))}
@@ -324,7 +324,7 @@ export function FormattedChatMessage({
     if (role === "user") {
         return (
             <div className="space-y-1 text-right" dir="rtl">
-                <div className="dir-auto whitespace-pre-wrap text-zinc-900 dark:text-zinc-100">{content}</div>
+                <div className="dir-auto whitespace-pre-wrap text-zinc-900 dark:text-zinc-100 break-words overflow-wrap-anywhere text-xs sm:text-sm leading-relaxed">{content}</div>
                 <div className="flex justify-start pt-0.5">
                     <button
                         type="button"
@@ -369,7 +369,7 @@ export function FormattedChatMessage({
             return (
                 <div 
                     key={idx} 
-                    className={`leading-relaxed text-sm md:text-base my-1 dir-auto text-zinc-900 dark:text-zinc-100 ${isBullet ? 'flex items-start gap-2 pr-2' : ''}`}
+                    className={`leading-relaxed text-xs sm:text-sm break-words overflow-wrap-anywhere my-1 dir-auto text-zinc-900 dark:text-zinc-100 ${isBullet ? 'flex items-start gap-2 pr-2' : ''}`}
                 >
                     {isBullet && <span className="text-emerald-600 dark:text-emerald-400 font-bold mt-1">•</span>}
                     <span className="flex-1">
@@ -383,7 +383,7 @@ export function FormattedChatMessage({
                                     <span 
                                         key={pIdx} 
                                         dir="ltr" 
-                                        className="inline-block px-1.5 py-0.5 font-mono font-bold text-amber-700 dark:text-amber-300 bg-amber-500/10 dark:bg-zinc-800/80 border border-amber-500/20 dark:border-zinc-700 rounded text-xs md:text-sm"
+                                        className="inline-block px-1.5 py-0.5 font-mono font-bold text-amber-700 dark:text-amber-300 bg-amber-500/10 dark:bg-zinc-800/80 border border-amber-500/20 dark:border-zinc-700 rounded text-[11px] sm:text-xs"
                                         style={{ unicodeBidi: "isolate" }}
                                     >
                                         {part}
@@ -394,7 +394,7 @@ export function FormattedChatMessage({
                                     <span 
                                         key={pIdx} 
                                         dir="ltr" 
-                                        className="inline-block px-1 py-0.5 font-mono font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-500/10 dark:bg-zinc-800/80 rounded text-xs md:text-sm"
+                                        className="inline-block px-1 py-0.5 font-mono font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-500/10 dark:bg-zinc-800/80 rounded text-[11px] sm:text-xs"
                                         style={{ unicodeBidi: "isolate" }}
                                     >
                                         {part}
@@ -429,7 +429,7 @@ export function FormattedChatMessage({
                 const isLastBlock = bIdx === blocks.length - 1;
                 if (block.type === "text") {
                     return (
-                        <div key={bIdx} className="space-y-1">
+                        <div key={bIdx} className="space-y-1 break-words overflow-wrap-anywhere text-xs sm:text-sm leading-relaxed">
                             {renderFormattedText(block.content, isLastBlock)}
                         </div>
                     );
