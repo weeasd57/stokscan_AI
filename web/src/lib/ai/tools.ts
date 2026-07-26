@@ -55,7 +55,7 @@ export async function executeTools(supabase: any, plannerResult: PlannerResult):
                     symbols.map(sym =>
                         supabase
                             .from("stock_technical_indicators")
-                            .select("symbol, rsi_14, macd_signal, change_pct")
+                            .select("symbol, rsi_14, macd_signal, change_pct, volume, vol_sma20, vwap_20, adx_14, momentum_10")
                             .eq("symbol", sym)
                             .order("date", { ascending: false })
                             .limit(1)
@@ -90,7 +90,38 @@ export async function executeTools(supabase: any, plannerResult: PlannerResult):
                         const changeStr = tech && typeof tech.change_pct === "number" 
                             ? `${tech.change_pct >= 0 ? "+" : ""}${tech.change_pct.toFixed(2)}%` 
                             : "N/A";
-                        outputText += `• سهم ${sym} (${stock?.name || sym}): السعر اللحظي = ${price.close} ج.م | التغير: ${changeStr} | RSI: ${tech?.rsi_14 ?? "N/A"} | إشارة MACD: ${tech?.macd_signal ?? "N/A"}\n`;
+
+                        // Volume analysis & accumulation/distribution signal
+                        const vol = tech?.volume ?? price?.volume ?? null;
+                        const volSma20 = tech?.vol_sma20 ?? null;
+                        let volumeStr = "";
+                        let adSignal = "غير متاح";
+
+                        if (vol !== null && vol !== undefined) {
+                            const formattedVol = Number(vol).toLocaleString("en-US");
+                            volumeStr = ` | حجم التداول: ${formattedVol}`;
+
+                            if (volSma20 !== null && volSma20 !== undefined && Number(volSma20) > 0) {
+                                const volRatio = Number(vol) / Number(volSma20);
+                                const formattedVolSma = Number(volSma20).toLocaleString("en-US");
+                                volumeStr += ` | متوسط الحجم (20 يوم): ${formattedVolSma} | نسبة الحجم: ${volRatio.toFixed(2)}x`;
+
+                                const changePct = tech?.change_pct ?? 0;
+                                if (volRatio >= 1.2 && changePct > 0) {
+                                    adSignal = "تجميع 📈 (حجم تداول مرتفع مع صعود السعر)";
+                                } else if (volRatio >= 1.2 && changePct < 0) {
+                                    adSignal = "تصريف 📉 (حجم تداول مرتفع مع هبوط السعر)";
+                                } else if (volRatio < 0.6 && changePct > 0) {
+                                    adSignal = "صعود ضعيف ⚠️ (سعر صاعد لكن حجم تداول منخفض)";
+                                } else if (volRatio < 0.6 && changePct < 0) {
+                                    adSignal = "هبوط ضعيف ⚠️ (سعر هابط لكن حجم تداول منخفض)";
+                                } else {
+                                    adSignal = "محايد ⚪ (حجم تداول عادي)";
+                                }
+                            }
+                        }
+
+                        outputText += `• سهم ${sym} (${stock?.name || sym}): السعر اللحظي = ${price.close} ج.م | التغير: ${changeStr} | RSI: ${tech?.rsi_14 ?? "N/A"} | إشارة MACD: ${tech?.macd_signal ?? "N/A"}${volumeStr} | إشارة تصريف/تجميع: ${adSignal}\n`;
                     }
                 });
             }
