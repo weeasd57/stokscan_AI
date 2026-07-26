@@ -2,14 +2,74 @@ import { SessionState, PlannerResult } from "./types";
 import { createHash } from "crypto";
 import { getSupabaseClient } from "@/lib/supabase/route-data";
 
-let cachedStocks: Array<{ symbol: string; name: string; name_ar?: string | null }> | null = null;
+let cachedStocks: Array<{ symbol: string; name: string }> | null = null;
 let lastCacheTime = 0;
 const CACHE_TTL = 1000 * 60 * 60 * 24; // 24 hours
 
 export interface StocksListData {
     stocksListStr: string;
-    stockMappings: Record<string, string>;
+    stockMappings: Record<string, string | string[]>;
 }
+
+const ARABIC_NAME_MAPPINGS: Record<string, string | string[]> = {
+    "تايكون": "TYCN",
+    "تايكون القابضة": "TYCN",
+    "اسكندرية": ["AMOC", "AFMC", "AIDC", "ALEX", "ALCN"],
+    "الاسكندرية": ["AMOC", "AFMC", "AIDC", "ALEX", "ALCN"],
+    "الاسكندريه": ["AMOC", "AFMC", "AIDC", "ALEX", "ALCN"],
+    "الإسكندرية": ["AMOC", "AFMC", "AIDC", "ALEX", "ALCN"],
+    "الاسكندرية للزيوت": "AMOC",
+    "اسكندرية للزيوت": "AMOC",
+    "أموك": "AMOC",
+    "مطاحن الاسكندرية": "AFMC",
+    "الاسكندرية للمطاحن": "AFMC",
+    "اسكندرية للأدوية": "AIDC",
+    "الاسكندرية للادوية": "AIDC",
+    "الاسكندرية لتداول البضائع": "ALCN",
+    "اسكندرية لتداول البضائع": "ALCN",
+    "اسمنت الاسكندرية": "ALEX",
+    "الاسكندرية للاسمنت": "ALEX",
+    "الشرقية للدخان": "EAST",
+    "ايسترن كومباني": "EAST",
+    "إيسترن كومباني": "EAST",
+    "ايسترن": "EAST",
+    "غاز مصر": "EGAS",
+    "ايجاس": "EGAS",
+    "إيجاس": "EGAS",
+    "البنك التجاري الدولي": "COMI",
+    "التجاري الدولي": "COMI",
+    "تجاري دولي": "COMI",
+    "سوديك": "SODIC",
+    "طلعت مصطفى": "TMGH",
+    "مجموعة طلعت مصطفى": "TMGH",
+    "فوري": "FWRY",
+    "هيرميس": "HRHO",
+    "إي فاينانس": "EFIH",
+    "السويدي": "SWDY",
+    "السويدى": "SWDY",
+    "السويدي الكتريك": "SWDY",
+    "ابوقير": "ABUK",
+    "أبو قير": "ABUK",
+    "أبوقير للأسمدة": "ABUK",
+    "موبكو": "MFPC",
+    "مصر لصناعة الكيماويات": "MICH",
+    "مصر للالومنيوم": "EGAL",
+    "سيدي كرير": "SKPC",
+    "حديد عز": "ESRS",
+    "بلتون": "BTFH",
+    "القلعة": "CCAP",
+    "مدينة نصر": "MNHD",
+    "مدينة مصر": "MASR",
+    "إعمار": "EMFD",
+    "اعمار مصر": "EMFD",
+    "المصرية للاتصالات": "ETEL",
+    "اوراسكوم": "ORAS",
+    "جهينة": "JUFO",
+    "ابن سينا": "ISPH",
+    "ابن سينا فارما": "ISPH",
+    "القاهرة للدواجن": "POUL",
+    "كابو": "KABO"
+};
 
 async function getStocksList(): Promise<StocksListData> {
     const now = Date.now();
@@ -18,7 +78,7 @@ async function getStocksList(): Promise<StocksListData> {
             const supabase = getSupabaseClient();
             const { data } = await supabase
                 .from("stocks")
-                .select("symbol, name, name_ar")
+                .select("symbol, name")
                 .eq("is_active", true);
             if (data && data.length > 0) {
                 cachedStocks = data;
@@ -29,22 +89,13 @@ async function getStocksList(): Promise<StocksListData> {
         }
     }
     
-    const stockMappings: Record<string, string> = {};
+    const stockMappings: Record<string, string | string[]> = { ...ARABIC_NAME_MAPPINGS };
     let stocksListStr = "";
 
     if (cachedStocks && cachedStocks.length > 0) {
         stocksListStr = cachedStocks
-            .map(s => `- ${s.symbol}: ${s.name}${s.name_ar ? ` (${s.name_ar})` : ""}`)
+            .map(s => `- ${s.symbol}: ${s.name}`)
             .join("\n");
-
-        for (const stock of cachedStocks) {
-            if (stock.name_ar && typeof stock.name_ar === "string") {
-                const aliases = stock.name_ar.split(/[,;|]/).map(a => a.trim()).filter(Boolean);
-                for (const alias of aliases) {
-                    stockMappings[alias] = stock.symbol;
-                }
-            }
-        }
     }
 
     return { stocksListStr, stockMappings };
@@ -87,7 +138,7 @@ const STATIC_VALID_SYMBOLS = [
     'MASR', 'MBSC', 'MCQE', 'MENA', 'MFPC', 'MFSC', 'MICH', 'MILS', 'MOIL', 'MOSC',
     'MPCO', 'MTIE', 'NEDA', 'NHPS', 'NINH', 'PHTV', 'POUL', 'PRDC', 'RACC', 'RTVC',
     'RUBX', 'SAUD', 'SCEM', 'SCTS', 'SEIG', 'SIPC', 'SNFC', 'SPIN', 'SWDY', 'TANM',
-    'TMGH', 'TRTO', 'TWSA', 'UEFM', 'UNIT', 'USDEGP', 'VALU', 'VLMRA', 'WATP'
+    'TMGH', 'TRTO', 'TWSA', 'TYCN', 'UEFM', 'UNIT', 'USDEGP', 'VALU', 'VLMRA', 'WATP'
 ];
 
 function getLevenshteinDistance(a: string, b: string): number {
@@ -137,7 +188,7 @@ export function correctStockSymbol(symbol: string, validSymbols: string[]): stri
 export function extractSymbolsFromText(
     text: string, 
     validSymbols: string[], 
-    stockMappings: Record<string, string> = {}
+    stockMappings: Record<string, string | string[]> = {}
 ): string[] {
     const textUpper = text.toUpperCase();
     const found: string[] = [];
@@ -154,18 +205,22 @@ export function extractSymbolsFromText(
         .replace(/ة/g, "ه")
         .toLowerCase();
 
-    for (const [key, symbol] of Object.entries(stockMappings)) {
+    for (const [key, symbolOrArr] of Object.entries(stockMappings)) {
         const normalizedKey = key
             .replace(/[أإآ]/g, "ا")
             .replace(/ة/g, "ه")
             .toLowerCase();
 
         if (normalizedText.includes(normalizedKey)) {
-            found.push(symbol);
+            if (Array.isArray(symbolOrArr)) {
+                found.push(...symbolOrArr);
+            } else {
+                found.push(symbolOrArr);
+            }
         }
     }
 
-    return Array.from(new Set(found));
+    return Array.from(new Set(found)).filter(s => validSymbols.includes(s));
 }
 
 // In-Memory Image Cache
@@ -340,20 +395,28 @@ Analyze user request and return JSON with this exact structure:
                         .filter((s: string) => validSymbols.includes(s))
                         .filter((s: string) => s !== "EXTRACTED_SYMBOL" && s !== "SYMBOL1" && s !== "PRIMARY_SYMBOL");
 
-                        const isHistoryQuery = /سيره كام سهم|ذكرنا كام سهم|سيرة كام سهم|سياق المحادثة|تاريخ الشات|الملخص|قلنا ايه/i.test(message);
-                        let finalIntent = parsed.intent || (hasImages ? "portfolio" : "general_chat");
-                        if (isHistoryQuery) {
-                            finalIntent = "general_chat";
-                        } else if (symbols.length > 0 && finalIntent === "general_chat") {
-                            finalIntent = "portfolio";
+                        const isFollowupQuery = /الاتنين|الإثنين|الاطنين|كلاهما|مع بعض|السهمين|تحليلهم|هاتهم|قولي عنهم|حللهم|بياناتهم|سعرهم|أخبارهم/i.test(message);
+                        const isAggregateTableRequest = /كل البيانات|جدول|كل الأسهم|جدول بالشات|ملخص المحادثة/i.test(message);
+
+                        let resolvedSymbols: string[] = [];
+                        if (symbols.length > 0) {
+                            resolvedSymbols = symbols;
+                        } else if ((isFollowupQuery || isAggregateTableRequest) && session.last_symbols?.length) {
+                            resolvedSymbols = session.last_symbols;
+                        } else if (session.current_symbol) {
+                            resolvedSymbols = [session.current_symbol];
+                        } else if (session.last_symbols?.length) {
+                            resolvedSymbols = session.last_symbols;
                         }
 
-                        const isAggregateTableRequest = /كل البيانات|جدول|كل الأسهم|جدول بالشات|ملخص المحادثة/i.test(message);
-                        const resolvedSymbols = finalIntent === "general_chat"
-                            ? []
-                            : (isAggregateTableRequest && session.last_symbols?.length 
-                                ? Array.from(new Set([...symbols, ...session.last_symbols])) 
-                                : symbols);
+                        let finalIntent = parsed.intent || (hasImages ? "portfolio" : "general_chat");
+                        const isHistoryQuery = /سيره كام سهم|ذكرنا كام سهم|سيرة كام سهم|سياق المحادثة|تاريخ الشات|الملخص|قلنا ايه/i.test(message);
+                        
+                        if (isHistoryQuery) {
+                            finalIntent = "general_chat";
+                        } else if (resolvedSymbols.length > 0 && finalIntent === "general_chat") {
+                            finalIntent = "portfolio";
+                        }
 
                         const toolsList: string[] = finalIntent === "general_chat" 
                             ? [] 
@@ -362,8 +425,7 @@ Analyze user request and return JSON with this exact structure:
                             toolsList.push("get_stock");
                         }
 
-                        const imageSummary = parsed.image_summary || null;
-                        const isValidVision = validateImageExtraction(imageSummary);
+                        const imageSummary = hasImages ? (parsed.image_summary || "تحليل البيانات والصورة المرفقة من المحفظة.") : null;
 
                         const result: PlannerResult = {
                             intent: finalIntent,
@@ -374,7 +436,7 @@ Analyze user request and return JSON with this exact structure:
                                 wants_table: Boolean(parsed.entities?.wants_table || isAggregateTableRequest || hasImages) && finalIntent !== "general_chat"
                             },
                             tools: Array.from(new Set(toolsList)),
-                            image_summary: imageSummary || (hasImages ? "تحليل البيانات والصورة المرفقة من المحفظة." : null),
+                            image_summary: imageSummary,
                             session_update: {
                                 current_symbol: finalIntent === "general_chat" 
                                     ? session.current_symbol 
@@ -383,10 +445,10 @@ Analyze user request and return JSON with this exact structure:
                                         : resolvedSymbols[0] || session.current_symbol),
                                 last_symbols: finalIntent === "general_chat"
                                     ? (session.last_symbols || [])
-                                    : (Array.isArray(parsed.session_update?.last_symbols)
+                                    : (Array.isArray(parsed.session_update?.last_symbols) && parsed.session_update.last_symbols.length > 0
                                         ? parsed.session_update.last_symbols.map((s: string) => correctStockSymbol(String(s).toUpperCase(), validSymbols))
                                         : Array.from(new Set([...resolvedSymbols, ...(session.last_symbols || [])])).slice(0, 15)),
-                                summary: message || parsed.session_update?.summary || (hasImages ? "تحليل صورة" : null)
+                                summary: message || (hasImages ? "تحليل صورة" : null)
                             }
                         };
 
