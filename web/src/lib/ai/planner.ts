@@ -2,18 +2,23 @@ import { SessionState, PlannerResult } from "./types";
 import { createHash } from "crypto";
 import { getSupabaseClient } from "@/lib/supabase/route-data";
 
-let cachedStocks: Array<{ symbol: string; name: string }> | null = null;
+let cachedStocks: Array<{ symbol: string; name: string; name_ar?: string | null }> | null = null;
 let lastCacheTime = 0;
 const CACHE_TTL = 1000 * 60 * 60 * 24; // 24 hours
 
-async function getStocksList(): Promise<string> {
+export interface StocksListData {
+    stocksListStr: string;
+    stockMappings: Record<string, string>;
+}
+
+async function getStocksList(): Promise<StocksListData> {
     const now = Date.now();
     if (!cachedStocks || (now - lastCacheTime > CACHE_TTL)) {
         try {
             const supabase = getSupabaseClient();
             const { data } = await supabase
                 .from("stocks")
-                .select("symbol, name")
+                .select("symbol, name, name_ar")
                 .eq("is_active", true);
             if (data && data.length > 0) {
                 cachedStocks = data;
@@ -24,10 +29,25 @@ async function getStocksList(): Promise<string> {
         }
     }
     
+    const stockMappings: Record<string, string> = {};
+    let stocksListStr = "";
+
     if (cachedStocks && cachedStocks.length > 0) {
-        return cachedStocks.map(s => `- ${s.symbol}: ${s.name}`).join("\n");
+        stocksListStr = cachedStocks
+            .map(s => `- ${s.symbol}: ${s.name}${s.name_ar ? ` (${s.name_ar})` : ""}`)
+            .join("\n");
+
+        for (const stock of cachedStocks) {
+            if (stock.name_ar && typeof stock.name_ar === "string") {
+                const aliases = stock.name_ar.split(/[,;|]/).map(a => a.trim()).filter(Boolean);
+                for (const alias of aliases) {
+                    stockMappings[alias] = stock.symbol;
+                }
+            }
+        }
     }
-    return "";
+
+    return { stocksListStr, stockMappings };
 }
 
 let cachedValidSymbols: string[] = [];
@@ -114,90 +134,11 @@ export function correctStockSymbol(symbol: string, validSymbols: string[]): stri
     return bestMatch;
 }
 
-const ARABIC_NAME_MAPPINGS: { [key: string]: string } = {
-    "العربية لاستصلاح": "AALR",
-    "العربيه لاستصلاح": "AALR",
-    "ابوقير": "ABUK",
-    "ابو قير": "ABUK",
-    "المحابس": "ACAMD",
-    "مطاحن الاسكندرية": "AFMC",
-    "مطاحن الإسكندرية": "AFMC",
-    "الاستثمار والتنمية": "AIH",
-    "الاستثمار والتنميه": "AIH",
-    "مصر للالومنيوم": "EGAL",
-    "مصر للألومنيوم": "EGAL",
-    "كيما": "EGCH",
-    "المصرية للاتصالات": "ETEL",
-    "المصريه للاتصالات": "ETEL",
-    "بنك فيصل": "FAIT",
-    "فوري": "FWRY",
-    "فورى": "FWRY",
-    "جي بي": "GBCO",
-    "جى بى": "GBCO",
-    "غبور": "GBCO",
-    "الجيزة للمقاولات": "GGCC",
-    "الجيزه للمقاولات": "GGCC",
-    "التعمير والاسكان": "HDBK",
-    "التعمير والإسكان": "HDBK",
-    "مصر الجديدة": "HELI",
-    "مصر الجديده": "HELI",
-    "هيرميس": "HRHO",
-    "هيرمس": "HRHO",
-    "ابن سينا": "ISPH",
-    "جهينة": "JUFO",
-    "جهينه": "JUFO",
-    "نهر الخير": "KRDI",
-    "القاهرة الوطنية": "KWIN",
-    "القاهره الوطنيه": "KWIN",
-    "مدينة مصر": "MASR",
-    "مدينه مصر": "MASR",
-    "مدينة نصر": "MASR",
-    "موبكو": "MFPC",
-    "مابكو": "MFPC",
-    "مطاحن شمال": "MILS",
-    "مينا فارم": "MIPH",
-    "ماريديف": "MOIL",
-    "المنصورة للدواجن": "MPCO",
-    "المنصوره للدواجن": "MPCO",
-    "سوديك": "OCDI",
-    "عبور لاند": "OLFI",
-    "اوراسكوم": "ORAS",
-    "أوراسكوم": "ORAS",
-    "النساجون": "ORWE",
-    "بالم هيلز": "PHDC",
-    "القاهرة للدواجن": "POUL",
-    "القاهره للدواجن": "POUL",
-    "قطر الوطني": "QNBE",
-    "راية": "RAYA",
-    "رايه": "RAYA",
-    "راميدا": "RMDA",
-    "البركة": "SAUD",
-    "البركه": "SAUD",
-    "سيدي كرير": "SKPC",
-    "سيدى كرير": "SKPC",
-    "سماد مصر": "SMFR",
-    "ايجيفرت": "SMFR",
-    "إيجيفرت": "SMFR",
-    "السويدي": "SWDY",
-    "السويدى": "SWDY",
-    "تنمية للاسكان": "TANM",
-    "تنميه للاسكان": "TANM",
-    "التنمية للإسكان": "TANM",
-    "التنميه للاسكان": "TANM",
-    "تنمية للاستثمار": "TANM",
-    "طاقة عربية": "TAQA",
-    "طاقه عربيه": "TAQA",
-    "طلعت مصطفى": "TMGH",
-    "طلعت مصطفى القابضة": "TMGH",
-    "طلعت مصطفى القابضه": "TMGH",
-    "طلعت مصطفي": "TMGH",
-    "المتحدة للاسكان": "UNIT",
-    "المتحده للاسكان": "UNIT",
-    "فاليو": "VALU",
-    "زهراء المعادي": "ZMID"
-};
-
-export function extractSymbolsFromText(text: string, validSymbols: string[]): string[] {
+export function extractSymbolsFromText(
+    text: string, 
+    validSymbols: string[], 
+    stockMappings: Record<string, string> = {}
+): string[] {
     const textUpper = text.toUpperCase();
     const found: string[] = [];
 
@@ -213,7 +154,7 @@ export function extractSymbolsFromText(text: string, validSymbols: string[]): st
         .replace(/ة/g, "ه")
         .toLowerCase();
 
-    for (const [key, symbol] of Object.entries(ARABIC_NAME_MAPPINGS)) {
+    for (const [key, symbol] of Object.entries(stockMappings)) {
         const normalizedKey = key
             .replace(/[أإآ]/g, "ا")
             .replace(/ة/g, "ه")
@@ -262,7 +203,7 @@ export async function runPlanner(
     }
 
     // Fully General & Dynamic Intent & Tool Router Prompt
-    const stocksListStr = await getStocksList();
+    const { stocksListStr, stockMappings } = await getStocksList();
     const plannerSystemPrompt = `You are EGX Bots Master Planner for the Egyptian Stock Exchange.
 
 ${stocksListStr ? `=== ACTIVE EGX STOCKS IN DATABASE (Use this list to map Arabic or English stock queries to their exact symbols) ===
@@ -346,6 +287,7 @@ Analyze user request and return JSON with this exact structure:
                             { role: "system", content: plannerSystemPrompt },
                             { role: "user", content: userContent }
                         ],
+                        response_format: { type: "json_object" },
                         max_tokens: 800,
                         temperature: 0.05
                     })
@@ -361,50 +303,32 @@ Analyze user request and return JSON with this exact structure:
                         console.log(`🔍 Full Raw Content Length: ${rawContent.length} characters`);
                     }
                     
-                    let jsonMatch = rawContent.match(/\{[\s\S]*\}/);
-                    if (jsonMatch) {
-                        let parsed;
-                        try {
-                            parsed = JSON.parse(jsonMatch[0]);
-                            
-                            // ⚠️ DEBUG: Log parsed result for images
-                            if (hasImages) {
-                                console.log(`🔍 Vision Parsed Result:`, {
-                                    intent: parsed.intent,
-                                    symbols: parsed.entities?.symbols,
-                                    symbolsCount: parsed.entities?.symbols?.length || 0,
-                                    image_summary_length: parsed.image_summary?.length || 0,
-                                    image_summary_preview: parsed.image_summary?.substring(0, 150) || "EMPTY"
-                                });
-                            }
-                        } catch (parseError) {
-                            console.warn(`JSON parse error with model ${modelName}:`, parseError);
-                            // Try to clean up common JSON issues and retry
-                            let cleanedJson = jsonMatch[0]
-                                .replace(/,(\s*[}\]])/g, '$1')  // Remove trailing commas
-                                .replace(/([{,]\s*)(\w+):/g, '$1"$2":')  // Quote unquoted keys
-                                .replace(/:\s*([^",{\[\]0-9\-][^",}\]]*[^",}\]\s])\s*([,}])/g, ': "$1"$2');  // Quote unquoted string values
-                            
+                    let parsed: any = null;
+                    try {
+                        parsed = JSON.parse(rawContent);
+                    } catch {
+                        const jsonMatch = rawContent.match(/\{[\s\S]*\}/);
+                        if (jsonMatch) {
                             try {
-                                parsed = JSON.parse(cleanedJson);
-                                console.log(`✅ JSON cleanup successful for model ${modelName}`);
-                                
-                                if (hasImages) {
-                                    console.log(`🔍 Vision Parsed Result (cleaned):`, {
-                                        intent: parsed.intent,
-                                        symbols: parsed.entities?.symbols,
-                                        image_summary_length: parsed.image_summary?.length || 0
-                                    });
-                                }
-                            } catch (cleanupError) {
-                                console.warn(`Cleanup also failed for model ${modelName}:`, cleanupError);
-                                continue;  // Try next model
+                                parsed = JSON.parse(jsonMatch[0]);
+                            } catch (parseError) {
+                                console.warn(`JSON parse error with model ${modelName}:`, parseError);
                             }
                         }
-                        
-                        // Continue with processing if parsed successfully
-                        if (parsed) {
-                        const symbolsTextExtracted = extractSymbolsFromText(message, validSymbols);
+                    }
+
+                    if (parsed) {
+                        if (hasImages) {
+                            console.log(`🔍 Vision Parsed Result:`, {
+                                intent: parsed.intent,
+                                symbols: parsed.entities?.symbols,
+                                symbolsCount: parsed.entities?.symbols?.length || 0,
+                                image_summary_length: parsed.image_summary?.length || 0,
+                                image_summary_preview: parsed.image_summary?.substring(0, 150) || "EMPTY"
+                            });
+                        }
+
+                        const symbolsTextExtracted = extractSymbolsFromText(message, validSymbols, stockMappings);
                         const rawSymbols = Array.isArray(parsed.entities?.symbols) 
                             ? parsed.entities.symbols 
                             : (parsed.session_update?.current_symbol ? [parsed.session_update.current_symbol] : []);
@@ -473,8 +397,7 @@ Analyze user request and return JSON with this exact structure:
                         return result;
                     }
                 }
-            }
-        } catch (e) {
+            } catch (e) {
                 console.warn(`Planner model ${modelName} attempt warning:`, e);
             }
         }

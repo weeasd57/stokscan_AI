@@ -10,11 +10,13 @@ export type ChatMessage = {
     content: string;
     timestamp: number;
     imageUrl?: string;
+    imagePreviewUrl?: string;
     images?: string[];
     actions?: ChatAction[];
     suggestedButtons?: string[];
+    isStreaming?: boolean;
+    statusText?: string;
 };
-
 
 type ChatAction = {
     label: string;
@@ -81,13 +83,15 @@ function getStoredMessages(sessionId: string): ChatMessage[] {
     }
 }
 
-function saveStoredMessages(sessionId: string, msgs: ChatMessage[]) {
+function saveStoredMessagesSync(sessionId: string, msgs: ChatMessage[]) {
     if (typeof window === "undefined" || !sessionId) return;
     try {
+        // Preserve attached image preview URLs so user uploads persist across page refreshes
         const cleanMsgs = msgs.map(m => ({
             ...m,
-            imageUrl: m.imageUrl ? "[image]" : undefined,
-            images: m.images ? m.images.map(() => "[image]") : undefined
+            imagePreviewUrl: m.imagePreviewUrl || (m.imageUrl && m.imageUrl !== "[image]" ? m.imageUrl : undefined),
+            imageUrl: m.imageUrl,
+            images: m.images
         }));
         localStorage.setItem(`egxbots_msgs_${sessionId}`, JSON.stringify(cleanMsgs));
     } catch (e) {
@@ -111,11 +115,49 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     const loadingSessionIds = useRef<Record<string, boolean>>({});
     const activeSessionIdRef = useRef<string | null>(activeSessionId);
     const abortControllerRef = useRef<AbortController | null>(null);
+    const saveTimersRef = useRef<Record<string, NodeJS.Timeout>>({});
 
     const setActiveSessionId = useCallback((id: string | null) => {
         activeSessionIdRef.current = id;
         setActiveSessionIdState(id);
     }, []);
+
+    // Flush debounced localStorage writes for a given session
+    const flushStoredMessages = useCallback((sessionId: string, msgs?: ChatMessage[]) => {
+        if (saveTimersRef.current[sessionId]) {
+            clearTimeout(saveTimersRef.current[sessionId]);
+            delete saveTimersRef.current[sessionId];
+        }
+        const targetMsgs = msgs || sessionMessagesCache.current[sessionId];
+        if (targetMsgs) {
+            saveStoredMessagesSync(sessionId, targetMsgs);
+        }
+    }, []);
+
+    // Debounce localStorage writes (400ms) to prevent synchronous serialization on every stream token
+    const debouncedSaveStoredMessages = useCallback((sessionId: string, msgs: ChatMessage[]) => {
+        if (saveTimersRef.current[sessionId]) {
+            clearTimeout(saveTimersRef.current[sessionId]);
+        }
+        saveTimersRef.current[sessionId] = setTimeout(() => {
+            saveStoredMessagesSync(sessionId, msgs);
+            delete saveTimersRef.current[sessionId];
+        }, 400);
+    }, []);
+
+    // Unified helper to update session messages cache, state (if active), and schedule debounced save
+    const setSessionMessages = useCallback((sessionId: string, updater: ChatMessage[] | ((prev: ChatMessage[]) => ChatMessage[])) => {
+        const prevMsgs = sessionMessagesCache.current[sessionId] || [];
+        const nextMsgs = typeof updater === "function" ? updater(prevMsgs) : updater;
+
+        sessionMessagesCache.current[sessionId] = nextMsgs;
+
+        if (activeSessionIdRef.current === sessionId) {
+            setMessages(nextMsgs);
+        }
+
+        debouncedSaveStoredMessages(sessionId, nextMsgs);
+    }, [debouncedSaveStoredMessages]);
 
     const stopResponding = useCallback(() => {
         if (abortControllerRef.current) {
@@ -126,8 +168,6 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         }
     }, []);
 
-    const messagesRef = useRef<ChatMessage[]>(messages);
-
     const setSessions = useCallback((updater: ChatSession[] | ((prev: ChatSession[]) => ChatSession[])) => {
         setSessionsState(prev => {
             const next = typeof updater === "function" ? updater(prev) : updater;
@@ -136,15 +176,22 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         });
     }, []);
 
+    // Flush any pending localStorage saves on unmount
     useEffect(() => {
-        messagesRef.current = messages;
-        if (activeSessionId && messages.length > 0) {
-            sessionMessagesCache.current[activeSessionId] = messages;
-            saveStoredMessages(activeSessionId, messages);
-        }
-    }, [messages, activeSessionId]);
+        return () => {
+            Object.keys(saveTimersRef.current).forEach(sessionId => {
+                if (saveTimersRef.current[sessionId]) {
+                    clearTimeout(saveTimersRef.current[sessionId]);
+                    const pendingMsgs = sessionMessagesCache.current[sessionId];
+                    if (pendingMsgs) {
+                        saveStoredMessagesSync(sessionId, pendingMsgs);
+                    }
+                }
+            });
+        };
+    }, []);
 
-    // Load initial sessions from localStorage on mount
+    // Load initial sessions & messages from localStorage on mount
     useEffect(() => {
         const localSessions = getStoredSessions();
         if (localSessions.length > 0) {
@@ -154,7 +201,6 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             const localMsgs = getStoredMessages(latest.id);
             if (localMsgs.length > 0) {
                 setMessages(localMsgs);
-                messagesRef.current = localMsgs;
                 sessionMessagesCache.current[latest.id] = localMsgs;
             }
         }
@@ -171,6 +217,43 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         setSelectedModelState(model);
         localStorage.setItem("egxbots_selected_model", model);
     }, []);
+
+    const fetchSessionMessages = useCallback(async (sessionId: string) => {
+        try {
+            const res = await fetch(`/api/ai-chat?session_id=${sessionId}`);
+            if (res.ok) {
+                const data = await res.json();
+                if (Array.isArray(data.history) && data.history.length > 0) {
+                    const existing = sessionMessagesCache.current[sessionId] || getStoredMessages(sessionId);
+                    const localImageMap = new Map<number, { imageUrl?: string; imagePreviewUrl?: string; images?: string[] }>();
+                    existing.forEach((m, idx) => {
+                        if (m.imageUrl || m.imagePreviewUrl || m.images) {
+                            localImageMap.set(idx, {
+                                imageUrl: m.imageUrl,
+                                imagePreviewUrl: m.imagePreviewUrl,
+                                images: m.images
+                            });
+                        }
+                    });
+
+                    const mergedHistory: ChatMessage[] = data.history.map((srvMsg: ChatMessage, idx: number) => {
+                        const localImg = localImageMap.get(idx);
+                        return {
+                            ...srvMsg,
+                            imagePreviewUrl: srvMsg.imagePreviewUrl || localImg?.imagePreviewUrl || srvMsg.imageUrl || localImg?.imageUrl,
+                            imageUrl: srvMsg.imageUrl || localImg?.imageUrl,
+                            images: srvMsg.images || localImg?.images
+                        };
+                    });
+
+                    setSessionMessages(sessionId, mergedHistory);
+                    flushStoredMessages(sessionId, mergedHistory);
+                }
+            }
+        } catch (e) {
+            console.error("Failed to load session messages from server:", e);
+        }
+    }, [setSessionMessages, flushStoredMessages]);
 
     const fetchSessions = useCallback(async () => {
         try {
@@ -201,65 +284,51 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         } catch (e) {
             console.error("Failed to fetch chat sessions:", e);
         }
-    }, [setActiveSessionId, setSessions]);
+    }, [setActiveSessionId, setSessions, fetchSessionMessages]);
 
-    const fetchSessionMessages = async (sessionId: string) => {
-        try {
-            const res = await fetch(`/api/ai-chat?session_id=${sessionId}`);
-            if (res.ok) {
-                const data = await res.json();
-                if (Array.isArray(data.history) && data.history.length > 0) {
-                    sessionMessagesCache.current[sessionId] = data.history;
-                    saveStoredMessages(sessionId, data.history);
-
-                    if (activeSessionIdRef.current === sessionId) {
-                        setMessages(data.history);
-                        messagesRef.current = data.history;
-                    }
-                }
-            }
-        } catch (e) {
-            console.error("Failed to load session messages from server:", e);
-        }
-    };
-
-    // Switch active session instantly while preserving per-session loading state
+    // Switch active session instantly while preserving state
     const switchSession = useCallback(async (sessionId: string) => {
+        if (activeSessionIdRef.current) {
+            flushStoredMessages(activeSessionIdRef.current);
+        }
+
         setActiveSessionId(sessionId);
 
-        // Preserve and sync loading status for target session
         const isTargetLoading = !!loadingSessionIds.current[sessionId];
         setIsLoading(isTargetLoading);
 
         // 1. Memory Cache
         if (sessionMessagesCache.current[sessionId] && sessionMessagesCache.current[sessionId].length > 0) {
             setMessages(sessionMessagesCache.current[sessionId]);
-            messagesRef.current = sessionMessagesCache.current[sessionId];
         } else {
             // 2. localStorage
             const localMsgs = getStoredMessages(sessionId);
             if (localMsgs.length > 0) {
                 setMessages(localMsgs);
-                messagesRef.current = localMsgs;
                 sessionMessagesCache.current[sessionId] = localMsgs;
             } else {
                 setMessages([]);
-                messagesRef.current = [];
             }
         }
 
         // 3. Fetch background sync from server
         await fetchSessionMessages(sessionId);
-    }, [setActiveSessionId]);
+    }, [setActiveSessionId, flushStoredMessages, fetchSessionMessages]);
 
     const createNewSession = useCallback(() => {
+        if (activeSessionIdRef.current) {
+            flushStoredMessages(activeSessionIdRef.current);
+        }
         setActiveSessionId(null);
         setMessages([]);
-        messagesRef.current = [];
         setIsLoading(false);
-    }, [setActiveSessionId]);
+    }, [setActiveSessionId, flushStoredMessages]);
 
     const deleteSession = useCallback(async (sessionId: string) => {
+        if (saveTimersRef.current[sessionId]) {
+            clearTimeout(saveTimersRef.current[sessionId]);
+            delete saveTimersRef.current[sessionId];
+        }
         delete sessionMessagesCache.current[sessionId];
         delete loadingSessionIds.current[sessionId];
         if (typeof window !== "undefined") {
@@ -296,8 +365,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     }, [user, fetchSessions]);
 
     const sendMessage = useCallback(async (text: string, imageInput?: string | string[]) => {
-        const imagesList: string[] = Array.isArray(imageInput) 
-            ? imageInput 
+        const imagesList: string[] = Array.isArray(imageInput)
+            ? imageInput
             : (imageInput ? [imageInput] : []);
 
         if (!text.trim() && imagesList.length === 0) return;
@@ -306,8 +375,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         if (!currentSessionId) {
             currentSessionId = typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : "session-" + Date.now();
             setActiveSessionId(currentSessionId);
-            
-            const sessionTitle = text.trim() 
+
+            const sessionTitle = text.trim()
                 ? text.trim().substring(0, 32) + (text.length > 32 ? "..." : "")
                 : (imagesList.length > 0 ? "تحليل صورة محفظة" : "محادثة جديدة");
 
@@ -324,19 +393,14 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             content: text || (imagesList.length > 0 ? `📷 [${imagesList.length} Images attached]` : ""),
             timestamp: Date.now(),
             imageUrl: imagesList[0] || undefined,
+            imagePreviewUrl: imagesList[0] || undefined,
             images: imagesList.length > 0 ? imagesList : undefined,
         };
 
-        const existingSessionMsgs = sessionMessagesCache.current[currentSessionId] || messagesRef.current;
+        const existingSessionMsgs = sessionMessagesCache.current[currentSessionId] || [];
         const nextMessages = [...existingSessionMsgs, newUserMsg];
 
-        if (activeSessionIdRef.current === currentSessionId) {
-            setMessages(nextMessages);
-            messagesRef.current = nextMessages;
-        }
-
-        sessionMessagesCache.current[currentSessionId] = nextMessages;
-        saveStoredMessages(currentSessionId, nextMessages);
+        setSessionMessages(currentSessionId, nextMessages);
 
         // Mark loading state for this session
         loadingSessionIds.current[currentSessionId] = true;
@@ -344,26 +408,40 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             setIsLoading(true);
         }
 
-        const appendAssistantResponse = (assistantMsg: ChatMessage) => {
-            const currentMsgs = sessionMessagesCache.current[currentSessionId!] || [];
-            const updated = [...currentMsgs, assistantMsg];
-
-            sessionMessagesCache.current[currentSessionId!] = updated;
-            saveStoredMessages(currentSessionId!, updated);
-
-            if (activeSessionIdRef.current === currentSessionId) {
-                setMessages(updated);
-                messagesRef.current = updated;
-            }
+        // Create optimistic assistant message
+        const assistantMsgId = typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : "msg-" + Date.now();
+        const assistantMsg: ChatMessage = {
+            id: assistantMsgId,
+            role: "assistant",
+            content: "",
+            timestamp: Date.now(),
+            isStreaming: true,
+            statusText: "جاري تحليل السؤال...",
         };
+
+        const updateAssistantMsgInState = (updatedMsg: ChatMessage) => {
+            setSessionMessages(currentSessionId!, prevMsgs => {
+                const existingIndex = prevMsgs.findIndex(m => m.id === updatedMsg.id);
+                if (existingIndex >= 0) {
+                    const updated = [...prevMsgs];
+                    updated[existingIndex] = updatedMsg;
+                    return updated;
+                } else {
+                    return [...prevMsgs, updatedMsg];
+                }
+            });
+        };
+
+        // Render initial optimistic assistant message
+        updateAssistantMsgInState(assistantMsg);
 
         try {
             if (remainingQuota <= 0) {
-                appendAssistantResponse({
-                    role: "assistant",
-                    content: "وصلت للحد الأقصى اليومي (15 رسالة يومياً). يرجى العودة غداً أو تواصل مع الدعم الفني!",
-                    timestamp: Date.now()
-                });
+                assistantMsg.content = "وصلت للحد الأقصى اليومي (15 رسالة يومياً). يرجى العودة غداً أو تواصل مع الدعم الفني!";
+                assistantMsg.isStreaming = false;
+                assistantMsg.statusText = undefined;
+                updateAssistantMsgInState(assistantMsg);
+                flushStoredMessages(currentSessionId);
                 return;
             }
 
@@ -374,7 +452,11 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
             const response = await fetch("/api/ai-chat", {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: {
+                    "Content-Type": "application/json",
+                    "Accept": "text/event-stream, application/json",
+                    "x-stream": "true"
+                },
                 signal: abortControllerRef.current.signal,
                 body: JSON.stringify({
                     message: text || "قم بقراءة وتحليل هذه الصورة المرفقة.",
@@ -383,60 +465,184 @@ export function ChatProvider({ children }: { children: ReactNode }) {
                     image: imagesList[0] || undefined,
                     model: selectedModel,
                     session_id: currentSessionId,
+                    stream: true,
                 })
             });
 
-            if (response.status === 504 || response.status === 502) {
-                appendAssistantResponse({
-                    role: "assistant",
-                    content: "استغرقت الاستجابة وقتاً أطول من المعتاد بسبب الضغط على الموديل. يرجى إعادة المحاولة أو اختيار موديل أسرع مثل Llama 3.1 8B ⚡",
-                    timestamp: Date.now()
-                });
+            if (response.status === 429) {
+                setRemainingQuota(0);
+                let detail = "وصلت للحد الأقصى اليومي (15 رسالة يومياً). يرجى العودة غداً أو تواصل مع الدعم الفني!";
+                try {
+                    const data = await response.json();
+                    if (data.detail && typeof data.detail === "string" && data.detail.includes("Daily limit")) {
+                        detail = "وصلت للحد الأقصى اليومي (15 رسالة يومياً). يرجى العودة غداً أو تواصل مع الدعم الفني!";
+                    } else if (data.detail) {
+                        detail = data.detail;
+                    }
+                } catch {}
+                assistantMsg.content = detail;
+                assistantMsg.isStreaming = false;
+                assistantMsg.statusText = undefined;
+                updateAssistantMsgInState(assistantMsg);
+                flushStoredMessages(currentSessionId);
                 return;
             }
 
-            const data = await response.json();
-            
-            if (response.status === 429) {
-                setRemainingQuota(0);
-                appendAssistantResponse({
-                    role: "assistant",
-                    content: data.detail || "وصلت للحد الأقصى اليومي 15 رسالة.",
-                    timestamp: Date.now()
-                });
+            if (response.status === 504 || response.status === 502) {
+                assistantMsg.content = "استغرقت الاستجابة وقتاً أطول من المعتاد بسبب الضغط على الموديل. يرجى إعادة المحاولة أو اختيار موديل أسرع مثل Llama 3.1 8B ⚡";
+                assistantMsg.isStreaming = false;
+                assistantMsg.statusText = undefined;
+                updateAssistantMsgInState(assistantMsg);
+                flushStoredMessages(currentSessionId);
                 return;
             }
 
             if (!response.ok) {
-                throw new Error(data.detail || "Failed to communicate with AI");
+                let errorMsg = "حدث خطأ في السيرفر أثناء معالجة الطلب. يرجى المحاولة مرة أخرى لاحقاً.";
+                try {
+                    const data = await response.json();
+                    if (data.detail) errorMsg = data.detail;
+                } catch {}
+                assistantMsg.content = errorMsg;
+                assistantMsg.isStreaming = false;
+                assistantMsg.statusText = undefined;
+                updateAssistantMsgInState(assistantMsg);
+                flushStoredMessages(currentSessionId);
+                return;
             }
 
-            if (data.remaining_quota !== undefined) {
-                setRemainingQuota(data.remaining_quota);
+            const contentType = response.headers.get("content-type") || "";
+
+            // Fallback for non-streaming JSON responses
+            if (contentType.includes("application/json") || !response.body) {
+                const data = await response.json();
+                if (data.remaining_quota !== undefined) {
+                    setRemainingQuota(data.remaining_quota);
+                }
+                assistantMsg.content = data.reply || "معذرة، لم أتمكن من معالجة هذا الطلب.";
+                assistantMsg.suggestedButtons = Array.isArray(data.suggested_buttons) ? data.suggested_buttons : undefined;
+                assistantMsg.isStreaming = false;
+                assistantMsg.statusText = undefined;
+                updateAssistantMsgInState(assistantMsg);
+                flushStoredMessages(currentSessionId);
+                return;
             }
 
-            appendAssistantResponse({
-                role: "assistant",
-                content: data.reply || "معذرة، لم أتمكن من معالجة هذا الطلب.",
-                timestamp: Date.now(),
-                suggestedButtons: Array.isArray(data.suggested_buttons) ? data.suggested_buttons : undefined
-            });
+            // SSE ReadableStream reading
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder("utf-8");
+            let buffer = "";
+            let currentEventName = "";
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split("\n");
+                buffer = lines.pop() || "";
+
+                for (const line of lines) {
+                    const trimmed = line.trim();
+                    if (!trimmed) {
+                        currentEventName = "";
+                        continue;
+                    }
+
+                    if (trimmed.startsWith("event:")) {
+                        currentEventName = trimmed.slice(6).trim();
+                        continue;
+                    }
+
+                    if (trimmed.startsWith("data:")) {
+                        const dataStr = trimmed.slice(5).trim();
+                        if (dataStr === "[DONE]") {
+                            assistantMsg.isStreaming = false;
+                            updateAssistantMsgInState(assistantMsg);
+                            continue;
+                        }
+
+                        try {
+                            const parsed = JSON.parse(dataStr);
+
+                            if (parsed.type === "error") {
+                                assistantMsg.content = parsed.detail || "حدث خطأ في السيرفر أثناء معالجة الطلب. يرجى المحاولة مرة أخرى لاحقاً.";
+                                assistantMsg.isStreaming = false;
+                                assistantMsg.statusText = undefined;
+                                updateAssistantMsgInState(assistantMsg);
+                            } else if (currentEventName === "status" || parsed.type === "status" || parsed.event === "status" || parsed.status) {
+                                const statusMsg = parsed.status || parsed.message || parsed.content;
+                                if (statusMsg) {
+                                    assistantMsg.statusText = statusMsg;
+                                    updateAssistantMsgInState(assistantMsg);
+                                }
+                            } else if (currentEventName === "token" || parsed.type === "token" || parsed.event === "token" || parsed.token !== undefined || parsed.delta !== undefined) {
+                                const token = parsed.token ?? parsed.delta ?? parsed.content ?? parsed.text ?? "";
+                                assistantMsg.content += token;
+                                assistantMsg.isStreaming = true;
+                                updateAssistantMsgInState(assistantMsg);
+                            } else if (currentEventName === "done" || parsed.type === "done" || parsed.event === "done") {
+                                if (parsed.reply && !assistantMsg.content) {
+                                    assistantMsg.content = parsed.reply;
+                                }
+                                if (Array.isArray(parsed.suggested_buttons)) {
+                                    assistantMsg.suggestedButtons = parsed.suggested_buttons;
+                                }
+                                if (parsed.remaining_quota !== undefined) {
+                                    setRemainingQuota(parsed.remaining_quota);
+                                }
+                                assistantMsg.isStreaming = false;
+                                updateAssistantMsgInState(assistantMsg);
+                            } else {
+                                if (parsed.status) {
+                                    assistantMsg.statusText = parsed.status;
+                                }
+                                if (parsed.token || parsed.delta || parsed.text) {
+                                    assistantMsg.content += (parsed.token || parsed.delta || parsed.text);
+                                } else if (parsed.reply && !assistantMsg.content) {
+                                    assistantMsg.content = parsed.reply;
+                                }
+                                if (Array.isArray(parsed.suggested_buttons)) {
+                                    assistantMsg.suggestedButtons = parsed.suggested_buttons;
+                                }
+                                if (parsed.remaining_quota !== undefined) {
+                                    setRemainingQuota(parsed.remaining_quota);
+                                }
+                                updateAssistantMsgInState(assistantMsg);
+                            }
+                        } catch {
+                            // Raw string token in data field
+                            assistantMsg.content += dataStr;
+                            assistantMsg.isStreaming = true;
+                            updateAssistantMsgInState(assistantMsg);
+                        }
+                    }
+                }
+            }
+
+            // Stream complete
+            assistantMsg.isStreaming = false;
+            if (!assistantMsg.content && assistantMsg.statusText) {
+                assistantMsg.content = assistantMsg.statusText;
+            }
+            updateAssistantMsgInState(assistantMsg);
+            flushStoredMessages(currentSessionId);
 
         } catch (err: any) {
-            if (err.name === "AbortError" || err.message === "The user aborted a request.") {
+            if (err.name === "AbortError" || err.message?.includes("aborted") || err.message === "The user aborted a request.") {
                 console.log("Chat request aborted by user");
-                appendAssistantResponse({
-                    role: "assistant",
-                    content: "تم إيقاف الاستجابة بناءً على طلبك.",
-                    timestamp: Date.now()
-                });
+                if (!assistantMsg.content) {
+                    assistantMsg.content = "تم إيقاف الاستجابة بناءً على طلبك.";
+                }
+            } else if (err.name === "TypeError" && (err.message?.includes("fetch") || err.message?.includes("Failed to fetch") || err.message?.includes("network"))) {
+                assistantMsg.content = "تعذر الاتصال بالشبكة. يرجى التحقق من اتصالك بالإنترنت وتجربة المحاولة مرة أخرى.";
             } else {
-                appendAssistantResponse({
-                    role: "assistant",
-                    content: "حدث خطأ أثناء الاتصال بالذكاء الاصطناعي.",
-                    timestamp: Date.now()
-                });
+                assistantMsg.content = err.message || "حدث خطأ أثناء الاتصال بالذكاء الاصطناعي.";
             }
+            assistantMsg.isStreaming = false;
+            assistantMsg.statusText = undefined;
+            updateAssistantMsgInState(assistantMsg);
+            flushStoredMessages(currentSessionId);
         } finally {
             abortControllerRef.current = null;
             loadingSessionIds.current[currentSessionId] = false;
@@ -444,18 +650,18 @@ export function ChatProvider({ children }: { children: ReactNode }) {
                 setIsLoading(false);
             }
         }
-    }, [remainingQuota, selectedModel, setActiveSessionId, setSessions]);
+    }, [remainingQuota, selectedModel, setActiveSessionId, setSessions, setSessionMessages, flushStoredMessages]);
 
     return (
-        <ChatContext.Provider value={{ 
-            isOpen, 
-            setIsOpen, 
-            messages, 
-            sendMessage, 
+        <ChatContext.Provider value={{
+            isOpen,
+            setIsOpen,
+            messages,
+            sendMessage,
             stopResponding,
-            isLoading, 
-            remainingQuota, 
-            selectedModel, 
+            isLoading,
+            remainingQuota,
+            selectedModel,
             setSelectedModel,
             sessions,
             activeSessionId,

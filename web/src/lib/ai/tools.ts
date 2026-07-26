@@ -1,4 +1,5 @@
 import { PlannerResult } from "./types";
+import { AI_CONFIG } from "./config";
 
 function normalizeArabic(str: string): string {
     return str
@@ -21,46 +22,74 @@ export async function executeTools(supabase: any, plannerResult: PlannerResult):
     yesterday.setDate(yesterday.getDate() - 1);
     const yesterdayStr = yesterday.toISOString().split("T")[0];
 
-    // Tool 1: get_stock & get_indicators
+    // Shared promise to prevent redundant market_cache fetch across tools in the same execution
+    let marketCachePromise: Promise<any> | null = null;
+    const fetchMarketCache = () => {
+        if (!marketCachePromise) {
+            marketCachePromise = supabase
+                .from("market_cache")
+                .select("payload")
+                .eq("cache_key", `market_status_${AI_CONFIG.tools.defaultCountry}`)
+                .maybeSingle();
+        }
+        return marketCachePromise;
+    };
+
+    // Tool 1: get_stock & load_stock_prices
     if (symbols.length > 0 && (tools.includes("get_stock") || tools.includes("load_stock_prices"))) {
         try {
-            const [pricesRes, techsRes, stocksRes] = await Promise.all([
-                supabase.from("stock_prices").select("symbol, close, volume, date").in("symbol", symbols).order("date", { ascending: false }).limit(symbols.length * 30),
-                supabase.from("stock_technical_indicators").select("symbol, rsi_14, macd_signal, change_pct").in("symbol", symbols).order("date", { ascending: false }).limit(symbols.length * 10),
+            // Fetch exactly 1 latest record per symbol in parallel to avoid over-fetching and JS deduplication
+            const [pricesData, techsData, stocksRes] = await Promise.all([
+                Promise.all(
+                    symbols.map(sym =>
+                        supabase
+                            .from("stock_prices")
+                            .select("symbol, close, volume, date")
+                            .eq("symbol", sym)
+                            .order("date", { ascending: false })
+                            .limit(1)
+                            .maybeSingle()
+                    )
+                ),
+                Promise.all(
+                    symbols.map(sym =>
+                        supabase
+                            .from("stock_technical_indicators")
+                            .select("symbol, rsi_14, macd_signal, change_pct")
+                            .eq("symbol", sym)
+                            .order("date", { ascending: false })
+                            .limit(1)
+                            .maybeSingle()
+                    )
+                ),
                 supabase.from("stocks").select("symbol, name").in("symbol", symbols)
             ]);
 
-            const rawPrices: any[] = pricesRes.data || [];
-            const rawTechs: any[] = techsRes.data || [];
-            const stocks: any[] = stocksRes.data || [];
-
-            // deduplicate manually (keeps first occurrence per symbol which is the latest due to DESC sort)
-            const prices: any[] = [];
             const pricesMap = new Map<string, any>();
-            rawPrices.forEach(p => {
-                if (!pricesMap.has(p.symbol)) {
-                    pricesMap.set(p.symbol, p);
-                    prices.push(p);
-                }
+            pricesData.forEach(r => {
+                if (r.data?.symbol) pricesMap.set(r.data.symbol, r.data);
             });
 
-            const techs: any[] = [];
             const techsMap = new Map<string, any>();
-            rawTechs.forEach(t => {
-                if (!techsMap.has(t.symbol)) {
-                    techsMap.set(t.symbol, t);
-                    techs.push(t);
-                }
+            techsData.forEach(r => {
+                if (r.data?.symbol) techsMap.set(r.data.symbol, r.data);
             });
 
-            if (prices.length > 0) {
+            const stocksMap = new Map<string, any>();
+            (stocksRes.data || []).forEach((s: any) => {
+                if (s?.symbol) stocksMap.set(s.symbol, s);
+            });
+
+            if (pricesMap.size > 0) {
                 outputText += `\n📊 [بيانات الأسهم المطلوبة من قاعدة البيانات]:\n`;
                 symbols.forEach(sym => {
-                    const price = prices.find((p: any) => p.symbol === sym);
-                    const tech = techs.find((t: any) => t.symbol === sym);
-                    const stock = stocks.find((s: any) => s.symbol === sym);
+                    const price = pricesMap.get(sym);
+                    const tech = techsMap.get(sym);
+                    const stock = stocksMap.get(sym);
                     if (price) {
-                        const changeStr = tech && typeof tech.change_pct === "number" ? `${tech.change_pct >= 0 ? "+" : ""}${tech.change_pct.toFixed(2)}%` : "N/A";
+                        const changeStr = tech && typeof tech.change_pct === "number" 
+                            ? `${tech.change_pct >= 0 ? "+" : ""}${tech.change_pct.toFixed(2)}%` 
+                            : "N/A";
                         outputText += `• سهم ${sym} (${stock?.name || sym}): السعر اللحظي = ${price.close} ج.م | التغير: ${changeStr} | RSI: ${tech?.rsi_14 ?? "N/A"} | إشارة MACD: ${tech?.macd_signal ?? "N/A"}\n`;
                     }
                 });
@@ -75,17 +104,18 @@ export async function executeTools(supabase: any, plannerResult: PlannerResult):
     const normSummary = normalizeArabic(summaryText);
     if (tools.includes("get_platform_stats") || normSummary.includes("اداء المنصه") || normSummary.includes("رايك في") || normSummary.includes("المنصه")) {
         try {
+            // Select only columns required for statistics calculation (avoid fetching unused prices/targets)
             const { data: allRecs } = await supabase
                 .from("scan_results")
-                .select("symbol, signal, status, precision, entry_price, target_price, stop_loss")
-                .eq("country", "Egypt");
+                .select("signal, status, precision")
+                .eq("country", AI_CONFIG.tools.defaultCountry);
 
             if (allRecs && allRecs.length > 0) {
                 const total = allRecs.length;
                 const openCount = allRecs.filter((r: any) => r.status === "open").length;
                 const buyCount = allRecs.filter((r: any) => String(r.signal || "").toUpperCase().includes("BUY")).length;
                 const sellCount = total - buyCount;
-                const avgPrecision = (allRecs.reduce((acc: number, r: any) => acc + (Number(r.precision) || 85), 0) / total).toFixed(1);
+                const avgPrecision = (allRecs.reduce((acc: number, r: any) => acc + (Number(r.precision) || AI_CONFIG.tools.defaultPrecision), 0) / total).toFixed(1);
 
                 outputText += `\n📈 [إحصائيات وحصاد أداء منصة EGX Bots الإجمالي من الداتابيز]:\n`;
                 outputText += `• إجمالي التوصيات الصادرة بالمنصة: ${total} توصية\n`;
@@ -103,32 +133,38 @@ export async function executeTools(supabase: any, plannerResult: PlannerResult):
         try {
             const normSummaryRec = normalizeArabic(plannerResult.session_update?.summary || "");
             const isOldestQuery = normSummaryRec.includes("اقدم") || normSummaryRec.includes("oldest");
+            const limit = isOldestQuery ? AI_CONFIG.tools.recommendationsLimitOldest : AI_CONFIG.tools.recommendationsLimit;
 
-            // 1. Fetch latest recommendations (Newest first)
-            const { data: latestRecs } = await supabase
+            // Build targeted query (only columns needed, single fetch based on sort order)
+            let recsQuery = supabase
                 .from("scan_results")
-                .select("symbol, name, signal, entry_price, target_price, stop_loss, precision, top_reasons, created_at")
-                .eq("country", "Egypt")
-                .order("created_at", { ascending: false })
-                .limit(10);
+                .select("symbol, name, signal, entry_price, target_price, stop_loss, created_at")
+                .eq("country", AI_CONFIG.tools.defaultCountry);
 
-            // 2. Fetch oldest recommendations if explicitly requested (Oldest first)
-            const { data: oldestRecs } = isOldestQuery
-                ? await supabase
+            if (symbols.length > 0) {
+                recsQuery = recsQuery.in("symbol", symbols);
+            }
+
+            const { data: recsData } = await recsQuery
+                .order("created_at", { ascending: isOldestQuery })
+                .limit(limit);
+
+            // Fallback if specific symbol had no recommendations
+            let recsToUse = recsData || [];
+            if (symbols.length > 0 && recsToUse.length === 0) {
+                const { data: fallbackRecs } = await supabase
                     .from("scan_results")
-                    .select("symbol, name, signal, entry_price, target_price, stop_loss, precision, top_reasons, created_at")
-                    .eq("country", "Egypt")
-                    .order("created_at", { ascending: true })
-                    .limit(5)
-                : { data: null };
-
-            const recsToUse = isOldestQuery && oldestRecs?.length ? oldestRecs : (latestRecs || []);
+                    .select("symbol, name, signal, entry_price, target_price, stop_loss, created_at")
+                    .eq("country", AI_CONFIG.tools.defaultCountry)
+                    .order("created_at", { ascending: isOldestQuery })
+                    .limit(limit);
+                recsToUse = fallbackRecs || [];
+            }
 
             if (recsToUse.length > 0) {
                 outputText += `\n🎯 [إشارات وتوصيات تداول البورصة المصرية من قاعدة البيانات - scan_results]:\n`;
                 outputText += `📌 [سياق التاريخ والترتيب]: اليوم هو ${todayStr} - أمس هو ${yesterdayStr}. الترتيب الحالي للبيانات: ${isOldestQuery ? "الأقدم أولاً (Ascending)" : "الأحدث أولاً (Descending)"}.\n`;
 
-                // Check if any recommendation is actually from yesterday
                 const yesterdayRecs = recsToUse.filter((r: any) => String(r.created_at || "").startsWith(yesterdayStr));
                 if (!isOldestQuery && yesterdayRecs.length === 0) {
                     outputText += `⚠️ ملحوظة دقيقة للمجيب: لا توجد توصيات مسجلة بتاريخ أمس (${yesterdayStr}). التوصيات أدناه هي أحدث توصيات مسجلة في الداتابيز وترجع لتاريخ (20 يوليو و 19 يوليو 2026). يرجى توضيح ذلك بأسلوب دقيق للمستخدم دون الادعاء بأنها توصيات أمس.\n`;
@@ -151,17 +187,12 @@ export async function executeTools(supabase: any, plannerResult: PlannerResult):
     // Tool 4: get_market & get_news
     if (!tools || tools.length === 0 || tools.includes("get_market") || tools.includes("get_news") || plannerResult.intent === "market_summary" || plannerResult.intent === "stock_news") {
         try {
-            const { data: marketCache } = await supabase
-                .from("market_cache")
-                .select("payload")  // ✅ تصحيح: استخدام "payload" بدلاً من "cache_value"
-                .eq("cache_key", "market_status_Egypt")
-                .maybeSingle();  // ✅ تصحيح: استخدام maybeSingle بدلاً من single لتجنب الأخطاء
+            const { data: marketCache } = await fetchMarketCache();
 
             if (marketCache?.payload) {
                 const payload = marketCache.payload;
                 outputText += `\n📰 [حالة البورصة والأخبار من قاعدة البيانات]:\n`;
                 
-                // Append Index Details if available
                 if (payload.egx30 && Array.isArray(payload.egx30) && payload.egx30.length > 0) {
                     const latest30 = payload.egx30[payload.egx30.length - 1];
                     const changePct = payload.egx30_return ? (payload.egx30_return * 100).toFixed(2) : "N/A";
@@ -182,22 +213,20 @@ export async function executeTools(supabase: any, plannerResult: PlannerResult):
                     outputText += `• اتجاه السوق (Market Regime): ${payload.regime}\n`;
                 }
 
-                // Extract market summary if available
                 if (payload.market_summary) {
                     outputText += `• ملخص السوق: ${payload.market_summary}\n`;
                 }
                 
-                // Extract top gainers/losers if available
                 if (payload.top_gainers && Array.isArray(payload.top_gainers) && payload.top_gainers.length > 0) {
                     outputText += `\n🟢 أعلى الأسهم ارتفاعاً:\n`;
-                    payload.top_gainers.slice(0, 5).forEach((stock: any) => {
+                    payload.top_gainers.slice(0, AI_CONFIG.tools.topGainersLosersLimit).forEach((stock: any) => {
                         outputText += `• ${stock.symbol}: ${stock.change || 'N/A'}%\n`;
                     });
                 }
                 
                 if (payload.top_losers && Array.isArray(payload.top_losers) && payload.top_losers.length > 0) {
                     outputText += `\n🔴 أعلى الأسهم انخفاضاً:\n`;
-                    payload.top_losers.slice(0, 5).forEach((stock: any) => {
+                    payload.top_losers.slice(0, AI_CONFIG.tools.topGainersLosersLimit).forEach((stock: any) => {
                         outputText += `• ${stock.symbol}: ${stock.change || 'N/A'}%\n`;
                     });
                 }
@@ -215,21 +244,19 @@ export async function executeTools(supabase: any, plannerResult: PlannerResult):
     // Tool 5: get_news_sentiment (جلب الأخبار الفعلية من stock_news_sentiment table)
     if (tools.includes("get_news") || plannerResult.intent === "stock_news") {
         try {
-            // حساب تاريخ الأسبوع الماضي
-            const oneWeekAgo = new Date();
-            oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
-            const oneWeekAgoStr = oneWeekAgo.toISOString().split("T")[0];
+            const lookbackDate = new Date();
+            lookbackDate.setDate(lookbackDate.getDate() - AI_CONFIG.tools.newsDaysLookback);
+            const lookbackDateStr = lookbackDate.toISOString().split("T")[0];
 
             let newsQuery = supabase
                 .from("stock_news_sentiment")
-                .select("symbol, date, sentiment_score, news_count, negative_flag, positive_flag, headlines")
-                .eq("exchange", "EGX")  // ✅ تصحيح: استخدام "exchange" بدلاً من "country"
-                .gte("date", oneWeekAgoStr)  // أخبار آخر أسبوع فقط
-                .gt("news_count", 0)  // ✅ فقط الأسهم التي لديها أخبار فعلية
+                .select("symbol, date, sentiment_score, news_count, headlines")
+                .eq("exchange", AI_CONFIG.tools.defaultExchange)
+                .gte("date", lookbackDateStr)
+                .gt("news_count", 0)
                 .order("date", { ascending: false })
-                .limit(50);
+                .limit(AI_CONFIG.tools.newsLimit);
 
-            // إذا كان هناك رموز محددة، فلتر عليها
             if (symbols.length > 0) {
                 newsQuery = newsQuery.in("symbol", symbols);
             }
@@ -237,10 +264,9 @@ export async function executeTools(supabase: any, plannerResult: PlannerResult):
             const { data: newsData } = await newsQuery;
 
             if (newsData && newsData.length > 0) {
-                outputText += `\n📰 [أخبار وتحليلات المعنويات للأسهم - آخر 7 أيام]:\n`;
+                outputText += `\n📰 [أخبار وتحليلات المعنويات للأسهم - آخر ${AI_CONFIG.tools.newsDaysLookback} أيام]:\n`;
                 outputText += `📌 إجمالي الأسهم التي لديها أخبار مسجلة: ${newsData.length} سهم\n\n`;
                 
-                // تجميع الأخبار حسب التاريخ
                 const newsByDate = new Map<string, any[]>();
                 newsData.forEach((item: any) => {
                     const dateKey = item.date || todayStr;
@@ -250,20 +276,18 @@ export async function executeTools(supabase: any, plannerResult: PlannerResult):
                     newsByDate.get(dateKey)!.push(item);
                 });
 
-                // عرض الأخبار بترتيب التاريخ
                 const sortedDates = Array.from(newsByDate.keys()).sort().reverse();
                 sortedDates.forEach((date, idx) => {
-                    if (idx < 3) {  // عرض آخر 3 أيام فقط لتجنب الإطالة
+                    if (idx < AI_CONFIG.tools.newsDaysDisplay) {
                         outputText += `📅 تاريخ: ${date}\n`;
                         const items = newsByDate.get(date) || [];
-                        items.slice(0, 8).forEach((item: any) => {  // max 8 stocks per day
+                        items.slice(0, AI_CONFIG.tools.newsHeadlinesMaxPerDay).forEach((item: any) => {
                             const sentiment = item.sentiment_score > 0.15 ? "إيجابي 🟢" : 
                                             item.sentiment_score < -0.15 ? "سلبي 🔴" : 
                                             "محايد ⚪";
                             const scorePercent = ((item.sentiment_score || 0) * 100).toFixed(1);
                             outputText += `  • ${item.symbol}: معنويات الأخبار = ${sentiment} (${scorePercent}%) | عدد الأخبار: ${item.news_count || 0}`;
                             
-                            // إضافة عنوان رئيسي واحد إذا كان متاحاً
                             if (item.headlines && Array.isArray(item.headlines) && item.headlines.length > 0) {
                                 const headline = String(item.headlines[0]).substring(0, 80);
                                 outputText += ` | عنوان: "${headline}..."`;
@@ -293,22 +317,23 @@ export async function executeTools(supabase: any, plannerResult: PlannerResult):
         try {
             outputText += `\n🔍 [تم تفعيل أداة جلب المؤشرات والعملات]:\n`;
             
-            // جلب بيانات المؤشرات من stock_prices
-            const indexSymbols = ['EGX30', 'EGX70', 'EGX100'];
-            const { data: indexData } = await supabase
-                .from("stock_prices")
-                .select("symbol, close, volume, date")
-                .in("symbol", indexSymbols)
-                .order("date", { ascending: false })
-                .limit(indexSymbols.length * 2);
+            const indexSymbols = AI_CONFIG.tools.indexSymbols;
+            const [indexDataRes, { data: marketCache }] = await Promise.all([
+                Promise.all(
+                    indexSymbols.map(sym =>
+                        supabase
+                            .from("stock_prices")
+                            .select("symbol, close, date")
+                            .eq("symbol", sym)
+                            .order("date", { ascending: false })
+                            .limit(1)
+                            .maybeSingle()
+                    )
+                ),
+                fetchMarketCache()
+            ]);
 
-            // جلب بيانات الدولار من market_cache
-            const { data: marketCache } = await supabase
-                .from("market_cache")
-                .select("payload")
-                .eq("cache_key", "market_status_Egypt")
-                .maybeSingle();
-
+            const indexData = indexDataRes.map(r => r.data).filter(Boolean);
             let hasIndexData = false;
             let hasUsdData = false;
 
@@ -316,27 +341,16 @@ export async function executeTools(supabase: any, plannerResult: PlannerResult):
                 hasIndexData = true;
                 outputText += `📊 [المؤشرات المصرية - البيانات الحقيقية من قاعدة البيانات]:\n`;
                 
-                // تجميع أحدث بيانات لكل مؤشر
-                const latestIndices = new Map<string, any>();
-                indexData.forEach((item: any) => {
-                    if (!latestIndices.has(item.symbol) || 
-                        (latestIndices.get(item.symbol)?.date || "") < (item.date || "")) {
-                        latestIndices.set(item.symbol, item);
-                    }
-                });
-
-                latestIndices.forEach((data, symbol) => {
+                indexData.forEach((data: any) => {
                     const value = data.close || 0;
                     const date = data.date || todayStr;
-                    outputText += `• ${symbol}: ${value.toFixed(1)} نقطة (تاريخ حقيقي: ${date})\n`;
+                    outputText += `• ${data.symbol}: ${value.toFixed(1)} نقطة (تاريخ حقيقي: ${date})\n`;
                 });
             }
 
-            // استخراج بيانات USD/EGP
             if (marketCache?.payload?.usdegp && Array.isArray(marketCache.payload.usdegp)) {
                 hasUsdData = true;
                 const usdData = marketCache.payload.usdegp;
-                // أحدث سعر صرف
                 const latestUsd = usdData[usdData.length - 1];
                 if (latestUsd) {
                     const rate = latestUsd.close || latestUsd.open || 0;
@@ -346,7 +360,6 @@ export async function executeTools(supabase: any, plannerResult: PlannerResult):
                     outputText += `• USD/EGP: ${rate.toFixed(2)} جنيه مصري (تاريخ حقيقي: ${date})\n`;
                     outputText += `⚠️ تحذير للنموذج: السعر الحقيقي هو ${rate.toFixed(2)} وليس 15.25\n`;
                     
-                    // حساب التغيير إذا كان لدينا أكثر من يوم واحد
                     if (usdData.length > 1) {
                         const previousUsd = usdData[usdData.length - 2];
                         if (previousUsd && previousUsd.close) {

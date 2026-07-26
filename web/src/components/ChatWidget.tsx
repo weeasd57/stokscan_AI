@@ -312,9 +312,9 @@ export default function ChatWidget() {
                                             : "bg-transparent text-black dark:text-zinc-100 px-2 py-3"}
                                     `}>
                                         {/* Show image thumbnails if present */}
-                                        {((msg.images && msg.images.length > 0) || (msg.imageUrl && msg.imageUrl !== "[image]")) && (
+                                        {((msg.images && msg.images.length > 0) || (msg.imageUrl && msg.imageUrl !== "[image]") || msg.imagePreviewUrl) && (
                                             <div className="mb-2 flex flex-wrap gap-1.5">
-                                                {(msg.images || [msg.imageUrl!]).filter(img => img && img !== "[image]").map((img, i) => (
+                                                {(msg.images || [msg.imagePreviewUrl || msg.imageUrl!]).filter(img => img && img !== "[image]").map((img, i) => (
                                                     <img
                                                         key={i}
                                                         src={img}
@@ -325,11 +325,12 @@ export default function ChatWidget() {
                                             </div>
                                         )}
                                         <FormattedChatMessage 
-                                            content={msg.content} 
+                                            content={msg.content || msg.statusText || ""} 
                                             role={msg.role} 
                                             suggestedButtons={msg.suggestedButtons}
                                             showSuggestedButtons={idx === messages.length - 1}
                                             onButtonClick={(btnText) => sendMessage(btnText)}
+                                            isStreaming={msg.isStreaming}
                                         />
 
                                     </div>

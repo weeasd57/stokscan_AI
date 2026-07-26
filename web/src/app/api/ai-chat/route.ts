@@ -5,7 +5,10 @@ import { getSupabaseClient } from "@/lib/supabase/route-data";
 import { loadSessionState, updateSessionState } from "@/lib/ai/session";
 import { runPlanner } from "@/lib/ai/planner";
 import { executeTools } from "@/lib/ai/tools";
-import { generateFinalResponse } from "@/lib/ai/final";
+import { generateFinalResponse, generateFinalStream } from "@/lib/ai/final";
+import { selectOptimalModel } from "@/lib/ai/router";
+import { AI_CONFIG } from "@/lib/ai/config";
+import { logAiInteraction } from "@/lib/ai/logger";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -43,7 +46,8 @@ export async function POST(req: NextRequest) {
         }
         
         const userId = user.id;
-        const { message, history, image, images, model: userRequestedModel, session_id: inputSessionId } = await req.json();
+        const body = await req.json();
+        const { message, history, image, images, model: userRequestedModel, session_id: inputSessionId, stream } = body;
 
         const rawImages: string[] = Array.isArray(images) && images.length > 0 
             ? images 
@@ -79,7 +83,7 @@ export async function POST(req: NextRequest) {
             : [];
 
         const userEmail = user.email || "";
-        const isUnlimited = ["weeessd57@gmail.com", "user@gmail.com", "weeasd57@gmail.com"].includes(userEmail.toLowerCase());
+        const isUnlimited = AI_CONFIG.unlimitedEmails.includes(userEmail) || AI_CONFIG.unlimitedEmails.includes(userEmail.toLowerCase());
 
         const today = new Date().toISOString().split("T")[0];
         let { data: limitData } = await supabase
@@ -89,8 +93,8 @@ export async function POST(req: NextRequest) {
             .eq("date", today)
             .maybeSingle();
 
-        if (!isUnlimited && limitData && limitData.chat_count >= 15) {
-            return NextResponse.json({ detail: "Daily limit reached. You can send up to 15 messages per day." }, { status: 429 });
+        if (!isUnlimited && limitData && limitData.chat_count >= AI_CONFIG.limits.dailyMessages) {
+            return NextResponse.json({ detail: `Daily limit reached. You can send up to ${AI_CONFIG.limits.dailyMessages} messages per day.` }, { status: 429 });
         }
 
         const keysToTry = Array.from(new Set([
@@ -102,9 +106,216 @@ export async function POST(req: NextRequest) {
         if (keysToTry.length === 0) {
             return NextResponse.json({ detail: "AI service not configured" }, { status: 500 });
         }
-        const apiKey = keysToTry[0];
 
-        // --- STEP 1: RESOLVE SESSION ID & LOAD SESSION ---
+        const acceptHeader = req.headers.get("accept") || "";
+        const isStreamingRequested = stream === true || stream === "true" || acceptHeader.includes("text/event-stream");
+
+        if (isStreamingRequested) {
+            const encoder = new TextEncoder();
+            const customStream = new ReadableStream({
+                async start(controller) {
+                    const sendEvent = (data: any) => {
+                        controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+                    };
+
+                    try {
+                        // STEP 1: RESOLVE SESSION ID & LOAD SESSION
+                        sendEvent({ type: "status", status: "session", message: "Resolving session..." });
+                        let activeSessionId = inputSessionId;
+                        try {
+                            let sessionExists = false;
+                            if (activeSessionId) {
+                                const { data: existing } = await supabase
+                                    .from("ai_chat_sessions")
+                                    .select("id")
+                                    .eq("id", activeSessionId)
+                                    .eq("user_id", userId)
+                                    .maybeSingle();
+                                if (existing) sessionExists = true;
+                            }
+
+                            if (!activeSessionId || !sessionExists) {
+                                const sessionTitle = message?.trim().substring(0, 32) || (hasImages ? "تحليل صورة محفظة" : "محادثة جديدة");
+                                const insertPayload: any = {
+                                    title: sessionTitle,
+                                    user_id: userId,
+                                    created_at: new Date().toISOString(),
+                                    updated_at: new Date().toISOString()
+                                };
+                                if (activeSessionId) insertPayload.id = activeSessionId;
+
+                                const { data: newSession } = await supabase
+                                    .from("ai_chat_sessions")
+                                    .insert(insertPayload)
+                                    .select("id")
+                                    .single();
+
+                                if (newSession) activeSessionId = newSession.id;
+                            } else {
+                                await supabase
+                                    .from("ai_chat_sessions")
+                                    .update({ updated_at: new Date().toISOString() })
+                                    .eq("id", activeSessionId)
+                                    .eq("user_id", userId);
+                            }
+                        } catch (dbErr) {
+                            console.error("[BOT STAGE] Error in session resolution:", dbErr);
+                        }
+
+                        sendEvent({ type: "session_id", session_id: activeSessionId });
+
+                        const sessionState = await loadSessionState(supabase, activeSessionId, userId);
+
+                        // STEP 2: RUN PLANNER
+                        sendEvent({ type: "status", status: "planner", message: "Analyzing intent and planning tools..." });
+                        const plannerStartTime = Date.now();
+                        const plannerResult = await runPlanner(message || "", imageList, sessionState, formattedHistory, keysToTry);
+                        const plannerLatencyMs = Date.now() - plannerStartTime;
+
+                        // STEP 3: UPDATE SESSION
+                        await updateSessionState(supabase, activeSessionId, userId, plannerResult.session_update);
+
+                        // STEP 4: EXECUTE TOOLS
+                        sendEvent({ type: "status", status: "tools", message: "Fetching market and financial data..." });
+                        const toolsStartTime = Date.now();
+                        const liveDataString = plannerResult.intent === "general_chat" ? "" : await executeTools(supabase, plannerResult);
+                        const toolsLatencyMs = Date.now() - toolsStartTime;
+
+                        // STEP 5: STREAM FINAL LLM RESPONSE
+                        sendEvent({ type: "status", status: "generating", message: "Generating response..." });
+
+                        const aiMessages = [
+                            { role: "system", content: "system" },
+                            ...formattedHistory,
+                            { 
+                                role: "user", 
+                                content: message || (hasImages ? "تحليل البيانات والصورة المرفقة" : "") 
+                            }
+                        ];
+
+                        let fullResponse = "";
+                        const responseStartTime = Date.now();
+                        const streamGen = generateFinalStream(
+                            message || "",
+                            imageList,
+                            liveDataString,
+                            plannerResult,
+                            aiMessages,
+                            keysToTry,
+                            userRequestedModel
+                        );
+
+                        for await (const chunk of streamGen) {
+                            fullResponse += chunk;
+                            sendEvent({ type: "token", content: chunk });
+                        }
+                        const responseLatencyMs = Date.now() - responseStartTime;
+
+                        const replyText = filterOutput(fullResponse);
+
+                        // Update Limits
+                        if (limitData) {
+                            await supabase
+                                .from("ai_chatbot_limits")
+                                .update({ chat_count: limitData.chat_count + 1 })
+                                .eq("user_id", userId)
+                                .eq("date", today);
+                        } else {
+                            await supabase
+                                .from("ai_chatbot_limits")
+                                .insert({ user_id: userId, date: today, chat_count: 1 });
+                        }
+
+                        const newCount = (limitData?.chat_count || 0) + 1;
+
+                        // Log Messages
+                        try {
+                            if (activeSessionId) {
+                                await supabase.from("ai_chat_messages").insert([
+                                    {
+                                        session_id: activeSessionId,
+                                        user_id: userId,
+                                        role: "user",
+                                        content: message || (hasImages ? "📷 [Image attached]" : ""),
+                                        image_url: imageList[0] || null,
+                                        created_at: new Date().toISOString()
+                                    },
+                                    {
+                                        session_id: activeSessionId,
+                                        user_id: userId,
+                                        role: "assistant",
+                                        content: replyText,
+                                        created_at: new Date().toISOString()
+                                    }
+                                ]);
+                            }
+                        } catch (dbErr) {
+                            console.error("Failed to log chat messages to DB:", dbErr);
+                        }
+
+                        let dynamicSuggestedButtons: string[] = [];
+                        if (plannerResult.entities.symbols.length > 0) {
+                            const sym = plannerResult.entities.symbols[0];
+                            dynamicSuggestedButtons = [
+                                `مقارنة ${sym} مع البنوك`,
+                                `أخبار ${sym} اليوم`,
+                                `تحليل السيولة لـ ${sym}`
+                            ];
+                        } else {
+                            dynamicSuggestedButtons = [
+                                "أقوى الأسهم النهارده",
+                                "مقارنة COMI و EAST",
+                                "البنوك حالتها إيه؟"
+                            ];
+                        }
+
+                        const optimalModel = selectOptimalModel(plannerResult.intent, plannerResult.entities?.symbols?.length || 0, userRequestedModel);
+                        const totalLatencyMs = Date.now() - totalRequestStartTime;
+
+                        await logAiInteraction(supabase, {
+                            sessionId: activeSessionId,
+                            userId: userId,
+                            intent: plannerResult.intent,
+                            symbols: plannerResult.entities?.symbols || [],
+                            plannerModel: hasImages ? AI_CONFIG.models.planner.vision[0] : AI_CONFIG.models.planner.text[0],
+                            responseModel: optimalModel,
+                            plannerLatencyMs,
+                            toolsLatencyMs,
+                            responseLatencyMs,
+                            totalLatencyMs,
+                            dataSizeChars: liveDataString ? liveDataString.length : 0,
+                            error: null
+                        });
+
+                        sendEvent({
+                            type: "done",
+                            reply: replyText,
+                            session_id: activeSessionId,
+                            remaining_quota: isUnlimited ? 999 : Math.max(0, AI_CONFIG.limits.dailyMessages - newCount),
+                            suggested_buttons: dynamicSuggestedButtons,
+                            session_state: plannerResult.session_update
+                        });
+
+                        controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+                        controller.close();
+                    } catch (err: any) {
+                        console.error("Streaming error:", err);
+                        sendEvent({ type: "error", detail: err.message || "Streaming failed" });
+                        controller.close();
+                    }
+                }
+            });
+
+            return new Response(customStream, {
+                headers: {
+                    "Content-Type": "text/event-stream",
+                    "Cache-Control": "no-cache",
+                    "Connection": "keep-alive",
+                },
+            });
+        }
+
+        // --- NON-STREAMING JSON FALLBACK ---
         let activeSessionId = inputSessionId;
         try {
             let sessionExists = false;
@@ -115,9 +326,7 @@ export async function POST(req: NextRequest) {
                     .eq("id", activeSessionId)
                     .eq("user_id", userId)
                     .maybeSingle();
-                if (existing) {
-                    sessionExists = true;
-                }
+                if (existing) sessionExists = true;
             }
 
             if (!activeSessionId || !sessionExists) {
@@ -129,9 +338,7 @@ export async function POST(req: NextRequest) {
                     created_at: new Date().toISOString(),
                     updated_at: new Date().toISOString()
                 };
-                if (activeSessionId) {
-                    insertPayload.id = activeSessionId;
-                }
+                if (activeSessionId) insertPayload.id = activeSessionId;
 
                 const { data: newSession } = await supabase
                     .from("ai_chat_sessions")
@@ -161,7 +368,9 @@ export async function POST(req: NextRequest) {
 
         // --- STEP 2: RUN PLANNER ---
         console.log(`[BOT STAGE] Running planner model to detect intent and tools...`);
+        const plannerStartTime = Date.now();
         const plannerResult = await runPlanner(message || "", imageList, sessionState, formattedHistory, keysToTry);
+        const plannerLatencyMs = Date.now() - plannerStartTime;
         console.log(`[BOT STAGE] Planner output: Intent = ${plannerResult.intent}, Tools = ${JSON.stringify(plannerResult.tools)}, Symbols = ${JSON.stringify(plannerResult.entities?.symbols)}`);
         
         // --- STEP 3: UPDATE SESSION ---
@@ -169,11 +378,14 @@ export async function POST(req: NextRequest) {
         await updateSessionState(supabase, activeSessionId, userId, plannerResult.session_update);
 
         // --- STEP 4: EXECUTE TOOLS ---
+        const toolsStartTime = Date.now();
         const liveDataString = plannerResult.intent === "general_chat" ? "" : await executeTools(supabase, plannerResult);
+        const toolsLatencyMs = Date.now() - toolsStartTime;
         console.log(`[BOT STAGE] Tools execution completed. Data size: ${liveDataString ? liveDataString.length : 0} chars.`);
 
         // --- STEP 5: FINAL LLM GENERATION ---
-        console.log(`[BOT STAGE] Starting final LLM generation using model: ${userRequestedModel || "default"}`);
+        const optimalModel = selectOptimalModel(plannerResult.intent, plannerResult.entities?.symbols?.length || 0, userRequestedModel);
+        console.log(`[BOT STAGE] Starting final LLM generation using model: ${optimalModel}`);
         const aiMessages = [
             { role: "system", content: "system" },
             ...formattedHistory,
@@ -183,98 +395,19 @@ export async function POST(req: NextRequest) {
             }
         ];
 
-        // Prepare comparison fetch logic in a function
-        const fetchComparisonPromise = async (): Promise<string> => {
-            const comparisonModels = [
-                "deepseek-ai/deepseek-v4-flash",
-                "meta/llama-3.1-8b-instruct",
-                "mistralai/mistral-7b-instruct-v0.3"
-            ];
-
-            const finalSystemPrompt = `You are EGX Bots AI Assistant for the Egyptian Stock Exchange (EGX).
-🚨 ZERO HALLUCINATION POLICY 🚨
-Use ONLY provided data. Never invent financial information.
-Respond in Arabic. Be factual and helpful.
-
-${plannerResult.image_summary ? `\n=== IMAGE DATA ===\n${plannerResult.image_summary}\n=== END ===\n` : ""}
-${liveDataString ? `\n=== DATABASE DATA ===\n${liveDataString}\n=== END ===\n` : ""}`;
-
-            const sanitizedAiMessages = aiMessages.slice(1).map((msg: any) => {
-                if (Array.isArray(msg.content)) {
-                    const textParts = msg.content
-                        .filter((part: any) => part && part.type === "text" && part.text)
-                        .map((part: any) => part.text)
-                        .join(" ");
-                    return { role: msg.role, content: textParts || message || "تحليل البيانات والصورة" };
-                }
-                return msg;
-            });
-
-            const messagesToSendCompare = [
-                { role: "system", content: finalSystemPrompt },
-                ...sanitizedAiMessages
-            ];
-
-            // Loop through keys and comparison models to ensure a response is always generated!
-            for (const key of keysToTry) {
-                for (const modelName of comparisonModels) {
-                    try {
-                        console.log(`[BOT STAGE] Trying comparison model (${modelName}) in parallel...`);
-                        const startCompTime = Date.now();
-                        const controller = new AbortController();
-                        const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 seconds timeout per try
-
-                        const res = await fetch("https://integrate.api.nvidia.com/v1/chat/completions", {
-                            method: "POST",
-                            headers: {
-                                "Content-Type": "application/json",
-                                "Authorization": `Bearer ${key}`
-                            },
-                            signal: controller.signal,
-                            body: JSON.stringify({
-                                model: modelName,
-                                messages: messagesToSendCompare,
-                                temperature: 0.2,
-                                max_tokens: 1024
-                            })
-                        });
-
-                        clearTimeout(timeoutId);
-
-                        if (res.ok) {
-                            const data = await res.json();
-                            const reply = data.choices?.[0]?.message?.content?.trim();
-                            if (reply) {
-                                console.log(`[BOT STAGE] Comparison model (${modelName}) succeeded in ${Date.now() - startCompTime}ms`);
-                                return reply;
-                            }
-                        } else {
-                            console.warn(`[BOT STAGE] Comparison model (${modelName}) failed with status: ${res.status}`);
-                        }
-                    } catch (err: any) {
-                        console.warn(`[BOT STAGE] Comparison model (${modelName}) failed/timed out: ${err.message}`);
-                    }
-                }
-            }
-            return "All comparison fallback models and keys were exhausted without success.";
-        };
-
         const startTimeMain = Date.now();
-        // Run both fetches concurrently!
-        const [replyTextRaw, debugModel2Raw] = await Promise.all([
-            generateFinalResponse(
-                message || "", 
-                imageList, 
-                liveDataString, 
-                plannerResult, 
-                aiMessages, 
-                keysToTry, 
-                userRequestedModel
-            ),
-            fetchComparisonPromise()
-        ]);
+        const replyTextRaw = await generateFinalResponse(
+            message || "", 
+            imageList, 
+            liveDataString, 
+            plannerResult, 
+            aiMessages, 
+            keysToTry, 
+            userRequestedModel
+        );
+        const responseLatencyMs = Date.now() - startTimeMain;
 
-        console.log(`[BOT STAGE] Main LLM response finished in ${Date.now() - startTimeMain}ms`);
+        console.log(`[BOT STAGE] Main LLM response finished in ${responseLatencyMs}ms`);
 
         let replyText = filterOutput(replyTextRaw);
 
@@ -334,17 +467,31 @@ ${liveDataString ? `\n=== DATABASE DATA ===\n${liveDataString}\n=== END ===\n` :
             ];
         }
 
-        console.log(`[BOT STAGE] <<< Request completed successfully in ${Date.now() - totalRequestStartTime}ms. Session ID: ${activeSessionId}`);
+        const totalLatencyMs = Date.now() - totalRequestStartTime;
+
+        await logAiInteraction(supabase, {
+            sessionId: activeSessionId,
+            userId: userId,
+            intent: plannerResult.intent,
+            symbols: plannerResult.entities?.symbols || [],
+            plannerModel: hasImages ? AI_CONFIG.models.planner.vision[0] : AI_CONFIG.models.planner.text[0],
+            responseModel: optimalModel,
+            plannerLatencyMs,
+            toolsLatencyMs,
+            responseLatencyMs,
+            totalLatencyMs,
+            dataSizeChars: liveDataString ? liveDataString.length : 0,
+            error: null
+        });
+
+        console.log(`[BOT STAGE] <<< Request completed successfully in ${totalLatencyMs}ms. Session ID: ${activeSessionId}`);
 
         return NextResponse.json({
             reply: replyText,
             session_id: activeSessionId,
-            remaining_quota: isUnlimited ? 999 : Math.max(0, 15 - newCount),
+            remaining_quota: isUnlimited ? 999 : Math.max(0, AI_CONFIG.limits.dailyMessages - newCount),
             suggested_buttons: dynamicSuggestedButtons,
-            session_state: plannerResult.session_update,
-            debug: {
-                model_2_raw_response: debugModel2Raw
-            }
+            session_state: plannerResult.session_update
         });
 
     } catch (error: any) {
@@ -376,7 +523,7 @@ export async function GET(req: NextRequest) {
                 .order("updated_at", { ascending: false });
 
             const userEmail = user.email || "";
-            const isUnlimited = ["weeessd57@gmail.com", "user@gmail.com", "weeasd57@gmail.com"].includes(userEmail.toLowerCase());
+            const isUnlimited = AI_CONFIG.unlimitedEmails.includes(userEmail) || AI_CONFIG.unlimitedEmails.includes(userEmail.toLowerCase());
             const today = new Date().toISOString().split("T")[0];
 
             const { data: limitData } = await supabase
@@ -388,7 +535,7 @@ export async function GET(req: NextRequest) {
 
             return NextResponse.json({
                 sessions: sessions || [],
-                remaining_quota: isUnlimited ? 999 : Math.max(0, 15 - (limitData?.chat_count || 0))
+                remaining_quota: isUnlimited ? 999 : Math.max(0, AI_CONFIG.limits.dailyMessages - (limitData?.chat_count || 0))
             });
         }
 

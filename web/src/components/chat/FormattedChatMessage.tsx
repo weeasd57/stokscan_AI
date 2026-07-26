@@ -3,6 +3,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { parseMarkdownTable, exportTableToExcel } from "@/lib/excelExport";
 import { FileSpreadsheet, Download, Check, Sparkles, Copy } from "lucide-react";
+import StockCard, { StockData } from "./StockCard";
 
 interface FormattedChatMessageProps {
     content: string;
@@ -10,18 +11,78 @@ interface FormattedChatMessageProps {
     suggestedButtons?: string[];
     onButtonClick?: (text: string) => void;
     showSuggestedButtons?: boolean;
+    isStreaming?: boolean;
 }
 
 type ContentBlock = 
     | { type: "text"; content: string }
-    | { type: "table"; headers: string[]; rows: string[][] };
+    | { type: "table"; headers: string[]; rows: string[][] }
+    | { type: "stock_card"; stock: StockData; rawJson: string };
+
+const KNOWN_STOCK_SYMBOLS = new Set([
+    "COMI", "EAST", "HRHO", "SWDY", "FWRY", "TMGH", "AMOC", "EKHO", "ABUK", "MFPC",
+    "ORAS", "CICH", "ETEL", "JUFO", "DOMT", "SKPC", "ISPH", "ORWE", "GBAUTO", "GBCO",
+    "HELI", "PHDC", "EGX30", "EGX70", "EGX100", "USDEGP", "AALR", "ACAMD", "ACAP",
+    "ADCI", "ADPC", "AFMC", "AIH", "AJWA", "ALUM", "APPC", "ARAB", "AREH", "ARVA",
+    "ATQA", "AXPH", "BIOC", "BTFH", "CIEB", "CNFN", "COPR", "CPCI", "CRST", "EEII",
+    "EFID", "EFIH", "EGAL", "EGBE", "EGCH", "EGREF", "EGSA", "EGTS", "EHDR", "EITP",
+    "ELKA", "ELSH", "EOSB", "ETRS", "FAIT", "FERC", "GDWA", "GGCC", "GGRN", "GMCI",
+    "GOUR", "GSSC", "ICFC", "IDRE", "INFI", "IRON", "ISMA", "KABO", "KASABF", "KRDI",
+    "KZPC", "LUTS", "MASR", "MBSC", "MCQE", "MENA", "MFSC", "MICH", "MILS", "MOIL",
+    "MOSC", "MPCO", "MTIE", "NEDA", "NHPS", "NINH", "PHTV", "POUL", "PRDC", "RACC",
+    "RTVC", "RUBX", "SAUD", "SCEM", "SCTS", "SEIG", "SIPC", "SNFC", "SPIN", "TANM",
+    "TRTO", "TWSA", "UEFM", "UNIT", "VALU", "VLMRA", "WATP"
+]);
+
+function parseStockJson(text: string): StockData[] | null {
+    try {
+        const trimmed = text.trim();
+        if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) return null;
+        
+        const parsed = JSON.parse(trimmed);
+        
+        const isStockObj = (obj: any): obj is StockData => {
+            if (!obj || typeof obj !== "object") return false;
+            const symbol = obj.symbol || obj.ticker;
+            if (!symbol || typeof symbol !== "string") return false;
+            
+            if (obj.type && ["stock", "stock_card", "stock_data", "stock_payload"].includes(obj.type)) {
+                return true;
+            }
+            
+            const hasPrice = obj.price !== undefined;
+            const hasRsi = obj.rsi !== undefined;
+            const hasMacd = obj.macdSignal !== undefined || obj.macd_signal !== undefined || obj.macd !== undefined;
+            const hasChange = obj.changePercent !== undefined || obj.change_percent !== undefined || obj.change !== undefined;
+            
+            return hasPrice || hasRsi || hasMacd || hasChange;
+        };
+
+        if (Array.isArray(parsed)) {
+            const validStocks = parsed.filter(isStockObj);
+            return validStocks.length > 0 ? validStocks : null;
+        } else if (isStockObj(parsed)) {
+            return [parsed];
+        } else if (parsed && typeof parsed === "object" && Array.isArray(parsed.stocks)) {
+            const validStocks = parsed.stocks.filter(isStockObj);
+            return validStocks.length > 0 ? validStocks : null;
+        }
+
+        return null;
+    } catch {
+        return null;
+    }
+}
 
 function parseContentBlocks(content: string): ContentBlock[] {
     const blocks: ContentBlock[] = [];
     const lines = content.split("\n");
     let currentTextLines: string[] = [];
     let currentTableLines: string[] = [];
+    let currentCodeBlockLines: string[] = [];
     let inTable = false;
+    let inCodeBlock = false;
+    let codeBlockLang = "";
 
     const flushText = () => {
         if (currentTextLines.length > 0) {
@@ -61,6 +122,44 @@ function parseContentBlocks(content: string): ContentBlock[] {
     for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
         const trimmed = line.trim();
+
+        // Code block start/end
+        if (trimmed.startsWith("```")) {
+            if (inCodeBlock) {
+                inCodeBlock = false;
+                const codeContent = currentCodeBlockLines.join("\n");
+                const stocks = parseStockJson(codeContent);
+                if (stocks && stocks.length > 0) {
+                    flushText();
+                    stocks.forEach(stock => {
+                        blocks.push({ type: "stock_card", stock, rawJson: codeContent });
+                    });
+                } else {
+                    currentTextLines.push("```" + codeBlockLang);
+                    currentTextLines.push(...currentCodeBlockLines);
+                    currentTextLines.push("```");
+                }
+                currentCodeBlockLines = [];
+                codeBlockLang = "";
+                continue;
+            } else {
+                if (inTable) {
+                    flushTable();
+                    inTable = false;
+                }
+                flushText();
+                inCodeBlock = true;
+                codeBlockLang = trimmed.substring(3).trim();
+                currentCodeBlockLines = [];
+                continue;
+            }
+        }
+
+        if (inCodeBlock) {
+            currentCodeBlockLines.push(line);
+            continue;
+        }
+
         const isTableLine = trimmed.startsWith("|") && trimmed.endsWith("|");
 
         if (isTableLine) {
@@ -78,13 +177,63 @@ function parseContentBlocks(content: string): ContentBlock[] {
         }
     }
 
-    if (inTable) {
+    if (inCodeBlock) {
+        const codeContent = currentCodeBlockLines.join("\n");
+        const stocks = parseStockJson(codeContent);
+        if (stocks && stocks.length > 0) {
+            flushText();
+            stocks.forEach(stock => {
+                blocks.push({ type: "stock_card", stock, rawJson: codeContent });
+            });
+        } else {
+            currentTextLines.push("```" + codeBlockLang);
+            currentTextLines.push(...currentCodeBlockLines);
+        }
+    } else if (inTable) {
         flushTable();
-    } else {
-        flushText();
     }
 
-    return blocks;
+    flushText();
+
+    // Inline JSON scan in text blocks
+    const finalBlocks: ContentBlock[] = [];
+    for (const b of blocks) {
+        if (b.type === "text") {
+            const jsonRegex = /\{[\s\S]*?\}/g;
+            let lastIndex = 0;
+            let match: RegExpExecArray | null;
+            let textAdded = false;
+
+            while ((match = jsonRegex.exec(b.content)) !== null) {
+                const jsonCandidate = match[0];
+                const stocks = parseStockJson(jsonCandidate);
+                if (stocks && stocks.length > 0) {
+                    const prefix = b.content.substring(lastIndex, match.index).trim();
+                    if (prefix) {
+                        finalBlocks.push({ type: "text", content: prefix });
+                    }
+                    stocks.forEach(stock => {
+                        finalBlocks.push({ type: "stock_card", stock, rawJson: jsonCandidate });
+                    });
+                    lastIndex = match.index + jsonCandidate.length;
+                    textAdded = true;
+                }
+            }
+
+            if (textAdded) {
+                const suffix = b.content.substring(lastIndex).trim();
+                if (suffix) {
+                    finalBlocks.push({ type: "text", content: suffix });
+                }
+            } else {
+                finalBlocks.push(b);
+            }
+        } else {
+            finalBlocks.push(b);
+        }
+    }
+
+    return finalBlocks;
 }
 
 function ExportableTable({ headers, rows }: { headers: string[]; rows: string[][] }) {
@@ -137,15 +286,22 @@ function ExportableTable({ headers, rows }: { headers: string[]; rows: string[][
     );
 }
 
-export function FormattedChatMessage({ content, role, suggestedButtons, onButtonClick, showSuggestedButtons = true }: FormattedChatMessageProps) {
+export function FormattedChatMessage({
+    content,
+    role,
+    suggestedButtons,
+    onButtonClick,
+    showSuggestedButtons = true,
+    isStreaming = false
+}: FormattedChatMessageProps) {
     const [copiedText, setCopiedText] = useState(false);
     const mermaidContainerRef = useRef<HTMLDivElement>(null);
 
-    const mermaidMatch = content.match(/```mermaid\s+([\s\S]*?)```/g);
+    const mermaidMatch = !isStreaming ? content.match(/```mermaid\s+([\s\S]*?)```/g) : null;
     const mermaidCode = mermaidMatch ? mermaidMatch[1].trim() : null;
 
     useEffect(() => {
-        if (mermaidCode && mermaidContainerRef.current) {
+        if (!isStreaming && mermaidCode && mermaidContainerRef.current) {
             const isDark = document.documentElement.classList.contains("dark");
             import("mermaid").then((mermaid) => {
                 mermaid.default.initialize({
@@ -163,7 +319,7 @@ export function FormattedChatMessage({ content, role, suggestedButtons, onButton
                 });
             });
         }
-    }, [mermaidCode]);
+    }, [mermaidCode, isStreaming]);
 
     if (role === "user") {
         return (
@@ -188,18 +344,22 @@ export function FormattedChatMessage({ content, role, suggestedButtons, onButton
         );
     }
 
-    const blocks = parseContentBlocks(content);
+    const blocks: ContentBlock[] = isStreaming
+        ? [{ type: "text", content }]
+        : parseContentBlocks(content);
 
-    const renderFormattedText = (text: string) => {
+    const renderFormattedText = (text: string, isLastBlock: boolean) => {
         let cleanText = text.replace(/```mermaid\s+[\s\S]*?```/g, "").trim();
         const lines = cleanText.split("\n");
 
         return lines.map((line, idx) => {
-            if (line.trim().startsWith("|") && line.trim().endsWith("|")) {
+            const isLastLine = isLastBlock && idx === lines.length - 1;
+
+            if (line.trim().startsWith("|") && line.trim().endsWith("|") && !isStreaming) {
                 return null;
             }
 
-            if (!line.trim()) {
+            if (!line.trim() && !isLastLine) {
                 return <div key={idx} className="h-2" />;
             }
 
@@ -213,8 +373,12 @@ export function FormattedChatMessage({ content, role, suggestedButtons, onButton
                 >
                     {isBullet && <span className="text-emerald-600 dark:text-emerald-400 font-bold mt-1">•</span>}
                     <span className="flex-1">
-                        {lineContent.split(/(\d+(?:[,.]\d+)*|\b[A-Z]{2,6}\b|EGP|\$\d+)/g).map((part, pIdx) => {
-                            if (/^(\d+(?:[,.]\d+)*|\b[A-Z]{2,6}\b|EGP|\$\d+)$/.test(part)) {
+                        {lineContent.split(/(\d+(?:[,.]\d+)*|\b[A-Z0-9_]{2,10}\b|\$\d+(?:[,.]\d+)*)/g).map((part, pIdx) => {
+                            const upper = part.toUpperCase();
+                            const isStockSymbol = KNOWN_STOCK_SYMBOLS.has(upper) || /^EGX:\w+/i.test(part);
+                            const isNumericCurrency = /^(\d+(?:[,.]\d+)*|\$\d+(?:[,.]\d+)*|EGP)$/.test(part);
+
+                            if (isStockSymbol) {
                                 return (
                                     <span 
                                         key={pIdx} 
@@ -225,9 +389,30 @@ export function FormattedChatMessage({ content, role, suggestedButtons, onButton
                                         {part}
                                     </span>
                                 );
+                            } else if (isNumericCurrency) {
+                                return (
+                                    <span 
+                                        key={pIdx} 
+                                        dir="ltr" 
+                                        className="inline-block px-1 py-0.5 font-mono font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-500/10 dark:bg-zinc-800/80 rounded text-xs md:text-sm"
+                                        style={{ unicodeBidi: "isolate" }}
+                                    >
+                                        {part}
+                                    </span>
+                                );
                             }
                             return part;
                         })}
+
+                        {isStreaming && isLastLine && (
+                            <span 
+                                className="inline-block w-2 text-amber-500 font-bold animate-pulse mr-1 select-none" 
+                                title="جاري الكتابة..."
+                                aria-hidden="true"
+                            >
+                                ▌
+                            </span>
+                        )}
                     </span>
                 </div>
             );
@@ -240,22 +425,34 @@ export function FormattedChatMessage({ content, role, suggestedButtons, onButton
 
     return (
         <div className="space-y-3 w-full text-right" dir="rtl">
-            {/* Render each block in order */}
             {blocks.map((block, bIdx) => {
+                const isLastBlock = bIdx === blocks.length - 1;
                 if (block.type === "text") {
                     return (
                         <div key={bIdx} className="space-y-1">
-                            {renderFormattedText(block.content)}
+                            {renderFormattedText(block.content, isLastBlock)}
                         </div>
                     );
-                } else {
+                } else if (block.type === "table") {
                     return (
                         <ExportableTable key={bIdx} headers={block.headers} rows={block.rows} />
                     );
+                } else if (block.type === "stock_card") {
+                    return (
+                        <StockCard 
+                            key={bIdx} 
+                            stock={block.stock} 
+                            onSymbolClick={(symbol) => {
+                                if (onButtonClick) {
+                                    onButtonClick(`تحليل ${symbol}`);
+                                }
+                            }}
+                        />
+                    );
                 }
+                return null;
             })}
 
-            {/* Mermaid Diagram Box */}
             {mermaidCode && (
                 <div className="my-4 p-4 bg-zinc-100 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl overflow-x-auto shadow-sm">
                     <div className="text-xs font-bold text-emerald-600 dark:text-emerald-400 mb-2 flex items-center gap-1">
@@ -265,10 +462,8 @@ export function FormattedChatMessage({ content, role, suggestedButtons, onButton
                 </div>
             )}
 
-            {/* Quick Action Interactive Buttons & Copy */}
-            {role === "assistant" && (
+            {role === "assistant" && !isStreaming && (
                 <div className="pt-2 flex flex-wrap gap-1.5 justify-start items-center">
-                    {/* Copy Button */}
                     <button
                         type="button"
                         onClick={() => {
@@ -283,7 +478,6 @@ export function FormattedChatMessage({ content, role, suggestedButtons, onButton
                         <span className="font-sans">{copiedText ? "Copied!" : "Copy"}</span>
                     </button>
 
-                    {/* Smart Buttons */}
                     {onButtonClick && showSuggestedButtons && actionButtons.map((btnText, bIdx) => (
                         <button
                             key={bIdx}
