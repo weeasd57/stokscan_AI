@@ -1,4 +1,5 @@
 import { SessionState, PlannerResult } from "./types";
+import { AI_CONFIG } from "./config";
 import { createHash } from "crypto";
 import { getSupabaseClient } from "@/lib/supabase/route-data";
 
@@ -413,12 +414,16 @@ Analyze user request and return JSON with this exact structure:
     for (const key of apiKeys) {
         for (const modelName of plannerModels) {
             try {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), AI_CONFIG.limits.plannerTimeoutMs || 8000);
+
                 const res = await fetch("https://integrate.api.nvidia.com/v1/chat/completions", {
                     method: "POST",
                     headers: {
                         "Content-Type": "application/json",
                         "Authorization": `Bearer ${key}`
                     },
+                    signal: controller.signal,
                     body: JSON.stringify({
                         model: modelName,
                         messages: [
@@ -430,6 +435,8 @@ Analyze user request and return JSON with this exact structure:
                         temperature: 0.05
                     })
                 });
+
+                clearTimeout(timeoutId);
 
                 if (res.ok) {
                     const json = await res.json();

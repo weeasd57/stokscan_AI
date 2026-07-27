@@ -12,7 +12,9 @@ export const AI_CONFIG = {
   limits: {
     dailyMessages: 15,
     sessionHistoryCap: 15,
-    responseTimeoutMs: 50_000,
+    plannerTimeoutMs: 8_000,
+    responseTimeoutMs: 22_000,
+    responseTimeoutFallbackMs: 12_000,
     cacheTtlMs: 24 * 60 * 60 * 1000,
   },
   api: {

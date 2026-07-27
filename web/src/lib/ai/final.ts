@@ -224,7 +224,10 @@ export async function* generateFinalStream(
         for (const modelName of modelsToTry) {
             try {
                 const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), AI_CONFIG.limits.responseTimeoutMs);
+                const timeoutMs = modelName === userSelectedModel 
+                    ? AI_CONFIG.limits.responseTimeoutMs 
+                    : (AI_CONFIG.limits.responseTimeoutFallbackMs || 12000);
+                const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
                 const res = await fetch(AI_CONFIG.api.nvidiaBaseUrl, {
                     method: "POST",
