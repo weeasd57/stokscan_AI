@@ -10,7 +10,7 @@ function normalizeArabic(str: string): string {
         .toLowerCase();
 }
 
-export async function executeTools(supabase: any, plannerResult: PlannerResult): Promise<string> {
+export async function executeTools(supabase: any, plannerResult: PlannerResult, userMessage: string = ""): Promise<string> {
     const { tools, entities } = plannerResult;
     let outputText = "";
     const symbols = entities.symbols;
@@ -34,6 +34,78 @@ export async function executeTools(supabase: any, plannerResult: PlannerResult):
         }
         return marketCachePromise;
     };
+
+    // Auto-detect accumulation or distribution intent
+    const normUserMessage = normalizeArabic(userMessage || "");
+    const normSummaryText = normalizeArabic(plannerResult.session_update?.summary || "");
+    const isAccumulationQuery = tools.includes("get_accumulation") || tools.includes("get_accumulation_stocks") || plannerResult.intent === "accumulation" || normUserMessage.includes("تجميع") || normSummaryText.includes("تجميع");
+    const isDistributionQuery = tools.includes("get_distribution") || tools.includes("get_distribution_stocks") || plannerResult.intent === "distribution" || normUserMessage.includes("تصريف") || normSummaryText.includes("تصريف");
+
+    // Tool: get_accumulation_stocks / get_distribution_stocks (جلب أسهم التجميع والتصريف الحقيقية من قاعدة البيانات)
+    if (isAccumulationQuery || isDistributionQuery) {
+        try {
+            const { data: latestTechs } = await supabase
+                .from("stock_technical_indicators")
+                .select("symbol, change_pct, volume, vol_sma20, rsi_14, macd_signal, date")
+                .order("date", { ascending: false })
+                .limit(400);
+
+            if (latestTechs && latestTechs.length > 0) {
+                const maxDate = latestTechs[0].date;
+                const todayTechs = latestTechs.filter((r: any) => r.date === maxDate);
+
+                const symbolsList = Array.from(new Set(todayTechs.map((r: any) => r.symbol)));
+                const { data: stocksData } = await supabase
+                    .from("stocks")
+                    .select("symbol, name")
+                    .in("symbol", symbolsList);
+                const stocksMap = new Map<string, string>();
+                (stocksData || []).forEach((s: any) => {
+                    if (s?.symbol) stocksMap.set(s.symbol, s.name || s.symbol);
+                });
+
+                if (isAccumulationQuery) {
+                    const accStocks = todayTechs
+                        .filter((r: any) => r.vol_sma20 && Number(r.vol_sma20) > 0 && (Number(r.volume) / Number(r.vol_sma20)) >= 1.2 && Number(r.change_pct || 0) > 0)
+                        .sort((a: any, b: any) => (Number(b.volume) / Number(b.vol_sma20)) - (Number(a.volume) / Number(a.vol_sma20)))
+                        .slice(0, 15);
+
+                    if (accStocks.length > 0) {
+                        outputText += `\n📈 [أهم الأسهم التي تشهد تجميع (Accumulation) في البورصة المصرية - بتاريخ ${maxDate}]:\n`;
+                        outputText += `📌 تعريف التجميع: صعود السعر بنسبة إيجابية مع سيولة وحجم تداول يتخطى المتوسط الطبيعي (20 يوم) بنسبة 1.2x فأكثر.\n`;
+                        accStocks.forEach((r: any, idx: number) => {
+                            const name = stocksMap.get(r.symbol) || r.symbol;
+                            const volRatio = (Number(r.volume) / Number(r.vol_sma20)).toFixed(2);
+                            const changeStr = `+${Number(r.change_pct).toFixed(2)}%`;
+                            const volStr = Number(r.volume).toLocaleString("en-US");
+                            outputText += `• ${idx + 1}. سهم ${r.symbol} (${name}): نسبة الحجم = ${volRatio}x من المتوسط | التغير = ${changeStr} | حجم التداول = ${volStr} | RSI = ${r.rsi_14 || "N/A"} | إشارة MACD = ${r.macd_signal || "N/A"} | إشارة تصريف/تجميع: تجميع 📈\n`;
+                        });
+                    }
+                }
+
+                if (isDistributionQuery) {
+                    const distStocks = todayTechs
+                        .filter((r: any) => r.vol_sma20 && Number(r.vol_sma20) > 0 && (Number(r.volume) / Number(r.vol_sma20)) >= 1.2 && Number(r.change_pct || 0) < 0)
+                        .sort((a: any, b: any) => (Number(b.volume) / Number(b.vol_sma20)) - (Number(a.volume) / Number(a.vol_sma20)))
+                        .slice(0, 15);
+
+                    if (distStocks.length > 0) {
+                        outputText += `\n📉 [أهم الأسهم التي تشهد تصريف (Distribution) في البورصة المصرية - بتاريخ ${maxDate}]:\n`;
+                        outputText += `📌 تعريف التصريف: هبوط السعر مع سيولة وحجم تداول مرتفع يتخطى المتوسط الطبيعي (20 يوم) بنسبة 1.2x فأكثر.\n`;
+                        distStocks.forEach((r: any, idx: number) => {
+                            const name = stocksMap.get(r.symbol) || r.symbol;
+                            const volRatio = (Number(r.volume) / Number(r.vol_sma20)).toFixed(2);
+                            const changeStr = `${Number(r.change_pct).toFixed(2)}%`;
+                            const volStr = Number(r.volume).toLocaleString("en-US");
+                            outputText += `• ${idx + 1}. سهم ${r.symbol} (${name}): نسبة الحجم = ${volRatio}x من المتوسط | التغير = ${changeStr} | حجم التداول = ${volStr} | RSI = ${r.rsi_14 || "N/A"} | إشارة MACD = ${r.macd_signal || "N/A"} | إشارة تصريف/تجميع: تصريف 📉\n`;
+                        });
+                    }
+                }
+            }
+        } catch (e) {
+            console.warn("Error fetching accumulation/distribution stocks from DB:", e);
+        }
+    }
 
     // Tool 1: get_stock & load_stock_prices
     if (symbols.length > 0 && (tools.includes("get_stock") || tools.includes("load_stock_prices"))) {
@@ -160,7 +232,7 @@ export async function executeTools(supabase: any, plannerResult: PlannerResult):
     }
 
     // Tool 3: get_recommendations / get_signals (From Supabase scan_results table with Date & Order awareness)
-    if (!tools || tools.length === 0 || tools.includes("get_recommendations") || tools.includes("get_signals") || plannerResult.intent === "recommendation" || plannerResult.intent === "stock_analysis") {
+    if (!isAccumulationQuery && !isDistributionQuery && (!tools || tools.length === 0 || tools.includes("get_recommendations") || tools.includes("get_signals") || plannerResult.intent === "recommendation" || plannerResult.intent === "stock_analysis")) {
         try {
             const normSummaryRec = normalizeArabic(plannerResult.session_update?.summary || "");
             const isOldestQuery = normSummaryRec.includes("اقدم") || normSummaryRec.includes("oldest");

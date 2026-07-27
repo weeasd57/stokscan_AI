@@ -178,7 +178,7 @@ export async function POST(req: NextRequest) {
                         // STEP 4: EXECUTE TOOLS
                         sendEvent({ type: "status", status: "tools", message: "Fetching market and financial data..." });
                         const toolsStartTime = Date.now();
-                        const liveDataString = plannerResult.intent === "general_chat" ? "" : await executeTools(supabase, plannerResult);
+                        const liveDataString = plannerResult.intent === "general_chat" ? "" : await executeTools(supabase, plannerResult, message || "");
                         const toolsLatencyMs = Date.now() - toolsStartTime;
 
                         // STEP 5: STREAM FINAL LLM RESPONSE
@@ -379,7 +379,7 @@ export async function POST(req: NextRequest) {
 
         // --- STEP 4: EXECUTE TOOLS ---
         const toolsStartTime = Date.now();
-        const liveDataString = plannerResult.intent === "general_chat" ? "" : await executeTools(supabase, plannerResult);
+        const liveDataString = plannerResult.intent === "general_chat" ? "" : await executeTools(supabase, plannerResult, message || "");
         const toolsLatencyMs = Date.now() - toolsStartTime;
         console.log(`[BOT STAGE] Tools execution completed. Data size: ${liveDataString ? liveDataString.length : 0} chars.`);
 

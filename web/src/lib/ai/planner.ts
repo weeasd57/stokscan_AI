@@ -373,6 +373,7 @@ Analyze user request and return JSON with this exact structure:
 - For USD/market queries: use intent "market_summary" with tools ["get_market","get_indices"]  
 - For news: use intent "stock_news" with tools ["get_news"]
 - For recommendations or signals: use intent "recommendation" with tools ["get_recommendations"]
+- For accumulation or distribution queries (e.g. 'تجميع', 'تصريف', 'accumulation', 'distribution'): use intent "accumulation" with tools ["get_accumulation_stocks"]
 - For greetings, general chat, or conversational requests (e.g. 'hello', 'say X', 'how are you', etc.): use intent "general_chat" with tools [] and entities.symbols [].
 - If the request is a general market, news, index, or recommendation query, do NOT include stock symbols from the session context in the entities.symbols list.
 - ⚠️ CRITICAL: In "image_summary" or "summary" or any other string value in your JSON, NEVER use double quotes ("). If you need to quote a stock symbol, name, or index, use single quotes (') instead. This is extremely important to prevent JSON parsing syntax errors!
