@@ -536,6 +536,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             const decoder = new TextDecoder("utf-8");
             let buffer = "";
             let currentEventName = "";
+            let lastRenderTime = 0;
 
             while (true) {
                 const { done, value } = await reader.read();
@@ -583,7 +584,12 @@ export function ChatProvider({ children }: { children: ReactNode }) {
                                 const token = parsed.token ?? parsed.delta ?? parsed.content ?? parsed.text ?? "";
                                 assistantMsg.content += token;
                                 assistantMsg.isStreaming = true;
-                                updateAssistantMsgInState(assistantMsg);
+                                
+                                const now = Date.now();
+                                if (now - lastRenderTime > 35) {
+                                    lastRenderTime = now;
+                                    updateAssistantMsgInState(assistantMsg);
+                                }
                             } else if (currentEventName === "done" || parsed.type === "done" || parsed.event === "done") {
                                 if (parsed.reply && !assistantMsg.content) {
                                     assistantMsg.content = parsed.reply;

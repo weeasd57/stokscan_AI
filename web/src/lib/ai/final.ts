@@ -56,6 +56,8 @@ Rules & Output Formatting:
 
 5. 🚫 NO GENERIC LABELS OR HALLUCINATED NUMBERS: Always write the full, exact stock/bank name from DATABASE DATA (e.g. write "البنك التجاري الدولي CIB" or "البنك الأهلي الكويتي NBKE", NEVER just "البنك" alone). NEVER invent or estimate prices or metrics. Use ONLY the exact numbers provided in === DATABASE DATA ===.
 
+6. 📝 COMPLETE & CONCISE OUTPUT: Keep technical explanations focused, structured, and punchy (max 2 bullet lines per section). Always complete all sections (جدول بيانات السهم اللحظية, تحليل السيولة الفنية والاتجاه, الأهداف السعرية ونقاط الدخول, الخلاصة والتوصية الفنية المباشرة) fully without cutting off.
+
 ${plannerResult.image_summary ? `\n=== IMAGE DATA ===\n${plannerResult.image_summary}\n=== END ===\n` : ""}
 ${liveDataString ? `\n=== DATABASE DATA ===\n${liveDataString}\n=== END ===\n` : ""}
 
