@@ -11,6 +11,51 @@ export interface StocksListData {
     stockMappings: Record<string, string | string[]>;
 }
 
+// EGX30 Index Constituent Stocks (top 30 most liquid stocks on Egyptian Exchange)
+// Cross-referenced with stocks available in our database
+const EGX30_CONSTITUENTS: string[] = [
+    'COMI',  // Commercial International Bank
+    'TMGH',  // Talaat Moustafa Group
+    'HRHO',  // EFG Hermes
+    'EAST',  // Eastern Company
+    'SWDY',  // El Sewedy Electric
+    'EFIH',  // E-Finance
+    'ABUK',  // Abu Qir Fertilizers
+    'ETEL',  // Telecom Egypt
+    'FWRY',  // Fawry
+    'AMOC',  // Alexandria Mineral Oils
+    'EGAL',  // Egypt Aluminum
+    'PHDC',  // Palm Hills Development
+    'CCAP',  // Qalaa Holdings
+    'ORAS',  // Orascom Construction
+    'ORHD',  // Orascom Development
+    'ORWE',  // Oriental Weavers
+    'SKPC',  // Sidi Kerir Petrochemicals
+    'ESRS',  // Ezz Steel
+    'CLHO',  // B Investments Holding
+    'ISPH',  // Ibnsina Pharma
+    'JUFO',  // Juhayna Food Industries
+    'MNHD',  // Madinet Nasr Housing
+    'MASR',  // Misr Italia Properties
+    'HELI',  // Heliopolis Housing
+    'CIRA',  // Cairo for Investment & Real Estate
+    'EMFD',  // Emaar Misr
+    'BTFH',  // Beltone Financial Holding
+    'EKHO',  // Edita Food Industries
+    'GBCO',  // GB Auto
+    'EGAS',  // Egypt Gas
+];
+
+// Phrases that indicate user wants individual stocks of an index, not the index itself
+const INDEX_TRIGGER_PHRASES = [
+    /اسهم\s*(مؤشر|موشر|مأشر)\s*(التلاتين|الثلاثين|التلتين|ال30|30)/i,
+    /اسهم\s*(ال|)مؤشر/i,
+    /مكونات\s*(ال|)(مؤشر|موشر)/i,
+    /كل\s*اسهم\s*(ال|)(مؤشر|موشر)/i,
+    /(مؤشر|موشر)\s*(التلاتين|الثلاثين|التلتين|ال30|30)\s*(اسهم|أسهم)/i,
+    /اسهم\s*(التلاتين|الثلاثين|التلتين)/i,
+];
+
 const ARABIC_NAME_MAPPINGS: Record<string, string | string[]> = {
     "تايكون": "TYCN",
     "تايكون القابضة": "TYCN",
@@ -147,16 +192,16 @@ async function loadValidSymbols(): Promise<string[]> {
 }
 
 const STATIC_VALID_SYMBOLS = [
-    'AALR', 'ABUK', 'ACAMD', 'ACAP', 'ADCI', 'ADPC', 'AFMC', 'AIH', 'AJWA', 'ALUM',
-    'APPC', 'ARAB', 'AREH', 'ARVA', 'ATQA', 'AXPH', 'BIOC', 'BTFH', 'CIEB', 'CNFN',
-    'COPR', 'CPCI', 'CRST', 'EEII', 'EFID', 'EFIH', 'EGAL', 'EGBE', 'EGCH', 'EGREF',
-    'EGSA', 'EGTS', 'EGX30', 'EHDR', 'EITP', 'ELKA', 'ELSH', 'EOSB', 'ETRS', 'FAIT',
-    'FERC', 'FWRY', 'GBCO', 'GDWA', 'GGCC', 'GGRN', 'GMCI', 'GOUR', 'GSSC', 'ICFC',
-    'IDRE', 'INFI', 'IRON', 'ISMA', 'ISPH', 'KABO', 'KASABF', 'KRDI', 'KZPC', 'LUTS',
-    'MASR', 'MBSC', 'MCQE', 'MENA', 'MFPC', 'MFSC', 'MICH', 'MILS', 'MOIL', 'MOSC',
-    'MPCO', 'MTIE', 'NEDA', 'NHPS', 'NINH', 'PHTV', 'POUL', 'PRDC', 'RACC', 'RTVC',
-    'RUBX', 'SAUD', 'SCEM', 'SCTS', 'SEIG', 'SIPC', 'SNFC', 'SPIN', 'SWDY', 'TANM',
-    'TMGH', 'TRTO', 'TWSA', 'TYCN', 'UEFM', 'UNIT', 'USDEGP', 'VALU', 'VLMRA', 'WATP'
+    'AALR', 'ABUK', 'ACAMD', 'ACAP', 'ADCI', 'ADPC', 'AFMC', 'AIH', 'AJWA', 'ALCN', 'ALUM', 'AMOC',
+    'APPC', 'ARAB', 'AREH', 'ARVA', 'ATQA', 'AXPH', 'BIOC', 'BTFH', 'CCAP', 'CIEB', 'CIRA', 'CLHO',
+    'CNFN', 'COMI', 'COPR', 'CPCI', 'CRST', 'EAST', 'EEII', 'EFID', 'EFIH', 'EGAL', 'EGAS', 'EGBE',
+    'EGCH', 'EGREF', 'EGSA', 'EGTS', 'EGX30', 'EHDR', 'EITP', 'EKHO', 'ELKA', 'ELSH', 'EMFD', 'EOSB',
+    'ESRS', 'ETEL', 'ETRS', 'FAIT', 'FERC', 'FWRY', 'GBCO', 'GDWA', 'GGCC', 'GGRN', 'GMCI', 'GOUR',
+    'GSSC', 'HELI', 'HRHO', 'ICFC', 'IDRE', 'INFI', 'IRON', 'ISMA', 'ISPH', 'JUFO', 'KABO', 'KASABF',
+    'KRDI', 'KZPC', 'LUTS', 'MASR', 'MBSC', 'MCQE', 'MENA', 'MFPC', 'MFSC', 'MICH', 'MILS', 'MNHD',
+    'MOIL', 'MOSC', 'MPCO', 'MTIE', 'NEDA', 'NHPS', 'NINH', 'ORAS', 'ORHD', 'ORWE', 'PHDC', 'PHTV',
+    'POUL', 'PRDC', 'RACC', 'RTVC', 'RUBX', 'SAUD', 'SCEM', 'SCTS', 'SEIG', 'SIPC', 'SKPC', 'SNFC',
+    'SPIN', 'SWDY', 'TANM', 'TMGH', 'TRTO', 'TWSA', 'TYCN', 'UEFM', 'UNIT', 'USDEGP', 'VALU', 'VLMRA', 'WATP'
 ];
 
 function getLevenshteinDistance(a: string, b: string): number {
@@ -210,6 +255,15 @@ export function extractSymbolsFromText(
 ): string[] {
     const textUpper = text.toUpperCase();
     const found: string[] = [];
+
+    // Check if user is asking about index constituent stocks
+    const isIndexQuery = INDEX_TRIGGER_PHRASES.some(pattern => pattern.test(text));
+    if (isIndexQuery) {
+        // Return all EGX30 constituent stocks that exist in our database
+        const validConstituents = EGX30_CONSTITUENTS.filter(s => validSymbols.includes(s));
+        found.push(...validConstituents);
+        return Array.from(new Set(found));
+    }
 
     const tokens = textUpper.split(/[^A-Z0-9]/).map(t => t.trim()).filter(Boolean);
     for (const token of tokens) {
