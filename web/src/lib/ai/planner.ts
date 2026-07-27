@@ -130,6 +130,8 @@ const ARABIC_NAME_MAPPINGS: Record<string, string | string[]> = {
     "اوراسكوم للتنمية": "ORHD",
     "اوراسكوم كونستراكشن": "ORAS",
     "سي آي بي": "COMI",
+    "البنك": "COMI",
+    "بنك": "COMI",
     "البنك الأهلي": "NBKE",
     "مصر الجديدة للاسكان": "HELI",
     "مصر الجديده للاسكان": "HELI",

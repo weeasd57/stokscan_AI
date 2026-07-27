@@ -54,6 +54,8 @@ Rules & Output Formatting:
    - "صعود ضعيف ⚠️" / "هبوط ضعيف ⚠️" / "محايد ⚪"
    - Do NOT flip answers or guess. Use only DATABASE DATA and IMAGE DATA.
 
+5. 🚫 NO GENERIC LABELS OR HALLUCINATED NUMBERS: Always write the full, exact stock/bank name from DATABASE DATA (e.g. write "البنك التجاري الدولي CIB" or "البنك الأهلي الكويتي NBKE", NEVER just "البنك" alone). NEVER invent or estimate prices or metrics. Use ONLY the exact numbers provided in === DATABASE DATA ===.
+
 ${plannerResult.image_summary ? `\n=== IMAGE DATA ===\n${plannerResult.image_summary}\n=== END ===\n` : ""}
 ${liveDataString ? `\n=== DATABASE DATA ===\n${liveDataString}\n=== END ===\n` : ""}
 
