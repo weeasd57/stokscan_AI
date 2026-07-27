@@ -346,7 +346,7 @@ export default function ChatWidget() {
                                 </div>
                             ))}
 
-                            {isLoading && (
+                            {isLoading && !messages[messages.length - 1]?.content && (
                                 <div className="flex gap-3 w-full max-w-3xl mx-auto items-center p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 dark:bg-amber-500/5 transition-all duration-300">
                                     <div className="h-8 w-8 rounded-full bg-amber-500 flex items-center justify-center shrink-0 shadow-md">
                                         <Sparkles className="h-4 w-4 text-black animate-spin" />

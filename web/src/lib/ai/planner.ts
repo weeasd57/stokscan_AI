@@ -415,7 +415,7 @@ Analyze user request and return JSON with this exact structure:
                             { role: "user", content: userContent }
                         ],
                         response_format: { type: "json_object" },
-                        max_tokens: 800,
+                        max_tokens: 1500,
                         temperature: 0.05
                     })
                 });

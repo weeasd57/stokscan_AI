@@ -344,9 +344,7 @@ export function FormattedChatMessage({
         );
     }
 
-    const blocks: ContentBlock[] = isStreaming
-        ? [{ type: "text", content }]
-        : parseContentBlocks(content);
+    const blocks: ContentBlock[] = parseContentBlocks(content);
 
     const renderFormattedText = (text: string, isLastBlock: boolean) => {
         let cleanText = text.replace(/```mermaid\s+[\s\S]*?```/g, "").trim();
@@ -355,7 +353,7 @@ export function FormattedChatMessage({
         return lines.map((line, idx) => {
             const isLastLine = isLastBlock && idx === lines.length - 1;
 
-            if (line.trim().startsWith("|") && line.trim().endsWith("|") && !isStreaming) {
+            if (line.trim().startsWith("|") && line.trim().endsWith("|")) {
                 return null;
             }
 
@@ -435,7 +433,12 @@ export function FormattedChatMessage({
                     );
                 } else if (block.type === "table") {
                     return (
-                        <ExportableTable key={bIdx} headers={block.headers} rows={block.rows} />
+                        <div key={bIdx} className="space-y-1">
+                            <ExportableTable headers={block.headers} rows={block.rows} />
+                            {isStreaming && isLastBlock && (
+                                <span className="inline-block w-2 text-amber-500 font-bold animate-pulse mr-1 select-none">▌</span>
+                            )}
+                        </div>
                     );
                 } else if (block.type === "stock_card") {
                     return (
