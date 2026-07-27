@@ -205,7 +205,7 @@ export default function ChatWidget() {
             )}
 
             {/* Main Chat Container */}
-            <div className="flex-1 flex flex-col h-full min-w-0">
+            <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden">
                 {/* Header */}
                 <div className="flex items-center justify-between p-4 border-b border-amber-500/20 bg-gradient-to-l from-amber-50/50 to-transparent dark:from-amber-950/20 dark:to-transparent shrink-0">
                     <div className="flex items-center gap-2 text-black dark:text-white font-medium">
@@ -247,7 +247,7 @@ export default function ChatWidget() {
                 </div>
 
                 {/* Messages Body */}
-                <div className="flex-1 overflow-y-auto p-2 sm:p-4 space-y-3 sm:space-y-4">
+                <div className="flex-1 overflow-y-auto overflow-x-hidden p-2 sm:p-4 space-y-3 sm:space-y-4">
                     {!user ? (
                         <div className="h-full flex flex-col items-center justify-center text-center p-6 space-y-4 my-auto min-h-[300px]">
                             <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-500">
@@ -306,7 +306,7 @@ export default function ChatWidget() {
 
                                 <div
                                     key={idx}
-                                    className="flex gap-4 w-full max-w-3xl mx-auto"
+                                    className="flex gap-2 sm:gap-4 w-full max-w-3xl mx-auto min-w-0"
                                 >
                                     <div className={`
                                         h-8 w-8 rounded-full flex items-center justify-center shrink-0 mt-1
@@ -315,7 +315,7 @@ export default function ChatWidget() {
                                         {msg.role === "user" ? <User className="h-5 w-5" /> : <Sparkles className="h-5 w-5" />}
                                     </div>
                                     <div className={`
-                                        flex-1 rounded-2xl p-3 sm:p-4 text-xs sm:text-sm max-w-full leading-relaxed
+                                        flex-1 rounded-2xl p-2.5 sm:p-4 text-xs sm:text-sm max-w-full leading-relaxed min-w-0 overflow-hidden
                                         ${msg.role === "user"
                                             ? "bg-zinc-100 dark:bg-zinc-800 text-black dark:text-zinc-100"
                                             : "bg-transparent text-black dark:text-zinc-100"}
@@ -387,7 +387,7 @@ export default function ChatWidget() {
                 </div>
 
                 {/* Input Form */}
-                <div className="p-3 sm:p-4 border-t border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/50 shrink-0">
+                <div className="p-3 sm:p-4 border-t border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/50 shrink-0 min-w-0 overflow-hidden">
                     {user ? (
                         <form onSubmit={handleSubmit} className="space-y-2">
                             {/* Image Previews List */}

@@ -239,8 +239,8 @@ function parseContentBlocks(content: string): ContentBlock[] {
 function ExportableTable({ headers, rows }: { headers: string[]; rows: string[][] }) {
     const [copied, setCopied] = useState(false);
     return (
-        <div className="my-4 border border-zinc-200 dark:border-zinc-800 rounded-xl overflow-hidden bg-white dark:bg-zinc-900/90 shadow-md">
-            <div className="flex items-center justify-between px-4 py-2 bg-zinc-50 dark:bg-zinc-950 border-b border-zinc-200 dark:border-zinc-800">
+        <div className="my-4 border border-zinc-200 dark:border-zinc-800 rounded-xl overflow-hidden bg-white dark:bg-zinc-900/90 shadow-md max-w-full">
+            <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 bg-zinc-50 dark:bg-zinc-950 border-b border-zinc-200 dark:border-zinc-800 min-w-0">
                 <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-2">
                     <FileSpreadsheet className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
                     جدول تحليلي جاهز للتصدير
@@ -258,7 +258,7 @@ function ExportableTable({ headers, rows }: { headers: string[]; rows: string[][
                 </button>
             </div>
 
-            <div className="w-full overflow-x-auto my-2 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-sm scrollbar-thin">
+            <div className="w-full max-w-full overflow-x-auto my-2 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-sm scrollbar-thin">
                 <table className="w-full text-[11px] sm:text-xs text-right border-collapse">
                     <thead>
                         <tr className="bg-zinc-100 dark:bg-zinc-800/80 text-zinc-900 dark:text-zinc-200 border-b border-zinc-200 dark:border-zinc-700">
@@ -422,7 +422,7 @@ export function FormattedChatMessage({
         : ["قارن بـ COMI", "هل في تجميع مؤسسي؟", "شبه ده حصل امتى؟", "قد إيه بعيد عن الحد؟"];
 
     return (
-        <div className="space-y-3 w-full text-right" dir="rtl">
+        <div className="space-y-3 w-full max-w-full min-w-0 text-right overflow-hidden" dir="rtl">
             {blocks.map((block, bIdx) => {
                 const isLastBlock = bIdx === blocks.length - 1;
                 if (block.type === "text") {
@@ -457,7 +457,7 @@ export function FormattedChatMessage({
             })}
 
             {mermaidCode && (
-                <div className="my-4 p-4 bg-zinc-100 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl overflow-x-auto shadow-sm">
+                <div className="my-4 p-4 bg-zinc-100 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl overflow-x-auto shadow-sm max-w-full">
                     <div className="text-xs font-bold text-emerald-600 dark:text-emerald-400 mb-2 flex items-center gap-1">
                         📊 رسم بياني تفاعلي (Diagram)
                     </div>
