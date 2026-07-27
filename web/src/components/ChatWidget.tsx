@@ -58,11 +58,18 @@ export default function ChatWidget() {
     const bottomRef = useRef<HTMLDivElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const modelMenuRef = useRef<HTMLDivElement>(null);
+    const portalMenuRef = useRef<HTMLDivElement>(null);
 
     // Close model menu when clicking outside
     useEffect(() => {
         function handleClickOutside(event: MouseEvent) {
-            if (modelMenuRef.current && !modelMenuRef.current.contains(event.target as Node)) {
+            const target = event.target as Node;
+            if (
+                modelMenuRef.current &&
+                !modelMenuRef.current.contains(target) &&
+                portalMenuRef.current &&
+                !portalMenuRef.current.contains(target)
+            ) {
                 setModelMenuOpen(false);
             }
         }
@@ -528,6 +535,7 @@ export default function ChatWidget() {
                                             {/* Model dropdown rendered as portal to escape overflow:hidden */}
                                             {modelMenuOpen && modelMenuPos && typeof document !== "undefined" && createPortal(
                                                 <div
+                                                    ref={portalMenuRef}
                                                     style={{
                                                         position: "fixed",
                                                         bottom: modelMenuPos.bottom,
