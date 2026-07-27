@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { Loader2, Save, Sparkles, MessageSquare, KeyRound, Link as LinkIcon, Settings2, User, RefreshCw, Eye, EyeOff, Search, Clock, ChevronRight } from "lucide-react";
+import { Loader2, Save, Sparkles, MessageSquare, KeyRound, Link as LinkIcon, Settings2, User, RefreshCw, Eye, EyeOff, Search, Clock, ChevronRight, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import SupportTab from "./SupportTab";
 
@@ -9,6 +9,7 @@ export default function AIChatbotTab() {
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [logsLoading, setLogsLoading] = useState(true);
+    const [isDeleting, setIsDeleting] = useState(false);
     const [showApiKey, setShowApiKey] = useState(false);
     
     const [settings, setSettings] = useState({
@@ -89,6 +90,34 @@ export default function AIChatbotTab() {
             toast.error("An error occurred");
         } finally {
             setSaving(false);
+        }
+    };
+
+    const handleDeleteUserChats = async (userId: string, userName: string) => {
+        if (!window.confirm(`هل أنت تأكد من مسح جميع محادثات المستخدم (${userName}) نهائياً؟ لا يمكن التراجع عن هذا الإجراء.`)) {
+            return;
+        }
+
+        setIsDeleting(true);
+        try {
+            const res = await fetch("/api/admin/ai-chatbot/delete-user-chats", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ userId })
+            });
+
+            if (res.ok) {
+                toast.success(`تم مسح جميع محادثات المستخدم (${userName}) بنجاح!`);
+                setSelectedUserId(null);
+                await fetchLogs();
+            } else {
+                const data = await res.json();
+                toast.error(data.detail || "فشل مسح المحادثات");
+            }
+        } catch (e) {
+            toast.error("حدث خطأ أثناء مسح المحادثات");
+        } finally {
+            setIsDeleting(false);
         }
     };
 
@@ -432,8 +461,19 @@ export default function AIChatbotTab() {
                                                             </div>
                                                         </div>
                                                     </div>
-                                                    <div className="text-xs text-zinc-500 font-medium">
-                                                        Total: <span className="font-bold text-black dark:text-white">{selectedGroup.logs.length} interactions</span>
+                                                    <div className="flex items-center gap-3">
+                                                        <div className="text-xs text-zinc-500 font-medium">
+                                                            Total: <span className="font-bold text-black dark:text-white">{selectedGroup.logs.length} interactions</span>
+                                                        </div>
+                                                        <button
+                                                            onClick={() => handleDeleteUserChats(selectedGroup.user_id, selectedGroup.user_name)}
+                                                            disabled={isDeleting}
+                                                            className="flex items-center gap-1.5 bg-red-500/10 hover:bg-red-500 text-red-500 hover:text-white border border-red-500/20 px-3 py-1.5 rounded-lg text-xs font-bold transition-all shadow-sm disabled:opacity-50"
+                                                            title="مسح كافة محادثات هذا المستخدم"
+                                                        >
+                                                            {isDeleting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                                                            <span>مسح الشات بالكامل</span>
+                                                        </button>
                                                     </div>
                                                 </div>
 
