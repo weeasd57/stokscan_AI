@@ -103,6 +103,39 @@ export default function ChatWidget() {
         bottomRef.current?.scrollIntoView({ behavior: "smooth" });
     }, [messages, isOpen, isLoading]);
 
+    async function compressAndResizeImage(base64Str: string, maxDim = 1024, quality = 0.8): Promise<string> {
+        return new Promise((resolve) => {
+            const img = new Image();
+            img.onload = () => {
+                let width = img.width;
+                let height = img.height;
+                if (width > maxDim || height > maxDim) {
+                    if (width > height) {
+                        height = Math.round((height * maxDim) / width);
+                        width = maxDim;
+                    } else {
+                        width = Math.round((width * maxDim) / height);
+                        height = maxDim;
+                    }
+                }
+                const canvas = document.createElement("canvas");
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext("2d");
+                if (!ctx) {
+                    resolve(base64Str);
+                    return;
+                }
+                ctx.fillStyle = "#ffffff";
+                ctx.fillRect(0, 0, width, height);
+                ctx.drawImage(img, 0, 0, width, height);
+                resolve(canvas.toDataURL("image/jpeg", quality));
+            };
+            img.onerror = () => resolve(base64Str);
+            img.src = base64Str;
+        });
+    }
+
     async function combineImagesSideBySide(imagesBase64: string[]): Promise<string> {
         if (imagesBase64.length <= 1) return imagesBase64[0] || "";
 
@@ -156,16 +189,16 @@ export default function ChatWidget() {
         const validFiles = files.slice(0, 3 - imagePreviews.length);
 
         validFiles.forEach(file => {
-            if (file.size > 4 * 1024 * 1024) {
-                alert(language === "ar" ? "حجم الصورة كبير جداً (الأقصى 4MB)" : "Image too large (Max 4MB)");
+            if (file.size > 8 * 1024 * 1024) {
+                alert(language === "ar" ? "حجم الصورة كبير جداً (الأقصى 8MB)" : "Image too large (Max 8MB)");
                 return;
             }
 
             const reader = new FileReader();
-            reader.onload = () => {
+            reader.onload = async () => {
                 if (typeof reader.result === "string") {
-                    const resultStr = reader.result;
-                    setImagePreviews(prev => [...prev, resultStr]);
+                    const compressed = await compressAndResizeImage(reader.result);
+                    setImagePreviews(prev => [...prev, compressed]);
                 }
             };
             reader.readAsDataURL(file);
