@@ -260,7 +260,11 @@ export async function executeTools(supabase: any, plannerResult: PlannerResult, 
                             }
                         }
 
-                        outputText += `• سهم ${sym} (${stock?.name || sym}): السعر اللحظي = ${price.close} ج.م | التغير: ${changeStr} | RSI: ${tech?.rsi_14 ?? "N/A"} | إشارة MACD: ${tech?.macd_signal ?? "N/A"}${volumeStr} | إشارة تصريف/تجميع: ${adSignal}\n`;
+                        const vwapStr = tech?.vwap_20 ? ` | VWAP (20): ${tech.vwap_20} ج.م` : "";
+                        const adxStr = tech?.adx_14 ? ` | ADX (قوة الاتجاه): ${tech.adx_14}` : "";
+                        const momStr = tech?.momentum_10 ? ` | Momentum (الزخم 10d): ${tech.momentum_10}` : "";
+
+                        outputText += `• سهم ${sym} (${stock?.name || sym}): السعر اللحظي = ${price.close} ج.م | التغير: ${changeStr} | RSI: ${tech?.rsi_14 ?? "N/A"} | إشارة MACD: ${tech?.macd_signal ?? "N/A"}${vwapStr}${adxStr}${momStr}${volumeStr} | إشارة تصريف/تجميع: ${adSignal}\n`;
                     }
                 });
             }
