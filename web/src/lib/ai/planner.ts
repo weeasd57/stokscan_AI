@@ -131,7 +131,12 @@ const ARABIC_NAME_MAPPINGS: Record<string, string | string[]> = {
     "سي آي بي": "COMI",
     "البنك الأهلي": "NBKE",
     "مصر الجديدة للاسكان": "HELI",
-    "مصر الجديده للاسكان": "HELI"
+    "مصر الجديده للاسكان": "HELI",
+    "aihc": "AIH",
+    "ايه اي اتش": "AIH",
+    "اي اتش": "AIH",
+    "العربية للاستثمارات": "AIH",
+    "العربية للاستثمارات والتنمية": "AIH"
 };
 
 async function getStocksList(): Promise<StocksListData> {
@@ -269,6 +274,11 @@ export function extractSymbolsFromText(
     for (const token of tokens) {
         if (validSymbols.includes(token)) {
             found.push(token);
+        } else if (token.length >= 3) {
+            const corrected = correctStockSymbol(token, validSymbols);
+            if (corrected && validSymbols.includes(corrected) && corrected !== token) {
+                found.push(corrected);
+            }
         }
     }
 
