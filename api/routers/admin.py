@@ -4499,7 +4499,19 @@ def send_telegram_dispatch(payload: dict):
         if str(chat_id or "").strip() in {"", "-1003699330518"}:
             chat_id = "-1002083067817_153"
 
-        bot.send_notification(message, chat_id=str(chat_id))
+        parse_mode = payload.get("parse_mode", "Markdown")
+        buttons = payload.get("buttons")
+
+        if buttons:
+            bot.send_message_with_keyboard(
+                text=message,
+                chat_id=str(chat_id),
+                buttons=buttons,
+                parse_mode=parse_mode
+            )
+        else:
+            bot.send_notification(message, chat_id=str(chat_id))
+
         return {"ok": True, "chat_id": chat_id, "message_thread_id": 153 if str(chat_id).startswith("-1002083067817") else None}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

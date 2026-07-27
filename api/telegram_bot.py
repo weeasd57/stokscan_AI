@@ -278,46 +278,51 @@ class TelegramBot:
         backoff = 5
         while True:
             if not self._queue:
-                time.sleep(2)
+                time.sleep(1)
                 backoff = 5  # reset when idle
                 continue
+
             # Try to send the oldest message
             payload = self._queue[0]
+            retry_count = payload.get("_retry_count", 0) + 1
+            payload["_retry_count"] = retry_count
+
             result = self._call_api("sendMessage", payload)
             if result.get("ok"):
                 self._queue.popleft()
                 self._net_ok = True
                 backoff = 5
-                self._log(f"Sent to {payload['chat_id']} ({len(self._queue)} left)")
+                self._log(f"Sent to {payload.get('chat_id')} ({len(self._queue)} left)")
             else:
-                desc = result.get('description', '')
-                # If it's a Bad Request (like invalid chat_id or bad markdown format), do not retry forever!
-                if "bad request" in desc.lower() or "chat not found" in desc.lower() or "can't parse entities" in desc.lower():
-                    self._log(f"Permanent send failure (discarding message): {desc}")
-                    # If it failed due to formatting, try as plain text
-                    if ("can't parse entities" in desc.lower() or "parse_mode" in desc.lower()) and payload.get("parse_mode"):
-                        self._log("Retrying message as plain text fallback...")
-                        payload_plain = payload.copy()
-                        payload_plain.pop("parse_mode", None)
-                        # Clean up basic markdown markers
-                        if "text" in payload_plain:
-                            payload_plain["text"] = payload_plain["text"].replace("*", "").replace("`", "").replace("_", "").replace("[", "").replace("]", "")
-                        result_plain = self._call_api("sendMessage", payload_plain)
-                        if result_plain.get("ok"):
-                            self._queue.popleft()
-                            self._net_ok = True
-                            self._log(f"Sent plain text fallback to {payload['chat_id']}")
-                            continue
-                    
+                desc = str(result.get('description', '')).lower()
+                err_code = result.get('error_code')
+                
+                # Check for formatting failure -> retry as plain text immediately
+                if ("can't parse" in desc or "parse_mode" in desc or "entities" in desc) and payload.get("parse_mode"):
+                    self._log("Retrying message as plain text fallback...")
+                    payload_plain = payload.copy()
+                    payload_plain.pop("parse_mode", None)
+                    if "text" in payload_plain:
+                        payload_plain["text"] = payload_plain["text"].replace("*", "").replace("`", "").replace("_", "").replace("[", "").replace("]", "")
+                    result_plain = self._call_api("sendMessage", payload_plain)
+                    if result_plain.get("ok"):
+                        self._queue.popleft()
+                        self._net_ok = True
+                        self._log(f"Sent plain text fallback to {payload.get('chat_id')} ({len(self._queue)} left)")
+                        continue
+
+                # Permanent failure cases or max retries reached (>= 2)
+                if retry_count >= 2 or "bad request" in desc or "chat not found" in desc or "forbidden" in desc or err_code == 400:
+                    self._log(f"Permanent/max-retry send failure (discarding message after {retry_count} tries): {desc or result}")
                     self._queue.popleft()
                     backoff = 5
                 else:
                     self._net_ok = False
                     self._log(
-                        f"Send failed ({backoff}s backoff): {result.get('error', result.get('description', '?'))}"
+                        f"Send failed ({backoff}s backoff, try {retry_count}): {result.get('error', result.get('description', '?'))}"
                     )
                     time.sleep(backoff)
-                    backoff = min(backoff * 2, 120)  # max 2 min
+                    backoff = min(backoff * 2, 30)  # max 30s backoff
 
     # ── long-polling loop ────────────────────────────────────────────
 
