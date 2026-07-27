@@ -6,6 +6,7 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { useRouter } from "next/navigation";
 import { Send, X, Sparkles, User, Loader2, Lock, Maximize2, Minimize2, LogIn, UserPlus, ImagePlus, XCircle, Cpu, ChevronDown, Check, PanelLeft } from "lucide-react";
 import { useState, useRef, useEffect, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { ChatSidebar } from "@/components/chat/ChatSidebar";
 import { FormattedChatMessage } from "@/components/chat/FormattedChatMessage";
 
@@ -37,6 +38,7 @@ export default function ChatWidget() {
     const [isExpanded, setIsExpanded] = useState(false);
     const [imagePreviews, setImagePreviews] = useState<string[]>([]);
     const [modelMenuOpen, setModelMenuOpen] = useState(false);
+    const [modelMenuPos, setModelMenuPos] = useState<{ bottom: number; left: number; width: number } | null>(null);
     const [loadingStep, setLoadingStep] = useState<1 | 2 | 3>(1);
 
     useEffect(() => {
@@ -57,6 +59,7 @@ export default function ChatWidget() {
     const fileInputRef = useRef<HTMLInputElement>(null);
     const modelMenuRef = useRef<HTMLDivElement>(null);
 
+    // Close model menu when clicking outside
     useEffect(() => {
         function handleClickOutside(event: MouseEvent) {
             if (modelMenuRef.current && !modelMenuRef.current.contains(event.target as Node)) {
@@ -66,6 +69,28 @@ export default function ChatWidget() {
         document.addEventListener("mousedown", handleClickOutside);
         return () => document.removeEventListener("mousedown", handleClickOutside);
     }, []);
+
+    // Recalculate position on scroll/resize
+    useEffect(() => {
+        if (!modelMenuOpen) return;
+        const update = () => {
+            if (modelMenuRef.current) {
+                const rect = modelMenuRef.current.getBoundingClientRect();
+                setModelMenuPos({
+                    bottom: window.innerHeight - rect.top + 8,
+                    left: rect.left,
+                    width: Math.max(rect.width, 288)
+                });
+            }
+        };
+        update();
+        window.addEventListener("scroll", update, true);
+        window.addEventListener("resize", update);
+        return () => {
+            window.removeEventListener("scroll", update, true);
+            window.removeEventListener("resize", update);
+        };
+    }, [modelMenuOpen]);
 
     useEffect(() => {
         bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -477,7 +502,17 @@ export default function ChatWidget() {
                                         <div className="relative inline-block" ref={modelMenuRef}>
                                             <button
                                                 type="button"
-                                                onClick={() => setModelMenuOpen(!modelMenuOpen)}
+                                                onClick={() => {
+                                                    if (!modelMenuOpen && modelMenuRef.current) {
+                                                        const rect = modelMenuRef.current.getBoundingClientRect();
+                                                        setModelMenuPos({
+                                                            bottom: window.innerHeight - rect.top + 8,
+                                                            left: Math.max(4, Math.min(rect.left, window.innerWidth - 292)),
+                                                            width: Math.max(rect.width, 288)
+                                                        });
+                                                    }
+                                                    setModelMenuOpen(!modelMenuOpen);
+                                                }}
                                                 className="flex items-center gap-1.5 bg-zinc-200/80 dark:bg-zinc-800/90 hover:bg-zinc-300/80 dark:hover:bg-zinc-700/80 border border-zinc-300 dark:border-zinc-700/80 rounded-xl px-2.5 py-1 text-[11px] text-black dark:text-white font-bold transition-all shadow-sm active:scale-95"
                                             >
                                                 <Cpu className="h-3 w-3 text-amber-500 shrink-0" />
@@ -490,10 +525,20 @@ export default function ChatWidget() {
                                                 <ChevronDown className={`h-3 w-3 text-zinc-500 transition-transform duration-200 ${modelMenuOpen ? "rotate-180" : ""}`} />
                                             </button>
 
-                                            {modelMenuOpen && (
-                                                <div className="absolute bottom-full mb-2 left-0 w-72 max-w-[calc(100vw-2.5rem)] bg-white/95 dark:bg-zinc-900/95 backdrop-blur-xl border border-zinc-200 dark:border-zinc-800 shadow-2xl rounded-2xl p-1.5 z-[100] animate-in fade-in zoom-in-95 duration-150 space-y-1">
-                                                    <div className="px-2 py-1 text-[10px] font-black uppercase text-zinc-400 tracking-wider">
-                                                        {language === "ar" ? "اختر موديل الذكاء الاصطناعي" : "Select AI Model"}
+                                            {/* Model dropdown rendered as portal to escape overflow:hidden */}
+                                            {modelMenuOpen && modelMenuPos && typeof document !== "undefined" && createPortal(
+                                                <div
+                                                    style={{
+                                                        position: "fixed",
+                                                        bottom: modelMenuPos.bottom,
+                                                        left: modelMenuPos.left,
+                                                        width: modelMenuPos.width,
+                                                        zIndex: 99999
+                                                    }}
+                                                    className="bg-white/98 dark:bg-zinc-900/98 backdrop-blur-xl border border-zinc-200 dark:border-zinc-700 shadow-2xl rounded-2xl p-1.5 space-y-0.5"
+                                                >
+                                                    <div className="px-2.5 py-1.5 text-[10px] font-black uppercase text-zinc-400 tracking-wider border-b border-zinc-100 dark:border-zinc-800 mb-1">
+                                                        {language === "ar" ? "🤖 اختر موديل الذكاء الاصطناعي" : "🤖 Select AI Model"}
                                                     </div>
                                                     {AVAILABLE_AI_MODELS.map((m) => {
                                                         const isSelected = selectedModel === m.id;
@@ -507,8 +552,8 @@ export default function ChatWidget() {
                                                                 }}
                                                                 className={`
                                                                     w-full text-left flex items-start justify-between p-2.5 rounded-xl text-xs transition-all
-                                                                    ${isSelected 
-                                                                        ? "bg-amber-500/10 dark:bg-amber-500/15 border border-amber-500/30 text-black dark:text-white font-bold" 
+                                                                    ${isSelected
+                                                                        ? "bg-amber-500/10 dark:bg-amber-500/15 border border-amber-500/40 text-black dark:text-white"
                                                                         : "hover:bg-zinc-100 dark:hover:bg-zinc-800/80 text-zinc-700 dark:text-zinc-300 border border-transparent"}
                                                                 `}
                                                             >
@@ -518,6 +563,7 @@ export default function ChatWidget() {
                                                                         <span className="text-[9px] px-1.5 py-0.5 rounded-md bg-amber-500/20 text-amber-600 dark:text-amber-400 font-bold">
                                                                             {language === "ar" ? m.badgeAr : m.badgeEn}
                                                                         </span>
+                                                                        {isSelected && <span className="text-[9px] px-1.5 py-0.5 rounded-md bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 font-bold">✓ نشط</span>}
                                                                     </div>
                                                                     <span className="text-[10px] text-zinc-500 dark:text-zinc-400 font-normal leading-tight">
                                                                         {language === "ar" ? m.descAr : m.descEn}
@@ -527,7 +573,8 @@ export default function ChatWidget() {
                                                             </button>
                                                         );
                                                     })}
-                                                </div>
+                                                </div>,
+                                                document.body
                                             )}
                                         </div>
                                     );

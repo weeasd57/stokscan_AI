@@ -44,61 +44,128 @@ export async function executeTools(supabase: any, plannerResult: PlannerResult, 
     // Tool: get_accumulation_stocks / get_distribution_stocks (جلب أسهم التجميع والتصريف الحقيقية من قاعدة البيانات)
     if (isAccumulationQuery || isDistributionQuery) {
         try {
-            const { data: latestTechs } = await supabase
-                .from("stock_technical_indicators")
-                .select("symbol, change_pct, volume, vol_sma20, rsi_14, macd_signal, date")
-                .order("date", { ascending: false })
-                .limit(400);
+            // First attempt: query professional stock_scans_summary table
+            const { data: summaryScans } = await supabase
+                .from("stock_scans_summary")
+                .select("symbol, scan_date, signal, wyckoff_phase, acc_score, dist_score, vol_ratio, consecutive_acc_days, consecutive_dist_days, change_pct, volume, rsi_14, macd_signal")
+                .order("scan_date", { ascending: false })
+                .order("acc_score", { ascending: false })
+                .limit(200);
 
-            if (latestTechs && latestTechs.length > 0) {
-                const maxDate = latestTechs[0].date;
-                const todayTechs = latestTechs.filter((r: any) => r.date === maxDate);
+            let hasSummaryData = false;
 
-                const symbolsList = Array.from(new Set(todayTechs.map((r: any) => r.symbol)));
-                const { data: stocksData } = await supabase
-                    .from("stocks")
-                    .select("symbol, name")
-                    .in("symbol", symbolsList);
-                const stocksMap = new Map<string, string>();
-                (stocksData || []).forEach((s: any) => {
-                    if (s?.symbol) stocksMap.set(s.symbol, s.name || s.symbol);
-                });
+            if (summaryScans && summaryScans.length > 0) {
+                const maxDate = summaryScans[0].scan_date;
+                const todayScans = summaryScans.filter((r: any) => r.scan_date === maxDate);
 
-                if (isAccumulationQuery) {
-                    const accStocks = todayTechs
-                        .filter((r: any) => r.vol_sma20 && Number(r.vol_sma20) > 0 && (Number(r.volume) / Number(r.vol_sma20)) >= 1.2 && Number(r.change_pct || 0) > 0)
-                        .sort((a: any, b: any) => (Number(b.volume) / Number(b.vol_sma20)) - (Number(a.volume) / Number(a.vol_sma20)))
-                        .slice(0, 15);
+                if (todayScans.length > 0) {
+                    hasSummaryData = true;
+                    const symbolsList = Array.from(new Set(todayScans.map((r: any) => r.symbol)));
+                    const { data: stocksData } = await supabase
+                        .from("stocks")
+                        .select("symbol, name")
+                        .in("symbol", symbolsList);
+                    const stocksMap = new Map<string, string>();
+                    (stocksData || []).forEach((s: any) => {
+                        if (s?.symbol) stocksMap.set(s.symbol, s.name || s.symbol);
+                    });
 
-                    if (accStocks.length > 0) {
-                        outputText += `\n📈 [أهم الأسهم التي تشهد تجميع (Accumulation) في البورصة المصرية - بتاريخ ${maxDate}]:\n`;
-                        outputText += `📌 تعريف التجميع: صعود السعر بنسبة إيجابية مع سيولة وحجم تداول يتخطى المتوسط الطبيعي (20 يوم) بنسبة 1.2x فأكثر.\n`;
-                        accStocks.forEach((r: any, idx: number) => {
-                            const name = stocksMap.get(r.symbol) || r.symbol;
-                            const volRatio = (Number(r.volume) / Number(r.vol_sma20)).toFixed(2);
-                            const changeStr = `+${Number(r.change_pct).toFixed(2)}%`;
-                            const volStr = Number(r.volume).toLocaleString("en-US");
-                            outputText += `• ${idx + 1}. سهم ${r.symbol} (${name}): نسبة الحجم = ${volRatio}x من المتوسط | التغير = ${changeStr} | حجم التداول = ${volStr} | RSI = ${r.rsi_14 || "N/A"} | إشارة MACD = ${r.macd_signal || "N/A"} | إشارة تصريف/تجميع: تجميع 📈\n`;
-                        });
+                    if (isAccumulationQuery) {
+                        const accStocks = todayScans
+                            .filter((r: any) => r.signal === "accumulation" || Number(r.acc_score || 0) >= 50)
+                            .sort((a: any, b: any) => Number(b.acc_score || 0) - Number(a.acc_score || 0))
+                            .slice(0, 15);
+
+                        if (accStocks.length > 0) {
+                            outputText += `\n📈 [أهم الأسهم التي تشهد تجميع احترافي (Professional Accumulation Scan) - بتاريخ ${maxDate}]:\n`;
+                            outputText += `📌 معايير الفحص الاحترافي: درجة تجميع 0-100 (Acc Score) محسوبة بنماذج Wyckoff + تحليل السيولة الحجمية (Volume Ratio) + اتجاه OBV + أيام التجميع المتتالية.\n`;
+                            accStocks.forEach((r: any, idx: number) => {
+                                const name = stocksMap.get(r.symbol) || r.symbol;
+                                const changeStr = Number(r.change_pct || 0) >= 0 ? `+${Number(r.change_pct).toFixed(2)}%` : `${Number(r.change_pct).toFixed(2)}%`;
+                                const consecStr = r.consecutive_acc_days > 1 ? ` | تجميع لـ ${r.consecutive_acc_days} أيام متتالية 🔥` : "";
+                                outputText += `• ${idx + 1}. سهم ${r.symbol} (${name}): درجة التجميع = ${r.acc_score}/100 | نسبة السيولة = ${r.vol_ratio}x من المتوسط | التغير = ${changeStr}${consecStr} | نمط Wyckoff: ${r.wyckoff_phase} | RSI = ${r.rsi_14 || "N/A"} | إشارة تصريف/تجميع: تجميع 📈\n`;
+                            });
+                        }
+                    }
+
+                    if (isDistributionQuery) {
+                        const distStocks = todayScans
+                            .filter((r: any) => r.signal === "distribution" || Number(r.dist_score || 0) >= 50)
+                            .sort((a: any, b: any) => Number(b.dist_score || 0) - Number(a.dist_score || 0))
+                            .slice(0, 15);
+
+                        if (distStocks.length > 0) {
+                            outputText += `\n📉 [أهم الأسهم التي تشهد تصريف (Distribution Scan) - بتاريخ ${maxDate}]:\n`;
+                            outputText += `📌 معايير الفحص الاحترافي: درجة تصريف 0-100 (Dist Score) محسوبة بنماذج Wyckoff + ضغط البيع الحجمي + اتجاه OBV الهابط.\n`;
+                            distStocks.forEach((r: any, idx: number) => {
+                                const name = stocksMap.get(r.symbol) || r.symbol;
+                                const changeStr = `${Number(r.change_pct).toFixed(2)}%`;
+                                const consecStr = r.consecutive_dist_days > 1 ? ` | تصريف لـ ${r.consecutive_dist_days} أيام متتالية ⚠️` : "";
+                                outputText += `• ${idx + 1}. سهم ${r.symbol} (${name}): درجة التصريف = ${r.dist_score}/100 | نسبة السيولة = ${r.vol_ratio}x من المتوسط | التغير = ${changeStr}${consecStr} | نمط Wyckoff: ${r.wyckoff_phase} | RSI = ${r.rsi_14 || "N/A"} | إشارة تصريف/تجميع: تصريف 📉\n`;
+                            });
+                        }
                     }
                 }
+            }
 
-                if (isDistributionQuery) {
-                    const distStocks = todayTechs
-                        .filter((r: any) => r.vol_sma20 && Number(r.vol_sma20) > 0 && (Number(r.volume) / Number(r.vol_sma20)) >= 1.2 && Number(r.change_pct || 0) < 0)
-                        .sort((a: any, b: any) => (Number(b.volume) / Number(b.vol_sma20)) - (Number(a.volume) / Number(a.vol_sma20)))
-                        .slice(0, 15);
+            // Fallback: If summary table has no data for today, compute live from stock_technical_indicators
+            if (!hasSummaryData) {
+                const { data: latestTechs } = await supabase
+                    .from("stock_technical_indicators")
+                    .select("symbol, change_pct, volume, vol_sma20, rsi_14, macd_signal, date")
+                    .order("date", { ascending: false })
+                    .limit(400);
 
-                    if (distStocks.length > 0) {
-                        outputText += `\n📉 [أهم الأسهم التي تشهد تصريف (Distribution) في البورصة المصرية - بتاريخ ${maxDate}]:\n`;
-                        outputText += `📌 تعريف التصريف: هبوط السعر مع سيولة وحجم تداول مرتفع يتخطى المتوسط الطبيعي (20 يوم) بنسبة 1.2x فأكثر.\n`;
-                        distStocks.forEach((r: any, idx: number) => {
-                            const name = stocksMap.get(r.symbol) || r.symbol;
-                            const volRatio = (Number(r.volume) / Number(r.vol_sma20)).toFixed(2);
-                            const changeStr = `${Number(r.change_pct).toFixed(2)}%`;
-                            const volStr = Number(r.volume).toLocaleString("en-US");
-                            outputText += `• ${idx + 1}. سهم ${r.symbol} (${name}): نسبة الحجم = ${volRatio}x من المتوسط | التغير = ${changeStr} | حجم التداول = ${volStr} | RSI = ${r.rsi_14 || "N/A"} | إشارة MACD = ${r.macd_signal || "N/A"} | إشارة تصريف/تجميع: تصريف 📉\n`;
-                        });
+                if (latestTechs && latestTechs.length > 0) {
+                    const maxDate = latestTechs[0].date;
+                    const todayTechs = latestTechs.filter((r: any) => r.date === maxDate);
+
+                    const symbolsList = Array.from(new Set(todayTechs.map((r: any) => r.symbol)));
+                    const { data: stocksData } = await supabase
+                        .from("stocks")
+                        .select("symbol, name")
+                        .in("symbol", symbolsList);
+                    const stocksMap = new Map<string, string>();
+                    (stocksData || []).forEach((s: any) => {
+                        if (s?.symbol) stocksMap.set(s.symbol, s.name || s.symbol);
+                    });
+
+                    if (isAccumulationQuery) {
+                        const accStocks = todayTechs
+                            .filter((r: any) => r.vol_sma20 && Number(r.vol_sma20) > 0 && (Number(r.volume) / Number(r.vol_sma20)) >= 1.2 && Number(r.change_pct || 0) > 0)
+                            .sort((a: any, b: any) => (Number(b.volume) / Number(b.vol_sma20)) - (Number(a.volume) / Number(a.vol_sma20)))
+                            .slice(0, 15);
+
+                        if (accStocks.length > 0) {
+                            outputText += `\n📈 [أهم الأسهم التي تشهد تجميع (Accumulation) في البورصة المصرية - بتاريخ ${maxDate}]:\n`;
+                            outputText += `📌 تعريف التجميع: صعود السعر بنسبة إيجابية مع سيولة وحجم تداول يتخطى المتوسط الطبيعي (20 يوم) بنسبة 1.2x فأكثر.\n`;
+                            accStocks.forEach((r: any, idx: number) => {
+                                const name = stocksMap.get(r.symbol) || r.symbol;
+                                const volRatio = (Number(r.volume) / Number(r.vol_sma20)).toFixed(2);
+                                const changeStr = `+${Number(r.change_pct).toFixed(2)}%`;
+                                const volStr = Number(r.volume).toLocaleString("en-US");
+                                outputText += `• ${idx + 1}. سهم ${r.symbol} (${name}): نسبة الحجم = ${volRatio}x من المتوسط | التغير = ${changeStr} | حجم التداول = ${volStr} | RSI = ${r.rsi_14 || "N/A"} | إشارة MACD = ${r.macd_signal || "N/A"} | إشارة تصريف/تجميع: تجميع 📈\n`;
+                            });
+                        }
+                    }
+
+                    if (isDistributionQuery) {
+                        const distStocks = todayTechs
+                            .filter((r: any) => r.vol_sma20 && Number(r.vol_sma20) > 0 && (Number(r.volume) / Number(r.vol_sma20)) >= 1.2 && Number(r.change_pct || 0) < 0)
+                            .sort((a: any, b: any) => (Number(b.volume) / Number(b.vol_sma20)) - (Number(a.volume) / Number(a.vol_sma20)))
+                            .slice(0, 15);
+
+                        if (distStocks.length > 0) {
+                            outputText += `\n📉 [أهم الأسهم التي تشهد تصريف (Distribution) في البورصة المصرية - بتاريخ ${maxDate}]:\n`;
+                            outputText += `📌 تعريف التصريف: هبوط السعر مع سيولة وحجم تداول مرتفع يتخطى المتوسط الطبيعي (20 يوم) بنسبة 1.2x فأكثر.\n`;
+                            distStocks.forEach((r: any, idx: number) => {
+                                const name = stocksMap.get(r.symbol) || r.symbol;
+                                const volRatio = (Number(r.volume) / Number(r.vol_sma20)).toFixed(2);
+                                const changeStr = `${Number(r.change_pct).toFixed(2)}%`;
+                                const volStr = Number(r.volume).toLocaleString("en-US");
+                                outputText += `• ${idx + 1}. سهم ${r.symbol} (${name}): نسبة الحجم = ${volRatio}x من المتوسط | التغير = ${changeStr} | حجم التداول = ${volStr} | RSI = ${r.rsi_14 || "N/A"} | إشارة MACD = ${r.macd_signal || "N/A"} | إشارة تصريف/تجميع: تصريف 📉\n`;
+                            });
+                        }
                     }
                 }
             }
