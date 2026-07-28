@@ -3,6 +3,7 @@
 import { createContext, useContext, useState, ReactNode, useEffect, useCallback, useRef } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { ChatSession } from "@/components/chat/ChatSidebar";
+import { sanitizeReply } from "@/lib/ai/sanitizer";
 
 export type ChatMessage = {
     id?: string;
@@ -644,6 +645,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             assistantMsg.isStreaming = false;
             if (!assistantMsg.content && assistantMsg.statusText) {
                 assistantMsg.content = assistantMsg.statusText;
+            } else {
+                assistantMsg.content = sanitizeReply(assistantMsg.content);
             }
             updateAssistantMsgInState(assistantMsg);
             flushStoredMessages(currentSessionId);
