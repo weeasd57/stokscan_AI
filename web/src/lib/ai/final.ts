@@ -47,7 +47,10 @@ WRONG FORMAT (NEVER do this):
 1. 📊 CRITICAL: YOUR VERY FIRST LINE MUST BE THE MARKDOWN TABLE HEADER:
    | السهم | السعر اللحظي | التغير اليومي | نسبة السيولة | RSI (14) | إشارة MACD | إشارة السيولة |
    | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-   DO NOT write any text, titles, or intro before the table. START DIRECTLY WITH THE TABLE ("|"). Put ALL analyzed stocks in rows of this single table. NEVER break stock indicators into separate bullet points.
+   DO NOT write any text, titles, or intro before the table. START DIRECTLY WITH THE TABLE ("|").
+   - Put ALL analyzed stocks in rows of this single table using values from === DATABASE DATA ===.
+   - NEVER put dummy hyphens "-" or generic titles like "تحليل السهم" in the table.
+   - DO NOT split analysis into separate indicator sections like "***تحليل RSI***" or "***تحليل MACD***". Put ALL indicators for each stock in its table row.
 
 2. After the table, do NOT write bullet points for every stock. Instead, add a brief **تحليل السيولة الفنية** section of 3-4 lines in total, highlighting only the top 3 stocks with the strongest setup (highest volume ratio with positive change) and the top 3 with the weakest setup (highest volume ratio with negative change). This keeps the response extremely concise and fast.
 
