@@ -353,9 +353,7 @@ export function FormattedChatMessage({
         return lines.map((line, idx) => {
             const isLastLine = isLastBlock && idx === lines.length - 1;
 
-            if (line.trim().startsWith("|") && line.trim().endsWith("|")) {
-                return null;
-            }
+            const isTableLine = line.trim().startsWith("|") && line.trim().endsWith("|");
 
             if (!line.trim() && !isLastLine) {
                 return <div key={idx} className="h-2" />;
@@ -367,7 +365,7 @@ export function FormattedChatMessage({
             return (
                 <div 
                     key={idx} 
-                    className={`leading-relaxed text-xs sm:text-sm break-words overflow-wrap-anywhere my-1 dir-auto text-zinc-900 dark:text-zinc-100 ${isBullet ? 'flex items-start gap-2 pr-2' : ''}`}
+                    className={`leading-relaxed text-xs sm:text-sm break-words overflow-wrap-anywhere my-1 dir-auto text-zinc-900 dark:text-zinc-100 ${isBullet ? 'flex items-start gap-2 pr-2' : ''} ${isTableLine ? 'font-mono text-[11px] bg-zinc-100/80 dark:bg-zinc-900/80 p-1 rounded overflow-x-auto' : ''}`}
                 >
                     {isBullet && <span className="text-emerald-600 dark:text-emerald-400 font-bold mt-1">•</span>}
                     <span className="flex-1">

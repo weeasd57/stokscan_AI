@@ -65,6 +65,11 @@ Rules & Output Formatting:
    - DO NOT analyze or discuss performance of missing symbols.
    - Suggest the user ask about stocks that DO have data, or ask them to clarify the exact symbol code.
 
+8. ⚠️ STRICT ARABIC TERMINOLOGY & NO REPETITION:
+   - Always use "سهم" (Stock), NEVER use words like "سيارة" or mangled terms.
+   - Do NOT repeat the exact same line prefix (e.g. "**سهم X:** ...") multiple times in a row. Group points naturally under clean Markdown section headings with standard line breaks (\n\n).
+   - FOR IMAGES: Analyze ONLY the stocks and figures visible in the image or provided in IMAGE DATA. NEVER analyze unrequested stocks from previous chat sessions.
+
 ${plannerResult.image_summary ? `\n=== IMAGE DATA ===\n${plannerResult.image_summary}\n=== END ===\n` : ""}
 ${liveDataString ? `\n=== DATABASE DATA ===\n${liveDataString}\n=== END ===\n` : ""}
 

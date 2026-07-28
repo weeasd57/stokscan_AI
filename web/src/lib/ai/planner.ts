@@ -434,7 +434,21 @@ Analyze user request and return JSON with this exact structure:
         for (const modelName of plannerModels) {
             try {
                 const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), AI_CONFIG.limits.plannerTimeoutMs || 8000);
+                const timeoutMs = hasImages ? 25000 : (AI_CONFIG.limits.plannerTimeoutMs || 8000);
+                const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+                const reqBody: any = {
+                    model: modelName,
+                    messages: [
+                        { role: "system", content: plannerSystemPrompt },
+                        { role: "user", content: userContent }
+                    ],
+                    max_tokens: 1500,
+                    temperature: 0.05
+                };
+                if (!hasImages) {
+                    reqBody.response_format = { type: "json_object" };
+                }
 
                 const res = await fetch("https://integrate.api.nvidia.com/v1/chat/completions", {
                     method: "POST",
@@ -443,16 +457,7 @@ Analyze user request and return JSON with this exact structure:
                         "Authorization": `Bearer ${key}`
                     },
                     signal: controller.signal,
-                    body: JSON.stringify({
-                        model: modelName,
-                        messages: [
-                            { role: "system", content: plannerSystemPrompt },
-                            { role: "user", content: userContent }
-                        ],
-                        response_format: { type: "json_object" },
-                        max_tokens: 1500,
-                        temperature: 0.05
-                    })
+                    body: JSON.stringify(reqBody)
                 });
 
                 clearTimeout(timeoutId);
@@ -510,11 +515,11 @@ Analyze user request and return JSON with this exact structure:
                         let resolvedSymbols: string[] = [];
                         if (symbols.length > 0) {
                             resolvedSymbols = symbols;
-                        } else if ((isFollowupQuery || isAggregateTableRequest) && session.last_symbols?.length) {
+                        } else if (!hasImages && (isFollowupQuery || isAggregateTableRequest) && session.last_symbols?.length) {
                             resolvedSymbols = session.last_symbols;
-                        } else if (session.current_symbol) {
+                        } else if (!hasImages && session.current_symbol) {
                             resolvedSymbols = [session.current_symbol];
-                        } else if (session.last_symbols?.length) {
+                        } else if (!hasImages && session.last_symbols?.length) {
                             resolvedSymbols = session.last_symbols;
                         }
 

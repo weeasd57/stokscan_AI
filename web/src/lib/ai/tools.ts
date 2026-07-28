@@ -35,11 +35,10 @@ export async function executeTools(supabase: any, plannerResult: PlannerResult, 
         return marketCachePromise;
     };
 
-    // Auto-detect accumulation or distribution intent
+    const hasImages = plannerResult.intent === "portfolio" || Boolean(plannerResult.image_summary);
     const normUserMessage = normalizeArabic(userMessage || "");
-    const normSummaryText = normalizeArabic(plannerResult.session_update?.summary || "");
-    const isAccumulationQuery = tools.includes("get_accumulation") || tools.includes("get_accumulation_stocks") || plannerResult.intent === "accumulation" || normUserMessage.includes("تجميع") || normSummaryText.includes("تجميع");
-    const isDistributionQuery = tools.includes("get_distribution") || tools.includes("get_distribution_stocks") || plannerResult.intent === "distribution" || normUserMessage.includes("تصريف") || normSummaryText.includes("تصريف");
+    const isAccumulationQuery = (tools.includes("get_accumulation") || tools.includes("get_accumulation_stocks") || plannerResult.intent === "accumulation" || normUserMessage.includes("تجميع")) && !hasImages;
+    const isDistributionQuery = (tools.includes("get_distribution") || tools.includes("get_distribution_stocks") || plannerResult.intent === "distribution" || normUserMessage.includes("تصريف")) && !hasImages;
 
     // Tool: get_accumulation_stocks / get_distribution_stocks (جلب أسهم التجميع والتصريف الحقيقية من قاعدة البيانات)
     if (isAccumulationQuery || isDistributionQuery) {
