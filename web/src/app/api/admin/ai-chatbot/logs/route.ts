@@ -79,17 +79,17 @@ export async function GET(_req: NextRequest) {
                 .from("ai_chat_messages")
                 .select("id, session_id, user_id, role, content, created_at")
                 .order("created_at", { ascending: true })
-                .limit(2000);
+                .limit(3000);
 
             if (chatMsgs && chatMsgs.length > 0) {
-                // Pair user query with subsequent assistant response in the same session
                 for (let i = 0; i < chatMsgs.length; i++) {
                     const msg = chatMsgs[i];
                     if (msg.role === "user" && msg.user_id) {
-                        const nextMsg = chatMsgs[i + 1];
-                        const replyContent = (nextMsg && nextMsg.role === "assistant" && nextMsg.session_id === msg.session_id)
-                            ? nextMsg.content
-                            : "محادثة مسبقة مسجلة في الجلسات";
+                        // Find the assistant reply for this user message in the same session
+                        const assistantMsg = chatMsgs.slice(i + 1).find(
+                            (m: any) => m.session_id === msg.session_id && m.role === "assistant"
+                        );
+                        const replyContent = assistantMsg ? assistantMsg.content : "";
 
                         const key = `msg_${msg.id}`;
                         const userName = getUserLabel(msg.user_id);

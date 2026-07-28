@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo } from "react";
 import { Loader2, Save, Sparkles, MessageSquare, KeyRound, Link as LinkIcon, Settings2, User, RefreshCw, Eye, EyeOff, Search, Clock, ChevronRight, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import SupportTab from "./SupportTab";
+import { FormattedChatMessage } from "@/components/chat/FormattedChatMessage";
 
 export default function AIChatbotTab() {
     const [loading, setLoading] = useState(true);
@@ -503,7 +504,9 @@ export default function AIChatbotTab() {
                                                                     <span className="text-[10px] font-bold text-indigo-500 block mb-1 flex items-center gap-1">
                                                                         <Sparkles className="w-3 h-3" /> EGX Bots AI:
                                                                     </span>
-                                                                    <p className="whitespace-pre-wrap">{log.reply}</p>
+                                                                    <div className="text-black dark:text-zinc-100">
+                                                                        <FormattedChatMessage content={log.reply} role="assistant" showSuggestedButtons={false} />
+                                                                    </div>
                                                                 </div>
                                                             </div>
                                                         </div>
