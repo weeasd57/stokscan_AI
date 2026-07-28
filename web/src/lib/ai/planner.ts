@@ -417,7 +417,7 @@ Analyze user request and return JSON with this exact structure:
 
     const recentHistoryText = hasImages ? "" : (history || []).slice(-6).map((h: any) => `${h.role}: ${h.content}`).join("\n");
     const imageInstructions = hasImages 
-        ? `\n\n⚠️⚠️⚠️ CRITICAL IMAGE EXTRACTION RULES ⚠️⚠️⚠️\n- Extract ONLY the stock symbols that are VISIBLE in the image.\n- Do NOT add any stock symbols from chat history or session context.\n- Count the visible stocks carefully. If you see 10 stocks, your symbols array must have EXACTLY 10 entries.\n- Do NOT hallucinate or guess any symbol that is not clearly visible in the image.\n` 
+        ? `\n\n⚠️⚠️⚠️ CRITICAL IMAGE EXTRACTION RULES ⚠️⚠️⚠️\n- Extract ONLY uppercase stock TICKERS (e.g. KRDI, ELEC, PHAR, MOED, MFPC, IEEC, PHDC, BIOC, DTPP, AMES, AJWA).\n- NEVER put prices, numeric values (e.g. 14,040.70, 7,700.00), or change percentages in the symbols array.\n- Look at the text next to logos, icons, or names for 2-5 letter stock TICKERS.\n- Count visible stocks carefully: if 7 stocks are shown, extract EXACTLY 7 stock TICKERS.\n` 
         : "";
     const sessionContext = hasImages ? "" : `Current Session:\n${JSON.stringify(session)}\n\nRecent History:\n${recentHistoryText}\n\n`;
     const userPromptText = `${sessionContext}User Request:\n${message || "Analyze input"}${imageInstructions}\n\n⚠️ CRITICAL instruction: You MUST return ONLY a valid JSON object starting with '{' and ending with '}'. Do NOT write any conversational text, explanations, or steps (like 'To analyze the image...'). Respond only with the JSON data.`;
@@ -503,7 +503,11 @@ Analyze user request and return JSON with this exact structure:
                             });
                         }
 
-                        const symbolsTextExtracted = hasImages ? [] : extractSymbolsFromText(message, validSymbols, stockMappings);
+                        const fullVisionText = (rawContent || "") + " " + (parsed.image_summary || "");
+                        const symbolsTextExtracted = hasImages 
+                            ? extractSymbolsFromText(fullVisionText, validSymbols, stockMappings)
+                            : extractSymbolsFromText(message, validSymbols, stockMappings);
+
                         const rawSymbols = Array.isArray(parsed.entities?.symbols) 
                             ? parsed.entities.symbols 
                             : (parsed.session_update?.current_symbol ? [parsed.session_update.current_symbol] : []);
@@ -516,7 +520,7 @@ Analyze user request and return JSON with this exact structure:
                         .filter((s: string) => s !== "EXTRACTED_SYMBOL" && s !== "SYMBOL1" && s !== "PRIMARY_SYMBOL");
 
                         if (hasImages) {
-                            console.log(`🖼️ Image symbols (vision-only, no text/session contamination): [${symbols.join(', ')}] (${symbols.length} stocks)`);
+                            console.log(`🖼️ Image symbols (vision-only, verified against validSymbols): [${symbols.join(', ')}] (${symbols.length} stocks)`);
                         }
 
                         const isFollowupQuery = /الاتنين|الإثنين|الاطنين|كلاهما|مع بعض|السهمين|تحليلهم|هاتهم|قولي عنهم|حللهم|بياناتهم|سعرهم|أخبارهم/i.test(message);
