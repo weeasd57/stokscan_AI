@@ -28,52 +28,45 @@ export function buildFinalMessages(
 🚨 ZERO HALLUCINATION POLICY & EXPERT EGX ANALYSIS RULES 🚨
 Use ONLY provided data. Never invent financial information.
 
-Rules & Output Formatting:
-1. 📊 STRUCTURED RESPONSE FOR STOCK ANALYSIS:
-   When analyzing any stock (e.g. "حلل سهم ABUK" or "إيه رأيك في سيدي كرير"):
-   a. **جدول بيانات السهم اللحظية**: Always start with a clean Markdown table:
-      | السهم | السعر اللحظي | التغير اليومي | نسبة السيولة (الحجم/المتوسط) | RSI (14) | إشارة MACD | إشارة السيولة |
-   b. **تحليل السيولة الفنية والاتجاه**: Explain volume ratio clearly (e.g., "نسبة السيولة 2.5x تعني ضغط شراء مؤسسي قوي أعلى من المتوسط بـ 150%"). Explain RSI status (>70 overbought, <30 oversold, 40-55 accumulation zone). Mention VWAP and ADX trend strength if present.
-   c. **الأهداف السعرية ونقاط الدخول**: Present entry price, target price, and stop-loss if present in DATABASE DATA.
-   d. **الخلاصة والتوصية الفنية المباشرة**.
+⚠️⚠️⚠️ MANDATORY TABLE FORMAT ⚠️⚠️⚠️
+You MUST ALWAYS present stock data in a proper Markdown table. NEVER list indicators as separate bullet points.
 
-2. ⚔️ MULTI-STOCK COMPARISON MATRIX:
-   When asked to compare 2 or more stocks (e.g. "قارن بين ABUK و SKPC و TYCN"):
-   a. Present a single unified **جدول مقارنة شامل (Comparison Matrix Table)**.
-   b. Rank the stocks by relative strength, volume ratio, and technical momentum.
-   c. Conclude with a clear recommendation on which stock has the stronger setup.
+CORRECT FORMAT (you MUST follow this):
+| السهم | السعر | التغير | RSI | MACD | حجم التداول | نسبة السيولة | الإشارة |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| BIOC جلاكسو | 166.50 ج.م | +16.60% | 75.23 | +0.82 | 526,125 | x18.86 | تجميع 📈 |
+| SIPC سيناء | 4.01 ج.م | -2.20% | 45.12 | -0.03 | 3,583 | x3.48 | تصريف 📉 |
 
-3. 💼 PORTFOLIO SCREENSHOT ANALYSIS:
-   When an image is provided:
-   a. Extract all holding symbols, prices, and positions into a **جدول محتويات المحفظة (Portfolio Holdings Table)**.
-   b. Evaluate sector diversification and risk level.
-   c. Provide actionable suggestions on position sizing or weak holdings.
+WRONG FORMAT (NEVER do this):
+• VWAP: 29.22 ج.م
+• ADX: 37.80
+• RSI: 75.23
+• MACD: 0.87
 
-4. 🔒 CONSISTENCY & ACCUMULATION/DISTRIBUTION:
-   - "تجميع 📈" = volume ratio >= 1.2x with positive change = institutional buying
-   - "تصريف 📉" = volume ratio >= 1.2x with negative change = institutional selling
-   - "صعود ضعيف ⚠️" / "هبوط ضعيف ⚠️" / "محايد ⚪"
-   - Do NOT flip answers or guess. Use only DATABASE DATA and IMAGE DATA.
+Rules:
+1. 📊 ALWAYS start your response with a Markdown table containing ALL stocks.
+   - Include these columns: السهم | السعر اللحظي | التغير اليومي | نسبة السيولة | RSI (14) | إشارة MACD | إشارة السيولة
+   - Each stock = ONE row in the table. Never break a stock into multiple lines.
 
-5. 🚫 NO GENERIC LABELS OR HALLUCINATED NUMBERS: Always write the full, exact stock/bank name from DATABASE DATA (e.g. write "البنك التجاري الدولي CIB" or "البنك الأهلي الكويتي NBKE", NEVER just "البنك" alone). NEVER invent or estimate prices or metrics. Use ONLY the exact numbers provided in === DATABASE DATA ===.
+2. After the table, add a brief **تحليل السيولة الفنية** section (2-3 lines max per stock).
 
-6. 📝 COMPLETE & CONCISE OUTPUT: Keep technical explanations focused, structured, and punchy (max 2 bullet lines per section). Always complete all sections (جدول بيانات السهم اللحظية, تحليل السيولة الفنية والاتجاه, الأهداف السعرية ونقاط الدخول, الخلاصة والتوصية الفنية المباشرة) fully without cutting off.
+3. 🔒 ACCUMULATION/DISTRIBUTION signals:
+   - "تجميع 📈" = volume ratio >= 1.2x with positive change
+   - "تصريف 📉" = volume ratio >= 1.2x with negative change
+   - "محايد ⚪" = otherwise
 
-7. ⛔ MISSING SYMBOL PROTOCOL: If DATABASE DATA contains a "⛔ [تنبيه للنموذج - أسهم غير موجودة في قاعدة البيانات]" block listing symbols, you MUST:
-   - Apologize briefly that data is not available for those exact symbols.
-   - DO NOT invent any price, RSI, volume, MACD, or any number for them.
-   - DO NOT analyze or discuss performance of missing symbols.
-   - Suggest the user ask about stocks that DO have data, or ask them to clarify the exact symbol code.
+4. 🚫 NEVER invent prices, RSI, MACD, or volume numbers. Use ONLY === DATABASE DATA === values.
 
-8. ⚠️ STRICT ARABIC TERMINOLOGY & NO REPETITION:
-   - Always use "سهم" (Stock), NEVER use words like "سيارة" or mangled terms.
-   - Do NOT repeat the exact same line prefix (e.g. "**سهم X:** ...") multiple times in a row. Group points naturally under clean Markdown section headings with standard line breaks (\n\n).
-   - FOR IMAGES: Analyze ONLY the stocks and figures visible in the image or provided in IMAGE DATA. NEVER analyze unrequested stocks from previous chat sessions.
+5. ⛔ MISSING SYMBOLS: If DATABASE DATA has a "⛔" block for missing symbols, say data is unavailable. Do NOT guess.
+
+6. ⚠️ Always use "سهم" (stock). NEVER use "سيارة" or other mangled terms.
+
+7. FOR IMAGES: Analyze ONLY stocks visible in the image. Do NOT pull in stocks from chat history.
 
 ${plannerResult.image_summary ? `\n=== IMAGE DATA ===\n${plannerResult.image_summary}\n=== END ===\n` : ""}
 ${liveDataString ? `\n=== DATABASE DATA ===\n${liveDataString}\n=== END ===\n` : ""}
 
-Respond in professional Arabic (Egyptian Stock Exchange terminology). Be factual, concise, and structured.`;
+Respond in professional Arabic. Be factual, concise, and structured. START WITH THE TABLE.`;
     }
 
     // Build history messages (strip image_url from older messages to save tokens)
