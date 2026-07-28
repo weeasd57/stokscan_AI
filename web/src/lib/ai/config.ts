@@ -1,12 +1,12 @@
 export const AI_CONFIG = {
   models: {
     planner: {
-      text: ["meta/llama-3.1-8b-instruct", "meta/llama-3.1-70b-instruct"],
-      vision: ["meta/llama-3.2-90b-vision-instruct", "meta/llama-3.2-11b-vision-instruct"],
+      text: ["deepseek-ai/deepseek-v4-flash", "meta/llama-3.1-8b-instruct"],
+      vision: ["meta/llama-3.2-11b-vision-instruct", "meta/llama-3.2-90b-vision-instruct"],
     },
     response: {
-      default: "meta/llama-3.1-8b-instruct",
-      fallbacks: ["meta/llama-3.1-70b-instruct", "mistralai/mistral-7b-instruct-v0.3"],
+      default: "deepseek-ai/deepseek-v4-flash",
+      fallbacks: ["meta/llama-3.1-8b-instruct", "deepseek-ai/deepseek-v4-pro", "meta/llama-3.1-70b-instruct"],
       vision: ["meta/llama-3.2-11b-vision-instruct", "meta/llama-3.2-90b-vision-instruct"],
     },
   },
