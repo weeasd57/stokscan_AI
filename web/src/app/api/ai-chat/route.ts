@@ -397,6 +397,133 @@ export async function POST(req: NextRequest) {
             }
         ];
 
+        const isStreamRequest = stream === true || req.headers.get("x-stream") === "true";
+
+        let dynamicSuggestedButtons: string[] = [];
+        if (plannerResult.entities.symbols.length > 0) {
+            const sym = plannerResult.entities.symbols[0];
+            dynamicSuggestedButtons = [
+                `مقارنة ${sym} مع البنوك`,
+                `أخبار ${sym} اليوم`,
+                `تحليل السيولة لـ ${sym}`
+            ];
+        } else {
+            dynamicSuggestedButtons = [
+                "أقوى الأسهم النهارده",
+                "مقارنة COMI و EAST",
+                "البنوك حالتها إيه؟"
+            ];
+        }
+
+        if (isStreamRequest) {
+            console.log(`[BOT STAGE] Streaming response requested - starting SSE stream...`);
+            const encoder = new TextEncoder();
+            const customStream = new ReadableStream({
+                async start(controller) {
+                    let fullReply = "";
+                    const startTimeMain = Date.now();
+
+                    try {
+                        for await (const chunk of generateFinalStream(
+                            message || "",
+                            imageList,
+                            liveDataString,
+                            plannerResult,
+                            aiMessages,
+                            keysToTry,
+                            userRequestedModel
+                        )) {
+                            fullReply += chunk;
+                            controller.enqueue(encoder.encode(`event: token\ndata: ${JSON.stringify({ token: chunk })}\n\n`));
+                        }
+
+                        const responseLatencyMs = Date.now() - startTimeMain;
+                        const cleanReply = filterOutput(fullReply);
+
+                        // Update Limits
+                        if (limitData) {
+                            await supabase
+                                .from("ai_chatbot_limits")
+                                .update({ chat_count: limitData.chat_count + 1 })
+                                .eq("user_id", userId)
+                                .eq("date", today);
+                        } else {
+                            await supabase
+                                .from("ai_chatbot_limits")
+                                .insert({ user_id: userId, date: today, chat_count: 1 });
+                        }
+
+                        const newCount = (limitData?.chat_count || 0) + 1;
+                        const remainingQuota = isUnlimited ? 999 : Math.max(0, AI_CONFIG.limits.dailyMessages - newCount);
+
+                        // Save messages to DB
+                        try {
+                            if (activeSessionId) {
+                                await supabase.from("ai_chat_messages").insert([
+                                    {
+                                        session_id: activeSessionId,
+                                        user_id: userId,
+                                        role: "user",
+                                        content: message || (hasImages ? "📷 [Image attached]" : ""),
+                                        image_url: imageList[0] || null,
+                                        created_at: new Date().toISOString()
+                                    },
+                                    {
+                                        session_id: activeSessionId,
+                                        user_id: userId,
+                                        role: "assistant",
+                                        content: cleanReply,
+                                        created_at: new Date().toISOString()
+                                    }
+                                ]);
+                            }
+                        } catch (dbErr) {
+                            console.error("Failed to log streaming chat messages to DB:", dbErr);
+                        }
+
+                        const totalLatencyMs = Date.now() - totalRequestStartTime;
+                        await logAiInteraction(supabase, {
+                            sessionId: activeSessionId,
+                            userId: userId,
+                            intent: plannerResult.intent,
+                            symbols: plannerResult.entities?.symbols || [],
+                            plannerModel: hasImages ? AI_CONFIG.models.planner.vision[0] : AI_CONFIG.models.planner.text[0],
+                            responseModel: optimalModel,
+                            plannerLatencyMs,
+                            toolsLatencyMs,
+                            responseLatencyMs,
+                            totalLatencyMs,
+                            dataSizeChars: liveDataString ? liveDataString.length : 0,
+                            error: null
+                        });
+
+                        controller.enqueue(encoder.encode(`event: done\ndata: ${JSON.stringify({ 
+                            reply: cleanReply, 
+                            session_id: activeSessionId, 
+                            remaining_quota: remainingQuota, 
+                            suggested_buttons: dynamicSuggestedButtons, 
+                            session_state: plannerResult.session_update 
+                        })}\n\n`));
+                        controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+                        controller.close();
+                    } catch (err: any) {
+                        console.error("Error during streaming generation:", err);
+                        controller.enqueue(encoder.encode(`event: error\ndata: ${JSON.stringify({ detail: err.message || "Error generating stream response" })}\n\n`));
+                        controller.close();
+                    }
+                }
+            });
+
+            return new Response(customStream, {
+                headers: {
+                    "Content-Type": "text/event-stream; charset=utf-8",
+                    "Cache-Control": "no-cache, no-transform",
+                    "Connection": "keep-alive",
+                    "X-Accel-Buffering": "no"
+                }
+            });
+        }
+
         const startTimeMain = Date.now();
         const replyTextRaw = await generateFinalResponse(
             message || "", 
@@ -451,22 +578,6 @@ export async function POST(req: NextRequest) {
             }
         } catch (dbErr) {
             console.error("Failed to log chat messages to DB:", dbErr);
-        }
-
-        let dynamicSuggestedButtons: string[] = [];
-        if (plannerResult.entities.symbols.length > 0) {
-            const sym = plannerResult.entities.symbols[0];
-            dynamicSuggestedButtons = [
-                `مقارنة ${sym} مع البنوك`,
-                `أخبار ${sym} اليوم`,
-                `تحليل السيولة لـ ${sym}`
-            ];
-        } else {
-            dynamicSuggestedButtons = [
-                "أقوى الأسهم النهارده",
-                "مقارنة COMI و EAST",
-                "البنوك حالتها إيه؟"
-            ];
         }
 
         const totalLatencyMs = Date.now() - totalRequestStartTime;
