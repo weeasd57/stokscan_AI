@@ -112,6 +112,67 @@ Respond in professional Arabic. Be factual, concise, and structured. START WITH 
     ];
 }
 
+export function convertStockBulletsToTable(replyText: string): string {
+    if (replyText.includes("| السهم |") || replyText.includes("|السهم|")) {
+        return replyText;
+    }
+
+    if (!replyText.includes("السعر اللحظي") && !replyText.includes("التغير اليومي")) {
+        return replyText;
+    }
+
+    const stockItems: { symbol: string; price: string; change: string; volRatio: string; rsi: string; macd: string; signal: string }[] = [];
+    const lines = replyText.split("\n");
+    let currentStock: any = null;
+
+    for (const line of lines) {
+        const trimmed = line.trim();
+        const headerMatch = trimmed.match(/###?\s*(?:سهم|السهم)?\s*:?\s*([A-Z0-9_]{2,10}|[\u0600-\u06FF\s]+)/i);
+        if (headerMatch && (trimmed.startsWith("#") || trimmed.includes("السهم:"))) {
+            if (currentStock && currentStock.symbol) {
+                stockItems.push(currentStock);
+            }
+            currentStock = {
+                symbol: headerMatch[1].trim().replace(/^[\*\:\s]+|[\*\:\s]+$/g, ""),
+                price: "-",
+                change: "-",
+                volRatio: "-",
+                rsi: "-",
+                macd: "-",
+                signal: "محايد ⚪"
+            };
+            continue;
+        }
+
+        if (currentStock) {
+            if (trimmed.includes("السعر اللحظي:")) {
+                currentStock.price = trimmed.split("السعر اللحظي:")[1]?.trim().replace(/^[\*\:\s•\-]+/, "") || "-";
+            } else if (trimmed.includes("التغير اليومي:") || trimmed.includes("التغير:")) {
+                currentStock.change = trimmed.split(/التغير(?: اليومي)?:/)[1]?.trim().replace(/^[\*\:\s•\-]+/, "") || "-";
+            } else if (trimmed.includes("نسبة السيولة:") || trimmed.includes("نسبة الحجم:")) {
+                currentStock.volRatio = trimmed.split(/نسبة (?:السيولة|الحجم):/)[1]?.trim().replace(/^[\*\:\s•\-]+/, "") || "-";
+            } else if (trimmed.includes("RSI")) {
+                currentStock.rsi = trimmed.split(/RSI\s*(?:\(14\))?:/)[1]?.trim().replace(/^[\*\:\s•\-]+/, "") || "-";
+            } else if (trimmed.includes("MACD")) {
+                currentStock.macd = trimmed.split(/إشارة MACD:|MACD:/)[1]?.trim().replace(/^[\*\:\s•\-]+/, "") || "-";
+            } else if (trimmed.includes("إشارة السيولة:") || trimmed.includes("الإشارة:")) {
+                currentStock.signal = trimmed.split(/إشارة (?:السيولة|تصريف\/تجميع):/)[1]?.trim().replace(/^[\*\:\s•\-]+/, "") || "محايد ⚪";
+            }
+        }
+    }
+
+    if (currentStock && currentStock.symbol) {
+        stockItems.push(currentStock);
+    }
+
+    if (stockItems.length === 0) return replyText;
+
+    const tableRows = stockItems.map(s => `| ${s.symbol} | ${s.price} | ${s.change} | ${s.volRatio} | ${s.rsi} | ${s.macd} | ${s.signal} |`);
+    const tableMarkdown = `| السهم | السعر اللحظي | التغير اليومي | نسبة السيولة | RSI (14) | إشارة MACD | إشارة السيولة |\n| :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n` + tableRows.join("\n");
+
+    return tableMarkdown + "\n\n" + replyText;
+}
+
 export function sanitizeReply(reply: string): string {
     let cleanReply = reply.trim();
 
@@ -123,7 +184,10 @@ export function sanitizeReply(reply: string): string {
             .replace(/\\n/g, "\n");
     }
 
-    // 2. Anti-Repetition Loop Sanitizer (Collapses duplicate header/line loops)
+    // 2. Automatically transform bullet stock items into a Markdown Table if LLM outputted bullets
+    cleanReply = convertStockBulletsToTable(cleanReply);
+
+    // 3. Anti-Repetition Loop Sanitizer (Collapses duplicate header/line loops)
     const lines = cleanReply.split("\n");
     const cleanLines: string[] = [];
     const lineCountMap = new Map<string, number>();
@@ -148,7 +212,7 @@ export function sanitizeReply(reply: string): string {
     }
     cleanReply = cleanLines.join("\n").trim();
 
-    // 3. Clean up disclaimer duplicates
+    // 4. Clean up disclaimer duplicates
     const escapedDisclaimer = AI_CONFIG.disclaimer.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const disclaimerRegex = new RegExp(`\\s*${escapedDisclaimer}`, "g");
     cleanReply = cleanReply.replace(disclaimerRegex, "").replace(/\s*✅\s*تحليل EGX Bots مبني على بيانات حية[^\n]*/g, "").trim();
