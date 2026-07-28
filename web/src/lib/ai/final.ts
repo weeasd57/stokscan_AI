@@ -63,6 +63,8 @@ WRONG FORMAT (NEVER do this):
 
 7. FOR IMAGES: Analyze ONLY stocks visible in the image. Do NOT pull in stocks from chat history.
 
+8. 🛑 ANTI-LOOP RULE: Analyze each stock EXACTLY ONCE. NEVER repeat introductory phrases like "من وجهة نظرك..." or duplicate paragraph blocks. Stop immediately after completing the technical analysis section.
+
 ${plannerResult.image_summary ? `\n=== IMAGE DATA ===\n${plannerResult.image_summary}\n=== END ===\n` : ""}
 ${liveDataString ? `\n=== DATABASE DATA ===\n${liveDataString}\n=== END ===\n` : ""}
 

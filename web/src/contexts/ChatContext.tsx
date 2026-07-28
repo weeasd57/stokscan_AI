@@ -426,9 +426,6 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         };
 
         const updateAssistantMsgInState = (updatedMsg: ChatMessage) => {
-            if (updatedMsg.content && updatedMsg.content.length > 0 && activeSessionIdRef.current === currentSessionId) {
-                setIsLoading(false);
-            }
             setSessionMessages(currentSessionId!, prevMsgs => {
                 const existingIndex = prevMsgs.findIndex(m => m.id === updatedMsg.id);
                 if (existingIndex >= 0) {
