@@ -160,7 +160,7 @@ export async function generateFinalResponse(
                 const isVisionModel = visionModels.includes(modelName);
                 const messagesToSend = buildFinalMessages(message, imageList, liveDataString, plannerResult, aiMessages, isVisionModel);
                 const controller = new AbortController();
-                const timeoutMs = isVisionModel ? 55000 : (modelName === userSelectedModel ? AI_CONFIG.limits.responseTimeoutMs : 12000);
+                const timeoutMs = isVisionModel ? 18000 : 12000;
                 const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
                 const res = await fetch(AI_CONFIG.api.nvidiaBaseUrl, {
@@ -240,11 +240,7 @@ export async function* generateFinalStream(
                 const controller = new AbortController();
                 const isVisionModel = visionModels.includes(modelName);
                 const messagesToSend = buildFinalMessages(message, imageList, liveDataString, plannerResult, aiMessages, isVisionModel);
-                const timeoutMs = isVisionModel
-                    ? 55000  // vision models need more time for image analysis
-                    : (modelName === userSelectedModel
-                        ? AI_CONFIG.limits.responseTimeoutMs
-                        : (AI_CONFIG.limits.responseTimeoutFallbackMs || 12000));
+                const timeoutMs = isVisionModel ? 18000 : 12000;
                 const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
                 const res = await fetch(AI_CONFIG.api.nvidiaBaseUrl, {

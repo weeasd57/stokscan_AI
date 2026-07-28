@@ -218,13 +218,14 @@ export async function executeTools(supabase: any, plannerResult: PlannerResult, 
                 if (s?.symbol) stocksMap.set(s.symbol, s);
             });
 
-            if (pricesMap.size > 0) {
+            if (pricesMap.size > 0 || techsMap.size > 0) {
                 outputText += `\n📊 [بيانات الأسهم الحية من قاعدة البيانات]:\n`;
                 symbols.forEach(sym => {
                     const price = pricesMap.get(sym);
                     const tech = techsMap.get(sym);
                     const stock = stocksMap.get(sym);
-                    if (price) {
+                    if (price || tech) {
+                        const closePrice = price?.close ?? tech?.close ?? tech?.vwap_20 ?? "N/A";
                         const changeStr = tech && typeof tech.change_pct === "number" 
                             ? `${tech.change_pct >= 0 ? "+" : ""}${tech.change_pct.toFixed(2)}%` 
                             : "N/A";
@@ -252,7 +253,7 @@ export async function executeTools(supabase: any, plannerResult: PlannerResult, 
                         const rsi = tech?.rsi_14 !== undefined && tech?.rsi_14 !== null ? Number(tech.rsi_14).toFixed(2) : "N/A";
                         const macd = tech?.macd_signal !== undefined && tech?.macd_signal !== null ? Number(tech.macd_signal).toFixed(4) : "N/A";
 
-                        outputText += `• سهم ${sym} (${stock?.name || sym}): السعر اللحظي = ${price.close} ج.م, التغير = ${changeStr}, RSI = ${rsi}, MACD = ${macd}, نسبة السيولة = ${volRatioStr}, الإشارة = ${adSignal}\n`;
+                        outputText += `• سهم ${sym} (${stock?.name || sym}): السعر اللحظي = ${closePrice} ج.م, التغير = ${changeStr}, RSI = ${rsi}, MACD = ${macd}, نسبة السيولة = ${volRatioStr}, الإشارة = ${adSignal}\n`;
                     }
                 });
             }
