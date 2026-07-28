@@ -4,7 +4,7 @@ import { useChat, AVAILABLE_AI_MODELS } from "@/contexts/ChatContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useRouter } from "next/navigation";
-import { Send, X, Sparkles, User, Loader2, Lock, Maximize2, Minimize2, LogIn, UserPlus, ImagePlus, XCircle, Cpu, ChevronDown, Check, PanelLeft } from "lucide-react";
+import { Send, X, Sparkles, User, Loader2, Lock, Maximize2, Minimize2, LogIn, UserPlus, ImagePlus, XCircle, Cpu, ChevronDown, Check, PanelLeft, Square } from "lucide-react";
 import { useState, useRef, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { ChatSidebar } from "@/components/chat/ChatSidebar";
@@ -213,7 +213,11 @@ export default function ChatWidget() {
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if ((!input.trim() && imagePreviews.length === 0) || !user || isLoading) return;
+        if (isLoading) {
+            stopResponding();
+            return;
+        }
+        if ((!input.trim() && imagePreviews.length === 0) || !user) return;
 
         const textToSend = input;
         const currentPreviews = [...imagePreviews];
@@ -526,11 +530,17 @@ export default function ChatWidget() {
                                 />
 
                                 <button
-                                    type="submit"
-                                    disabled={isLoading || (!input.trim() && imagePreviews.length === 0)}
-                                    className="h-9 w-9 shrink-0 rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-50 disabled:hover:bg-amber-500 text-black flex items-center justify-center transition-all mb-0.5"
+                                    type={isLoading ? "button" : "submit"}
+                                    onClick={isLoading ? () => stopResponding() : undefined}
+                                    disabled={!isLoading && (!input.trim() && imagePreviews.length === 0)}
+                                    className={`h-9 w-9 shrink-0 rounded-xl flex items-center justify-center transition-all mb-0.5 ${
+                                        isLoading
+                                            ? "bg-red-500 hover:bg-red-600 text-white cursor-pointer shadow-sm active:scale-95"
+                                            : "bg-amber-500 hover:bg-amber-400 disabled:opacity-50 disabled:hover:bg-amber-500 text-black"
+                                    }`}
+                                    title={isLoading ? (language === "ar" ? "إيقاف الرد" : "Stop generation") : (language === "ar" ? "إرسال" : "Send")}
                                 >
-                                    {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                                    {isLoading ? <Square className="h-3.5 w-3.5 fill-current" /> : <Send className="h-4 w-4" />}
                                 </button>
                             </div>
 
