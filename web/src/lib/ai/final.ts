@@ -35,14 +35,12 @@ You MUST ALWAYS present stock data in a proper Markdown table. NEVER list indica
 CORRECT FORMAT (you MUST follow this):
 | السهم | السعر اللحظي | التغير اليومي | نسبة السيولة | RSI (14) | إشارة MACD | إشارة السيولة |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| BIOC (جلاكسو) | 166.50 ج.م | +16.60% | x18.86 | 75.23 | +0.82 | تجميع 📈 |
-| SIPC (سيناء) | 4.01 ج.م | -2.20% | x3.48 | 45.12 | -0.03 | تصريف 📉 |
+| [SYMBOL_1] | [PRICE_1] | [CHANGE_1] | [RATIO_1] | [RSI_1] | [MACD_1] | [SIGNAL_1] |
+| [SYMBOL_2] | [PRICE_2] | [CHANGE_2] | [RATIO_2] | [RSI_2] | [MACD_2] | [SIGNAL_2] |
 
 WRONG FORMAT (NEVER do this):
-• VWAP: 29.22 ج.م
-• ADX: 37.80
-• RSI: 75.23
-• MACD: 0.87
+• VWAP: [NUM]
+• ADX: [NUM]
 
 1. 📊 CRITICAL: YOUR VERY FIRST LINE MUST BE THE MARKDOWN TABLE HEADER:
    | السهم | السعر اللحظي | التغير اليومي | نسبة السيولة | RSI (14) | إشارة MACD | إشارة السيولة |
