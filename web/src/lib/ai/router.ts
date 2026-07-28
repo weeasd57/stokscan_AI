@@ -4,11 +4,5 @@ export function selectOptimalModel(intent: string, symbolCount: number, requeste
     if (requestedModel && requestedModel.includes("/")) {
         return requestedModel;
     }
-    if (intent === "general_chat") {
-        return AI_CONFIG.models.response.default; // Llama 8b for fast chat
-    }
-    if (symbolCount > 2) {
-        return "meta/llama-3.1-70b-instruct"; // 70b for complex multi-stock comparison
-    }
-    return AI_CONFIG.models.response.default;
+    return AI_CONFIG.models.response.default; // Flash model (meta/llama-3.1-8b-instruct) is default
 }
