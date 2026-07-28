@@ -43,10 +43,10 @@ WRONG FORMAT (NEVER do this):
 • RSI: 75.23
 • MACD: 0.87
 
-Rules:
-1. 📊 ALWAYS start your response with a Markdown table containing ALL stocks.
-   - Include these columns: السهم | السعر اللحظي | التغير اليومي | نسبة السيولة | RSI (14) | إشارة MACD | إشارة السيولة
-   - Each stock = ONE row in the table. Never break a stock into multiple lines.
+1. 📊 CRITICAL: YOUR VERY FIRST LINE MUST BE THE MARKDOWN TABLE HEADER:
+   | السهم | السعر اللحظي | التغير اليومي | نسبة السيولة | RSI (14) | إشارة MACD | إشارة السيولة |
+   | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+   DO NOT write any text, titles, or intro before the table. START DIRECTLY WITH THE TABLE ("|"). Put ALL analyzed stocks in rows of this single table. NEVER break stock indicators into separate bullet points.
 
 2. After the table, add a brief **تحليل السيولة الفنية** section (2-3 lines max per stock).
 

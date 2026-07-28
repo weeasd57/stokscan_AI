@@ -219,7 +219,7 @@ export async function executeTools(supabase: any, plannerResult: PlannerResult, 
             });
 
             if (pricesMap.size > 0) {
-                outputText += `\n📊 [بيانات الأسهم المطلوبة من قاعدة البيانات]:\n`;
+                outputText += `\n📊 [بيانات الأسهم الحية من قاعدة البيانات]:\n`;
                 symbols.forEach(sym => {
                     const price = pricesMap.get(sym);
                     const tech = techsMap.get(sym);
@@ -229,41 +229,30 @@ export async function executeTools(supabase: any, plannerResult: PlannerResult, 
                             ? `${tech.change_pct >= 0 ? "+" : ""}${tech.change_pct.toFixed(2)}%` 
                             : "N/A";
 
-                        // Volume analysis & accumulation/distribution signal
                         const vol = tech?.volume ?? price?.volume ?? null;
                         const volSma20 = tech?.vol_sma20 ?? null;
-                        let volumeStr = "";
-                        let adSignal = "غير متاح";
+                        let volRatioStr = "1.00x";
+                        let adSignal = "محايد ⚪";
 
-                        if (vol !== null && vol !== undefined) {
-                            const formattedVol = Number(vol).toLocaleString("en-US");
-                            volumeStr = ` | حجم التداول: ${formattedVol}`;
-
-                            if (volSma20 !== null && volSma20 !== undefined && Number(volSma20) > 0) {
-                                const volRatio = Number(vol) / Number(volSma20);
-                                const formattedVolSma = Number(volSma20).toLocaleString("en-US");
-                                volumeStr += ` | متوسط الحجم (20 يوم): ${formattedVolSma} | نسبة الحجم: ${volRatio.toFixed(2)}x`;
-
-                                const changePct = tech?.change_pct ?? 0;
-                                if (volRatio >= 1.2 && changePct > 0) {
-                                    adSignal = "تجميع 📈 (حجم تداول مرتفع مع صعود السعر)";
-                                } else if (volRatio >= 1.2 && changePct < 0) {
-                                    adSignal = "تصريف 📉 (حجم تداول مرتفع مع هبوط السعر)";
-                                } else if (volRatio < 0.6 && changePct > 0) {
-                                    adSignal = "صعود ضعيف ⚠️ (سعر صاعد لكن حجم تداول منخفض)";
-                                } else if (volRatio < 0.6 && changePct < 0) {
-                                    adSignal = "هبوط ضعيف ⚠️ (سعر هابط لكن حجم تداول منخفض)";
-                                } else {
-                                    adSignal = "محايد ⚪ (حجم تداول عادي)";
-                                }
+                        if (vol !== null && volSma20 !== null && Number(volSma20) > 0) {
+                            const volRatio = Number(vol) / Number(volSma20);
+                            volRatioStr = `${volRatio.toFixed(2)}x`;
+                            const changePct = tech?.change_pct ?? 0;
+                            if (volRatio >= 1.2 && changePct > 0) {
+                                adSignal = "تجميع 📈 (شراء مؤسسي)";
+                            } else if (volRatio >= 1.2 && changePct < 0) {
+                                adSignal = "تصريف 📉 (بيع مؤسسي)";
+                            } else if (volRatio < 0.6 && changePct > 0) {
+                                adSignal = "صعود ضعيف ⚠️";
+                            } else if (volRatio < 0.6 && changePct < 0) {
+                                adSignal = "هبوط ضعيف ⚠️";
                             }
                         }
 
-                        const vwapStr = tech?.vwap_20 ? ` | VWAP (20): ${tech.vwap_20} ج.م` : "";
-                        const adxStr = tech?.adx_14 ? ` | ADX (قوة الاتجاه): ${tech.adx_14}` : "";
-                        const momStr = tech?.momentum_10 ? ` | Momentum (الزخم 10d): ${tech.momentum_10}` : "";
+                        const rsi = tech?.rsi_14 !== undefined && tech?.rsi_14 !== null ? Number(tech.rsi_14).toFixed(2) : "N/A";
+                        const macd = tech?.macd_signal !== undefined && tech?.macd_signal !== null ? Number(tech.macd_signal).toFixed(4) : "N/A";
 
-                        outputText += `• سهم ${sym} (${stock?.name || sym}): السعر اللحظي = ${price.close} ج.م | التغير: ${changeStr} | RSI: ${tech?.rsi_14 ?? "N/A"} | إشارة MACD: ${tech?.macd_signal ?? "N/A"}${vwapStr}${adxStr}${momStr}${volumeStr} | إشارة تصريف/تجميع: ${adSignal}\n`;
+                        outputText += `• سهم ${sym} (${stock?.name || sym}): السعر اللحظي = ${price.close} ج.م, التغير = ${changeStr}, RSI = ${rsi}, MACD = ${macd}, نسبة السيولة = ${volRatioStr}, الإشارة = ${adSignal}\n`;
                     }
                 });
             }
