@@ -252,6 +252,14 @@ export function ChatProvider({ children }: { children: ReactNode }) {
                         };
                     });
 
+                    // If a message is actively streaming in this session, preserve the streaming message at the end
+                    if (loadingSessionIds.current[sessionId]) {
+                        const streamingMsg = existing.find(m => m.isStreaming);
+                        if (streamingMsg && !mergedHistory.some(m => m.id === streamingMsg.id)) {
+                            mergedHistory.push(streamingMsg);
+                        }
+                    }
+
                     setSessionMessages(sessionId, mergedHistory);
                     flushStoredMessages(sessionId, mergedHistory);
                 }
