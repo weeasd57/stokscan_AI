@@ -1,5 +1,44 @@
 import { AI_CONFIG } from "./config";
 
+export function extractTickerFromLine(line: string): string | null {
+    const clean = line.replace(/\b(RSI|MACD|VWAP|ADX|NULL|EGX)\b/gi, "");
+    const ignoredWords = ["RSI", "MACD", "EGYPT", "CO", "SAE", "INC", "LTD"];
+
+    // 1. Match (KRDI) or (سهم KRDI)
+    const parenMatch = clean.match(/\(\s*(?:سهم\s+)?([A-Z0-9]{2,10})\s*\)/i);
+    if (parenMatch) {
+        const sym = parenMatch[1].toUpperCase();
+        if (!ignoredWords.includes(sym)) return sym;
+    }
+
+    // 2. Match سهم KRDI or سهم الـ KRDI
+    const arabMatch = clean.match(/سهم\s+(?:الـ\s*)?([A-Z0-9]{2,10})/i);
+    if (arabMatch) {
+        const sym = arabMatch[1].toUpperCase();
+        if (!ignoredWords.includes(sym)) return sym;
+    }
+
+    // 3. Match **KRDI** or **سهم KRDI...**
+    const boldMatch = clean.match(/\*\*([A-Z0-9_\s\u0600-\u06FF\(\)\.\,]+)\*\*/i);
+    if (boldMatch) {
+        const innerText = boldMatch[1];
+        const innerTicker = innerText.match(/\b([A-Z0-9]{2,10})\b/);
+        if (innerTicker) {
+            const sym = innerTicker[1].toUpperCase();
+            if (!ignoredWords.includes(sym)) return sym;
+        }
+    }
+
+    // 4. Standard word boundary match
+    const wordMatch = clean.match(/(?:\*\*|__|\b)([A-Z]{2,10})(?:\*\*|__|\b)/);
+    if (wordMatch) {
+        const sym = wordMatch[1].toUpperCase();
+        if (!ignoredWords.includes(sym)) return sym;
+    }
+
+    return null;
+}
+
 export function convertStockBulletsToTable(replyText: string): string {
     const isDummyTable = replyText.includes("| - |") || replyText.includes("|-|") || replyText.includes("تحليل السهم") || replyText.includes("| -");
     if (!isDummyTable && (replyText.includes("| السهم |") || replyText.includes("|السهم|"))) {
@@ -33,29 +72,42 @@ export function convertStockBulletsToTable(replyText: string): string {
     const lines = cleanReply.split("\n");
     let currentSection = "";
 
+    // Parse lines using extractTickerFromLine
     for (const line of lines) {
         const trimmed = line.trim();
         if (!trimmed) continue;
 
-        if (trimmed.includes("RSI")) {
+        if (trimmed.includes("RSI") && !trimmed.includes("=")) {
             currentSection = "rsi";
             continue;
-        } else if (trimmed.includes("MACD")) {
+        } else if (trimmed.includes("MACD") && !trimmed.includes("=")) {
             currentSection = "macd";
             continue;
-        } else if (trimmed.includes("إشارة السيولة") || (trimmed.includes("إشارة") && !trimmed.includes("MACD"))) {
+        } else if ((trimmed.includes("إشارة السيولة") || trimmed.includes("إشارة")) && !trimmed.includes("=") && !trimmed.includes("MACD")) {
             currentSection = "signal";
-            continue;
-        } else if (trimmed.includes("تغير") || trimmed.includes("أعلى") || trimmed.includes("أقل")) {
-            currentSection = "change";
             continue;
         }
 
-        const tickerMatch = trimmed.match(/\*\*([A-Z0-9_]{2,10})\*\*/i) || trimmed.match(/(?:•|-|\*)\s*(?:%[0-9\.\+\-]+\s*:?\s*)?([A-Z0-9_]{2,10})/i);
-        if (tickerMatch) {
-            const sym = tickerMatch[1].toUpperCase();
-            if (sym !== "NULL" && sym !== "EGX" && sym.length >= 2) {
-                const stock = getOrCreateStock(sym);
+        const sym = extractTickerFromLine(trimmed);
+        if (sym && (trimmed.includes("السعر") || trimmed.includes("RSI") || trimmed.includes("التغير") || trimmed.includes("تجميع") || trimmed.includes("تصريف") || trimmed.includes("محايد"))) {
+            const stock = getOrCreateStock(sym);
+
+            const priceMatch = trimmed.match(/السعر(?: اللحظي)?\s*[:=]\s*([0-9\.\,\s]+(?:ج\.م)?)/i);
+            const changeMatch = trimmed.match(/التغير\s*[:=]\s*([+\-]?\s*[0-9\.\,]+\s*%)/i);
+            const rsiMatch = trimmed.match(/RSI\s*(?:\(14\))?\s*[:=]\s*([0-9\.\,]+)/i);
+            const macdMatch = trimmed.match(/MACD\s*[:=]\s*([+\-]?\s*[0-9\.\,]+)/i);
+            const ratioMatch = trimmed.match(/نسبة (?:السيولة|الحجم)\s*[:=]\s*([0-9\.\,]+\s*x?)/i);
+            const signalMatch = trimmed.match(/الإشارة\s*[:=]\s*([^\,\n\.]+)/i) || trimmed.match(/(تجميع|تصريف|محايد|صعود ضعيف|هبوط ضعيف)/i);
+
+            if (priceMatch && priceMatch[1]) stock.price = priceMatch[1].trim().replace(/,$/, "");
+            if (changeMatch && changeMatch[1]) stock.change = changeMatch[1].trim().replace(/,$/, "");
+            if (ratioMatch && ratioMatch[1]) stock.volRatio = ratioMatch[1].trim().replace(/,$/, "");
+            if (rsiMatch && rsiMatch[1]) stock.rsi = rsiMatch[1].trim().replace(/,$/, "");
+            if (macdMatch && macdMatch[1]) stock.macd = macdMatch[1].trim().replace(/,$/, "");
+            if (signalMatch && signalMatch[1]) stock.signal = signalMatch[1].trim().replace(/,$/, "");
+
+            if (!priceMatch && !changeMatch && !rsiMatch && !macdMatch && !ratioMatch) {
+                // Section-based fallback
                 const rawVal = trimmed
                     .replace(new RegExp(`\\*\\*${sym}\\*\\*`, "gi"), "")
                     .replace(new RegExp(`${sym}`, "gi"), "")
@@ -65,69 +117,6 @@ export function convertStockBulletsToTable(replyText: string): string {
                 if (currentSection === "rsi" && rawVal) stock.rsi = rawVal;
                 else if (currentSection === "macd" && rawVal) stock.macd = rawVal;
                 else if (currentSection === "signal" && rawVal) stock.signal = rawVal;
-                else if (currentSection === "change" && rawVal) stock.change = rawVal;
-            }
-        }
-    }
-
-    let currentStock: any = null;
-    for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed) continue;
-
-        const parenMatch = trimmed.match(/\((?:\s*سهم\s+)?([A-Z0-9]{2,10})\)/i);
-        const wordMatch = trimmed.match(/(?:###?\s*)?([A-Z0-9]{2,10})/);
-        const headerSymbol = parenMatch ? parenMatch[1] : (wordMatch && !trimmed.includes("RSI") && !trimmed.includes("MACD") ? wordMatch[1] : null);
-
-        const isHeader = (trimmed.startsWith("**") && trimmed.endsWith("**")) || trimmed.startsWith("###") || trimmed.startsWith("##");
-
-        if (isHeader && headerSymbol && headerSymbol !== "NULL" && headerSymbol !== "EGX") {
-            currentStock = getOrCreateStock(headerSymbol.toUpperCase());
-            continue;
-        }
-
-        if (currentStock) {
-            if (trimmed.includes("السعر اللحظي:") || trimmed.includes("السعر:")) {
-                currentStock.price = trimmed.split(/السعر(?: اللحظي)?:/)[1]?.trim().replace(/^[\*\:\s•\-]+/, "") || "-";
-            } else if (trimmed.includes("التغير اليومي:") || trimmed.includes("التغير:")) {
-                currentStock.change = trimmed.split(/التغير(?: اليومي)?:/)[1]?.trim().replace(/^[\*\:\s•\-]+/, "") || "-";
-            } else if (trimmed.includes("نسبة السيولة:") || trimmed.includes("نسبة الحجم:")) {
-                currentStock.volRatio = trimmed.split(/نسبة (?:السيولة|الحجم):/)[1]?.trim().replace(/^[\*\:\s•\-]+/, "") || "-";
-            } else if (trimmed.includes("RSI")) {
-                currentStock.rsi = trimmed.split(/RSI\s*(?:\(14\))?:/)[1]?.trim().replace(/^[\*\:\s•\-]+/, "") || "-";
-            } else if (trimmed.includes("MACD")) {
-                currentStock.macd = trimmed.split(/إشارة MACD:|MACD:/)[1]?.trim().replace(/^[\*\:\s•\-]+/, "") || "-";
-            } else if (trimmed.includes("إشارة السيولة:") || trimmed.includes("الإشارة:")) {
-                currentStock.signal = trimmed.split(/إشارة (?:السيولة|تصريف\/تجميع):|الإشارة:/)[1]?.trim().replace(/^[\*\:\s•\-]+/, "") || "محايد ⚪";
-            }
-        }
-    }
-
-    // Mode 3: Single-line Inline Stock Summary parsing (. **BIOC**: السعر اللحظي = 166.50 ج.م, التغير = +16.60%, RSI = 75.23, ...)
-    for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed) continue;
-
-        const tickerMatch = trimmed.match(/\*\*([A-Z0-9_]{2,10})\*\*/i) || trimmed.match(/^[•\-\*\.]*\s*([A-Z0-9_]{2,10})/i);
-        if (tickerMatch && (trimmed.includes("السعر") || trimmed.includes("RSI") || trimmed.includes("التغير"))) {
-            const sym = tickerMatch[1].toUpperCase();
-            if (sym !== "NULL" && sym !== "EGX" && sym !== "RSI" && sym !== "MACD" && sym.length >= 2) {
-                const priceMatch = trimmed.match(/السعر(?: اللحظي)?\s*[:=]\s*([0-9\.\,\s]+(?:ج\.م)?)/i);
-                const changeMatch = trimmed.match(/التغير\s*[:=]\s*([+\-]?\s*[0-9\.\,]+\s*%)/i);
-                const rsiMatch = trimmed.match(/RSI\s*(?:\(14\))?\s*[:=]\s*([0-9\.\,]+)/i);
-                const macdMatch = trimmed.match(/MACD\s*[:=]\s*([+\-]?\s*[0-9\.\,]+)/i);
-                const ratioMatch = trimmed.match(/نسبة (?:السيولة|الحجم)\s*[:=]\s*([0-9\.\,]+\s*x?)/i);
-                const signalMatch = trimmed.match(/الإشارة\s*[:=]\s*([^\,\n\.]+)/i);
-
-                if (priceMatch || changeMatch || rsiMatch || macdMatch || ratioMatch) {
-                    const stock = getOrCreateStock(sym);
-                    if (priceMatch && priceMatch[1]) stock.price = priceMatch[1].trim().replace(/,$/, "");
-                    if (changeMatch && changeMatch[1]) stock.change = changeMatch[1].trim().replace(/,$/, "");
-                    if (ratioMatch && ratioMatch[1]) stock.volRatio = ratioMatch[1].trim().replace(/,$/, "");
-                    if (rsiMatch && rsiMatch[1]) stock.rsi = rsiMatch[1].trim().replace(/,$/, "");
-                    if (macdMatch && macdMatch[1]) stock.macd = macdMatch[1].trim().replace(/,$/, "");
-                    if (signalMatch && signalMatch[1]) stock.signal = signalMatch[1].trim().replace(/,$/, "");
-                }
             }
         }
     }
