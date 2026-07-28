@@ -103,6 +103,35 @@ export function convertStockBulletsToTable(replyText: string): string {
         }
     }
 
+    // Mode 3: Single-line Inline Stock Summary parsing (. **BIOC**: السعر اللحظي = 166.50 ج.م, التغير = +16.60%, RSI = 75.23, ...)
+    for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+
+        const tickerMatch = trimmed.match(/\*\*([A-Z0-9_]{2,10})\*\*/i) || trimmed.match(/^[•\-\*\.]*\s*([A-Z0-9_]{2,10})/i);
+        if (tickerMatch && (trimmed.includes("السعر") || trimmed.includes("RSI") || trimmed.includes("التغير"))) {
+            const sym = tickerMatch[1].toUpperCase();
+            if (sym !== "NULL" && sym !== "EGX" && sym !== "RSI" && sym !== "MACD" && sym.length >= 2) {
+                const priceMatch = trimmed.match(/السعر(?: اللحظي)?\s*[:=]\s*([0-9\.\,\s]+(?:ج\.م)?)/i);
+                const changeMatch = trimmed.match(/التغير\s*[:=]\s*([+\-]?\s*[0-9\.\,]+\s*%)/i);
+                const rsiMatch = trimmed.match(/RSI\s*(?:\(14\))?\s*[:=]\s*([0-9\.\,]+)/i);
+                const macdMatch = trimmed.match(/MACD\s*[:=]\s*([+\-]?\s*[0-9\.\,]+)/i);
+                const ratioMatch = trimmed.match(/نسبة (?:السيولة|الحجم)\s*[:=]\s*([0-9\.\,]+\s*x?)/i);
+                const signalMatch = trimmed.match(/الإشارة\s*[:=]\s*([^\,\n\.]+)/i);
+
+                if (priceMatch || changeMatch || rsiMatch || macdMatch || ratioMatch) {
+                    const stock = getOrCreateStock(sym);
+                    if (priceMatch && priceMatch[1]) stock.price = priceMatch[1].trim().replace(/,$/, "");
+                    if (changeMatch && changeMatch[1]) stock.change = changeMatch[1].trim().replace(/,$/, "");
+                    if (ratioMatch && ratioMatch[1]) stock.volRatio = ratioMatch[1].trim().replace(/,$/, "");
+                    if (rsiMatch && rsiMatch[1]) stock.rsi = rsiMatch[1].trim().replace(/,$/, "");
+                    if (macdMatch && macdMatch[1]) stock.macd = macdMatch[1].trim().replace(/,$/, "");
+                    if (signalMatch && signalMatch[1]) stock.signal = signalMatch[1].trim().replace(/,$/, "");
+                }
+            }
+        }
+    }
+
     const validItems = Array.from(stockItemsMap.values()).filter(s => s.symbol && s.symbol !== "NULL" && s.symbol !== "EGX" && s.symbol.length >= 2);
     if (validItems.length === 0) return replyText;
 
