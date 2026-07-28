@@ -410,11 +410,12 @@ Analyze user request and return JSON with this exact structure:
 - ⚠️ FOR IMAGES: Count the visible stocks carefully and ensure your symbols array length matches the count
 - Return ONLY the JSON, no extra text`;
 
-    const recentHistoryText = (history || []).slice(-6).map((h: any) => `${h.role}: ${h.content}`).join("\n");
+    const recentHistoryText = hasImages ? "" : (history || []).slice(-6).map((h: any) => `${h.role}: ${h.content}`).join("\n");
     const imageInstructions = hasImages 
-        ? `\n\n⚠️⚠️⚠️ CRITICAL IMAGE EXTRACTION RULES ⚠️⚠️⚠️\n- You MUST extract EVERY stock symbol visible in the image\n- Count the stocks carefully: if you see 5 stocks, extract 5 symbols\n- Look at ALL rows in tables, ALL items in lists\n- Do NOT skip any visible stock information\n- Double-check you haven't missed any symbols before responding\n` 
+        ? `\n\n⚠️⚠️⚠️ CRITICAL IMAGE EXTRACTION RULES ⚠️⚠️⚠️\n- Extract ONLY the stock symbols that are VISIBLE in the image.\n- Do NOT add any stock symbols from chat history or session context.\n- Count the visible stocks carefully. If you see 10 stocks, your symbols array must have EXACTLY 10 entries.\n- Do NOT hallucinate or guess any symbol that is not clearly visible in the image.\n` 
         : "";
-    const userPromptText = `Current Session:\n${JSON.stringify(session)}\n\nRecent History:\n${recentHistoryText}\n\nUser Request:\n${message || "Analyze input"}${imageInstructions}\n\n⚠️ CRITICAL instruction: You MUST return ONLY a valid JSON object starting with '{' and ending with '}'. Do NOT write any conversational text, explanations, or steps (like 'To analyze the image...'). Respond only with the JSON data.`;
+    const sessionContext = hasImages ? "" : `Current Session:\n${JSON.stringify(session)}\n\nRecent History:\n${recentHistoryText}\n\n`;
+    const userPromptText = `${sessionContext}User Request:\n${message || "Analyze input"}${imageInstructions}\n\n⚠️ CRITICAL instruction: You MUST return ONLY a valid JSON object starting with '{' and ending with '}'. Do NOT write any conversational text, explanations, or steps (like 'To analyze the image...'). Respond only with the JSON data.`;
 
     const plannerModels = hasImages 
         ? ["meta/llama-3.2-11b-vision-instruct", "meta/llama-3.2-90b-vision-instruct"] 
@@ -497,7 +498,7 @@ Analyze user request and return JSON with this exact structure:
                             });
                         }
 
-                        const symbolsTextExtracted = extractSymbolsFromText(message, validSymbols, stockMappings);
+                        const symbolsTextExtracted = hasImages ? [] : extractSymbolsFromText(message, validSymbols, stockMappings);
                         const rawSymbols = Array.isArray(parsed.entities?.symbols) 
                             ? parsed.entities.symbols 
                             : (parsed.session_update?.current_symbol ? [parsed.session_update.current_symbol] : []);
@@ -508,6 +509,10 @@ Analyze user request and return JSON with this exact structure:
                         ]))
                         .filter((s: string) => validSymbols.includes(s))
                         .filter((s: string) => s !== "EXTRACTED_SYMBOL" && s !== "SYMBOL1" && s !== "PRIMARY_SYMBOL");
+
+                        if (hasImages) {
+                            console.log(`🖼️ Image symbols (vision-only, no text/session contamination): [${symbols.join(', ')}] (${symbols.length} stocks)`);
+                        }
 
                         const isFollowupQuery = /الاتنين|الإثنين|الاطنين|كلاهما|مع بعض|السهمين|تحليلهم|هاتهم|قولي عنهم|حللهم|بياناتهم|سعرهم|أخبارهم/i.test(message);
                         const isAggregateTableRequest = /كل البيانات|جدول|كل الأسهم|جدول بالشات|ملخص المحادثة/i.test(message);
