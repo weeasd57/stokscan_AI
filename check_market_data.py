@@ -4,6 +4,13 @@ Check for market index and currency data
 """
 import sys
 import os
+
+# Force UTF-8 encoding on standard output and error to prevent UnicodeEncodeError under Windows console
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8")
+
 sys.path.insert(0, os.path.dirname(__file__))
 
 from api.stock_ai import _init_supabase, supabase

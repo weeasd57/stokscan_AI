@@ -69,8 +69,9 @@ ${liveDataString ? `\n=== DATABASE DATA ===\n${liveDataString}\n=== END ===\n` :
 Respond in professional Arabic. Be factual, concise, and structured. START WITH THE TABLE.`;
     }
 
-    // Build history messages (strip image_url from older messages to save tokens)
-    const sanitizedAiMessages = (aiMessages || []).slice(1).map((msg: any) => {
+    // Build history messages — when an image is present, strip history to prevent old text questions from confusing image analysis
+    const hasImages = Array.isArray(imageList) && imageList.length > 0;
+    const sanitizedAiMessages = hasImages ? [] : (aiMessages || []).slice(1).map((msg: any) => {
         if (Array.isArray(msg.content)) {
             const textParts = msg.content
                 .filter((part: any) => part && part.type === "text" && part.text)
@@ -82,7 +83,6 @@ Respond in professional Arabic. Be factual, concise, and structured. START WITH 
     });
 
     // Build the final user message
-    const hasImages = Array.isArray(imageList) && imageList.length > 0;
     let finalUserMessage: any;
     if (hasImages && isVisionModel) {
         const userTextContent = message
@@ -210,6 +210,8 @@ export async function generateFinalResponse(
                         model: modelName,
                         messages: messagesToSend,
                         temperature: 0.2,
+                        presence_penalty: 0.1,
+                        frequency_penalty: 0.1,
                         max_tokens: 4096
                     })
                 });
@@ -292,6 +294,8 @@ export async function* generateFinalStream(
                         model: modelName,
                         messages: messagesToSend,
                         temperature: 0.2,
+                        presence_penalty: 0.1,
+                        frequency_penalty: 0.1,
                         max_tokens: 4096,
                         stream: true
                     })
