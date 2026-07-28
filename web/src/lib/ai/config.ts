@@ -7,6 +7,7 @@ export const AI_CONFIG = {
     response: {
       default: "meta/llama-3.1-8b-instruct",
       fallbacks: ["meta/llama-3.1-70b-instruct", "mistralai/mistral-7b-instruct-v0.3"],
+      vision: ["meta/llama-3.2-90b-vision-instruct", "meta/llama-3.2-11b-vision-instruct"],
     },
   },
   limits: {

@@ -70,7 +70,7 @@ ${liveDataString ? `\n=== DATABASE DATA ===\n${liveDataString}\n=== END ===\n` :
 Respond in professional Arabic (Egyptian Stock Exchange terminology). Be factual, concise, and structured.`;
     }
 
-    // Sanitize aiMessages so text models (like DeepSeek V4 Flash) don't crash on image_url objects
+    // Build history messages (strip image_url from older messages to save tokens)
     const sanitizedAiMessages = (aiMessages || []).slice(1).map((msg: any) => {
         if (Array.isArray(msg.content)) {
             const textParts = msg.content
@@ -82,9 +82,31 @@ Respond in professional Arabic (Egyptian Stock Exchange terminology). Be factual
         return msg;
     });
 
+    // Build the final user message — include the actual image so the vision LLM can see it
+    const hasImages = Array.isArray(imageList) && imageList.length > 0;
+    let finalUserMessage: any;
+    if (hasImages) {
+        const userTextContent = message
+            ? `${message}\n\nيرجى تحليل الصورة المرفقة بالكامل وتقديم تحليل شامل لجميع الأسهم الموجودة بها.`
+            : "يرجى تحليل هذه الصورة وتقديم تحليل شامل لجميع الأسهم الموجودة بها.";
+        finalUserMessage = {
+            role: "user",
+            content: [
+                { type: "text", text: userTextContent },
+                ...imageList.map(imgUrl => ({ type: "image_url", image_url: { url: imgUrl } }))
+            ]
+        };
+    } else {
+        finalUserMessage = {
+            role: "user",
+            content: message || "تحليل البيانات"
+        };
+    }
+
     return [
         { role: "system", content: finalSystemPrompt },
-        ...sanitizedAiMessages
+        ...sanitizedAiMessages,
+        finalUserMessage
     ];
 }
 
@@ -150,15 +172,22 @@ export async function generateFinalResponse(
         requestedModel
     );
 
-    const modelsToTry = Array.from(new Set([
+    const hasImages = imageList && imageList.length > 0;
+
+    // When images are present, use vision models FIRST, then fall back to text models
+    const visionModels: string[] = (AI_CONFIG.models.response as any).vision || ["meta/llama-3.2-90b-vision-instruct", "meta/llama-3.2-11b-vision-instruct"];
+    const textModels = Array.from(new Set([
         userSelectedModel,
         ...AI_CONFIG.models.response.fallbacks,
         defaultTextModel
     ]));
 
-    const hasImages = imageList && imageList.length > 0;
+    const modelsToTry = hasImages
+        ? [...visionModels, ...textModels]  // vision first when image present
+        : textModels;
+
     if (hasImages) {
-        console.log("🖼️ Image analysis detected - proceeding with LLM");
+        console.log("🖼️ Image analysis detected - using vision models:", visionModels.join(", "));
     }
 
     const messagesToSend = buildFinalMessages(message, imageList, liveDataString, plannerResult, aiMessages);
@@ -222,11 +251,21 @@ export async function* generateFinalStream(
         requestedModel
     );
 
-    const modelsToTry = Array.from(new Set([
+    const hasImages = imageList && imageList.length > 0;
+    const visionModels: string[] = (AI_CONFIG.models.response as any).vision || ["meta/llama-3.2-90b-vision-instruct", "meta/llama-3.2-11b-vision-instruct"];
+    const textModels = Array.from(new Set([
         userSelectedModel,
         ...AI_CONFIG.models.response.fallbacks,
         defaultTextModel
     ]));
+
+    const modelsToTry = hasImages
+        ? [...visionModels, ...textModels]  // vision first when image present
+        : textModels;
+
+    if (hasImages) {
+        console.log("🖼️ Stream: Image analysis detected - using vision models:", visionModels.join(", "));
+    }
 
     const messagesToSend = buildFinalMessages(message, imageList, liveDataString, plannerResult, aiMessages);
 
@@ -234,9 +273,12 @@ export async function* generateFinalStream(
         for (const modelName of modelsToTry) {
             try {
                 const controller = new AbortController();
-                const timeoutMs = modelName === userSelectedModel 
-                    ? AI_CONFIG.limits.responseTimeoutMs 
-                    : (AI_CONFIG.limits.responseTimeoutFallbackMs || 12000);
+                const isVisionModel = visionModels.includes(modelName);
+                const timeoutMs = isVisionModel
+                    ? 55000  // vision models need more time for image analysis
+                    : (modelName === userSelectedModel
+                        ? AI_CONFIG.limits.responseTimeoutMs
+                        : (AI_CONFIG.limits.responseTimeoutFallbackMs || 12000));
                 const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
                 const res = await fetch(AI_CONFIG.api.nvidiaBaseUrl, {
