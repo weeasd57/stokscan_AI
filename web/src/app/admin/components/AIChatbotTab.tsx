@@ -24,6 +24,14 @@ export default function AIChatbotTab() {
     const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
     const [searchUserQuery, setSearchUserQuery] = useState("");
     const [viewMode, setViewMode] = useState<"ai_config" | "support_chats">("ai_config");
+    const [readTimestamps, setReadTimestamps] = useState<Record<string, number>>({});
+
+    useEffect(() => {
+        try {
+            const saved = localStorage.getItem("admin_read_chats_timestamps");
+            if (saved) setReadTimestamps(JSON.parse(saved));
+        } catch {}
+    }, []);
 
     useEffect(() => {
         fetchSettings();
@@ -168,6 +176,22 @@ export default function AIChatbotTab() {
         }
         return filteredUserGroups.find(g => g.user_id === selectedUserId) || filteredUserGroups[0] || null;
     }, [filteredUserGroups, selectedUserId]);
+
+    useEffect(() => {
+        if (selectedGroup) {
+            const userId = selectedGroup.user_id;
+            const lastMsgTime = new Date(selectedGroup.last_date).getTime();
+            const currentReadTime = readTimestamps[userId] || 0;
+
+            if (lastMsgTime > currentReadTime) {
+                const updated = { ...readTimestamps, [userId]: Date.now() };
+                setReadTimestamps(updated);
+                try {
+                    localStorage.setItem("admin_read_chats_timestamps", JSON.stringify(updated));
+                } catch {}
+            }
+        }
+    }, [selectedGroup, logs]);
 
     if (loading) {
         return (
@@ -401,6 +425,10 @@ export default function AIChatbotTab() {
                                         <div className="flex-1 overflow-y-auto divide-y divide-zinc-200 dark:divide-zinc-800">
                                             {filteredUserGroups.map((group) => {
                                                 const isSelected = selectedGroup?.user_id === group.user_id;
+                                                const lastMsgTime = new Date(group.last_date).getTime();
+                                                const readTime = readTimestamps[group.user_id] || 0;
+                                                const isUnread = lastMsgTime > readTime;
+
                                                 return (
                                                     <button
                                                         key={group.user_id}
@@ -408,18 +436,30 @@ export default function AIChatbotTab() {
                                                         className={`w-full text-left p-3.5 transition-all flex items-center justify-between gap-2 ${
                                                             isSelected 
                                                                 ? "bg-indigo-500/10 border-l-4 border-indigo-500 dark:bg-indigo-950/30" 
-                                                                : "hover:bg-zinc-100 dark:hover:bg-zinc-800/50"
+                                                                : isUnread 
+                                                                    ? "bg-blue-500/5 dark:bg-blue-950/20 hover:bg-blue-500/10"
+                                                                    : "hover:bg-zinc-100 dark:hover:bg-zinc-800/50"
                                                         }`}
                                                     >
                                                         <div className="flex items-center gap-3 min-w-0 flex-1">
-                                                            <div className={`w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${
-                                                                isSelected ? "bg-indigo-500 text-white" : "bg-zinc-200 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300"
-                                                            }`}>
-                                                                {group.user_name.substring(0, 2).toUpperCase()}
+                                                            <div className="relative shrink-0">
+                                                                <div className={`w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold ${
+                                                                    isSelected ? "bg-indigo-500 text-white" : "bg-zinc-200 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300"
+                                                                }`}>
+                                                                    {group.user_name.substring(0, 2).toUpperCase()}
+                                                                </div>
+                                                                {isUnread && (
+                                                                    <span className="absolute -top-0.5 -right-0.5 w-3 h-3 bg-blue-500 rounded-full border-2 border-white dark:border-zinc-900 animate-pulse" />
+                                                                )}
                                                             </div>
                                                             <div className="min-w-0 flex-1">
-                                                                <div className="font-bold text-xs text-black dark:text-white truncate">
-                                                                    {group.user_name}
+                                                                <div className="font-bold text-xs text-black dark:text-white truncate flex items-center gap-1.5">
+                                                                    <span>{group.user_name}</span>
+                                                                    {isUnread && (
+                                                                        <span className="text-[9px] bg-blue-500 text-white px-1.5 py-0.2 rounded-full font-bold">
+                                                                            غير مقروء
+                                                                        </span>
+                                                                    )}
                                                                 </div>
                                                                 <div className="text-[10px] text-zinc-500 flex items-center gap-1.5 mt-0.5">
                                                                     <Clock className="w-3 h-3" />
@@ -428,7 +468,11 @@ export default function AIChatbotTab() {
                                                             </div>
                                                         </div>
                                                         <div className="flex flex-col items-end shrink-0 gap-1">
-                                                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-500/10 text-indigo-500 border border-indigo-500/20">
+                                                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                                                isUnread 
+                                                                    ? "bg-blue-500/20 text-blue-600 dark:text-blue-400 border border-blue-500/30" 
+                                                                    : "bg-indigo-500/10 text-indigo-500 border border-indigo-500/20"
+                                                            }`}>
                                                                 {group.logs.length} msgs
                                                             </span>
                                                         </div>
