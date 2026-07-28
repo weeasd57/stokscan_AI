@@ -109,7 +109,13 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     const [selectedModel, setSelectedModelState] = useState<string>("meta/llama-3.1-8b-instruct");
     const [sessions, setSessionsState] = useState<ChatSession[]>([]);
     const [activeSessionId, setActiveSessionIdState] = useState<string | null>(null);
-    const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(true);
+    const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(false);
+
+    useEffect(() => {
+        if (typeof window !== "undefined") {
+            setIsSidebarOpen(window.innerWidth >= 768);
+        }
+    }, []);
 
     const sessionMessagesCache = useRef<Record<string, ChatMessage[]>>({});
     const loadingSessionIds = useRef<Record<string, boolean>>({});

@@ -40,17 +40,15 @@ export default function TelegramServiceToggle({
 
     const defaultTitle = {
         stock_score: { en: "Stocks Score Alerts", ar: "تنبيهات تقييم الأسهم" },
-        historical_similarity: { en: "Historical Similarity Alerts", ar: "تنبيهات التشابه التاريخي" },
         technical_scanner: { en: "Technical Scanner Alerts", ar: "تنبيهات الماسح الفني" },
         ai_bot: { en: "AI Bot Alerts", ar: "تنبيهات بوت الذكاء الاصطناعي" },
-    }[serviceType];
+    }[serviceType as "stock_score" | "technical_scanner" | "ai_bot"] || { en: "Alerts", ar: "تنبيهات" };
 
     const defaultDesc = {
         stock_score: { en: "Get daily stock score updates on Telegram", ar: "احصل على تحديثات تقييم الأسهم اليومية على تليجرام" },
-        historical_similarity: { en: "Receive new historical similarity reports on Telegram", ar: "استلم تقارير التشابه التاريخي الجديدة على تليجرام" },
         technical_scanner: { en: "Get technical scanner matches on Telegram", ar: "استلم نتائج الماسح الفني على تليجرام" },
         ai_bot: { en: "Receive live AI bot signals on Telegram", ar: "استلم إشارات بوت الذكاء الاصطناعي المباشرة على تليجرام" },
-    }[serviceType];
+    }[serviceType as "stock_score" | "technical_scanner" | "ai_bot"] || { en: "Telegram alerts", ar: "تنبيهات تليجرام" };
 
     const tTitle = title || (isAr ? defaultTitle.ar : defaultTitle.en);
     const tDesc = description || (isAr ? defaultDesc.ar : defaultDesc.en);

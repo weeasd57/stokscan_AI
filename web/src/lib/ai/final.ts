@@ -7,8 +7,9 @@ export function buildFinalMessages(
     imageList: string[],
     liveDataString: string,
     plannerResult: PlannerResult,
-    aiMessages: any[]
-): { role: string; content: string }[] {
+    aiMessages: any[],
+    isVisionModel: boolean = true
+): { role: string; content: any }[] {
     let finalSystemPrompt = `You are EGX Bots AI Assistant for the Egyptian Stock Exchange (EGX).`;
 
     if (plannerResult.intent === "general_chat") {
@@ -82,10 +83,10 @@ Respond in professional Arabic (Egyptian Stock Exchange terminology). Be factual
         return msg;
     });
 
-    // Build the final user message — include the actual image so the vision LLM can see it
+    // Build the final user message
     const hasImages = Array.isArray(imageList) && imageList.length > 0;
     let finalUserMessage: any;
-    if (hasImages) {
+    if (hasImages && isVisionModel) {
         const userTextContent = message
             ? `${message}\n\nيرجى تحليل الصورة المرفقة بالكامل وتقديم تحليل شامل لجميع الأسهم الموجودة بها.`
             : "يرجى تحليل هذه الصورة وتقديم تحليل شامل لجميع الأسهم الموجودة بها.";
@@ -97,9 +98,10 @@ Respond in professional Arabic (Egyptian Stock Exchange terminology). Be factual
             ]
         };
     } else {
+        const userTextContent = message || (hasImages ? "تحليل الصورة والبيانات" : "تحليل البيانات");
         finalUserMessage = {
             role: "user",
-            content: message || "تحليل البيانات"
+            content: userTextContent
         };
     }
 
@@ -190,13 +192,14 @@ export async function generateFinalResponse(
         console.log("🖼️ Image analysis detected - using vision models:", visionModels.join(", "));
     }
 
-    const messagesToSend = buildFinalMessages(message, imageList, liveDataString, plannerResult, aiMessages);
-
     for (const key of apiKeys) {
         for (const modelName of modelsToTry) {
             try {
+                const isVisionModel = visionModels.includes(modelName);
+                const messagesToSend = buildFinalMessages(message, imageList, liveDataString, plannerResult, aiMessages, isVisionModel);
                 const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), AI_CONFIG.limits.responseTimeoutMs);
+                const timeoutMs = isVisionModel ? 55000 : (modelName === userSelectedModel ? AI_CONFIG.limits.responseTimeoutMs : 12000);
+                const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
                 const res = await fetch(AI_CONFIG.api.nvidiaBaseUrl, {
                     method: "POST",
@@ -267,13 +270,12 @@ export async function* generateFinalStream(
         console.log("🖼️ Stream: Image analysis detected - using vision models:", visionModels.join(", "));
     }
 
-    const messagesToSend = buildFinalMessages(message, imageList, liveDataString, plannerResult, aiMessages);
-
     for (const key of apiKeys) {
         for (const modelName of modelsToTry) {
             try {
                 const controller = new AbortController();
                 const isVisionModel = visionModels.includes(modelName);
+                const messagesToSend = buildFinalMessages(message, imageList, liveDataString, plannerResult, aiMessages, isVisionModel);
                 const timeoutMs = isVisionModel
                     ? 55000  // vision models need more time for image analysis
                     : (modelName === userSelectedModel

@@ -76,7 +76,12 @@ export function ChatSidebar({
                 {/* Top Header & New Chat Button */}
                 <div className="p-3 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between gap-2">
                     <button
-                        onClick={onNewChat}
+                        onClick={() => {
+                            onNewChat();
+                            if (typeof window !== "undefined" && window.innerWidth < 768) {
+                                onToggle();
+                            }
+                        }}
                         className="flex-1 flex items-center justify-center gap-2 py-2.5 px-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm rounded-xl transition-all shadow-md active:scale-95"
                     >
                         <Plus className="w-4 h-4" />
@@ -105,7 +110,12 @@ export function ChatSidebar({
                             return (
                                 <div
                                     key={s.id}
-                                    onClick={() => onSelectSession(s.id)}
+                                    onClick={() => {
+                                        onSelectSession(s.id);
+                                        if (typeof window !== "undefined" && window.innerWidth < 768) {
+                                            onToggle();
+                                        }
+                                    }}
                                     className={`group flex items-center justify-between p-2.5 rounded-xl cursor-pointer text-xs font-medium transition-all ${
                                         isActive
                                             ? "bg-amber-500/10 dark:bg-zinc-800 text-amber-700 dark:text-emerald-400 font-bold border border-amber-500/30 dark:border-zinc-700 shadow-sm"

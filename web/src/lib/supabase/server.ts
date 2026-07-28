@@ -1,4 +1,5 @@
 import { createServerClient } from '@supabase/ssr'
+import { createClient } from '@supabase/supabase-js'
 import { cookies } from 'next/headers'
 import type { NextRequest } from 'next/server'
 
@@ -15,6 +16,14 @@ function getSupabaseUrlAndAnonKey() {
 
 export const createSupabaseServerClient = (request?: NextRequest) => {
   const { supabaseUrl, anonKey } = getSupabaseUrlAndAnonKey()
+  const authHeader = request?.headers.get("authorization");
+  if (authHeader && authHeader.startsWith("Bearer ")) {
+    const token = authHeader.replace("Bearer ", "").trim();
+    return createClient(supabaseUrl, anonKey, {
+      global: { headers: { Authorization: `Bearer ${token}` } }
+    }) as any;
+  }
+
   const cookieStore = request?.cookies ?? cookies()
 
   return createServerClient(supabaseUrl, anonKey, {

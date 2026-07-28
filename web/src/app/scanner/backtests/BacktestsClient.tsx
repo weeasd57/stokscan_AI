@@ -1235,10 +1235,6 @@ export default function AIScannerPage() {
             {/* TAB CONTENT: HISTORICAL SIMILARITY */}
             {activeTab === "similarity" && (
                 <div className="space-y-8 animate-in fade-in duration-300" dir="ltr" style={{ direction: 'ltr' }}>
-                    <TelegramServiceToggle
-                        serviceType="historical_similarity"
-                        botId="historical_similarity"
-                    />
                     {similarityLoading ? (
                         <div className="flex flex-col items-center justify-center py-20 gap-4">
                             <Loader2 className="w-10 h-10 animate-spin text-indigo-500" />

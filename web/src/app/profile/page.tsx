@@ -188,7 +188,7 @@ export default function ProfilePage() {
 
       // Create default entries if turning ON and they don't exist yet
       if (isEnabled) {
-        for (const type of ["stock_score", "historical_similarity"]) {
+        for (const type of ["stock_score", "technical_scanner", "ai_bot"]) {
           const { data: existing } = await supabase
             .from("bot_subscriptions")
             .select("id")

@@ -144,11 +144,19 @@ const ARABIC_NAME_MAPPINGS: Record<string, string | string[]> = {
     "cooper": "COPR",
     "كوين": "KWIN",
     "القاهرة الوطنية": "KWIN",
+    "النيل": "NIPH",
+    "نيل": "NIPH",
     "النيل للأدوية": "NIPH",
     "النيل للادويه": "NIPH",
     "النيل فارما": "NIPH",
-    "اسباير": "ASCR",
-    "نهر الخير": "KWIN"
+    "النيل للحليج": "NCGC",
+    "النيل حليج": "NCGC",
+    "اسباير": "ASPI",
+    "اسباير كابيتال": "ASPI",
+    "aspire": "ASPI",
+    "نهر الخير": "KRDI",
+    "نهر الخير للتنمية": "KRDI",
+    "krdi": "KRDI"
 };
 
 async function getStocksList(): Promise<StocksListData> {
@@ -409,7 +417,7 @@ Analyze user request and return JSON with this exact structure:
     const userPromptText = `Current Session:\n${JSON.stringify(session)}\n\nRecent History:\n${recentHistoryText}\n\nUser Request:\n${message || "Analyze input"}${imageInstructions}\n\n⚠️ CRITICAL instruction: You MUST return ONLY a valid JSON object starting with '{' and ending with '}'. Do NOT write any conversational text, explanations, or steps (like 'To analyze the image...'). Respond only with the JSON data.`;
 
     const plannerModels = hasImages 
-        ? ["meta/llama-3.2-90b-vision-instruct", "meta/llama-3.2-11b-vision-instruct"] 
+        ? ["meta/llama-3.2-11b-vision-instruct", "meta/llama-3.2-90b-vision-instruct"] 
         : ["meta/llama-3.1-8b-instruct", "meta/llama-3.1-70b-instruct"];
 
     let userContent: any;

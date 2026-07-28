@@ -6,7 +6,7 @@ import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { toast } from "sonner";
 import { useLanguage } from "@/contexts/LanguageContext";
 
-export type ServiceType = "stock_score" | "historical_similarity" | "technical_scanner" | "ai_bot";
+export type ServiceType = "stock_score" | "technical_scanner" | "ai_bot";
 
 interface NotificationContextType {
     telegramLinked: boolean;
@@ -248,7 +248,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
 
             // Create defaults if enabled and none exist
             if (isEnabled) {
-                for (const type of ["stock_score", "historical_similarity", "technical_scanner", "ai_bot"]) {
+                for (const type of ["stock_score", "technical_scanner", "ai_bot"]) {
                     const { data: existing } = await supabase
                         .from("bot_subscriptions")
                         .select("id")
@@ -272,7 +272,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
             // Optimistic update
             setSubscriptions(prev => {
                 const next = { ...prev };
-                for (const k of ["stock_score", "historical_similarity", "technical_scanner", "ai_bot"]) {
+                for (const k of ["stock_score", "technical_scanner", "ai_bot"]) {
                     next[k] = isEnabled;
                 }
                 return next;
