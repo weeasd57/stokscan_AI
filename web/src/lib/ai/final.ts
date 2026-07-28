@@ -77,7 +77,8 @@ Respond in professional Arabic. Be factual, concise, and structured. START WITH 
 
     // Build history messages — when an image is present, strip history to prevent old text questions from confusing image analysis
     const hasImages = Array.isArray(imageList) && imageList.length > 0;
-    const sanitizedAiMessages = hasImages ? [] : (aiMessages || []).slice(1).map((msg: any) => {
+    const historySlice = (aiMessages || []).slice(1, -1);
+    const sanitizedAiMessages = hasImages ? [] : historySlice.map((msg: any) => {
         if (Array.isArray(msg.content)) {
             const textParts = msg.content
                 .filter((part: any) => part && part.type === "text" && part.text)

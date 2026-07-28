@@ -603,8 +603,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
                                     updateAssistantMsgInState(assistantMsg);
                                 }
                             } else if (currentEventName === "done" || parsed.type === "done" || parsed.event === "done") {
-                                if (parsed.reply && !assistantMsg.content) {
-                                    assistantMsg.content = parsed.reply;
+                                if (parsed.reply) {
+                                    assistantMsg.content = sanitizeReply(parsed.reply);
+                                } else if (assistantMsg.content) {
+                                    assistantMsg.content = sanitizeReply(assistantMsg.content);
                                 }
                                 if (Array.isArray(parsed.suggested_buttons)) {
                                     assistantMsg.suggestedButtons = parsed.suggested_buttons;
