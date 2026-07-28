@@ -48,7 +48,7 @@ WRONG FORMAT (NEVER do this):
    | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
    DO NOT write any text, titles, or intro before the table. START DIRECTLY WITH THE TABLE ("|"). Put ALL analyzed stocks in rows of this single table. NEVER break stock indicators into separate bullet points.
 
-2. After the table, add a brief **تحليل السيولة الفنية** section (2-3 lines max per stock).
+2. After the table, do NOT write bullet points for every stock. Instead, add a brief **تحليل السيولة الفنية** section of 3-4 lines in total, highlighting only the top 3 stocks with the strongest setup (highest volume ratio with positive change) and the top 3 with the weakest setup (highest volume ratio with negative change). This keeps the response extremely concise and fast.
 
 3. 🔒 ACCUMULATION/DISTRIBUTION signals:
    - "تجميع 📈" = volume ratio >= 1.2x with positive change
