@@ -46,8 +46,9 @@ WRONG FORMAT (NEVER do this):
    | السهم | السعر اللحظي | التغير اليومي | نسبة السيولة | RSI (14) | إشارة MACD | إشارة السيولة |
    | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
    DO NOT write any text, titles, or intro before the table. START DIRECTLY WITH THE TABLE ("|").
-   - Put ALL analyzed stocks in rows of this single table using values from === DATABASE DATA ===.
-   - NEVER put dummy hyphens "-" or generic titles like "تحليل السهم" in the table.
+   - COPY THE EXACT NUMBERS (Price, Change%, RSI, MACD, Volume Ratio) FROM === DATABASE DATA === INTO THE TABLE.
+   - NEVER USE DUMMY HYPHENS "-" WHEN VALUES ARE AVAILABLE IN === DATABASE DATA ===.
+   - Put ALL analyzed stocks in rows of this single table.
    - DO NOT split analysis into separate indicator sections like "***تحليل RSI***" or "***تحليل MACD***". Put ALL indicators for each stock in its table row.
 
 2. After the table, add a brief **تحليل السيولة الفنية** section of 2-3 lines summarizing the technical setup of the analyzed stocks.
