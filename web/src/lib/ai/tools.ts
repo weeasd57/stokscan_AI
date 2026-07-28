@@ -268,6 +268,15 @@ export async function executeTools(supabase: any, plannerResult: PlannerResult, 
                     }
                 });
             }
+
+            // Explicitly tell the LLM which requested symbols were NOT found in DB
+            const missingSymbols = symbols.filter(sym => !pricesMap.has(sym));
+            if (missingSymbols.length > 0) {
+                outputText += `\n⛔ [تنبيه للنموذج - أسهم غير موجودة في قاعدة البيانات]:\n`;
+                outputText += `الأسهم التالية غير متوفرة بيانات حقيقية في قاعدة بيانات EGX Bots: ${missingSymbols.join(", ")}\n`;
+                outputText += `⚠️ قاعدة البيانات الحالية تضم ${pricesMap.size > 0 ? `بيانات لأسهم منها: ${Array.from(pricesMap.keys()).join(", ")}` : "بيانات سوق البورصة المصرية EGX (100+ سهم)"}\n`;
+                outputText += `📌 STRICT RULE: لا تخترع أرقاماً أو تحليلات لأي سهم غير مدرج في === DATABASE DATA ===. صرّح بوضوح أن البيانات غير متوفرة لكل سهم مفقود.\n`;
+            }
         } catch (e) {
             console.warn("Error fetching stock prices from DB:", e);
         }

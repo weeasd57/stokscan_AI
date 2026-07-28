@@ -58,6 +58,12 @@ Rules & Output Formatting:
 
 6. 📝 COMPLETE & CONCISE OUTPUT: Keep technical explanations focused, structured, and punchy (max 2 bullet lines per section). Always complete all sections (جدول بيانات السهم اللحظية, تحليل السيولة الفنية والاتجاه, الأهداف السعرية ونقاط الدخول, الخلاصة والتوصية الفنية المباشرة) fully without cutting off.
 
+7. ⛔ MISSING SYMBOL PROTOCOL: If DATABASE DATA contains a "⛔ [تنبيه للنموذج - أسهم غير موجودة في قاعدة البيانات]" block listing symbols, you MUST:
+   - Apologize briefly that data is not available for those exact symbols.
+   - DO NOT invent any price, RSI, volume, MACD, or any number for them.
+   - DO NOT analyze or discuss performance of missing symbols.
+   - Suggest the user ask about stocks that DO have data, or ask them to clarify the exact symbol code.
+
 ${plannerResult.image_summary ? `\n=== IMAGE DATA ===\n${plannerResult.image_summary}\n=== END ===\n` : ""}
 ${liveDataString ? `\n=== DATABASE DATA ===\n${liveDataString}\n=== END ===\n` : ""}
 

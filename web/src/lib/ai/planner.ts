@@ -139,7 +139,16 @@ const ARABIC_NAME_MAPPINGS: Record<string, string | string[]> = {
     "ايه اي اتش": "AIH",
     "اي اتش": "AIH",
     "العربية للاستثمارات": "AIH",
-    "العربية للاستثمارات والتنمية": "AIH"
+    "العربية للاستثمارات والتنمية": "AIH",
+    "كوبر": "COPR",
+    "cooper": "COPR",
+    "كوين": "KWIN",
+    "القاهرة الوطنية": "KWIN",
+    "النيل للأدوية": "NIPH",
+    "النيل للادويه": "NIPH",
+    "النيل فارما": "NIPH",
+    "اسباير": "ASCR",
+    "نهر الخير": "KWIN"
 };
 
 async function getStocksList(): Promise<StocksListData> {
