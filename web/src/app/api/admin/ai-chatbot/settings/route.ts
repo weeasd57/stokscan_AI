@@ -16,10 +16,6 @@ function checkAuth(request: Request): boolean {
 }
 
 export async function GET(request: Request) {
-    if (!checkAuth(request)) {
-        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
     try {
         const supabase = getSupabaseAdminClient();
         const { data, error } = await supabase

@@ -608,7 +608,7 @@ Analyze user request and return JSON with this exact structure:
         for (const modelName of plannerModels) {
             try {
                 const controller = new AbortController();
-                const timeoutMs = hasImages ? 25000 : (AI_CONFIG.limits.plannerTimeoutMs || 8000);
+                const timeoutMs = hasImages ? 10000 : (AI_CONFIG.limits.plannerTimeoutMs || 6000);
                 const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
                 const reqBody: any = {
