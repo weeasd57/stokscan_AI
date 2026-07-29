@@ -13,7 +13,7 @@ function normalizeArabic(str: string): string {
 export async function executeTools(supabase: any, plannerResult: PlannerResult, userMessage: string = ""): Promise<string> {
     const { tools, entities } = plannerResult;
     let outputText = "";
-    const symbols = entities.symbols;
+    const symbols = (entities.symbols || []).map(s => String(s).toUpperCase()).filter(s => /^[A-Z0-9]{2,6}$/.test(s) && !/^\d+$/.test(s));
 
     const today = new Date();
     const todayStr = today.toISOString().split("T")[0];
@@ -272,7 +272,9 @@ export async function executeTools(supabase: any, plannerResult: PlannerResult, 
             }
 
             // Explicitly tell the LLM which requested symbols were NOT found in DB
-            const missingSymbols = symbols.filter(sym => !pricesMap.has(sym) && !techsMap.has(sym));
+            const missingSymbols = symbols
+                .map(s => s.toUpperCase())
+                .filter(upperSym => !pricesMap.has(upperSym) && !techsMap.has(upperSym));
             if (missingSymbols.length > 0) {
                 outputText += `\n⛔ [تنبيه للنموذج - أسهم غير موجودة في قاعدة البيانات]:\n`;
                 outputText += `الأسهم التالية غير متوفرة بيانات حقيقية لها حالياً: ${missingSymbols.join(", ")}\n`;
