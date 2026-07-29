@@ -2,6 +2,7 @@ import { PlannerResult } from "./types";
 import { AI_CONFIG } from "./config";
 import { selectOptimalModel } from "./router";
 import { sanitizeReply } from "./sanitizer";
+import { parseToolsOutput, buildStockTable, buildMarketTable, buildRecommendationTable, isSuspiciousValue, ParsedStockData } from "./table-builder";
 
 export function buildFinalMessages(
     message: string,
@@ -66,67 +67,43 @@ export function buildFinalMessages(
    - Do NOT focus on general investor statistics (Egyptians, Arabs, Foreigners) or sector percentages. The user wants to see specific stocks and tickers first and foremost!
 6. لا تقم باختراع بيانات مالية أو أسعار من عندك. استخدم فقط البيانات المتاحة في === DATABASE DATA ===.`;
     } else {
-        finalSystemPrompt += `
+        // Parse live data and build the stock table programmatically
+        const parsedData = parseToolsOutput(liveDataString || "");
+        let programmaticTable = buildStockTable(parsedData.stocks);
+        const hasSymbolsRequested = Array.isArray(plannerResult.entities?.symbols) && plannerResult.entities.symbols.length > 0;
+        const noDataForRequested = hasSymbolsRequested && parsedData.stocks.length === 0;
 
-🚨 ZERO HALLUCINATION POLICY & EXPERT EGX ANALYSIS RULES 🚨
-Use ONLY provided data. Never invent financial information.
+        // Build minimal, clear prompt - simple enough the LLM won't regurgitate it
+        let userContentForAnalysis = "";
 
-⚠️⚠️⚠️ MANDATORY TABLE FORMAT ⚠️⚠️⚠️
-You MUST ALWAYS present stock data in a proper Markdown table. NEVER list indicators as separate bullet points.
+        if (programmaticTable) {
+          // ✅ We have real data - table is pre-built server-side
+          // The table is yielded separately in streaming; for non-streaming,
+          // we prepend it after LLM generation (in sanitizeReply).
+          // Tell LLM only to write 2-line analysis
+          finalSystemPrompt = `اكتب 3 أسطر تحليل فني فقط بالعربية عن الأسهم في جدول البيانات أدناه.
+مهم جدا: لا تكرر التعليمات. لا تكتب جدول. لا تكتب نقاط. لا تكتب BUY/SELL كأنها أسهم. اكتب تحليل فقط.
 
-CORRECT FORMAT (you MUST follow this):
-| السهم | السعر اللحظي | التغير اليومي | نسبة السيولة | RSI (14) | إشارة MACD | إشارة السيولة |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| [SYMBOL_1] | [PRICE_1] | [CHANGE_1] | [RATIO_1] | [RSI_1] | [MACD_1] | [SIGNAL_1] |
-| [SYMBOL_2] | [PRICE_2] | [CHANGE_2] | [RATIO_2] | [RSI_2] | [MACD_2] | [SIGNAL_2] |
+ملاحظة: بعض الأسهم قد لا تتوفر لها بيانات — اذكر ذلك ببساطة بدون تخيل أرقام.
 
-WRONG FORMAT (NEVER do this):
-• VWAP: [NUM]
-• ADX: [NUM]
+الجدول (لقراءتك فقط):
+${programmaticTable}
 
-1. 📊 CRITICAL: YOUR VERY FIRST LINE MUST BE THE MARKDOWN TABLE HEADER:
-   | السهم | السعر اللحظي | التغير اليومي | نسبة السيولة | RSI (14) | إشارة MACD | إشارة السيولة |
-   | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-   DO NOT write any text, titles, or intro before the table. START DIRECTLY WITH THE TABLE ("|").
-   - COPY THE EXACT NUMBERS (Price, Change%, RSI, MACD, Volume Ratio) FROM === DATABASE DATA === INTO THE TABLE.
-   - NEVER USE DUMMY HYPHENS "-" WHEN VALUES ARE AVAILABLE IN === DATABASE DATA ===.
-   - Put ALL analyzed stocks in rows of this single table.
-   - DO NOT split analysis into separate indicator sections like "***تحليل RSI***" or "***تحليل MACD***". Put ALL indicators for each stock in its table row.
+=== DATABASE DATA ===
+${liveDataString || ""}
+=== END ===`;
+        } else if (noDataForRequested) {
+          finalSystemPrompt = `المستخدم طلب أسهم لكن مفيش بيانات متاحة ليها في قاعدة البيانات.
+قل ببساطة: البيانات مش متوفرة للأسهم دي حالياً.
+لا تخترع أرقام.`;
+        } else {
+          // Fallback for general analysis
+          finalSystemPrompt = `اكتب تحليل فني بسيط بالعربية عن الأسهم أو السوق بناءً على البيانات أدناه.
+استخدم الأرقام الصحيحة فقط من البيانات ولا تخترع أي شيء.
 
-2. After the table, add a brief **تحليل السيولة الفنية** section of 2-3 lines summarizing the technical setup of the analyzed stocks.
-   - Use ONLY the exact company name from === DATABASE DATA === for each ticker.
-   - NEVER mix up company names. Always match the symbol to its exact name provided in === DATABASE DATA ===.
-   - NEVER write "لا توجد أسهم أخرى" or list unrequested stocks from previous chat history.
-   - If analyzing a single stock, summarize its technical status directly in 2 lines.
-
-3. 🔒 ACCUMULATION/DISTRIBUTION signals:
-   - "تجميع 📈" = volume ratio >= 1.2x with positive change
-   - "تصريف 📉" = volume ratio >= 1.2x with negative change
-   - "محايد ⚪" = otherwise
-
-4. 🚫 NEVER invent prices, RSI, MACD, or volume numbers. Use ONLY === DATABASE DATA === values.
-
-5. ⛔ MISSING SYMBOLS: If DATABASE DATA has a "⛔" block for missing symbols, say data is unavailable. Do NOT guess.
-
-6. ⚠️ Always use "سهم" (stock). NEVER use "سيارة" or other mangled terms.
-
-7. FOR IMAGES: Analyze ONLY stocks visible in the image. Do NOT pull in stocks from chat history.
-
-8. 🛑 NO DUPLICATE SECTIONS: NEVER output "### تحليل السيولة الفنية" more than ONCE. NEVER repeat bullet point sections for stocks. Write the table ONCE, followed by a SINGLE concise 3-line analysis section. Stop immediately after that.
-
-9. 💡 EGYPTIAN DIALECT QUESTIONS: When user asks "أبيع بكام؟" or "احط امر بيع بكام؟" (at what price to sell?), do NOT treat "بكام" as a stock name. Explain technical targets or resistance levels based on provided indicators.
-
-10. ⚠️ INDICES ARE NOT STOCKS: NEVER list EGX30, EGX70, or EGX100 in tables of "أبرز الأسهم التي دخلها سيولة" or call them "أسهم".
-
-11. 🚫 NEVER CLAIM LIMITED DATABASE: NEVER say or claim "ليس لدي قاعدة بيانات لكل الأسهم" or that data is restricted only to image stocks. EGX Bots database contains live technical data for over 293 EGX stocks. Always summarize top market stocks from === DATABASE DATA === when user asks about whole market liquidity ("بيانات السوق كله" or "مش من الصورة").
-
-12. 🛑 NEVER LIST CHAT HISTORY STOCKS AS "THE ONLY AVAILABLE STOCKS": When a requested stock is missing or unlisted, state clearly and factually: "سهم (اسم السهم) غير مدرج حالياً ضمن الـ 293 سهم الأساسية المدرجة بالبورصة المصرية المتاحة بقاعدة البيانات." NEVER claim or list past chat history stocks (like TAQA or EAST) as if they are the "only available stocks in the database".
-
-${(plannerResult.image_summary && (hasImages || plannerResult.intent === "portfolio")) ? `\n=== IMAGE DATA ===\n${plannerResult.image_summary}\n=== END ===\n` : ""}
-${liveDataString ? `\n=== DATABASE DATA ===\n${liveDataString}\n=== END ===\n` : ""}
-
-Respond in professional Arabic. Be factual, concise, and structured. START WITH THE TABLE.`;
-    }
+${liveDataString ? `=== DATABASE DATA ===\n${liveDataString}\n=== END ===` : ""}`;
+        }
+	    }
 
     // Build history messages — when an image is present, strip history to prevent old text questions from confusing image analysis
     const historySlice = (aiMessages || []).slice(1, -1);
@@ -237,7 +214,7 @@ export async function generateFinalResponse(
                 const reply = data.choices?.[0]?.message?.content?.trim();
                 if (reply) {
                     console.log(`✅ DeepSeek Official API (${targetDeepSeekModel}) response generated successfully!`);
-                    return sanitizeReply(reply);
+                    return sanitizeReply(reply, liveDataString);
                 }
             }
         } catch (err: any) {
@@ -277,7 +254,7 @@ export async function generateFinalResponse(
                     const data = await res.json();
                     const reply = data.choices?.[0]?.message?.content?.trim();
                     if (reply) {
-                        return sanitizeReply(reply);
+                        return sanitizeReply(reply, liveDataString);
                     }
                 } else {
                     const errText = await res.text();
@@ -347,6 +324,22 @@ export async function* generateFinalStream(
 
     if (hasImages) {
         console.log("🖼️ Stream: Image analysis detected - using vision models:", visionModels.join(", "));
+    }
+
+    // Build programmatic table from live database data (used for all streaming paths)
+    let streamProgrammaticTable = "";
+    let hasStreamTable = false;
+    try {
+      const parsedStreamData = parseToolsOutput(liveDataString || "");
+      streamProgrammaticTable = buildStockTable(parsedStreamData.stocks);
+      hasStreamTable = Boolean(streamProgrammaticTable && parsedStreamData.stocks.length > 0 && !hasImages && plannerResult.intent !== "general_chat" && plannerResult.intent !== "market_summary");
+    } catch (tableBuildError) {
+      console.warn("[generateFinalStream] Error building programmatic table:", tableBuildError);
+    }
+
+    // Yield programmatic table ONCE before any streaming attempts
+    if (hasStreamTable) {
+        yield streamProgrammaticTable + "\n\n### تحليل السيولة الفنية\n";
     }
 
     const officialKey = process.env.DEEPSEEK_OFFICIAL_API_KEY || "sk-7d19a8fd6cb943c3b71eaca8e55cef3b";

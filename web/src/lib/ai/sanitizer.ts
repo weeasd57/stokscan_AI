@@ -1,4 +1,5 @@
 import { AI_CONFIG } from "./config";
+import { parseToolsOutput, buildStockTable, isSuspiciousValue } from "./table-builder";
 
 export function extractTickerFromLine(line: string): string | null {
     const clean = line.replace(/\b(RSI|MACD|VWAP|ADX|NULL|EGX)\b/gi, "");
@@ -152,8 +153,9 @@ export function convertStockBulletsToTable(replyText: string): string {
     return tableMarkdown + "\n\n" + cleanReply;
 }
 
-export function sanitizeReply(reply: string): string {
-    let cleanReply = reply.trim();
+export function sanitizeReply(reply: string, liveDataString?: string): string {
+  try {
+    let cleanReply = typeof reply === "string" ? reply.trim() : "";
 
     // 1. Clean raw Python array/dict repr if model echoed input payload structure
     if (cleanReply.startsWith("[{'type'") || cleanReply.startsWith('[{"type"')) {
@@ -163,8 +165,154 @@ export function sanitizeReply(reply: string): string {
             .replace(/\\n/g, "\n");
     }
 
-    // 2. Automatically transform bullet stock items into a Markdown Table if LLM outputted bullets
-    cleanReply = convertStockBulletsToTable(cleanReply);
+    // Check if we have liveDataString with stock data for programmatic table
+    let hasProgrammaticTable = false;
+    let programmaticTableText = "";
+    if (liveDataString) {
+        const parsedData = parseToolsOutput(liveDataString);
+        programmaticTableText = buildStockTable(parsedData.stocks);
+        if (programmaticTableText && parsedData.stocks.length > 0) {
+            hasProgrammaticTable = true;
+        }
+    }
+
+    if (hasProgrammaticTable) {
+        // Strip any markdown table the LLM might have output despite instructions
+        cleanReply = cleanReply
+            .replace(/^\|.+(?:\n\|.+\|)*$/gm, "")        // Remove markdown table rows
+            .replace(/^\|[\s\-\|:]+\|$/gm, "")             // Remove table separator lines
+            .replace(/### تحليل السيولة الفنية.*/g, "")    // Remove existing analysis headers
+            .replace(/^\s*[\*]{2,}.*[\*]{2,}\s*$/gm, "")   // Remove bold decorative lines
+            .replace(/\n{3,}/g, "\n\n")                      // Collapse excessive newlines
+            .trim();
+
+        // 🛡️ Aggressively strip LLM-generated sections that should not appear
+        cleanReply = cleanReply
+            // Remove bullet point stock listings (• سهم ...)
+            .replace(/^•\s*سهم\s+\w+.*$/gm, "")
+            // Remove sections about recommendations ("توصية سهم")
+            .replace(/^توصية سهم\s+\w+.*$/gm, "")
+            // Remove "BUY" or "SELL" appearing as fake stock symbols
+            .replace(/\b(BUY|SELL|HOLD)\b\s*[:=]\s*.*$/gm, "")
+            // Remove sections about market data that the LLM may repeat
+            .replace(/^(مؤشر EGX30|مؤشر EGX100|سعر صرف USD\/EGP|اتجاه السوق).*$/gm, "")
+            // Remove repetitive Arabic disclaimer-like text
+            .replace(/يجب أن يكون المستخدم على دراية.*$/gm, "")
+            // Remove any remaining "ملحوظة" headers
+            .replace(/^###?\s*ملحوظة.*$/gm, "")
+            // Remove any "حالة البورصة والأخبار" section
+            .replace(/^.*حالة البورصة والأخبار.*$/gm, "")
+            .replace(/\n{3,}/g, "\n\n")
+            .trim();
+
+        // If after stripping the table the reply is mostly empty, just use the analysis part
+        if (cleanReply.replace(/\s/g, "").length < 10) {
+            cleanReply = "تحليل فني.";
+        }
+
+        // Build the final output: programmatic table + analysis
+
+        // 🛡️ Numerical Safety Net: scan analysis text for suspicious numbers
+        const lines = cleanReply.split("\n");
+        for (const line of lines) {
+            // Check for suspicious prices in analysis text
+            const priceCandidates = line.match(/(?:(?:جنيه|ج\.م|EGP)\s*[:=]?\s*|سعر\s*[:=]?\s*)([0-9,]+(?:\.[0-9]+)?)/gi);
+            if (priceCandidates) {
+                for (const match of priceCandidates) {
+                    const num = match.replace(/[^0-9.]/g, "");
+                    if (isSuspiciousValue(num, "price")) {
+                        // Replace suspicious price with "—" 
+                        cleanReply = cleanReply.replace(match, match.replace(/[0-9,]+(?:\.[0-9]+)?/, "—"));
+                    }
+                }
+            }
+            // Check RSI values in analysis
+            const rsiCandidates = line.match(/RSI\s*[:=]?\s*([0-9.]+)/gi);
+            if (rsiCandidates) {
+                for (const match of rsiCandidates) {
+                    const num = match.replace(/[^0-9.]/g, "");
+                    if (isSuspiciousValue(num, "rsi")) {
+                        cleanReply = cleanReply.replace(match, match.replace(/[0-9.]+/, "—"));
+                    }
+                }
+            }
+        }
+    } else {
+        // 2. Automatically transform bullet stock items into a Markdown Table if LLM outputted bullets
+        cleanReply = convertStockBulletsToTable(cleanReply);
+    }
+
+    // 🛡️ Post-processing safety: detect and remove tables with ALL empty/dash values
+    // (indicates LLM generated a table but had no real data)
+    const dashTableRegex = /^\|.+\|[\s\-]*\-[\s\-]*\|[\s\-]*\-[\s\-]*\|[\s\-]*\-[\s\-]*\|[\s\-]*\-[\s\-]*\|[\s\-]*\-[\s\-]*\|.+\|$/gm;
+    if (dashTableRegex.test(cleanReply)) {
+      cleanReply = cleanReply
+        .replace(/^\|.+\|[\s\S]*?(?=\n\n|$)/m, "")
+        .replace(/\|[\s\-\|:]+\|/g, "")
+        .replace(/\n{3,}/g, "\n\n")
+        .trim();
+    }
+
+    // 🚨 CRITICAL: Remove any leaked system prompt text from LLM output
+    // The LLM sometimes regurgitates the system prompt verbatim
+    const systemPromptPatterns = [
+      /أنا EGX Bots AI Assistant for the Egyptian Stock Exchange/g,
+      /🚨 ZERO HALLUCINATION POLICY/g,
+      /🚨 GLOBAL ZERO DISCLAIMER POLICY/g,
+      /EXPERT EGX ANALYSIS RULES/g,
+      /Use ONLY provided data/g,
+      /INSTRUCTIONS \([^)]+\):/g,
+      /AUTO-GENERATED STOCK TABLE/g,
+      /THE TABLE ABOVE IS ALREADY CORRECT AND COMPLETE/g,
+      /DO NOT output any table/g,
+      /Write ONLY the analysis section/g,
+    ];
+    for (const pattern of systemPromptPatterns) {
+      if (pattern.test(cleanReply)) {
+        cleanReply = cleanReply
+          .replace(pattern, "")
+          .replace(/\n{3,}/g, "\n\n")
+          .trim();
+      }
+    }
+
+    // 🚨 Remove leaked instructions from the response
+    // If the LLM outputs instructions like "1. Write a brief **تحليل السيولة الفنية**", strip them
+    cleanReply = cleanReply
+      .replace(/^\d+\.\s+Write a brief.*$/gm, "")
+      .replace(/^\d+\.\s+🔒.*$/gm, "")
+      .replace(/^- Use ONLY the exact company name.*$/gm, "")
+      .replace(/^- NEVER mix up company names.*$/gm, "")
+      .replace(/^\*\*النهاية\*\*.*$/gm, "")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+
+    // 🚨 Remove garbled non-table lines that look like "BIOC  محايد  SIDEWAYS  محايد ⚪  STOCK  تجميع |"
+    // These are malformed table rows without proper markdown table pipes
+    cleanReply = cleanReply
+      .replace(/^[A-Z]{2,6}\s+[^|]+?\s+\|[^\n]*$/gm, "")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+
+    // 🚨 Anti-repetition block detection: if a block of 3+ lines repeats 3+ times, truncate
+    const cleanLinesArr = cleanReply.split("\n").map(l => l.trim()).filter(l => l.length > 20);
+    if (cleanLinesArr.length > 10) {
+      // Check for identical repeating blocks (e.g. the same 5 lines repeated)
+      const seenBlocks = new Map<string, number>();
+      for (let i = 0; i < cleanLinesArr.length; i++) {
+        const blockKey = cleanLinesArr.slice(i, Math.min(i + 3, cleanLinesArr.length)).join("|");
+        if (blockKey.length > 30) {
+          const count = (seenBlocks.get(blockKey) || 0) + 1;
+          if (count >= 3) {
+            // Truncate at the start of the repetition
+            const truncated = cleanReply.split("\n").slice(0, i + 3).join("\n");
+            cleanReply = truncated;
+            break;
+          }
+          seenBlocks.set(blockKey, count);
+        }
+      }
+    }
 
     // 3. Strict Anti-Repetition Sanitizer (Ensures headers and bullet items appear EXACTLY ONCE)
     const lines = cleanReply.split("\n");
@@ -207,4 +355,10 @@ export function sanitizeReply(reply: string): string {
     cleanReply += `\n\n${escapedDisclaimer}`;
 
     return cleanReply;
+  } catch (sanitizeError) {
+    console.warn("[sanitizer] sanitizeReply error:", sanitizeError);
+    // Return original reply with disclaimer as fallback
+    const safeReply = typeof reply === "string" ? reply : "تحليل فني.";
+    return safeReply + `\n\n${AI_CONFIG.disclaimer}`;
+  }
 }
