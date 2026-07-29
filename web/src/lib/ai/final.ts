@@ -72,6 +72,10 @@ WRONG FORMAT (NEVER do this):
 
 8. 🛑 ANTI-LOOP RULE: Analyze each stock EXACTLY ONCE. NEVER repeat introductory phrases like "من وجهة نظرك..." or duplicate paragraph blocks. Stop immediately after completing the technical analysis section.
 
+9. 💡 EGYPTIAN DIALECT QUESTIONS: When user asks "أبيع بكام؟" or "احط امر بيع بكام؟" (at what price to sell?), do NOT treat "بكام" as a stock name. Explain technical targets or resistance levels based on provided indicators.
+
+10. ⚠️ INDICES ARE NOT STOCKS: NEVER list EGX30, EGX70, or EGX100 in tables of "أبرز الأسهم التي دخلها سيولة" or call them "أسهم".
+
 ${plannerResult.image_summary ? `\n=== IMAGE DATA ===\n${plannerResult.image_summary}\n=== END ===\n` : ""}
 ${liveDataString ? `\n=== DATABASE DATA ===\n${liveDataString}\n=== END ===\n` : ""}
 

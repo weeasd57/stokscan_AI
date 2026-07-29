@@ -37,7 +37,7 @@ export async function executeTools(supabase: any, plannerResult: PlannerResult, 
 
     const hasImages = plannerResult.intent === "portfolio" || Boolean(plannerResult.image_summary);
     const normUserMessage = normalizeArabic(userMessage || "");
-    const isAccumulationQuery = (tools.includes("get_accumulation") || tools.includes("get_accumulation_stocks") || plannerResult.intent === "accumulation" || normUserMessage.includes("تجميع")) && !hasImages;
+    const isAccumulationQuery = (tools.includes("get_accumulation") || tools.includes("get_accumulation_stocks") || plannerResult.intent === "accumulation" || normUserMessage.includes("تجميع") || normUserMessage.includes("سيوله") || normUserMessage.includes("سيولة") || normUserMessage.includes("صعود") || normUserMessage.includes("يرتفع")) && !hasImages;
     const isDistributionQuery = (tools.includes("get_distribution") || tools.includes("get_distribution_stocks") || plannerResult.intent === "distribution" || normUserMessage.includes("تصريف")) && !hasImages;
 
     // Database stock inventory count tool for availability queries
