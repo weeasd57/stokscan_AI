@@ -71,11 +71,12 @@ export function convertStockBulletsToTable(replyText: string): string {
 
     const lines = cleanReply.split("\n");
     let currentSection = "";
+    let currentActiveSymbol: string | null = null;
 
     // Parse lines using extractTickerFromLine
     for (const line of lines) {
         const trimmed = line.trim();
-        if (!trimmed) continue;
+        if (!trimmed || trimmed === "•") continue;
 
         if (trimmed.includes("RSI") && !trimmed.includes("=")) {
             currentSection = "rsi";
@@ -89,8 +90,14 @@ export function convertStockBulletsToTable(replyText: string): string {
         }
 
         const sym = extractTickerFromLine(trimmed);
-        if (sym && (trimmed.includes("السعر") || trimmed.includes("RSI") || trimmed.includes("التغير") || trimmed.includes("تجميع") || trimmed.includes("تصريف") || trimmed.includes("محايد"))) {
-            const stock = getOrCreateStock(sym);
+        if (sym && sym !== "NULL" && sym !== "EGX") {
+            currentActiveSymbol = sym;
+            getOrCreateStock(sym);
+        }
+
+        const targetSym = sym || currentActiveSymbol;
+        if (targetSym && targetSym !== "NULL" && targetSym !== "EGX") {
+            const stock = getOrCreateStock(targetSym);
 
             const priceMatch = trimmed.match(/السعر(?: اللحظي)?\s*[:=]\s*([0-9\.\,\s]+(?:ج\.م)?)/i);
             const changeMatch = trimmed.match(/التغير\s*[:=]\s*([+\-]?\s*[0-9\.\,]+\s*%)/i);
@@ -106,7 +113,7 @@ export function convertStockBulletsToTable(replyText: string): string {
             if (macdMatch && macdMatch[1]) stock.macd = macdMatch[1].trim().replace(/,$/, "");
             if (signalMatch && signalMatch[1]) stock.signal = signalMatch[1].trim().replace(/,$/, "");
 
-            if (!priceMatch && !changeMatch && !rsiMatch && !macdMatch && !ratioMatch) {
+            if (!priceMatch && !changeMatch && !rsiMatch && !macdMatch && !ratioMatch && sym) {
                 // Section-based fallback
                 const rawVal = trimmed
                     .replace(new RegExp(`\\*\\*${sym}\\*\\*`, "gi"), "")

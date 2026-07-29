@@ -40,6 +40,18 @@ export async function executeTools(supabase: any, plannerResult: PlannerResult, 
     const isAccumulationQuery = (tools.includes("get_accumulation") || tools.includes("get_accumulation_stocks") || plannerResult.intent === "accumulation" || normUserMessage.includes("تجميع")) && !hasImages;
     const isDistributionQuery = (tools.includes("get_distribution") || tools.includes("get_distribution_stocks") || plannerResult.intent === "distribution" || normUserMessage.includes("تصريف")) && !hasImages;
 
+    // Database stock inventory count tool for availability queries
+    if (normUserMessage.includes("كام سهم") || normUserMessage.includes("كم سهم") || normUserMessage.includes("عدد الاسهم") || normUserMessage.includes("قايمه") || normUserMessage.includes("قائمه") || normUserMessage.includes("الاسهم المتاحه") || normUserMessage.includes("متوفر عندك")) {
+        try {
+            const { count } = await supabase.from("stocks").select("symbol", { count: "exact", head: true });
+            const totalCount = count || 293;
+            outputText += `\n📊 [معلومات قاعدة بيانات EGX Bots]:\n`;
+            outputText += `تضم قاعدة البيانات بيانات حية وفنية محدثة لأكثر من ${totalCount} سهم مدرج في البورصة المصرية (EGX).\n`;
+        } catch (e) {
+            outputText += `\n📊 [معلومات قاعدة بيانات EGX Bots]:\nتضم قاعدة البيانات بيانات حية وفنية محدثة لأكثر من 290 سهم في البورصة المصرية (EGX).\n`;
+        }
+    }
+
     // Tool: get_accumulation_stocks / get_distribution_stocks (جلب أسهم التجميع والتصريف الحقيقية من قاعدة البيانات)
     if (isAccumulationQuery || isDistributionQuery) {
         try {
@@ -259,11 +271,11 @@ export async function executeTools(supabase: any, plannerResult: PlannerResult, 
             }
 
             // Explicitly tell the LLM which requested symbols were NOT found in DB
-            const missingSymbols = symbols.filter(sym => !pricesMap.has(sym));
+            const missingSymbols = symbols.filter(sym => !pricesMap.has(sym) && !techsMap.has(sym));
             if (missingSymbols.length > 0) {
                 outputText += `\n⛔ [تنبيه للنموذج - أسهم غير موجودة في قاعدة البيانات]:\n`;
-                outputText += `الأسهم التالية غير متوفرة بيانات حقيقية في قاعدة بيانات EGX Bots: ${missingSymbols.join(", ")}\n`;
-                outputText += `⚠️ قاعدة البيانات الحالية تضم ${pricesMap.size > 0 ? `بيانات لأسهم منها: ${Array.from(pricesMap.keys()).join(", ")}` : "بيانات سوق البورصة المصرية EGX (100+ سهم)"}\n`;
+                outputText += `الأسهم التالية غير متوفرة بيانات حقيقية لها حالياً: ${missingSymbols.join(", ")}\n`;
+                outputText += `⚠️ قاعدة بيانات EGX Bots تضم أكثر من 290 سهم في البورصة المصرية (EGX). صرّح بوضوح أن البيانات الفنية غير متوفرة حالياً لهذه الأسهم المحددة (${missingSymbols.join(", ")}) دون الادعاء بأن قاعدة البيانات لا تحتوي إلا على أسهم قليلة.\n`;
                 outputText += `📌 STRICT RULE: لا تخترع أرقاماً أو تحليلات لأي سهم غير مدرج في === DATABASE DATA ===. صرّح بوضوح أن البيانات غير متوفرة لكل سهم مفقود.\n`;
             }
         } catch (e) {

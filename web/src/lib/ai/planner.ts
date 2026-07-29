@@ -161,7 +161,28 @@ const ARABIC_NAME_MAPPINGS: Record<string, string | string[]> = {
     "aspire": "ASPI",
     "نهر الخير": "KRDI",
     "نهر الخير للتنمية": "KRDI",
-    "krdi": "KRDI"
+    "krdi": "KRDI",
+    "عبور": "OLFI",
+    "عبور لاند": "OLFI",
+    "العبور": ["OLFI", "OBRI"],
+    "العبور لاند": "OLFI",
+    "دومتي": "DMTY",
+    "dmty": "DMTY",
+    "فتنس": "FTNS",
+    "فتنس برايم": "FTNS",
+    "فتنس بريم": "FTNS",
+    "ftns": "FTNS",
+    "المنصورة": "MPCO",
+    "المنصورة للدواجن": "MPCO",
+    "منصورة للدواجن": "MPCO",
+    "منصورة دواجن": "MPCO",
+    "عامر": "AMER",
+    "عامر جروب": "AMER",
+    "amer": "AMER",
+    "كرير": "SKPC",
+    "كريست": "CRST",
+    "كريست مارك": "CRST",
+    "crst": "CRST"
 };
 
 async function getStocksList(): Promise<StocksListData> {
