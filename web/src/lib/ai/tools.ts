@@ -492,6 +492,64 @@ export async function executeTools(supabase: any, plannerResult: PlannerResult, 
             lookbackDate.setDate(lookbackDate.getDate() - AI_CONFIG.tools.newsDaysLookback);
             const lookbackDateStr = lookbackDate.toISOString().split("T")[0];
 
+            // Fetch actual news articles from the `news` table when specific symbols are requested
+            if (symbols.length > 0) {
+                try {
+                    const { data: stocksData } = await supabase
+                        .from("stocks")
+                        .select("id, symbol")
+                        .in("symbol", symbols);
+
+                    if (stocksData && stocksData.length > 0) {
+                        const stockIds = stocksData.map((s: any) => s.id);
+                        const symbolById = new Map<number, string>(
+                            stocksData.map((s: any) => [s.id, s.symbol])
+                        );
+
+                        const { data: articles } = await supabase
+                            .from("news")
+                            .select("stock_id, title, url, source, published_at, sentiment_score, sentiment_label")
+                            .in("stock_id", stockIds)
+                            .gte("published_at", lookbackDate.toISOString())
+                            .order("published_at", { ascending: false })
+                            .limit(AI_CONFIG.tools.newsLimit * 3);
+
+                        if (articles && articles.length > 0) {
+                            const articlesBySymbol = new Map<string, any[]>();
+                            articles.forEach((a: any) => {
+                                const sym = symbolById.get(a.stock_id);
+                                if (sym) {
+                                    if (!articlesBySymbol.has(sym)) {
+                                        articlesBySymbol.set(sym, []);
+                                    }
+                                    articlesBySymbol.get(sym)!.push(a);
+                                }
+                            });
+
+                            outputText += `\n📰 [أخبار الأسهم - مقالات حية من قاعدة البيانات]:\n`;
+                            articlesBySymbol.forEach((items, sym) => {
+                                outputText += `\n🔹 **${sym}** (${items.length} خبر):\n`;
+                                items.slice(0, 8).forEach((a: any) => {
+                                    const pubDate = a.published_at
+                                        ? new Date(a.published_at).toLocaleDateString("ar-EG", { day: "numeric", month: "short", year: "numeric" })
+                                        : "غير معروف";
+                                    const sentiment = a.sentiment_label || (a.sentiment_score > 0.15 ? "إيجابي" : a.sentiment_score < -0.15 ? "سلبي" : "محايد");
+                                    const sentEmoji = sentiment === "إيجابي" || sentiment === "positive" ? "🟢" : sentiment === "سلبي" || sentiment === "negative" ? "🔴" : "⚪";
+                                    outputText += `  • ${sentEmoji} ${a.title}\n`;
+                                    outputText += `    📅 ${pubDate} | 📰 المصدر: ${a.source || "غير معروف"}\n`;
+                                    if (a.url) {
+                                        outputText += `    🔗 ${a.url}\n`;
+                                    }
+                                });
+                            });
+                            outputText += `\n`;
+                        }
+                    }
+                } catch (articleErr) {
+                    console.warn("Error fetching actual news articles:", articleErr);
+                }
+            }
+
             let newsQuery = supabase
                 .from("stock_news_sentiment")
                 .select("symbol, date, sentiment_score, news_count, headlines")
