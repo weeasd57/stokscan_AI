@@ -150,8 +150,8 @@ ${liveDataString ? `=== DATABASE DATA ===\n${liveDataString}\n=== END ===` : "ل
     let finalUserMessage: any;
     if (hasImages && isVisionModel) {
         const userTextContent = message
-            ? `${message}\n\nيرجى تحليل الصورة المرفقة بالكامل وتقديم تحليل شامل لجميع الأسهم الموجودة بها.`
-            : "يرجى تحليل هذه الصورة وتقديم تحليل شامل لجميع الأسهم الموجودة بها.";
+            ? `${message}\n\nيرجى تحليل الصورة المرفقة بالكامل وتقديم تحليل شامل وموجز لجميع الأسهم الموجودة بها. اكتب التحليل باختصار شديد في نقاط محددة ودون أي مقدمات أو كلام إنشائي لتسريع الرد.`
+            : "يرجى تحليل هذه الصورة وتقديم تحليل شامل وموجز لجميع الأسهم الموجودة بها. اكتب التحليل باختصار شديد في نقاط محددة ودون أي مقدمات أو كلام إنشائي لتسريع الرد.";
         finalUserMessage = {
             role: "user",
             content: [
@@ -253,13 +253,15 @@ export async function generateFinalResponse(
         }
     }
 
-    for (const key of apiKeys) {
-        for (const modelName of modelsToTry) {
+    let keyIndex = 0;
+    for (const modelName of modelsToTry) {
+        while (keyIndex < apiKeys.length) {
+            const key = apiKeys[keyIndex];
             try {
                 const isVisionModel = visionModels.includes(modelName);
                 const messagesToSend = buildFinalMessages(message, imageList, liveDataString, plannerResult, aiMessages, isVisionModel);
                 const controller = new AbortController();
-                const timeoutMs = isVisionModel ? 18000 : 12000;
+                const timeoutMs = isVisionModel ? 15000 : 10000;
                 const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
                 const res = await fetch(AI_CONFIG.api.nvidiaBaseUrl, {
@@ -288,16 +290,28 @@ export async function generateFinalResponse(
                         return sanitizeReply(reply, liveDataString);
                     }
                     if (reply && isNvidiaContentRefusal(reply)) {
-                        console.warn(`NVIDIA content refusal from model ${modelName}, trying next model...`);
+                        console.warn(`NVIDIA content refusal from model ${modelName}`);
+                        break; // Refusal - try next model
                     }
                 } else {
                     const errText = await res.text();
-                    console.warn(`Model ${modelName} with Key failed (${res.status}):`, errText.substring(0, 150));
+                    console.warn(`Model ${modelName} failed (${res.status}):`, errText.substring(0, 150));
+                    if (res.status === 401 || res.status === 403 || res.status === 429) {
+                        keyIndex++;
+                        continue; // Key auth issue - try next key
+                    } else {
+                        break; // Server/model issue - try next model
+                    }
                 }
             } catch (err: any) {
                 console.warn(`Fetch error with model ${modelName}:`, err.message || err);
+                if (err.name === "AbortError" || err.message?.includes("aborted")) {
+                    break; // Timeout - try next model
+                }
+                keyIndex++; // Network/unknown error - try next key
             }
         }
+        keyIndex = 0;
     }
 
     return `أهلاً بك! يمكنك إرسال الصورة بوضوح أو كتابة اسم السهم المطلوب وسأقوم بتحليله لك فوراً.\n\n${AI_CONFIG.disclaimer}`;
@@ -477,13 +491,15 @@ export async function* generateFinalStream(
         }
     }
 
-    for (const key of apiKeys) {
-        for (const modelName of modelsToTry) {
+    let keyIndex = 0;
+    for (const modelName of modelsToTry) {
+        while (keyIndex < apiKeys.length) {
+            const key = apiKeys[keyIndex];
             try {
                 const controller = new AbortController();
                 const isVisionModel = visionModels.includes(modelName);
                 const messagesToSend = buildFinalMessages(message, imageList, liveDataString, plannerResult, aiMessages, isVisionModel);
-                const timeoutMs = isVisionModel ? 18000 : 12000;
+                const timeoutMs = isVisionModel ? 15000 : 10000;
                 const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
                 const res = await fetch(AI_CONFIG.api.nvidiaBaseUrl, {
@@ -528,6 +544,9 @@ export async function* generateFinalStream(
                             if (trimmed.startsWith("data: ")) {
                                 const dataStr = trimmed.slice(6);
                                 if (dataStr === "[DONE]") {
+                                    if (!refusalChecked && refusalBuffer.trim()) {
+                                        yield refusalBuffer;
+                                    }
                                     yield `\n\n${AI_CONFIG.disclaimer}`;
                                     return;
                                 }
@@ -540,7 +559,7 @@ export async function* generateFinalStream(
                                             if (refusalBuffer.length >= 120 || delta.includes(".") || delta.includes("\n") || delta.includes("!") || delta.includes("?")) {
                                                 refusalChecked = true;
                                                 if (isNvidiaContentRefusal(refusalBuffer)) {
-                                                    console.warn(`NVIDIA content refusal from stream model ${modelName}, trying next model...`);
+                                                    console.warn(`NVIDIA content refusal from stream model ${modelName}`);
                                                     refused = true;
                                                     reader.cancel();
                                                     break; // break inner for
@@ -566,7 +585,9 @@ export async function* generateFinalStream(
                         }
                         if (refused) break; // break outer while
                     }
-                    if (refused) continue; // try next model
+                    if (refused) {
+                        break; // Refusal - try next model
+                    }
 
                     if (buffer.trim()) {
                         const trimmed = buffer.trim();
@@ -581,16 +602,31 @@ export async function* generateFinalStream(
                         }
                     }
 
+                    if (!refusalChecked && refusalBuffer.trim()) {
+                        yield refusalBuffer;
+                    }
+
                     yield `\n\n${AI_CONFIG.disclaimer}`;
                     return;
                 } else {
-                    const errText = await res.text();
+                    const errText = res.ok ? "" : await res.text();
                     console.warn(`Stream model ${modelName} failed (${res.status}):`, errText.substring(0, 150));
+                    if (res.status === 401 || res.status === 403 || res.status === 429) {
+                        keyIndex++;
+                        continue; // try next key
+                    } else {
+                        break; // try next model
+                    }
                 }
             } catch (err: any) {
                 console.warn(`Stream fetch error with model ${modelName}:`, err.message || err);
+                if (err.name === "AbortError" || err.message?.includes("aborted")) {
+                    break; // Timeout - try next model
+                }
+                keyIndex++; // try next key
             }
         }
+        keyIndex = 0;
     }
 
     yield `أهلاً بك! يمكنك إرسال الصورة بوضوح أو كتابة اسم السهم المطلوب وسأقوم بتحليله لك فوراً.\n\n${AI_CONFIG.disclaimer}`;

@@ -313,9 +313,10 @@ export async function POST(req: NextRequest) {
 
             return new Response(customStream, {
                 headers: {
-                    "Content-Type": "text/event-stream",
-                    "Cache-Control": "no-cache",
+                    "Content-Type": "text/event-stream; charset=utf-8",
+                    "Cache-Control": "no-cache, no-transform",
                     "Connection": "keep-alive",
+                    "X-Accel-Buffering": "no",
                 },
             });
         }

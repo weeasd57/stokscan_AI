@@ -2,12 +2,12 @@ export const AI_CONFIG = {
   models: {
     planner: {
       text: ["deepseek-ai/deepseek-v4-flash", "meta/llama-3.1-8b-instruct"],
-      vision: ["meta/llama-3.2-11b-vision-instruct", "meta/llama-3.2-90b-vision-instruct"],
+      vision: ["nvidia/nemotron-nano-12b-v2-vl", "nvidia/llama-3.1-nemotron-nano-vl-8b-v1", "meta/llama-3.2-11b-vision-instruct"],
     },
     response: {
       default: "deepseek-ai/deepseek-v4-flash",
       fallbacks: ["meta/llama-3.1-8b-instruct", "deepseek-ai/deepseek-v4-pro", "meta/llama-3.1-70b-instruct"],
-      vision: ["meta/llama-3.2-11b-vision-instruct", "meta/llama-3.2-90b-vision-instruct"],
+      vision: ["nvidia/nemotron-nano-12b-v2-vl", "nvidia/llama-3.1-nemotron-nano-vl-8b-v1", "meta/llama-3.2-11b-vision-instruct"],
     },
   },
   limits: {

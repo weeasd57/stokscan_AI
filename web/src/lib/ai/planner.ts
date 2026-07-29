@@ -466,8 +466,8 @@ Analyze user request and return JSON with this exact structure:
     const userPromptText = `${sessionContext}User Request:\n${message || "Analyze input"}${imageInstructions}\n\n⚠️ CRITICAL instruction: You MUST return ONLY a valid JSON object starting with '{' and ending with '}'. Do NOT write any conversational text, explanations, or steps (like 'To analyze the image...'). Respond only with the JSON data.`;
 
     const plannerModels = hasImages 
-        ? ["meta/llama-3.2-11b-vision-instruct", "meta/llama-3.2-90b-vision-instruct"] 
-        : ["meta/llama-3.1-8b-instruct", "meta/llama-3.1-70b-instruct"];
+        ? AI_CONFIG.models.planner.vision 
+        : AI_CONFIG.models.planner.text;
 
     // 🚀 MULTI-IMAGE HANDLER: Execute parallel single-image vision calls to bypass NVIDIA 1-image-per-prompt API limit
     if (hasImages && imageList.length > 1) {
@@ -616,11 +616,13 @@ Analyze user request and return JSON with this exact structure:
         }
     }
 
-    for (const key of apiKeys) {
-        for (const modelName of plannerModels) {
+    let keyIndex = 0;
+    for (const modelName of plannerModels) {
+        while (keyIndex < apiKeys.length) {
+            const key = apiKeys[keyIndex];
             try {
                 const controller = new AbortController();
-                const timeoutMs = hasImages ? 25000 : (AI_CONFIG.limits.plannerTimeoutMs || 6000);
+                const timeoutMs = hasImages ? 15000 : (AI_CONFIG.limits.plannerTimeoutMs || 6000);
                 const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
                 const reqBody: any = {
@@ -652,12 +654,6 @@ Analyze user request and return JSON with this exact structure:
                     const json = await res.json();
                     const rawContent = json.choices?.[0]?.message?.content?.trim() || "";
                     
-                    // ⚠️ DEBUG: Log vision model response for images
-                    if (hasImages) {
-                        console.log(`🔍 Vision Model (${modelName}) Raw Response:`, rawContent.substring(0, 300));
-                        console.log(`🔍 Full Raw Content Length: ${rawContent.length} characters`);
-                    }
-                    
                     let parsed: any = null;
                     try {
                         parsed = JSON.parse(rawContent);
@@ -666,23 +662,11 @@ Analyze user request and return JSON with this exact structure:
                         if (jsonMatch) {
                             try {
                                 parsed = JSON.parse(jsonMatch[0]);
-                            } catch (parseError) {
-                                console.warn(`JSON parse error with model ${modelName}:`, parseError);
-                            }
+                            } catch (parseError) {}
                         }
                     }
 
                     if (parsed) {
-                        if (hasImages) {
-                            console.log(`🔍 Vision Parsed Result:`, {
-                                intent: parsed.intent,
-                                symbols: parsed.entities?.symbols,
-                                symbolsCount: parsed.entities?.symbols?.length || 0,
-                                image_summary_length: parsed.image_summary?.length || 0,
-                                image_summary_preview: parsed.image_summary?.substring(0, 150) || "EMPTY"
-                            });
-                        }
-
                         const fullVisionText = (rawContent || "") + " " + (parsed.image_summary || "");
                         const symbolsTextExtracted = hasImages 
                             ? extractSymbolsFromText(fullVisionText, validSymbols, stockMappings)
@@ -697,11 +681,7 @@ Analyze user request and return JSON with this exact structure:
                             ...symbolsTextExtracted
                         ]))
                         .filter((s: string) => validSymbols.includes(s) && /^[A-Z]{2,6}$/.test(s) && !/^\d+$/.test(s))
-                        .filter((s: string) => s !== "EXTRACTED_SYMBOL" && s !== "SYMBOL1" && s !== "PRIMARY_SYMBOL");
-
-                        if (hasImages) {
-                            console.log(`🖼️ Image symbols (vision-only, verified against validSymbols): [${symbols.join(', ')}] (${symbols.length} stocks)`);
-                        }
+                        .filter((s: string) => s !== "EXTRACTED_SYMBOL" && s !== "SYMBOL1" && s !== "PRIMARY_SYMBOL" && s !== "NULL" && s !== "UNDEFINED" && s !== "NONE");
 
                         const isFollowupQuery = /الاتنين|الإثنين|الاطنين|كلاهما|مع بعض|السهمين|تحليلهم|هاتهم|قولي عنهم|حللهم|بياناتهم|سعرهم|أخبارهم/i.test(message);
                         const isAggregateTableRequest = /كل البيانات|جدول|كل الأسهم|جدول بالشات|ملخص المحادثة/i.test(message);
@@ -754,7 +734,7 @@ Analyze user request and return JSON with this exact structure:
                                 last_symbols: finalIntent === "general_chat"
                                     ? (session.last_symbols || [])
                                     : (hasImages 
-                                        ? resolvedSymbols  // ✅ للصور: استخدم بس الرموز من الصورة
+                                        ? resolvedSymbols
                                         : (Array.isArray(parsed.session_update?.last_symbols) && parsed.session_update.last_symbols.length > 0
                                             ? parsed.session_update.last_symbols.map((s: string) => correctStockSymbol(String(s).toUpperCase(), validSymbols))
                                             : Array.from(new Set([...resolvedSymbols, ...(session.last_symbols || [])])).slice(0, 15))),
@@ -768,11 +748,25 @@ Analyze user request and return JSON with this exact structure:
 
                         return result;
                     }
+                    break; // Model returned OK but invalid content format - try next model
+                } else {
+                    console.warn(`Planner model ${modelName} failed with status ${res.status}`);
+                    if (res.status === 401 || res.status === 403 || res.status === 429) {
+                        keyIndex++;
+                        continue; // Key auth issue - try next key
+                    } else {
+                        break; // Server/model issue - try next model
+                    }
                 }
-            } catch (e) {
+            } catch (e: any) {
                 console.warn(`Planner model ${modelName} attempt warning:`, e);
+                if (e.name === "AbortError" || e.message?.includes("aborted")) {
+                    break; // Timeout - try next model
+                }
+                keyIndex++; // Network/unknown error - try next key
             }
         }
+        keyIndex = 0;
     }
 
     const fallbackSymbols = hasImages ? [] : (session.current_symbol ? [correctStockSymbol(session.current_symbol, validSymbols)] : []);
