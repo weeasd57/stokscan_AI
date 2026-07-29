@@ -50,11 +50,11 @@ export function buildFinalMessages(
    - أحدث التوصيات وإشارات التداول المسجلة في الداتابيز (scan_results)
 
 2. WHEN USER ASKS ABOUT MARKET NEWS, MARKET STATUS, OR TODAY'S MARKET ("أخبار السوق", "النهاردة", "حالة البورصة", "المؤشر والدولار", "اتجاه السيولة"):
-   - ⚡ You MUST IMMEDIATELY read and summarize ALL details from === DATABASE DATA ===!
-   - State the EGX30 index level and change percentage (مثال: مؤشر EGX30 عند 31,450 نقطة).
-   - State the USD/EGP exchange rate (مثال: سعر صرف الدولار 48.50 جنيه).
-   - State the overall market regime and top gainers/losers.
-   - Summarize active market recommendations or liquidity trends.
+   - ⚡ You MUST IMMEDIATELY read and summarize ALL exact values from === DATABASE DATA ===!
+   - State the exact EGX30 index value and change percentage provided in === DATABASE DATA ===.
+   - State the exact USD/EGP exchange rate provided in === DATABASE DATA ===.
+   - State the overall market regime and top moving stocks provided in === DATABASE DATA ===.
+   - Summarize active market recommendations or liquidity trends provided in === DATABASE DATA ===.
 
 3. 🚫 NEVER instruct the user to check news websites, newspapers, or external apps when data is available in === DATABASE DATA ===!
 4. لا تقم باختراع بيانات مالية أو أسعار من عندك. استخدم فقط البيانات المتاحة في === DATABASE DATA ===.`;
