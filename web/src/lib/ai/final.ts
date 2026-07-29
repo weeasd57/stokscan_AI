@@ -126,8 +126,14 @@ ${liveDataString ? `=== DATABASE DATA ===\n${liveDataString}\n=== END ===` : "ل
         }
 	    }
 
-    // Build history messages — when an image is present, strip history to prevent old text questions from confusing image analysis
+    // Build history messages — when an image is present, strip history to prevent old text questions from confusing image analysis.
+    // Also strip any "image.png" / "cannot read image" leak from history that could cause non-vision models to error.
     const historySlice = (aiMessages || []).slice(1, -1);
+    const stripImageRefs = (text: string) => text
+        .replace(/\bimage\.\w+\b/gi, "[صورة]")
+        .replace(/cannot read image[^.]*\./gi, "")
+        .replace(/ERROR:.*image.*model does not support image input[^.]*\./gi, "")
+        .trim();
     const sanitizedAiMessages = hasImages ? [] : historySlice.map((msg: any) => {
         if (Array.isArray(msg.content)) {
             const textParts = msg.content
@@ -136,7 +142,8 @@ ${liveDataString ? `=== DATABASE DATA ===\n${liveDataString}\n=== END ===` : "ل
                 .join(" ");
             return { role: msg.role, content: textParts || message || "تحليل البيانات والصورة" };
         }
-        return msg;
+        const safeContent = typeof msg.content === "string" ? stripImageRefs(msg.content) : msg.content;
+        return { role: msg.role, content: safeContent };
     });
 
     // Build the final user message
@@ -153,9 +160,10 @@ ${liveDataString ? `=== DATABASE DATA ===\n${liveDataString}\n=== END ===` : "ل
             ]
         };
     } else {
-        const userTextContent = hasImages && !isVisionModel
+        const baseText = hasImages && !isVisionModel
             ? (message ? `${message}\n\n[ملاحظة: تم تحليل الصورة مسبقاً بواسطة نموذج الرؤية — أجب بناءً على البيانات والجداول أعلاه فقط.]` : "أجب بناءً على البيانات والجداول أعلاه.")
             : (message || (hasImages ? "تحليل الصورة والبيانات" : "تحليل البيانات"));
+        const userTextContent = stripImageRefs(baseText);
         finalUserMessage = {
             role: "user",
             content: userTextContent
