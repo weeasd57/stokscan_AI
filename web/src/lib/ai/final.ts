@@ -345,6 +345,13 @@ export function checkStreamCircuitBreaker(accumulatedText: string): boolean {
         if (cnt >= 3) return true;
         lineCounts.set(key, cnt);
     }
+
+    // 4. Check for repeating phrases (length >= 15 repeating 3+ times)
+    if (accumulatedText.length > 50) {
+        const sentencePattern = /([^.!?\n]{15,})[\s\S]*?\1[\s\S]*?\1/i;
+        if (sentencePattern.test(accumulatedText)) return true;
+    }
+
     return false;
 }
 
@@ -545,6 +552,12 @@ export async function* generateFinalStream(
                                             yield delta;
                                         }
                                         accumulatedStreamText += delta;
+                                        if (checkStreamCircuitBreaker(accumulatedStreamText)) {
+                                            console.warn("🛑 Anti-repetition circuit breaker triggered in NVIDIA loop! Truncating infinite stream loop.");
+                                            reader.cancel();
+                                            yield `\n\n${AI_CONFIG.disclaimer}`;
+                                            return;
+                                        }
                                     }
                                 } catch {
                                     // Ignore JSON parse errors on partial lines
