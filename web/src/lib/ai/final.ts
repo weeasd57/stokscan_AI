@@ -24,7 +24,19 @@ export function buildFinalMessages(
         normMsg.includes("مؤشر والدولار") || 
         ((!plannerResult.entities?.symbols || plannerResult.entities.symbols.length === 0) && !plannerResult.image_summary && !(imageList && imageList.length > 0));
 
-    if (isGeneralOrMarketQuery) {
+    const isChartQuery = plannerResult.intent === "chart_analysis" || (plannerResult.entities?.wants_table === false && hasImages);
+
+    if (isChartQuery) {
+        finalSystemPrompt += `
+
+📈 أنت الآن خبير التحليل الفني والرسوم البيانية وسوق المال (Expert Technical & Visual Chart Analyst).
+توجيهات التحليل الشامل للصورة:
+1. 🚫 لا تفرض جداول مالية أو صفوفاً جامدة عند تحليل الشارتات الرسمية أو الصور الفنية.
+2. اقرأ الصورة المرفقة كاملةً باستخدام قدرات الرؤية البصرية الكاملة (Multimodal Vision): حلل الأشكال والأنماط الفنية، الاتجاهات، نماذج الموجات، خطوط الدعم والمقاومة، ومستويات فيبوناتشي الظاهرة.
+3. اشرح كافة التفاصيل والأرقام والنسب والمؤشرات الفنية المرئية بالصورة بكل دقة ووضوح.
+4. حدد النطاق السعري المتوقع، الأهداف التداولية، ومستويات الأمان ووقف الخسارة بناءً على المعطيات الظاهرة بالرسم البياني.
+5. قدّم نصاً تحليلياً شاملاً، عميقاً، وبليغاً باللغة العربية يشرح للمستخدم كل ما تظهره الصورة بأسلوب احترافي رائع يضاهي أرقى بيوت الخبرة المالية.`;
+    } else if (isGeneralOrMarketQuery) {
         finalSystemPrompt += `
 
 أنت الآن في وضع الإجابة المباشرة العامة أو حالة السوق (Market / General Chat).
@@ -63,7 +75,7 @@ WRONG FORMAT (NEVER do this):
 
 2. After the table, add a brief **تحليل السيولة الفنية** section of 2-3 lines summarizing the technical setup of the analyzed stocks.
    - Use ONLY the exact company name from === DATABASE DATA === for each ticker.
-   - NEVER mix up company names (e.g. do NOT call AFMC "سيناء" or GTWL "جلاكسو").
+   - NEVER mix up company names. Always match the symbol to its exact name provided in === DATABASE DATA ===.
    - NEVER write "لا توجد أسهم أخرى" or list unrequested stocks from previous chat history.
    - If analyzing a single stock, summarize its technical status directly in 2 lines.
 
@@ -87,6 +99,8 @@ WRONG FORMAT (NEVER do this):
 10. ⚠️ INDICES ARE NOT STOCKS: NEVER list EGX30, EGX70, or EGX100 in tables of "أبرز الأسهم التي دخلها سيولة" or call them "أسهم".
 
 11. 🚫 NEVER CLAIM LIMITED DATABASE: NEVER say or claim "ليس لدي قاعدة بيانات لكل الأسهم" or that data is restricted only to image stocks. EGX Bots database contains live technical data for over 293 EGX stocks. Always summarize top market stocks from === DATABASE DATA === when user asks about whole market liquidity ("بيانات السوق كله" or "مش من الصورة").
+
+12. 🛑 NEVER LIST CHAT HISTORY STOCKS AS "THE ONLY AVAILABLE STOCKS": When a requested stock is missing or unlisted, state clearly and factually: "سهم (اسم السهم) غير مدرج حالياً ضمن الـ 293 سهم الأساسية المدرجة بالبورصة المصرية المتاحة بقاعدة البيانات." NEVER claim or list past chat history stocks (like TAQA or EAST) as if they are the "only available stocks in the database".
 
 ${(plannerResult.image_summary && (hasImages || plannerResult.intent === "portfolio")) ? `\n=== IMAGE DATA ===\n${plannerResult.image_summary}\n=== END ===\n` : ""}
 ${liveDataString ? `\n=== DATABASE DATA ===\n${liveDataString}\n=== END ===\n` : ""}
@@ -258,6 +272,30 @@ export async function generateFinalResponse(
     return `أهلاً بك! يمكنك إرسال الصورة بوضوح أو كتابة اسم السهم المطلوب وسأقوم بتحليله لك فوراً.\n\n${AI_CONFIG.disclaimer}`;
 }
 
+export function checkStreamCircuitBreaker(accumulatedText: string): boolean {
+    if (!accumulatedText) return false;
+
+    // 1. Check if 'تحليل السيولة' or '###' headers repeated 2+ times
+    const headerMatches = accumulatedText.match(/تحليل السيولة/g);
+    if (headerMatches && headerMatches.length >= 2) return true;
+
+    // 2. Check if asterisk loop (* * * * * * *)
+    if (/\*\s*\*\s*\*\s*\*\s*\*\s*\*/.test(accumulatedText)) return true;
+
+    // 3. Check if any stock line repeated 3+ times
+    const lines = accumulatedText.split("\n").map(l => l.trim()).filter(l => l.length > 8);
+    const lineCounts = new Map<string, number>();
+    for (const l of lines) {
+        // Ignore table separator lines
+        if (l.startsWith("|") && (l.includes("---") || l.includes("السهم"))) continue;
+        const key = l.replace(/[\*\_\:\-\s]/g, "").toLowerCase();
+        const cnt = (lineCounts.get(key) || 0) + 1;
+        if (cnt >= 3) return true;
+        lineCounts.set(key, cnt);
+    }
+    return false;
+}
+
 export async function* generateFinalStream(
     message: string,
     imageList: string[],
@@ -265,14 +303,14 @@ export async function* generateFinalStream(
     plannerResult: PlannerResult,
     aiMessages: any[],
     apiKeys: string[],
-    requestedModel: string
+    requestedModel?: string
 ): AsyncGenerator<string, void, unknown> {
     const defaultTextModel = AI_CONFIG.models.response.default;
     const symbolCount = plannerResult.entities?.symbols?.length || 0;
     const userSelectedModel = selectOptimalModel(
         plannerResult.intent,
         symbolCount,
-        requestedModel
+        requestedModel || ""
     );
 
     const hasImages = imageList && imageList.length > 0;
@@ -324,8 +362,8 @@ export async function* generateFinalStream(
                 const reader = res.body.getReader();
                 const decoder = new TextDecoder();
                 let buffer = "";
+                let accumulatedStreamText = "";
                 let hasYieldedAny = false;
-                let repeatedHeaderCount = 0;
 
                 while (true) {
                     const { done, value } = await reader.read();
@@ -344,13 +382,11 @@ export async function* generateFinalStream(
                                 const parsed = JSON.parse(dataStr);
                                 const token = parsed.choices?.[0]?.delta?.content || "";
                                 if (token) {
-                                    if (token.includes("تحليل السيولة")) {
-                                        repeatedHeaderCount++;
-                                        if (repeatedHeaderCount >= 2) {
-                                            console.warn("🛑 Anti-repetition circuit breaker triggered! Truncating infinite loop.");
-                                            reader.cancel();
-                                            return;
-                                        }
+                                    accumulatedStreamText += token;
+                                    if (checkStreamCircuitBreaker(accumulatedStreamText)) {
+                                        console.warn("🛑 Anti-repetition circuit breaker triggered! Truncating infinite stream loop.");
+                                        reader.cancel();
+                                        return;
                                     }
                                     hasYieldedAny = true;
                                     yield token;
@@ -385,9 +421,9 @@ export async function* generateFinalStream(
                     body: JSON.stringify({
                         model: modelName,
                         messages: messagesToSend,
-                        temperature: 0.2,
-                        presence_penalty: 0.1,
-                        frequency_penalty: 0.1,
+                        temperature: 0.15,
+                        presence_penalty: 0.3,
+                        frequency_penalty: 0.5,
                         max_tokens: 4096,
                         stream: true
                     })
@@ -399,6 +435,7 @@ export async function* generateFinalStream(
                     const reader = res.body.getReader();
                     const decoder = new TextDecoder();
                     let buffer = "";
+                    let accumulatedStreamText = "";
 
                     while (true) {
                         const { done, value } = await reader.read();

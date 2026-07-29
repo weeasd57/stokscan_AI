@@ -7,21 +7,21 @@ export function extractTickerFromLine(line: string): string | null {
     // Reject pure numbers (e.g. 30, 70, 100)
     const isPureNumber = (s: string) => /^\d+$/.test(s);
 
-    // 1. Match (KRDI) or (سهم KRDI)
+    // 1. Match (TICKER) or (سهم TICKER)
     const parenMatch = clean.match(/\(\s*(?:سهم\s+)?([A-Z0-9]{2,10})\s*\)/i);
     if (parenMatch) {
         const sym = parenMatch[1].toUpperCase();
         if (!ignoredWords.includes(sym) && !isPureNumber(sym)) return sym;
     }
 
-    // 2. Match سهم KRDI or سهم الـ KRDI
+    // 2. Match سهم TICKER or سهم الـ TICKER
     const arabMatch = clean.match(/سهم\s+(?:الـ\s*)?([A-Z0-9]{2,10})/i);
     if (arabMatch) {
         const sym = arabMatch[1].toUpperCase();
         if (!ignoredWords.includes(sym)) return sym;
     }
 
-    // 3. Match **KRDI** or **سهم KRDI...**
+    // 3. Match **TICKER** or **سهم TICKER...**
     const boldMatch = clean.match(/\*\*([A-Z0-9_\s\u0600-\u06FF\(\)\.\,]+)\*\*/i);
     if (boldMatch) {
         const innerText = boldMatch[1];
@@ -116,12 +116,12 @@ export function convertStockBulletsToTable(replyText: string): string {
             const ratioMatch = trimmed.match(/نسبة (?:السيولة|الحجم)\s*[:=]\s*([0-9\.\,]+\s*x?)/i);
             const signalMatch = trimmed.match(/الإشارة\s*[:=]\s*([^\,\n\.]+)/i) || trimmed.match(/(تجميع|تصريف|محايد|صعود ضعيف|هبوط ضعيف)/i);
 
-            if (priceMatch && priceMatch[1]) stock.price = priceMatch[1].trim().replace(/,$/, "");
-            if (changeMatch && changeMatch[1]) stock.change = changeMatch[1].trim().replace(/,$/, "");
-            if (ratioMatch && ratioMatch[1]) stock.volRatio = ratioMatch[1].trim().replace(/,$/, "");
-            if (rsiMatch && rsiMatch[1]) stock.rsi = rsiMatch[1].trim().replace(/,$/, "");
-            if (macdMatch && macdMatch[1]) stock.macd = macdMatch[1].trim().replace(/,$/, "");
-            if (signalMatch && signalMatch[1]) stock.signal = signalMatch[1].trim().replace(/,$/, "");
+            if (priceMatch && priceMatch[1] && (sym || stock.price === "-")) stock.price = priceMatch[1].trim().replace(/,$/, "");
+            if (changeMatch && changeMatch[1] && (sym || stock.change === "-")) stock.change = changeMatch[1].trim().replace(/,$/, "");
+            if (ratioMatch && ratioMatch[1] && (sym || stock.volRatio === "-")) stock.volRatio = ratioMatch[1].trim().replace(/,$/, "");
+            if (rsiMatch && rsiMatch[1] && (sym || stock.rsi === "-")) stock.rsi = rsiMatch[1].trim().replace(/,$/, "");
+            if (macdMatch && macdMatch[1] && (sym || stock.macd === "-")) stock.macd = macdMatch[1].trim().replace(/,$/, "");
+            if (signalMatch && signalMatch[1] && (sym || stock.signal === "محايد ⚪")) stock.signal = signalMatch[1].trim().replace(/,$/, "");
 
             if (!priceMatch && !changeMatch && !rsiMatch && !macdMatch && !ratioMatch && sym) {
                 // Section-based fallback
@@ -175,6 +175,10 @@ export function sanitizeReply(reply: string): string {
         const trimmed = line.trim();
         if (!trimmed) {
             cleanLines.push(line);
+            continue;
+        }
+        // Filter out dummy NULL stock lines
+        if (trimmed.includes("سهم NULL") || trimmed.includes("(NULL)") || trimmed.includes("سهم null")) {
             continue;
         }
         // Table markup divider lines (e.g. |---|---|) should be preserved

@@ -114,6 +114,23 @@ const ARABIC_NAME_MAPPINGS: Record<string, string | string[]> = {
     "ابن سينا": "ISPH",
     "ابن سينا فارما": "ISPH",
     "القاهرة للدواجن": "POUL",
+    "المنصورة للدواجن": "MPCO",
+    "منصورة للدواجن": "MPCO",
+    "المنصوره للدواجن": "MPCO",
+    "دواجن المنصورة": "MPCO",
+    "دواجن المنصوره": "MPCO",
+    "ام بي كو": "MPCO",
+    "مصر للدواجن": "EPCO",
+    "الإسماعيلية للدواجن": "ISMA",
+    "الاسماعيلية للدواجن": "ISMA",
+    "طاقة عربية": "TAQA",
+    "طاقة عربيه": "TAQA",
+    "طاقة": "TAQA",
+    "عبور لاند": "OLFI",
+    "إيديتا": "EFID",
+    "ايديتا": "EFID",
+    "كريدي أجريكول": "CIEB",
+    "كريدي اجريكول": "CIEB",
     "كابو": "KABO",
     "الحاويات": "ALCN",
     "حاويات": "ALCN",
@@ -163,7 +180,6 @@ const ARABIC_NAME_MAPPINGS: Record<string, string | string[]> = {
     "نهر الخير للتنمية": "KRDI",
     "krdi": "KRDI",
     "عبور": "OLFI",
-    "عبور لاند": "OLFI",
     "العبور": ["OLFI", "OBRI"],
     "العبور لاند": "OLFI",
     "دومتي": "DMTY",
@@ -173,8 +189,6 @@ const ARABIC_NAME_MAPPINGS: Record<string, string | string[]> = {
     "فتنس بريم": "FTNS",
     "ftns": "FTNS",
     "المنصورة": "MPCO",
-    "المنصورة للدواجن": "MPCO",
-    "منصورة للدواجن": "MPCO",
     "منصورة دواجن": "MPCO",
     "عامر": "AMER",
     "عامر جروب": "AMER",
@@ -425,7 +439,8 @@ Analyze user request and return JSON with this exact structure:
 }
 
 **RULES:**
-- For images: use intent "portfolio" and extract ALL visible stock symbols (do not miss any)
+- For images showing portfolio/holdings lists: use intent "portfolio" and extract visible stock tickers.
+- For images showing TECHNICAL CHARTS (candlesticks, TradingView, harmonic patterns, trendlines, support/resistance): use intent "chart_analysis", set entities.wants_table to FALSE, extract the ticker symbol visible on the chart, and set summary to detailed chart description.
 - For USD/market queries: use intent "market_summary" with tools ["get_market","get_indices"]  
 - For news: use intent "stock_news" with tools ["get_news"]
 - For recommendations or signals: use intent "recommendation" with tools ["get_recommendations"]
@@ -439,7 +454,7 @@ Analyze user request and return JSON with this exact structure:
 
     const recentHistoryText = hasImages ? "" : (history || []).slice(-6).map((h: any) => `${h.role}: ${h.content}`).join("\n");
     const imageInstructions = hasImages 
-        ? `\n\n⚠️⚠️⚠️ CRITICAL IMAGE EXTRACTION RULES ⚠️⚠️⚠️\n- Extract ONLY uppercase stock TICKERS (e.g. KRDI, ELEC, PHAR, MOED, MFPC, IEEC, PHDC, BIOC, DTPP, AMES, AJWA).\n- NEVER put prices, numeric values (e.g. 14,040.70, 7,700.00), or change percentages in the symbols array.\n- Look at the text next to logos, icons, or names for 2-5 letter stock TICKERS.\n- Count visible stocks carefully: if 7 stocks are shown, extract EXACTLY 7 stock TICKERS.\n` 
+        ? `\n\n⚠️ UNRESTRICTED EXPERT VISION EXTRACTION ⚠️\n- Thoroughly inspect the uploaded image(s) using full multimodal vision capabilities.\n- If the image contains portfolio holdings, OCR and extract ALL visible uppercase stock tickers.\n- If the image contains technical charts, diagrams, or financial documents: describe every detail, pattern, technical indicator, price target, support/resistance level, and trend visible in image_summary.\n` 
         : "";
     const sessionContext = hasImages ? "" : `Current Session:\n${JSON.stringify(session)}\n\nRecent History:\n${recentHistoryText}\n\n`;
     const userPromptText = `${sessionContext}User Request:\n${message || "Analyze input"}${imageInstructions}\n\n⚠️ CRITICAL instruction: You MUST return ONLY a valid JSON object starting with '{' and ending with '}'. Do NOT write any conversational text, explanations, or steps (like 'To analyze the image...'). Respond only with the JSON data.`;
@@ -447,6 +462,72 @@ Analyze user request and return JSON with this exact structure:
     const plannerModels = hasImages 
         ? ["meta/llama-3.2-11b-vision-instruct", "meta/llama-3.2-90b-vision-instruct"] 
         : ["meta/llama-3.1-8b-instruct", "meta/llama-3.1-70b-instruct"];
+
+    // 🚀 MULTI-IMAGE HANDLER: Execute parallel single-image vision calls to bypass NVIDIA 1-image-per-prompt API limit
+    if (hasImages && imageList.length > 1) {
+        console.log(`🖼️ Multi-image detected (${imageList.length} images). Executing parallel single-image vision extraction...`);
+        const allExtractedSymbols: string[] = [];
+        const validSymbols = await loadValidSymbols();
+        
+        await Promise.all(imageList.map(async (imgUrl) => {
+            for (const key of apiKeys) {
+                for (const modelName of plannerModels) {
+                    try {
+                        const controller = new AbortController();
+                        const timeoutId = setTimeout(() => controller.abort(), 20000);
+                        const singleUserContent = [
+                            { type: "text", text: userPromptText },
+                            { type: "image_url", image_url: { url: imgUrl } }
+                        ];
+                        const res = await fetch("https://integrate.api.nvidia.com/v1/chat/completions", {
+                            method: "POST",
+                            headers: {
+                                "Content-Type": "application/json",
+                                "Authorization": `Bearer ${key}`
+                            },
+                            signal: controller.signal,
+                            body: JSON.stringify({
+                                model: modelName,
+                                messages: [
+                                    { role: "system", content: plannerSystemPrompt },
+                                    { role: "user", content: singleUserContent }
+                                ],
+                                max_tokens: 1500,
+                                temperature: 0.05
+                            })
+                        });
+                        clearTimeout(timeoutId);
+                        if (res.ok) {
+                            const json = await res.json();
+                            const rawContent = json.choices?.[0]?.message?.content?.trim() || "";
+                            let parsed: any = null;
+                            try { parsed = JSON.parse(rawContent); } catch {
+                                const jsonMatch = rawContent.match(/\{[\s\S]*\}/);
+                                if (jsonMatch) try { parsed = JSON.parse(jsonMatch[0]); } catch {}
+                            }
+                            if (parsed && parsed.entities && Array.isArray(parsed.entities.symbols)) {
+                                parsed.entities.symbols.forEach((sym: string) => {
+                                    const corr = correctStockSymbol(sym, validSymbols);
+                                    if (corr && validSymbols.includes(corr)) allExtractedSymbols.push(corr);
+                                });
+                                return; // success for this image
+                            }
+                        }
+                    } catch {}
+                }
+            }
+        }));
+
+        const finalMultiSymbols = Array.from(new Set(allExtractedSymbols));
+        console.log(`🖼️ Multi-image combined symbols (${finalMultiSymbols.length}):`, finalMultiSymbols);
+        return {
+            intent: "portfolio",
+            confidence: 0.95,
+            entities: { symbols: finalMultiSymbols, sector: null, wants_table: true, timeframe: "1d" },
+            tools: ["get_stock"],
+            session_update: { current_symbol: finalMultiSymbols[0] || null, last_symbols: finalMultiSymbols, summary: `Multi-image analysis of ${imageList.length} images` }
+        };
+    }
 
     let userContent: any;
     if (hasImages) {
