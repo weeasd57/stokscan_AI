@@ -11,6 +11,7 @@ export function buildFinalMessages(
     aiMessages: any[],
     isVisionModel: boolean = true
 ): { role: string; content: any }[] {
+    const hasImages = Array.isArray(imageList) && imageList.length > 0;
     let finalSystemPrompt = `You are EGX Bots AI Assistant for the Egyptian Stock Exchange (EGX).`;
 
     const normMsg = (message || "").toLowerCase();
@@ -87,14 +88,13 @@ WRONG FORMAT (NEVER do this):
 
 11. 🚫 NEVER CLAIM LIMITED DATABASE: NEVER say or claim "ليس لدي قاعدة بيانات لكل الأسهم" or that data is restricted only to image stocks. EGX Bots database contains live technical data for over 293 EGX stocks. Always summarize top market stocks from === DATABASE DATA === when user asks about whole market liquidity ("بيانات السوق كله" or "مش من الصورة").
 
-${plannerResult.image_summary ? `\n=== IMAGE DATA ===\n${plannerResult.image_summary}\n=== END ===\n` : ""}
+${(plannerResult.image_summary && (hasImages || plannerResult.intent === "portfolio")) ? `\n=== IMAGE DATA ===\n${plannerResult.image_summary}\n=== END ===\n` : ""}
 ${liveDataString ? `\n=== DATABASE DATA ===\n${liveDataString}\n=== END ===\n` : ""}
 
 Respond in professional Arabic. Be factual, concise, and structured. START WITH THE TABLE.`;
     }
 
     // Build history messages — when an image is present, strip history to prevent old text questions from confusing image analysis
-    const hasImages = Array.isArray(imageList) && imageList.length > 0;
     const historySlice = (aiMessages || []).slice(1, -1);
     const sanitizedAiMessages = hasImages ? [] : historySlice.map((msg: any) => {
         if (Array.isArray(msg.content)) {
