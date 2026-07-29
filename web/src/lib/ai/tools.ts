@@ -88,8 +88,8 @@ export async function executeTools(supabase: any, plannerResult: PlannerResult, 
                             .slice(0, 15);
 
                         if (accStocks.length > 0) {
-                            outputText += `\n📈 [أهم الأسهم التي تشهد تجميع احترافي (Professional Accumulation Scan) - بتاريخ ${maxDate}]:\n`;
-                            outputText += `📌 معايير الفحص الاحترافي: درجة تجميع 0-100 (Acc Score) محسوبة بنماذج Wyckoff + تحليل السيولة الحجمية (Volume Ratio) + اتجاه OBV + أيام التجميع المتتالية.\n`;
+                            outputText += `\n📊 [بيانات المسح الفني الشامل لجميع أسهم البورصة المصرية (أكثر من 293 سهم مدرج في EGX30 و EGX70 و EGX100)]:\n`;
+                            outputText += `تغطي قاعدة بيانات EGX Bots حياً كافة أسهم البورصة المصرية. القائمة التالية هي أعلى الأسهم تجميعاً وسيولة مؤسسية تم رصدها بالمسح الشامل من بين جميع أسهم السوق بتاريخ ${maxDate}:\n`;
                             accStocks.forEach((r: any, idx: number) => {
                                 const name = stocksMap.get(r.symbol) || r.symbol;
                                 const changeStr = Number(r.change_pct || 0) >= 0 ? `+${Number(r.change_pct).toFixed(2)}%` : `${Number(r.change_pct).toFixed(2)}%`;

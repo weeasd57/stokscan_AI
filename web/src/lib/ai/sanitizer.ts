@@ -2,13 +2,16 @@ import { AI_CONFIG } from "./config";
 
 export function extractTickerFromLine(line: string): string | null {
     const clean = line.replace(/\b(RSI|MACD|VWAP|ADX|NULL|EGX)\b/gi, "");
-    const ignoredWords = ["RSI", "MACD", "EGYPT", "CO", "SAE", "INC", "LTD"];
+    const ignoredWords = ["RSI", "MACD", "EGYPT", "CO", "SAE", "INC", "LTD", "EGX30", "EGX70", "EGX100", "30", "70", "100"];
+
+    // Reject pure numbers (e.g. 30, 70, 100)
+    const isPureNumber = (s: string) => /^\d+$/.test(s);
 
     // 1. Match (KRDI) or (سهم KRDI)
     const parenMatch = clean.match(/\(\s*(?:سهم\s+)?([A-Z0-9]{2,10})\s*\)/i);
     if (parenMatch) {
         const sym = parenMatch[1].toUpperCase();
-        if (!ignoredWords.includes(sym)) return sym;
+        if (!ignoredWords.includes(sym) && !isPureNumber(sym)) return sym;
     }
 
     // 2. Match سهم KRDI or سهم الـ KRDI
@@ -54,7 +57,7 @@ export function convertStockBulletsToTable(replyText: string): string {
             if (!trimmed.startsWith("|")) return true;
             if (trimmed.includes("السهم") && trimmed.includes("السعر")) return false;
             if (/^\|[\s\-\|:]+\|$/.test(trimmed)) return false;
-            if (/\|[\s\-]*\-[\s\-]*\|/.test(trimmed) || trimmed.includes("SIDEWAYS")) return false;
+            if (/\|[\s\-]*\-[\s\-]*\|/.test(trimmed) || trimmed.includes("SIDEWAYS") || /^\|\s*\d+\s*\|/.test(trimmed)) return false;
             return true;
         }).join("\n");
     }
