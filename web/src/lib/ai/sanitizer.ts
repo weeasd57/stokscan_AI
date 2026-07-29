@@ -40,16 +40,23 @@ export function extractTickerFromLine(line: string): string | null {
 }
 
 export function convertStockBulletsToTable(replyText: string): string {
-    const isDummyTable = replyText.includes("| - |") || replyText.includes("|-|") || replyText.includes("تحليل السهم") || replyText.includes("| -");
-    if (!isDummyTable && (replyText.includes("| السهم |") || replyText.includes("|السهم|"))) {
+    const hasDummyHyphens = /\|[\s\-]*\-[\s\-]*\|/.test(replyText) || replyText.includes("| SIDEWAYS |") || replyText.includes("| - |") || replyText.includes("|-|");
+    if (!hasDummyHyphens && (replyText.includes("| السهم |") || replyText.includes("|السهم|"))) {
         return replyText;
     }
 
     let cleanReply = replyText;
-    if (isDummyTable) {
+    if (hasDummyHyphens) {
         const lines = cleanReply.split("\n");
-        const nonTableLines = lines.filter(l => !l.trim().startsWith("|") || l.includes("السعر اللحظي"));
-        cleanReply = nonTableLines.filter(l => !l.trim().startsWith("|")).join("\n");
+        // Remove dummy table header & hyphen rows
+        cleanReply = lines.filter(l => {
+            const trimmed = l.trim();
+            if (!trimmed.startsWith("|")) return true;
+            if (trimmed.includes("السهم") && trimmed.includes("السعر")) return false;
+            if (/^\|[\s\-\|:]+\|$/.test(trimmed)) return false;
+            if (/\|[\s\-]*\-[\s\-]*\|/.test(trimmed) || trimmed.includes("SIDEWAYS")) return false;
+            return true;
+        }).join("\n");
     }
 
     const stockItemsMap = new Map<string, { symbol: string; price: string; change: string; volRatio: string; rsi: string; macd: string; signal: string }>();

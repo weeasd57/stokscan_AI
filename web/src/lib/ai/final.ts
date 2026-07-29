@@ -13,16 +13,25 @@ export function buildFinalMessages(
 ): { role: string; content: any }[] {
     let finalSystemPrompt = `You are EGX Bots AI Assistant for the Egyptian Stock Exchange (EGX).`;
 
-    if (plannerResult.intent === "general_chat") {
+    const normMsg = (message || "").toLowerCase();
+    const isGeneralOrMarketQuery = 
+        plannerResult.intent === "general_chat" || 
+        plannerResult.intent === "market_summary" || 
+        normMsg.includes("كام سهم") || 
+        normMsg.includes("كم سهم") || 
+        normMsg.includes("المؤشر والدولار") || 
+        normMsg.includes("مؤشر والدولار") || 
+        ((!plannerResult.entities?.symbols || plannerResult.entities.symbols.length === 0) && !plannerResult.image_summary && !(imageList && imageList.length > 0));
+
+    if (isGeneralOrMarketQuery) {
         finalSystemPrompt += `
 
-أنت الآن في وضع الدردشة العامة (General Chat).
+أنت الآن في وضع الإجابة المباشرة العامة أو حالة السوق (Market / General Chat).
 توجيهات الرد:
-1. أجب على رسالة المستخدم بشكل طبيعي وودي باللغة العربية (الفصحى أو اللهجة المصرية حسب سياق العميل).
-2. إذا سألك المستخدم عن سياق المحادثة أو تاريخ الشات (مثال: "ذكرنا كم سهم؟" أو "ماذا قلنا سابقاً؟")، قم بقراءة تاريخ الشات المرفق في الرسائل السابقة وأجب بدقة عما تم ذكره.
-3. لا ترفض الإجابة بشكل آلي أو روبوتي لمجرد وجود كلمة "سهم" في السؤال. يُسمح لك تماماً بالإجابة على الأسئلة الحوارية والعامة مثل تعريفات الأسهم أو عدد الأسهم المذكورة في الشات.
-4. تجنب التكرار أو العبارات الروبوتية مثل "قبل أن تبتعد في السهم". تحدث بلغة عربية سليمة وواضحة وطبيعية.
-5. لا تقم باختراع بيانات مالية أو أسعار حية من عندك. إذا سألك عن سعر سهم معين أو تحليل مالي، وضح له بلطف أنه يمكنه كتابة اسم السهم للبحث عنه وجلب بياناته الحية.`;
+1. أجب على رسالة المستخدم بشكل طبيعي وودي باللغة العربية.
+2. لا تقم بإنشاء جدول أسهم أو صفوف وهمية تحتوي على شخطات "-" إذا لم تكن هناك أسهم محددة مخصصة للتحليل الفني.
+3. إذا كان الاستفسار عن المؤشر والدولار أو عدد الأسهم أو حالة البورصة، قدم ملخصاً واضحاً ومباشراً بالنص والأسطر المنسقة.
+4. لا تقم باختراع بيانات مالية أو أسعار من عندك. استخدم فقط البيانات المتاحة في === DATABASE DATA ===.`;
     } else {
         finalSystemPrompt += `
 

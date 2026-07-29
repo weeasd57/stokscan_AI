@@ -195,7 +195,7 @@ export async function executeTools(supabase: any, plannerResult: PlannerResult, 
                         supabase
                             .from("stock_prices")
                             .select("symbol, close, volume, date")
-                            .eq("symbol", sym)
+                            .ilike("symbol", sym)
                             .order("date", { ascending: false })
                             .limit(1)
                             .maybeSingle()
@@ -206,36 +206,37 @@ export async function executeTools(supabase: any, plannerResult: PlannerResult, 
                         supabase
                             .from("stock_technical_indicators")
                             .select("symbol, rsi_14, macd_signal, change_pct, volume, vol_sma20, vwap_20, adx_14, momentum_10")
-                            .eq("symbol", sym)
+                            .ilike("symbol", sym)
                             .order("date", { ascending: false })
                             .limit(1)
                             .maybeSingle()
                     )
                 ),
-                supabase.from("stocks").select("symbol, name").in("symbol", symbols)
+                supabase.from("stocks").select("symbol, name").in("symbol", symbols.map(s => s.toUpperCase()))
             ]);
 
             const pricesMap = new Map<string, any>();
             pricesData.forEach(r => {
-                if (r.data?.symbol) pricesMap.set(r.data.symbol, r.data);
+                if (r.data?.symbol) pricesMap.set(r.data.symbol.toUpperCase(), r.data);
             });
 
             const techsMap = new Map<string, any>();
             techsData.forEach(r => {
-                if (r.data?.symbol) techsMap.set(r.data.symbol, r.data);
+                if (r.data?.symbol) techsMap.set(r.data.symbol.toUpperCase(), r.data);
             });
 
             const stocksMap = new Map<string, any>();
             (stocksRes.data || []).forEach((s: any) => {
-                if (s?.symbol) stocksMap.set(s.symbol, s);
+                if (s?.symbol) stocksMap.set(s.symbol.toUpperCase(), s);
             });
 
             if (pricesMap.size > 0 || techsMap.size > 0) {
                 outputText += `\n📊 [بيانات الأسهم الحية من قاعدة البيانات]:\n`;
                 symbols.forEach(sym => {
-                    const price = pricesMap.get(sym);
-                    const tech = techsMap.get(sym);
-                    const stock = stocksMap.get(sym);
+                    const upperSym = sym.toUpperCase();
+                    const price = pricesMap.get(upperSym);
+                    const tech = techsMap.get(upperSym);
+                    const stock = stocksMap.get(upperSym);
                     if (price || tech) {
                         const closePrice = price?.close ?? tech?.close ?? tech?.vwap_20 ?? "N/A";
                         const changeStr = tech && typeof tech.change_pct === "number" 
