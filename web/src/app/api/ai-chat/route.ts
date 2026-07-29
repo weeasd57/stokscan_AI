@@ -97,10 +97,14 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ detail: `Daily limit reached. You can send up to ${AI_CONFIG.limits.dailyMessages} messages per day.` }, { status: 429 });
         }
 
+        const { data: dbSettings } = await supabase.from("ai_chatbot_settings").select("api_key").eq("id", 1).maybeSingle();
+        const dbApiKey = dbSettings?.api_key || null;
+
         const keysToTry = Array.from(new Set([
             process.env.NVIDIA_API_KEY,
             process.env.NVIDIA_SECONDARY_API_KEY,
-            process.env.NVIDIA_NIM_API_KEY
+            process.env.NVIDIA_NIM_API_KEY,
+            dbApiKey
         ].filter((k): k is string => Boolean(k))));
 
         if (keysToTry.length === 0) {

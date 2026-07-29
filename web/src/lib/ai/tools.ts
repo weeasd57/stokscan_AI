@@ -369,7 +369,7 @@ export async function executeTools(supabase: any, plannerResult: PlannerResult, 
     }
 
     // Tool 4: get_market & get_news
-    if (!tools || tools.length === 0 || tools.includes("get_market") || tools.includes("get_news") || plannerResult.intent === "market_summary" || plannerResult.intent === "stock_news") {
+    if (!tools || tools.length === 0 || tools.includes("get_market") || tools.includes("get_news") || plannerResult.intent === "market_summary" || plannerResult.intent === "stock_news" || normUserMessage.includes("دولار") || normUserMessage.includes("مؤشر") || normUserMessage.includes("المؤشر")) {
         try {
             const { data: marketCache } = await fetchMarketCache();
 
