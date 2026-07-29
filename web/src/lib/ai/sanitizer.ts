@@ -138,6 +138,11 @@ export function convertStockBulletsToTable(replyText: string): string {
     const validItems = Array.from(stockItemsMap.values()).filter(s => s.symbol && s.symbol !== "NULL" && s.symbol !== "EGX" && s.symbol.length >= 2);
     if (validItems.length === 0) return replyText;
 
+    // If replyText already has a clean table header, don't prepend another table header
+    if (replyText.includes("| السهم |") || replyText.includes("|السهم|")) {
+        return replyText;
+    }
+
     const tableRows = validItems.map(s => `| ${s.symbol} | ${s.price} | ${s.change} | ${s.volRatio} | ${s.rsi} | ${s.macd} | ${s.signal} |`);
     const tableMarkdown = `| السهم | السعر اللحظي | التغير اليومي | نسبة السيولة | RSI (14) | إشارة MACD | إشارة السيولة |\n| :--- | :--- | :--- | :--- | :--- | :--- | :--- |\n` + tableRows.join("\n");
 
@@ -158,7 +163,7 @@ export function sanitizeReply(reply: string): string {
     // 2. Automatically transform bullet stock items into a Markdown Table if LLM outputted bullets
     cleanReply = convertStockBulletsToTable(cleanReply);
 
-    // 3. Anti-Repetition Loop Sanitizer (Collapses duplicate header/line loops)
+    // 3. Strict Anti-Repetition Sanitizer (Ensures headers and bullet items appear EXACTLY ONCE)
     const lines = cleanReply.split("\n");
     const cleanLines: string[] = [];
     const lineCountMap = new Map<string, number>();
@@ -174,9 +179,14 @@ export function sanitizeReply(reply: string): string {
             cleanLines.push(line);
             continue;
         }
-        const key = trimmed.replace(/[\*\_\:\-\s]/g, "");
+        const key = trimmed.replace(/[\*\_\:\-\s]/g, "").toLowerCase();
         const count = lineCountMap.get(key) || 0;
-        if (count < 2) {
+        
+        // Strict 1-occurrence limit for headings (###) and bullet items (• or *)
+        const isHeaderOrBullet = trimmed.startsWith("#") || trimmed.startsWith("*") || trimmed.startsWith("•") || trimmed.includes("تحليل السيولة");
+        const maxAllowed = isHeaderOrBullet ? 1 : 2;
+
+        if (count < maxAllowed) {
             lineCountMap.set(key, count + 1);
             cleanLines.push(line);
         }

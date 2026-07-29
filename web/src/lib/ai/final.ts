@@ -79,7 +79,7 @@ WRONG FORMAT (NEVER do this):
 
 7. FOR IMAGES: Analyze ONLY stocks visible in the image. Do NOT pull in stocks from chat history.
 
-8. 🛑 ANTI-LOOP RULE: Analyze each stock EXACTLY ONCE. NEVER repeat introductory phrases like "من وجهة نظرك..." or duplicate paragraph blocks. Stop immediately after completing the technical analysis section.
+8. 🛑 NO DUPLICATE SECTIONS: NEVER output "### تحليل السيولة الفنية" more than ONCE. NEVER repeat bullet point sections for stocks. Write the table ONCE, followed by a SINGLE concise 3-line analysis section. Stop immediately after that.
 
 9. 💡 EGYPTIAN DIALECT QUESTIONS: When user asks "أبيع بكام؟" or "احط امر بيع بكام؟" (at what price to sell?), do NOT treat "بكام" as a stock name. Explain technical targets or resistance levels based on provided indicators.
 
