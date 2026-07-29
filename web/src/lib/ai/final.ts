@@ -173,10 +173,11 @@ export async function generateFinalResponse(
     const officialKey = process.env.DEEPSEEK_OFFICIAL_API_KEY || "sk-7d19a8fd6cb943c3b71eaca8e55cef3b";
     if (officialKey && !hasImages) {
         try {
-            console.log("🚀 Attempting DeepSeek Official API (deepseek-v4-flash)...");
+            const targetDeepSeekModel = (requestedModel && (requestedModel.includes("pro") || requestedModel.includes("reasoner"))) ? "deepseek-reasoner" : "deepseek-v4-flash";
+            console.log(`🚀 Attempting DeepSeek Official API (${targetDeepSeekModel})...`);
             const messagesToSend = buildFinalMessages(message, imageList, liveDataString, plannerResult, aiMessages, false);
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 18000);
+            const timeoutId = setTimeout(() => controller.abort(), 30000);
 
             const res = await fetch(AI_CONFIG.api.deepseekOfficialBaseUrl || "https://api.deepseek.com/chat/completions", {
                 method: "POST",
@@ -186,7 +187,7 @@ export async function generateFinalResponse(
                 },
                 signal: controller.signal,
                 body: JSON.stringify({
-                    model: "deepseek-v4-flash",
+                    model: targetDeepSeekModel,
                     messages: messagesToSend,
                     temperature: 0.1,
                     max_tokens: 4096
@@ -199,7 +200,7 @@ export async function generateFinalResponse(
                 const data = await res.json();
                 const reply = data.choices?.[0]?.message?.content?.trim();
                 if (reply) {
-                    console.log("✅ DeepSeek Official API response generated successfully!");
+                    console.log(`✅ DeepSeek Official API (${targetDeepSeekModel}) response generated successfully!`);
                     return sanitizeReply(reply);
                 }
             }
@@ -291,10 +292,11 @@ export async function* generateFinalStream(
     const officialKey = process.env.DEEPSEEK_OFFICIAL_API_KEY || "sk-7d19a8fd6cb943c3b71eaca8e55cef3b";
     if (officialKey && !hasImages) {
         try {
-            console.log("🚀 Attempting DeepSeek Official API stream (deepseek-v4-flash)...");
+            const targetDeepSeekModel = (requestedModel && (requestedModel.includes("pro") || requestedModel.includes("reasoner"))) ? "deepseek-reasoner" : "deepseek-v4-flash";
+            console.log(`🚀 Attempting DeepSeek Official API stream (${targetDeepSeekModel})...`);
             const messagesToSend = buildFinalMessages(message, imageList, liveDataString, plannerResult, aiMessages, false);
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 18000);
+            const timeoutId = setTimeout(() => controller.abort(), 30000);
 
             const res = await fetch(AI_CONFIG.api.deepseekOfficialBaseUrl || "https://api.deepseek.com/chat/completions", {
                 method: "POST",
@@ -304,7 +306,7 @@ export async function* generateFinalStream(
                 },
                 signal: controller.signal,
                 body: JSON.stringify({
-                    model: "deepseek-v4-flash",
+                    model: targetDeepSeekModel,
                     messages: messagesToSend,
                     temperature: 0.1,
                     max_tokens: 4096,
