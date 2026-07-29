@@ -209,8 +209,8 @@ export async function executeTools(supabase: any, plannerResult: PlannerResult, 
         }
     }
 
-    // Tool 1: get_stock & load_stock_prices
-    if (symbols.length > 0 && (tools.includes("get_stock") || tools.includes("load_stock_prices"))) {
+    // Tool 1: get_stock & load_stock_prices — always fetch when symbols present regardless of tool list
+    if (symbols.length > 0) {
         try {
             // Fetch exactly 1 latest record per symbol in parallel to avoid over-fetching and JS deduplication
             const [pricesData, techsData, stocksRes] = await Promise.all([
@@ -236,7 +236,9 @@ export async function executeTools(supabase: any, plannerResult: PlannerResult, 
                             .maybeSingle()
                     )
                 ),
-                supabase.from("stocks").select("symbol, name").in("symbol", symbols.map(s => s.toUpperCase()))
+                supabase.from("stocks").select("symbol, name").or(
+                    symbols.map(s => `symbol.ilike.${s}`).join(",")
+                )
             ]);
 
             const pricesMap = new Map<string, any>();
@@ -335,8 +337,8 @@ export async function executeTools(supabase: any, plannerResult: PlannerResult, 
                     });
                 }
                 
-                outputText += `⚠️ قاعدة بيانات EGX Bots تضم أكثر من 290 سهم في البورصة المصرية (EGX). صرّح بوضوح أن البيانات الفنية غير متوفرة حالياً لهذه الأسهم المحددة (${missingSymbols.join(", ")}) دون الادعاء بأن قاعدة البيانات لا تحتوي إلا على أسهم قليلة.\n`;
-                outputText += `📌 STRICT RULE: لا تخترع أرقاماً أو تحليلات لأي سهم غير مدرج في === DATABASE DATA ===. صرّح بوضوح أن البيانات غير متوفرة لكل سهم مفقود.\n`;
+                
+                outputText += `⚠️ ${missingSymbols.join(", ")} غير متوفر حالياً. لا تخترع بيانات أو أرقاماً. لا تقترح رموزاً بديلة من عندك — استخدم فقط الاقتراحات أعلاه إن وجدت. إذا لم توجد اقتراحات، اكتفِ بالقول إن البيانات غير متوفرة.\n`;
             }
         } catch (e) {
             console.warn("Error fetching stock prices from DB:", e);
@@ -386,7 +388,7 @@ export async function executeTools(supabase: any, plannerResult: PlannerResult, 
                 .eq("country", AI_CONFIG.tools.defaultCountry);
 
             if (symbols.length > 0) {
-                recsQuery = recsQuery.in("symbol", symbols);
+                recsQuery = recsQuery.or(symbols.map(s => `symbol.ilike.${s}`).join(","));
             }
 
             const { data: recsData } = await recsQuery
@@ -498,7 +500,7 @@ export async function executeTools(supabase: any, plannerResult: PlannerResult, 
                     const { data: stocksData } = await supabase
                         .from("stocks")
                         .select("id, symbol")
-                        .in("symbol", symbols);
+                        .or(symbols.map(s => `symbol.ilike.${s}`).join(","));
 
                     if (stocksData && stocksData.length > 0) {
                         const stockIds = stocksData.map((s: any) => s.id);
@@ -560,7 +562,7 @@ export async function executeTools(supabase: any, plannerResult: PlannerResult, 
                 .limit(AI_CONFIG.tools.newsLimit);
 
             if (symbols.length > 0) {
-                newsQuery = newsQuery.in("symbol", symbols);
+                newsQuery = newsQuery.or(symbols.map(s => `symbol.ilike.${s}`).join(","));
             }
 
             const { data: newsData } = await newsQuery;
