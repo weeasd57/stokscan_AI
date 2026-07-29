@@ -446,6 +446,7 @@ Analyze user request and return JSON with this exact structure:
 **RULES:**
 - For images showing portfolio/holdings lists: use intent "portfolio" and extract visible stock tickers.
 - For images showing TECHNICAL CHARTS (candlesticks, TradingView, harmonic patterns, trendlines, support/resistance): use intent "chart_analysis", set entities.wants_table to FALSE, extract the ticker symbol visible on the chart, and set summary to detailed chart description.
+- ⚠️ CRITICAL IMAGE PRIORITY RULE: If an image is uploaded (hasImages is true), you MUST prioritize the image analysis. Even if the user's text message contains quoted text, old logs, or list copy-pastes, you MUST assume the user's main goal is to analyze the uploaded image(s). Set intent to "portfolio" (if it is a holdings page) or "chart_analysis" (if it is a chart), extract all visible stock tickers from the image, and set tools to ["get_stock"]. Do NOT set intent to "recommendation" or "stock_news" or run general recommendation tools unless the user explicitly asks a direct text question about recommendations (e.g., 'give me recommendations') that is completely separate from the image.
 - For USD/market queries: use intent "market_summary" with tools ["get_market","get_indices"]  
 - For news: use intent "stock_news" with tools ["get_news"]
 - For recommendations or signals: use intent "recommendation" with tools ["get_recommendations"]
@@ -583,7 +584,10 @@ Analyze user request and return JSON with this exact structure:
                     const tools = Array.isArray(parsed.tools) ? parsed.tools : ["get_stock"];
 
                     const normMsg = (message || "").toLowerCase();
-                    if (normMsg.includes("توصي") || normMsg.includes("اشار") || normMsg.includes("إشار") || normMsg.includes("فرص") || normMsg.includes("سيولة") || normMsg.includes("السيولة") || normMsg.includes("السوق كله") || normMsg.includes("حجم التداول") || normMsg.includes("اخبار") || normMsg.includes("أخبار") || normMsg.includes("النهاردة") || normMsg.includes("حالة البورصة")) {
+                    const hasRecommendationKeywords = normMsg.includes("توصي") || normMsg.includes("اشار") || normMsg.includes("إشار") || normMsg.includes("فرص");
+                    const hasMarketKeywords = normMsg.includes("سيولة") || normMsg.includes("السيولة") || normMsg.includes("السوق كله") || normMsg.includes("حجم التداول") || normMsg.includes("اخبار") || normMsg.includes("أخبار") || normMsg.includes("النهاردة") || normMsg.includes("حالة البورصة");
+
+                    if ((hasRecommendationKeywords || hasMarketKeywords) && !hasImages) {
                         if (!tools.includes("get_recommendations")) tools.push("get_recommendations");
                         if (!tools.includes("get_signals")) tools.push("get_signals");
                         if (!tools.includes("get_market")) tools.push("get_market");
