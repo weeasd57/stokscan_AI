@@ -38,6 +38,12 @@ export function buildFinalMessages(
 4. حدد النطاق السعري المتوقع، الأهداف التداولية، ومستويات الأمان ووقف الخسارة بناءً على المعطيات الظاهرة بالرسم البياني.
 5. قدّم نصاً تحليلياً شاملاً، عميقاً، وبليغاً باللغة العربية يشرح للمستخدم كل ما تظهره الصورة بأسلوب احترافي رائع يضاهي أرقى بيوت الخبرة المالية.`;
     } else if (isGeneralOrMarketQuery) {
+        // Parse live data and build tables programmatically to prevent hallucination
+        const parsedMarketData = parseToolsOutput(liveDataString || "");
+        const marketProgrammaticTable = buildStockTable(parsedMarketData.stocks);
+        const marketSectorTable = parsedMarketData.market ? buildMarketTable(parsedMarketData.market) : "";
+        const marketRecsTable = buildRecommendationTable(parsedMarketData.recommendations);
+
         finalSystemPrompt += `
 
 🚨 ANTI-HALLUCINATION — DATABASE-DATA ONLY — NO FABRICATION 🚨
@@ -45,10 +51,20 @@ export function buildFinalMessages(
 1. ⛔️ اختراع أي رقم أو سعر أو نسبة أو مؤشر = ممنوع. استخدم فقط الأرقام الموجودة في === DATABASE DATA ===.
 2. ⛔️ اختراع رموز أسهم (tickers) غير موجودة في === DATABASE DATA === = ممنوع. لا تستخدم ESER أو أي رمز مخترع.
 3. ⛔️ نسب أسماء شركات لرموز خطأ = ممنوع. تأكد أن اسم الشركة ورمزها متطابقان في === DATABASE DATA ===.
-4. ✅ اعرض البيانات الفعلية كما هي من === DATABASE DATA === مباشرة.
-5. ✅ إذا كانت === DATABASE DATA === محدودة أو جزئية: اذكر المتوفر فقط. لا تكمل الباقي من خيالك.
-6. ✅ للأسئلة العامة عن السوق: إذا كان === DATABASE DATA === فارغاً أو شبه فارغ، قل بصراحة "البيانات المتاحة محدودة حالياً" ولا تختلق شيئاً.
-7. ✅ مستخدمك خبير ويعرف السوق. أي رقم مخترع سيكتشفه فوراً.`;
+4. ✅ اعرض البيانات الفعلية كما هي من === DATABASE DATA === مباشرة. لا تعد صياغة الجدول — الجدول أدناه هو المصدر الوحيد.
+5. ✅ إذا كانت === DATABASE DATA === محدودة: اذكر المتوفر فقط. لا تكمل الباقي من خيالك.
+6. ✅ للرد: اكتب 3-4 أسطر تحليلية فقط عن البيانات الموجودة. لا تخترع أقساماً أو قطاعات جديدة.
+7. ✅ مستخدمك خبير ويعرف السوق. أي رقم مخترع سيكتشفه فوراً.
+
+${marketProgrammaticTable ? `\nالجدول البرمجي (للقراءة فقط - لا تعد كتابته):\n${marketProgrammaticTable}\n` : ""}
+${marketSectorTable ? `\n${marketSectorTable}\n` : ""}
+${marketRecsTable ? `\n${marketRecsTable}\n` : ""}
+
+=== DATABASE DATA ===
+${liveDataString || "لا توجد بيانات إضافية متاحة حالياً"}
+=== END ===
+
+⚠️ تحذير نهائي: استخدم فقط الأرقام والرموز الموجودة أعلاه. لا تختلق شيئاً.`;
     } else {
         // Parse live data and build the stock table programmatically
         const parsedData = parseToolsOutput(liveDataString || "");
@@ -137,7 +153,9 @@ ${liveDataString ? `=== DATABASE DATA ===\n${liveDataString}\n=== END ===` : "ل
             ]
         };
     } else {
-        const userTextContent = message || (hasImages ? "تحليل الصورة والبيانات" : "تحليل البيانات");
+        const userTextContent = hasImages && !isVisionModel
+            ? (message ? `${message}\n\n[ملاحظة: تم تحليل الصورة مسبقاً بواسطة نموذج الرؤية — أجب بناءً على البيانات والجداول أعلاه فقط.]` : "أجب بناءً على البيانات والجداول أعلاه.")
+            : (message || (hasImages ? "تحليل الصورة والبيانات" : "تحليل البيانات"));
         finalUserMessage = {
             role: "user",
             content: userTextContent
@@ -361,7 +379,7 @@ export async function* generateFinalStream(
     try {
       const parsedStreamData = parseToolsOutput(liveDataString || "");
       streamProgrammaticTable = buildStockTable(parsedStreamData.stocks);
-      hasStreamTable = Boolean(streamProgrammaticTable && parsedStreamData.stocks.length > 0 && !hasImages && plannerResult.intent !== "general_chat" && plannerResult.intent !== "market_summary");
+      hasStreamTable = Boolean(streamProgrammaticTable && parsedStreamData.stocks.length > 0);
     } catch (tableBuildError) {
       console.warn("[generateFinalStream] Error building programmatic table:", tableBuildError);
     }
