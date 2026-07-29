@@ -457,6 +457,59 @@ Analyze user request and return JSON with this exact structure:
         userContent = userPromptText;
     }
 
+    const officialKey = process.env.DEEPSEEK_OFFICIAL_API_KEY || "sk-7d19a8fd6cb943c3b71eaca8e55cef3b";
+    if (officialKey && !hasImages) {
+        try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), AI_CONFIG.limits.plannerTimeoutMs || 8000);
+            const res = await fetch(AI_CONFIG.api.deepseekOfficialBaseUrl || "https://api.deepseek.com/chat/completions", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${officialKey}`
+                },
+                signal: controller.signal,
+                body: JSON.stringify({
+                    model: "deepseek-v4-flash",
+                    messages: [
+                        { role: "system", content: plannerSystemPrompt },
+                        { role: "user", content: userPromptText }
+                    ],
+                    response_format: { type: "json_object" },
+                    max_tokens: 1500,
+                    temperature: 0.05
+                })
+            });
+            clearTimeout(timeoutId);
+            if (res.ok) {
+                const json = await res.json();
+                const rawContent = json.choices?.[0]?.message?.content?.trim() || "";
+                let parsed: any = null;
+                try { parsed = JSON.parse(rawContent); } catch {
+                    const match = rawContent.match(/\{[\s\S]*\}/);
+                    if (match) try { parsed = JSON.parse(match[0]); } catch {}
+                }
+                if (parsed && parsed.intent) {
+                    const validSymbols = await loadValidSymbols();
+                    const { stockMappings } = await getStocksList();
+                    const extracted = extractSymbolsFromText(message || "", validSymbols, stockMappings);
+                    const rawSymbols = Array.isArray(parsed.entities?.symbols) ? parsed.entities.symbols : [];
+                    const normalizedSymbols = rawSymbols.map((s: string) => correctStockSymbol(s, validSymbols)).filter((s: string) => validSymbols.includes(s));
+                    const finalSymbols = Array.from(new Set([...extracted, ...normalizedSymbols]));
+                    return {
+                        intent: parsed.intent || "stock_analysis",
+                        confidence: parsed.confidence || 0.95,
+                        entities: { symbols: finalSymbols, sector: parsed.entities?.sector || null, wants_table: parsed.entities?.wants_table ?? true, timeframe: parsed.entities?.timeframe || "1d" },
+                        tools: Array.isArray(parsed.tools) ? parsed.tools : ["get_stock"],
+                        session_update: { current_symbol: finalSymbols[0] || session?.current_symbol, last_symbols: finalSymbols.length > 0 ? finalSymbols : session?.last_symbols, summary: parsed.session_update?.summary || "" }
+                    };
+                }
+            }
+        } catch (err) {
+            console.warn("DeepSeek Official Planner fetch failed, falling back to NVIDIA keys:", err);
+        }
+    }
+
     for (const key of apiKeys) {
         for (const modelName of plannerModels) {
             try {

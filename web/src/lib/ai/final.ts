@@ -161,6 +161,44 @@ export async function generateFinalResponse(
         console.log("🖼️ Image analysis detected - using vision models:", visionModels.join(", "));
     }
 
+    const officialKey = process.env.DEEPSEEK_OFFICIAL_API_KEY || "sk-7d19a8fd6cb943c3b71eaca8e55cef3b";
+    if (officialKey && !hasImages) {
+        try {
+            console.log("🚀 Attempting DeepSeek Official API (deepseek-v4-flash)...");
+            const messagesToSend = buildFinalMessages(message, imageList, liveDataString, plannerResult, aiMessages, false);
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 18000);
+
+            const res = await fetch(AI_CONFIG.api.deepseekOfficialBaseUrl || "https://api.deepseek.com/chat/completions", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${officialKey}`
+                },
+                signal: controller.signal,
+                body: JSON.stringify({
+                    model: "deepseek-v4-flash",
+                    messages: messagesToSend,
+                    temperature: 0.1,
+                    max_tokens: 4096
+                })
+            });
+
+            clearTimeout(timeoutId);
+
+            if (res.ok) {
+                const data = await res.json();
+                const reply = data.choices?.[0]?.message?.content?.trim();
+                if (reply) {
+                    console.log("✅ DeepSeek Official API response generated successfully!");
+                    return sanitizeReply(reply);
+                }
+            }
+        } catch (err: any) {
+            console.warn("⚠️ DeepSeek Official API non-stream failed, falling back to NVIDIA keys:", err.message || err);
+        }
+    }
+
     for (const key of apiKeys) {
         for (const modelName of modelsToTry) {
             try {
@@ -239,6 +277,69 @@ export async function* generateFinalStream(
 
     if (hasImages) {
         console.log("🖼️ Stream: Image analysis detected - using vision models:", visionModels.join(", "));
+    }
+
+    const officialKey = process.env.DEEPSEEK_OFFICIAL_API_KEY || "sk-7d19a8fd6cb943c3b71eaca8e55cef3b";
+    if (officialKey && !hasImages) {
+        try {
+            console.log("🚀 Attempting DeepSeek Official API stream (deepseek-v4-flash)...");
+            const messagesToSend = buildFinalMessages(message, imageList, liveDataString, plannerResult, aiMessages, false);
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 18000);
+
+            const res = await fetch(AI_CONFIG.api.deepseekOfficialBaseUrl || "https://api.deepseek.com/chat/completions", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${officialKey}`
+                },
+                signal: controller.signal,
+                body: JSON.stringify({
+                    model: "deepseek-v4-flash",
+                    messages: messagesToSend,
+                    temperature: 0.1,
+                    max_tokens: 4096,
+                    stream: true
+                })
+            });
+
+            clearTimeout(timeoutId);
+
+            if (res.ok && res.body) {
+                const reader = res.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = "";
+                let hasYieldedAny = false;
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split("\n");
+                    buffer = lines.pop() || "";
+
+                    for (const line of lines) {
+                        const trimmed = line.trim();
+                        if (trimmed.startsWith("data: ")) {
+                            const dataStr = trimmed.slice(6).trim();
+                            if (dataStr === "[DONE]") continue;
+                            try {
+                                const parsed = JSON.parse(dataStr);
+                                const token = parsed.choices?.[0]?.delta?.content || "";
+                                if (token) {
+                                    hasYieldedAny = true;
+                                    yield token;
+                                }
+                            } catch {}
+                        }
+                    }
+                }
+                if (hasYieldedAny) return;
+            }
+        } catch (err: any) {
+            console.warn("⚠️ DeepSeek Official API stream failed, falling back to NVIDIA keys:", err.message || err);
+        }
     }
 
     for (const key of apiKeys) {

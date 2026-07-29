@@ -19,6 +19,7 @@ export const AI_CONFIG = {
     cacheTtlMs: 24 * 60 * 60 * 1000,
   },
   api: {
+    deepseekOfficialBaseUrl: "https://api.deepseek.com/chat/completions",
     nvidiaBaseUrl: "https://integrate.api.nvidia.com/v1/chat/completions",
   },
   tools: {
