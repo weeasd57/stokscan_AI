@@ -311,6 +311,8 @@ export async function* generateFinalStream(
                     model: targetDeepSeekModel,
                     messages: messagesToSend,
                     temperature: 0.1,
+                    frequency_penalty: 0.5,
+                    presence_penalty: 0.3,
                     max_tokens: 4096,
                     stream: true
                 })
@@ -323,6 +325,7 @@ export async function* generateFinalStream(
                 const decoder = new TextDecoder();
                 let buffer = "";
                 let hasYieldedAny = false;
+                let repeatedHeaderCount = 0;
 
                 while (true) {
                     const { done, value } = await reader.read();
@@ -341,6 +344,14 @@ export async function* generateFinalStream(
                                 const parsed = JSON.parse(dataStr);
                                 const token = parsed.choices?.[0]?.delta?.content || "";
                                 if (token) {
+                                    if (token.includes("تحليل السيولة")) {
+                                        repeatedHeaderCount++;
+                                        if (repeatedHeaderCount >= 2) {
+                                            console.warn("🛑 Anti-repetition circuit breaker triggered! Truncating infinite loop.");
+                                            reader.cancel();
+                                            return;
+                                        }
+                                    }
                                     hasYieldedAny = true;
                                     yield token;
                                 }
