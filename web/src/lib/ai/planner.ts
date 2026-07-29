@@ -196,7 +196,10 @@ const ARABIC_NAME_MAPPINGS: Record<string, string | string[]> = {
     "كرير": "SKPC",
     "كريست": "CRST",
     "كريست مارك": "CRST",
-    "crst": "CRST"
+    "crst": "CRST",
+    "اميس": "AMES",
+    "أميس": "AMES",
+    "ames": "AMES"
 };
 
 async function getStocksList(): Promise<StocksListData> {
@@ -257,16 +260,16 @@ async function loadValidSymbols(): Promise<string[]> {
 }
 
 const STATIC_VALID_SYMBOLS = [
-    'AALR', 'ABUK', 'ACAMD', 'ACAP', 'ADCI', 'ADPC', 'AFMC', 'AIH', 'AJWA', 'ALCN', 'ALUM', 'AMOC',
+    'AALR', 'ABUK', 'ACAMD', 'ACAP', 'ADCI', 'ADPC', 'AFMC', 'AIH', 'AIIH', 'AJWA', 'ALCN', 'ALUM', 'AMES', 'AMOC',
     'APPC', 'ARAB', 'AREH', 'ARVA', 'ATQA', 'AXPH', 'BIOC', 'BTFH', 'CCAP', 'CIEB', 'CIRA', 'CLHO',
-    'CNFN', 'COMI', 'COPR', 'CPCI', 'CRST', 'EAST', 'EEII', 'EFID', 'EFIH', 'EGAL', 'EGAS', 'EGBE',
-    'EGCH', 'EGREF', 'EGSA', 'EGTS', 'EGX30', 'EHDR', 'EITP', 'EKHO', 'ELKA', 'ELSH', 'EMFD', 'EOSB',
-    'ESRS', 'ETEL', 'ETRS', 'FAIT', 'FERC', 'FWRY', 'GBCO', 'GDWA', 'GGCC', 'GGRN', 'GMCI', 'GOUR',
+    'CNFN', 'COMI', 'COPR', 'CPCI', 'CRST', 'DMTY', 'EAST', 'EEII', 'EFID', 'EFIH', 'EGAL', 'EGAS', 'EGBE',
+    'EGCH', 'EGREF', 'EGSA', 'EGTS', 'EGX30', 'EGX70', 'EGX100', 'EHDR', 'EITP', 'EKHO', 'ELKA', 'ELSH', 'EMFD', 'EOSB',
+    'ESRS', 'ETEL', 'ETRS', 'FAIT', 'FERC', 'FTNS', 'FWRY', 'GBCO', 'GDWA', 'GGCC', 'GGRN', 'GMCI', 'GOUR',
     'GSSC', 'HELI', 'HRHO', 'ICFC', 'IDRE', 'INFI', 'IRON', 'ISMA', 'ISPH', 'JUFO', 'KABO', 'KASABF',
-    'KRDI', 'KZPC', 'LUTS', 'MASR', 'MBSC', 'MCQE', 'MENA', 'MFPC', 'MFSC', 'MICH', 'MILS', 'MNHD',
-    'MOIL', 'MOSC', 'MPCO', 'MTIE', 'NEDA', 'NHPS', 'NINH', 'ORAS', 'ORHD', 'ORWE', 'PHDC', 'PHTV',
-    'POUL', 'PRDC', 'RACC', 'RTVC', 'RUBX', 'SAUD', 'SCEM', 'SCTS', 'SEIG', 'SIPC', 'SKPC', 'SNFC',
-    'SPIN', 'SWDY', 'TANM', 'TMGH', 'TRTO', 'TWSA', 'TYCN', 'UEFM', 'UNIT', 'USDEGP', 'VALU', 'VLMRA', 'WATP'
+    'KRDI', 'KWIN', 'KZPC', 'LUTS', 'MASR', 'MBSC', 'MCQE', 'MENA', 'MFPC', 'MFSC', 'MICH', 'MILS', 'MNHD',
+    'MOIL', 'MOSC', 'MPCO', 'MTIE', 'NCGC', 'NEDA', 'NHPS', 'NINH', 'NIPH', 'OLFI', 'ORAS', 'ORHD', 'ORWE', 'PHDC', 'PHTV',
+    'POUL', 'PRDC', 'RACC', 'RREI', 'RTVC', 'RUBX', 'SAUD', 'SCEM', 'SCTS', 'SEIG', 'SIPC', 'SKPC', 'SNFC', 'SODIC',
+    'SPIN', 'SWDY', 'TANM', 'TAQA', 'TMGH', 'TRTO', 'TWSA', 'TYCN', 'UEFM', 'UNIT', 'USDEGP', 'VALU', 'VLMRA', 'WATP'
 ];
 
 function getLevenshteinDistance(a: string, b: string): number {
@@ -476,7 +479,7 @@ Analyze user request and return JSON with this exact structure:
                 for (const modelName of plannerModels) {
                     try {
                         const controller = new AbortController();
-                        const timeoutId = setTimeout(() => controller.abort(), 20000);
+                        const timeoutId = setTimeout(() => controller.abort(), 25000);
                         const singleUserContent = [
                             { type: "text", text: userPromptText },
                             { type: "image_url", image_url: { url: imgUrl } }
@@ -613,7 +616,7 @@ Analyze user request and return JSON with this exact structure:
         for (const modelName of plannerModels) {
             try {
                 const controller = new AbortController();
-                const timeoutMs = hasImages ? 10000 : (AI_CONFIG.limits.plannerTimeoutMs || 6000);
+                const timeoutMs = hasImages ? 25000 : (AI_CONFIG.limits.plannerTimeoutMs || 6000);
                 const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
                 const reqBody: any = {

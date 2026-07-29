@@ -10,6 +10,30 @@ function normalizeArabic(str: string): string {
         .toLowerCase();
 }
 
+function getLevenshteinDistance(a: string, b: string): number {
+    const matrix = [];
+    for (let i = 0; i <= b.length; i++) {
+        matrix[i] = [i];
+    }
+    for (let j = 0; j <= a.length; j++) {
+        matrix[0][j] = j;
+    }
+    for (let i = 1; i <= b.length; i++) {
+        for (let j = 1; j <= a.length; j++) {
+            if (b.charAt(i - 1) === a.charAt(j - 1)) {
+                matrix[i][j] = matrix[i - 1][j - 1];
+            } else {
+                matrix[i][j] = Math.min(
+                    matrix[i - 1][j - 1] + 1, // substitution
+                    matrix[i][j - 1] + 1,     // insertion
+                    matrix[i - 1][j] + 1      // deletion
+                );
+            }
+        }
+    }
+    return matrix[b.length][a.length];
+}
+
 export async function executeTools(supabase: any, plannerResult: PlannerResult, userMessage: string = ""): Promise<string> {
     const { tools, entities } = plannerResult;
     let outputText = "";
@@ -278,6 +302,39 @@ export async function executeTools(supabase: any, plannerResult: PlannerResult, 
             if (missingSymbols.length > 0) {
                 outputText += `\n⛔ [تنبيه للنموذج - أسهم غير موجودة في قاعدة البيانات]:\n`;
                 outputText += `الأسهم التالية غير متوفرة بيانات حقيقية لها حالياً: ${missingSymbols.join(", ")}\n`;
+                
+                // 🔧 اقتراح أسهم قريبة للرموز المفقودة
+                const suggestions: string[] = [];
+                missingSymbols.forEach(missingSym => {
+                    // البحث عن أسهم مشابهة في قاعدة البيانات
+                    const availableSymbols = Array.from(new Set([
+                        ...Array.from(pricesMap.keys()),
+                        ...Array.from(techsMap.keys())
+                    ]));
+                    
+                    // البحث عن أقرب match
+                    const closeMatches = availableSymbols
+                        .map(sym => ({
+                            symbol: sym,
+                            distance: getLevenshteinDistance(missingSym, sym)
+                        }))
+                        .filter(item => item.distance <= 2) // max 2 character difference
+                        .sort((a, b) => a.distance - b.distance)
+                        .slice(0, 2); // أقرب 2 matches
+                    
+                    if (closeMatches.length > 0) {
+                        const suggested = closeMatches.map(m => m.symbol).join(", ");
+                        suggestions.push(`${missingSym} → هل تقصد: ${suggested}`);
+                    }
+                });
+                
+                if (suggestions.length > 0) {
+                    outputText += `💡 [اقتراحات أسهم مشابهة]:\n`;
+                    suggestions.forEach(suggestion => {
+                        outputText += `• ${suggestion}\n`;
+                    });
+                }
+                
                 outputText += `⚠️ قاعدة بيانات EGX Bots تضم أكثر من 290 سهم في البورصة المصرية (EGX). صرّح بوضوح أن البيانات الفنية غير متوفرة حالياً لهذه الأسهم المحددة (${missingSymbols.join(", ")}) دون الادعاء بأن قاعدة البيانات لا تحتوي إلا على أسهم قليلة.\n`;
                 outputText += `📌 STRICT RULE: لا تخترع أرقاماً أو تحليلات لأي سهم غير مدرج في === DATABASE DATA ===. صرّح بوضوح أن البيانات غير متوفرة لكل سهم مفقود.\n`;
             }

@@ -81,27 +81,49 @@ export function buildFinalMessages(
           // The table is yielded separately in streaming; for non-streaming,
           // we prepend it after LLM generation (in sanitizeReply).
           // Tell LLM only to write 2-line analysis
-          finalSystemPrompt = `اكتب 3 أسطر تحليل فني فقط بالعربية عن الأسهم في جدول البيانات أدناه.
-مهم جدا: لا تكرر التعليمات. لا تكتب جدول. لا تكتب نقاط. لا تكتب BUY/SELL كأنها أسهم. اكتب تحليل فقط.
+          finalSystemPrompt = `🚨 STRICT ANTI-HALLUCINATION: DATABASE ONLY ANALYSIS 🚨
 
-ملاحظة: بعض الأسهم قد لا تتوفر لها بيانات — اذكر ذلك ببساطة بدون تخيل أرقام.
+اكتب 3 أسطر تحليل فني فقط بالعربية عن الأسهم في الجدول أدناه.
 
-الجدول (لقراءتك فقط):
+CRITICAL RULES:
+❌ لا تكرر التعليمات أو الجدول
+❌ لا تخترع أرقام أو بيانات غير موجودة في الجدول
+❌ لا تكتب BUY/SELL كأنها أسهم
+❌ لا تخلط بيانات من أسهم مختلفة
+✅ اكتب تحليل مختصر فقط بناءً على البيانات الفعلية
+
+ملاحظة هامة: بعض الأسهم قد لا تتوفر لها بيانات — اذكر ذلك ببساطة بدون تخيل أرقام.
+
+الجدول (للقراءة فقط - لا تعيد كتابته):
 ${programmaticTable}
 
 === DATABASE DATA ===
-${liveDataString || ""}
-=== END ===`;
+${liveDataString || "لا توجد بيانات إضافية"}
+=== END ===
+
+⚠️ تحذير أخير: استخدم فقط الأرقام الموجودة في الجدول والبيانات أعلاه. أي رقم آخر مرفوض.`;
         } else if (noDataForRequested) {
           finalSystemPrompt = `المستخدم طلب أسهم لكن مفيش بيانات متاحة ليها في قاعدة البيانات.
 قل ببساطة: البيانات مش متوفرة للأسهم دي حالياً.
 لا تخترع أرقام.`;
         } else {
           // Fallback for general analysis
-          finalSystemPrompt = `اكتب تحليل فني بسيط بالعربية عن الأسهم أو السوق بناءً على البيانات أدناه.
-استخدم الأرقام الصحيحة فقط من البيانات ولا تخترع أي شيء.
+          finalSystemPrompt = `🚨 CRITICAL: ZERO HALLUCINATION POLICY - STRICT DATABASE ONLY ANALYSIS 🚨
 
-${liveDataString ? `=== DATABASE DATA ===\n${liveDataString}\n=== END ===` : ""}`;
+RULES:
+1. ❌ NEVER invent stock prices, percentages, or numbers NOT in === DATABASE DATA ===
+2. ❌ NEVER create fake RSI, MACD, or technical indicators
+3. ❌ NEVER mix data from different stocks or sources
+4. ✅ ONLY use the EXACT numbers provided in === DATABASE DATA ===
+5. ✅ If a stock has no data → clearly state "البيانات غير متوفرة"
+6. ✅ If a field is missing → write "N/A" or "-"
+
+اكتب تحليل فني بسيط بالعربية بناءً على البيانات الحقيقية أدناه فقط.
+لا تخترع أي أرقام. لا تخلط بيانات مختلفة. استخدم البيانات كما هي بالضبط.
+
+${liveDataString ? `=== DATABASE DATA ===\n${liveDataString}\n=== END ===` : "لا توجد بيانات حقيقية متاحة حالياً."}
+
+⚠️ تذكير نهائي: أي رقم غير موجود في === DATABASE DATA === أعلاه يُعتبر اختراع ومرفوض تماماً.`;
         }
 	    }
 
@@ -253,8 +275,11 @@ export async function generateFinalResponse(
                 if (res.ok) {
                     const data = await res.json();
                     const reply = data.choices?.[0]?.message?.content?.trim();
-                    if (reply) {
+                    if (reply && !isNvidiaContentRefusal(reply)) {
                         return sanitizeReply(reply, liveDataString);
+                    }
+                    if (reply && isNvidiaContentRefusal(reply)) {
+                        console.warn(`NVIDIA content refusal from model ${modelName}, trying next model...`);
                     }
                 } else {
                     const errText = await res.text();
@@ -267,6 +292,27 @@ export async function generateFinalResponse(
     }
 
     return `أهلاً بك! يمكنك إرسال الصورة بوضوح أو كتابة اسم السهم المطلوب وسأقوم بتحليله لك فوراً.\n\n${AI_CONFIG.disclaimer}`;
+}
+
+const NVIDIA_REFUSAL_PATTERNS = [
+    "sorry, i cannot provide a response",
+    "i cannot provide a response",
+    "i cannot help with",
+    "unable to provide",
+    "cannot comply",
+    "i cannot answer",
+    "i can't answer",
+    "i'm unable to",
+    "i'm not able to",
+    "i am unable to",
+    "i am not able to",
+];
+
+function isNvidiaContentRefusal(text: string): boolean {
+    if (!text || text.length < 10) return false;
+    const lowered = text.toLowerCase().trim();
+    if (lowered.length > 300) return false; // refusal texts are typically short
+    return NVIDIA_REFUSAL_PATTERNS.some(p => lowered.startsWith(p));
 }
 
 export function checkStreamCircuitBreaker(accumulatedText: string): boolean {
@@ -449,6 +495,9 @@ export async function* generateFinalStream(
                     const decoder = new TextDecoder();
                     let buffer = "";
                     let accumulatedStreamText = "";
+                    let refusalChecked = false;
+                    let refusalBuffer = "";
+                    let refused = false;
 
                     while (true) {
                         const { done, value } = await reader.read();
@@ -470,14 +519,32 @@ export async function* generateFinalStream(
                                     const parsed = JSON.parse(dataStr);
                                     const delta = parsed.choices?.[0]?.delta?.content;
                                     if (delta) {
-                                        yield delta;
+                                        if (!refusalChecked) {
+                                            refusalBuffer += delta;
+                                            if (refusalBuffer.length >= 120 || delta.includes(".") || delta.includes("\n") || delta.includes("!") || delta.includes("?")) {
+                                                refusalChecked = true;
+                                                if (isNvidiaContentRefusal(refusalBuffer)) {
+                                                    console.warn(`NVIDIA content refusal from stream model ${modelName}, trying next model...`);
+                                                    refused = true;
+                                                    reader.cancel();
+                                                    break; // break inner for
+                                                }
+                                                // flush buffer
+                                                yield refusalBuffer;
+                                            }
+                                        } else {
+                                            yield delta;
+                                        }
+                                        accumulatedStreamText += delta;
                                     }
                                 } catch {
                                     // Ignore JSON parse errors on partial lines
                                 }
                             }
                         }
+                        if (refused) break; // break outer while
                     }
+                    if (refused) continue; // try next model
 
                     if (buffer.trim()) {
                         const trimmed = buffer.trim();
