@@ -577,11 +577,18 @@ Analyze user request and return JSON with this exact structure:
                     const extracted = extractSymbolsFromText(message || "", validSymbols, stockMappings);
                     const tools = Array.isArray(parsed.tools) ? parsed.tools : ["get_stock"];
 
+                    const normMsg = (message || "").toLowerCase();
+                    if (normMsg.includes("سيولة") || normMsg.includes("السيولة") || normMsg.includes("السوق كله") || normMsg.includes("حجم التداول")) {
+                        if (!tools.includes("get_market")) tools.push("get_market");
+                        if (!tools.includes("get_accumulation_stocks")) tools.push("get_accumulation_stocks");
+                    }
+
                     // Clean Intent Resolution: If intent is general market scan or tools include accumulation/market without explicit tickers, do not attach old symbols
                     const isMarketScan = parsed.intent === "accumulation" || parsed.intent === "market_summary" || tools.includes("get_accumulation_stocks") || tools.includes("get_market");
                     const rawSymbols = isMarketScan && extracted.length === 0 ? [] : (Array.isArray(parsed.entities?.symbols) ? parsed.entities.symbols : []);
                     const normalizedSymbols = rawSymbols.map((s: string) => correctStockSymbol(s, validSymbols)).filter((s: string) => validSymbols.includes(s));
-                    const finalSymbols = isMarketScan && extracted.length === 0 ? [] : Array.from(new Set([...extracted, ...normalizedSymbols]));
+                    const finalSymbols = (isMarketScan && extracted.length === 0 ? [] : Array.from(new Set([...extracted, ...normalizedSymbols])))
+                        .filter((s: string) => /^[A-Z]{2,6}$/.test(s) && !/^\d+$/.test(s));
 
                     return {
                         intent: parsed.intent || "stock_analysis",
@@ -677,7 +684,7 @@ Analyze user request and return JSON with this exact structure:
                             ...rawSymbols.map((s: string) => correctStockSymbol(String(s).toUpperCase(), validSymbols)),
                             ...symbolsTextExtracted
                         ]))
-                        .filter((s: string) => validSymbols.includes(s))
+                        .filter((s: string) => validSymbols.includes(s) && /^[A-Z]{2,6}$/.test(s) && !/^\d+$/.test(s))
                         .filter((s: string) => s !== "EXTRACTED_SYMBOL" && s !== "SYMBOL1" && s !== "PRIMARY_SYMBOL");
 
                         if (hasImages) {
