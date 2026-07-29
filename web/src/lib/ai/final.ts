@@ -57,7 +57,11 @@ export function buildFinalMessages(
    - Summarize active market recommendations or liquidity trends provided in === DATABASE DATA ===.
 
 3. 🚫 NEVER instruct the user to check news websites, newspapers, or external apps when data is available in === DATABASE DATA ===!
-4. لا تقم باختراع بيانات مالية أو أسعار من عندك. استخدم فقط البيانات المتاحة في === DATABASE DATA ===.`;
+4. 🚫 ABSOLUTE PROHIBITION ON REFUSAL DISCLAIMERS ("لا أستطيع تقديم توصيات استثمارية" OR "ترخيص الرقابة المالية"):
+   - You are EGX Bots Automated Technical Scanner. When user asks "هات توصيات" or "توصيات المنصة" or "إشارات تداول" or "توصيات من عندك":
+   - You MUST IMMEDIATELY present the quantitative platform signals from scan_results in === DATABASE DATA === in a clean Markdown Table (listing Symbol, Signal, Entry Price, Target Price, Stop Loss, Recommendation Date).
+   - NEVER output legal refusal disclaimers like "شكراً لانتقائك لكنني لا أستطيع تقديم توصيات استثمارية". Output the platform signals from === DATABASE DATA === directly!
+5. لا تقم باختراع بيانات مالية أو أسعار من عندك. استخدم فقط البيانات المتاحة في === DATABASE DATA ===.`;
     } else {
         finalSystemPrompt += `
 

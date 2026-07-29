@@ -578,11 +578,12 @@ Analyze user request and return JSON with this exact structure:
                     const tools = Array.isArray(parsed.tools) ? parsed.tools : ["get_stock"];
 
                     const normMsg = (message || "").toLowerCase();
-                    if (normMsg.includes("سيولة") || normMsg.includes("السيولة") || normMsg.includes("السوق كله") || normMsg.includes("حجم التداول") || normMsg.includes("اخبار") || normMsg.includes("أخبار") || normMsg.includes("النهاردة") || normMsg.includes("حالة البورصة")) {
+                    if (normMsg.includes("توصي") || normMsg.includes("اشار") || normMsg.includes("إشار") || normMsg.includes("فرص") || normMsg.includes("سيولة") || normMsg.includes("السيولة") || normMsg.includes("السوق كله") || normMsg.includes("حجم التداول") || normMsg.includes("اخبار") || normMsg.includes("أخبار") || normMsg.includes("النهاردة") || normMsg.includes("حالة البورصة")) {
+                        if (!tools.includes("get_recommendations")) tools.push("get_recommendations");
+                        if (!tools.includes("get_signals")) tools.push("get_signals");
                         if (!tools.includes("get_market")) tools.push("get_market");
                         if (!tools.includes("get_news")) tools.push("get_news");
                         if (!tools.includes("get_accumulation_stocks")) tools.push("get_accumulation_stocks");
-                        if (!tools.includes("get_recommendations")) tools.push("get_recommendations");
                     }
 
                     // Clean Intent Resolution: If intent is general market scan or tools include accumulation/market without explicit tickers, do not attach old symbols
