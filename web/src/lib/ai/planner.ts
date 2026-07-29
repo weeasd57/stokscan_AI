@@ -365,8 +365,9 @@ export function extractSymbolsFromText(
     return Array.from(new Set(found)).filter(s => validSymbols.includes(s));
 }
 
-// In-Memory Image Cache
+// In-Memory Image Cache - DISABLED for better accuracy
 const imageCache = new Map<string, PlannerResult>();
+const ENABLE_IMAGE_CACHE = false; // 🔧 Disabled to force fresh analysis
 
 function validateImageExtraction(summary: string | null): boolean {
     if (!summary) return false;
@@ -385,9 +386,10 @@ export async function runPlanner(
     const validSymbols = await loadValidSymbols();
     const hasImages = imageList && imageList.length > 0;
 
-    // Image Caching Check
+    // Image Caching Check - DISABLED for fresh analysis
     const imageKey = hasImages ? createHash("sha256").update(imageList[0]).digest("hex") : "";
-    if (hasImages && imageKey && imageCache.has(imageKey)) {
+    if (hasImages && imageKey && ENABLE_IMAGE_CACHE && imageCache.has(imageKey)) {
+        console.log("🔄 Using cached image analysis (Cache is DISABLED by default)");
         const cached = imageCache.get(imageKey)!;
         return {
             ...cached,
@@ -744,9 +746,11 @@ Analyze user request and return JSON with this exact structure:
                                         : resolvedSymbols[0] || session.current_symbol),
                                 last_symbols: finalIntent === "general_chat"
                                     ? (session.last_symbols || [])
-                                    : (Array.isArray(parsed.session_update?.last_symbols) && parsed.session_update.last_symbols.length > 0
-                                        ? parsed.session_update.last_symbols.map((s: string) => correctStockSymbol(String(s).toUpperCase(), validSymbols))
-                                        : Array.from(new Set([...resolvedSymbols, ...(session.last_symbols || [])])).slice(0, 15)),
+                                    : (hasImages 
+                                        ? resolvedSymbols  // ✅ للصور: استخدم بس الرموز من الصورة
+                                        : (Array.isArray(parsed.session_update?.last_symbols) && parsed.session_update.last_symbols.length > 0
+                                            ? parsed.session_update.last_symbols.map((s: string) => correctStockSymbol(String(s).toUpperCase(), validSymbols))
+                                            : Array.from(new Set([...resolvedSymbols, ...(session.last_symbols || [])])).slice(0, 15))),
                                 summary: message || (hasImages ? "تحليل صورة" : null)
                             }
                         };
