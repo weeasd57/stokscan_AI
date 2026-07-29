@@ -431,6 +431,7 @@ Analyze user request and return JSON with this exact structure:
 - For recommendations or signals: use intent "recommendation" with tools ["get_recommendations"]
 - For accumulation or distribution queries (e.g. 'تجميع', 'تصريف', 'accumulation', 'distribution'): use intent "accumulation" with tools ["get_accumulation_stocks"]
 - For greetings, general chat, or conversational requests (e.g. 'hello', 'say X', 'how are you', etc.): use intent "general_chat" with tools [] and entities.symbols [].
+- If the user asks about market liquidity, whole market data, or explicitly asks for non-image market status (e.g. 'not from the image', 'whole market', 'where is liquidity'): use intent "accumulation" with tools ["get_accumulation_stocks", "get_market"] and set entities.symbols to [].
 - If the request is a general market, news, index, or recommendation query, do NOT include stock symbols from the session context in the entities.symbols list.
 - ⚠️ CRITICAL: In "image_summary" or "summary" or any other string value in your JSON, NEVER use double quotes ("). If you need to quote a stock symbol, name, or index, use single quotes (') instead. This is extremely important to prevent JSON parsing syntax errors!
 - ⚠️ FOR IMAGES: Count the visible stocks carefully and ensure your symbols array length matches the count
@@ -490,31 +491,23 @@ Analyze user request and return JSON with this exact structure:
                     if (match) try { parsed = JSON.parse(match[0]); } catch {}
                 }
                 if (parsed && parsed.intent) {
-                    const normMsg = (message || "").replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").toLowerCase();
-                    const isWholeMarketQuery = normMsg.includes("السوق كله") || normMsg.includes("مش من الصورة") || normMsg.includes("غير الصورة") || normMsg.includes("سيولة النهاردة") || normMsg.includes("بيانات السوق") || normMsg.includes("فين السيولة") || normMsg.includes("اين السيولة");
-
-                    if (isWholeMarketQuery) {
-                        return {
-                            intent: "accumulation",
-                            confidence: 0.99,
-                            entities: { symbols: [], sector: null, wants_table: false, timeframe: "1d" },
-                            tools: ["get_accumulation_stocks", "get_market"],
-                            session_update: { current_symbol: null, last_symbols: [], summary: "Whole market liquidity scan" }
-                        };
-                    }
-
                     const validSymbols = await loadValidSymbols();
                     const { stockMappings } = await getStocksList();
                     const extracted = extractSymbolsFromText(message || "", validSymbols, stockMappings);
-                    const rawSymbols = Array.isArray(parsed.entities?.symbols) ? parsed.entities.symbols : [];
+                    const tools = Array.isArray(parsed.tools) ? parsed.tools : ["get_stock"];
+
+                    // Clean Intent Resolution: If intent is general market scan or tools include accumulation/market without explicit tickers, do not attach old symbols
+                    const isMarketScan = parsed.intent === "accumulation" || parsed.intent === "market_summary" || tools.includes("get_accumulation_stocks") || tools.includes("get_market");
+                    const rawSymbols = isMarketScan && extracted.length === 0 ? [] : (Array.isArray(parsed.entities?.symbols) ? parsed.entities.symbols : []);
                     const normalizedSymbols = rawSymbols.map((s: string) => correctStockSymbol(s, validSymbols)).filter((s: string) => validSymbols.includes(s));
-                    const finalSymbols = Array.from(new Set([...extracted, ...normalizedSymbols]));
+                    const finalSymbols = isMarketScan && extracted.length === 0 ? [] : Array.from(new Set([...extracted, ...normalizedSymbols]));
+
                     return {
                         intent: parsed.intent || "stock_analysis",
                         confidence: parsed.confidence || 0.95,
-                        entities: { symbols: finalSymbols, sector: parsed.entities?.sector || null, wants_table: parsed.entities?.wants_table ?? true, timeframe: parsed.entities?.timeframe || "1d" },
-                        tools: Array.isArray(parsed.tools) ? parsed.tools : ["get_stock"],
-                        session_update: { current_symbol: finalSymbols[0] || session?.current_symbol, last_symbols: finalSymbols.length > 0 ? finalSymbols : session?.last_symbols, summary: parsed.session_update?.summary || "" }
+                        entities: { symbols: finalSymbols, sector: parsed.entities?.sector || null, wants_table: parsed.entities?.wants_table ?? (finalSymbols.length > 0), timeframe: parsed.entities?.timeframe || "1d" },
+                        tools: tools,
+                        session_update: { current_symbol: finalSymbols[0] || null, last_symbols: finalSymbols, summary: parsed.session_update?.summary || "" }
                     };
                 }
             }
