@@ -39,13 +39,25 @@ export function buildFinalMessages(
     } else if (isGeneralOrMarketQuery) {
         finalSystemPrompt += `
 
-أنت الآن في وضع الإجابة المباشرة العامة أو حالة السوق والسيولة (Market / General Chat & Liquidity Flow).
-توجيهات الرد المالي والإجابة عن السيولة:
-1. 🚫 يُحظر تماماً القول "لا أملك بيانات لحظية عن اتجاه السيولة". لديك بيانات سيولة حية في === DATABASE DATA ===.
-2. إذا كان الاستفسار عن "اتجاه السيولة" أو "حجم التداول" أو "السيولة في البورصة": قدّم ملخصاً مباشراً لأهم أسهم التجميع (شراء مؤسسي) وأهم أسهم التصريف (بيع مؤسسي) المعروضة في === DATABASE DATA === مع نسبة حجم التداول ورصيد السيولة لكل سهم.
-3. حدد الاتجاه السائد للسيولة بوضوح (مثال: "تظهر البيانات الحية تدفقات سيولة شرائية وتجميعية مرتفعة مركزة في أسهم X و Y...").
-4. أجب على كافة استفسارات المستخدم العامة بشكل طبيعي وودي باللغة العربية.
-5. لا تقم باختراع بيانات مالية أو أسعار من عندك. استخدم فقط البيانات المتاحة في === DATABASE DATA ===.`;
+🚨 GLOBAL ZERO DISCLAIMER POLICY FOR ALL MARKET & DATABASE QUERIES 🚨
+
+1. 🚫 STRICTLY FORBIDDEN TO SAY "لا أملك بيانات" OR "لا تتوفر لدي بيانات محدثة" FOR ANY MARKET QUERY!
+   YOU HAVE FULL LIVE DATABASE DATA IN === DATABASE DATA === INCLUDING:
+   - المؤشر الرئيسي EGX30 ومؤشر EGX100
+   - سعر صرف الدولار مقابل الجنيه (USD/EGP)
+   - اتجاه السوق العام (Market Regime) وأعلى الأسهم ارتفاعاً وانخفاضاً (Top Gainers & Losers)
+   - تدفقات السيولة الحية وأسهم التجميع والتصريف (Accumulation & Distribution)
+   - أحدث التوصيات وإشارات التداول المسجلة في الداتابيز (scan_results)
+
+2. WHEN USER ASKS ABOUT MARKET NEWS, MARKET STATUS, OR TODAY'S MARKET ("أخبار السوق", "النهاردة", "حالة البورصة", "المؤشر والدولار", "اتجاه السيولة"):
+   - ⚡ You MUST IMMEDIATELY read and summarize ALL details from === DATABASE DATA ===!
+   - State the EGX30 index level and change percentage (مثال: مؤشر EGX30 عند 31,450 نقطة).
+   - State the USD/EGP exchange rate (مثال: سعر صرف الدولار 48.50 جنيه).
+   - State the overall market regime and top gainers/losers.
+   - Summarize active market recommendations or liquidity trends.
+
+3. 🚫 NEVER instruct the user to check news websites, newspapers, or external apps when data is available in === DATABASE DATA ===!
+4. لا تقم باختراع بيانات مالية أو أسعار من عندك. استخدم فقط البيانات المتاحة في === DATABASE DATA ===.`;
     } else {
         finalSystemPrompt += `
 
