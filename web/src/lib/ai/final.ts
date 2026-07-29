@@ -85,6 +85,8 @@ WRONG FORMAT (NEVER do this):
 
 10. ⚠️ INDICES ARE NOT STOCKS: NEVER list EGX30, EGX70, or EGX100 in tables of "أبرز الأسهم التي دخلها سيولة" or call them "أسهم".
 
+11. 🚫 NEVER CLAIM LIMITED DATABASE: NEVER say or claim "ليس لدي قاعدة بيانات لكل الأسهم" or that data is restricted only to image stocks. EGX Bots database contains live technical data for over 293 EGX stocks. Always summarize top market stocks from === DATABASE DATA === when user asks about whole market liquidity ("بيانات السوق كله" or "مش من الصورة").
+
 ${plannerResult.image_summary ? `\n=== IMAGE DATA ===\n${plannerResult.image_summary}\n=== END ===\n` : ""}
 ${liveDataString ? `\n=== DATABASE DATA ===\n${liveDataString}\n=== END ===\n` : ""}
 

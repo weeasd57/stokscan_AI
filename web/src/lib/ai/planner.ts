@@ -490,6 +490,19 @@ Analyze user request and return JSON with this exact structure:
                     if (match) try { parsed = JSON.parse(match[0]); } catch {}
                 }
                 if (parsed && parsed.intent) {
+                    const normMsg = (message || "").replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").toLowerCase();
+                    const isWholeMarketQuery = normMsg.includes("السوق كله") || normMsg.includes("مش من الصورة") || normMsg.includes("غير الصورة") || normMsg.includes("سيولة النهاردة") || normMsg.includes("بيانات السوق") || normMsg.includes("فين السيولة") || normMsg.includes("اين السيولة");
+
+                    if (isWholeMarketQuery) {
+                        return {
+                            intent: "accumulation",
+                            confidence: 0.99,
+                            entities: { symbols: [], sector: null, wants_table: false, timeframe: "1d" },
+                            tools: ["get_accumulation_stocks", "get_market"],
+                            session_update: { current_symbol: null, last_symbols: [], summary: "Whole market liquidity scan" }
+                        };
+                    }
+
                     const validSymbols = await loadValidSymbols();
                     const { stockMappings } = await getStocksList();
                     const extracted = extractSymbolsFromText(message || "", validSymbols, stockMappings);
