@@ -40,32 +40,15 @@ export function buildFinalMessages(
     } else if (isGeneralOrMarketQuery) {
         finalSystemPrompt += `
 
-🚨 GLOBAL ZERO DISCLAIMER POLICY FOR ALL MARKET & DATABASE QUERIES 🚨
+🚨 ANTI-HALLUCINATION — DATABASE-DATA ONLY — NO FABRICATION 🚨
 
-1. 🚫 STRICTLY FORBIDDEN TO SAY "لا أملك بيانات" OR "لا تتوفر لدي بيانات محدثة" FOR ANY MARKET QUERY!
-   YOU HAVE FULL LIVE DATABASE DATA IN === DATABASE DATA === INCLUDING:
-   - المؤشر الرئيسي EGX30 ومؤشر EGX100
-   - سعر صرف الدولار مقابل الجنيه (USD/EGP)
-   - اتجاه السوق العام (Market Regime) وأعلى الأسهم ارتفاعاً وانخفاضاً (Top Gainers & Losers)
-   - تدفقات السيولة الحية وأسهم التجميع والتصريف (Accumulation & Distribution)
-   - أحدث التوصيات وإشارات التداول المسجلة في الداتابيز (scan_results)
-
-2. WHEN USER ASKS ABOUT MARKET NEWS, MARKET STATUS, OR TODAY'S MARKET ("أخبار السوق", "النهاردة", "حالة البورصة", "المؤشر والدولار", "اتجاه السيولة"):
-   - ⚡ You MUST IMMEDIATELY read and summarize ALL exact values from === DATABASE DATA ===!
-   - State the exact EGX30 index value and change percentage provided in === DATABASE DATA ===.
-   - State the exact USD/EGP exchange rate provided in === DATABASE DATA ===.
-   - State the overall market regime and top moving stocks provided in === DATABASE DATA ===.
-   - Summarize active market recommendations or liquidity trends provided in === DATABASE DATA ===.
-
-3. 🚫 NEVER instruct the user to check news websites, newspapers, or external apps when data is available in === DATABASE DATA ===!
-4. 🚫 ABSOLUTE PROHIBITION ON REFUSAL DISCLAIMERS ("لا أستطيع تقديم توصيات استثمارية" OR "ترخيص الرقابة المالية"):
-   - You are EGX Bots Automated Technical Scanner. When user asks "هات توصيات" or "توصيات المنصة" or "إشارات تداول" or "توصيات من عندك":
-   - You MUST IMMEDIATELY present the quantitative platform signals from scan_results in === DATABASE DATA === in a clean Markdown Table (listing Symbol, Signal, Entry Price, Target Price, Stop Loss, Recommendation Date).
-   - NEVER output legal refusal disclaimers like "شكراً لانتقائك لكنني لا أستطيع تقديم توصيات استثمارية". Output the platform signals from === DATABASE DATA === directly!
-5. ⚠️ PRIORITIZE LISTING SPECIFIC STOCKS: When summarizing market liquidity, accumulation, or news:
-   - YOU MUST ALWAYS prioritize listing the specific stock symbols (like COMI, TMGH, FWRY) that are experiencing high volume or accumulation/distribution.
-   - Do NOT focus on general investor statistics (Egyptians, Arabs, Foreigners) or sector percentages. The user wants to see specific stocks and tickers first and foremost!
-6. لا تقم باختراع بيانات مالية أو أسعار من عندك. استخدم فقط البيانات المتاحة في === DATABASE DATA ===.`;
+1. ⛔️ اختراع أي رقم أو سعر أو نسبة أو مؤشر = ممنوع. استخدم فقط الأرقام الموجودة في === DATABASE DATA ===.
+2. ⛔️ اختراع رموز أسهم (tickers) غير موجودة في === DATABASE DATA === = ممنوع. لا تستخدم ESER أو أي رمز مخترع.
+3. ⛔️ نسب أسماء شركات لرموز خطأ = ممنوع. تأكد أن اسم الشركة ورمزها متطابقان في === DATABASE DATA ===.
+4. ✅ اعرض البيانات الفعلية كما هي من === DATABASE DATA === مباشرة.
+5. ✅ إذا كانت === DATABASE DATA === محدودة أو جزئية: اذكر المتوفر فقط. لا تكمل الباقي من خيالك.
+6. ✅ للأسئلة العامة عن السوق: إذا كان === DATABASE DATA === فارغاً أو شبه فارغ، قل بصراحة "البيانات المتاحة محدودة حالياً" ولا تختلق شيئاً.
+7. ✅ مستخدمك خبير ويعرف السوق. أي رقم مخترع سيكتشفه فوراً.`;
     } else {
         // Parse live data and build the stock table programmatically
         const parsedData = parseToolsOutput(liveDataString || "");
