@@ -26,8 +26,6 @@ type ChatAction = {
 };
 
 export const AVAILABLE_AI_MODELS = [
-    { id: "meta/llama-3.1-8b-instruct", name: "Llama 3.1 8B", badgeAr: "فائق السرعة ⚡", badgeEn: "Ultra Fast ⚡", descAr: "استجابة صواريخ خلال 1-2 ثانية بتحليل مباشر للبورصة", descEn: "Ultra-fast 1-2s response for instant EGX stock analysis" },
-    { id: "meta/llama-3.2-11b-vision-instruct", name: "Llama 3.2 Vision", badgeAr: "رؤية الصور 📷", badgeEn: "Vision 📷", descAr: "متخصص في قراءة وتحليل صور الشاشات والمحافظ المالية", descEn: "Specialized in analyzing portfolio screenshots" },
     { id: "deepseek-ai/deepseek-v4-flash", name: "DeepSeek V4 Flash", badgeAr: "تفكير عالي 🧠", badgeEn: "Reasoning 🧠", descAr: "نموذج الاستدلال الفني والمالي والتفكير المعمق", descEn: "Specialized in deep reasoning and financial logic" },
     { id: "deepseek-ai/deepseek-v4-pro", name: "DeepSeek V4 Pro", badgeAr: "العملاق 🔥", badgeEn: "Ultra MoE 🔥", descAr: "نموذج ديب سيك V4 الأحدث بسياق 1M وسرعة تحليل", descEn: "Latest DeepSeek V4 Pro model with 1M context" },
 ];
@@ -107,7 +105,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     const [remainingQuota, setRemainingQuota] = useState<number>(15);
-    const [selectedModel, setSelectedModelState] = useState<string>("meta/llama-3.1-8b-instruct");
+    const [selectedModel, setSelectedModelState] = useState<string>("deepseek-ai/deepseek-v4-flash");
     const [sessions, setSessionsState] = useState<ChatSession[]>([]);
     const [activeSessionId, setActiveSessionIdState] = useState<string | null>(null);
     const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(false);
