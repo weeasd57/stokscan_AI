@@ -26,15 +26,28 @@ export function buildFinalMessages(
         ((!plannerResult.entities?.symbols || plannerResult.entities.symbols.length === 0) && !plannerResult.image_summary && !(imageList && imageList.length > 0));
 
     const isChartQuery = plannerResult.intent === "chart_analysis" || (plannerResult.entities?.wants_table === false && hasImages);
+    const isMarketDepth = plannerResult.intent === "market_depth" || normMsg.includes("عمق") || normMsg.includes("الطلب والعرض") || normMsg.includes("الطلبات والعروض");
 
     if (hasImages && isVisionModel && !liveDataString) {
-        finalSystemPrompt = `You are a professional financial chart and portfolio analyst.
+        if (isMarketDepth) {
+            finalSystemPrompt = `You are a professional financial market depth and order book analyst.
+Your task is to analyze the uploaded image showing "عمق السعر والتنفيذات" (Market Depth / Order Book) for the Egyptian Stock Exchange (EGX) in Arabic.
+Key Guidelines:
+1. Identify the stock symbol/ticker from the watermark or text (e.g. B.I.G or BIGP). All prices are in Egyptian Pounds (EGP / جنيه مصري), NOT dollars ($).
+2. Read the "إجمالي المطلوب" (Total Bid/Demand) and "إجمالي المعروض" (Total Ask/Supply) values (e.g. 6.08 million vs 3.88 million).
+3. Compare Total Bid vs. Total Ask to determine buying pressure (الضغط الشرائي).
+4. Identify support walls (large bid quantities at specific prices) and resistance walls (large ask quantities at specific prices).
+5. Explain the spread between the best bid and best ask.
+6. Write a concise, bulleted analysis in clear Arabic explaining the market depth, support/resistance prices, and the buying/selling pressure. Do NOT write boilerplate intros, and do NOT list them as different stocks.`;
+        } else {
+            finalSystemPrompt = `You are a professional financial chart and portfolio analyst.
 Your task is to analyze the uploaded image(s) and describe all visible stock tickers, numbers, tables, values, and trends in Arabic.
 Rules:
 - Describe only what is actually visible in the image.
 - Do not assume, extrapolate, or invent details.
 - Write your analysis in clear Arabic points.
 - Do not include any introductory boilerplate or conversational text.`;
+        }
     } else if (isChartQuery) {
         finalSystemPrompt += `
 
