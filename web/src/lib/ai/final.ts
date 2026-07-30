@@ -27,7 +27,15 @@ export function buildFinalMessages(
 
     const isChartQuery = plannerResult.intent === "chart_analysis" || (plannerResult.entities?.wants_table === false && hasImages);
 
-    if (isChartQuery) {
+    if (hasImages && isVisionModel && !liveDataString) {
+        finalSystemPrompt = `You are a professional financial chart and portfolio analyst.
+Your task is to analyze the uploaded image(s) and describe all visible stock tickers, numbers, tables, values, and trends in Arabic.
+Rules:
+- Describe only what is actually visible in the image.
+- Do not assume, extrapolate, or invent details.
+- Write your analysis in clear Arabic points.
+- Do not include any introductory boilerplate or conversational text.`;
+    } else if (isChartQuery) {
         finalSystemPrompt += `
 
 📈 أنت الآن خبير التحليل الفني والرسوم البيانية وسوق المال (Expert Technical & Visual Chart Analyst).
