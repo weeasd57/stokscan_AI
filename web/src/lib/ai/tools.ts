@@ -744,5 +744,128 @@ export async function executeTools(supabase: any, plannerResult: PlannerResult, 
         }
     }
 
+    // Tool 8: get_comparison (مقارنة بين سهمين)
+    if (tools.includes("get_comparison") || plannerResult.intent === "comparison" || (symbols.length >= 2 && userMessage && (normalizeArabic(userMessage).includes("مقارنة") || normalizeArabic(userMessage).includes("قارن") || normalizeArabic(userMessage).includes("مقارنه")))) {
+        try {
+            const compareSymbols = symbols.length >= 2 ? symbols.slice(0, 2) : [];
+            if (compareSymbols.length === 2) {
+                const [sym1, sym2] = compareSymbols;
+                const [pricesData, techsData, stocksData] = await Promise.all([
+                    Promise.all([
+                        supabase.from("stock_prices").select("symbol, close, volume, date").ilike("symbol", sym1).order("date", { ascending: false }).limit(1).maybeSingle(),
+                        supabase.from("stock_prices").select("symbol, close, volume, date").ilike("symbol", sym2).order("date", { ascending: false }).limit(1).maybeSingle()
+                    ]),
+                    Promise.all([
+                        supabase.from("stock_technical_indicators").select("symbol, rsi_14, macd_signal, change_pct, volume, vol_sma20, adx_14").ilike("symbol", sym1).order("date", { ascending: false }).limit(1).maybeSingle(),
+                        supabase.from("stock_technical_indicators").select("symbol, rsi_14, macd_signal, change_pct, volume, vol_sma20, adx_14").ilike("symbol", sym2).order("date", { ascending: false }).limit(1).maybeSingle()
+                    ]),
+                    supabase.from("stocks").select("symbol, name, sector").or(`symbol.ilike.${sym1},symbol.ilike.${sym2}`)
+                ]);
+
+                const p1 = pricesData[0]?.data;
+                const p2 = pricesData[1]?.data;
+                const t1 = techsData[0]?.data;
+                const t2 = techsData[1]?.data;
+                const sMap = new Map<string, any>();
+                (stocksData.data || []).forEach((s: any) => { if (s?.symbol) sMap.set(s.symbol.toUpperCase(), s); });
+
+                if (p1 || p2 || t1 || t2) {
+                    outputText += `\n📊 [مقارنة بين ${sym1} و ${sym2}]:\n`;
+                    outputText += `| المؤشر | ${sym1} (${sMap.get(sym1.toUpperCase())?.name || sym1}) | ${sym2} (${sMap.get(sym2.toUpperCase())?.name || sym2}) |\n`;
+                    outputText += `| :--- | :--- | :--- |\n`;
+                    outputText += `| السعر اللحظي | ${p1?.close ?? "N/A"} ج.م | ${p2?.close ?? "N/A"} ج.م |\n`;
+                    outputText += `| التغير اليومي | ${t1?.change_pct ? (Number(t1.change_pct) >= 0 ? "+" : "") + Number(t1.change_pct).toFixed(2) + "%" : "N/A"} | ${t2?.change_pct ? (Number(t2.change_pct) >= 0 ? "+" : "") + Number(t2.change_pct).toFixed(2) + "%" : "N/A"} |\n`;
+                    outputText += `| نسبة السيولة | ${t1?.vol_sma20 && t1?.volume ? (Number(t1.volume) / Number(t1.vol_sma20)).toFixed(2) + "x" : "N/A"} | ${t2?.vol_sma20 && t2?.volume ? (Number(t2.volume) / Number(t2.vol_sma20)).toFixed(2) + "x" : "N/A"} |\n`;
+                    outputText += `| RSI (14) | ${t1?.rsi_14 ?? "N/A"} | ${t2?.rsi_14 ?? "N/A"} |\n`;
+                    outputText += `| MACD | ${t1?.macd_signal ?? "N/A"} | ${t2?.macd_signal ?? "N/A"} |\n`;
+                    outputText += `| القطاع | ${sMap.get(sym1.toUpperCase())?.sector || "N/A"} | ${sMap.get(sym2.toUpperCase())?.sector || "N/A"} |\n`;
+                    outputText += `\n`;
+                } else {
+                    outputText += `\n📊 [مقارنة]: لا توجد بيانات كافية للمقارنة بين ${sym1} و ${sym2} حالياً.\n`;
+                }
+            } else if (symbols.length === 1) {
+                outputText += `\n📊 [مقارنة]: للمقارنة تحتاج إلى سهمين على الأقل. تم تحديد سهم واحد فقط (${symbols[0]}). الرجاء ذكر سهمين للمقارنة.\n`;
+            }
+        } catch (e) {
+            console.warn("Error fetching comparison data:", e);
+            outputText += `\n⚠️ [خطأ]: فشل جلب بيانات المقارنة.\n`;
+        }
+    }
+
+    // Tool 9: get_sector (تحليل قطاع مثل البنوك)
+    if (tools.includes("get_sector") || plannerResult.intent === "sector_analysis" || (userMessage && (normalizeArabic(userMessage).includes("البنوك") || normalizeArabic(userMessage).includes("قطاع") || normalizeArabic(userMessage).includes("sector")))) {
+        try {
+            let targetSector = plannerResult.entities?.sector || "";
+            if (!targetSector && userMessage) {
+                const normMsg = normalizeArabic(userMessage);
+                if (normMsg.includes("البنوك") || normMsg.includes("بنوك")) targetSector = "بنوك";
+                else if (normMsg.includes("أدوية") || normMsg.includes("صيدلية")) targetSector = "أدوية";
+                else if (normMsg.includes("عقارات") || normMsg.includes("عقاري")) targetSector = "عقارات";
+                else if (normMsg.includes("أغذية") || normMsg.includes("غذائية")) targetSector = "أغذية";
+                else if (normMsg.includes("بترول") || normMsg.includes("طاقة")) targetSector = "بترول";
+            }
+
+            if (targetSector) {
+                const { data: sectorStocks } = await supabase
+                    .from("stocks")
+                    .select("symbol, name, sector")
+                    .ilike("sector", targetSector)
+                    .limit(50);
+
+                    if (sectorStocks && sectorStocks.length > 0) {
+                        const sectorSymbols = sectorStocks.map((s: any) => s.symbol);
+                        const { data: latestTechs } = await supabase
+                            .from("stock_technical_indicators")
+                            .select("symbol, change_pct, volume, vol_sma20, rsi_14, macd_signal, date")
+                            .in("symbol", sectorSymbols)
+                            .order("date", { ascending: false })
+                            .limit(500);
+
+                        if (latestTechs && latestTechs.length > 0) {
+                            const maxDate = latestTechs[0].date;
+                            const todayTechs = latestTechs.filter((r: any) => r.date === maxDate);
+                            const techMap = new Map(todayTechs.map((t: any) => [t.symbol.toUpperCase(), t]));
+
+                            const gainers = sectorStocks
+                                .map((s: any) => ({ ...s, tech: techMap.get(s.symbol.toUpperCase()) }))
+                                .filter((s: any) => s.tech && Number(s.tech.change_pct || 0) > 0)
+                                .sort((a: any, b: any) => Number(b.tech.change_pct || 0) - Number(a.tech.change_pct || 0))
+                                .slice(0, 10);
+
+                            const losers = sectorStocks
+                                .map((s: any) => ({ ...s, tech: techMap.get(s.symbol.toUpperCase()) }))
+                                .filter((s: any) => s.tech && Number(s.tech.change_pct || 0) < 0)
+                                .sort((a: any, b: any) => Number(a.tech.change_pct || 0) - Number(b.tech.change_pct || 0))
+                                .slice(0, 10);
+
+                            outputText += `\n📊 [تحليل قطاع ${targetSector} - ${sectorStocks.length} سهم]:\n`;
+
+                            if (gainers.length > 0) {
+                                outputText += `🟢 أعلى ارتفاعاً في القطاع:\n`;
+                                gainers.forEach((s: any) => {
+                                    const ch = Number(s.tech.change_pct).toFixed(2);
+                                    outputText += `• ${s.symbol} (${s.name}): +${ch}% | RSI: ${s.tech.rsi_14 ?? "N/A"} | حجم: ${(Number(s.tech.volume || 0) / Number(s.tech.vol_sma20 || 1)).toFixed(2)}x\n`;
+                                });
+                            }
+
+                            if (losers.length > 0) {
+                                outputText += `\n🔴 أعلى انخفاضاً في القطاع:\n`;
+                                losers.forEach((s: any) => {
+                                    const ch = Number(s.tech.change_pct).toFixed(2);
+                                    outputText += `• ${s.symbol} (${s.name}): ${ch}% | RSI: ${s.tech.rsi_14 ?? "N/A"} | حجم: ${(Number(s.tech.volume || 0) / Number(s.tech.vol_sma20 || 1)).toFixed(2)}x\n`;
+                                });
+                            }
+                            outputText += `\n`;
+                        }
+                    } else {
+                        outputText += `\n📊 [قطاع ${targetSector}]: لم يتم العثور على أسهم في هذا القطاع حالياً.\n`;
+                    }
+            }
+        } catch (e) {
+            console.warn("Error fetching sector data:", e);
+            outputText += `\n⚠️ [خطأ]: فشل جلب بيانات القطاع.\n`;
+        }
+    }
+
     return outputText;
 }

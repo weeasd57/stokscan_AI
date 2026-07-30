@@ -185,31 +185,26 @@ export function sanitizeReply(reply: string, liveDataString?: string): string {
         .trim();
 
     if (hasProgrammaticTable) {
-        // Strip any markdown table the LLM might have output despite instructions
         cleanReply = cleanReply
-            .replace(/^\|.+(?:\n\|.+\|)*$/gm, "")        // Remove markdown table rows
-            .replace(/^\|[\s\-\|:]+\|$/gm, "")             // Remove table separator lines
-            .replace(/### تحليل السيولة الفنية.*/g, "")    // Remove existing analysis headers
-            .replace(/^\s*[\*]{2,}.*[\*]{2,}\s*$/gm, "")   // Remove bold decorative lines
-            .replace(/\n{3,}/g, "\n\n")                      // Collapse excessive newlines
+            .replace(/^\|.+(?:\n\|.+\|)*$/gm, "")
+            .replace(/^\|[\s\-\|:]+\|$/gm, "")
+            .replace(/^#{1,6}\s*.+$/gm, "")
+            .replace(/^\s*[\*]{2,}.*[\*]{2,}\s*$/gm, "")
+            .replace(/\n{3,}/g, "\n\n")
             .trim();
 
-        // 🛡️ Aggressively strip LLM-generated sections that should not appear
         cleanReply = cleanReply
-            // Remove bullet point stock listings (• سهم ...)
             .replace(/^•\s*سهم\s+\w+.*$/gm, "")
-            // Remove sections about recommendations ("توصية سهم")
             .replace(/^توصية سهم\s+\w+.*$/gm, "")
-            // Remove "BUY" or "SELL" appearing as fake stock symbols
             .replace(/\b(BUY|SELL|HOLD)\b\s*[:=]\s*.*$/gm, "")
-            // Remove sections about market data that the LLM may repeat
             .replace(/^(مؤشر EGX30|مؤشر EGX100|سعر صرف USD\/EGP|اتجاه السوق).*$/gm, "")
-            // Remove repetitive Arabic disclaimer-like text
             .replace(/يجب أن يكون المستخدم على دراية.*$/gm, "")
-            // Remove any remaining "ملحوظة" headers
             .replace(/^###?\s*ملحوظة.*$/gm, "")
-            // Remove any "حالة البورصة والأخبار" section
             .replace(/^.*حالة البورصة والأخبار.*$/gm, "")
+            .replace(/من البيانات المتاحة لدي، يمكنني أن أقول لك عن سهم\s*\w+:\s*/gi, "")
+            .replace(/السهم يظهر زيادة كبيرة في السوق اليوم\./g, "")
+            .replace(/نسبة السيولة عالية جداً\./g, "")
+            .replace(/RSI \(14\) يظهر قيمة عالية جداً\./g, "")
             .replace(/\n{3,}/g, "\n\n")
             .trim();
 
