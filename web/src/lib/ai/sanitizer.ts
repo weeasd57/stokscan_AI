@@ -176,6 +176,14 @@ export function sanitizeReply(reply: string, liveDataString?: string): string {
         }
     }
 
+    // 0. Strip leaked DATABASE DATA markers from LLM output
+    cleanReply = cleanReply
+        .replace(/=== DATABASE DATA ===/gi, "")
+        .replace(/=== END ===/gi, "")
+        .replace(/===END===/gi, "")
+        .replace(/\n{3,}/g, "\n\n")
+        .trim();
+
     if (hasProgrammaticTable) {
         // Strip any markdown table the LLM might have output despite instructions
         cleanReply = cleanReply
