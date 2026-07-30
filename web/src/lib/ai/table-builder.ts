@@ -14,6 +14,7 @@ const NON_STOCK_SYMBOLS = new Set([
   "USD", "USDEGP", "USDMXN", "USDEUR", "USDGBP",
   "EGX30", "EGX70", "EGX100", "EGX", "INDEX",
   "TASI", "DFM", "ADX", "QE", "MSM",
+  "STOCK", "STOCKS", "LIVE", "HISTORICAL", "DATA", "DATABASE",
 ]);
 
 export interface ParsedStockData {
@@ -71,10 +72,10 @@ function parseStockLine(line: string): ParsedStockData | null {
 
   // Extract fields using relaxed regexes
   const priceMatch = line.match(/(?:السعر اللحظي|السعر)\s*[:=]\s*([0-9.]+(?:\s*ج\.م)?)/i);
-  const changeMatch = line.match(/التغير\s*[:=]\s*([+\-]?\s*[0-9.]+\s*%)/i);
+  const changeMatch = line.match(/(?:التغير\s*[:=]|:\s*)([+\-]?\s*[0-9.]+\s*%)/i);
   const rsiMatch = line.match(/RSI\s*[:=]\s*([0-9.]+)/i);
   const macdMatch = line.match(/MACD\s*[:=]\s*([+\-]?\s*[0-9.]+)/i);
-  const ratioMatch = line.match(/نسبة (?:السيولة|الحجم)\s*[:=]\s*([0-9.]+\s*x?)/i);
+  const ratioMatch = line.match(/(?:نسبة (?:السيولة|الحجم)|حجم)\s*[:=]\s*([0-9.]+\s*x?)/i);
   const signalMatch = line.match(/الإشارة\s*[:=]\s*([^,\n|]+)/i) || line.match(/(تجميع 📈|تصريف 📉|محايد ⚪|صعود ضعيف ⚠️|هبوط ضعيف ⚠️)/i);
 
   return {

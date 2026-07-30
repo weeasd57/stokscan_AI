@@ -613,10 +613,12 @@ export async function executeStructuredTools(
                         const todayTechs = latestTechs.filter((r: any) => r.date === maxDate);
                         const techMap = new Map(todayTechs.map((t: any) => [t.symbol.toUpperCase(), t]));
 
-                        const stocksWithTech = sectorStocks.map((s: any) => ({
-                            ...s,
-                            tech: techMap.get(s.symbol.toUpperCase())
-                        }));
+                        const stocksWithTech = sectorStocks
+                            .map((s: any) => ({
+                                ...s,
+                                tech: techMap.get(s.symbol.toUpperCase())
+                            }))
+                            .filter((s: any) => s.tech);
 
                         const gainers = stocksWithTech
                             .filter((s: any) => s.tech && Number(s.tech.change_pct || 0) > 0)
@@ -634,14 +636,16 @@ export async function executeStructuredTools(
                             textParts.push(`أعلى ارتفاعاً في القطاع:`);
                             gainers.forEach((s: any) => {
                                 const ch = Number(s.tech.change_pct).toFixed(2);
-                                textParts.push(`• ${s.symbol} (${s.name}): +${ch}% | RSI: ${s.tech.rsi_14 ?? "N/A"} | حجم: ${(Number(s.tech.volume || 0) / Number(s.tech.vol_sma20 || 1)).toFixed(2)}x`);
+                                const vRatio = (Number(s.tech.volume || 0) / Number(s.tech.vol_sma20 || 1)).toFixed(2);
+                                textParts.push(`• سهم ${s.symbol} (${s.name}): التغير = +${ch}%, RSI = ${s.tech.rsi_14 ?? "N/A"}, نسبة السيولة = ${vRatio}x`);
                             });
                         }
                         if (losers.length > 0) {
                             textParts.push(`\nأعلى انخفاضاً في القطاع:`);
                             losers.forEach((s: any) => {
                                 const ch = Number(s.tech.change_pct).toFixed(2);
-                                textParts.push(`• ${s.symbol} (${s.name}): ${ch}% | RSI: ${s.tech.rsi_14 ?? "N/A"} | حجم: ${(Number(s.tech.volume || 0) / Number(s.tech.vol_sma20 || 1)).toFixed(2)}x`);
+                                const vRatio = (Number(s.tech.volume || 0) / Number(s.tech.vol_sma20 || 1)).toFixed(2);
+                                textParts.push(`• سهم ${s.symbol} (${s.name}): التغير = ${ch}%, RSI = ${s.tech.rsi_14 ?? "N/A"}, نسبة السيولة = ${vRatio}x`);
                             });
                         }
 

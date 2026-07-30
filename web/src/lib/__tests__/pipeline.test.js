@@ -4,6 +4,7 @@ const { retrieveRelevantMemory } = require("../ai/memory");
 const { buildExcelTables, tablesToMarkdown } = require("../ai/excel-tables");
 const { enforceIntentFromMessage, buildMarketLiquidityResponse } = require("../ai/pipeline");
 const { sanitizeReply } = require("../ai/sanitizer");
+const { parseToolsOutput } = require("../ai/table-builder");
 
 // Simple mock for supabase
 const mockSupabase = {
@@ -276,5 +277,17 @@ describe("Structured table sanitization", () => {
         expect(sanitized).toContain("رد صالح");
         expect(sanitized).not.toContain("environment_details");
         expect(sanitized).not.toContain("Workspace root folder");
+    });
+});
+
+describe("Legacy table parser safety", () => {
+    it("does not treat context labels as stock symbols", () => {
+        const parsed = parseToolsOutput([
+            "بيانات الأسهم الحية:",
+            "• STOCK (placeholder): السعر = 1, التغير = 1%, RSI = 50, MACD = 0.1, نسبة السيولة = 1x",
+            "• AMER (Amer Group): السعر = 4.5, التغير = -1%, RSI = 82, MACD = 0.4, نسبة السيولة = 0.46x"
+        ].join("\n"));
+
+        expect(parsed.stocks.map(stock => stock.symbol)).toEqual(["AMER"]);
     });
 });
