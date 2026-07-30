@@ -613,14 +613,17 @@ export async function executeStructuredTools(
                         const todayTechs = latestTechs.filter((r: any) => r.date === maxDate);
                         const techMap = new Map(todayTechs.map((t: any) => [t.symbol.toUpperCase(), t]));
 
-                        const gainers = sectorStocks
-                            .map((s: any) => ({ ...s, tech: techMap.get(s.symbol.toUpperCase()) }))
+                        const stocksWithTech = sectorStocks.map((s: any) => ({
+                            ...s,
+                            tech: techMap.get(s.symbol.toUpperCase())
+                        }));
+
+                        const gainers = stocksWithTech
                             .filter((s: any) => s.tech && Number(s.tech.change_pct || 0) > 0)
                             .sort((a: any, b: any) => Number(b.tech.change_pct || 0) - Number(a.tech.change_pct || 0))
                             .slice(0, 10);
 
-                        const losers = sectorStocks
-                            .map((s: any) => ({ ...s, tech: techMap.get(s.symbol.toUpperCase()) }))
+                        const losers = stocksWithTech
                             .filter((s: any) => s.tech && Number(s.tech.change_pct || 0) < 0)
                             .sort((a: any, b: any) => Number(a.tech.change_pct || 0) - Number(b.tech.change_pct || 0))
                             .slice(0, 10);
@@ -648,7 +651,7 @@ export async function executeStructuredTools(
                             data_time: maxDate,
                             symbols: sectorSymbols,
                             data_type: "live",
-                            data: { sector: targetSector, stocks: sectorStocks, gainers, losers }
+                            data: { sector: targetSector, stocks: stocksWithTech, gainers, losers }
                         });
                     }
                 }
