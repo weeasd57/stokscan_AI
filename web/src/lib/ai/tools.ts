@@ -166,10 +166,17 @@ export async function executeTools(supabase: any, plannerResult: PlannerResult, 
                     });
 
                     if (isAccumulationQuery) {
-                        const accStocks = todayTechs
+                        let accStocks = todayTechs
                             .filter((r: any) => r.vol_sma20 && Number(r.vol_sma20) > 0 && (Number(r.volume) / Number(r.vol_sma20)) >= 1.2 && Number(r.change_pct || 0) > 0)
                             .sort((a: any, b: any) => (Number(b.volume) / Number(b.vol_sma20)) - (Number(a.volume) / Number(a.vol_sma20)))
                             .slice(0, 15);
+
+                        if (accStocks.length === 0) {
+                            accStocks = todayTechs
+                                .filter((r: any) => r.vol_sma20 && Number(r.vol_sma20) > 0 && Number(r.change_pct || 0) > 0)
+                                .sort((a: any, b: any) => (Number(b.volume) / Number(b.vol_sma20)) - (Number(a.volume) / Number(a.vol_sma20)))
+                                .slice(0, 15);
+                        }
 
                         if (accStocks.length > 0) {
                             outputText += `\n📈 [أهم الأسهم التي تشهد تجميع (Accumulation) في البورصة المصرية - بتاريخ ${maxDate}]:\n`;
@@ -181,14 +188,25 @@ export async function executeTools(supabase: any, plannerResult: PlannerResult, 
                                 const volStr = Number(r.volume).toLocaleString("en-US");
                                 outputText += `• ${idx + 1}. سهم ${r.symbol} (${name}): نسبة الحجم = ${volRatio}x من المتوسط | التغير = ${changeStr} | حجم التداول = ${volStr} | RSI = ${r.rsi_14 || "N/A"} | إشارة MACD = ${r.macd_signal || "N/A"} | إشارة تصريف/تجميع: تجميع 📈\n`;
                             });
+                        } else {
+                            outputText += `\n📈 [أهم الأسهم التي تشهد تجميع (Accumulation) - بتاريخ ${maxDate}]:\n`;
+                            outputText += `📌 لم يتم العثور على أسهم تحقق شروط التجميع القوية (حجم تداول > 1.2x المتوسط + تغير إيجابي) في البيانات الحالية.\n`;
+                            outputText += `📌 هذه نتيجة طبيعية في الأيام ذات السيولة المنخفضة. يمكنك السؤال عن "أقوى الأسهم" لرؤية الأسهم الأكثر ارتفاعاً.\n`;
                         }
                     }
 
                     if (isDistributionQuery) {
-                        const distStocks = todayTechs
+                        let distStocks = todayTechs
                             .filter((r: any) => r.vol_sma20 && Number(r.vol_sma20) > 0 && (Number(r.volume) / Number(r.vol_sma20)) >= 1.2 && Number(r.change_pct || 0) < 0)
                             .sort((a: any, b: any) => (Number(b.volume) / Number(b.vol_sma20)) - (Number(a.volume) / Number(a.vol_sma20)))
                             .slice(0, 15);
+
+                        if (distStocks.length === 0) {
+                            distStocks = todayTechs
+                                .filter((r: any) => r.vol_sma20 && Number(r.vol_sma20) > 0 && Number(r.change_pct || 0) < 0)
+                                .sort((a: any, b: any) => (Number(b.volume) / Number(b.vol_sma20)) - (Number(a.volume) / Number(a.vol_sma20)))
+                                .slice(0, 15);
+                        }
 
                         if (distStocks.length > 0) {
                             outputText += `\n📉 [أهم الأسهم التي تشهد تصريف (Distribution) في البورصة المصرية - بتاريخ ${maxDate}]:\n`;
@@ -200,6 +218,10 @@ export async function executeTools(supabase: any, plannerResult: PlannerResult, 
                                 const volStr = Number(r.volume).toLocaleString("en-US");
                                 outputText += `• ${idx + 1}. سهم ${r.symbol} (${name}): نسبة الحجم = ${volRatio}x من المتوسط | التغير = ${changeStr} | حجم التداول = ${volStr} | RSI = ${r.rsi_14 || "N/A"} | إشارة MACD = ${r.macd_signal || "N/A"} | إشارة تصريف/تجميع: تصريف 📉\n`;
                             });
+                        } else {
+                            outputText += `\n📉 [أهم الأسهم التي تشهد تصريف (Distribution) - بتاريخ ${maxDate}]:\n`;
+                            outputText += `📌 لم يتم العثور على أسهم تحقق شروط التصريف القوية (حجم تداول > 1.2x المتوسط + تغير سلبي) في البيانات الحالية.\n`;
+                            outputText += `📌 هذه نتيجة طبيعية في الأيام ذات السيولة المنخفضة. يمكنك السؤال عن "أقوى الأسهم الهابطة" لرؤية الأسهم الأكثر انخفاضاً.\n`;
                         }
                     }
                 }
@@ -806,60 +828,113 @@ export async function executeTools(supabase: any, plannerResult: PlannerResult, 
             }
 
             if (targetSector) {
-                const { data: sectorStocks } = await supabase
-                    .from("stocks")
-                    .select("symbol, name, sector")
-                    .ilike("sector", targetSector)
-                    .limit(50);
+                let sectorStocks: any[] = [];
+                let sectorQueryAttempts: string[] = [];
 
-                    if (sectorStocks && sectorStocks.length > 0) {
-                        const sectorSymbols = sectorStocks.map((s: any) => s.symbol);
-                        const { data: latestTechs } = await supabase
-                            .from("stock_technical_indicators")
-                            .select("symbol, change_pct, volume, vol_sma20, rsi_14, macd_signal, date")
-                            .in("symbol", sectorSymbols)
-                            .order("date", { ascending: false })
-                            .limit(500);
+                const trySectorQuery = async (sectorName: string): Promise<any[]> => {
+                    const { data } = await supabase
+                        .from("stocks")
+                        .select("symbol, name, sector")
+                        .ilike("sector", sectorName)
+                        .limit(100);
+                    return data || [];
+                };
 
-                        if (latestTechs && latestTechs.length > 0) {
-                            const maxDate = latestTechs[0].date;
-                            const todayTechs = latestTechs.filter((r: any) => r.date === maxDate);
-                            const techMap = new Map(todayTechs.map((t: any) => [t.symbol.toUpperCase(), t]));
+                const trySectorQueryWithWildcard = async (sectorName: string): Promise<any[]> => {
+                    const { data } = await supabase
+                        .from("stocks")
+                        .select("symbol, name, sector")
+                        .ilike("sector", `%${sectorName}%`)
+                        .limit(100);
+                    return data || [];
+                };
 
-                            const gainers = sectorStocks
-                                .map((s: any) => ({ ...s, tech: techMap.get(s.symbol.toUpperCase()) }))
-                                .filter((s: any) => s.tech && Number(s.tech.change_pct || 0) > 0)
-                                .sort((a: any, b: any) => Number(b.tech.change_pct || 0) - Number(a.tech.change_pct || 0))
-                                .slice(0, 10);
+                const ENGLISH_SECTOR_MAP: Record<string, string[]> = {
+                    "بنوك": ["Banks", "Banking", "Financial Services", "مالية", "بنوك"],
+                    "أدوية": ["Pharmaceuticals", "Pharma", "أدوية", "صيدلة"],
+                    "عقارات": ["Real Estate", "عقارات", "عقاري"],
+                    "أغذية": ["Food & Beverage", "Food", "أغذية", "غذائية"],
+                    "بترول": ["Oil & Gas", "Petroleum", "بترول", "طاقة"],
+                };
 
-                            const losers = sectorStocks
-                                .map((s: any) => ({ ...s, tech: techMap.get(s.symbol.toUpperCase()) }))
-                                .filter((s: any) => s.tech && Number(s.tech.change_pct || 0) < 0)
-                                .sort((a: any, b: any) => Number(a.tech.change_pct || 0) - Number(b.tech.change_pct || 0))
-                                .slice(0, 10);
+                const arabianVariations = [targetSector, `%${targetSector}%`];
+                const englishVariations = ENGLISH_SECTOR_MAP[targetSector] || [];
 
-                            outputText += `\n📊 [تحليل قطاع ${targetSector} - ${sectorStocks.length} سهم]:\n`;
+                for (const variation of [...arabianVariations, ...englishVariations]) {
+                    sectorQueryAttempts.push(variation);
+                    sectorStocks = await trySectorQuery(variation);
+                    if (sectorStocks.length > 0) break;
+                }
 
-                            if (gainers.length > 0) {
-                                outputText += `🟢 أعلى ارتفاعاً في القطاع:\n`;
-                                gainers.forEach((s: any) => {
-                                    const ch = Number(s.tech.change_pct).toFixed(2);
-                                    outputText += `• ${s.symbol} (${s.name}): +${ch}% | RSI: ${s.tech.rsi_14 ?? "N/A"} | حجم: ${(Number(s.tech.volume || 0) / Number(s.tech.vol_sma20 || 1)).toFixed(2)}x\n`;
-                                });
-                            }
-
-                            if (losers.length > 0) {
-                                outputText += `\n🔴 أعلى انخفاضاً في القطاع:\n`;
-                                losers.forEach((s: any) => {
-                                    const ch = Number(s.tech.change_pct).toFixed(2);
-                                    outputText += `• ${s.symbol} (${s.name}): ${ch}% | RSI: ${s.tech.rsi_14 ?? "N/A"} | حجم: ${(Number(s.tech.volume || 0) / Number(s.tech.vol_sma20 || 1)).toFixed(2)}x\n`;
-                                });
-                            }
-                            outputText += `\n`;
-                        }
-                    } else {
-                        outputText += `\n📊 [قطاع ${targetSector}]: لم يتم العثور على أسهم في هذا القطاع حالياً.\n`;
+                if (sectorStocks.length === 0) {
+                    for (const variation of [...arabianVariations, ...englishVariations]) {
+                        sectorQueryAttempts.push(`wildcard:${variation}`);
+                        sectorStocks = await trySectorQueryWithWildcard(variation);
+                        if (sectorStocks.length > 0) break;
                     }
+                }
+
+                if (sectorStocks.length === 0) {
+                    const allStocks = await supabase.from("stocks").select("symbol, name, sector").limit(500);
+                    if (allStocks.data) {
+                        const targetLower = targetSector.toLowerCase();
+                        sectorStocks = allStocks.data.filter((s: any) => {
+                            const sSector = String(s.sector || "").toLowerCase();
+                            return sSector.includes(targetLower) || targetLower.includes(sSector) || getLevenshteinDistance(targetLower, sSector) <= 3;
+                        }).slice(0, 50);
+                    }
+                }
+
+                if (sectorStocks && sectorStocks.length > 0) {
+                    const sectorSymbols = sectorStocks.map((s: any) => s.symbol);
+                    const { data: latestTechs } = await supabase
+                        .from("stock_technical_indicators")
+                        .select("symbol, change_pct, volume, vol_sma20, rsi_14, macd_signal, date")
+                        .in("symbol", sectorSymbols)
+                        .order("date", { ascending: false })
+                        .limit(500);
+
+                    if (latestTechs && latestTechs.length > 0) {
+                        const maxDate = latestTechs[0].date;
+                        const todayTechs = latestTechs.filter((r: any) => r.date === maxDate);
+                        const techMap = new Map(todayTechs.map((t: any) => [t.symbol.toUpperCase(), t]));
+
+                        const gainers = sectorStocks
+                            .map((s: any) => ({ ...s, tech: techMap.get(s.symbol.toUpperCase()) }))
+                            .filter((s: any) => s.tech && Number(s.tech.change_pct || 0) > 0)
+                            .sort((a: any, b: any) => Number(b.tech.change_pct || 0) - Number(a.tech.change_pct || 0))
+                            .slice(0, 10);
+
+                        const losers = sectorStocks
+                            .map((s: any) => ({ ...s, tech: techMap.get(s.symbol.toUpperCase()) }))
+                            .filter((s: any) => s.tech && Number(s.tech.change_pct || 0) < 0)
+                            .sort((a: any, b: any) => Number(a.tech.change_pct || 0) - Number(b.tech.change_pct || 0))
+                            .slice(0, 10);
+
+                        outputText += `\n📊 [تحليل قطاع ${targetSector} - ${sectorStocks.length} سهم]:\n`;
+
+                        if (gainers.length > 0) {
+                            outputText += `🟢 أعلى ارتفاعاً في القطاع:\n`;
+                            gainers.forEach((s: any) => {
+                                const ch = Number(s.tech.change_pct).toFixed(2);
+                                outputText += `• ${s.symbol} (${s.name}): +${ch}% | RSI: ${s.tech.rsi_14 ?? "N/A"} | حجم: ${(Number(s.tech.volume || 0) / Number(s.tech.vol_sma20 || 1)).toFixed(2)}x\n`;
+                            });
+                        }
+
+                        if (losers.length > 0) {
+                            outputText += `\n🔴 أعلى انخفاضاً في القطاع:\n`;
+                            losers.forEach((s: any) => {
+                                const ch = Number(s.tech.change_pct).toFixed(2);
+                                outputText += `• ${s.symbol} (${s.name}): ${ch}% | RSI: ${s.tech.rsi_14 ?? "N/A"} | حجم: ${(Number(s.tech.volume || 0) / Number(s.tech.vol_sma20 || 1)).toFixed(2)}x\n`;
+                            });
+                        }
+                        outputText += `\n`;
+                    } else {
+                        outputText += `\n📊 [قطاع ${targetSector}]: تم العثور على ${sectorStocks.length} سهم في القطاع ولكن لا توجد بيانات فنية حديثة لهم.\n`;
+                    }
+                } else {
+                    outputText += `\n📊 [قطاع ${targetSector}]: لم يتم العثور على أسهم في هذا القطاع حالياً.\n`;
+                }
             }
         } catch (e) {
             console.warn("Error fetching sector data:", e);
