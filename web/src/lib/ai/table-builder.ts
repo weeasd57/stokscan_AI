@@ -149,10 +149,6 @@ function parseMarketData(text: string): ParsedMarketData | null {
   // Parse USD/EGP
   const usdMatch = text.match(/(?:سعر صرف )?USD\/EGP\s*:\s*([0-9.]+)\s*جنيه/i);
   if (usdMatch && usdMatch[1]) {
-    market.usd = { value: usdMatch[1].trim() };
-    hasData = true;
-  }
-  if (usdMatch) {
     market.usdEgp = { value: usdMatch[1].trim() };
     hasData = true;
 
