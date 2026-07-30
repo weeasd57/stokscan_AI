@@ -1,4 +1,4 @@
-import { SessionState, PlannerResult } from "./types";
+import { SessionState, PlannerResult, VisionContext } from "./types";
 import { AI_CONFIG } from "./config";
 import { createHash } from "crypto";
 import { getSupabaseClient } from "@/lib/supabase/route-data";
@@ -384,10 +384,12 @@ export async function runPlanner(
     imageList: string[],
     session: SessionState,
     history: any[],
-    apiKeys: string[]
+    apiKeys: string[],
+    vision?: VisionContext | null
 ): Promise<PlannerResult> {
     const validSymbols = await loadValidSymbols();
-    const hasImages = imageList && imageList.length > 0;
+    const visionProvided = !!vision;
+    const hasImages = imageList && imageList.length > 0 && !visionProvided;
 
     // Image Caching Check - DISABLED for fresh analysis
     const imageKey = hasImages ? createHash("sha256").update(imageList[0]).digest("hex") : "";
@@ -412,7 +414,12 @@ ${stocksListStr ? `=== ACTIVE EGX STOCKS IN DATABASE (Use this list to map Arabi
 ${stocksListStr}
 === END OF LIST ===` : ""}
 
-${hasImages ? `**ANALYZE THE IMAGE CAREFULLY:**
+${visionProvided ? `=== PRE-ANALYZED IMAGE CONTEXT ===
+Image type: ${vision.image_type}
+Symbols found: ${vision.symbols.map(s => s.symbol).join(", ") || "none"}
+Summary: ${vision.user_relevant_summary || "none"}
+=== END IMAGE CONTEXT ===
+` : hasImages ? `**ANALYZE THE IMAGE CAREFULLY:**
 CRITICAL INSTRUCTIONS:
 1. Extract ALL stock symbols visible in the image - do NOT miss any symbols.
 2. Look at EVERY row, cell, and section of the financial image.
@@ -482,14 +489,16 @@ EXAMPLE 2 - Sector Analysis (CRITICAL FOR SECTOR QUERIES):
 - ⚠️ FOR IMAGES: Count the visible stocks carefully and ensure your symbols array length matches the count
 - Return ONLY the JSON, no extra text`;
 
-    const recentHistoryText = hasImages ? "" : (history || []).slice(-6).map((h: any) => `${h.role}: ${h.content}`).join("\n");
-    const imageInstructions = hasImages 
+    const recentHistoryText = (hasImages || visionProvided) ? "" : (history || []).slice(-6).map((h: any) => `${h.role}: ${h.content}`).join("\n");
+    const imageInstructions = visionProvided
+        ? ""
+        : (hasImages
         ? `\n\n⚠️ UNRESTRICTED EXPERT VISION EXTRACTION ⚠️\n- Thoroughly inspect the uploaded image(s) using full multimodal vision capabilities.\n- If the image contains portfolio holdings, OCR and extract ALL visible uppercase stock tickers.\n- If the image contains technical charts, diagrams, or financial documents: describe every detail, pattern, technical indicator, price target, support/resistance level, and trend visible in image_summary.\n` 
-        : "";
-    const sessionContext = hasImages ? "" : `Current Session:\n${JSON.stringify(session)}\n\nRecent History:\n${recentHistoryText}\n\n`;
+        : "");
+    const sessionContext = (hasImages || visionProvided) ? `Current Session:\n${JSON.stringify(session)}\n\nRecent History:\n${(history || []).slice(-4).map((h: any) => `${h.role}: ${h.content.substring(0, 200)}`).join("\n")}\n\n` : `Current Session:\n${JSON.stringify(session)}\n\nRecent History:\n${recentHistoryText}\n\n`;
     const userPromptText = `${sessionContext}User Request:\n${message || "Analyze input"}${imageInstructions}\n\n⚠️ CRITICAL instruction: You MUST return ONLY a valid JSON object starting with '{' and ending with '}'. Do NOT write any conversational text, explanations, or steps (like 'To analyze the image...'). Respond only with the JSON data.`;
 
-    const plannerModels = hasImages 
+    const plannerModels = hasImages
         ? AI_CONFIG.models.planner.vision 
         : AI_CONFIG.models.planner.text;
 

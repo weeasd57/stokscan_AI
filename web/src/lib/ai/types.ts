@@ -6,6 +6,99 @@ export interface SessionState {
     language?: string;
 }
 
+export interface VisionContext {
+    image_type: "portfolio" | "chart" | "market_depth" | "table" | "unknown";
+    symbols: Array<{
+        symbol: string;
+        name: string;
+        visible_values: {
+            price: number | null;
+            change_pct: number | null;
+            quantity: number | null;
+        };
+    }>;
+    technical_observations: Array<{
+        symbol: string;
+        indicator: string;
+        value: number;
+        meaning: string;
+    }>;
+    market_depth: {
+        total_bid: number | null;
+        total_ask: number | null;
+        spread: number | null;
+    };
+    user_relevant_summary: string;
+    uncertainties: string[];
+    confidence: number;
+    analyzed_at: string;
+    message_id: string;
+}
+
+export interface SessionSummary {
+    current_symbols: string[];
+    last_image_symbols: string[];
+    last_topic: string | null;
+    open_references: string[];
+    last_data_date: string | null;
+    last_vision_context: VisionContext | null;
+    updated_at: string;
+}
+
+export interface FactSnapshot {
+    context_id: string;
+    source: string;
+    symbols: string[];
+    as_of: string;
+    facts: Record<string, any>;
+    data_type: "live" | "historical" | "image-derived";
+}
+
+export interface IntentPlan {
+    intent: "image_analysis" | "stock_analysis" | "sector_analysis" | "comparison" | "historical_recall" | "market_summary" | "current_data" | "previous_analysis_comparison" | "follow_up" | "clarification" | "general_chat";
+    confidence: number;
+    entities: {
+        symbols: string[];
+        sector: string | null;
+        timeframe: "current" | "historical" | "unspecified";
+        reference: "last_image" | "last_stock" | "previous_analysis" | null;
+    };
+    needs_vision_context: boolean;
+    needs_history: boolean;
+    needs_live_data: boolean;
+    needs_historical_data: boolean;
+    tools: string[];
+    clarification_needed: boolean;
+    resolved_from: {
+        symbol: string | null;
+        message_id: string | null;
+    };
+}
+
+export interface ToolResult {
+    tool: string;
+    source: string;
+    data_time: string;
+    symbols: string[];
+    data_type: "live" | "historical" | "image-derived";
+    data: any;
+    error?: string;
+}
+
+export interface PipelineContext {
+    user_message: string;
+    images: string[];
+    session_id: string;
+    user_id: string;
+    history: Array<{ role: string; content: string }>;
+    session_state: SessionState;
+    session_summary: SessionSummary | null;
+    vision_context: VisionContext | null;
+    relevant_facts: FactSnapshot[];
+    intent_plan: IntentPlan | null;
+    tool_results: ToolResult[];
+}
+
 export interface PlannerResult {
     intent: string;
     confidence: number;
@@ -13,7 +106,7 @@ export interface PlannerResult {
         symbols: string[];
         sector: string | null;
         wants_table: boolean;
-        timeframe?: string | null;  // ✅ إضافة timeframe support
+        timeframe?: string | null;
     };
     tools: string[];
     image_summary?: string | null;

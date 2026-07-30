@@ -1,4 +1,4 @@
-import { SessionState } from "./types";
+import { SessionState, SessionSummary, VisionContext } from "./types";
 
 export async function loadSessionState(supabase: any, sessionId: string, userId: string): Promise<SessionState> {
     if (!sessionId) {
@@ -18,7 +18,9 @@ export async function loadSessionState(supabase: any, sessionId: string, userId:
             return {
                 current_symbol: state.current_symbol || null,
                 last_symbols: Array.isArray(state.last_symbols) ? state.last_symbols : [],
-                summary: state.summary || sessionData.title || null
+                summary: state.summary || sessionData.title || null,
+                current_sector: state.current_sector || null,
+                language: state.language || "ar"
             };
         }
 
@@ -30,6 +32,52 @@ export async function loadSessionState(supabase: any, sessionId: string, userId:
     } catch (e) {
         console.warn("Failed to load session state from Supabase:", e);
         return { current_symbol: null, last_symbols: [], summary: null };
+    }
+}
+
+export async function loadSessionSummary(supabase: any, sessionId: string, userId: string): Promise<SessionSummary | null> {
+    if (!sessionId) return null;
+    try {
+        const { data } = await supabase
+            .from("ai_chat_sessions")
+            .select("summary_state")
+            .eq("id", sessionId)
+            .eq("user_id", userId)
+            .maybeSingle();
+        if (data?.summary_state) {
+            return data.summary_state as SessionSummary;
+        }
+    } catch (e) {
+        console.warn("Failed to load session summary:", e);
+    }
+    return null;
+}
+
+export async function updateSessionSummary(
+    supabase: any,
+    sessionId: string,
+    userId: string,
+    update: Partial<SessionSummary>
+): Promise<void> {
+    if (!sessionId) return;
+    const current = await loadSessionSummary(supabase, sessionId, userId);
+    const merged: SessionSummary = {
+        current_symbols: update.current_symbols || current?.current_symbols || [],
+        last_image_symbols: update.last_image_symbols || current?.last_image_symbols || [],
+        last_topic: update.last_topic !== undefined ? update.last_topic : (current?.last_topic || null),
+        open_references: update.open_references || current?.open_references || [],
+        last_data_date: update.last_data_date !== undefined ? update.last_data_date : (current?.last_data_date || null),
+        last_vision_context: update.last_vision_context !== undefined ? update.last_vision_context : (current?.last_vision_context || null),
+        updated_at: new Date().toISOString()
+    };
+    try {
+        await supabase
+            .from("ai_chat_sessions")
+            .update({ summary_state: merged })
+            .eq("id", sessionId)
+            .eq("user_id", userId);
+    } catch (e) {
+        console.warn("Failed to update session summary:", e);
     }
 }
 
