@@ -62,12 +62,24 @@ export function buildV2FinalMessages(
     const liveMemoryFacts = relevantFacts.filter(f => f.data_type === "live");
     const historicalFacts = relevantFacts.filter(f => f.data_type === "historical");
 
+    const formatFactValue = (val: unknown): string => {
+        if (val === null || val === undefined) return "N/A";
+        if (typeof val === "object") {
+            try {
+                return JSON.stringify(val);
+            } catch {
+                return String(val);
+            }
+        }
+        return String(val);
+    };
+
     if (imageDerivedFacts.length > 0) {
         sections.push("=== IMAGE-DERIVED MEMORY ===");
         imageDerivedFacts.forEach(f => {
             sections.push(`المصدر: ${f.source} | التاريخ: ${f.as_of} | الرموز: ${f.symbols.join(", ")}`);
             for (const [key, val] of Object.entries(f.facts)) {
-                sections.push(`  ${key}: ${val}`);
+                sections.push(`  ${key}: ${formatFactValue(val)}`);
             }
         });
     }
@@ -77,7 +89,7 @@ export function buildV2FinalMessages(
         liveMemoryFacts.forEach(f => {
             sections.push(`المصدر: ${f.source} | التاريخ: ${f.as_of} | الرموز: ${f.symbols.join(", ")}`);
             for (const [key, val] of Object.entries(f.facts)) {
-                sections.push(`  ${key}: ${val}`);
+                sections.push(`  ${key}: ${formatFactValue(val)}`);
             }
         });
     }
@@ -87,7 +99,7 @@ export function buildV2FinalMessages(
         historicalFacts.forEach(f => {
             sections.push(`المصدر: ${f.source} | التاريخ: ${f.as_of} | الرموز: ${f.symbols.join(", ")}`);
             for (const [key, val] of Object.entries(f.facts)) {
-                sections.push(`  ${key}: ${val}`);
+                sections.push(`  ${key}: ${formatFactValue(val)}`);
             }
         });
     }
@@ -102,7 +114,7 @@ export function buildV2FinalMessages(
                 sections.push(`الأداة: ${r.tool} | المصدر: ${r.source} | الوقت: ${r.data_time} | نوع: ${r.data_type}`);
                 if (typeof r.data === "object" && r.data !== null) {
                     for (const [key, val] of Object.entries(r.data)) {
-                        sections.push(`  ${key}: ${val}`);
+                        sections.push(`  ${key}: ${formatFactValue(val)}`);
                     }
                 }
             });
@@ -114,7 +126,7 @@ export function buildV2FinalMessages(
                 sections.push(`الأداة: ${r.tool} | المصدر: ${r.source} | الوقت: ${r.data_time} | نوع: ${r.data_type}`);
                 if (typeof r.data === "object" && r.data !== null) {
                     for (const [key, val] of Object.entries(r.data)) {
-                        sections.push(`  ${key}: ${val}`);
+                        sections.push(`  ${key}: ${formatFactValue(val)}`);
                     }
                 }
             });

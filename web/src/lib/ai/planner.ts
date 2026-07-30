@@ -734,7 +734,7 @@ EXAMPLE 2 - Sector Analysis (CRITICAL FOR SECTOR QUERIES):
                                 parsed.tools.includes("get_indices") || 
                                 parsed.tools.includes("get_accumulation_stocks")
                             )) ||
-                            /مين طلع ومين نزل|ايه اللي طلع وايه اللي نزل|ايه اللى طلع وايه اللى نزل|السوق عمل ايه|حالة السوق|صعود وهبوط|gainers and losers|what went up|whole market|where is liquidity/i.test(message))
+                            /مين طلع ومين نزل|ايه اللي طلع وايه اللي نزل|ايه اللى طلع وايه اللى نزل|السوق عمل ايه|حالة السوق|صعود وهبوط|gainers and losers|what went up|whole market|where is liquidity|اسهم (الشهر|السهر)|(الشهر|السهر) (اللي|اللى) (فات|الماضي)|سيولة|تجميع/i.test(message))
                             && parsed.intent !== "comparison";
 
                         let resolvedSymbols: string[] = [];
