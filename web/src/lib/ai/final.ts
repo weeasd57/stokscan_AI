@@ -154,11 +154,6 @@ ${liveDataString ? `=== DATABASE DATA ===\n${liveDataString}\n=== END ===` : "ل
     // Build history messages — when an image is present, strip history to prevent old text questions from confusing image analysis.
     // Also strip any "image.png" / "cannot read image" leak from history that could cause non-vision models to error.
     const historySlice = (aiMessages || []).slice(1, -1);
-    const stripImageRefs = (text: string) => text
-        .replace(/\bimage\.\w+\b/gi, "[صورة]")
-        .replace(/cannot read image[^.]*\./gi, "")
-        .replace(/ERROR:.*image.*model does not support image input[^.]*\./gi, "")
-        .trim();
     const sanitizedAiMessages = hasImages ? [] : historySlice.map((msg: any) => {
         if (Array.isArray(msg.content)) {
             const textParts = msg.content
@@ -167,8 +162,7 @@ ${liveDataString ? `=== DATABASE DATA ===\n${liveDataString}\n=== END ===` : "ل
                 .join(" ");
             return { role: msg.role, content: textParts || message || "تحليل البيانات والصورة" };
         }
-        const safeContent = typeof msg.content === "string" ? stripImageRefs(msg.content) : msg.content;
-        return { role: msg.role, content: safeContent };
+        return msg;
     });
 
     // Build the final user message
@@ -195,11 +189,18 @@ ${liveDataString ? `=== DATABASE DATA ===\n${liveDataString}\n=== END ===` : "ل
         };
     }
 
-    return [
+    const rawMessages = [
         { role: "system", content: finalSystemPrompt },
         ...sanitizedAiMessages,
         finalUserMessage
     ];
+
+    // If sending to a non-vision model, aggressively strip ALL image content from every message
+    if (!isVisionModel) {
+        return stripImageContentFromMessages(rawMessages);
+    }
+
+    return rawMessages;
 }
 
 
@@ -244,7 +245,8 @@ export async function generateFinalResponse(
         try {
             const targetDeepSeekModel = (requestedModel && (requestedModel.includes("pro") || requestedModel.includes("reasoner"))) ? "deepseek-reasoner" : "deepseek-v4-flash";
             console.log(`🚀 Attempting DeepSeek Official API (${targetDeepSeekModel})...`);
-            const messagesToSend = buildFinalMessages(message, imageList, liveDataString, plannerResult, aiMessages, false);
+            let messagesToSend = buildFinalMessages(message, imageList, liveDataString, plannerResult, aiMessages, false);
+            messagesToSend = guardContextSize(messagesToSend);
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 30000);
 
@@ -381,6 +383,36 @@ function logModelFallback(model: string, keyIdx: number, reason: string, latency
     console.warn(`[FALLBACK] model=${model} key=${keyLabel} reason=${reason} latency=${latencyMs}ms${status ? ` status=${status}` : ""}`);
 }
 
+function stripImageRefs(text: string): string {
+    if (!text) return text;
+    return text
+        .replace(/\bimage\.\w+\b/gi, "[صورة]")
+        .replace(/cannot read image[^.]*\./gi, "")
+        .replace(/ERROR:.*image.*model does not support image input[^.]*\./gi, "")
+        .trim();
+}
+
+function stripImageContentFromMessages(messages: any[]): any[] {
+    return messages.map(msg => {
+        if (!msg || !msg.content) return msg;
+        if (Array.isArray(msg.content)) {
+            const cleaned = msg.content
+                .filter((part: any) => part && part.type !== "image_url")
+                .map((part: any) => {
+                    if (part && part.type === "text" && typeof part.text === "string") {
+                        return { ...part, text: stripImageRefs(part.text) };
+                    }
+                    return part;
+                });
+            return { ...msg, content: cleaned };
+        }
+        if (typeof msg.content === "string") {
+            return { ...msg, content: stripImageRefs(msg.content) };
+        }
+        return msg;
+    });
+}
+
 const NVIDIA_REFUSAL_PATTERNS = [
     "sorry, i cannot provide a response",
     "i cannot provide a response",
@@ -487,7 +519,8 @@ export async function* generateFinalStream(
         try {
             const targetDeepSeekModel = (requestedModel && (requestedModel.includes("pro") || requestedModel.includes("reasoner"))) ? "deepseek-reasoner" : "deepseek-v4-flash";
             console.log(`🚀 Attempting DeepSeek Official API stream (${targetDeepSeekModel})...`);
-            const messagesToSend = buildFinalMessages(message, imageList, liveDataString, plannerResult, aiMessages, false);
+            let messagesToSend = buildFinalMessages(message, imageList, liveDataString, plannerResult, aiMessages, false);
+            messagesToSend = guardContextSize(messagesToSend);
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 30000);
 
@@ -562,7 +595,8 @@ export async function* generateFinalStream(
             try {
                 const controller = new AbortController();
                 const isVisionModel = visionModels.includes(modelName);
-                const messagesToSend = buildFinalMessages(message, imageList, liveDataString, plannerResult, aiMessages, isVisionModel);
+                let messagesToSend = buildFinalMessages(message, imageList, liveDataString, plannerResult, aiMessages, isVisionModel);
+                messagesToSend = guardContextSize(messagesToSend);
                 const timeoutMs = isVisionModel ? 18000 : 20000;
                 const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
