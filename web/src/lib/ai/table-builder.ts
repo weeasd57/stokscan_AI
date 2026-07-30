@@ -131,7 +131,7 @@ function parseMarketData(text: string): ParsedMarketData | null {
 
   // Parse EGX30
   const egx30Match = text.match(/مؤشر EGX30\s*:\s*([0-9.]+)\s*نقطة\s*\|\s*التغير\s*:\s*([+\-]?\s*[0-9.]+\s*%)/i);
-  if (egx30Match) {
+  if (egx30Match && egx30Match[1] && egx30Match[2]) {
     market.egx30 = {
       value: egx30Match[1].trim(),
       change: egx30Match[2].replace(/\s+/g, "").trim(),
@@ -141,13 +141,17 @@ function parseMarketData(text: string): ParsedMarketData | null {
 
   // Parse EGX100
   const egx100Match = text.match(/مؤشر EGX100\s*:\s*([0-9.]+)\s*نقطة/i);
-  if (egx100Match) {
+  if (egx100Match && egx100Match[1]) {
     market.egx100 = { value: egx100Match[1].trim() };
     hasData = true;
   }
 
   // Parse USD/EGP
   const usdMatch = text.match(/(?:سعر صرف )?USD\/EGP\s*:\s*([0-9.]+)\s*جنيه/i);
+  if (usdMatch && usdMatch[1]) {
+    market.usd = { value: usdMatch[1].trim() };
+    hasData = true;
+  }
   if (usdMatch) {
     market.usdEgp = { value: usdMatch[1].trim() };
     hasData = true;

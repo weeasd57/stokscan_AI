@@ -425,21 +425,42 @@ EXAMPLE: If you see 4 stocks in the image, you MUST extract all 4 symbols, and l
 
 ` : ""}**YOUR TASK:**
 Analyze user request and return JSON with this exact structure:
+
+EXAMPLE 1 - Portfolio/Stock Analysis:
 {
   "intent": "portfolio",
   "confidence": 0.95,
   "entities": {
-    "symbols": ["ALL_STOCK_SYMBOLS_FROM_IMAGE"],
+    "symbols": ["COMI", "EAST"],
     "sector": null,
     "wants_table": true,
     "timeframe": null
   },
   "tools": ["get_stock"],
-  "image_summary": "وصف تفصيلي بالعربية لكل محتوى الصورة المالية بما في ذلك جميع رموز الأسهم المرئية",
+  "image_summary": null,
   "session_update": {
-    "current_symbol": "FIRST_SYMBOL",
-    "last_symbols": ["ALL_SYMBOLS_IN_ORDER"],
-    "summary": "portfolio analysis with all visible stocks"
+    "current_symbol": "COMI",
+    "last_symbols": ["COMI", "EAST"],
+    "summary": "stock analysis"
+  }
+}
+
+EXAMPLE 2 - Sector Analysis (CRITICAL FOR SECTOR QUERIES):
+{
+  "intent": "sector_analysis",
+  "confidence": 0.95,
+  "entities": {
+    "symbols": [],
+    "sector": "بنوك",
+    "wants_table": true,
+    "timeframe": null
+  },
+  "tools": ["get_sector"],
+  "image_summary": null,
+  "session_update": {
+    "current_symbol": null,
+    "last_symbols": [],
+    "summary": "sector analysis for banks"
   }
 }
 
@@ -453,7 +474,7 @@ Analyze user request and return JSON with this exact structure:
 - For recommendations or signals: use intent "recommendation" with tools ["get_recommendations"]
  - For accumulation or distribution queries (e.g. 'تجميع', 'تصريف', 'accumulation', 'distribution'): use intent "accumulation" with tools ["get_accumulation_stocks"]
  - For comparison queries between two stocks (e.g. 'مقارنة COMI و EAST', 'قارن بين AFMC و BIOC'): use intent "comparison" with tools ["get_comparison"] and set entities.symbols to the two symbols.
- - For sector analysis queries (e.g. 'البنوك حالتها ايه', 'قطاع الأدوية', 'how are banks doing', 'sector analysis'): use intent "sector_analysis" with tools ["get_sector"] and set entities.sector to the sector name (e.g. 'بنوك', 'أدوية', 'عقارات'). If the sector name is not explicitly mentioned, try to infer it from the query.
+ - For sector analysis queries (e.g. 'البنوك حالتها ايه', 'تحليل قطاع الأدوية', 'قطاع البنوك', 'how are banks doing', 'sector analysis'): use intent "sector_analysis" with tools ["get_sector"] and set entities.sector to the Arabic sector name (e.g. 'بنوك', 'أدوية', 'عقارات', 'أغذية'). Always prefer the Arabic sector name. CRITICAL: You MUST extract and set the sector name in entities.sector field!
  - For greetings, general chat, or conversational requests (e.g. 'hello', 'say X', 'how are you', etc.): use intent "general_chat" with tools [] and entities.symbols [].
 - If the user asks about market liquidity, performance, gainers/losers, or general market movement (e.g. 'مين طلع ومين نزل', 'ايه اللي طلع وايه اللي نزل', 'ايه اللى طلع وايه اللى نزل', 'السوق عمل ايه', 'حالة السوق', 'صعود وهبوط', 'gainers and losers', 'what went up', 'whole market', 'where is liquidity'): use intent "market_summary" or "accumulation" with tools ["get_market", "get_accumulation_stocks"] and set entities.symbols to [].
 - If the request is a general market, news, index, or recommendation query, do NOT include stock symbols from the session context in the entities.symbols list. Keep entities.symbols as [] to fetch the whole market data.
