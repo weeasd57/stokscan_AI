@@ -106,7 +106,8 @@ export function enforceIntentFromMessage(message: string, plannerIntent: string,
 }
 
 export function buildMarketLiquidityResponse(tools: StructuredToolOutput): string | null {
-    const market = tools.results.find(result => result.tool === "get_market")?.data;
+    const marketResult = tools.results.find(result => result.tool === "get_market");
+    const market = marketResult?.data;
     const accumulation = tools.results.find(result => result.tool === "get_accumulation_stocks");
     if (!market && !accumulation) return null;
 
@@ -115,14 +116,38 @@ export function buildMarketLiquidityResponse(tools: StructuredToolOutput): strin
     if (market?.egx30 != null) lines.push(`- EGX30: ${market.egx30} نقطة`);
     if (market?.usd != null) lines.push(`- USD/EGP: ${market.usd} جنيه`);
 
+    // Top Gainers
+    if (market?.top_gainers && Array.isArray(market.top_gainers) && market.top_gainers.length > 0) {
+        lines.push("", `📈 **أعلى الأسهم ارتفاعاً اليوم (${marketResult?.data_time?.split("T")[0] || ""}):**`);
+        market.top_gainers.forEach((stock: any, index: number) => {
+            const changeVal = stock.change ?? stock.change_pct ?? 0;
+            const changeStr = typeof changeVal === "number" 
+                ? `${changeVal >= 0 ? "+" : ""}${changeVal.toFixed(2)}%`
+                : changeVal;
+            lines.push(`${index + 1}. **${stock.symbol}**: ${changeStr}`);
+        });
+    }
+
+    // Top Losers
+    if (market?.top_losers && Array.isArray(market.top_losers) && market.top_losers.length > 0) {
+        lines.push("", `📉 **أعلى الأسهم انخفاضاً اليوم (${marketResult?.data_time?.split("T")[0] || ""}):**`);
+        market.top_losers.forEach((stock: any, index: number) => {
+            const changeVal = stock.change ?? stock.change_pct ?? 0;
+            const changeStr = typeof changeVal === "number" 
+                ? `${changeVal >= 0 ? "+" : ""}${changeVal.toFixed(2)}%`
+                : changeVal;
+            lines.push(`${index + 1}. **${stock.symbol}**: ${changeStr}`);
+        });
+    }
+
     const stocks = Array.isArray(accumulation?.data?.stocks) ? accumulation.data.stocks.slice(0, 8) : [];
     if (stocks.length > 0) {
-        lines.push("", `أعلى أسهم التجميع والسيولة المؤسسية في بيانات ${accumulation?.data_time}:`);
+        lines.push("", `📊 **أعلى أسهم التجميع والسيولة المؤسسية في بيانات ${accumulation?.data_time}:**`);
         stocks.forEach((stock: any, index: number) => {
             const score = stock.acc_score != null ? `، درجة التجميع ${stock.acc_score}/100` : "";
             const ratio = stock.vol_ratio != null ? `، نسبة الحجم ${stock.vol_ratio}x` : "";
             const change = stock.change_pct != null ? `، التغير ${stock.change_pct}%` : "";
-            lines.push(`${index + 1}. ${stock.symbol}${score}${ratio}${change}`);
+            lines.push(`${index + 1}. **${stock.symbol}**${score}${ratio}${change}`);
         });
     } else {
         lines.push("", "لا توجد حالياً قائمة موثقة لأسهم التجميع والسيولة المؤسسية في أحدث مسح.");

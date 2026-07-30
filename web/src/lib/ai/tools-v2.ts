@@ -344,12 +344,12 @@ export async function executeStructuredTools(
                     const gainers = todayTechs
                         .filter((r: any) => Number(r.change_pct || 0) > 0)
                         .sort((a: any, b: any) => Number(b.change_pct || 0) - Number(a.change_pct || 0))
-                        .slice(0, AI_CONFIG.tools.topGainersLosersLimit);
+                        .slice(0, 10); // get top 10
 
                     const losers = todayTechs
                         .filter((r: any) => Number(r.change_pct || 0) < 0)
                         .sort((a: any, b: any) => Number(a.change_pct || 0) - Number(b.change_pct || 0))
-                        .slice(0, AI_CONFIG.tools.topGainersLosersLimit);
+                        .slice(0, 10); // get top 10
 
                     if (gainers.length > 0) {
                         textParts.push(`\n [أعلى الأسهم ارتفاعاً - من البيانات الفنية المباشرة]:`);
@@ -363,6 +363,28 @@ export async function executeStructuredTools(
                             textParts.push(`• ${r.symbol}: ${Number(r.change_pct).toFixed(2)}%`);
                         });
                     }
+
+                    // Update results array for other components like buildMarketLiquidityResponse
+                    let marketResult = results.find(r => r.tool === "get_market");
+                    if (!marketResult) {
+                        marketResult = {
+                            tool: "get_market",
+                            source: "database",
+                            data_time: maxTechDate,
+                            symbols: ["EGX30", "USDEGP"],
+                            data_type: "live",
+                            data: {
+                                egx30: null,
+                                usd: null,
+                                regime: null,
+                                top_gainers: [],
+                                top_losers: []
+                            }
+                        };
+                        results.push(marketResult);
+                    }
+                    marketResult.data.top_gainers = gainers.map((g: any) => ({ symbol: g.symbol, change: g.change_pct }));
+                    marketResult.data.top_losers = losers.map((l: any) => ({ symbol: l.symbol, change: l.change_pct }));
                 }
             }
         } catch (e) {
@@ -537,12 +559,18 @@ export async function executeStructuredTools(
                     .limit(1000);
 
                 const SECTOR_TERMS: Record<string, string[]> = {
-                    "أدوية": ["pharmaceutical", "pharma", "drug", "أدوية", "صيدلة"],
-                    "عقارات": ["real estate", "realestate", "عقارات", "عقاري"],
-                    "أغذية": ["food", "beverage", "أغذية", "غذائية"],
+                    "ادويه": ["pharmaceutical", "pharma", "drug", "health technology", "health services", "أدوية", "صيدلة", "رعاية صحية"],
+                    "عقارات": ["real estate", "realestate", "عقارات", "عقاري", "construction", "homebuilding"],
+                    "اغذيه": ["food", "beverage", "أغذية", "غذائية", "consumer non-durables", "agricultural"],
                     "بترول": ["oil", "gas", "petroleum", "energy", "بترول", "طاقة"],
                 };
+                
                 const normalizedTargetSector = normalizeArabic(targetSector);
+                let cleanedTargetSector = normalizedTargetSector;
+                if (cleanedTargetSector.startsWith("ال")) {
+                    cleanedTargetSector = cleanedTargetSector.substring(2);
+                }
+                
                 const parseFundamentalData = (value: unknown): Record<string, any> => {
                     if (value && typeof value === "object") return value as Record<string, any>;
                     if (typeof value === "string") {
@@ -560,9 +588,9 @@ export async function executeStructuredTools(
                     const industryClassification = industry.toLowerCase();
                     const isBank = /\bbank(s|ing)?\b/.test(industryClassification)
                         && !/investment banks?\/?brokers?/.test(industryClassification);
-                    const matchesRequestedSector = normalizedTargetSector === "بنوك"
+                    const matchesRequestedSector = cleanedTargetSector === "بنوك"
                         ? isBank
-                        : (SECTOR_TERMS[targetSector] || [targetSector.toLowerCase(), normalizedTargetSector])
+                        : (SECTOR_TERMS[cleanedTargetSector] || [targetSector.toLowerCase(), normalizedTargetSector, cleanedTargetSector])
                             .some((term) => classification.includes(term.toLowerCase()));
 
                     return matchesRequestedSector

@@ -89,6 +89,8 @@ function parseStockJson(text: string): StockData[] | null {
 
 function parseRawPipeLine(line: string): RawPipeStock[] | null {
     if (!line.includes("|")) return null;
+    const trimmed = line.trim();
+    if (trimmed.startsWith("|")) return null;
     const pipes = line.split("|").map(s => s.trim());
     if (pipes.length < 8) return null;
 
