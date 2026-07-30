@@ -132,9 +132,9 @@ export function convertStockBulletsToTable(replyText: string): string {
                     .replace(/^[\*\:\s•\-%+]+|[\*\:\s•\-%+]+$/g, "")
                     .trim();
 
-                if (currentSection === "rsi" && rawVal) stock.rsi = rawVal;
-                else if (currentSection === "macd" && rawVal) stock.macd = rawVal;
-                else if (currentSection === "signal" && rawVal) stock.signal = rawVal;
+                if (currentSection === "rsi" && rawVal && rawVal.length <= 25) stock.rsi = rawVal;
+                else if (currentSection === "macd" && rawVal && rawVal.length <= 25) stock.macd = rawVal;
+                else if (currentSection === "signal" && rawVal && rawVal.length <= 25) stock.signal = rawVal;
             }
         }
     }

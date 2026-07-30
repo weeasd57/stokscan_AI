@@ -62,20 +62,20 @@ export interface ParsedToolsOutput {
  * Format: • سهم SYMBOL (NAME): السعر اللحظي = X, التغير = X%, RSI = X, MACD = X, نسبة السيولة = Xx, الإشارة = SIGNAL
  */
 function parseStockLine(line: string): ParsedStockData | null {
-  // Match symbol extraction
-  const stockMatch = line.match(/•\s*سهم\s+(\w+)\s*\(([^)]*)\)/);
+  // Support "• سهم SYMBOL (NAME)" and "• SYMBOL (NAME)" and "• 1. سهم SYMBOL"
+  const stockMatch = line.match(/•\s*(?:\d+\.\s*)?(?:سهم\s+)?([A-Z0-9]{2,10})\s*\(([^)]*)\)/i) || line.match(/•\s*(?:\d+\.\s*)?(?:سهم\s+)?([A-Z0-9]{2,10})/i);
   if (!stockMatch) return null;
 
   const symbol = stockMatch[1].toUpperCase();
-  const name = stockMatch[2].trim();
+  const name = stockMatch[2] ? stockMatch[2].trim() : symbol;
 
-  // Extract individual fields with case-insensitive regex
-  const priceMatch = line.match(/السعر اللحظي\s*[:=]\s*([0-9.]+(?:\s*ج\.م)?)/i);
+  // Extract fields using relaxed regexes
+  const priceMatch = line.match(/(?:السعر اللحظي|السعر)\s*[:=]\s*([0-9.]+(?:\s*ج\.م)?)/i);
   const changeMatch = line.match(/التغير\s*[:=]\s*([+\-]?\s*[0-9.]+\s*%)/i);
   const rsiMatch = line.match(/RSI\s*[:=]\s*([0-9.]+)/i);
   const macdMatch = line.match(/MACD\s*[:=]\s*([+\-]?\s*[0-9.]+)/i);
   const ratioMatch = line.match(/نسبة (?:السيولة|الحجم)\s*[:=]\s*([0-9.]+\s*x?)/i);
-  const signalMatch = line.match(/الإشارة\s*[:=]\s*([^,\n]+)/i) || line.match(/(تجميع 📈|تصريف 📉|محايد ⚪|صعود ضعيف ⚠️|هبوط ضعيف ⚠️)/i);
+  const signalMatch = line.match(/الإشارة\s*[:=]\s*([^,\n|]+)/i) || line.match(/(تجميع 📈|تصريف 📉|محايد ⚪|صعود ضعيف ⚠️|هبوط ضعيف ⚠️)/i);
 
   return {
     symbol,
@@ -93,22 +93,20 @@ function parseStockLine(line: string): ParsedStockData | null {
  * Parse an accumulation/distribution stock line (may have slightly different format)
  */
 function parseAccumulationLine(line: string): ParsedStockData | null {
-  // Format: • 1. سهم BIOC (GlaxoSmithKline S.A.E.): درجة التجميع = 85/100 | نسبة السيولة = 1.50x من المتوسط | التغير = +2.50% | RSI = 55.20 ...
-  const stockMatch = line.match(/•\s*\d+\.\s*سهم\s+(\w+)\s*\(([^)]*)\)/);
+  const stockMatch = line.match(/•\s*(?:\d+\.\s*)?(?:سهم\s+)?([A-Z0-9]{2,10})\s*\(([^)]*)\)/i) || line.match(/•\s*(?:\d+\.\s*)?(?:سهم\s+)?([A-Z0-9]{2,10})/i);
   if (!stockMatch) return null;
 
   const symbol = stockMatch[1].toUpperCase();
-  const name = stockMatch[2].trim();
+  const name = stockMatch[2] ? stockMatch[2].trim() : symbol;
 
-  const changeMatch = line.match(/التغير\s*=\s*([+\-]?\s*[0-9.]+\s*%)/i);
-  const ratioMatch = line.match(/نسبة السيولة\s*=\s*([0-9.]+\s*x?)/i);
-  const rsiMatch = line.match(/RSI\s*=\s*([0-9.]+)/i);
-  const macdMatch = line.match(/MACD\s*=\s*([+\-]?\s*[0-9.]+)/i);
+  const changeMatch = line.match(/التغير\s*[:=]\s*([+\-]?\s*[0-9.]+\s*%)/i);
+  const ratioMatch = line.match(/نسبة (?:السيولة|الحجم)\s*[:=]\s*([0-9.]+\s*x?)/i);
+  const rsiMatch = line.match(/RSI\s*[:=]\s*([0-9.]+)/i);
+  const macdMatch = line.match(/MACD\s*[:=]\s*([+\-]?\s*[0-9.]+)/i);
 
-  // Determine signal based on keywords in line
   let signal = "محايد ⚪";
-  if (line.includes("تجميع 📈")) signal = "تجميع 📈";
-  else if (line.includes("تصريف 📉")) signal = "تصريف 📉";
+  if (line.includes("تجميع 📈") || line.includes("تجميع")) signal = "تجميع 📈";
+  else if (line.includes("تصريف 📉") || line.includes("تصريف")) signal = "تصريف 📉";
 
   return {
     symbol,
