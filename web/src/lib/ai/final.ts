@@ -272,7 +272,7 @@ export async function generateFinalResponse(
                     model: targetDeepSeekModel,
                     messages: messagesToSend,
                     temperature: 0.1,
-                    max_tokens: 4096
+                    max_tokens: 8192
                 })
             });
 
@@ -320,7 +320,7 @@ export async function generateFinalResponse(
                         temperature: 0.2,
                         presence_penalty: 0.1,
                         frequency_penalty: 0.1,
-                        max_tokens: 4096
+                        max_tokens: 8192
                     })
                 });
 
@@ -397,6 +397,7 @@ function logModelFallback(model: string, keyIdx: number, reason: string, latency
 function stripImageRefs(text: string): string {
     if (!text) return text;
     return text
+        .replace(/<environment_details>[\s\S]*?<\/environment_details>/gi, "")
         .replace(/\bimage\.\w+\b/gi, "[صورة]")
         .replace(/cannot read image[^.]*\./gi, "")
         .replace(/ERROR:.*image.*model does not support image input[^.]*\./gi, "")
@@ -548,7 +549,7 @@ export async function* generateFinalStream(
                     temperature: 0.1,
                     frequency_penalty: 0.5,
                     presence_penalty: 0.3,
-                    max_tokens: 4096,
+                    max_tokens: 8192,
                     stream: true
                 })
             });
@@ -624,7 +625,7 @@ export async function* generateFinalStream(
                         temperature: 0.15,
                         presence_penalty: 0.3,
                         frequency_penalty: 0.5,
-                        max_tokens: 4096,
+                        max_tokens: 8192,
                         stream: true
                     })
                 });

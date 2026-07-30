@@ -176,11 +176,12 @@ export function sanitizeReply(reply: string, liveDataString?: string): string {
         }
     }
 
-    // 0. Strip leaked DATABASE DATA markers from LLM output
+    // 0. Strip leaked DATABASE DATA markers and environment metadata from LLM output
     cleanReply = cleanReply
         .replace(/=== DATABASE DATA ===/gi, "")
         .replace(/=== END ===/gi, "")
         .replace(/===END===/gi, "")
+        .replace(/<environment_details>[\s\S]*?<\/environment_details>/gi, "")
         .replace(/\n{3,}/g, "\n\n")
         .trim();
 
