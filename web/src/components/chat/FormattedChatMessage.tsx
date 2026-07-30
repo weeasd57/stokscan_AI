@@ -14,10 +14,23 @@ interface FormattedChatMessageProps {
     isStreaming?: boolean;
 }
 
+interface RawPipeStock {
+    symbol: string;
+    score: string;
+    val1: string;
+    val2: string;
+    val3: string;
+    val4: string;
+    val5: string;
+    signal: string;
+    days: string;
+}
+
 type ContentBlock = 
     | { type: "text"; content: string }
     | { type: "table"; headers: string[]; rows: string[][] }
-    | { type: "stock_card"; stock: StockData; rawJson: string };
+    | { type: "stock_card"; stock: StockData; rawJson: string }
+    | { type: "raw_pipe_table"; items: RawPipeStock[] };
 
 const KNOWN_STOCK_SYMBOLS = new Set([
     "COMI", "EAST", "HRHO", "SWDY", "FWRY", "TMGH", "AMOC", "EKHO", "ABUK", "MFPC",
@@ -72,6 +85,60 @@ function parseStockJson(text: string): StockData[] | null {
     } catch {
         return null;
     }
+}
+
+function parseRawPipeLine(line: string): RawPipeStock[] | null {
+    if (!line.includes("|")) return null;
+    const pipes = line.split("|").map(s => s.trim());
+    if (pipes.length < 8) return null;
+
+    const items: RawPipeStock[] = [];
+    let i = 0;
+    
+    let currentHeader = pipes[0];
+    
+    try {
+        while (i + 7 < pipes.length) {
+            const val1 = pipes[i + 1];
+            const val2 = pipes[i + 2];
+            const val3 = pipes[i + 3];
+            const val4 = pipes[i + 4];
+            const val5 = pipes[i + 5];
+            const signal = pipes[i + 6];
+            const nextPart = pipes[i + 7];
+            
+            const headerMatch = currentHeader.match(/([A-Z0-9]{2,6})\s+([\d.]+)/i) || currentHeader.match(/([A-Z0-9]{2,6})/i);
+            const symbol = headerMatch ? headerMatch[1].toUpperCase() : "STOCK";
+            const score = headerMatch && headerMatch[2] ? headerMatch[2] : "N/A";
+            
+            const nextMatch = nextPart.match(/^([\d.]+)\s+(.*)$/);
+            let days = nextPart;
+            let nextHeader = "";
+            if (nextMatch) {
+                days = nextMatch[1];
+                nextHeader = nextMatch[2].trim();
+            }
+            
+            items.push({
+                symbol,
+                score,
+                val1,
+                val2,
+                val3,
+                val4,
+                val5,
+                signal: signal.replace(/_/g, " "),
+                days
+            });
+            
+            currentHeader = nextHeader;
+            i += 7;
+        }
+    } catch (e) {
+        console.warn("Failed to parse raw pipe line:", e);
+    }
+    
+    return items.length > 0 ? items : null;
 }
 
 function parseContentBlocks(content: string): ContentBlock[] {
@@ -173,7 +240,13 @@ function parseContentBlocks(content: string): ContentBlock[] {
                 flushTable();
                 inTable = false;
             }
-            currentTextLines.push(line);
+            const rawPipeItems = parseRawPipeLine(line);
+            if (rawPipeItems) {
+                flushText();
+                blocks.push({ type: "raw_pipe_table", items: rawPipeItems });
+            } else {
+                currentTextLines.push(line);
+            }
         }
     }
 
@@ -345,22 +418,117 @@ export function FormattedChatMessage({
     }
 
     const blocks: ContentBlock[] = parseContentBlocks(content);
-
     const renderFormattedText = (text: string, isLastBlock: boolean) => {
         let cleanText = text.replace(/```mermaid\s+[\s\S]*?```/g, "").trim();
         const lines = cleanText.split("\n");
 
         return lines.map((line, idx) => {
             const isLastLine = isLastBlock && idx === lines.length - 1;
-
             const isTableLine = line.trim().startsWith("|") && line.trim().endsWith("|");
 
             if (!line.trim() && !isLastLine) {
                 return <div key={idx} className="h-2" />;
             }
 
-            const isBullet = line.trim().startsWith("- ") || line.trim().startsWith("* ");
-            const lineContent = isBullet ? line.trim().substring(2) : line;
+            const trimmedLine = line.trim();
+
+            // Headings
+            let isHeading = false;
+            let headingLevel = 0;
+            let headingContent = line;
+
+            if (trimmedLine.startsWith("### ")) {
+                isHeading = true;
+                headingLevel = 3;
+                headingContent = trimmedLine.substring(4);
+            } else if (trimmedLine.startsWith("## ")) {
+                isHeading = true;
+                headingLevel = 2;
+                headingContent = trimmedLine.substring(3);
+            } else if (trimmedLine.startsWith("# ")) {
+                isHeading = true;
+                headingLevel = 1;
+                headingContent = trimmedLine.substring(2);
+            }
+
+            if (isHeading) {
+                const headingClass = headingLevel === 1 
+                    ? "text-base sm:text-lg font-extrabold text-zinc-950 dark:text-zinc-50 my-3 border-b border-zinc-200 dark:border-zinc-800 pb-1"
+                    : headingLevel === 2
+                    ? "text-sm sm:text-base font-bold text-zinc-900 dark:text-zinc-100 my-2"
+                    : "text-xs sm:text-sm font-bold text-emerald-600 dark:text-emerald-400 my-2";
+                
+                const HeadingTag = `h${headingLevel}` as keyof JSX.IntrinsicElements;
+                
+                return (
+                    <HeadingTag key={idx} className={headingClass} dir="rtl">
+                        {headingContent.split(/(\*\*.*?\*\*)/g).map((boldPart, bpIdx) => {
+                            const isBold = boldPart.startsWith("**") && boldPart.endsWith("**");
+                            const cleanBold = isBold ? boldPart.substring(2, boldPart.length - 2) : boldPart;
+                            if (isBold) {
+                                return <strong key={bpIdx} className="font-extrabold">{cleanBold}</strong>;
+                            }
+                            return cleanBold;
+                        })}
+                    </HeadingTag>
+                );
+            }
+
+            // Bullet check
+            const isBullet = trimmedLine.startsWith("- ") || trimmedLine.startsWith("* ") || trimmedLine.startsWith("• ") || trimmedLine.startsWith("•");
+            let lineContent = line;
+            if (isBullet) {
+                if (trimmedLine.startsWith("- ") || trimmedLine.startsWith("* ") || trimmedLine.startsWith("• ")) {
+                    lineContent = trimmedLine.substring(2);
+                } else if (trimmedLine.startsWith("•")) {
+                    lineContent = trimmedLine.substring(1);
+                }
+            }
+
+            const parseTextSpans = (textStr: string) => {
+                const boldParts = textStr.split(/(\*\*.*?\*\*)/g);
+                return boldParts.map((part, bIdx) => {
+                    const isBold = part.startsWith("**") && part.endsWith("**");
+                    const cleanPart = isBold ? part.substring(2, part.length - 2) : part;
+
+                    const subParts = cleanPart.split(/(\d+(?:[,.]\d+)*|\b[A-Z0-9_]{2,10}\b|\$\d+(?:[,.]\d+)*)/g);
+                    const renderedSubParts = subParts.map((sub, sIdx) => {
+                        const upper = sub.toUpperCase();
+                        const isStockSymbol = KNOWN_STOCK_SYMBOLS.has(upper) || /^EGX:\w+/i.test(sub);
+                        const isNumericCurrency = /^(\d+(?:[,.]\d+)*|\$\d+(?:[,.]\d+)*|EGP)$/.test(sub);
+
+                        if (isStockSymbol) {
+                            return (
+                                <span 
+                                    key={sIdx} 
+                                    dir="ltr" 
+                                    className="inline-block px-1.5 py-0.5 font-mono font-bold text-amber-700 dark:text-amber-300 bg-amber-500/10 dark:bg-zinc-800/80 border border-amber-500/20 dark:border-zinc-700 rounded text-[11px] sm:text-xs mx-0.5"
+                                    style={{ unicodeBidi: "isolate" }}
+                                >
+                                    {sub}
+                                </span>
+                            );
+                        } else if (isNumericCurrency) {
+                            return (
+                                <span 
+                                    key={sIdx} 
+                                    dir="ltr" 
+                                    className="inline-block px-1 py-0.5 font-mono font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-500/10 dark:bg-zinc-800/80 rounded text-[11px] sm:text-xs mx-0.5"
+                                    style={{ unicodeBidi: "isolate" }}
+                                >
+                                    {sub}
+                                </span>
+                            );
+                        }
+                        return sub;
+                    });
+
+                    if (isBold) {
+                        return <strong key={bIdx} className="font-extrabold text-zinc-950 dark:text-white">{renderedSubParts}</strong>;
+                    }
+                    return <React.Fragment key={bIdx}>{renderedSubParts}</React.Fragment>;
+                });
+            };
 
             return (
                 <div 
@@ -369,36 +537,7 @@ export function FormattedChatMessage({
                 >
                     {isBullet && <span className="text-emerald-600 dark:text-emerald-400 font-bold mt-1">•</span>}
                     <span className="flex-1">
-                        {lineContent.split(/(\d+(?:[,.]\d+)*|\b[A-Z0-9_]{2,10}\b|\$\d+(?:[,.]\d+)*)/g).map((part, pIdx) => {
-                            const upper = part.toUpperCase();
-                            const isStockSymbol = KNOWN_STOCK_SYMBOLS.has(upper) || /^EGX:\w+/i.test(part);
-                            const isNumericCurrency = /^(\d+(?:[,.]\d+)*|\$\d+(?:[,.]\d+)*|EGP)$/.test(part);
-
-                            if (isStockSymbol) {
-                                return (
-                                    <span 
-                                        key={pIdx} 
-                                        dir="ltr" 
-                                        className="inline-block px-1.5 py-0.5 font-mono font-bold text-amber-700 dark:text-amber-300 bg-amber-500/10 dark:bg-zinc-800/80 border border-amber-500/20 dark:border-zinc-700 rounded text-[11px] sm:text-xs"
-                                        style={{ unicodeBidi: "isolate" }}
-                                    >
-                                        {part}
-                                    </span>
-                                );
-                            } else if (isNumericCurrency) {
-                                return (
-                                    <span 
-                                        key={pIdx} 
-                                        dir="ltr" 
-                                        className="inline-block px-1 py-0.5 font-mono font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-500/10 dark:bg-zinc-800/80 rounded text-[11px] sm:text-xs"
-                                        style={{ unicodeBidi: "isolate" }}
-                                    >
-                                        {part}
-                                    </span>
-                                );
-                            }
-                            return part;
-                        })}
+                        {parseTextSpans(lineContent)}
 
                         {isStreaming && isLastLine && (
                             <span 
@@ -433,6 +572,38 @@ export function FormattedChatMessage({
                     return (
                         <div key={bIdx} className="space-y-1">
                             <ExportableTable headers={block.headers} rows={block.rows} />
+                            {isStreaming && isLastBlock && (
+                                <span className="inline-block w-2 text-amber-500 font-bold animate-pulse mr-1 select-none">▌</span>
+                            )}
+                        </div>
+                    );
+                } else if (block.type === "raw_pipe_table") {
+                    const headers = ["السهم", "درجة التجميع", "نسبة السيولة", "RSI", "الحالة", "أيام التوالي"];
+                    const rows = block.items.map(item => {
+                        let signalText = item.signal;
+                        if (item.signal.includes("strong accumulation") || item.signal.includes("strong_accumulation")) {
+                            signalText = "تجميع قوي 📈";
+                        } else if (item.signal.includes("accumulation")) {
+                            signalText = "تجميع 📈";
+                        } else if (item.signal.includes("strong distribution") || item.signal.includes("strong_distribution")) {
+                            signalText = "تصريف قوي 📉";
+                        } else if (item.signal.includes("distribution")) {
+                            signalText = "تصريف 📉";
+                        }
+                        
+                        return [
+                            item.symbol,
+                            `${item.score}/100`,
+                            `${Number(item.val2).toFixed(2)}x`,
+                            Number(item.val4).toFixed(1),
+                            signalText,
+                            `${item.days} أيام`
+                        ];
+                    });
+                    
+                    return (
+                        <div key={bIdx} className="space-y-1">
+                            <ExportableTable headers={headers} rows={rows} />
                             {isStreaming && isLastBlock && (
                                 <span className="inline-block w-2 text-amber-500 font-bold animate-pulse mr-1 select-none">▌</span>
                             )}

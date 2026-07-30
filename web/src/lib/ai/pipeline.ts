@@ -1,10 +1,11 @@
-import { IntentPlan, VisionContext, SessionState, SessionSummary, FactSnapshot, ToolResult, PipelineContext } from "./types";
+import { IntentPlan, VisionContext, SessionState, SessionSummary } from "./types";
 import { analyzeImage } from "./vision";
 import { retrieveRelevantMemory, MemoryResult } from "./memory";
 import { runPlanner } from "./planner";
 import { executeStructuredTools, StructuredToolOutput } from "./tools-v2";
 import { generateV2Response, generateV2Stream } from "./final-v2";
 import { loadSessionState, loadSessionSummary, updateSessionSummary, updateSessionState } from "./session";
+import { buildExcelTables, ExcelTable, tablesToMarkdown } from "./excel-tables";
 
 export interface PipelineResult {
     vision: VisionContext | null;
@@ -18,6 +19,7 @@ export interface PipelineResult {
         summary: string | null;
     };
     vision_error: string | null;
+    tables: ExcelTable[];
 }
 
 async function saveFactSnapshots(
@@ -77,6 +79,57 @@ function mergeVisionSymbols(planSymbols: string[], vision: VisionContext | null)
     if (!vision) return planSymbols;
     const visionSymbols = vision.symbols.map(s => s.symbol);
     return Array.from(new Set([...planSymbols, ...visionSymbols]));
+}
+
+export function enforceIntentFromMessage(message: string, plannerIntent: string, symbols: string[]): {
+    intent: string;
+    tools: string[];
+    replaceTools?: boolean;
+} {
+    const normalized = message.toLowerCase();
+    const hasExplicitSymbol = symbols.length > 0 || /\b[A-Z]{2,6}\b/.test(message);
+    const decisionQuestion = /(أبيع|ابيع|بيع|أحتفظ|احتفظ|أخرج|اخرج|أشتري|اشتري|شراء|بيع الآن|أبيع الآن)/i.test(normalized);
+    if (decisionQuestion && hasExplicitSymbol) {
+        return { intent: "stock_analysis", tools: ["get_stock"], replaceTools: true };
+    }
+
+    const liquidityQuery = /(السيول|السيوله|تجميع|تصريف|فين.*السوق|where.*liquidity|market liquidity)/i.test(normalized);
+    if (liquidityQuery && !hasExplicitSymbol) {
+        return { intent: normalized.includes("تجميع") || normalized.includes("تصريف") ? "accumulation" : "market_summary", tools: ["get_market", "get_accumulation_stocks"] };
+    }
+
+    if (/(البنوك|بنوك|قطاع البنوك|banking sector|banks)/i.test(normalized)) {
+        return { intent: "sector_analysis", tools: ["get_sector"] };
+    }
+
+    return { intent: plannerIntent, tools: [] };
+}
+
+export function buildMarketLiquidityResponse(tools: StructuredToolOutput): string | null {
+    const market = tools.results.find(result => result.tool === "get_market")?.data;
+    const accumulation = tools.results.find(result => result.tool === "get_accumulation_stocks");
+    if (!market && !accumulation) return null;
+
+    const lines = ["### ملخص سيولة السوق", "", "البيانات التالية وصفية ومأخوذة من المسح الفعلي، وليست توصية شراء أو بيع."];
+    if (market?.regime) lines.push(`- حالة السوق: ${market.regime}`);
+    if (market?.egx30 != null) lines.push(`- EGX30: ${market.egx30} نقطة`);
+    if (market?.usd != null) lines.push(`- USD/EGP: ${market.usd} جنيه`);
+
+    const stocks = Array.isArray(accumulation?.data?.stocks) ? accumulation.data.stocks.slice(0, 8) : [];
+    if (stocks.length > 0) {
+        lines.push("", `أعلى أسهم التجميع والسيولة المؤسسية في بيانات ${accumulation?.data_time}:`);
+        stocks.forEach((stock: any, index: number) => {
+            const score = stock.acc_score != null ? `، درجة التجميع ${stock.acc_score}/100` : "";
+            const ratio = stock.vol_ratio != null ? `، نسبة الحجم ${stock.vol_ratio}x` : "";
+            const change = stock.change_pct != null ? `، التغير ${stock.change_pct}%` : "";
+            lines.push(`${index + 1}. ${stock.symbol}${score}${ratio}${change}`);
+        });
+    } else {
+        lines.push("", "لا توجد حالياً قائمة موثقة لأسهم التجميع والسيولة المؤسسية في أحدث مسح.");
+    }
+
+    lines.push("", "ملاحظة: لا يتم استخدام RSI أو MACD لقياس سيولة السوق الكلية، ولا توجد نسبة حجم واحدة تمثل السوق كله في البيانات الحالية.");
+    return lines.join("\n");
 }
 
 export async function* runPipelineStream(
@@ -144,9 +197,10 @@ export async function* runPipelineStream(
     );
 
     const mergedSymbols = mergeVisionSymbols(plannerResult.entities.symbols || [], vision);
+    const enforced = enforceIntentFromMessage(userMessage, plannerResult.intent, mergedSymbols);
 
     const plan: IntentPlan = {
-        intent: mapIntent(plannerResult.intent),
+        intent: mapIntent(enforced.intent),
         confidence: plannerResult.confidence || 0.8,
         entities: {
             symbols: mergedSymbols,
@@ -158,9 +212,9 @@ export async function* runPipelineStream(
         },
         needs_vision_context: hasImages && !!vision,
         needs_history: memory?.resolved_references?.symbol !== null || plannerResult.intent === "general_chat",
-        needs_live_data: !hasImages || plannerResult.intent === "comparison" || plannerResult.intent === "market_summary" || plannerResult.intent === "sector_analysis",
+        needs_live_data: !hasImages || enforced.intent === "comparison" || enforced.intent === "market_summary" || enforced.intent === "sector_analysis" || enforced.intent === "accumulation",
         needs_historical_data: userMessage.includes("قبل كده") || userMessage.includes("الفات") || userMessage.includes("السابقة"),
-        tools: plannerResult.tools || [],
+        tools: enforced.replaceTools ? enforced.tools : Array.from(new Set([...(plannerResult.tools || []), ...enforced.tools])),
         clarification_needed: false,
         resolved_from: {
             symbol: memory?.resolved_references?.symbol || null,
@@ -175,11 +229,26 @@ export async function* runPipelineStream(
         yield { type: "status", data: { status: "tools", message: "جلب بيانات السوق..." } };
     }
     const tools = await executeStructuredTools(supabase, plan, apiKeys, userId, sessionId);
+    const tables = buildExcelTables(tools.results, vision);
+    if (tables.length > 0) yield { type: "tables", data: tables };
     if (tools.results.length > 0) {
         yield { type: "tools_data", data: tools };
     }
 
     await saveFactSnapshots(supabase, userId, sessionId, tools, vision, messageId);
+
+    // ===== STAGE 5: Final Response =====
+    const deterministicLiquidityResponse = plan.intent === "market_summary" && plan.entities.symbols.length === 0
+        ? buildMarketLiquidityResponse(tools)
+        : null;
+    if (deterministicLiquidityResponse) {
+        const tableMarkdown = tablesToMarkdown(tables);
+        const response = tableMarkdown ? `${tableMarkdown}\n\n${deterministicLiquidityResponse}` : deterministicLiquidityResponse;
+        yield { type: "token", data: response };
+        await persistPipelineSession(sessionState, sessionSummary, plan, vision, memory, sessionId, userId, supabase, hasImages);
+        yield { type: "done", data: { response, session_update: { current_symbol: sessionState.current_symbol, last_symbols: sessionState.last_symbols, summary: userMessage }, tables } };
+        return;
+    }
 
     // ===== STAGE 5: Final Response =====
     yield { type: "status", data: { status: "generating", message: "إنشاء الرد..." } };
@@ -191,10 +260,22 @@ export async function* runPipelineStream(
         apiKeys
     );
 
-    let fullResponse = "";
+    const tableMarkdown = tablesToMarkdown(tables);
+    let fullResponse = tableMarkdown ? `${tableMarkdown}\n\n` : "";
+    let pendingModelText = "";
     for await (const chunk of stream) {
-        fullResponse += chunk;
-        yield { type: "token", data: chunk };
+        pendingModelText += chunk;
+        const lines = pendingModelText.split("\n");
+        pendingModelText = lines.pop() || "";
+        for (const line of lines) {
+            if (isMarkdownTableLine(line)) continue;
+            fullResponse += `${line}\n`;
+            yield { type: "token", data: `${line}\n` };
+        }
+    }
+    if (pendingModelText && !isMarkdownTableLine(pendingModelText)) {
+        fullResponse += pendingModelText;
+        yield { type: "token", data: pendingModelText };
     }
 
     // ===== Update Session =====
@@ -212,15 +293,26 @@ export async function* runPipelineStream(
 
     await updateSessionState(supabase, sessionId, userId, sessionUpdate);
 
+    const summaryUpdate: Partial<SessionSummary> = {
+        current_symbols: finalSymbols,
+        last_data_date: new Date().toISOString().split("T")[0]
+    };
     if (vision) {
-        await updateSessionSummary(supabase, sessionId, userId, {
-            last_image_symbols: vision.symbols.map(s => s.symbol),
-            last_vision_context: vision,
-            last_topic: vision.image_type
-        });
+        summaryUpdate.last_image_symbols = vision.symbols.map(s => s.symbol);
+        summaryUpdate.last_vision_context = vision;
+        summaryUpdate.last_topic = vision.image_type;
     }
+    if (memory?.resolved_references?.symbol) {
+        summaryUpdate.open_references = [memory.resolved_references.symbol];
+    }
+    await updateSessionSummary(supabase, sessionId, userId, summaryUpdate);
 
-    yield { type: "done", data: { response: fullResponse, session_update: sessionUpdate } };
+    yield { type: "done", data: { response: fullResponse, session_update: sessionUpdate, tables } };
+}
+
+function isMarkdownTableLine(line: string): boolean {
+    const trimmed = line.trim();
+    return (trimmed.startsWith("|") && trimmed.endsWith("|")) || /^\|[\s:|-]+\|$/.test(trimmed);
 }
 
 export async function runPipeline(
@@ -276,9 +368,10 @@ export async function runPipeline(
     );
 
     const mergedSymbols = mergeVisionSymbols(plannerResult.entities.symbols || [], vision);
+    const enforced = enforceIntentFromMessage(userMessage, plannerResult.intent, mergedSymbols);
 
     const plan: IntentPlan = {
-        intent: mapIntent(plannerResult.intent),
+        intent: mapIntent(enforced.intent),
         confidence: plannerResult.confidence || 0.8,
         entities: {
             symbols: mergedSymbols,
@@ -290,9 +383,9 @@ export async function runPipeline(
         },
         needs_vision_context: hasImages && !!vision,
         needs_history: memory?.resolved_references?.symbol !== null || plannerResult.intent === "general_chat",
-        needs_live_data: !hasImages || plannerResult.intent === "comparison" || plannerResult.intent === "market_summary" || plannerResult.intent === "sector_analysis",
+        needs_live_data: !hasImages || enforced.intent === "comparison" || enforced.intent === "market_summary" || enforced.intent === "sector_analysis" || enforced.intent === "accumulation",
         needs_historical_data: userMessage.includes("قبل كده") || userMessage.includes("الفات") || userMessage.includes("السابقة"),
-        tools: plannerResult.tools || [],
+        tools: enforced.replaceTools ? enforced.tools : Array.from(new Set([...(plannerResult.tools || []), ...enforced.tools])),
         clarification_needed: false,
         resolved_from: {
             symbol: memory?.resolved_references?.symbol || null,
@@ -302,17 +395,23 @@ export async function runPipeline(
 
     // Stage 4: Tools
     const tools = await executeStructuredTools(supabase, plan, apiKeys, userId, sessionId);
+    const tables = buildExcelTables(tools.results, vision);
 
     await saveFactSnapshots(supabase, userId, sessionId, tools, vision, messageId);
 
     // Stage 5: Response
-    const response = await generateV2Response(
+    const deterministicLiquidityResponse = plan.intent === "market_summary" && plan.entities.symbols.length === 0
+        ? buildMarketLiquidityResponse(tools)
+        : null;
+    const generatedResponse = deterministicLiquidityResponse || await generateV2Response(
         userMessage, plan, vision, tools.results,
         memory?.relevant_snapshots || [],
         memory?.recent_messages || [],
         memory?.resolved_references || { symbol: null, message_id: null, confidence: 0 },
         apiKeys
     );
+    const tableMarkdown = tablesToMarkdown(tables);
+    const response = tableMarkdown ? `${tableMarkdown}\n\n${generatedResponse}` : generatedResponse;
 
     const allSymbols = new Set<string>();
     if (plan.entities.symbols) plan.entities.symbols.forEach(s => allSymbols.add(s));
@@ -326,13 +425,19 @@ export async function runPipeline(
     };
 
     await updateSessionState(supabase, sessionId, userId, sessionUpdate);
+    const summaryUpdate: Partial<SessionSummary> = {
+        current_symbols: finalSymbols,
+        last_data_date: new Date().toISOString().split("T")[0]
+    };
     if (vision) {
-        await updateSessionSummary(supabase, sessionId, userId, {
-            last_image_symbols: vision.symbols.map(s => s.symbol),
-            last_vision_context: vision,
-            last_topic: vision.image_type
-        });
+        summaryUpdate.last_image_symbols = vision.symbols.map(s => s.symbol);
+        summaryUpdate.last_vision_context = vision;
+        summaryUpdate.last_topic = vision.image_type;
     }
+    if (memory?.resolved_references?.symbol) {
+        summaryUpdate.open_references = [memory.resolved_references.symbol];
+    }
+    await updateSessionSummary(supabase, sessionId, userId, summaryUpdate);
 
     return {
         vision,
@@ -341,8 +446,37 @@ export async function runPipeline(
         tools,
         response,
         session_update: sessionUpdate,
-        vision_error: visionError
+        vision_error: visionError,
+        tables
     };
+}
+
+async function persistPipelineSession(
+    sessionState: SessionState,
+    sessionSummary: SessionSummary | null,
+    plan: IntentPlan,
+    vision: VisionContext | null,
+    memory: MemoryResult | null,
+    sessionId: string,
+    userId: string,
+    supabase: any,
+    hasImages: boolean
+): Promise<void> {
+    const symbols = plan.entities.symbols || [];
+    const sessionUpdate = {
+        current_symbol: symbols[0] || sessionState.current_symbol,
+        last_symbols: Array.from(new Set([...symbols, ...(sessionState.last_symbols || [])])).slice(0, 15),
+        summary: hasImages ? "تحليل صورة" : sessionState.summary
+    };
+    await updateSessionState(supabase, sessionId, userId, sessionUpdate);
+    await updateSessionSummary(supabase, sessionId, userId, {
+        current_symbols: symbols,
+        last_image_symbols: vision?.symbols.map(symbol => symbol.symbol) || sessionSummary?.last_image_symbols || [],
+        last_topic: vision?.image_type || sessionSummary?.last_topic || null,
+        open_references: memory?.resolved_references?.symbol ? [memory.resolved_references.symbol] : sessionSummary?.open_references || [],
+        last_data_date: new Date().toISOString().split("T")[0],
+        last_vision_context: vision || sessionSummary?.last_vision_context || null
+    });
 }
 
 function mapIntent(intent: string): IntentPlan["intent"] {
@@ -354,9 +488,12 @@ function mapIntent(intent: string): IntentPlan["intent"] {
         "sector_analysis": "sector_analysis",
         "comparison": "comparison",
         "market_summary": "market_summary",
+        "current_data": "stock_analysis",
+        "previous_analysis_comparison": "historical_recall",
         "recommendation": "stock_analysis",
         "accumulation": "stock_analysis",
         "stock_news": "stock_analysis",
+        "historical_recall": "historical_recall",
         "general_chat": "general_chat"
     };
     return intentMap[intent] || "follow_up";

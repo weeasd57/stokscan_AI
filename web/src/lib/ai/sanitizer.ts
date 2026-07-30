@@ -182,6 +182,7 @@ export function sanitizeReply(reply: string, liveDataString?: string): string {
         .replace(/=== END ===/gi, "")
         .replace(/===END===/gi, "")
         .replace(/<environment_details>[\s\S]*?<\/environment_details>/gi, "")
+        .replace(/<environment_details[\s\S]*$/gi, "")
         .replace(/\n{3,}/g, "\n\n")
         .trim();
 
@@ -241,7 +242,7 @@ export function sanitizeReply(reply: string, liveDataString?: string): string {
                 }
             }
         }
-    } else {
+    } else if (!hasStructuredMarkdownTable(cleanReply)) {
         // 2. Automatically transform bullet stock items into a Markdown Table if LLM outputted bullets
         cleanReply = convertStockBulletsToTable(cleanReply);
     }
@@ -365,4 +366,8 @@ export function sanitizeReply(reply: string, liveDataString?: string): string {
     const safeReply = typeof reply === "string" ? reply : "تحليل فني.";
     return safeReply + `\n\n${AI_CONFIG.disclaimer}`;
   }
+}
+
+function hasStructuredMarkdownTable(text: string): boolean {
+  return /^\|[^\n]+\|\s*\r?\n\|\s*:?-{3,}/m.test(text);
 }

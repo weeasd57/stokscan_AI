@@ -30,8 +30,23 @@ function extractJsonFromResponse(raw: string): any {
     return null;
 }
 
-function validateVisionOutput(data: any): VisionContext | null {
+export function validateVisionOutput(data: any): VisionContext | null {
     if (!data || typeof data !== "object") return null;
+    const uncertainties = Array.isArray(data.uncertainties) ? data.uncertainties.map(String) : [];
+
+    const technical_observations = Array.isArray(data.technical_observations) ? data.technical_observations.map((t: any) => {
+        const val = (t.value !== null && t.value !== undefined && t.value !== "") ? Number(t.value) : null;
+        if (val === null || isNaN(val)) {
+            uncertainties.push(`Unreadable value for ${t.indicator || "indicator"} of symbol ${t.symbol || "unknown"}`);
+        }
+        return {
+            symbol: String(t.symbol || "").toUpperCase(),
+            indicator: String(t.indicator || ""),
+            value: (val === null || isNaN(val)) ? null : val,
+            meaning: String(t.meaning || "")
+        };
+    }) : [];
+
     return {
         image_type: ["portfolio", "chart", "market_depth", "table", "unknown"].includes(data.image_type) ? data.image_type : "unknown",
         symbols: Array.isArray(data.symbols) ? data.symbols.map((s: any) => ({
@@ -43,19 +58,14 @@ function validateVisionOutput(data: any): VisionContext | null {
                 quantity: s.visible_values?.quantity ?? null
             }
         })) : [],
-        technical_observations: Array.isArray(data.technical_observations) ? data.technical_observations.map((t: any) => ({
-            symbol: String(t.symbol || "").toUpperCase(),
-            indicator: String(t.indicator || ""),
-            value: Number(t.value) || 0,
-            meaning: String(t.meaning || "")
-        })) : [],
+        technical_observations,
         market_depth: {
             total_bid: data.market_depth?.total_bid ?? null,
             total_ask: data.market_depth?.total_ask ?? null,
             spread: data.market_depth?.spread ?? null
         },
         user_relevant_summary: String(data.user_relevant_summary || ""),
-        uncertainties: Array.isArray(data.uncertainties) ? data.uncertainties.map(String) : [],
+        uncertainties: Array.from(new Set(uncertainties)),
         confidence: Number(data.confidence) || 0,
         analyzed_at: new Date().toISOString(),
         message_id: ""

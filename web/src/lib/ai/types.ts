@@ -20,7 +20,7 @@ export interface VisionContext {
     technical_observations: Array<{
         symbol: string;
         indicator: string;
-        value: number;
+        value: number | null;
         meaning: string;
     }>;
     market_depth: {

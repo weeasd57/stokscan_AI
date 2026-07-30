@@ -34,15 +34,41 @@ function filterInput(text: string): boolean {
 
 function filterOutput(response: string): string {
     const blockedOutputRegex = /(اشتري الآن|شراء فوراً|شراء الان|مضمون|ضمان|أرباح مؤكدة|guaranteed|assurance|buy now)/i;
-    if (blockedOutputRegex.test(response)) {
+    const cleanResponse = response
+        .replace(/<environment_details>[\s\S]*?<\/environment_details>/gi, "")
+        .replace(/<environment_details[\s\S]*$/gi, "")
+        .trim();
+    if (blockedOutputRegex.test(cleanResponse)) {
         return "أنا أداة تحليلية ذكية، ولا يمكنني تقديم نصائح مالية أو توصيات شراء مباشرة. يمكنك مراجعة تقييم الأسهم في صفحة الماسح الذكي لمساعدتك في اتخاذ القرار.";
     }
-    return response;
+    return cleanResponse;
 }
 
 function filterOutputBlocks(text: string): boolean {
     const blockedPattern = /(اشتري الآن|شراء فوراً|شراء الان|مضمون|ضمان|أرباح مؤكدة|guaranteed|assurance|buy now)/i;
     return blockedPattern.test(text);
+}
+
+function isPotentialBlockedPrefix(text: string): boolean {
+    const normalized = text.toLowerCase()
+        .replace(/[أإآ]/g, "ا")
+        .replace(/ة/g, "ه")
+        .trim();
+
+    const lastPart = normalized.slice(-20);
+    const blockedPrefixes = [
+        "اشتري", "شراء", "مضمون", "ضمان", "ارباح", "guar", "assur", "buy"
+    ];
+
+    for (const pref of blockedPrefixes) {
+        for (let i = 1; i <= Math.min(lastPart.length, pref.length); i++) {
+            const suffix = lastPart.slice(-i);
+            if (pref.startsWith(suffix)) {
+                return true;
+            }
+        }
+    }
+    return false;
 }
 
 function generateSuggestedButtons(plannerResult: any, sessionState: any): string[] {
@@ -151,20 +177,7 @@ export async function POST(req: NextRequest) {
             });
         }
 
-        const formattedHistory = Array.isArray(history)
-            ? history
-                .filter((item: any) => item && item.content && (item.role === "user" || item.role === "assistant"))
-                .slice(-10)
-                .map((item: any) => {
-                    let contentStr = String(item.content)
-                        .replace(/\s*✅\s*تحليل EGX Bots مبني على بيانات حية[^\n]*/g, "")
-                        .trim();
-                    if (contentStr.length > 500) {
-                        contentStr = contentStr.substring(0, 500) + "...";
-                    }
-                    return { role: item.role, content: contentStr || "تحليل" };
-                })
-            : [];
+
 
         const userEmail = user.email || "";
         const isUnlimited = AI_CONFIG.unlimitedEmails.includes(userEmail) || AI_CONFIG.unlimitedEmails.includes(userEmail.toLowerCase());
@@ -214,6 +227,28 @@ export async function POST(req: NextRequest) {
                         const activeSessionId = await handleSessionResolution(supabase, userId, inputSessionId, message, hasImages);
                         sendEvent({ type: "session_id", session_id: activeSessionId });
 
+                        const { data: dbHistory } = await supabase
+                            .from("ai_chat_messages")
+                            .select("role, content")
+                            .eq("session_id", activeSessionId)
+                            .eq("user_id", userId)
+                            .order("created_at", { ascending: false })
+                            .limit(10);
+
+                        const dbFormattedHistory = Array.isArray(dbHistory)
+                            ? dbHistory
+                                .reverse()
+                                .map((item: any) => {
+                                    let contentStr = String(item.content)
+                                        .replace(/\s*✅\s*تحليل EGX Bots مبني على بيانات حية[^\n]*/g, "")
+                                        .trim();
+                                    if (contentStr.length > 500) {
+                                        contentStr = contentStr.substring(0, 500) + "...";
+                                    }
+                                    return { role: item.role, content: contentStr || "تحليل" };
+                                })
+                            : [];
+
                         const sessionState = await loadSessionState(supabase, activeSessionId, userId);
                         const sessionSummary = await loadSessionSummary(supabase, activeSessionId, userId);
 
@@ -223,7 +258,7 @@ export async function POST(req: NextRequest) {
                             imageList,
                             sessionState,
                             sessionSummary,
-                            formattedHistory,
+                            dbFormattedHistory,
                             supabase,
                             keysToTry,
                             userId,
@@ -232,6 +267,7 @@ export async function POST(req: NextRequest) {
                         );
 
                         let fullResponse = "";
+                        let tokenBuffer = "";
                         let plannerResult: any = null;
                         let liveDataString = "";
                         let plannerLatencyMs = 0;
@@ -253,6 +289,9 @@ export async function POST(req: NextRequest) {
                                 case "tools_data":
                                     liveDataString = event.data.formattedText || "";
                                     break;
+                                case "tables":
+                                    sendEvent({ type: "tables", data: event.data });
+                                    break;
                                 case "token":
                                     fullResponse += event.data;
                                     if (filterOutputBlocks(fullResponse)) {
@@ -262,9 +301,21 @@ export async function POST(req: NextRequest) {
                                         controller.close();
                                         return;
                                     }
-                                    sendEvent({ type: "token", content: event.data });
+                                    tokenBuffer += event.data;
+                                    if (isPotentialBlockedPrefix(tokenBuffer) && tokenBuffer.length < 60) {
+                                        // Buffering to avoid token leakage
+                                    } else {
+                                        if (tokenBuffer.length > 0) {
+                                            sendEvent({ type: "token", content: tokenBuffer });
+                                            tokenBuffer = "";
+                                        }
+                                    }
                                     break;
                                 case "done":
+                                    if (tokenBuffer.length > 0) {
+                                        sendEvent({ type: "token", content: tokenBuffer });
+                                        tokenBuffer = "";
+                                    }
                                     const replyText = filterOutput(event.data.response);
                                     const sessionUpdate = event.data.session_update;
 
@@ -333,7 +384,8 @@ export async function POST(req: NextRequest) {
                                         session_id: activeSessionId,
                                         remaining_quota: isUnlimited ? 999 : Math.max(0, AI_CONFIG.limits.dailyMessages - newCount),
                                         suggested_buttons: suggestedButtons,
-                                        session_state: sessionUpdate
+                                        session_state: sessionUpdate,
+                                        tables: event.data.tables || []
                                     });
 
                                     controller.enqueue(encoder.encode("data: [DONE]\n\n"));
@@ -362,6 +414,29 @@ export async function POST(req: NextRequest) {
         // --- NON-STREAMING JSON FALLBACK ---
         console.log(`[BOT STAGE] Starting non-streaming pipeline...`);
         const activeSessionId = await handleSessionResolution(supabase, userId, inputSessionId, message, hasImages);
+
+        const { data: dbHistory } = await supabase
+            .from("ai_chat_messages")
+            .select("role, content")
+            .eq("session_id", activeSessionId)
+            .eq("user_id", userId)
+            .order("created_at", { ascending: false })
+            .limit(10);
+
+        const dbFormattedHistory = Array.isArray(dbHistory)
+            ? dbHistory
+                .reverse()
+                .map((item: any) => {
+                    let contentStr = String(item.content)
+                        .replace(/\s*✅\s*تحليل EGX Bots مبني على بيانات حية[^\n]*/g, "")
+                        .trim();
+                    if (contentStr.length > 500) {
+                        contentStr = contentStr.substring(0, 500) + "...";
+                    }
+                    return { role: item.role, content: contentStr || "تحليل" };
+                })
+            : [];
+
         const sessionState = await loadSessionState(supabase, activeSessionId, userId);
         const sessionSummary = await loadSessionSummary(supabase, activeSessionId, userId);
 
@@ -370,7 +445,7 @@ export async function POST(req: NextRequest) {
             imageList,
             sessionState,
             sessionSummary,
-            formattedHistory,
+            dbFormattedHistory,
             supabase,
             keysToTry,
             userId,
@@ -439,6 +514,7 @@ export async function POST(req: NextRequest) {
 
         return NextResponse.json({
             reply: replyText,
+            tables: pipelineResult.tables,
             session_id: activeSessionId,
             remaining_quota: isUnlimited ? 999 : Math.max(0, AI_CONFIG.limits.dailyMessages - newCount),
             suggested_buttons: suggestedButtons,

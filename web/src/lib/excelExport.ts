@@ -36,11 +36,19 @@ export function exportTableToExcel(headers: string[], rows: string[][], filename
     // BOM header for Excel UTF-8 Arabic encoding compatibility
     const BOM = "\uFEFF";
     
+    const escapeCell = (value: string) => {
+        const text = String(value ?? "");
+        const trimmed = text.trimStart();
+        const formulaLike = /^[=@+]/.test(trimmed) || (/^-/.test(trimmed) && !/^-\d/.test(trimmed));
+        const safeText = formulaLike ? `'${text}` : text;
+        return `"${safeText.replace(/"/g, '""')}"`;
+    };
+
     let csvContent = BOM;
-    csvContent += headers.map(h => `"${h.replace(/"/g, '""')}"`).join(",") + "\n";
+    csvContent += headers.map(escapeCell).join(",") + "\n";
 
     rows.forEach(row => {
-        csvContent += row.map(cell => `"${cell.replace(/"/g, '""')}"`).join(",") + "\n";
+        csvContent += row.map(escapeCell).join(",") + "\n";
     });
 
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });

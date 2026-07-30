@@ -27,20 +27,16 @@ create index if not exists ai_chat_facts_context_id_idx
 -- Enable Row Level Security on ai_chat_facts
 alter table public.ai_chat_facts enable row level security;
 
--- Allow users to read only their own facts
+-- Allow authenticated users to read only their own facts
 create policy "Users can read own facts"
   on public.ai_chat_facts
   for select
+  to authenticated
   using (auth.uid()::text = user_id);
 
--- Allow service role to insert (app calls are service role)
-create policy "Service role can insert facts"
+-- Allow authenticated users to insert only their own facts
+create policy "Users can insert own facts"
   on public.ai_chat_facts
   for insert
-  with check (true);
-
--- Allow service role to read all (for memory retrieval)
-create policy "Service role can read all facts"
-  on public.ai_chat_facts
-  for select
-  using (true);
+  to authenticated
+  with check (auth.uid()::text = user_id);

@@ -26,6 +26,14 @@ export function buildV2FinalMessages(
         needs_historical_data: plan.needs_historical_data
     }, null, 2));
 
+    const allowedSymbols = Array.from(new Set([
+        ...toolResults.flatMap(result => result.symbols || []),
+        ...(visionContext?.symbols || []).map(symbol => symbol.symbol)
+    ])).filter(Boolean);
+    if (allowedSymbols.length > 0) {
+        sections.push("=== ALLOWED SYMBOLS ===\n" + allowedSymbols.join(", "));
+    }
+
     if (visionContext) {
         sections.push("=== IMAGE ANALYSIS ===");
         sections.push(JSON.stringify({
@@ -50,11 +58,34 @@ export function buildV2FinalMessages(
         sections.push(`المرجع "${userMessage.match(/ده|دا|دي|هذا/)?.[0] || "السابق"}" يشير إلى: ${resolvedReference.symbol} (ثقة: ${Math.round(resolvedReference.confidence * 100)}%)`);
     }
 
-    if (relevantFacts.length > 0) {
+    const imageDerivedFacts = relevantFacts.filter(f => f.data_type === "image-derived");
+    const liveMemoryFacts = relevantFacts.filter(f => f.data_type === "live");
+    const historicalFacts = relevantFacts.filter(f => f.data_type === "historical");
+
+    if (imageDerivedFacts.length > 0) {
+        sections.push("=== IMAGE-DERIVED MEMORY ===");
+        imageDerivedFacts.forEach(f => {
+            sections.push(`المصدر: ${f.source} | التاريخ: ${f.as_of} | الرموز: ${f.symbols.join(", ")}`);
+            for (const [key, val] of Object.entries(f.facts)) {
+                sections.push(`  ${key}: ${val}`);
+            }
+        });
+    }
+
+    if (liveMemoryFacts.length > 0) {
+        sections.push("=== LIVE DATA MEMORY ===");
+        liveMemoryFacts.forEach(f => {
+            sections.push(`المصدر: ${f.source} | التاريخ: ${f.as_of} | الرموز: ${f.symbols.join(", ")}`);
+            for (const [key, val] of Object.entries(f.facts)) {
+                sections.push(`  ${key}: ${val}`);
+            }
+        });
+    }
+
+    if (historicalFacts.length > 0) {
         sections.push("=== HISTORICAL DATA ===");
-        relevantFacts.forEach(f => {
-            const label = f.data_type === "image-derived" ? "صورة" : f.data_type === "live" ? "بيانات حية" : "تاريخية";
-            sections.push(`المصدر: ${f.source} | التاريخ: ${f.as_of} | الرموز: ${f.symbols.join(", ")} | النوع: ${label}`);
+        historicalFacts.forEach(f => {
+            sections.push(`المصدر: ${f.source} | التاريخ: ${f.as_of} | الرموز: ${f.symbols.join(", ")}`);
             for (const [key, val] of Object.entries(f.facts)) {
                 sections.push(`  ${key}: ${val}`);
             }
@@ -101,6 +132,15 @@ export function buildV2FinalMessages(
     sections.push("- اذكر مصدر كل رقم (صورة، بيانات حية، بيانات تاريخية)");
     sections.push("- اكتب بالعربية الفصحى المفهومة");
     sections.push("- تحليل السيولة المصاحب: اشرح RSI و MACD ونسبة السيولة من البيانات إن وجدت");
+    sections.push("- لا تنشئ جدول Markdown من نفسك؛ سيضيف النظام الجدول المنظم المستخرج من البيانات بعد ردك");
+    sections.push("- لا تذكر أو تسرد أي رمز أو اسم شركة غير موجود في مصادر البيانات والجداول أعلاه");
+    sections.push("- لا تعيد سرد قوائم الأسهم في النص؛ اشرح الاتجاهات فقط واترك القائمة للجدول المنظم");
+    sections.push("- RSI يقيس الزخم ولا يقيس كمية البيع أو الشراء؛ لا تقل إن RSI يعني أن السهم يباع بكميات كبيرة");
+    sections.push("- MACD موجب يعني زخماً صاعداً نسبياً فقط، ولا يعني تلقائياً وجود بيع أو شراء");
+    sections.push("- Vol Ratio = 0.20x يعني أن حجم التداول يساوي 20% من متوسطه، وليس أن السهم يباع بكميات صغيرة");
+    sections.push("- إذا لم توجد بيانات معنويات صريحة، قل إن المعنويات غير متاحة ولا تستنتجها من RSI أو MACD");
+    sections.push("- عند سؤال المستخدم عن البيع أو الشراء أو الاحتفاظ، لا تقدم قراراً مباشراً. اعرض الحقائق الحالية ونقاط المتابعة المشروطة فقط");
+    sections.push("- أي إشارة BUY أو SELL تاريخية يجب وصفها بوضوح بأنها تاريخية وليست توصية حالية، ولا تعرضها إذا لم يطلب المستخدم التوصيات");
 
     let contextText = sections.join("\n\n");
     if (contextText.length > MAX_CONTEXT_CHARS) {
@@ -173,6 +213,30 @@ async function callNvidiaApi(
     return { response: null };
 }
 
+function removeModelTables(text: string): string {
+    const lines = text.split("\n");
+    const output: string[] = [];
+    let inTable = false;
+
+    for (const line of lines) {
+        const trimmed = line.trim();
+        const tableRow = trimmed.startsWith("|") && trimmed.endsWith("|");
+        const separator = tableRow && /^\|[\s:|-]+\|$/.test(trimmed);
+        if (tableRow || separator) {
+            inTable = true;
+            continue;
+        }
+        if (inTable && !trimmed) {
+            inTable = false;
+            continue;
+        }
+        inTable = false;
+        output.push(line);
+    }
+
+    return output.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
 export async function generateV2Response(
     userMessage: string,
     plan: IntentPlan,
@@ -183,6 +247,10 @@ export async function generateV2Response(
     resolvedReference: { symbol: string | null; message_id: string | null; confidence: number },
     apiKeys: string[]
 ): Promise<string> {
+    if (shouldReturnNoData(plan, visionContext, toolResults, relevantFacts)) {
+        return "لا توجد بيانات حية أو تاريخية كافية لهذا الطلب حالياً. لم أستخدم معلومات عامة حتى لا أضيف أرقاماً أو أسماء غير مؤكدة.";
+    }
+
     const messages = buildV2FinalMessages(
         userMessage, plan, visionContext, toolResults,
         relevantFacts, recentHistory, resolvedReference
@@ -190,7 +258,9 @@ export async function generateV2Response(
 
     const model = AI_CONFIG.models.response.default;
     const result = await callNvidiaApi(model, messages, apiKeys);
-    return result.response ? sanitizeReply(result.response) : "عذراً، لم أتمكن من إنشاء الرد.";
+    return result.response
+        ? sanitizeReply(removeModelTables(result.response))
+        : "عذراً، لم أتمكن من إنشاء الرد.";
 }
 
 export async function* generateV2Stream(
@@ -203,6 +273,11 @@ export async function* generateV2Stream(
     resolvedReference: { symbol: string | null; message_id: string | null; confidence: number },
     apiKeys: string[]
 ): AsyncGenerator<string, void, unknown> {
+    if (shouldReturnNoData(plan, visionContext, toolResults, relevantFacts)) {
+        yield "لا توجد بيانات حية أو تاريخية كافية لهذا الطلب حالياً. لم أستخدم معلومات عامة حتى لا أضيف أرقاماً أو أسماء غير مؤكدة.";
+        return;
+    }
+
     const messages = buildV2FinalMessages(
         userMessage, plan, visionContext, toolResults,
         relevantFacts, recentHistory, resolvedReference
@@ -279,6 +354,21 @@ export async function* generateV2Stream(
     }
 
     yield "عذراً، لم أتمكن من إنشاء الرد.";
+}
+
+function shouldReturnNoData(
+    plan: IntentPlan,
+    visionContext: VisionContext | null,
+    toolResults: ToolResult[],
+    relevantFacts: FactSnapshot[]
+): boolean {
+    if (visionContext || relevantFacts.length > 0) return false;
+    if (!plan.needs_live_data && !plan.needs_historical_data) return false;
+    return !toolResults.some(result => {
+        if (!result.data) return false;
+        if (Array.isArray(result.data)) return result.data.length > 0;
+        return typeof result.data === "object" && Object.keys(result.data).length > 0;
+    });
 }
 
 export { sanitizeReply } from "./sanitizer";

@@ -281,7 +281,8 @@ export async function executeStructuredTools(
 
             if (marketCache?.payload) {
                 const payload = marketCache.payload;
-                textParts.push(`\n [حالة السوق - ${now.split("T")[0]}]:`);
+                const egxDate = payload.egx30?.[payload.egx30.length - 1]?.date || payload.usdegp?.[payload.usdegp.length - 1]?.date || now.split("T")[0];
+                textParts.push(`\n [حالة السوق - ${egxDate}]:`);
 
                 if (payload.egx30?.[0]) {
                     textParts.push(`• EGX30: ${payload.egx30[payload.egx30.length - 1]?.close || "N/A"} نقطة`);
@@ -311,7 +312,7 @@ export async function executeStructuredTools(
                 results.push({
                     tool: "get_market",
                     source: "database",
-                    data_time: now,
+                    data_time: egxDate,
                     symbols: ["EGX30", "USDEGP"],
                     data_type: "live",
                     data: {
@@ -635,16 +636,17 @@ export async function executeStructuredTools(
             const compareSymbols = symbols.length >= 2 ? symbols.slice(0, 2) : [];
             if (compareSymbols.length === 2) {
                 const [sym1, sym2] = compareSymbols;
-                const [pricesData, techsData, stocksData] = await Promise.all([
+                const [pricesData, techsData, stocksData, fundamentalsData] = await Promise.all([
                     Promise.all([
                         supabase.from("stock_prices").select("symbol, close, volume, date").ilike("symbol", sym1).order("date", { ascending: false }).limit(1).maybeSingle(),
                         supabase.from("stock_prices").select("symbol, close, volume, date").ilike("symbol", sym2).order("date", { ascending: false }).limit(1).maybeSingle()
                     ]),
                     Promise.all([
-                        supabase.from("stock_technical_indicators").select("symbol, rsi_14, macd_signal, change_pct, volume, vol_sma20, adx_14").ilike("symbol", sym1).order("date", { ascending: false }).limit(1).maybeSingle(),
-                        supabase.from("stock_technical_indicators").select("symbol, rsi_14, macd_signal, change_pct, volume, vol_sma20, adx_14").ilike("symbol", sym2).order("date", { ascending: false }).limit(1).maybeSingle()
+                        supabase.from("stock_technical_indicators").select("symbol, rsi_14, macd_signal, change_pct, volume, vol_sma20, adx_14, date").ilike("symbol", sym1).order("date", { ascending: false }).limit(1).maybeSingle(),
+                        supabase.from("stock_technical_indicators").select("symbol, rsi_14, macd_signal, change_pct, volume, vol_sma20, adx_14, date").ilike("symbol", sym2).order("date", { ascending: false }).limit(1).maybeSingle()
                     ]),
-                    supabase.from("stocks").select("symbol, name, sector").or(`symbol.ilike.${sym1},symbol.ilike.${sym2}`)
+                    supabase.from("stocks").select("symbol, name").or(`symbol.ilike.${sym1},symbol.ilike.${sym2}`),
+                    supabase.from("stock_fundamentals").select("symbol, data").in("symbol", [sym1.toUpperCase(), sym2.toUpperCase()])
                 ]);
 
                 const p1 = pricesData[0]?.data;
@@ -653,6 +655,21 @@ export async function executeStructuredTools(
                 const t2 = techsData[1]?.data;
                 const sMap = new Map<string, any>();
                 (stocksData.data || []).forEach((s: any) => { if (s?.symbol) sMap.set(s.symbol.toUpperCase(), s); });
+
+                const sectorMap = new Map<string, string>();
+                (fundamentalsData.data || []).forEach((row: any) => {
+                    if (row?.symbol) {
+                        let sectorStr = "N/A";
+                        try {
+                            const parsed = typeof row.data === "object" ? row.data : JSON.parse(row.data);
+                            sectorStr = parsed.sector || parsed.Sector || parsed.industry || parsed.Industry || "N/A";
+                        } catch {}
+                        sectorMap.set(row.symbol.toUpperCase(), sectorStr);
+                    }
+                });
+
+                const sector1 = sectorMap.get(sym1.toUpperCase()) || "N/A";
+                const sector2 = sectorMap.get(sym2.toUpperCase()) || "N/A";
 
                 if (p1 || p2 || t1 || t2) {
                     textParts.push(`\n [مقارنة بين ${sym1} و ${sym2}]:\n`);
@@ -663,15 +680,18 @@ export async function executeStructuredTools(
                     textParts.push(`| نسبة السيولة | ${t1?.vol_sma20 && t1?.volume ? (Number(t1.volume) / Number(t1.vol_sma20)).toFixed(2) + "x" : "N/A"} | ${t2?.vol_sma20 && t2?.volume ? (Number(t2.volume) / Number(t2.vol_sma20)).toFixed(2) + "x" : "N/A"} |`);
                     textParts.push(`| RSI (14) | ${t1?.rsi_14 ?? "N/A"} | ${t2?.rsi_14 ?? "N/A"} |`);
                     textParts.push(`| MACD | ${t1?.macd_signal ?? "N/A"} | ${t2?.macd_signal ?? "N/A"} |`);
-                    textParts.push(`| القطاع | ${sMap.get(sym1.toUpperCase())?.sector || "N/A"} | ${sMap.get(sym2.toUpperCase())?.sector || "N/A"} |`);
+                    textParts.push(`| القطاع | ${sector1} | ${sector2} |`);
 
                     results.push({
                         tool: "get_comparison",
                         source: "database",
-                        data_time: now,
+                        data_time: p1?.date || t1?.date || p2?.date || t2?.date || now,
                         symbols: [sym1, sym2],
                         data_type: "live",
-                        data: { sym1: { price: p1, tech: t1, info: sMap.get(sym1.toUpperCase()) }, sym2: { price: p2, tech: t2, info: sMap.get(sym2.toUpperCase()) } }
+                        data: {
+                            sym1: { price: p1, tech: t1, info: { ...(sMap.get(sym1.toUpperCase()) || {}), sector: sector1 } },
+                            sym2: { price: p2, tech: t2, info: { ...(sMap.get(sym2.toUpperCase()) || {}), sector: sector2 } }
+                        }
                     });
                 }
             }

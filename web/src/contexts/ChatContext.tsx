@@ -532,7 +532,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
                 if (data.remaining_quota !== undefined) {
                     setRemainingQuota(data.remaining_quota);
                 }
-                assistantMsg.content = data.reply || "معذرة، لم أتمكن من معالجة هذا الطلب.";
+                assistantMsg.content = sanitizeReply(data.reply || "معذرة، لم أتمكن من معالجة هذا الطلب.");
                 assistantMsg.suggestedButtons = Array.isArray(data.suggested_buttons) ? data.suggested_buttons : undefined;
                 assistantMsg.isStreaming = false;
                 assistantMsg.statusText = undefined;

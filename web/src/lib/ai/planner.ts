@@ -481,6 +481,7 @@ EXAMPLE 2 - Sector Analysis (CRITICAL FOR SECTOR QUERIES):
 - For recommendations or signals: use intent "recommendation" with tools ["get_recommendations"]
  - For accumulation or distribution queries (e.g. 'تجميع', 'تصريف', 'accumulation', 'distribution'): use intent "accumulation" with tools ["get_accumulation_stocks"]
  - For comparison queries between two stocks (e.g. 'مقارنة COMI و EAST', 'قارن بين AFMC و BIOC'): use intent "comparison" with tools ["get_comparison"] and set entities.symbols to the two symbols.
+ - For historical recall queries where the user asks about previously mentioned prices, technical indicators, or past analyses (e.g., 'السعر اللي قولته قبل كده', 'التحليل اللي فات', 'كان RSI كام في التحليل السابق؟', 'سعر COMI اللي قولته', 'مقارنة بالتحليل السابق'): use intent "historical_recall" with tools [].
  - For sector analysis queries (e.g. 'البنوك حالتها ايه', 'تحليل قطاع الأدوية', 'قطاع البنوك', 'how are banks doing', 'sector analysis'): use intent "sector_analysis" with tools ["get_sector"] and set entities.sector to the Arabic sector name (e.g. 'بنوك', 'أدوية', 'عقارات', 'أغذية'). Always prefer the Arabic sector name. CRITICAL: You MUST extract and set the sector name in entities.sector field!
  - For greetings, general chat, or conversational requests (e.g. 'hello', 'say X', 'how are you', etc.): use intent "general_chat" with tools [] and entities.symbols [].
 - If the user asks about market liquidity, performance, gainers/losers, or general market movement (e.g. 'مين طلع ومين نزل', 'ايه اللي طلع وايه اللي نزل', 'ايه اللى طلع وايه اللى نزل', 'السوق عمل ايه', 'حالة السوق', 'صعود وهبوط', 'gainers and losers', 'what went up', 'whole market', 'where is liquidity'): use intent "market_summary" or "accumulation" with tools ["get_market", "get_accumulation_stocks"] and set entities.symbols to [].
@@ -635,8 +636,14 @@ EXAMPLE 2 - Sector Analysis (CRITICAL FOR SECTOR QUERIES):
                     const finalSymbols = (isMarketScan && extracted.length === 0 ? [] : Array.from(new Set([...extracted, ...normalizedSymbols])))
                         .filter((s: string) => /^[A-Z]{2,6}$/.test(s) && !/^\d+$/.test(s));
 
+                    const isHistoricalRecallQuery = /التحليل (اللي فات|السابق)|الرقم اللي (قولته|ذكرته) قبل كده|السعر اللي قولته|كان (RSI|macd|السعر) كام|من شوية|قبل كده/i.test(message);
+                    let finalIntent = parsed.intent || "stock_analysis";
+                    if (isHistoricalRecallQuery) {
+                        finalIntent = "historical_recall";
+                    }
+
                     return {
-                        intent: parsed.intent || "stock_analysis",
+                        intent: finalIntent,
                         confidence: parsed.confidence || 0.95,
                         entities: { symbols: finalSymbols, sector: parsed.entities?.sector || null, wants_table: parsed.entities?.wants_table ?? (finalSymbols.length > 0), timeframe: parsed.entities?.timeframe || "1d" },
                         tools: tools,
@@ -745,9 +752,12 @@ EXAMPLE 2 - Sector Analysis (CRITICAL FOR SECTOR QUERIES):
 
                         let finalIntent = parsed.intent || (hasImages ? "portfolio" : "general_chat");
                         const isHistoryQuery = /سيره كام سهم|ذكرنا كام سهم|سيرة كام سهم|سياق المحادثة|تاريخ الشات|الملخص|قلنا ايه/i.test(message);
+                        const isHistoricalRecallQuery = /التحليل (اللي فات|السابق)|الرقم اللي (قولته|ذكرته) قبل كده|السعر اللي قولته|كان (RSI|macd|السعر) كام|من شوية|قبل كده/i.test(message);
                         
                         if (isHistoryQuery) {
                             finalIntent = "general_chat";
+                        } else if (isHistoricalRecallQuery) {
+                            finalIntent = "historical_recall";
                         } else if (resolvedSymbols.length > 0 && finalIntent === "general_chat") {
                             finalIntent = "portfolio";
                         }
