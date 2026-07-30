@@ -49,10 +49,10 @@ export function buildFinalMessages(
 🚨 ANTI-HALLUCINATION — DATABASE-DATA ONLY — NO FABRICATION 🚨
 
 1. ⛔️ اختراع أي رقم أو سعر أو نسبة أو مؤشر = ممنوع. استخدم فقط الأرقام الموجودة في === DATABASE DATA ===.
-2. ⛔️ اختراع رموز أسهم (tickers) غير موجودة في === DATABASE DATA === = ممنوع. لا تستخدم ESER أو أي رمز مخترع.
+2. ⛔️ اختراع رموز أسهم (tickers) غير موجودة في === DATABASE DATA === = ممنوع. لا تستخدم أي رمز غير وارد في البيانات الحقيقية.
 3. ⛔️ نسب أسماء شركات لرموز خطأ = ممنوع. تأكد أن اسم الشركة ورمزها متطابقان في === DATABASE DATA ===.
-4. ⛔️ لا تكتب أسطر إنجليزية بالكامل تحتوي على أرقام ورموز (مثل: 1- COPR: BUY | 0.422 -> 0.51 | SL: 0.38) لأنها ستتشوه وتنعكس في متصفح المستخدم بسبب اتجاه النص (BiDi).
-5. ⚠️ بدلاً من ذلك، اكتب التوصيات دائماً باللغة العربية بالكامل (مثل: "1. سهم COPR: دخول 0.422 ج.م، هدف 0.51 ج.م، وقف 0.38 ج.م") أو ضع السطور الإنجليزية داخل كتلة برمجية (fenced code block \`\`\`text ... \`\`\`) لتظهر بشكل LTR صحيح.
+4. ⛔️ لا تكتب أسطر إنجليزية بالكامل تحتوي على أرقام ورموز (مثل: 1- SYMBOL: BUY | ENTRY -> TARGET | SL: STOP) لأنها ستتشوه وتنعكس في متصفح المستخدم بسبب اتجاه النص (BiDi).
+5. ⚠️ بدلاً من ذلك، اكتب التوصيات دائماً باللغة العربية بالكامل (مثل: "1. سهم SYMBOL: دخول ENTRY ج.م، هدف TARGET ج.م، وقف STOP ج.م") أو ضع السطور الإنجليزية داخل كتلة برمجية (fenced code block \`\`\`text ... \`\`\`) لتظهر بشكل LTR صحيح.
 6. ✅ اعرض البيانات الفعلية كما هي من === DATABASE DATA === مباشرة. لا تعد صياغة الجدول — الجدول أدناه هو المصدر الوحيد.
 7. ✅ إذا كانت === DATABASE DATA === محدودة: اذكر المتوفر فقط. لا تكمل الباقي من خيالك.
 8. ✅ للرد: اكتب 3-4 أسطر تحليلية فقط عن البيانات الموجودة. لا تخترع أقساماً أو قطاعات جديدة.
@@ -115,8 +115,8 @@ RULES:
 1. ❌ NEVER invent stock prices, percentages, or numbers NOT in === DATABASE DATA ===
 2. ❌ NEVER create fake RSI, MACD, or technical indicators
 3. ❌ NEVER mix data from different stocks or sources
-4. ❌ NEVER write English-only lines containing numbers and symbols (e.g. '1- COPR: BUY | 0.422 -> 0.51 | SL: 0.38') as they will render scrambled/reversed in the RTL layout.
-5. ✅ ALWAYS write recommendations in full Arabic (e.g. '1. سهم COPR: دخول 0.422 ج.م، هدف 0.51 ج.م، وقف 0.38 ج.م') or wrap English lines inside a code block (\`\`\`text ... \`\`\`) to display correctly.
+4. ❌ NEVER write English-only lines containing numbers and symbols (e.g. '1- SYMBOL: BUY | ENTRY -> TARGET | SL: STOP') as they will render scrambled/reversed in the RTL layout.
+5. ✅ ALWAYS write recommendations in full Arabic (e.g. '1. سهم SYMBOL: دخول ENTRY ج.م، هدف TARGET ج.م، وقف STOP ج.م') or wrap English lines inside a code block (\`\`\`text ... \`\`\`) to display correctly.
 6. ✅ ONLY use the EXACT numbers provided in === DATABASE DATA ===
 7. ✅ If a stock has no data → clearly state "البيانات غير متوفرة"
 8. ✅ If a field is missing → write "N/A" or "-"
