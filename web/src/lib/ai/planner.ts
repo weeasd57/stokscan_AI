@@ -453,8 +453,8 @@ Analyze user request and return JSON with this exact structure:
 - For recommendations or signals: use intent "recommendation" with tools ["get_recommendations"]
 - For accumulation or distribution queries (e.g. 'تجميع', 'تصريف', 'accumulation', 'distribution'): use intent "accumulation" with tools ["get_accumulation_stocks"]
 - For greetings, general chat, or conversational requests (e.g. 'hello', 'say X', 'how are you', etc.): use intent "general_chat" with tools [] and entities.symbols [].
-- If the user asks about market liquidity, whole market data, or explicitly asks for non-image market status (e.g. 'not from the image', 'whole market', 'where is liquidity'): use intent "accumulation" with tools ["get_accumulation_stocks", "get_market"] and set entities.symbols to [].
-- If the request is a general market, news, index, or recommendation query, do NOT include stock symbols from the session context in the entities.symbols list.
+- If the user asks about market liquidity, performance, gainers/losers, or general market movement (e.g. 'مين طلع ومين نزل', 'ايه اللي طلع وايه اللي نزل', 'ايه اللى طلع وايه اللى نزل', 'السوق عمل ايه', 'حالة السوق', 'صعود وهبوط', 'gainers and losers', 'what went up', 'whole market', 'where is liquidity'): use intent "market_summary" or "accumulation" with tools ["get_market", "get_accumulation_stocks"] and set entities.symbols to [].
+- If the request is a general market, news, index, or recommendation query, do NOT include stock symbols from the session context in the entities.symbols list. Keep entities.symbols as [] to fetch the whole market data.
 - ⚠️ CRITICAL: In "image_summary" or "summary" or any other string value in your JSON, NEVER use double quotes ("). If you need to quote a stock symbol, name, or index, use single quotes (') instead. This is extremely important to prevent JSON parsing syntax errors!
 - ⚠️ FOR IMAGES: Count the visible stocks carefully and ensure your symbols array length matches the count
 - Return ONLY the JSON, no extra text`;
@@ -546,7 +546,7 @@ Analyze user request and return JSON with this exact structure:
         userContent = userPromptText;
     }
 
-    const officialKey = process.env.DEEPSEEK_OFFICIAL_API_KEY || "sk-7d19a8fd6cb943c3b71eaca8e55cef3b";
+    const officialKey = process.env.DEEPSEEK_OFFICIAL_API_KEY || null;
     if (officialKey && !hasImages) {
         try {
             const controller = new AbortController();
@@ -686,16 +686,27 @@ Analyze user request and return JSON with this exact structure:
 
                         const isFollowupQuery = /الاتنين|الإثنين|الاطنين|كلاهما|مع بعض|السهمين|تحليلهم|هاتهم|قولي عنهم|حللهم|بياناتهم|سعرهم|أخبارهم/i.test(message);
                         const isAggregateTableRequest = /كل البيانات|جدول|كل الأسهم|جدول بالشات|ملخص المحادثة/i.test(message);
+                        const isMarketScan = 
+                            parsed.intent === "market_summary" || 
+                            parsed.intent === "accumulation" || 
+                            (Array.isArray(parsed.tools) && (
+                                parsed.tools.includes("get_market") || 
+                                parsed.tools.includes("get_indices") || 
+                                parsed.tools.includes("get_accumulation_stocks")
+                            )) ||
+                            /مين طلع ومين نزل|ايه اللي طلع وايه اللي نزل|ايه اللى طلع وايه اللى نزل|السوق عمل ايه|حالة السوق|صعود وهبوط|gainers and losers|what went up|whole market|where is liquidity/i.test(message);
 
                         let resolvedSymbols: string[] = [];
                         if (symbols.length > 0) {
                             resolvedSymbols = symbols;
-                        } else if (!hasImages && (isFollowupQuery || isAggregateTableRequest) && session.last_symbols?.length) {
-                            resolvedSymbols = session.last_symbols;
-                        } else if (!hasImages && session.current_symbol) {
-                            resolvedSymbols = [session.current_symbol];
-                        } else if (!hasImages && session.last_symbols?.length) {
-                            resolvedSymbols = session.last_symbols;
+                        } else if (!isMarketScan && !hasImages) {
+                            if ((isFollowupQuery || isAggregateTableRequest) && session.last_symbols?.length) {
+                                resolvedSymbols = session.last_symbols;
+                            } else if (session.current_symbol) {
+                                resolvedSymbols = [session.current_symbol];
+                            } else if (session.last_symbols?.length) {
+                                resolvedSymbols = session.last_symbols;
+                            }
                         }
 
                         let finalIntent = parsed.intent || (hasImages ? "portfolio" : "general_chat");
@@ -770,7 +781,8 @@ Analyze user request and return JSON with this exact structure:
         keyIndex = 0;
     }
 
-    const fallbackSymbols = hasImages ? [] : (session.current_symbol ? [correctStockSymbol(session.current_symbol, validSymbols)] : []);
+    const isMarketSlang = /مين طلع ومين نزل|ايه اللي طلع وايه اللي نزل|ايه اللى طلع وايه اللى نزل|السوق عمل ايه|حالة السوق|صعود وهبوط|gainers and losers|what went up|whole market|where is liquidity/i.test(message);
+    const fallbackSymbols = (hasImages || isMarketSlang) ? [] : (session.current_symbol ? [correctStockSymbol(session.current_symbol, validSymbols)] : []);
     return {
         intent: hasImages ? "portfolio" : "general_chat",
         confidence: 0.8,
