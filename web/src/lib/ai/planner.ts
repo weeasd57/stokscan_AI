@@ -451,8 +451,10 @@ Analyze user request and return JSON with this exact structure:
 - For USD/market queries: use intent "market_summary" with tools ["get_market","get_indices"]  
 - For news: use intent "stock_news" with tools ["get_news"]
 - For recommendations or signals: use intent "recommendation" with tools ["get_recommendations"]
-- For accumulation or distribution queries (e.g. 'تجميع', 'تصريف', 'accumulation', 'distribution'): use intent "accumulation" with tools ["get_accumulation_stocks"]
-- For greetings, general chat, or conversational requests (e.g. 'hello', 'say X', 'how are you', etc.): use intent "general_chat" with tools [] and entities.symbols [].
+ - For accumulation or distribution queries (e.g. 'تجميع', 'تصريف', 'accumulation', 'distribution'): use intent "accumulation" with tools ["get_accumulation_stocks"]
+ - For comparison queries between two stocks (e.g. 'مقارنة COMI و EAST', 'قارن بين AFMC و BIOC'): use intent "comparison" with tools ["get_comparison"] and set entities.symbols to the two symbols.
+ - For sector analysis queries (e.g. 'البنوك حالتها ايه', 'قطاع الأدوية', 'how are banks doing', 'sector analysis'): use intent "sector_analysis" with tools ["get_sector"] and set entities.sector to the sector name (e.g. 'بنوك', 'أدوية', 'عقارات'). If the sector name is not explicitly mentioned, try to infer it from the query.
+ - For greetings, general chat, or conversational requests (e.g. 'hello', 'say X', 'how are you', etc.): use intent "general_chat" with tools [] and entities.symbols [].
 - If the user asks about market liquidity, performance, gainers/losers, or general market movement (e.g. 'مين طلع ومين نزل', 'ايه اللي طلع وايه اللي نزل', 'ايه اللى طلع وايه اللى نزل', 'السوق عمل ايه', 'حالة السوق', 'صعود وهبوط', 'gainers and losers', 'what went up', 'whole market', 'where is liquidity'): use intent "market_summary" or "accumulation" with tools ["get_market", "get_accumulation_stocks"] and set entities.symbols to [].
 - If the request is a general market, news, index, or recommendation query, do NOT include stock symbols from the session context in the entities.symbols list. Keep entities.symbols as [] to fetch the whole market data.
 - ⚠️ CRITICAL: In "image_summary" or "summary" or any other string value in your JSON, NEVER use double quotes ("). If you need to quote a stock symbol, name, or index, use single quotes (') instead. This is extremely important to prevent JSON parsing syntax errors!
@@ -597,7 +599,7 @@ Analyze user request and return JSON with this exact structure:
                     }
 
                     // Clean Intent Resolution: If intent is general market scan or tools include accumulation/market without explicit tickers, do not attach old symbols
-                    const isMarketScan = parsed.intent === "accumulation" || parsed.intent === "market_summary" || tools.includes("get_accumulation_stocks") || tools.includes("get_market");
+                    const isMarketScan = (parsed.intent === "accumulation" || parsed.intent === "market_summary" || parsed.intent === "sector_analysis" || tools.includes("get_accumulation_stocks") || tools.includes("get_market")) && parsed.intent !== "comparison";
                     const rawSymbols = isMarketScan && extracted.length === 0 ? [] : (Array.isArray(parsed.entities?.symbols) ? parsed.entities.symbols : []);
                     const normalizedSymbols = rawSymbols.map((s: string) => correctStockSymbol(s, validSymbols)).filter((s: string) => validSymbols.includes(s));
                     const finalSymbols = (isMarketScan && extracted.length === 0 ? [] : Array.from(new Set([...extracted, ...normalizedSymbols])))
@@ -687,14 +689,16 @@ Analyze user request and return JSON with this exact structure:
                         const isFollowupQuery = /الاتنين|الإثنين|الاطنين|كلاهما|مع بعض|السهمين|تحليلهم|هاتهم|قولي عنهم|حللهم|بياناتهم|سعرهم|أخبارهم/i.test(message);
                         const isAggregateTableRequest = /كل البيانات|جدول|كل الأسهم|جدول بالشات|ملخص المحادثة/i.test(message);
                         const isMarketScan = 
-                            parsed.intent === "market_summary" || 
-                            parsed.intent === "accumulation" || 
+                            (parsed.intent === "market_summary" || 
+                            parsed.intent === "accumulation" ||
+                            parsed.intent === "sector_analysis" ||
                             (Array.isArray(parsed.tools) && (
                                 parsed.tools.includes("get_market") || 
                                 parsed.tools.includes("get_indices") || 
                                 parsed.tools.includes("get_accumulation_stocks")
                             )) ||
-                            /مين طلع ومين نزل|ايه اللي طلع وايه اللي نزل|ايه اللى طلع وايه اللى نزل|السوق عمل ايه|حالة السوق|صعود وهبوط|gainers and losers|what went up|whole market|where is liquidity/i.test(message);
+                            /مين طلع ومين نزل|ايه اللي طلع وايه اللي نزل|ايه اللى طلع وايه اللى نزل|السوق عمل ايه|حالة السوق|صعود وهبوط|gainers and losers|what went up|whole market|where is liquidity/i.test(message))
+                            && parsed.intent !== "comparison";
 
                         let resolvedSymbols: string[] = [];
                         if (symbols.length > 0) {
