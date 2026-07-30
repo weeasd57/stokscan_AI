@@ -828,68 +828,58 @@ export async function executeTools(supabase: any, plannerResult: PlannerResult, 
             }
 
             if (targetSector) {
-                let sectorStocks: any[] = [];
-                let sectorQueryAttempts: string[] = [];
+                // Sector metadata is stored in stock_fundamentals.data. The stocks table is
+                // not guaranteed to have a sector column, which previously made this query fail.
+                const { data: fundamentalsRows, error: fundamentalsError } = await supabase
+                    .from("stock_fundamentals")
+                    .select("symbol, data")
+                    .eq("exchange", "EGX")
+                    .limit(1000);
 
-                const trySectorQuery = async (sectorName: string): Promise<any[]> => {
-                    const { data } = await supabase
-                        .from("stocks")
-                        .select("symbol, name, sector")
-                        .ilike("sector", sectorName)
-                        .limit(100);
-                    return data || [];
+                if (fundamentalsError) throw fundamentalsError;
+
+                const SECTOR_TERMS: Record<string, string[]> = {
+                    "أدوية": ["pharmaceutical", "pharma", "drug", "أدوية", "صيدلة"],
+                    "عقارات": ["real estate", "realestate", "عقارات", "عقاري"],
+                    "أغذية": ["food", "beverage", "أغذية", "غذائية"],
+                    "بترول": ["oil", "gas", "petroleum", "energy", "بترول", "طاقة"],
                 };
-
-                const trySectorQueryWithWildcard = async (sectorName: string): Promise<any[]> => {
-                    const { data } = await supabase
-                        .from("stocks")
-                        .select("symbol, name, sector")
-                        .ilike("sector", `%${sectorName}%`)
-                        .limit(100);
-                    return data || [];
-                };
-
-                const ENGLISH_SECTOR_MAP: Record<string, string[]> = {
-                    "بنوك": ["Banks", "Banking", "Financial Services", "مالية", "بنوك"],
-                    "أدوية": ["Pharmaceuticals", "Pharma", "أدوية", "صيدلة"],
-                    "عقارات": ["Real Estate", "عقارات", "عقاري"],
-                    "أغذية": ["Food & Beverage", "Food", "أغذية", "غذائية"],
-                    "بترول": ["Oil & Gas", "Petroleum", "بترول", "طاقة"],
-                };
-
-                const arabianVariations = [targetSector, `%${targetSector}%`];
-                const englishVariations = ENGLISH_SECTOR_MAP[targetSector] || [];
-
-                for (const variation of [...arabianVariations, ...englishVariations]) {
-                    sectorQueryAttempts.push(variation);
-                    sectorStocks = await trySectorQuery(variation);
-                    if (sectorStocks.length > 0) break;
-                }
-
-                if (sectorStocks.length === 0) {
-                    for (const variation of [...arabianVariations, ...englishVariations]) {
-                        sectorQueryAttempts.push(`wildcard:${variation}`);
-                        sectorStocks = await trySectorQueryWithWildcard(variation);
-                        if (sectorStocks.length > 0) break;
+                const normalizedTargetSector = normalizeArabic(targetSector);
+                const parseFundamentalData = (value: unknown): Record<string, any> => {
+                    if (value && typeof value === "object") return value as Record<string, any>;
+                    if (typeof value === "string") {
+                        try { return JSON.parse(value); } catch { return {}; }
                     }
-                }
+                    return {};
+                };
 
-                if (sectorStocks.length === 0) {
-                    const allStocks = await supabase.from("stocks").select("symbol, name, sector").limit(500);
-                    if (allStocks.data) {
-                        const targetLower = targetSector.toLowerCase();
-                        sectorStocks = allStocks.data.filter((s: any) => {
-                            const sSector = String(s.sector || "").toLowerCase();
-                            return sSector.includes(targetLower) || targetLower.includes(sSector) || getLevenshteinDistance(targetLower, sSector) <= 3;
-                        }).slice(0, 50);
-                    }
-                }
+                const sectorStocks = (fundamentalsRows || []).flatMap((row: any) => {
+                    const data = parseFundamentalData(row.data);
+                    const sector = String(data.sector || data.Sector || "");
+                    const industry = String(data.industry || data.Industry || "");
+                    const name = String(data.name || data.Name || row.symbol);
+                    const classification = `${sector} ${industry}`.toLowerCase();
+                    const industryClassification = industry.toLowerCase();
+                    // Finance also contains brokers and investment firms. A bank-sector query
+                    // should include actual banking industries, not every finance company.
+                    const isBank = /\bbank(s|ing)?\b/.test(industryClassification)
+                        && !/investment banks?\/?brokers?/.test(industryClassification);
+                    const matchesRequestedSector = normalizedTargetSector === "بنوك"
+                        ? isBank
+                        : (SECTOR_TERMS[targetSector] || [targetSector.toLowerCase(), normalizedTargetSector])
+                            .some((term) => classification.includes(term.toLowerCase()));
+
+                    return matchesRequestedSector
+                        ? [{ symbol: row.symbol, name, sector: sector || industry }]
+                        : [];
+                }).slice(0, 100);
 
                 if (sectorStocks && sectorStocks.length > 0) {
                     const sectorSymbols = sectorStocks.map((s: any) => s.symbol);
                     const { data: latestTechs } = await supabase
                         .from("stock_technical_indicators")
                         .select("symbol, change_pct, volume, vol_sma20, rsi_14, macd_signal, date")
+                        .eq("exchange", "EGX")
                         .in("symbol", sectorSymbols)
                         .order("date", { ascending: false })
                         .limit(500);
