@@ -239,7 +239,7 @@ export async function generateFinalResponse(
         console.log("🖼️ Image analysis detected - using vision models:", visionModels.join(", "));
     }
 
-    const officialKey = process.env.DEEPSEEK_OFFICIAL_API_KEY || "sk-7d19a8fd6cb943c3b71eaca8e55cef3b";
+    const officialKey = process.env.DEEPSEEK_OFFICIAL_API_KEY || null;
     if (officialKey && !hasImages) {
         try {
             const targetDeepSeekModel = (requestedModel && (requestedModel.includes("pro") || requestedModel.includes("reasoner"))) ? "deepseek-reasoner" : "deepseek-v4-flash";
@@ -269,6 +269,9 @@ export async function generateFinalResponse(
                 const data = await res.json();
                 const reply = data.choices?.[0]?.message?.content?.trim();
                 if (reply) {
+                    if (data.usage) {
+                        console.log(`[TOKENS] model=${targetDeepSeekModel} prompt=${data.usage.prompt_tokens} completion=${data.usage.completion_tokens} total=${data.usage.total_tokens} cached=${data.usage.prompt_tokens_details?.cached_tokens ?? "N/A"}`);
+                    }
                     console.log(`✅ DeepSeek Official API (${targetDeepSeekModel}) response generated successfully!`);
                     return sanitizeReply(reply, liveDataString);
                 }
@@ -282,11 +285,13 @@ export async function generateFinalResponse(
     for (const modelName of modelsToTry) {
         while (keyIndex < apiKeys.length) {
             const key = apiKeys[keyIndex];
+            const modelStartTime = Date.now();
             try {
                 const isVisionModel = visionModels.includes(modelName);
-                const messagesToSend = buildFinalMessages(message, imageList, liveDataString, plannerResult, aiMessages, isVisionModel);
+                let messagesToSend = buildFinalMessages(message, imageList, liveDataString, plannerResult, aiMessages, isVisionModel);
+                messagesToSend = guardContextSize(messagesToSend);
                 const controller = new AbortController();
-                const timeoutMs = isVisionModel ? 15000 : 10000;
+                const timeoutMs = isVisionModel ? 18000 : 20000;
                 const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
                 const res = await fetch(AI_CONFIG.api.nvidiaBaseUrl, {
@@ -312,15 +317,18 @@ export async function generateFinalResponse(
                     const data = await res.json();
                     const reply = data.choices?.[0]?.message?.content?.trim();
                     if (reply && !isNvidiaContentRefusal(reply)) {
+                        if (data.usage) {
+                            console.log(`[TOKENS] model=${modelName} prompt=${data.usage.prompt_tokens} completion=${data.usage.completion_tokens} total=${data.usage.total_tokens} cached=${data.usage.prompt_tokens_details?.cached_tokens ?? "N/A"}`);
+                        }
                         return sanitizeReply(reply, liveDataString);
                     }
                     if (reply && isNvidiaContentRefusal(reply)) {
-                        console.warn(`NVIDIA content refusal from model ${modelName}`);
+                        logModelFallback(modelName, keyIndex, "content_refusal", Date.now() - modelStartTime);
                         break; // Refusal - try next model
                     }
                 } else {
                     const errText = await res.text();
-                    console.warn(`Model ${modelName} failed (${res.status}):`, errText.substring(0, 150));
+                    logModelFallback(modelName, keyIndex, `http_${res.status}`, Date.now() - modelStartTime, res.status);
                     if (res.status === 401 || res.status === 403 || res.status === 429) {
                         keyIndex++;
                         continue; // Key auth issue - try next key
@@ -329,7 +337,8 @@ export async function generateFinalResponse(
                     }
                 }
             } catch (err: any) {
-                console.warn(`Fetch error with model ${modelName}:`, err.message || err);
+                const reason = err.name === "AbortError" || err.message?.includes("aborted") ? "timeout" : err.message || "fetch_error";
+                logModelFallback(modelName, keyIndex, reason, Date.now() - modelStartTime);
                 if (err.name === "AbortError" || err.message?.includes("aborted")) {
                     break; // Timeout - try next model
                 }
@@ -340,6 +349,36 @@ export async function generateFinalResponse(
     }
 
     return `أهلاً بك! يمكنك إرسال الصورة بوضوح أو كتابة اسم السهم المطلوب وسأقوم بتحليله لك فوراً.\n\n${AI_CONFIG.disclaimer}`;
+}
+
+const MAX_MESSAGE_CHARS = 45000;
+
+function guardContextSize(messages: any[]): any[] {
+    const totalChars = JSON.stringify(messages).length;
+    if (totalChars <= MAX_MESSAGE_CHARS) return messages;
+
+    const trimmed = [...messages];
+    const systemIdx = trimmed.findIndex(m => m.role === "system");
+    const systemMsg = systemIdx >= 0 ? trimmed[systemIdx] : null;
+
+    while (JSON.stringify(trimmed).length > MAX_MESSAGE_CHARS && trimmed.length > 2) {
+        if (trimmed.length > 2 && trimmed[1]?.role === "user") {
+            trimmed.splice(1, 1);
+        } else {
+            trimmed.splice(1, 1);
+        }
+    }
+
+    if (systemMsg && !trimmed.some(m => m.role === "system" && m.content === systemMsg.content)) {
+        trimmed.unshift(systemMsg);
+    }
+
+    return trimmed;
+}
+
+function logModelFallback(model: string, keyIdx: number, reason: string, latencyMs: number, status?: number) {
+    const keyLabel = keyIdx >= 0 ? `Key #${keyIdx + 1}` : "N/A";
+    console.warn(`[FALLBACK] model=${model} key=${keyLabel} reason=${reason} latency=${latencyMs}ms${status ? ` status=${status}` : ""}`);
 }
 
 const NVIDIA_REFUSAL_PATTERNS = [
@@ -443,7 +482,7 @@ export async function* generateFinalStream(
         yield streamProgrammaticTable + "\n\n### تحليل السيولة الفنية\n";
     }
 
-    const officialKey = process.env.DEEPSEEK_OFFICIAL_API_KEY || "sk-7d19a8fd6cb943c3b71eaca8e55cef3b";
+    const officialKey = process.env.DEEPSEEK_OFFICIAL_API_KEY || null;
     if (officialKey && !hasImages) {
         try {
             const targetDeepSeekModel = (requestedModel && (requestedModel.includes("pro") || requestedModel.includes("reasoner"))) ? "deepseek-reasoner" : "deepseek-v4-flash";
@@ -524,7 +563,7 @@ export async function* generateFinalStream(
                 const controller = new AbortController();
                 const isVisionModel = visionModels.includes(modelName);
                 const messagesToSend = buildFinalMessages(message, imageList, liveDataString, plannerResult, aiMessages, isVisionModel);
-                const timeoutMs = isVisionModel ? 15000 : 10000;
+                const timeoutMs = isVisionModel ? 18000 : 20000;
                 const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
                 const res = await fetch(AI_CONFIG.api.nvidiaBaseUrl, {
@@ -581,7 +620,7 @@ export async function* generateFinalStream(
                                     if (delta) {
                                         if (!refusalChecked) {
                                             refusalBuffer += delta;
-                                            if (refusalBuffer.length >= 120 || delta.includes(".") || delta.includes("\n") || delta.includes("!") || delta.includes("?")) {
+                                            if (refusalBuffer.length >= 300 || delta.includes(".") || delta.includes("\n") || delta.includes("!") || delta.includes("?")) {
                                                 refusalChecked = true;
                                                 if (isNvidiaContentRefusal(refusalBuffer)) {
                                                     console.warn(`NVIDIA content refusal from stream model ${modelName}`);

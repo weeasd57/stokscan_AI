@@ -435,26 +435,37 @@ export async function executeTools(supabase: any, plannerResult: PlannerResult, 
         try {
             const { data: marketCache } = await fetchMarketCache();
 
+            const todayStr = new Date().toISOString().split("T")[0];
+            let cacheDate = todayStr;
+            let hasStaleCache = false;
+
             if (marketCache?.payload) {
                 const payload = marketCache.payload;
                 outputText += `\n📰 [حالة البورصة والأخبار من قاعدة البيانات]:\n`;
-                
+
+                // Detect stale cache
+                const payloadDate = payload.cache_date || payload.date || todayStr;
+                if (payloadDate && payloadDate !== todayStr) {
+                    hasStaleCache = true;
+                    outputText += `⚠️ ملاحظة: آخر تحديث للبيانات aggregated كان بتاريخ ${payloadDate} (ليس اليوم). جاري محاولة جلب بيانات أحدث من الجداول المباشرة...\n`;
+                }
+
                 if (payload.egx30 && Array.isArray(payload.egx30) && payload.egx30.length > 0) {
                     const latest30 = payload.egx30[payload.egx30.length - 1];
                     const changePct = payload.egx30_return ? (payload.egx30_return * 100).toFixed(2) : "N/A";
                     outputText += `• مؤشر EGX30: ${latest30.close} نقطة | التغير: ${Number(changePct) >= 0 ? "+" : ""}${changePct}% | التاريخ: ${latest30.date}\n`;
                 }
-                
+
                 if (payload.egx100 && Array.isArray(payload.egx100) && payload.egx100.length > 0) {
                     const latest100 = payload.egx100[payload.egx100.length - 1];
                     outputText += `• مؤشر EGX100: ${latest100.close} نقطة | التاريخ: ${latest100.date}\n`;
                 }
-                
+
                 if (payload.usdegp && Array.isArray(payload.usdegp) && payload.usdegp.length > 0) {
                     const latestUSD = payload.usdegp[payload.usdegp.length - 1];
                     outputText += `• سعر صرف USD/EGP: ${latestUSD.close} جنيه | التاريخ: ${latestUSD.date}\n`;
                 }
-                
+
                 if (payload.regime) {
                     outputText += `• اتجاه السوق (Market Regime): ${payload.regime}\n`;
                 }
@@ -462,24 +473,69 @@ export async function executeTools(supabase: any, plannerResult: PlannerResult, 
                 if (payload.market_summary) {
                     outputText += `• ملخص السوق: ${payload.market_summary}\n`;
                 }
-                
+
                 if (payload.top_gainers && Array.isArray(payload.top_gainers) && payload.top_gainers.length > 0) {
                     outputText += `\n🟢 أعلى الأسهم ارتفاعاً:\n`;
                     payload.top_gainers.slice(0, AI_CONFIG.tools.topGainersLosersLimit).forEach((stock: any) => {
                         outputText += `• ${stock.symbol}: ${stock.change || 'N/A'}%\n`;
                     });
                 }
-                
+
                 if (payload.top_losers && Array.isArray(payload.top_losers) && payload.top_losers.length > 0) {
                     outputText += `\n🔴 أعلى الأسهم انخفاضاً:\n`;
                     payload.top_losers.slice(0, AI_CONFIG.tools.topGainersLosersLimit).forEach((stock: any) => {
                         outputText += `• ${stock.symbol}: ${stock.change || 'N/A'}%\n`;
                     });
                 }
-                
+
                 outputText += `\n`;
             } else {
                 outputText += `\n📰 [حالة البورصة والأخبار]: لا توجد بيانات محدثة في قاعدة البيانات حالياً.\n`;
+            }
+
+            // Fallback: If cache is stale or missing top_gainers/top_losers, compute from stock_technical_indicators directly
+            if (hasStaleCache || !(marketCache?.payload?.top_gainers?.length > 0)) {
+                try {
+                    const { data: latestTechs } = await supabase
+                        .from("stock_technical_indicators")
+                        .select("symbol, change_pct, volume, vol_sma20, date")
+                        .order("date", { ascending: false })
+                        .limit(500);
+
+                    if (latestTechs && latestTechs.length > 0) {
+                        const maxTechDate = latestTechs[0].date;
+                        const todayTechs = latestTechs.filter((r: any) => r.date === maxTechDate);
+
+                        if (todayTechs.length > 0) {
+                            const gainers = todayTechs
+                                .filter((r: any) => Number(r.change_pct || 0) > 0)
+                                .sort((a: any, b: any) => Number(b.change_pct || 0) - Number(a.change_pct || 0))
+                                .slice(0, AI_CONFIG.tools.topGainersLosersLimit);
+
+                            const losers = todayTechs
+                                .filter((r: any) => Number(r.change_pct || 0) < 0)
+                                .sort((a: any, b: any) => Number(a.change_pct || 0) - Number(b.change_pct || 0))
+                                .slice(0, AI_CONFIG.tools.topGainersLosersLimit);
+
+                            if (gainers.length > 0) {
+                                outputText += `\n📈 [أعلى الأسهم ارتفاعاً - من البيانات الفنية المباشرة (${maxTechDate})]:\n`;
+                                gainers.forEach((r: any) => {
+                                    outputText += `• ${r.symbol}: +${Number(r.change_pct).toFixed(2)}% | حجم: ${Number(r.volume || 0).toLocaleString("en-US")}\n`;
+                                });
+                            }
+
+                            if (losers.length > 0) {
+                                outputText += `\n📉 [أعلى الأسهم انخفاضاً - من البيانات الفنية المباشرة (${maxTechDate})]:\n`;
+                                losers.forEach((r: any) => {
+                                    outputText += `• ${r.symbol}: ${Number(r.change_pct).toFixed(2)}% | حجم: ${Number(r.volume || 0).toLocaleString("en-US")}\n`;
+                                });
+                            }
+                            outputText += `\n`;
+                        }
+                    }
+                } catch (techErr) {
+                    console.warn("Error computing top gainers/losers from tech indicators:", techErr);
+                }
             }
         } catch (e) {
             console.warn("Error fetching market cache:", e);
