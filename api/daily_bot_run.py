@@ -2880,9 +2880,14 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
                         new_booster = retrainer.retrain_on_mistakes(learner, mistakes)
                         if new_booster:
                             import joblib
-                            base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-                            model_path = os.path.join(base_dir, "models", "model_EGX.pkl")
+                            api_dir = os.path.dirname(os.path.abspath(__file__))
+                            model_path = os.path.join(api_dir, "models", "model_EGX.pkl")
+                            if not os.path.exists(model_path):
+                                base_dir = os.path.dirname(api_dir)
+                                model_path = os.path.join(base_dir, "models", "model_EGX.pkl")
                             try:
+                                # Ensure parent directories exist
+                                os.makedirs(os.path.dirname(model_path), exist_ok=True)
                                 if os.path.exists(model_path):
                                     data = joblib.load(model_path)
                                     if isinstance(data, dict) and data.get("kind") == "lgbm_booster":

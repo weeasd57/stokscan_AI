@@ -38,8 +38,11 @@ class ActiveLearner:
         """Loads model and handles both sklearn wrapper and raw booster artifacts."""
         try:
             if not model_path:
-                base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-                model_path = os.path.join(base_dir, "models", f"model_{self.exchange}.pkl")
+                api_dir = os.path.dirname(os.path.abspath(__file__))
+                model_path = os.path.join(api_dir, "models", f"model_{self.exchange}.pkl")
+                if not os.path.exists(model_path):
+                    base_dir = os.path.dirname(api_dir)
+                    model_path = os.path.join(base_dir, "models", f"model_{self.exchange}.pkl")
             
             if not os.path.exists(model_path):
                 _log(f"Model not found at {model_path}", self.log_cb)
