@@ -64,7 +64,7 @@ async function getStocksList(): Promise<StocksListData> {
             const supabase = getSupabaseClient();
             const { data } = await supabase
                 .from("stocks")
-                .select("symbol, name, name_ar")
+                .select("symbol, name")
                 .eq("is_active", true);
             if (data && data.length > 0) {
                 cachedStocks = data;
