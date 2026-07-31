@@ -119,6 +119,7 @@ function buildAccumulationTable(tool: ToolResult): ExcelTable | null {
     const rows = stocks.filter((stock: any) => stock?.symbol).map((stock: any) => [
         cell(stock.symbol),
         cell(stock.name),
+        cell(stock.signal),
         cell(stock.acc_score),
         cell(stock.dist_score),
         cell(stock.vol_ratio),
@@ -126,14 +127,15 @@ function buildAccumulationTable(tool: ToolResult): ExcelTable | null {
         cell(stock.rsi_14),
         cell(stock.macd_signal),
         cell(stock.wyckoff_phase),
-        cell(stock.consecutive_acc_days)
+        cell(stock.consecutive_acc_days),
+        cell(stock.consecutive_dist_days)
     ]);
     if (rows.length === 0) return null;
 
     return {
         id: tool.tool,
         title: "التجميع والسيولة المؤسسية",
-        headers: ["السهم", "الاسم", "درجة التجميع", "درجة التصريف", "نسبة الحجم", "التغير %", "RSI", "MACD", "مرحلة Wyckoff", "أيام التجميع"],
+        headers: ["السهم", "الاسم", "إشارة المسح", "درجة التجميع", "درجة التصريف", "نسبة الحجم", "التغير %", "RSI", "MACD", "مرحلة Wyckoff", "أيام التجميع", "أيام التصريف"],
         rows,
         source: tool.source,
         data_time: tool.data_time

@@ -494,7 +494,8 @@ EXAMPLE 2 - Sector Analysis (CRITICAL FOR SECTOR QUERIES):
                     }
 
                     // Clean Intent Resolution: If intent is general market scan or tools include accumulation/market without explicit tickers, do not attach old symbols
-                    const isMarketScan = (parsed.intent === "accumulation" || parsed.intent === "market_summary" || parsed.intent === "sector_analysis" || tools.includes("get_accumulation_stocks") || tools.includes("get_market")) && parsed.intent !== "comparison";
+                    const isDirectStockLiquidity = extracted.length > 0 && /(تجميع|تصريف|سيول(?:ه)?|مؤسس|accumulation|distribution|institutional|liquidity|wyckoff)/i.test(message || "");
+                    const isMarketScan = (parsed.intent === "accumulation" || parsed.intent === "market_summary" || parsed.intent === "sector_analysis" || tools.includes("get_accumulation_stocks") || tools.includes("get_market")) && parsed.intent !== "comparison" && !isDirectStockLiquidity;
                     const rawSymbols = isMarketScan && extracted.length === 0 ? [] : (Array.isArray(parsed.entities?.symbols) ? parsed.entities.symbols : []);
                     const normalizedSymbols = rawSymbols.map((s: string) => correctStockSymbol(s, validSymbols)).filter((s: string) => validSymbols.includes(s));
                     const finalSymbols = (isMarketScan && extracted.length === 0 ? [] : Array.from(new Set([...extracted, ...normalizedSymbols])))
@@ -589,6 +590,7 @@ EXAMPLE 2 - Sector Analysis (CRITICAL FOR SECTOR QUERIES):
 
                         const isFollowupQuery = /الاتنين|الإثنين|الاطنين|كلاهما|مع بعض|السهمين|تحليلهم|هاتهم|قولي عنهم|حللهم|بياناتهم|سعرهم|أخبارهم/i.test(message);
                         const isAggregateTableRequest = /كل البيانات|جدول|كل الأسهم|جدول بالشات|ملخص المحادثة/i.test(message);
+                        const isDirectStockLiquidity = symbols.length > 0 && /(تجميع|تصريف|سيول(?:ه)?|مؤسس|accumulation|distribution|institutional|liquidity|wyckoff)/i.test(message || "");
                         const isMarketScan = 
                             (parsed.intent === "market_summary" || 
                             parsed.intent === "accumulation" ||
@@ -599,7 +601,7 @@ EXAMPLE 2 - Sector Analysis (CRITICAL FOR SECTOR QUERIES):
                                 parsed.tools.includes("get_accumulation_stocks")
                             )) ||
                             /مين طلع ومين نزل|ايه اللي طلع وايه اللي نزل|ايه اللى طلع وايه اللى نزل|السوق عمل ايه|حالة السوق|صعود وهبوط|gainers and losers|what went up|whole market|where is liquidity|اسهم (الشهر|السهر)|(الشهر|السهر) (اللي|اللى) (فات|الماضي)|سيولة|تجميع/i.test(message))
-                            && parsed.intent !== "comparison";
+                             && parsed.intent !== "comparison" && !isDirectStockLiquidity;
 
                         let resolvedSymbols: string[] = [];
                         if (symbols.length > 0) {

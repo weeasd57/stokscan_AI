@@ -545,11 +545,52 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
     const accumulation = toolResults.find(result => result.tool === "get_accumulation_stocks");
     if (accumulation?.data?.stocks?.length) {
         const stocks = (accumulation.data.stocks as any[]).slice(0, 8);
+        if (plan.entities.symbols.length > 0) {
+            if (accumulation.source === "stock_technical_indicators") {
+                return [
+                    "البيانات غير كافية لإثبات إشارة تجميع أو تصريف؛ لا يوجد سجل مسح شامل للسهم في التاريخ المطلوب.",
+                    ...stocks.map(stock => `- ${stock.symbol}: نسبة الحجم ${stock.vol_ratio ?? "غير متاحة"}x من متوسط 20 جلسة، التغير ${stock.change_pct ?? "غير متاح"}%، RSI ${stock.rsi_14 ?? "غير متاح"}، MACD ${stock.macd_signal ?? "غير متاح"}.`),
+                    "هذه المؤشرات تصف السيولة والزخم فقط، ولا تثبت التجميع أو التصريف وحدها."
+                ].join("\n");
+            }
+
+            const describe = (stock: any): string => {
+                const signal = String(stock.signal || "").toLowerCase();
+                const accScore = stock.acc_score == null ? null : Number(stock.acc_score);
+                const distScore = stock.dist_score == null ? null : Number(stock.dist_score);
+                let verdict = "البيانات غير كافية لإثبات إشارة تجميع أو تصريف";
+                if (signal.includes("accumulation")) verdict = signal.includes("weak") ? "توجد إشارة تجميع ضعيفة" : "توجد إشارة تجميع";
+                else if (signal.includes("distribution")) verdict = signal.includes("weak") ? "لا توجد إشارة تجميع؛ توجد إشارة تصريف ضعيفة" : "لا توجد إشارة تجميع؛ توجد إشارة تصريف";
+                else if (signal === "neutral") verdict = "لا توجد إشارة تجميع أو تصريف مؤكدة؛ إشارة المسح محايدة";
+                else if (accScore != null && distScore != null && accScore >= 50 && accScore > distScore) verdict = "توجد إشارة تجميع وفق درجات المسح";
+                else if (accScore != null && distScore != null && distScore >= 50 && distScore > accScore) verdict = "لا توجد إشارة تجميع؛ درجات المسح ترجح التصريف";
+
+                const evidence = [
+                    stock.signal ? `الإشارة ${stock.signal}` : null,
+                    accScore != null ? `درجة التجميع ${accScore}/100` : null,
+                    distScore != null ? `درجة التصريف ${distScore}/100` : null,
+                    stock.vol_ratio != null ? `نسبة الحجم ${stock.vol_ratio}x` : null,
+                    stock.consecutive_acc_days != null ? `أيام التجميع المتتالية ${stock.consecutive_acc_days}` : null,
+                    stock.consecutive_dist_days != null ? `أيام التصريف المتتالية ${stock.consecutive_dist_days}` : null,
+                    stock.wyckoff_phase ? `مرحلة Wyckoff ${stock.wyckoff_phase}` : null
+                ].filter(Boolean).join("، ");
+                return `${verdict} على ${stock.symbol} بتاريخ ${accumulation.data_time}.${evidence ? ` الدليل: ${evidence}.` : ""}`;
+            };
+            return [
+                ...stocks.map(describe),
+                "الحكم مبني على سجل المسح الفعلي، وليس على RSI أو MACD منفردين."
+            ].join("\n");
+        }
         return [
             `أبرز أسهم التجميع والسيولة المؤسسية حسب المسح المؤرخ ${accumulation.data_time}:`,
             ...stocks.map(stock => `- ${stock.symbol}: درجة التجميع ${stock.acc_score ?? "غير متاح"}/100، نسبة الحجم ${stock.vol_ratio ?? "غير متاح"}x، التغير ${stock.change_pct ?? "غير متاح"}%.`),
             "هذه نتائج مسح فني وليست توصية شراء أو بيع."
         ].join("\n");
+    }
+
+    if (accumulation && plan.entities.symbols.length > 0) {
+        const dateLabel = plan.entities.requested_date || accumulation.data_time;
+        return `البيانات غير كافية لإثبات إشارة تجميع أو تصريف للأسهم ${plan.entities.symbols.join("، ")} بتاريخ ${dateLabel}. لا يوجد سجل مسح أو مؤشرات فنية كافية، ولم أستخدم بيانات من تاريخ آخر.`;
     }
 
     if (plan.entities.requested_date && accumulation) {

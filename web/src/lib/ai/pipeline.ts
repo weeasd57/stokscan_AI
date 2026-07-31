@@ -225,7 +225,7 @@ export function enforceIntentFromMessage(message: string, plannerIntent: string,
         return { intent: "market_summary", tools: ["get_market"], replaceTools: true };
     }
 
-    const liquidityQuery = /((?:ال)?سيول(?:ه)?|تجميع|تصريف|فين.*السوق|where.*liquidity|market liquidity)/i.test(normalized);
+    const liquidityQuery = /((?:ال)?سيول(?:ه)?|تجميع|تصريف|مؤسس|accumulation|distribution|institutional|liquidity|فين.*السوق|where.*liquidity|market liquidity)/i.test(normalized);
     if (liquidityQuery && hasExplicitSymbol) {
         if (/(تجميع|تصريف|مؤسس|institutional|wyckoff)/i.test(normalized)) {
             return { intent: "accumulation", tools: ["get_accumulation_stocks"], replaceTools: true };
@@ -256,6 +256,10 @@ export function enforceIntentFromMessage(message: string, plannerIntent: string,
     }
 
     return { intent: plannerIntent, tools: [] };
+}
+
+function isDirectAccumulationRequest(message: string, symbols: string[]): boolean {
+    return symbols.length > 0 && /(تجميع|تصريف|سيول(?:ه)?|مؤسس|accumulation|distribution|institutional|liquidity|wyckoff)/i.test(message);
 }
 
 export function extractSectorFromMessage(message: string): string | null {
@@ -388,18 +392,21 @@ export async function* runPipelineStream(
     if (mergedSymbols.length === 0 && sessionState.current_symbol && /(أبيع|ابيع|بيع|أحتفظ|احتفظ|أخرج|اخرج|بكام|بكم|السعر)/i.test(userMessage)) {
         mergedSymbols.push(sessionState.current_symbol);
     }
-    if (isMarketWideRequest(userMessage)) mergedSymbols = [];
+    if (isMarketWideRequest(userMessage) && !isDirectAccumulationRequest(userMessage, mergedSymbols)) mergedSymbols = [];
     const enforced = enforceIntentFromMessage(userMessage, plannerResult.intent, mergedSymbols);
     const datedDomainRequest = Boolean(extractRequestedDate(userMessage) || extractRequestedDateRange(userMessage)) && ["stock_analysis", "stock_news", "comparison", "sector_analysis", "accumulation"].includes(enforced.intent);
     const historicalRequest = needsHistoricalData(enforced.intent, userMessage);
     const effectiveIntent = historicalRequest && !datedDomainRequest ? "historical_recall" : enforced.intent;
 
-    const plannedTools = enforced.replaceTools
+    const directAccumulationRequest = isDirectAccumulationRequest(userMessage, mergedSymbols);
+    const plannedTools = directAccumulationRequest
+        ? ["get_accumulation_stocks"]
+        : enforced.replaceTools
         ? enforced.tools
         : Array.from(new Set([...(plannerResult.tools || []), ...enforced.tools]));
     const requestedRange = extractRequestedDateRange(userMessage);
     const plan: IntentPlan = {
-        intent: effectiveIntent === "accumulation" ? "market_summary" : mapIntent(effectiveIntent),
+        intent: directAccumulationRequest ? "stock_analysis" : mapIntent(effectiveIntent),
         confidence: plannerResult.confidence || 0.8,
         entities: {
             symbols: mergedSymbols,
@@ -581,18 +588,21 @@ export async function runPipeline(
     if (mergedSymbols.length === 0 && sessionState.current_symbol && /(أبيع|ابيع|بيع|أحتفظ|احتفظ|أخرج|اخرج|بكام|بكم|السعر)/i.test(userMessage)) {
         mergedSymbols.push(sessionState.current_symbol);
     }
-    if (isMarketWideRequest(userMessage)) mergedSymbols = [];
+    if (isMarketWideRequest(userMessage) && !isDirectAccumulationRequest(userMessage, mergedSymbols)) mergedSymbols = [];
     const enforced = enforceIntentFromMessage(userMessage, plannerResult.intent, mergedSymbols);
     const datedDomainRequest = Boolean(extractRequestedDate(userMessage) || extractRequestedDateRange(userMessage)) && ["stock_analysis", "stock_news", "comparison", "sector_analysis", "accumulation"].includes(enforced.intent);
     const historicalRequest = needsHistoricalData(enforced.intent, userMessage);
     const effectiveIntent = historicalRequest && !datedDomainRequest ? "historical_recall" : enforced.intent;
 
-    const plannedTools = enforced.replaceTools
+    const directAccumulationRequest = isDirectAccumulationRequest(userMessage, mergedSymbols);
+    const plannedTools = directAccumulationRequest
+        ? ["get_accumulation_stocks"]
+        : enforced.replaceTools
         ? enforced.tools
         : Array.from(new Set([...(plannerResult.tools || []), ...enforced.tools]));
     const requestedRange = extractRequestedDateRange(userMessage);
     const plan: IntentPlan = {
-        intent: effectiveIntent === "accumulation" ? "market_summary" : mapIntent(effectiveIntent),
+        intent: directAccumulationRequest ? "stock_analysis" : mapIntent(effectiveIntent),
         confidence: plannerResult.confidence || 0.8,
         entities: {
             symbols: mergedSymbols,

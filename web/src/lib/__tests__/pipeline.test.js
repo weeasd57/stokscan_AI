@@ -5,6 +5,7 @@ const { buildExcelTables, tablesToMarkdown } = require("../ai/excel-tables");
 const { enforceIntentFromMessage, buildMarketLiquidityResponse, needsLiveDataForTools, needsHistoricalData, extractSectorFromMessage, extractExplicitSymbols, buildDeterministicPlannerResult, extractRequestedDate, extractRequestedDateRange, extractTemporalContext, isMarketWideRequest } = require("../ai/pipeline");
 const { sanitizeReply } = require("../ai/sanitizer");
 const { parseToolsOutput } = require("../ai/table-builder");
+const { executeStructuredTools } = require("../ai/tools-v2");
 
 // Simple mock for supabase
 const mockSupabase = {
@@ -370,6 +371,30 @@ describe("Deterministic response fallback", () => {
         });
     });
 
+    it("routes generic single-stock distribution and institutional liquidity to the direct scan tool", () => {
+        for (const message of ["هل يوجد تصريف على ABCD؟", "institutional liquidity for ABCD"]) {
+            expect(enforceIntentFromMessage(message, "market_summary", ["ABCD"])).toEqual({
+                intent: "accumulation",
+                tools: ["get_accumulation_stocks"],
+                replaceTools: true
+            });
+        }
+    });
+
+    it("does not let planner market tools override a resolved direct accumulation request", () => {
+        const plan = buildDeterministicPlannerResult("شوف التجميع المؤسسي على ABCD", { current_symbol: null, last_symbols: [], summary: null });
+        const enforced = enforceIntentFromMessage("شوف التجميع المؤسسي على ABCD", "market_summary", plan.entities.symbols);
+        expect(enforced.tools).toEqual(["get_accumulation_stocks"]);
+        expect(enforced.tools).not.toContain("get_market");
+    });
+
+    it("preserves a resolved symbol for direct accumulation wording", () => {
+        expect(isMarketWideRequest("التجميع المؤسسي على ABCD")).toBe(false);
+        const plan = buildDeterministicPlannerResult("التجميع المؤسسي على ABCD", { current_symbol: null, last_symbols: [], summary: null });
+        expect(plan.entities.symbols).toEqual(["ABCD"]);
+        expect(plan.tools).toEqual(["get_accumulation_stocks"]);
+    });
+
     it("routes a single-stock liquidity request to stock data only", () => {
         expect(enforceIntentFromMessage("حلل سيوله ABCD", "sector_analysis", ["ABCD"]).tools).toEqual(["get_stock"]);
     });
@@ -460,6 +485,110 @@ describe("Excel-ready structured tables", () => {
         expect(tables[0].rows[0]).toContain("82");
         expect(tables[1].headers).toContain("العنوان");
         expect(tables[1].rows[0]).toContain("خبر");
+    });
+});
+
+describe("Direct stock accumulation data", () => {
+    const basePlan = {
+        intent: "stock_analysis",
+        confidence: 1,
+        entities: { symbols: ["ABCD"], sector: null, timeframe: "current", reference: null },
+        needs_vision_context: false,
+        needs_history: false,
+        needs_live_data: true,
+        needs_historical_data: false,
+        tools: ["get_accumulation_stocks"],
+        clarification_needed: false,
+        resolved_from: { symbol: null, message_id: null }
+    };
+
+    function createSupabaseMock(responses) {
+        const calls = [];
+        const indexes = {};
+        const from = jest.fn(table => {
+            const tableResponses = responses[table] || [];
+            const index = indexes[table] || 0;
+            indexes[table] = index + 1;
+            const response = tableResponses[index] || { data: [] };
+            const query = {
+                select: jest.fn(() => query),
+                order: jest.fn(() => query),
+                limit: jest.fn(() => query),
+                eq: jest.fn((column, value) => { calls.push({ table, method: "eq", column, value }); return query; }),
+                in: jest.fn((column, value) => { calls.push({ table, method: "in", column, value }); return query; }),
+                maybeSingle: jest.fn(() => Promise.resolve(response)),
+                then: (resolve, reject) => Promise.resolve(response).then(resolve, reject)
+            };
+            return query;
+        });
+        return { client: { from }, calls, from };
+    }
+
+    it("fetches the requested symbol directly from the latest scan and interprets its actual signal", async () => {
+        const scan = {
+            symbol: "ABCD", scan_date: "2026-07-30", signal: "distribution", wyckoff_phase: "D",
+            acc_score: 18, dist_score: 76, vol_ratio: 1.7, consecutive_acc_days: 0, consecutive_dist_days: 3,
+            change_pct: -1.2, rsi_14: 43, macd_signal: -0.2
+        };
+        const mock = createSupabaseMock({
+            stock_scans_summary: [{ data: { scan_date: "2026-07-30" } }, { data: [scan] }],
+            stocks: [{ data: [{ symbol: "ABCD", name: "Test Company" }] }]
+        });
+
+        const tools = await executeStructuredTools(mock.client, basePlan, []);
+        const result = tools.results.find(item => item.tool === "get_accumulation_stocks");
+        expect(mock.calls).toContainEqual({ table: "stock_scans_summary", method: "eq", column: "scan_date", value: "2026-07-30" });
+        expect(mock.calls).toContainEqual({ table: "stock_scans_summary", method: "in", column: "symbol", value: ["ABCD"] });
+        expect(result.data.stocks).toHaveLength(1);
+        expect(result.data.stocks[0]).toMatchObject({ symbol: "ABCD", signal: "distribution", dist_score: 76 });
+
+        const response = buildDeterministicResponse("هل يوجد تجميع على ABCD؟", basePlan, tools.results);
+        expect(response).toContain("لا توجد إشارة تجميع");
+        expect(response).toContain("توجد إشارة تصريف");
+        expect(response).toContain("درجة التصريف 76/100");
+        expect(response).toContain("أيام التصريف المتتالية 3");
+        expect(response).not.toContain("ملخص سيولة السوق");
+    });
+
+    it("uses technical indicators conservatively when the latest scan has no symbol row", async () => {
+        const mock = createSupabaseMock({
+            stock_scans_summary: [{ data: { scan_date: "2026-07-30" } }, { data: [] }],
+            stock_technical_indicators: [{ data: [{ symbol: "ABCD", date: "2026-07-30", change_pct: 1.4, volume: 150, vol_sma20: 100, rsi_14: 61, macd_signal: 0.3 }] }],
+            stocks: [{ data: [{ symbol: "ABCD", name: "Test Company" }] }]
+        });
+
+        const tools = await executeStructuredTools(mock.client, basePlan, []);
+        const result = tools.results.find(item => item.tool === "get_accumulation_stocks");
+        expect(result.source).toBe("stock_technical_indicators");
+        expect(result.data.stocks[0]).toMatchObject({ symbol: "ABCD", vol_ratio: "1.50" });
+        expect(result.data.stocks[0]).not.toHaveProperty("acc_score");
+        expect(result.data.stocks[0]).not.toHaveProperty("signal");
+
+        const response = buildDeterministicResponse("شوف التجميع على ABCD", basePlan, tools.results);
+        expect(response).toContain("البيانات غير كافية لإثبات إشارة تجميع أو تصريف");
+        expect(response).toContain("لا تثبت التجميع أو التصريف وحدها");
+        expect(response).not.toContain("درجة التجميع");
+        expect(response).not.toContain("ملخص سيولة السوق");
+    });
+
+    it("keeps an explicitly requested historical date for both scan and fallback queries", async () => {
+        const datedPlan = {
+            ...basePlan,
+            entities: { ...basePlan.entities, timeframe: "historical", requested_date: "2026-07-10" },
+            needs_historical_data: true
+        };
+        const mock = createSupabaseMock({
+            stock_scans_summary: [{ data: [] }],
+            stock_technical_indicators: [{ data: [] }]
+        });
+
+        const tools = await executeStructuredTools(mock.client, datedPlan, []);
+        expect(mock.calls).toContainEqual({ table: "stock_scans_summary", method: "eq", column: "scan_date", value: "2026-07-10" });
+        expect(mock.calls).toContainEqual({ table: "stock_technical_indicators", method: "eq", column: "date", value: "2026-07-10" });
+        expect(tools.results[0]).toMatchObject({ source: "empty", data_time: "2026-07-10", data_type: "historical" });
+        const response = buildDeterministicResponse("التجميع على ABCD بتاريخ 2026-07-10", datedPlan, tools.results);
+        expect(response).toContain("2026-07-10");
+        expect(response).toContain("لم أستخدم بيانات من تاريخ آخر");
     });
 });
 

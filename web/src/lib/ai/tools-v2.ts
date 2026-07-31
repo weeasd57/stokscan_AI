@@ -140,20 +140,32 @@ export async function executeStructuredTools(
     const isAccumulationQuery = plan.tools.includes("get_accumulation_stocks");
     if (isAccumulationQuery) {
         try {
-                let summaryQuery = supabase
+            const isDirectStockQuery = symbols.length > 0;
+            let scanDate = requestedDate;
+            if (isDirectStockQuery && !scanDate) {
+                const { data: latestScan } = await supabase
                     .from("stock_scans_summary")
+                    .select("scan_date")
+                    .order("scan_date", { ascending: false })
+                    .limit(1)
+                    .maybeSingle();
+                scanDate = latestScan?.scan_date || null;
+            }
+
+            let summaryQuery = supabase
+                .from("stock_scans_summary")
                 .select("symbol, scan_date, signal, wyckoff_phase, acc_score, dist_score, vol_ratio, consecutive_acc_days, consecutive_dist_days, change_pct, volume, rsi_14, macd_signal")
                 .order("scan_date", { ascending: false })
                 .order("acc_score", { ascending: false })
-                    .limit(200);
-                if (requestedDate) summaryQuery = summaryQuery.eq("scan_date", requestedDate);
-                if (symbols.length > 0) summaryQuery = summaryQuery.in("symbol", symbols);
-                const { data: summaryScans } = await summaryQuery;
+                .limit(isDirectStockQuery ? symbols.length : 200);
+            if (scanDate) summaryQuery = summaryQuery.eq("scan_date", scanDate);
+            if (isDirectStockQuery) summaryQuery = summaryQuery.in("symbol", symbols);
+            const { data: summaryScans } = await summaryQuery;
 
             let hasSummaryData = false;
 
             if (summaryScans && summaryScans.length > 0) {
-                const maxDate = requestedDate || summaryScans[0].scan_date;
+                const maxDate = scanDate || summaryScans[0].scan_date;
                 const todayScans = summaryScans.filter((r: any) => r.scan_date === maxDate);
 
                 if (todayScans.length > 0) {
@@ -168,30 +180,34 @@ export async function executeStructuredTools(
                         if (s?.symbol) stocksMap.set(s.symbol, s.name || s.symbol);
                     });
 
-                    const accStocks = todayScans
-                        .filter((r: any) => r.signal === "accumulation" || Number(r.acc_score || 0) >= 50)
-                        .sort((a: any, b: any) => Number(b.acc_score || 0) - Number(a.acc_score || 0))
-                        .slice(0, 15);
+                    const accStocks = isDirectStockQuery
+                        ? todayScans
+                        : todayScans
+                            .filter((r: any) => /accumulation/.test(String(r.signal || "")) || Number(r.acc_score || 0) >= 50)
+                            .sort((a: any, b: any) => Number(b.acc_score || 0) - Number(a.acc_score || 0))
+                            .slice(0, 15);
                     const accStocksWithNames = accStocks.map((r: any) => ({
                         ...r,
                         name: stocksMap.get(r.symbol) || r.symbol
                     }));
 
                     if (accStocks.length > 0) {
-                        textParts.push(`\n [بيانات المسح الفني الشامل لجميع أسهم البورصة المصرية]:\n`);
-                        textParts.push(`تغطي قاعدة البيانات حياً كافة أسهم البورصة المصرية. القائمة التالية هي أعلى الأسهم تجميعاً وسيولة مؤسسية تم رصدها بالمسح الشامل من بين جميع أسهم السوق بتاريخ ${maxDate}:\n`);
+                        textParts.push(isDirectStockQuery
+                            ? `\n [بيانات المسح الفني المباشر للأسهم المطلوبة بتاريخ ${maxDate}]:\n`
+                            : `\n [بيانات المسح الفني الشامل لجميع أسهم البورصة المصرية]:\n`);
+                        if (!isDirectStockQuery) textParts.push(`تغطي قاعدة البيانات حياً كافة أسهم البورصة المصرية. القائمة التالية هي أعلى الأسهم تجميعاً وسيولة مؤسسية تم رصدها بالمسح الشامل من بين جميع أسهم السوق بتاريخ ${maxDate}:\n`);
                         accStocks.forEach((r: any, idx: number) => {
                             const name = stocksMap.get(r.symbol) || r.symbol;
                             const changeStr = Number(r.change_pct || 0) >= 0 ? `+${Number(r.change_pct).toFixed(2)}%` : `${Number(r.change_pct).toFixed(2)}%`;
                             const consecStr = r.consecutive_acc_days > 1 ? ` | تجميع لـ ${r.consecutive_acc_days} أيام متتالية` : "";
-                            textParts.push(`• ${idx + 1}. سهم ${r.symbol} (${name}): درجة التجميع = ${r.acc_score}/100 | نسبة السيولة = ${r.vol_ratio}x من المتوسط | التغير = ${changeStr}${consecStr} | نمط Wyckoff: ${r.wyckoff_phase} | RSI = ${r.rsi_14 || "N/A"} | إشارة: تجميع`);
+                            textParts.push(`• ${idx + 1}. سهم ${r.symbol} (${name}): الإشارة = ${r.signal || "غير متاحة"} | درجة التجميع = ${r.acc_score ?? "غير متاحة"}/100 | درجة التصريف = ${r.dist_score ?? "غير متاحة"}/100 | نسبة السيولة = ${r.vol_ratio ?? "غير متاحة"}x من المتوسط | التغير = ${changeStr}${consecStr} | نمط Wyckoff: ${r.wyckoff_phase || "غير متاح"} | RSI = ${r.rsi_14 ?? "N/A"}`);
                         });
                         results.push({
                             tool: "get_accumulation_stocks",
                             source: "stock_scans_summary",
                             data_time: maxDate,
                             symbols: accStocks.map((r: any) => r.symbol),
-                            data_type: "live",
+                            data_type: requestedDate ? "historical" : "live",
                             data: { stocks: accStocksWithNames, date: maxDate }
                         });
                     }
@@ -209,13 +225,15 @@ export async function executeStructuredTools(
                 const { data: latestTechs } = await technicalQuery;
 
                 if (latestTechs && latestTechs.length > 0) {
-                    const maxDate = latestTechs[0].date;
+                    const maxDate = requestedDate || latestTechs[0].date;
                     const todayTechs = latestTechs.filter((r: any) => r.date === maxDate);
 
-                    let accStocks = todayTechs
-                        .filter((r: any) => r.vol_sma20 && Number(r.vol_sma20) > 0 && (Number(r.volume) / Number(r.vol_sma20)) >= 1.2 && Number(r.change_pct || 0) > 0)
-                        .sort((a: any, b: any) => (Number(b.volume) / Number(b.vol_sma20)) - (Number(a.volume) / Number(a.vol_sma20)))
-                        .slice(0, 15);
+                    let accStocks = isDirectStockQuery
+                        ? todayTechs
+                        : todayTechs
+                            .filter((r: any) => r.vol_sma20 && Number(r.vol_sma20) > 0 && (Number(r.volume) / Number(r.vol_sma20)) >= 1.2 && Number(r.change_pct || 0) > 0)
+                            .sort((a: any, b: any) => (Number(b.volume) / Number(b.vol_sma20)) - (Number(a.volume) / Number(a.vol_sma20)))
+                            .slice(0, 15);
 
                     if (accStocks.length > 0) {
                         const symbolsList = Array.from(new Set(accStocks.map((r: any) => r.symbol)));
@@ -231,24 +249,39 @@ export async function executeStructuredTools(
                         accStocks = accStocks.map((r: any) => ({
                             ...r,
                             name: stocksMap.get(r.symbol) || r.symbol,
-                            vol_ratio: (Number(r.volume) / Number(r.vol_sma20)).toFixed(2)
+                            vol_ratio: r.vol_sma20 && Number(r.vol_sma20) > 0
+                                ? (Number(r.volume) / Number(r.vol_sma20)).toFixed(2)
+                                : null
                         }));
 
-                        textParts.push(`\n [أهم الأسهم التي تشهد تجميع (Accumulation) في البورصة المصرية - بتاريخ ${maxDate}]:\n`);
+                        textParts.push(isDirectStockQuery
+                            ? `\n [المؤشرات الفنية المتاحة للأسهم المطلوبة بتاريخ ${maxDate} - لا تمثل بيانات مسح تجميع]:\n`
+                            : `\n [أهم الأسهم التي تشهد تجميع (Accumulation) في البورصة المصرية - بتاريخ ${maxDate}]:\n`);
                         accStocks.forEach((r: any, idx: number) => {
                             const changeStr = `+${Number(r.change_pct).toFixed(2)}%`;
-                            textParts.push(`• ${idx + 1}. سهم ${r.symbol}: نسبة الحجم = ${r.vol_ratio}x من المتوسط | التغير = ${changeStr} | RSI = ${r.rsi_14 || "N/A"} | MACD = ${r.macd_signal || "N/A"} | إشارة: تجميع`);
+                            textParts.push(`• ${idx + 1}. سهم ${r.symbol}: نسبة الحجم = ${r.vol_ratio ?? "غير متاحة"}x من المتوسط | التغير = ${changeStr} | RSI = ${r.rsi_14 || "N/A"} | MACD = ${r.macd_signal || "N/A"}${isDirectStockQuery ? " | لا توجد إشارة مسح تجميع لهذا السجل" : " | إشارة فنية أولية فقط"}`);
                         });
                         results.push({
                             tool: "get_accumulation_stocks",
                             source: "stock_technical_indicators",
                             data_time: maxDate,
                             symbols: accStocks.map((r: any) => r.symbol),
-                            data_type: "live",
+                            data_type: requestedDate ? "historical" : "live",
                             data: { stocks: accStocks, date: maxDate }
                         });
                     }
                 }
+            }
+
+            if (isDirectStockQuery && !results.some(result => result.tool === "get_accumulation_stocks")) {
+                results.push({
+                    tool: "get_accumulation_stocks",
+                    source: "empty",
+                    data_time: requestedDate || scanDate || now,
+                    symbols,
+                    data_type: requestedDate ? "historical" : "live",
+                    data: { stocks: [], date: requestedDate || scanDate }
+                });
             }
         } catch (e) {
             console.warn("Error fetching accumulation stocks:", e);
