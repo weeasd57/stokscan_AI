@@ -137,14 +137,22 @@ export async function executeStructuredTools(
     }
 
     // ===== ACCUMULATION / DISTRIBUTION STOCKS =====
-    const isAccumulationQuery = plan.tools.includes("get_accumulation_stocks");
-    if (isAccumulationQuery) {
+    const scanTool = plan.tools.includes("get_distribution_stocks")
+        ? "get_distribution_stocks"
+        : plan.tools.includes("get_accumulation_stocks")
+            ? "get_accumulation_stocks"
+            : null;
+    if (scanTool) {
+        const direction = scanTool === "get_distribution_stocks" ? "distribution" : "accumulation";
+        const scoreField = direction === "distribution" ? "dist_score" : "acc_score";
+        const consecutiveField = direction === "distribution" ? "consecutive_dist_days" : "consecutive_acc_days";
+        const directionAr = direction === "distribution" ? "التصريف" : "التجميع";
         try {
                 let summaryQuery = supabase
                     .from("stock_scans_summary")
                 .select("symbol, scan_date, signal, wyckoff_phase, acc_score, dist_score, vol_ratio, consecutive_acc_days, consecutive_dist_days, change_pct, volume, rsi_14, macd_signal")
                 .order("scan_date", { ascending: false })
-                .order("acc_score", { ascending: false })
+                .order(scoreField, { ascending: false })
                     .limit(200);
                 if (requestedDate) summaryQuery = summaryQuery.eq("scan_date", requestedDate);
                 if (symbols.length > 0) summaryQuery = summaryQuery.in("symbol", symbols);
@@ -168,41 +176,49 @@ export async function executeStructuredTools(
                         if (s?.symbol) stocksMap.set(s.symbol, s.name || s.symbol);
                     });
 
-                    const accStocks = todayScans
-                        .filter((r: any) => r.signal === "accumulation" || Number(r.acc_score || 0) >= 50)
-                        .sort((a: any, b: any) => Number(b.acc_score || 0) - Number(a.acc_score || 0))
-                        .slice(0, 15);
-                    const accStocksWithNames = accStocks.map((r: any) => ({
+                    const matchingStocks = todayScans
+                        .filter((r: any) => r.signal === direction || Number(r[scoreField] || 0) >= 50)
+                        .sort((a: any, b: any) => Number(b[scoreField] || 0) - Number(a[scoreField] || 0));
+                    const displayedStocks = symbols.length > 0 ? matchingStocks : matchingStocks.slice(0, 15);
+                    const stocksWithNames = displayedStocks.map((r: any) => ({
                         ...r,
                         name: stocksMap.get(r.symbol) || r.symbol
                     }));
 
-                    if (accStocks.length > 0) {
-                        textParts.push(`\n [بيانات المسح الفني الشامل لجميع أسهم البورصة المصرية]:\n`);
-                        textParts.push(`تغطي قاعدة البيانات حياً كافة أسهم البورصة المصرية. القائمة التالية هي أعلى الأسهم تجميعاً وسيولة مؤسسية تم رصدها بالمسح الشامل من بين جميع أسهم السوق بتاريخ ${maxDate}:\n`);
-                        accStocks.forEach((r: any, idx: number) => {
+                    if (displayedStocks.length > 0) {
+                        textParts.push(`\n [بيانات مسح ${directionAr} بتاريخ ${maxDate}]:\n`);
+                        displayedStocks.forEach((r: any, idx: number) => {
                             const name = stocksMap.get(r.symbol) || r.symbol;
                             const changeStr = Number(r.change_pct || 0) >= 0 ? `+${Number(r.change_pct).toFixed(2)}%` : `${Number(r.change_pct).toFixed(2)}%`;
-                            const consecStr = r.consecutive_acc_days > 1 ? ` | تجميع لـ ${r.consecutive_acc_days} أيام متتالية` : "";
-                            textParts.push(`• ${idx + 1}. سهم ${r.symbol} (${name}): درجة التجميع = ${r.acc_score}/100 | نسبة السيولة = ${r.vol_ratio}x من المتوسط | التغير = ${changeStr}${consecStr} | نمط Wyckoff: ${r.wyckoff_phase} | RSI = ${r.rsi_14 || "N/A"} | إشارة: تجميع`);
+                            const consecutiveDays = Number(r[consecutiveField] || 0);
+                            const consecStr = consecutiveDays > 1 ? ` | ${directionAr} لـ ${consecutiveDays} أيام متتالية` : "";
+                            textParts.push(`• ${idx + 1}. سهم ${r.symbol} (${name}): درجة ${directionAr} = ${r[scoreField]}/100 | نسبة الحجم = ${r.vol_ratio}x | التغير = ${changeStr}${consecStr} | Wyckoff: ${r.wyckoff_phase || "N/A"}`);
                         });
                         results.push({
-                            tool: "get_accumulation_stocks",
+                            tool: scanTool,
                             source: "stock_scans_summary",
                             data_time: maxDate,
-                            symbols: accStocks.map((r: any) => r.symbol),
-                            data_type: "live",
-                            data: { stocks: accStocksWithNames, date: maxDate }
+                            symbols: displayedStocks.map((r: any) => r.symbol),
+                            data_type: requestedDate ? "historical" : "live",
+                            data: { stocks: stocksWithNames, scan_rows: todayScans, date: maxDate, direction }
                         });
                     } else if (symbols.length > 0) {
-                        textParts.push(`\n [بيانات المسح الفني لأسهم محددة]: بناءً على المسح الفني بتاريخ ${maxDate}، لا يوجد إشارة تجميع أو سيولة مؤسسية على الأسهم المطلوبة (${symbols.join(", ")}). الإشارة الحالية محايدة أو تصريف.`);
                         results.push({
-                            tool: "get_accumulation_stocks",
+                            tool: scanTool,
                             source: "stock_scans_summary",
                             data_time: maxDate,
                             symbols,
-                            data_type: "live",
-                            data: { stocks: [], date: maxDate, message: "No accumulation detected." }
+                            data_type: requestedDate ? "historical" : "live",
+                            data: { stocks: [], scan_rows: todayScans, date: maxDate, direction, message: `No ${direction} detected.` }
+                        });
+                    } else {
+                        results.push({
+                            tool: scanTool,
+                            source: "stock_scans_summary",
+                            data_time: maxDate,
+                            symbols: [],
+                            data_type: requestedDate ? "historical" : "live",
+                            data: { stocks: [], scan_rows: todayScans, date: maxDate, direction, message: `No ${direction} detected.` }
                         });
                     }
                 }
@@ -222,13 +238,16 @@ export async function executeStructuredTools(
                     const maxDate = latestTechs[0].date;
                     const todayTechs = latestTechs.filter((r: any) => r.date === maxDate);
 
-                    let accStocks = todayTechs
-                        .filter((r: any) => r.vol_sma20 && Number(r.vol_sma20) > 0 && (Number(r.volume) / Number(r.vol_sma20)) >= 1.2 && Number(r.change_pct || 0) > 0)
-                        .sort((a: any, b: any) => (Number(b.volume) / Number(b.vol_sma20)) - (Number(a.volume) / Number(a.vol_sma20)))
-                        .slice(0, 15);
+                    let technicalStocks = todayTechs.map((r: any) => ({
+                        ...r,
+                        vol_ratio: r.vol_sma20 && Number(r.vol_sma20) > 0
+                            ? Number(r.volume || 0) / Number(r.vol_sma20)
+                            : null
+                    }));
+                    if (symbols.length === 0) technicalStocks = [];
 
-                    if (accStocks.length > 0) {
-                        const symbolsList = Array.from(new Set(accStocks.map((r: any) => r.symbol)));
+                    if (technicalStocks.length > 0) {
+                        const symbolsList = Array.from(new Set(technicalStocks.map((r: any) => r.symbol)));
                         const { data: stocksData } = await supabase
                             .from("stocks")
                             .select("symbol, name")
@@ -238,37 +257,43 @@ export async function executeStructuredTools(
                             if (s?.symbol) stocksMap.set(s.symbol, s.name || s.symbol);
                         });
 
-                        accStocks = accStocks.map((r: any) => ({
+                        technicalStocks = technicalStocks.map((r: any) => ({
                             ...r,
                             name: stocksMap.get(r.symbol) || r.symbol,
-                            vol_ratio: (Number(r.volume) / Number(r.vol_sma20)).toFixed(2)
+                            vol_ratio: r.vol_ratio == null ? null : Number(r.vol_ratio).toFixed(2)
                         }));
 
-                        textParts.push(`\n [أهم الأسهم التي تشهد تجميع (Accumulation) في البورصة المصرية - بتاريخ ${maxDate}]:\n`);
-                        accStocks.forEach((r: any, idx: number) => {
-                            const changeStr = `+${Number(r.change_pct).toFixed(2)}%`;
-                            textParts.push(`• ${idx + 1}. سهم ${r.symbol}: نسبة الحجم = ${r.vol_ratio}x من المتوسط | التغير = ${changeStr} | RSI = ${r.rsi_14 || "N/A"} | MACD = ${r.macd_signal || "N/A"} | إشارة: تجميع`);
-                        });
+                        textParts.push(`\n [مؤشرات فنية فقط بتاريخ ${maxDate}]: لا يوجد سجل مسح ${directionAr}؛ المؤشرات التالية لا تثبت ${directionAr} بمفردها.`);
                         results.push({
-                            tool: "get_accumulation_stocks",
+                            tool: scanTool,
                             source: "stock_technical_indicators",
                             data_time: maxDate,
-                            symbols: accStocks.map((r: any) => r.symbol),
-                            data_type: "live",
-                            data: { stocks: accStocks, date: maxDate }
+                            symbols: technicalStocks.map((r: any) => r.symbol),
+                            data_type: requestedDate ? "historical" : "live",
+                            data: { stocks: [], technical_rows: technicalStocks, date: maxDate, direction, message: "Insufficient scan data." }
                         });
                     } else if (symbols.length > 0) {
-                        textParts.push(`\n [بيانات المسح الفني لأسهم محددة]: بناءً على المسح الفني بتاريخ ${maxDate}، لا يوجد إشارة تجميع (Accumulation) أو سيولة مؤسسية على الأسهم المطلوبة (${symbols.join(", ")}). الإشارة الحالية محايدة أو تصريف.`);
-                        results.push({
-                            tool: "get_accumulation_stocks",
-                            source: "stock_technical_indicators",
-                            data_time: maxDate,
-                            symbols,
-                            data_type: "live",
-                            data: { stocks: [], date: maxDate, message: "No accumulation detected." }
-                        });
+                        results.push({ tool: scanTool, source: "empty", data_time: requestedDate || now, symbols, data_type: requestedDate ? "historical" : "live", data: { stocks: [], technical_rows: [], date: requestedDate, direction, message: "Insufficient scan data." } });
                     }
                 }
+            }
+
+            if (!results.some(result => result.tool === scanTool)) {
+                results.push({
+                    tool: scanTool,
+                    source: "empty",
+                    data_time: requestedDate || now,
+                    symbols,
+                    data_type: requestedDate ? "historical" : "live",
+                    data: {
+                        stocks: [],
+                        scan_rows: [],
+                        technical_rows: [],
+                        date: requestedDate,
+                        direction,
+                        message: "Insufficient scan data."
+                    }
+                });
             }
         } catch (e) {
             console.warn("Error fetching accumulation stocks:", e);

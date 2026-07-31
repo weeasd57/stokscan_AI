@@ -55,13 +55,14 @@ export interface FactSnapshot {
 }
 
 export interface IntentPlan {
-    intent: "image_analysis" | "stock_analysis" | "sector_analysis" | "comparison" | "historical_recall" | "market_summary" | "current_data" | "previous_analysis_comparison" | "follow_up" | "clarification" | "general_chat";
+    intent: "image_analysis" | "stock_analysis" | "sector_analysis" | "comparison" | "historical_recall" | "market_summary" | "accumulation_distribution" | "current_data" | "previous_analysis_comparison" | "follow_up" | "clarification" | "general_chat";
     confidence: number;
     entities: {
         symbols: string[];
         sector: string | null;
         timeframe: "current" | "historical" | "unspecified";
         reference: "last_image" | "last_stock" | "previous_analysis" | null;
+        scan_direction?: "accumulation" | "distribution" | null;
         requested_date?: string | null;
         requested_start_date?: string | null;
         requested_end_date?: string | null;
@@ -111,6 +112,7 @@ export interface PlannerResult {
         wants_table: boolean;
         timeframe?: string | null;
         requested_date?: string | null;
+        scan_direction?: "accumulation" | "distribution" | null;
     };
     tools: string[];
     image_summary?: string | null;

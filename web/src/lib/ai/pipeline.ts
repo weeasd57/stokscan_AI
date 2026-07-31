@@ -189,14 +189,14 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
         const isHistorical = needsHistoricalData("", message);
     const requestedDate = temporal.date;
     const isClearMarketRequest = /(أعلى|اعلى|أقوى|اقوى|السيول|السيوله|تجميع|تصريف|حالة السوق|السوق عمل|دولار|usd)/i.test(normalized);
-    const isClearStockRequest = symbols.length > 0 && /(أخبار|اخبار|خبر|news|مقارن|قارن|compare|تحليل|حلل|السيول|السيوله|سعر|بيع|احتفظ|أحتفظ|^[\s,،;:/\-a-z0-9]+$)/i.test(message);
+    const isClearStockRequest = symbols.length > 0 && /(أخبار|اخبار|خبر|news|مقارن|قارن|compare|تحليل|حلل|شوف|السيول|السيوله|سعر|بيع|احتفظ|أحتفظ|^[\s,،;:/\-a-z0-9]+$)/i.test(message);
     if (!sector && !isGreeting && !isHistorical && !requestedDate && !isClearMarketRequest && !isClearStockRequest) return null;
 
     const enforced = enforceIntentFromMessage(message, symbols.length ? "stock_analysis" : "market_summary", symbols);
     return {
         intent: isGreeting ? "general_chat" : requestedDate && symbols.length ? "stock_analysis" : isHistorical ? "historical_recall" : enforced.intent,
         confidence: 1,
-        entities: { symbols, sector, wants_table: !isGreeting, timeframe: temporal.timeframe, requested_date: requestedDate },
+        entities: { symbols, sector, wants_table: !isGreeting, timeframe: temporal.timeframe, requested_date: requestedDate, scan_direction: enforced.scan_direction || null },
         tools: isGreeting || (isHistorical && !requestedDate) ? [] : enforced.replaceTools ? enforced.tools : sector ? ["get_sector"] : symbols.length ? ["get_stock"] : [],
         session_update: {
             current_symbol: symbols[0] || sessionState.current_symbol,
@@ -208,7 +208,7 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
 
 export function isMarketWideRequest(message: string): boolean {
     const normalized = message.replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").toLowerCase();
-    return /(اخبار\s+(السوق|البورصه)|(?:السيول|السيوله)\s+(فين|في\s+السوق|ل?يوم|لبوم|بتاريخ|يوم)|حاله\s+السوق|السوق\s+عمل|(?:اقوى|اعلى)\s+الاسهم)/i.test(normalized);
+    return /(اخبار\s+(السوق|البورصه)|(?:السيول|السيوله)\s+(فين|في\s+السوق|ل?يوم|لبوم|بتاريخ|يوم)|حاله\s+السوق|السوق\s+عمل|(?:اقوى|اعلى)\s+الاسهم|^(?:و?ال)?(?:تجميع|تصريف)(?:\s+(?:فين|ايه|الاسهم|الأسهم|النهارده|اليوم))?[؟?\s]*$)/i.test(normalized.trim());
 }
 
 export function enforceIntentFromMessage(message: string, plannerIntent: string, symbols: string[]): {
@@ -216,6 +216,7 @@ export function enforceIntentFromMessage(message: string, plannerIntent: string,
     tools: string[];
     replaceTools?: boolean;
     sector?: string;
+    scan_direction?: "accumulation" | "distribution";
 } {
     const normalized = message.toLowerCase().replace(/[أإآ]/g, "ا").replace(/ة/g, "ه");
     const hasExplicitSymbol = symbols.length > 0 || /\b[A-Z]{2,6}\b/.test(message);
@@ -234,13 +235,24 @@ export function enforceIntentFromMessage(message: string, plannerIntent: string,
 
     const topMoversQuery = /(أعلى|اعلى|أقوى|اقوى).{0,20}(10|عشرة|الأسهم|اسهم|ارتفاع|ارتفاعاً|صعود|النهارده|اليوم)/i.test(normalized);
     if (topMoversQuery) {
-        return { intent: "market_summary", tools: ["get_market", "get_accumulation_stocks"], replaceTools: true };
+        return { intent: "market_summary", tools: ["get_market"], replaceTools: true };
     }
 
-    const liquidityQuery = /((?:ال)?سيول(?:ه)?|تجميع|تصريف|فين.*السوق|where.*liquidity|market liquidity)/i.test(normalized);
+    const scanDirection = /تصريف|distribution/i.test(normalized)
+        ? "distribution"
+        : /تجميع|accumulation/i.test(normalized)
+            ? "accumulation"
+            : null;
+    const liquidityQuery = /((?:ال)?سيول(?:ه)?|تجميع|تصريف|accumulation|distribution|فين.*السوق|where.*liquidity|market liquidity)/i.test(normalized);
     if (liquidityQuery && hasExplicitSymbol) {
-        if (/(تجميع|تصريف|مؤسس|institutional|wyckoff)/i.test(normalized)) {
-            return { intent: "accumulation", tools: ["get_stock", "get_accumulation_stocks"], replaceTools: true };
+        if (scanDirection || /(مؤسس|institutional|wyckoff)/i.test(normalized)) {
+            const direction = scanDirection || "accumulation";
+            return {
+                intent: "accumulation_distribution",
+                tools: [direction === "distribution" ? "get_distribution_stocks" : "get_accumulation_stocks"],
+                replaceTools: true,
+                scan_direction: direction
+            };
         }
         return { intent: "stock_analysis", tools: ["get_stock"], replaceTools: true };
     }
@@ -248,15 +260,16 @@ export function enforceIntentFromMessage(message: string, plannerIntent: string,
         return { intent: "stock_analysis", tools: ["get_stock"], replaceTools: true };
     }
     if (liquidityQuery && !hasExplicitSymbol) {
-        if (extractRequestedDate(message)) {
+        if (scanDirection) {
             return {
-                intent: "accumulation",
-                tools: ["get_accumulation_stocks"],
-                replaceTools: true
+                intent: "accumulation_distribution",
+                tools: [scanDirection === "distribution" ? "get_distribution_stocks" : "get_accumulation_stocks"],
+                replaceTools: true,
+                scan_direction: scanDirection
             };
         }
         return {
-            intent: normalized.includes("تجميع") || normalized.includes("تصريف") ? "accumulation" : "market_summary",
+            intent: "market_summary",
             tools: ["get_market", "get_accumulation_stocks"],
             replaceTools: true
         };
@@ -284,7 +297,7 @@ export function needsLiveDataForTools(tools: string[]): boolean {
     const liveTools = new Set([
         "get_stock", "get_market", "get_indices", "get_news",
         "get_recommendations", "get_signals", "get_sector",
-        "get_accumulation_stocks", "get_comparison"
+        "get_accumulation_stocks", "get_distribution_stocks", "get_comparison"
     ]);
     return tools.some(tool => liveTools.has(tool));
 }
@@ -405,7 +418,7 @@ export async function* runPipelineStream(
     }
     if (isMarketWideRequest(userMessage)) mergedSymbols = [];
     const enforced = enforceIntentFromMessage(userMessage, plannerResult.intent, mergedSymbols);
-    const datedDomainRequest = Boolean(extractRequestedDate(userMessage) || extractRequestedDateRange(userMessage)) && ["stock_analysis", "stock_news", "comparison", "sector_analysis", "accumulation"].includes(enforced.intent);
+    const datedDomainRequest = Boolean(extractRequestedDate(userMessage) || extractRequestedDateRange(userMessage)) && ["stock_analysis", "stock_news", "comparison", "sector_analysis", "accumulation_distribution"].includes(enforced.intent);
     const historicalRequest = needsHistoricalData(enforced.intent, userMessage);
     const effectiveIntent = historicalRequest && !datedDomainRequest ? "historical_recall" : enforced.intent;
 
@@ -414,13 +427,14 @@ export async function* runPipelineStream(
         : Array.from(new Set([...(plannerResult.tools || []), ...enforced.tools]));
     const requestedRange = extractRequestedDateRange(userMessage);
     const plan: IntentPlan = {
-        intent: effectiveIntent === "accumulation" ? "market_summary" : mapIntent(effectiveIntent),
+        intent: mapIntent(effectiveIntent),
         confidence: plannerResult.confidence || 0.8,
         entities: {
             symbols: mergedSymbols,
             sector: enforced.sector || plannerResult.entities.sector || null,
             timeframe: extractTemporalContext(userMessage).timeframe,
             reference: memory?.resolved_references?.symbol ? "last_image" : null
+            ,scan_direction: enforced.scan_direction || plannerResult.entities.scan_direction || null
             ,requested_date: requestedRange ? null : extractTemporalContext(userMessage).date
             ,requested_start_date: requestedRange?.start || null
             ,requested_end_date: requestedRange?.end || null
@@ -454,6 +468,7 @@ export async function* runPipelineStream(
 
     // ===== STAGE 5: Final Response =====
     const deterministicLiquidityResponse = plan.intent === "market_summary" && plan.entities.symbols.length === 0
+        && !plan.entities.scan_direction
         ? buildMarketLiquidityResponse(tools)
         : null;
     if (deterministicLiquidityResponse) {
@@ -598,7 +613,7 @@ export async function runPipeline(
     }
     if (isMarketWideRequest(userMessage)) mergedSymbols = [];
     const enforced = enforceIntentFromMessage(userMessage, plannerResult.intent, mergedSymbols);
-    const datedDomainRequest = Boolean(extractRequestedDate(userMessage) || extractRequestedDateRange(userMessage)) && ["stock_analysis", "stock_news", "comparison", "sector_analysis", "accumulation"].includes(enforced.intent);
+    const datedDomainRequest = Boolean(extractRequestedDate(userMessage) || extractRequestedDateRange(userMessage)) && ["stock_analysis", "stock_news", "comparison", "sector_analysis", "accumulation_distribution"].includes(enforced.intent);
     const historicalRequest = needsHistoricalData(enforced.intent, userMessage);
     const effectiveIntent = historicalRequest && !datedDomainRequest ? "historical_recall" : enforced.intent;
 
@@ -607,13 +622,14 @@ export async function runPipeline(
         : Array.from(new Set([...(plannerResult.tools || []), ...enforced.tools]));
     const requestedRange = extractRequestedDateRange(userMessage);
     const plan: IntentPlan = {
-        intent: effectiveIntent === "accumulation" ? "market_summary" : mapIntent(effectiveIntent),
+        intent: mapIntent(effectiveIntent),
         confidence: plannerResult.confidence || 0.8,
         entities: {
             symbols: mergedSymbols,
             sector: enforced.sector || plannerResult.entities.sector || null,
             timeframe: extractTemporalContext(userMessage).timeframe,
             reference: memory?.resolved_references?.symbol ? "last_image" : null
+            ,scan_direction: enforced.scan_direction || plannerResult.entities.scan_direction || null
             ,requested_date: requestedRange ? null : extractTemporalContext(userMessage).date
             ,requested_start_date: requestedRange?.start || null
             ,requested_end_date: requestedRange?.end || null
@@ -638,6 +654,7 @@ export async function runPipeline(
 
     // Stage 5: Response
     const deterministicLiquidityResponse = plan.intent === "market_summary" && plan.entities.symbols.length === 0
+        && !plan.entities.scan_direction
         ? buildMarketLiquidityResponse(tools)
         : null;
     const scopedMemory = plan.needs_historical_data || plan.entities.reference
@@ -732,6 +749,7 @@ function mapIntent(intent: string): IntentPlan["intent"] {
         "previous_analysis_comparison": "historical_recall",
         "recommendation": "stock_analysis",
         "accumulation": "stock_analysis",
+        "accumulation_distribution": "accumulation_distribution",
         "stock_news": "stock_analysis",
         "historical_recall": "historical_recall",
         "general_chat": "general_chat"

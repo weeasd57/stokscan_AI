@@ -114,8 +114,10 @@ function buildRecommendationsTable(tool: ToolResult): ExcelTable | null {
     };
 }
 
-function buildAccumulationTable(tool: ToolResult): ExcelTable | null {
+function buildScanTable(tool: ToolResult): ExcelTable | null {
     const stocks = Array.isArray(tool.data?.stocks) ? tool.data.stocks : [];
+    const isDistribution = tool.tool === "get_distribution_stocks" || tool.data?.direction === "distribution";
+    const consecutiveField = isDistribution ? "consecutive_dist_days" : "consecutive_acc_days";
     const rows = stocks.filter((stock: any) => stock?.symbol).map((stock: any) => [
         cell(stock.symbol),
         cell(stock.name),
@@ -126,14 +128,14 @@ function buildAccumulationTable(tool: ToolResult): ExcelTable | null {
         cell(stock.rsi_14),
         cell(stock.macd_signal),
         cell(stock.wyckoff_phase),
-        cell(stock.consecutive_acc_days)
+        cell(stock[consecutiveField])
     ]);
     if (rows.length === 0) return null;
 
     return {
         id: tool.tool,
-        title: "التجميع والسيولة المؤسسية",
-        headers: ["السهم", "الاسم", "درجة التجميع", "درجة التصريف", "نسبة الحجم", "التغير %", "RSI", "MACD", "مرحلة Wyckoff", "أيام التجميع"],
+        title: isDistribution ? "التصريف والسيولة المؤسسية" : "التجميع والسيولة المؤسسية",
+        headers: ["السهم", "الاسم", "درجة التجميع", "درجة التصريف", "نسبة الحجم", "التغير %", "RSI", "MACD", "مرحلة Wyckoff", isDistribution ? "أيام التصريف" : "أيام التجميع"],
         rows,
         source: tool.source,
         data_time: tool.data_time
@@ -257,7 +259,7 @@ export function buildExcelTables(toolResults: ToolResult[], vision: VisionContex
         if (tool.tool === "get_sector") table = buildSectorTable(tool);
         else if (tool.tool === "get_comparison") table = buildComparisonTable(tool);
         else if (tool.tool === "get_recommendations") table = buildRecommendationsTable(tool);
-        else if (tool.tool === "get_accumulation_stocks") table = buildAccumulationTable(tool);
+        else if (tool.tool === "get_accumulation_stocks" || tool.tool === "get_distribution_stocks") table = buildScanTable(tool);
         else if (tool.tool === "get_news") table = buildNewsTable(tool);
         else if (tool.tool === "get_historical_facts") table = buildHistoricalFactsTable(tool);
         else if (tool.tool === "get_market") {

@@ -307,6 +307,60 @@ describe("Deterministic response fallback", () => {
         expect(response).not.toContain("الفترة الحالية");
     });
 
+    it("gives a direct evidence-based accumulation verdict for one stock", () => {
+        const response = buildDeterministicResponse("ABCD عليه تجميع؟", {
+            ...basePlan,
+            intent: "accumulation_distribution",
+            entities: { ...basePlan.entities, symbols: ["ABCD"], scan_direction: "accumulation" }
+        }, [{
+            tool: "get_accumulation_stocks", source: "stock_scans_summary", data_time: "2026-07-30", symbols: ["ABCD"], data_type: "live",
+            data: { direction: "accumulation", stocks: [{ symbol: "ABCD", signal: "accumulation", acc_score: 72, dist_score: 8, vol_ratio: 1.9, consecutive_acc_days: 3, wyckoff_phase: "accumulation" }], scan_rows: [{ symbol: "ABCD", signal: "accumulation", acc_score: 72, dist_score: 8, vol_ratio: 1.9, consecutive_acc_days: 3, wyckoff_phase: "accumulation" }] }
+        }]);
+        expect(response).toContain("نعم، توجد إشارة التجميع");
+        expect(response).toContain("72/100");
+        expect(response).not.toContain("ملخص السوق");
+    });
+
+    it("does not infer accumulation from technical indicators without a scan row", () => {
+        const response = buildDeterministicResponse("ABCD عليه تجميع؟", {
+            ...basePlan,
+            intent: "accumulation_distribution",
+            entities: { ...basePlan.entities, symbols: ["ABCD"], scan_direction: "accumulation" }
+        }, [{
+            tool: "get_accumulation_stocks", source: "stock_technical_indicators", data_time: "2026-07-30", symbols: ["ABCD"], data_type: "live",
+            data: { direction: "accumulation", stocks: [], scan_rows: [], technical_rows: [{ symbol: "ABCD", vol_ratio: 1.8, rsi_14: 61, macd_signal: 0.3 }] }
+        }]);
+        expect(response).toContain("لا توجد بيانات مسح التجميع كافية");
+        expect(response).toContain("لا تثبت التجميع وحدها");
+    });
+
+    it("explains when a stock scan points to distribution instead of accumulation", () => {
+        const response = buildDeterministicResponse("ABCD عليه تجميع؟", {
+            ...basePlan,
+            intent: "accumulation_distribution",
+            entities: { ...basePlan.entities, symbols: ["ABCD"], scan_direction: "accumulation" }
+        }, [{
+            tool: "get_accumulation_stocks", source: "stock_scans_summary", data_time: "2026-07-30", symbols: ["ABCD"], data_type: "live",
+            data: { direction: "accumulation", stocks: [], scan_rows: [{ symbol: "ABCD", signal: "distribution", acc_score: 10, dist_score: 74, vol_ratio: 2.1, consecutive_dist_days: 2 }] }
+        }]);
+        expect(response).toContain("لا، أحدث مسح لا يسجل التجميع");
+        expect(response).toContain("التصريف");
+        expect(response).toContain("74/100");
+    });
+
+    it("keeps a dated scan response tied to the requested date", () => {
+        const response = buildDeterministicResponse("ABCD عليه تجميع بتاريخ 2026-07-10", {
+            ...basePlan,
+            intent: "accumulation_distribution",
+            entities: { ...basePlan.entities, symbols: ["ABCD"], scan_direction: "accumulation", requested_date: "2026-07-10" }
+        }, [{
+            tool: "get_accumulation_stocks", source: "empty", data_time: "2026-07-10", symbols: ["ABCD"], data_type: "historical",
+            data: { direction: "accumulation", stocks: [], scan_rows: [], technical_rows: [] }
+        }]);
+        expect(response).toContain("2026-07-10");
+        expect(response).not.toContain("2026-07-30");
+    });
+
     it("does not leak environment metadata", () => {
         const { sanitizeReply } = require("../ai/sanitizer");
         const cleaned = sanitizeReply("رد آمن\n<environment_details>Current time: secret\nWorkspace root folder: secret");
@@ -356,17 +410,28 @@ describe("Deterministic response fallback", () => {
         const plan = buildDeterministicPlannerResult("اخبار السوق ل 5/7", { current_symbol: "CAED", last_symbols: ["CAED"], summary: null });
         expect(plan.entities.symbols).toEqual([]);
         expect(enforceIntentFromMessage("السيوله لبوم 5/7", "historical_recall", [])).toEqual({
-            intent: "accumulation",
-            tools: ["get_accumulation_stocks"],
+            intent: "market_summary",
+            tools: ["get_market", "get_accumulation_stocks"],
             replaceTools: true
         });
     });
 
     it("scopes institutional accumulation to any resolved stock symbol", () => {
         expect(enforceIntentFromMessage("شوف التجميع المؤسسي على السهم", "market_summary", ["ABCD"])).toEqual({
-            intent: "accumulation",
+            intent: "accumulation_distribution",
             tools: ["get_accumulation_stocks"],
-            replaceTools: true
+            replaceTools: true,
+            scan_direction: "accumulation"
+        });
+    });
+
+    it("routes a short distribution follow-up as a market-wide distribution scan", () => {
+        expect(isMarketWideRequest("والتصريف")).toBe(true);
+        expect(enforceIntentFromMessage("والتصريف", "accumulation_distribution", [])).toEqual({
+            intent: "accumulation_distribution",
+            tools: ["get_distribution_stocks"],
+            replaceTools: true,
+            scan_direction: "distribution"
         });
     });
 
@@ -378,6 +443,11 @@ describe("Deterministic response fallback", () => {
         const plan = buildDeterministicPlannerResult("أقوى الأسهم النهارده", { current_symbol: "ELSH", last_symbols: ["ELSH"], summary: null });
         expect(plan.entities.symbols).toEqual([]);
         expect(plan.tools).toEqual(["get_market"]);
+    });
+
+    it("keeps a generic stock lookup separate from accumulation scans", () => {
+        expect(enforceIntentFromMessage("شوف ABCD", "stock_analysis", ["ABCD"])).toEqual({ intent: "stock_analysis", tools: [] });
+        expect(enforceIntentFromMessage("ABCD عليه تجميع؟", "stock_analysis", ["ABCD"]).tools).toEqual(["get_accumulation_stocks"]);
     });
 
     it("routes a dated stock analysis to stock data and preserves the date", () => {
@@ -460,6 +530,16 @@ describe("Excel-ready structured tables", () => {
         expect(tables[0].rows[0]).toContain("82");
         expect(tables[1].headers).toContain("العنوان");
         expect(tables[1].rows[0]).toContain("خبر");
+    });
+
+    it("uses distribution labels and consecutive distribution days", () => {
+        const tables = buildExcelTables([{
+            tool: "get_distribution_stocks", source: "stock_scans_summary", data_time: "2026-07-30", symbols: ["ABCD"], data_type: "live",
+            data: { direction: "distribution", stocks: [{ symbol: "ABCD", dist_score: 79, consecutive_dist_days: 4 }] }
+        }], null);
+        expect(tables[0].title).toContain("التصريف");
+        expect(tables[0].headers).toContain("أيام التصريف");
+        expect(tables[0].rows[0]).toContain("4");
     });
 });
 
