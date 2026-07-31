@@ -147,6 +147,7 @@ export async function executeStructuredTools(
                 .order("acc_score", { ascending: false })
                     .limit(200);
                 if (requestedDate) summaryQuery = summaryQuery.eq("scan_date", requestedDate);
+                if (symbols.length > 0) summaryQuery = summaryQuery.in("symbol", symbols);
                 const { data: summaryScans } = await summaryQuery;
 
             let hasSummaryData = false;
@@ -204,6 +205,7 @@ export async function executeStructuredTools(
                     .order("date", { ascending: false })
                     .limit(400);
                 if (requestedDate) technicalQuery = technicalQuery.eq("date", requestedDate);
+                if (symbols.length > 0) technicalQuery = technicalQuery.in("symbol", symbols);
                 const { data: latestTechs } = await technicalQuery;
 
                 if (latestTechs && latestTechs.length > 0) {

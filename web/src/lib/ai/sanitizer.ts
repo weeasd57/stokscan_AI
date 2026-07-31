@@ -182,8 +182,9 @@ export function sanitizeReply(reply: string, liveDataString?: string): string {
         .replace(/=== END ===/gi, "")
         .replace(/===END===/gi, "")
         .replace(/<environment_details>[\s\S]*?<\/environment_details>/gi, "")
-        .replace(/<environment_details[\s\S]*$/gi, "")
-        .replace(/\[?environment_details\]?[\s\S]*$/gi, "")
+        .replace(/<\s*environment_details\s*>[\s\S]*?(?:<\s*\/\s*environment_details\s*>|$)/gi, "")
+        .replace(/\[?\s*environment_details\s*\]?[\s\S]*$/gi, "")
+        .replace(/environment_details[\s\S]*$/gi, "")
         .replace(/Current time:\s*[^\n]+/gi, "")
         .replace(/Working directory:\s*[^\n]+/gi, "")
         .replace(/Workspace root folder:\s*[^\n]+/gi, "")
@@ -253,8 +254,9 @@ export function sanitizeReply(reply: string, liveDataString?: string): string {
 
     cleanReply = cleanReply
         .replace(/<environment_details>[\s\S]*?<\/environment_details>/gi, "")
-        .replace(/<environment_details[\s\S]*$/gi, "")
-        .replace(/\[?environment_details\]?[\s\S]*$/gi, "")
+        .replace(/<\s*environment_details\s*>[\s\S]*?(?:<\s*\/\s*environment_details\s*>|$)/gi, "")
+        .replace(/\[?\s*environment_details\s*\]?[\s\S]*$/gi, "")
+        .replace(/environment_details[\s\S]*$/gi, "")
         .replace(/Current time:\s*[^\n]+/gi, "")
         .replace(/Working directory:\s*[^\n]+/gi, "")
         .replace(/Workspace root folder:\s*[^\n]+/gi, "")

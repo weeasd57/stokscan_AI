@@ -312,6 +312,8 @@ describe("Deterministic response fallback", () => {
         const cleaned = sanitizeReply("رد آمن\n<environment_details>Current time: secret\nWorkspace root folder: secret");
         expect(cleaned).not.toContain("environment_details");
         expect(cleaned).not.toContain("Workspace root folder");
+        expect(cleaned).not.toContain("Current time");
+        expect(sanitizeReply("رد آمن\nenvironment_details>Current time: secret")).not.toContain("environment_details");
     });
 
     it("does not trust low-confidence vision symbols for market tools", () => {
@@ -358,6 +360,24 @@ describe("Deterministic response fallback", () => {
             tools: ["get_accumulation_stocks"],
             replaceTools: true
         });
+    });
+
+    it("scopes institutional accumulation to any resolved stock symbol", () => {
+        expect(enforceIntentFromMessage("شوف التجميع المؤسسي على السهم", "market_summary", ["ABCD"])).toEqual({
+            intent: "accumulation",
+            tools: ["get_accumulation_stocks"],
+            replaceTools: true
+        });
+    });
+
+    it("routes a single-stock liquidity request to stock data only", () => {
+        expect(enforceIntentFromMessage("حلل سيوله ABCD", "sector_analysis", ["ABCD"]).tools).toEqual(["get_stock"]);
+    });
+
+    it("routes top movers to market data instead of the previous stock", () => {
+        const plan = buildDeterministicPlannerResult("أقوى الأسهم النهارده", { current_symbol: "ELSH", last_symbols: ["ELSH"], summary: null });
+        expect(plan.entities.symbols).toEqual([]);
+        expect(plan.tools).toEqual(["get_market"]);
     });
 
     it("routes a dated stock analysis to stock data and preserves the date", () => {

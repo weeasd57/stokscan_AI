@@ -3,7 +3,7 @@ import { AI_CONFIG } from "./config";
 import { createHash } from "crypto";
 import { getSupabaseClient } from "@/lib/supabase/route-data";
 
-let cachedStocks: Array<{ symbol: string; name: string }> | null = null;
+let cachedStocks: Array<{ symbol: string; name: string; name_ar: string | null }> | null = null;
 let lastCacheTime = 0;
 const CACHE_TTL = 1000 * 60 * 60 * 24; // 24 hours
 
@@ -57,151 +57,6 @@ const INDEX_TRIGGER_PHRASES = [
     /اسهم\s*(التلاتين|الثلاثين|التلتين)/i,
 ];
 
-const ARABIC_NAME_MAPPINGS: Record<string, string | string[]> = {
-    "تايكون": "TYCN",
-    "تايكون القابضة": "TYCN",
-    "اسكندرية": ["AMOC", "AFMC", "AIDC", "ALEX", "ALCN"],
-    "الاسكندرية": ["AMOC", "AFMC", "AIDC", "ALEX", "ALCN"],
-    "الاسكندريه": ["AMOC", "AFMC", "AIDC", "ALEX", "ALCN"],
-    "الإسكندرية": ["AMOC", "AFMC", "AIDC", "ALEX", "ALCN"],
-    "الاسكندرية للزيوت": "AMOC",
-    "اسكندرية للزيوت": "AMOC",
-    "أموك": "AMOC",
-    "مطاحن الاسكندرية": "AFMC",
-    "الاسكندرية للمطاحن": "AFMC",
-    "اسكندرية للأدوية": "AIDC",
-    "الاسكندرية للادوية": "AIDC",
-    "الاسكندرية لتداول البضائع": "ALCN",
-    "اسكندرية لتداول البضائع": "ALCN",
-    "اسمنت الاسكندرية": "ALEX",
-    "الاسكندرية للاسمنت": "ALEX",
-    "الشرقية للدخان": "EAST",
-    "ايسترن كومباني": "EAST",
-    "إيسترن كومباني": "EAST",
-    "ايسترن": "EAST",
-    "غاز مصر": "EGAS",
-    "ايجاس": "EGAS",
-    "إيجاس": "EGAS",
-    "البنك التجاري الدولي": "COMI",
-    "التجاري الدولي": "COMI",
-    "تجاري دولي": "COMI",
-    "سوديك": "SODIC",
-    "طلعت مصطفى": "TMGH",
-    "مجموعة طلعت مصطفى": "TMGH",
-    "فوري": "FWRY",
-    "هيرميس": "HRHO",
-    "إي فاينانس": "EFIH",
-    "السويدي": "SWDY",
-    "السويدى": "SWDY",
-    "السويدي الكتريك": "SWDY",
-    "ابوقير": "ABUK",
-    "أبو قير": "ABUK",
-    "أبوقير للأسمدة": "ABUK",
-    "موبكو": "MFPC",
-    "مصر لصناعة الكيماويات": "MICH",
-    "مصر للالومنيوم": "EGAL",
-    "سيدي كرير": "SKPC",
-    "حديد عز": "ESRS",
-    "بلتون": "BTFH",
-    "القلعة": "CCAP",
-    "مدينة نصر": "MNHD",
-    "مدينة مصر": "MASR",
-    "إعمار": "EMFD",
-    "اعمار مصر": "EMFD",
-    "المصرية للاتصالات": "ETEL",
-    "اوراسكوم": "ORAS",
-    "جهينة": "JUFO",
-    "ابن سينا": "ISPH",
-    "ابن سينا فارما": "ISPH",
-    "القاهرة للدواجن": "POUL",
-    "المنصورة للدواجن": "MPCO",
-    "منصورة للدواجن": "MPCO",
-    "المنصوره للدواجن": "MPCO",
-    "دواجن المنصورة": "MPCO",
-    "دواجن المنصوره": "MPCO",
-    "ام بي كو": "MPCO",
-    "مصر للدواجن": "EPCO",
-    "الإسماعيلية للدواجن": "ISMA",
-    "الاسماعيلية للدواجن": "ISMA",
-    "طاقة عربية": "TAQA",
-    "طاقة عربيه": "TAQA",
-    "طاقة": "TAQA",
-    "عبور لاند": "OLFI",
-    "إيديتا": "EFID",
-    "ايديتا": "EFID",
-    "كريدي أجريكول": "CIEB",
-    "كريدي اجريكول": "CIEB",
-    "كابو": "KABO",
-    "الحاويات": "ALCN",
-    "حاويات": "ALCN",
-    "حاويات الاسكندرية": "ALCN",
-    "الاسكندرية للحاويات": "ALCN",
-    "التنمية للاسكان": "HDBK",
-    "التنميه للاسكان": "HDBK",
-    "تنمية الاسكان": "HDBK",
-    "العربية للاسمنت": "ARCC",
-    "اسمنت بورتلاند": "SWPC",
-    "النساجون الشرقيون": "ORWE",
-    "النساجون": "ORWE",
-    "بالم هيلز": "PHDC",
-    "اوراسكوم للتنمية": "ORHD",
-    "اوراسكوم كونستراكشن": "ORAS",
-    "سي آي بي": "COMI",
-    "البنك": "COMI",
-    "بنك": "COMI",
-    "البنك الأهلي": "NBKE",
-    "مصر الجديدة للاسكان": "HELI",
-    "مصر الجديده للاسكان": "HELI",
-    "aihc": "AIH",
-    "ايه اي اتش": "AIH",
-    "اي اتش": "AIH",
-    "العربية للاستثمارات": "AIH",
-    "العربية للاستثمارات والتنمية": "AIH",
-    "كوبر": "COPR",
-    "cooper": "COPR",
-    "كوين": "KWIN",
-    "القاهرة الوطنية": "KWIN",
-    "القاهرة الوطنية للاستثمار": "KWIN",
-    "القاهرة دواجن": "POUL",
-    "قاهرة للدواجن": "POUL",
-    "دواجن القاهرة": "POUL",
-    "poul": "POUL",
-    "النيل": "NIPH",
-    "نيل": "NIPH",
-    "النيل للأدوية": "NIPH",
-    "النيل للادويه": "NIPH",
-    "النيل فارما": "NIPH",
-    "النيل للحليج": "NCGC",
-    "النيل حليج": "NCGC",
-    "اسباير": "ASPI",
-    "اسباير كابيتال": "ASPI",
-    "aspire": "ASPI",
-    "نهر الخير": "KRDI",
-    "نهر الخير للتنمية": "KRDI",
-    "krdi": "KRDI",
-    "عبور": "OLFI",
-    "العبور": ["OLFI", "OBRI"],
-    "العبور لاند": "OLFI",
-    "دومتي": "DMTY",
-    "dmty": "DMTY",
-    "فتنس": "FTNS",
-    "فتنس برايم": "FTNS",
-    "فتنس بريم": "FTNS",
-    "ftns": "FTNS",
-    "المنصورة": "MPCO",
-    "منصورة دواجن": "MPCO",
-    "عامر": "AMER",
-    "عامر جروب": "AMER",
-    "amer": "AMER",
-    "كرير": "SKPC",
-    "كريست": "CRST",
-    "كريست مارك": "CRST",
-    "crst": "CRST",
-    "اميس": "AMES",
-    "أميس": "AMES",
-    "ames": "AMES"
-};
-
 async function getStocksList(): Promise<StocksListData> {
     const now = Date.now();
     if (!cachedStocks || (now - lastCacheTime > CACHE_TTL)) {
@@ -209,7 +64,7 @@ async function getStocksList(): Promise<StocksListData> {
             const supabase = getSupabaseClient();
             const { data } = await supabase
                 .from("stocks")
-                .select("symbol, name")
+                .select("symbol, name, name_ar")
                 .eq("is_active", true);
             if (data && data.length > 0) {
                 cachedStocks = data;
@@ -220,12 +75,18 @@ async function getStocksList(): Promise<StocksListData> {
         }
     }
     
-    const stockMappings: Record<string, string | string[]> = { ...ARABIC_NAME_MAPPINGS };
+    const stockMappings: Record<string, string> = {};
+    for (const stock of cachedStocks || []) {
+        const nameAr = stock.name_ar?.trim();
+        if (nameAr) stockMappings[nameAr] = stock.symbol.toUpperCase();
+        const nameEn = stock.name?.trim();
+        if (nameEn) stockMappings[nameEn] = stock.symbol.toUpperCase();
+    }
     let stocksListStr = "";
 
     if (cachedStocks && cachedStocks.length > 0) {
         stocksListStr = cachedStocks
-            .map(s => `- ${s.symbol}: ${s.name}`)
+            .map(s => `- ${s.symbol}: ${s.name}${s.name_ar ? ` | ${s.name_ar}` : ""}`)
             .join("\n");
     }
 

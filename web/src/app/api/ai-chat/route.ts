@@ -36,8 +36,9 @@ function filterOutput(response: string): string {
     const blockedOutputRegex = /(اشتري الآن|شراء فوراً|شراء الان|مضمون|ضمان|أرباح مؤكدة|guaranteed|assurance|buy now)/i;
     const cleanResponse = response
         .replace(/<environment_details>[\s\S]*?<\/environment_details>/gi, "")
-        .replace(/<environment_details[\s\S]*$/gi, "")
-        .replace(/\[?environment_details\]?[\s\S]*$/gi, "")
+        .replace(/<\s*environment_details\s*>[\s\S]*?(?:<\s*\/\s*environment_details\s*>|$)/gi, "")
+        .replace(/\[?\s*environment_details\s*\]?[\s\S]*$/gi, "")
+        .replace(/environment_details[\s\S]*$/gi, "")
         .replace(/Current time:\s*[^\n]+/gi, "")
         .replace(/Working directory:\s*[^\n]+/gi, "")
         .replace(/Workspace root folder:\s*[^\n]+/gi, "")

@@ -172,19 +172,20 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
         symbols.push(sessionState.current_symbol);
     }
     const sector = extractSectorFromMessage(message);
-    const normalized = message.toLowerCase();
+    const normalized = message.toLowerCase().replace(/[أإآ]/g, "ا").replace(/ة/g, "ه");
     const isGreeting = /(ازيك|إزيك|عامل ايه|عامل إيه|اهلا|أهلا|مرحبا|السلام عليكم)/i.test(message);
         const isHistorical = needsHistoricalData("", message);
     const requestedDate = temporal.date;
     const isClearMarketRequest = /(أعلى|اعلى|أقوى|اقوى|السيول|السيوله|تجميع|تصريف|حالة السوق|السوق عمل|دولار|usd)/i.test(normalized);
-    const isClearStockRequest = symbols.length > 0 && /(أخبار|اخبار|خبر|news|مقارن|قارن|compare|تحليل|السيول|السيوله|سعر|بيع|احتفظ|أحتفظ|^[\s,،;:/\-a-z0-9]+$)/i.test(message);
+    const isClearStockRequest = symbols.length > 0 && /(أخبار|اخبار|خبر|news|مقارن|قارن|compare|تحليل|حلل|السيول|السيوله|سعر|بيع|احتفظ|أحتفظ|^[\s,،;:/\-a-z0-9]+$)/i.test(message);
     if (!sector && !isGreeting && !isHistorical && !requestedDate && !isClearMarketRequest && !isClearStockRequest) return null;
 
+    const enforced = enforceIntentFromMessage(message, symbols.length ? "stock_analysis" : "market_summary", symbols);
     return {
-        intent: sector ? "sector_analysis" : isGreeting ? "general_chat" : requestedDate && symbols.length ? "stock_analysis" : isHistorical ? "historical_recall" : symbols.length ? "stock_analysis" : "market_summary",
+        intent: isGreeting ? "general_chat" : requestedDate && symbols.length ? "stock_analysis" : isHistorical ? "historical_recall" : enforced.intent,
         confidence: 1,
         entities: { symbols, sector, wants_table: !isGreeting, timeframe: temporal.timeframe, requested_date: requestedDate },
-        tools: sector ? ["get_sector"] : isGreeting || (isHistorical && !requestedDate) ? [] : symbols.length ? ["get_stock"] : [],
+        tools: isGreeting || (isHistorical && !requestedDate) ? [] : enforced.replaceTools ? enforced.tools : sector ? ["get_sector"] : symbols.length ? ["get_stock"] : [],
         session_update: {
             current_symbol: symbols[0] || sessionState.current_symbol,
             last_symbols: symbols.length ? symbols : sessionState.last_symbols,
@@ -195,7 +196,7 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
 
 export function isMarketWideRequest(message: string): boolean {
     const normalized = message.replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").toLowerCase();
-    return /(اخبار\s+(السوق|البورصه)|(?:السيول|السيوله)\s+(فين|في\s+السوق|ل?يوم|لبوم|بتاريخ|يوم)|حاله\s+السوق|السوق\s+عمل)/i.test(normalized);
+    return /(اخبار\s+(السوق|البورصه)|(?:السيول|السيوله)\s+(فين|في\s+السوق|ل?يوم|لبوم|بتاريخ|يوم)|حاله\s+السوق|السوق\s+عمل|(?:اقوى|اعلى)\s+الاسهم)/i.test(normalized);
 }
 
 export function enforceIntentFromMessage(message: string, plannerIntent: string, symbols: string[]): {
@@ -204,7 +205,7 @@ export function enforceIntentFromMessage(message: string, plannerIntent: string,
     replaceTools?: boolean;
     sector?: string;
 } {
-    const normalized = message.toLowerCase();
+    const normalized = message.toLowerCase().replace(/[أإآ]/g, "ا").replace(/ة/g, "ه");
     const hasExplicitSymbol = symbols.length > 0 || /\b[A-Z]{2,6}\b/.test(message);
     const decisionQuestion = /(أبيع|ابيع|بيع|أحتفظ|احتفظ|أخرج|اخرج|أشتري|اشتري|شراء|بيع الآن|أبيع الآن)/i.test(normalized);
     if (decisionQuestion && hasExplicitSymbol) {
@@ -219,13 +220,19 @@ export function enforceIntentFromMessage(message: string, plannerIntent: string,
         return { intent: "comparison", tools: ["get_comparison"], replaceTools: true };
     }
 
-    const topMoversQuery = /(أعلى|اعلى|أقوى|اقوى).{0,20}(10|عشرة|الأسهم|اسهم|ارتفاع|ارتفاعاً|صعود)/i.test(normalized);
-    if (topMoversQuery && !hasExplicitSymbol) {
+    const topMoversQuery = /(أعلى|اعلى|أقوى|اقوى).{0,20}(10|عشرة|الأسهم|اسهم|ارتفاع|ارتفاعاً|صعود|النهارده|اليوم)/i.test(normalized);
+    if (topMoversQuery) {
         return { intent: "market_summary", tools: ["get_market"], replaceTools: true };
     }
 
-    const liquidityQuery = /(السيول|السيوله|تجميع|تصريف|فين.*السوق|where.*liquidity|market liquidity)/i.test(normalized);
+    const liquidityQuery = /((?:ال)?سيول(?:ه)?|تجميع|تصريف|فين.*السوق|where.*liquidity|market liquidity)/i.test(normalized);
     if (liquidityQuery && hasExplicitSymbol) {
+        if (/(تجميع|تصريف|مؤسس|institutional|wyckoff)/i.test(normalized)) {
+            return { intent: "accumulation", tools: ["get_accumulation_stocks"], replaceTools: true };
+        }
+        return { intent: "stock_analysis", tools: ["get_stock"], replaceTools: true };
+    }
+    if (liquidityQuery && symbols.length > 0) {
         return { intent: "stock_analysis", tools: ["get_stock"], replaceTools: true };
     }
     if (liquidityQuery && !hasExplicitSymbol) {
@@ -244,7 +251,7 @@ export function enforceIntentFromMessage(message: string, plannerIntent: string,
     }
 
     const sector = extractSectorFromMessage(normalized);
-    if (sector) {
+    if (sector && !hasExplicitSymbol && !liquidityQuery) {
         return { intent: "sector_analysis", tools: ["get_sector"], replaceTools: true, sector };
     }
 
