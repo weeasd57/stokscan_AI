@@ -37,6 +37,11 @@ function filterOutput(response: string): string {
     const cleanResponse = response
         .replace(/<environment_details>[\s\S]*?<\/environment_details>/gi, "")
         .replace(/<environment_details[\s\S]*$/gi, "")
+        .replace(/\[?environment_details\]?[\s\S]*$/gi, "")
+        .replace(/Current time:\s*[^\n]+/gi, "")
+        .replace(/Working directory:\s*[^\n]+/gi, "")
+        .replace(/Workspace root folder:\s*[^\n]+/gi, "")
+        .replace(/\[?environment_details\]?[\s\S]*$/gi, "")
         .trim();
     if (blockedOutputRegex.test(cleanResponse)) {
         return "أنا أداة تحليلية ذكية، ولا يمكنني تقديم نصائح مالية أو توصيات شراء مباشرة. يمكنك مراجعة تقييم الأسهم في صفحة الماسح الذكي لمساعدتك في اتخاذ القرار.";
@@ -71,12 +76,33 @@ function isPotentialBlockedPrefix(text: string): boolean {
     return false;
 }
 
+function stripEnvironmentMetadata(text: string): string {
+    return text
+        .replace(/<environment_details>[\s\S]*?<\/environment_details>/gi, "")
+        .replace(/<environment_details[\s\S]*$/gi, "")
+        .replace(/\[?environment_details\]?[\s\S]*$/gi, "")
+        .replace(/Current time:\s*[^\n]+/gi, "")
+        .replace(/Working directory:\s*[^\n]+/gi, "")
+        .replace(/Workspace root folder:\s*[^\n]+/gi, "");
+}
+
+function sanitizeUserMessage(text: string): string {
+    return stripEnvironmentMetadata(text).replace(/\s{2,}/g, " ").trim();
+}
+
 function generateSuggestedButtons(plannerResult: any, sessionState: any): string[] {
+    if (plannerResult?.intent === "general_chat" || plannerResult?.intent === "sector_analysis" || plannerResult?.intent === "market_summary") {
+        return [
+            "أقوى الأسهم النهارده",
+            "مقارنة COMI و EAST",
+            "البنوك حالتها إيه؟"
+        ];
+    }
     const symbols = plannerResult?.entities?.symbols || [];
     if (symbols.length > 0) {
         const sym = symbols[0];
         return [
-            `مقارنة ${sym} مع البنوك`,
+            sym === "COMI" ? `مقارنة ${sym} مع EAST` : `مقارنة ${sym} مع COMI`,
             `أخبار ${sym} اليوم`,
             `تحليل السيولة لـ ${sym}`
         ];
@@ -85,7 +111,7 @@ function generateSuggestedButtons(plannerResult: any, sessionState: any): string
     if (fallbackSymbols.length > 0) {
         const sym = fallbackSymbols[0];
         return [
-            `مقارنة ${sym} مع البنوك`,
+            sym === "COMI" ? `مقارنة ${sym} مع EAST` : `مقارنة ${sym} مع COMI`,
             `أخبار ${sym} اليوم`,
             `تحليل السيولة لـ ${sym}`
         ];
@@ -157,7 +183,9 @@ export async function POST(req: NextRequest) {
         
         const userId = user.id;
         const body = await req.json();
-        const { message, history, image, images, model: userRequestedModel, session_id: inputSessionId, stream } = body;
+        const rawMessage = typeof body.message === "string" ? body.message : "";
+        const message = sanitizeUserMessage(rawMessage);
+        const { history, image, images, model: userRequestedModel, session_id: inputSessionId, stream } = body;
 
         const rawImages: string[] = Array.isArray(images) && images.length > 0 
             ? images 
@@ -263,7 +291,8 @@ export async function POST(req: NextRequest) {
                             keysToTry,
                             userId,
                             activeSessionId,
-                            messageId
+                            messageId,
+                            userRequestedModel
                         );
 
                         let fullResponse = "";
@@ -293,7 +322,8 @@ export async function POST(req: NextRequest) {
                                     sendEvent({ type: "tables", data: event.data });
                                     break;
                                 case "token":
-                                    fullResponse += event.data;
+                                    const safeToken = stripEnvironmentMetadata(String(event.data || ""));
+                                    fullResponse += safeToken;
                                     if (filterOutputBlocks(fullResponse)) {
                                         fullResponse = "أنا أداة تحليلية ذكية، ولا يمكنني تقديم نصائح مالية أو توصيات شراء مباشرة. يمكنك مراجعة تقييم الأسهم في صفحة الماسح الذكي لمساعدتك في اتخاذ القرار.";
                                         controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "token", content: fullResponse })}\n\n`));
@@ -301,7 +331,7 @@ export async function POST(req: NextRequest) {
                                         controller.close();
                                         return;
                                     }
-                                    tokenBuffer += event.data;
+                                    tokenBuffer += safeToken;
                                     if (isPotentialBlockedPrefix(tokenBuffer) && tokenBuffer.length < 60) {
                                         // Buffering to avoid token leakage
                                     } else {
@@ -450,7 +480,8 @@ export async function POST(req: NextRequest) {
             keysToTry,
             userId,
             activeSessionId,
-            messageId
+            messageId,
+            userRequestedModel
         );
 
         const replyText = filterOutput(pipelineResult.response);

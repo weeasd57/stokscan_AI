@@ -72,7 +72,7 @@ export function validateVisionOutput(data: any): VisionContext | null {
     };
 }
 
-const VISION_TIMEOUT_MS = 25000;
+const VISION_TIMEOUT_MS = 12000;
 
 export async function analyzeImage(
     imageUrl: string,
@@ -92,8 +92,9 @@ export async function analyzeImage(
     }
     userContent.push({ type: "image_url", image_url: { url: imageUrl } });
 
-    for (const model of visionModels) {
-        for (const key of apiKeys) {
+    const candidates: VisionContext[] = [];
+    visionLoop: for (const model of visionModels) {
+        for (const key of apiKeys.slice(0, 2)) {
             try {
                 const controller = new AbortController();
                 const timeoutId = setTimeout(() => controller.abort(), VISION_TIMEOUT_MS);
@@ -125,7 +126,9 @@ export async function analyzeImage(
                         const validated = validateVisionOutput(parsed);
                         if (validated) {
                             validated.message_id = messageId;
-                            return { vision: validated, error: null };
+                            candidates.push(validated);
+                            if (candidates.length >= 2) break visionLoop;
+                            break;
                         }
                     }
                 } else {
@@ -137,6 +140,49 @@ export async function analyzeImage(
                 if (err.name === "AbortError") continue;
             }
         }
+    }
+
+    if (candidates.length > 0) {
+        if (candidates.length === 1) {
+            const single = candidates[0];
+            single.symbols = [];
+            single.technical_observations = [];
+            single.uncertainties.push("لم يتوفر تحقق بصري ثانٍ؛ تم حجب الرموز والمؤشرات لتجنب استخراج غير مؤكد.");
+            single.confidence = Math.min(single.confidence, 0.49);
+            return { vision: single, error: null };
+        }
+
+        const symbolCounts = new Map<string, number>();
+        candidates.forEach(candidate => {
+            new Set(candidate.symbols.map(symbol => symbol.symbol).filter(Boolean)).forEach(symbol => {
+                symbolCounts.set(symbol, (symbolCounts.get(symbol) || 0) + 1);
+            });
+        });
+        const agreedSymbols = new Set(
+            Array.from(symbolCounts.entries()).filter(([, count]) => count >= 2).map(([symbol]) => symbol)
+        );
+        const primary = candidates[0];
+        const evidenceSymbols = new Set(primary.symbols.filter(symbol => {
+            if (!agreedSymbols.has(symbol.symbol)) return false;
+            const visible = symbol.visible_values;
+            const hasVisibleValue = visible.price != null || visible.change_pct != null || visible.quantity != null;
+            const indicatorCount = new Set(
+                candidates.flatMap(candidate => candidate.technical_observations)
+                    .filter(observation => observation.symbol === symbol.symbol && observation.value != null)
+                    .map(observation => observation.indicator.toUpperCase())
+            ).size;
+            return hasVisibleValue || indicatorCount >= 2;
+        }).map(symbol => symbol.symbol));
+        primary.symbols = primary.symbols.filter(symbol => evidenceSymbols.has(symbol.symbol));
+        primary.technical_observations = primary.technical_observations.filter(observation => agreedSymbols.has(observation.symbol));
+        primary.confidence = candidates.reduce((sum, candidate) => sum + candidate.confidence, 0) / candidates.length;
+        primary.technical_observations = primary.technical_observations.filter(observation => evidenceSymbols.has(observation.symbol));
+        if (evidenceSymbols.size === 0) {
+            primary.user_relevant_summary = "لا توجد أدلة مالية مرئية كافية لاستخراج رمز سهم أو مؤشرات من الصورة بثقة.";
+            primary.uncertainties.push("تم حجب الرموز التي لم يظهر معها سعر أو تغير أو كمية أو مؤشرات فنية متعددة.");
+            primary.confidence = Math.min(primary.confidence, 0.49);
+        }
+        return { vision: primary, error: null };
     }
 
     return { vision: null, error: "فشل تحليل الصورة - جميع موديلات الرؤية لم تنجح" };

@@ -183,6 +183,10 @@ export function sanitizeReply(reply: string, liveDataString?: string): string {
         .replace(/===END===/gi, "")
         .replace(/<environment_details>[\s\S]*?<\/environment_details>/gi, "")
         .replace(/<environment_details[\s\S]*$/gi, "")
+        .replace(/\[?environment_details\]?[\s\S]*$/gi, "")
+        .replace(/Current time:\s*[^\n]+/gi, "")
+        .replace(/Working directory:\s*[^\n]+/gi, "")
+        .replace(/Workspace root folder:\s*[^\n]+/gi, "")
         .replace(/\n{3,}/g, "\n\n")
         .trim();
 
@@ -246,6 +250,15 @@ export function sanitizeReply(reply: string, liveDataString?: string): string {
         // 2. Automatically transform bullet stock items into a Markdown Table if LLM outputted bullets
         cleanReply = convertStockBulletsToTable(cleanReply);
     }
+
+    cleanReply = cleanReply
+        .replace(/<environment_details>[\s\S]*?<\/environment_details>/gi, "")
+        .replace(/<environment_details[\s\S]*$/gi, "")
+        .replace(/\[?environment_details\]?[\s\S]*$/gi, "")
+        .replace(/Current time:\s*[^\n]+/gi, "")
+        .replace(/Working directory:\s*[^\n]+/gi, "")
+        .replace(/Workspace root folder:\s*[^\n]+/gi, "")
+        .trim();
 
     // 🛡️ Post-processing safety: detect and remove tables with ALL empty/dash values
     // (indicates LLM generated a table but had no real data)

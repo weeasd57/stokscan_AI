@@ -27,6 +27,9 @@ export async function executeStructuredTools(
 
     const now = new Date().toISOString();
     const symbols = plan.entities.symbols || [];
+    const requestedDate = plan.entities.requested_date || null;
+    const requestedStartDate = plan.entities.requested_start_date || null;
+    const requestedEndDate = plan.entities.requested_end_date || null;
     const userMessage = "";
 
     if (!plan.needs_live_data && !plan.needs_historical_data) {
@@ -35,6 +38,33 @@ export async function executeStructuredTools(
 
     // ===== HISTORICAL RECALL =====
     if (plan.intent === "historical_recall") {
+        const requestedDate = plan.entities.requested_date;
+        if (symbols.length === 0 && requestedDate) {
+            try {
+                const { data: scans } = await supabase
+                    .from("stock_scans_summary")
+                    .select("symbol, scan_date, signal, acc_score, dist_score, vol_ratio, change_pct, rsi_14, macd_signal, consecutive_acc_days")
+                    .eq("scan_date", requestedDate)
+                    .order("acc_score", { ascending: false })
+                    .limit(15);
+                const rows = (scans || []).filter((row: any) => Number(row.acc_score || 0) >= 50 || row.signal === "accumulation");
+                results.push({
+                    tool: "get_accumulation_stocks",
+                    source: rows.length ? "stock_scans_summary" : "empty",
+                    data_time: requestedDate,
+                    symbols: rows.map((row: any) => row.symbol),
+                    data_type: "historical",
+                    data: rows.length ? { stocks: rows, date: requestedDate } : {}
+                });
+                return { results, formattedText: rows.length ? `[مسح السيولة التاريخي بتاريخ ${requestedDate}]` : `[مسح السيولة التاريخي]: لا توجد بيانات مسح مسجلة بتاريخ ${requestedDate}.` };
+            } catch (e) {
+                console.warn("Error fetching dated accumulation scan:", e);
+                return { results, formattedText: `[مسح السيولة التاريخي]: تعذر جلب بيانات ${requestedDate}.` };
+            }
+        }
+        if (symbols.length === 0) {
+            return { results, formattedText: "[بيانات تاريخية]: يلزم تحديد السهم أو الإشارة إليه بوضوح." };
+        }
         try {
             let query = supabase
                 .from("ai_chat_facts")
@@ -46,9 +76,8 @@ export async function executeStructuredTools(
             if (sessionId) query = query.eq("session_id", sessionId);
             if (symbols.length > 0) {
                 query = query.overlaps("symbols", symbols);
-            } else {
-                query = query.overlaps("symbols", ["COMI", "EAST"]);
             }
+            if (requestedDate) query = query.eq("as_of", requestedDate);
 
             const { data: snapshots } = await query;
 
@@ -66,15 +95,40 @@ export async function executeStructuredTools(
                     data: snapshot.facts
                 });
             } else {
-                textParts.push("\n [بيانات تاريخية]: لا توجد بيانات تاريخية مسجلة لهذا الطلب.");
-                results.push({
-                    tool: "get_historical_facts",
-                    source: "empty",
-                    data_time: now,
-                    symbols,
-                    data_type: "historical",
-                    data: {}
-                });
+                // Facts may be unavailable when the insert was blocked by RLS. Use the
+                // prior assistant message as a bounded, explicitly historical fallback.
+                let priorQuery = supabase
+                    .from("ai_chat_messages")
+                    .select("content, created_at")
+                    .eq("role", "assistant")
+                    .order("created_at", { ascending: false })
+                    .limit(1);
+                if (userId) priorQuery = priorQuery.eq("user_id", userId);
+                if (sessionId) priorQuery = priorQuery.eq("session_id", sessionId);
+                const { data: priorMessages } = await priorQuery;
+                const prior = priorMessages?.[0];
+                if (prior?.content) {
+                    textParts.push(`\n [آخر رد سابق موثق - ${prior.created_at || "تاريخ غير محدد"}]:`);
+                    textParts.push(String(prior.content).slice(0, 6000));
+                    results.push({
+                        tool: "get_historical_facts",
+                        source: "prior_assistant_message",
+                        data_time: prior.created_at || now,
+                        symbols,
+                        data_type: "historical",
+                        data: { prior_response: String(prior.content).slice(0, 6000) }
+                    });
+                } else {
+                    textParts.push("\n [بيانات تاريخية]: لا توجد بيانات تاريخية مسجلة لهذا الطلب.");
+                    results.push({
+                        tool: "get_historical_facts",
+                        source: "empty",
+                        data_time: now,
+                        symbols,
+                        data_type: "historical",
+                        data: {}
+                    });
+                }
             }
         } catch (e) {
             console.warn("Error fetching historical facts:", e);
@@ -86,17 +140,19 @@ export async function executeStructuredTools(
     const isAccumulationQuery = plan.tools.includes("get_accumulation_stocks");
     if (isAccumulationQuery) {
         try {
-            const { data: summaryScans } = await supabase
-                .from("stock_scans_summary")
+                let summaryQuery = supabase
+                    .from("stock_scans_summary")
                 .select("symbol, scan_date, signal, wyckoff_phase, acc_score, dist_score, vol_ratio, consecutive_acc_days, consecutive_dist_days, change_pct, volume, rsi_14, macd_signal")
                 .order("scan_date", { ascending: false })
                 .order("acc_score", { ascending: false })
-                .limit(200);
+                    .limit(200);
+                if (requestedDate) summaryQuery = summaryQuery.eq("scan_date", requestedDate);
+                const { data: summaryScans } = await summaryQuery;
 
             let hasSummaryData = false;
 
             if (summaryScans && summaryScans.length > 0) {
-                const maxDate = summaryScans[0].scan_date;
+                const maxDate = requestedDate || summaryScans[0].scan_date;
                 const todayScans = summaryScans.filter((r: any) => r.scan_date === maxDate);
 
                 if (todayScans.length > 0) {
@@ -142,27 +198,44 @@ export async function executeStructuredTools(
             }
 
             if (!hasSummaryData) {
-                const { data: latestTechs } = await supabase
+                let technicalQuery = supabase
                     .from("stock_technical_indicators")
                     .select("symbol, change_pct, volume, vol_sma20, rsi_14, macd_signal, date")
                     .order("date", { ascending: false })
                     .limit(400);
+                if (requestedDate) technicalQuery = technicalQuery.eq("date", requestedDate);
+                const { data: latestTechs } = await technicalQuery;
 
                 if (latestTechs && latestTechs.length > 0) {
                     const maxDate = latestTechs[0].date;
                     const todayTechs = latestTechs.filter((r: any) => r.date === maxDate);
 
-                    const accStocks = todayTechs
+                    let accStocks = todayTechs
                         .filter((r: any) => r.vol_sma20 && Number(r.vol_sma20) > 0 && (Number(r.volume) / Number(r.vol_sma20)) >= 1.2 && Number(r.change_pct || 0) > 0)
                         .sort((a: any, b: any) => (Number(b.volume) / Number(b.vol_sma20)) - (Number(a.volume) / Number(a.vol_sma20)))
                         .slice(0, 15);
 
                     if (accStocks.length > 0) {
+                        const symbolsList = Array.from(new Set(accStocks.map((r: any) => r.symbol)));
+                        const { data: stocksData } = await supabase
+                            .from("stocks")
+                            .select("symbol, name")
+                            .in("symbol", symbolsList);
+                        const stocksMap = new Map<string, string>();
+                        (stocksData || []).forEach((s: any) => {
+                            if (s?.symbol) stocksMap.set(s.symbol, s.name || s.symbol);
+                        });
+
+                        accStocks = accStocks.map((r: any) => ({
+                            ...r,
+                            name: stocksMap.get(r.symbol) || r.symbol,
+                            vol_ratio: (Number(r.volume) / Number(r.vol_sma20)).toFixed(2)
+                        }));
+
                         textParts.push(`\n [أهم الأسهم التي تشهد تجميع (Accumulation) في البورصة المصرية - بتاريخ ${maxDate}]:\n`);
                         accStocks.forEach((r: any, idx: number) => {
-                            const volRatio = (Number(r.volume) / Number(r.vol_sma20)).toFixed(2);
                             const changeStr = `+${Number(r.change_pct).toFixed(2)}%`;
-                            textParts.push(`• ${idx + 1}. سهم ${r.symbol}: نسبة الحجم = ${volRatio}x من المتوسط | التغير = ${changeStr} | RSI = ${r.rsi_14 || "N/A"} | MACD = ${r.macd_signal || "N/A"} | إشارة: تجميع`);
+                            textParts.push(`• ${idx + 1}. سهم ${r.symbol}: نسبة الحجم = ${r.vol_ratio}x من المتوسط | التغير = ${changeStr} | RSI = ${r.rsi_14 || "N/A"} | MACD = ${r.macd_signal || "N/A"} | إشارة: تجميع`);
                         });
                         results.push({
                             tool: "get_accumulation_stocks",
@@ -181,30 +254,26 @@ export async function executeStructuredTools(
     }
 
     // ===== LIVE STOCK DATA =====
-    if (plan.needs_live_data && symbols.length > 0) {
+    if (plan.needs_live_data && plan.tools.includes("get_stock") && symbols.length > 0) {
         try {
             const [pricesRes, techsRes, stocksRes] = await Promise.all([
                 Promise.all(
-                    symbols.map(sym =>
-                        supabase
-                            .from("stock_prices")
+                    symbols.map(sym => {
+                        let query = supabase.from("stock_prices")
                             .select("symbol, close, volume, date")
-                            .ilike("symbol", sym)
-                            .order("date", { ascending: false })
-                            .limit(1)
-                            .maybeSingle()
-                    )
+                            .ilike("symbol", sym);
+                        if (requestedDate) query = query.eq("date", requestedDate);
+                        return query.order("date", { ascending: false }).limit(1).maybeSingle();
+                    })
                 ),
                 Promise.all(
-                    symbols.map(sym =>
-                        supabase
-                            .from("stock_technical_indicators")
-                            .select("symbol, rsi_14, macd_signal, change_pct, volume, vol_sma20, vwap_20, adx_14, momentum_10")
-                            .ilike("symbol", sym)
-                            .order("date", { ascending: false })
-                            .limit(1)
-                            .maybeSingle()
-                    )
+                    symbols.map(sym => {
+                        let query = supabase.from("stock_technical_indicators")
+                            .select("symbol, close, rsi_14, macd_signal, change_pct, volume, vol_sma20, vwap_20, adx_14, momentum_10, date")
+                            .ilike("symbol", sym);
+                        if (requestedDate) query = query.eq("date", requestedDate);
+                        return query.order("date", { ascending: false }).limit(1).maybeSingle();
+                    })
                 ),
                 supabase.from("stocks").select("symbol, name").or(
                     symbols.map(s => `symbol.ilike.${s}`).join(",")
@@ -235,7 +304,7 @@ export async function executeStructuredTools(
                     if (price || tech) {
                         const priceData = price as any;
                         const techData = tech as any;
-                        const closePrice = priceData?.close ?? techData?.close ?? techData?.vwap_20 ?? "N/A";
+                        const closePrice = priceData?.close ?? techData?.close ?? "N/A";
                         const changeStr = techData && typeof techData.change_pct === "number"
                             ? `${techData.change_pct >= 0 ? "+" : ""}${techData.change_pct.toFixed(2)}%`
                             : "N/A";
@@ -276,6 +345,7 @@ export async function executeStructuredTools(
 
     // ===== MARKET / INDICES =====
     if ((plan.tools.includes("get_market") || plan.tools.includes("get_indices") || plan.intent === "market_summary") && plan.needs_live_data) {
+        let usedCache = false;
         try {
             const { data: marketCache } = await supabase
                 .from("market_cache")
@@ -283,7 +353,8 @@ export async function executeStructuredTools(
                 .eq("cache_key", `market_status_${AI_CONFIG.tools.defaultCountry}`)
                 .maybeSingle();
 
-            if (marketCache?.payload) {
+            if (marketCache?.payload && !requestedDate) {
+                usedCache = true;
                 const payload = marketCache.payload;
                 const egxDate = payload.egx30?.[payload.egx30.length - 1]?.date || payload.usdegp?.[payload.usdegp.length - 1]?.date || now.split("T")[0];
                 textParts.push(`\n [حالة السوق - ${egxDate}]:`);
@@ -332,28 +403,41 @@ export async function executeStructuredTools(
             console.warn("Error fetching market data:", e);
         }
 
-        // Fallback: compute top gainers/losers from technical indicators
-        try {
-            const { data: latestTechs } = await supabase
-                .from("stock_technical_indicators")
-                .select("symbol, change_pct, volume, vol_sma20, date")
-                .order("date", { ascending: false })
-                .limit(500);
+        if (!usedCache) {
+            // Fallback: compute top gainers/losers from technical indicators
+            try {
+                let techQuery = supabase
+                    .from("stock_technical_indicators")
+                    .select("symbol, change_pct, volume, vol_sma20, date")
+                    .order("date", { ascending: false })
+                    .limit(500);
+                if (requestedDate) techQuery = techQuery.eq("date", requestedDate);
+                const { data: latestTechs } = await techQuery;
 
             if (latestTechs && latestTechs.length > 0) {
                 const maxTechDate = latestTechs[0].date;
                 const todayTechs = latestTechs.filter((r: any) => r.date === maxTechDate);
 
                 if (todayTechs.length > 0) {
-                    const gainers = todayTechs
+                    let gainers = todayTechs
                         .filter((r: any) => Number(r.change_pct || 0) > 0)
                         .sort((a: any, b: any) => Number(b.change_pct || 0) - Number(a.change_pct || 0))
                         .slice(0, 10); // get top 10
 
-                    const losers = todayTechs
+                    let losers = todayTechs
                         .filter((r: any) => Number(r.change_pct || 0) < 0)
                         .sort((a: any, b: any) => Number(a.change_pct || 0) - Number(b.change_pct || 0))
                         .slice(0, 10); // get top 10
+
+                    const moverSymbols = Array.from(new Set([...gainers, ...losers].map((r: any) => r.symbol)));
+                    if (moverSymbols.length > 0) {
+                        const { data: moverStocks } = await supabase.from('stocks').select('symbol, name').in('symbol', moverSymbols);
+                        const moverNames = new Map<string, string>();
+                        (moverStocks || []).forEach((s: any) => { if (s?.symbol) moverNames.set(s.symbol, s.name || s.symbol); });
+                        
+                        gainers = gainers.map((r: any) => ({ ...r, name: moverNames.get(r.symbol) || r.symbol }));
+                        losers = losers.map((r: any) => ({ ...r, name: moverNames.get(r.symbol) || r.symbol }));
+                    }
 
                     if (gainers.length > 0) {
                         textParts.push(`\n [أعلى الأسهم ارتفاعاً - من البيانات الفنية المباشرة]:`);
@@ -387,20 +471,22 @@ export async function executeStructuredTools(
                         };
                         results.push(marketResult);
                     }
-                    marketResult.data.top_gainers = gainers.map((g: any) => ({ symbol: g.symbol, change: g.change_pct }));
-                    marketResult.data.top_losers = losers.map((l: any) => ({ symbol: l.symbol, change: l.change_pct }));
+                    marketResult.data.top_gainers = gainers.map((g: any) => ({ symbol: g.symbol, name: g.name, change: g.change_pct }));
+                    marketResult.data.top_losers = losers.map((l: any) => ({ symbol: l.symbol, name: l.name, change: l.change_pct }));
                 }
             }
         } catch (e) {
             console.warn("Error computing top gainers/losers:", e);
+        }
         }
     }
 
     // ===== NEWS =====
     if (plan.tools.includes("get_news")) {
         try {
-            const lookbackDate = new Date();
-            lookbackDate.setDate(lookbackDate.getDate() - AI_CONFIG.tools.newsDaysLookback);
+            const articleRows: any[] = [];
+            const lookbackDate = requestedStartDate ? new Date(`${requestedStartDate}T00:00:00Z`) : requestedDate ? new Date(`${requestedDate}T00:00:00Z`) : new Date();
+            if (!requestedStartDate) lookbackDate.setDate(lookbackDate.getDate() - AI_CONFIG.tools.newsDaysLookback);
             const lookbackDateStr = lookbackDate.toISOString().split("T")[0];
 
             if (symbols.length > 0) {
@@ -416,19 +502,23 @@ export async function executeStructuredTools(
                             stocksData.map((s: any) => [s.id, s.symbol])
                         );
 
-                        const { data: articles } = await supabase
+                        let articlesQuery = supabase
                             .from("news")
                             .select("stock_id, title, url, source, published_at, sentiment_score, sentiment_label")
                             .in("stock_id", stockIds)
                             .gte("published_at", lookbackDate.toISOString())
                             .order("published_at", { ascending: false })
                             .limit(AI_CONFIG.tools.newsLimit * 3);
+                        if (requestedStartDate && requestedEndDate) articlesQuery = articlesQuery.gte("published_at", `${requestedStartDate}T00:00:00Z`).lt("published_at", `${requestedEndDate}T23:59:59.999Z`);
+                        else if (requestedDate) articlesQuery = articlesQuery.gte("published_at", `${requestedDate}T00:00:00Z`).lt("published_at", `${requestedDate}T23:59:59.999Z`);
+                        const { data: articles } = await articlesQuery;
 
                         if (articles && articles.length > 0) {
                             const articlesBySymbol = new Map<string, any[]>();
                             articles.forEach((a: any) => {
                                 const sym = symbolById.get(a.stock_id);
                                 if (sym) {
+                                    articleRows.push({ ...a, symbol: sym });
                                     if (!articlesBySymbol.has(sym)) {
                                         articlesBySymbol.set(sym, []);
                                     }
@@ -467,10 +557,15 @@ export async function executeStructuredTools(
                 newsQuery = newsQuery.or(symbols.map(s => `symbol.ilike.${s}`).join(","));
             }
 
+            if (requestedDate) newsQuery = newsQuery.eq("date", requestedDate);
+            if (requestedStartDate && requestedEndDate) newsQuery = newsQuery.gte("date", requestedStartDate).lte("date", requestedEndDate);
             const { data: newsData } = await newsQuery;
 
             if (newsData && newsData.length > 0) {
-                textParts.push(`\n [أخبار وتحليلات المعنويات للأسهم - آخر ${AI_CONFIG.tools.newsDaysLookback} أيام]:\n`);
+                const newsPeriodLabel = requestedStartDate && requestedEndDate
+                    ? `الفترة من ${requestedStartDate} إلى ${requestedEndDate}`
+                    : `آخر ${AI_CONFIG.tools.newsDaysLookback} أيام`;
+                textParts.push(`\n [أخبار وتحليلات المعنويات للأسهم - ${newsPeriodLabel}]:\n`);
                 const newsByDate = new Map<string, any[]>();
                 newsData.forEach((item: any) => {
                     const dateKey = item.date || now.split("T")[0];
@@ -496,10 +591,10 @@ export async function executeStructuredTools(
             results.push({
                 tool: "get_news",
                 source: "database",
-                data_time: now,
+                data_time: requestedDate || requestedEndDate || now,
                 symbols,
-                data_type: "live",
-                data: newsData || []
+                data_type: requestedDate || requestedStartDate ? "historical" : "live",
+                data: [...articleRows, ...(newsData || [])]
             });
         } catch (e) {
             console.warn("Error fetching news:", e);
@@ -523,14 +618,31 @@ export async function executeStructuredTools(
                 .limit(AI_CONFIG.tools.recommendationsLimit);
 
             if (recsData && recsData.length > 0) {
+                const recommendationSymbols = Array.from(new Set(recsData.map((row: any) => String(row.symbol || "").toUpperCase()).filter(Boolean)));
+                const { data: latestPrices } = await supabase.from("stock_prices")
+                    .select("symbol, close, date").in("symbol", recommendationSymbols)
+                    .order("date", { ascending: false }).limit(recommendationSymbols.length * 2);
+                const latestBySymbol = new Map<string, any>();
+                (latestPrices || []).forEach((row: any) => {
+                    const key = String(row.symbol || "").toUpperCase();
+                    if (key && !latestBySymbol.has(key)) latestBySymbol.set(key, row);
+                });
+                const enrichedRecommendations = recsData.map((row: any) => {
+                    const entry = Number(row.entry_price);
+                    const current = latestBySymbol.get(String(row.symbol || "").toUpperCase());
+                    const currentPrice = Number(current?.close);
+                    const returnPct = Number.isFinite(entry) && entry > 0 && Number.isFinite(currentPrice) ? ((currentPrice - entry) / entry) * 100 : null;
+                    return { ...row, current_price: Number.isFinite(currentPrice) ? currentPrice : null, current_date: current?.date || null, return_pct: returnPct, status: returnPct == null ? "غير مقيم" : returnPct >= 0 ? "ربح غير محقق" : "خسارة غير محققة" };
+                });
                 textParts.push(`\n [إشارات وتوصيات تداول البورصة المصرية من قاعدة البيانات]:\n`);
-                recsData.forEach((r: any) => {
+                enrichedRecommendations.forEach((r: any) => {
                     const signal = String(r.signal || "BUY").toUpperCase();
                     const entry = r.entry_price ? `${r.entry_price} ج.م` : "N/A";
                     const target = r.target_price ? `${r.target_price} ج.م` : "N/A";
                     const stop = r.stop_loss ? `${r.stop_loss} ج.م` : "N/A";
                     const dateStr = r.created_at ? String(r.created_at).replace("T", " ").split(".")[0] : "تاريخ غير محدد";
-                    textParts.push(`• توصية سهم ${r.symbol} (${r.name || r.symbol}): الإشارة = ${signal} | سعر الدخول = ${entry} | الهدف = ${target} | وقف الخسارة = ${stop} | تاريخ التوصية = ${dateStr}`);
+                    const performance = r.return_pct == null ? "العائد الحالي = غير متاح" : `السعر الحالي = ${r.current_price} | العائد حتى آخر سعر (${r.current_date}) = ${r.return_pct >= 0 ? "+" : ""}${r.return_pct.toFixed(2)}%`;
+                    textParts.push(`• إشارة تاريخية ${r.symbol} (${r.name || r.symbol}): الإشارة = ${signal} | سعر الدخول = ${entry} | الهدف = ${target} | وقف الخسارة = ${stop} | ${performance} | تاريخ الإشارة = ${dateStr}`);
                 });
 
                 results.push({
@@ -539,7 +651,7 @@ export async function executeStructuredTools(
                     data_time: now,
                     symbols: recsData.map((r: any) => r.symbol),
                     data_type: "live",
-                    data: recsData
+                    data: enrichedRecommendations
                 });
             }
         } catch (e) {
@@ -564,7 +676,7 @@ export async function executeStructuredTools(
 
                 const SECTOR_TERMS: Record<string, string[]> = {
                     "ادويه": ["pharmaceutical", "pharma", "drug", "health technology", "health services", "أدوية", "صيدلة", "رعاية صحية"],
-                    "عقارات": ["real estate", "realestate", "عقارات", "عقاري", "construction", "homebuilding"],
+                    "عقارات": ["real estate", "realestate", "عقارات", "عقاري", "homebuilding"],
                     "اغذيه": ["food", "beverage", "أغذية", "غذائية", "consumer non-durables", "agricultural"],
                     "بترول": ["oil", "gas", "petroleum", "energy", "بترول", "طاقة"],
                 };
@@ -604,16 +716,18 @@ export async function executeStructuredTools(
 
                 if (sectorStocks && sectorStocks.length > 0) {
                     const sectorSymbols = sectorStocks.map((s: any) => s.symbol);
-                    const { data: latestTechs } = await supabase
+                    let sectorTechQuery = supabase
                         .from("stock_technical_indicators")
-                        .select("symbol, change_pct, volume, vol_sma20, rsi_14, macd_signal, date")
+                            .select("symbol, close, change_pct, volume, vol_sma20, rsi_14, macd_signal, date")
                         .eq("exchange", "EGX")
                         .in("symbol", sectorSymbols)
                         .order("date", { ascending: false })
                         .limit(500);
+                    if (requestedDate) sectorTechQuery = sectorTechQuery.eq("date", requestedDate);
+                    const { data: latestTechs } = await sectorTechQuery;
 
                     if (latestTechs && latestTechs.length > 0) {
-                        const maxDate = latestTechs[0].date;
+                        const maxDate = requestedDate || latestTechs[0].date;
                         const todayTechs = latestTechs.filter((r: any) => r.date === maxDate);
                         const techMap = new Map(todayTechs.map((t: any) => [t.symbol.toUpperCase(), t]));
 
@@ -622,7 +736,9 @@ export async function executeStructuredTools(
                                 ...s,
                                 tech: techMap.get(s.symbol.toUpperCase())
                             }))
-                            .filter((s: any) => s.tech);
+                            .filter((s: any) => s.tech)
+                            .sort((a: any, b: any) => Math.abs(Number(b.tech.change_pct || 0)) - Math.abs(Number(a.tech.change_pct || 0)))
+                            .slice(0, 15);
 
                         const gainers = stocksWithTech
                             .filter((s: any) => s.tech && Number(s.tech.change_pct || 0) > 0)
@@ -657,7 +773,7 @@ export async function executeStructuredTools(
                             tool: "get_sector",
                             source: "database",
                             data_time: maxDate,
-                            symbols: sectorSymbols,
+                            symbols: stocksWithTech.map((stock: any) => stock.symbol),
                             data_type: "live",
                             data: { sector: targetSector, stocks: stocksWithTech, gainers, losers }
                         });
@@ -677,12 +793,12 @@ export async function executeStructuredTools(
                 const [sym1, sym2] = compareSymbols;
                 const [pricesData, techsData, stocksData, fundamentalsData] = await Promise.all([
                     Promise.all([
-                        supabase.from("stock_prices").select("symbol, close, volume, date").ilike("symbol", sym1).order("date", { ascending: false }).limit(1).maybeSingle(),
-                        supabase.from("stock_prices").select("symbol, close, volume, date").ilike("symbol", sym2).order("date", { ascending: false }).limit(1).maybeSingle()
+                        (() => { let q = supabase.from("stock_prices").select("symbol, close, volume, date").ilike("symbol", sym1); if (requestedDate) q = q.eq("date", requestedDate); return q.order("date", { ascending: false }).limit(1).maybeSingle(); })(),
+                        (() => { let q = supabase.from("stock_prices").select("symbol, close, volume, date").ilike("symbol", sym2); if (requestedDate) q = q.eq("date", requestedDate); return q.order("date", { ascending: false }).limit(1).maybeSingle(); })()
                     ]),
                     Promise.all([
-                        supabase.from("stock_technical_indicators").select("symbol, rsi_14, macd_signal, change_pct, volume, vol_sma20, adx_14, date").ilike("symbol", sym1).order("date", { ascending: false }).limit(1).maybeSingle(),
-                        supabase.from("stock_technical_indicators").select("symbol, rsi_14, macd_signal, change_pct, volume, vol_sma20, adx_14, date").ilike("symbol", sym2).order("date", { ascending: false }).limit(1).maybeSingle()
+                        (() => { let q = supabase.from("stock_technical_indicators").select("symbol, rsi_14, macd_signal, change_pct, volume, vol_sma20, adx_14, date").ilike("symbol", sym1); if (requestedDate) q = q.eq("date", requestedDate); return q.order("date", { ascending: false }).limit(1).maybeSingle(); })(),
+                        (() => { let q = supabase.from("stock_technical_indicators").select("symbol, rsi_14, macd_signal, change_pct, volume, vol_sma20, adx_14, date").ilike("symbol", sym2); if (requestedDate) q = q.eq("date", requestedDate); return q.order("date", { ascending: false }).limit(1).maybeSingle(); })()
                     ]),
                     supabase.from("stocks").select("symbol, name").or(`symbol.ilike.${sym1},symbol.ilike.${sym2}`),
                     supabase.from("stock_fundamentals").select("symbol, data").in("symbol", [sym1.toUpperCase(), sym2.toUpperCase()])
@@ -710,7 +826,7 @@ export async function executeStructuredTools(
                 const sector1 = sectorMap.get(sym1.toUpperCase()) || "N/A";
                 const sector2 = sectorMap.get(sym2.toUpperCase()) || "N/A";
 
-                if (p1 || p2 || t1 || t2) {
+                if (p1 || p2 || t1 || t2 || requestedDate) {
                     textParts.push(`\n [مقارنة بين ${sym1} و ${sym2}]:\n`);
                     textParts.push(`| المؤشر | ${sym1} (${sMap.get(sym1.toUpperCase())?.name || sym1}) | ${sym2} (${sMap.get(sym2.toUpperCase())?.name || sym2}) |`);
                     textParts.push(`| :--- | :--- | :--- |`);
@@ -724,12 +840,12 @@ export async function executeStructuredTools(
                     results.push({
                         tool: "get_comparison",
                         source: "database",
-                        data_time: p1?.date || t1?.date || p2?.date || t2?.date || now,
+                        data_time: requestedDate || p1?.date || t1?.date || p2?.date || t2?.date || now,
                         symbols: [sym1, sym2],
-                        data_type: "live",
+                        data_type: requestedDate ? "historical" : "live",
                         data: {
-                            sym1: { price: p1, tech: t1, info: { ...(sMap.get(sym1.toUpperCase()) || {}), sector: sector1 } },
-                            sym2: { price: p2, tech: t2, info: { ...(sMap.get(sym2.toUpperCase()) || {}), sector: sector2 } }
+                            sym1: { price: p1 || null, tech: t1 || null, info: { ...(sMap.get(sym1.toUpperCase()) || { symbol: sym1 }), sector: sector1 } },
+                            sym2: { price: p2 || null, tech: t2 || null, info: { ...(sMap.get(sym2.toUpperCase()) || { symbol: sym2 }), sector: sector2 } }
                         }
                     });
                 }

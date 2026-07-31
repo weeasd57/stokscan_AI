@@ -46,7 +46,7 @@ export function buildV2FinalMessages(
         }, null, 2));
     }
 
-    if (recentHistory.length > 0) {
+    if (plan.needs_history && recentHistory.length > 0) {
         sections.push("=== RECENT MESSAGES ===");
         recentHistory.forEach(m => {
             sections.push(`${m.role}: ${String(m.content).substring(0, 500)}`);
@@ -58,9 +58,11 @@ export function buildV2FinalMessages(
         sections.push(`المرجع "${userMessage.match(/ده|دا|دي|هذا/)?.[0] || "السابق"}" يشير إلى: ${resolvedReference.symbol} (ثقة: ${Math.round(resolvedReference.confidence * 100)}%)`);
     }
 
-    const imageDerivedFacts = relevantFacts.filter(f => f.data_type === "image-derived");
-    const liveMemoryFacts = relevantFacts.filter(f => f.data_type === "live");
-    const historicalFacts = relevantFacts.filter(f => f.data_type === "historical");
+    const memoryAllowed = plan.needs_historical_data || Boolean(resolvedReference.symbol);
+    const scopedFacts = memoryAllowed ? relevantFacts : [];
+    const imageDerivedFacts = scopedFacts.filter(f => f.data_type === "image-derived");
+    const liveMemoryFacts = scopedFacts.filter(f => f.data_type === "live");
+    const historicalFacts = scopedFacts.filter(f => f.data_type === "historical");
 
     const formatFactValue = (val: unknown): string => {
         if (val === null || val === undefined) return "N/A";
@@ -156,7 +158,10 @@ export function buildV2FinalMessages(
 
     let contextText = sections.join("\n\n");
     if (contextText.length > MAX_CONTEXT_CHARS) {
-        contextText = contextText.substring(0, MAX_CONTEXT_CHARS) + "\n\n[تم اقتطاع السياق - تجاوز الحد الأقصى]";
+        const requestEnd = contextText.indexOf("\n\n");
+        const request = requestEnd >= 0 ? contextText.slice(0, requestEnd + 2) : "";
+        const tail = contextText.slice(-Math.max(0, MAX_CONTEXT_CHARS - request.length));
+        contextText = `${request}${tail}\n\n[تم اقتطاع السياق القديم - تجاوز الحد الأقصى]`;
     }
 
     const today = new Date().toISOString().split("T")[0];
@@ -225,6 +230,36 @@ async function callNvidiaApi(
     return { response: null };
 }
 
+async function callAgentRouterApi(
+    modelName: string,
+    messages: { role: string; content: any }[],
+    stream = false
+): Promise<{ response: string | null }> {
+    const key = process.env.AGENT_ROUTER_API_KEY || process.env.AGENTROUTER_API_KEY;
+    if (!key) return { response: null };
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000);
+    try {
+        const res = await fetch(AI_CONFIG.api.agentRouterBaseUrl, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${key}`,
+                "x-api-key": key
+            },
+            signal: controller.signal,
+            body: JSON.stringify({ model: modelName, messages, temperature: 0.15, max_tokens: 4096, stream })
+        });
+        if (!res.ok) return { response: null };
+        const data = await res.json();
+        return { response: data.choices?.[0]?.message?.content?.trim() || null };
+    } catch {
+        return { response: null };
+    } finally {
+        clearTimeout(timeoutId);
+    }
+}
+
 function removeModelTables(text: string): string {
     const lines = text.split("\n");
     const output: string[] = [];
@@ -257,10 +292,19 @@ export async function generateV2Response(
     relevantFacts: FactSnapshot[],
     recentHistory: Array<{ role: string; content: string }>,
     resolvedReference: { symbol: string | null; message_id: string | null; confidence: number },
-    apiKeys: string[]
+    apiKeys: string[],
+    requestedModel?: string
 ): Promise<string> {
+    if (visionContext && visionContext.symbols.length === 0 && toolResults.length === 0) {
+        return buildVisionUncertaintyResponse(visionContext);
+    }
+    const deterministic = buildDeterministicResponse(userMessage, plan, toolResults);
+    if (deterministic) return deterministic;
     if (shouldReturnNoData(plan, visionContext, toolResults, relevantFacts)) {
-        return "لا توجد بيانات حية أو تاريخية كافية لهذا الطلب حالياً. لم أستخدم معلومات عامة حتى لا أضيف أرقاماً أو أسماء غير مؤكدة.";
+        const requestedDate = plan.entities.requested_date;
+        return requestedDate
+            ? `لا توجد بيانات موثقة لهذا الطلب بتاريخ ${requestedDate}. لم أستخدم تاريخاً آخر حتى لا أخلط بين البيانات.`
+            : "لا توجد بيانات حية أو تاريخية كافية لهذا الطلب حالياً. لم أستخدم معلومات عامة حتى لا أضيف أرقاماً أو أسماء غير مؤكدة.";
     }
 
     const messages = buildV2FinalMessages(
@@ -268,8 +312,10 @@ export async function generateV2Response(
         relevantFacts, recentHistory, resolvedReference
     );
 
-    const model = AI_CONFIG.models.response.default;
-    const result = await callNvidiaApi(model, messages, apiKeys);
+    const model = requestedModel || AI_CONFIG.models.response.default;
+    const result = model === "gpt-5.6-sol"
+        ? await callAgentRouterApi(model, messages)
+        : await callNvidiaApi(model, messages, apiKeys);
     return result.response
         ? sanitizeReply(removeModelTables(result.response))
         : "عذراً، لم أتمكن من إنشاء الرد.";
@@ -283,10 +329,22 @@ export async function* generateV2Stream(
     relevantFacts: FactSnapshot[],
     recentHistory: Array<{ role: string; content: string }>,
     resolvedReference: { symbol: string | null; message_id: string | null; confidence: number },
-    apiKeys: string[]
+    apiKeys: string[],
+    requestedModel?: string
 ): AsyncGenerator<string, void, unknown> {
+    if (visionContext && visionContext.symbols.length === 0 && toolResults.length === 0) {
+        yield buildVisionUncertaintyResponse(visionContext);
+        return;
+    }
+    const deterministic = buildDeterministicResponse(userMessage, plan, toolResults);
+    if (deterministic) {
+        yield deterministic;
+        return;
+    }
     if (shouldReturnNoData(plan, visionContext, toolResults, relevantFacts)) {
-        yield "لا توجد بيانات حية أو تاريخية كافية لهذا الطلب حالياً. لم أستخدم معلومات عامة حتى لا أضيف أرقاماً أو أسماء غير مؤكدة.";
+        yield plan.entities.requested_date
+            ? `لا توجد بيانات موثقة لهذا الطلب بتاريخ ${plan.entities.requested_date}. لم أستخدم تاريخاً آخر حتى لا أخلط بين البيانات.`
+            : "لا توجد بيانات حية أو تاريخية كافية لهذا الطلب حالياً. لم أستخدم معلومات عامة حتى لا أضيف أرقاماً أو أسماء غير مؤكدة.";
         return;
     }
 
@@ -295,10 +353,17 @@ export async function* generateV2Stream(
         relevantFacts, recentHistory, resolvedReference
     );
 
-    const textModels = [
-        AI_CONFIG.models.response.default,
-        ...AI_CONFIG.models.response.fallbacks
-    ];
+    const textModels = requestedModel ? [requestedModel] : [AI_CONFIG.models.response.default, ...AI_CONFIG.models.response.fallbacks];
+
+    if (textModels[0] === "gpt-5.6-sol") {
+        const result = await callAgentRouterApi(textModels[0], messages, false);
+        if (result.response) {
+            yield sanitizeReply(removeModelTables(result.response));
+            return;
+        }
+        yield "عذراً، نموذج AgentRouter غير متاح حالياً. تحقق من مفتاح AGENTROUTER_API_KEY.";
+        return;
+    }
 
     for (const model of textModels) {
         let keyIndex = 0;
@@ -366,6 +431,141 @@ export async function* generateV2Stream(
     }
 
     yield "عذراً، لم أتمكن من إنشاء الرد.";
+}
+
+function buildVisionUncertaintyResponse(vision: VisionContext): string {
+    const uncertainty = vision.uncertainties.length > 0
+        ? ` السبب: ${vision.uncertainties.join(" ")}`
+        : "";
+    return `لم أجد في الصورة بيانات مالية مرئية مؤكدة يمكن تحويلها إلى تحليل سهم. لم أستخدم أي رمز أو رقم غير واضح حتى لا أختلق بيانات.${uncertainty}`;
+}
+
+export function buildDeterministicResponse(userMessage: string, plan: IntentPlan, toolResults: ToolResult[]): string | null {
+    if (plan.intent === "general_chat" && toolResults.length === 0) {
+        if (/(ازيك|إزيك|عامل ايه|عامل إيه|اهلا|أهلا|مرحبا|السلام عليكم)/i.test(userMessage)) {
+            return "أهلاً بك. أقدر أساعدك في تحليل سهم، مقارنة سهمين، أخبار الشركات، أو تحليل قطاعات البورصة المصرية باستخدام البيانات المتاحة.";
+        }
+        return null;
+    }
+
+    const news = toolResults.find(result => result.tool === "get_news");
+    if (news) {
+        const items = Array.isArray(news.data) ? news.data : [];
+        const rangeLabel = plan.entities.requested_start_date && plan.entities.requested_end_date
+            ? ` من ${plan.entities.requested_start_date} إلى ${plan.entities.requested_end_date}`
+            : " الحالية";
+        if (items.length === 0) {
+            return `لا توجد أخبار أو بيانات معنويات مسجلة خلال الفترة${rangeLabel}${news.symbols.length ? ` للأسهم ${news.symbols.join("، ")}` : ""}.`;
+        }
+        const headlines = items.filter((item: any) => item?.title).slice(0, 5);
+        const sentiment = items.filter((item: any) => item?.sentiment_score != null).slice(0, 3);
+        const lines = [`تم العثور على ${items.length} سجل أخبار ومعنويات من قاعدة البيانات خلال الفترة${rangeLabel}.`];
+        headlines.forEach((item: any) => lines.push(`- ${item.symbol || "السهم"}: ${item.title} (${String(item.published_at || item.date || "").slice(0, 10)})`));
+        sentiment.forEach((item: any) => lines.push(`- معنويات ${item.symbol}: ${Number(item.sentiment_score) > 0.15 ? "إيجابية" : Number(item.sentiment_score) < -0.15 ? "سلبية" : "محايدة"}، عدد الأخبار ${item.news_count || 0}.`));
+        return lines.join("\n");
+    }
+
+    const recommendations = toolResults.find(result => result.tool === "get_recommendations" || result.tool === "get_signals");
+    if (recommendations) {
+        const rows = Array.isArray(recommendations.data) ? recommendations.data : [];
+        if (rows.length === 0) return "لا توجد إشارات مسجلة يمكن تقييمها حالياً.";
+        const evaluated = rows.filter((row: any) => row.return_pct != null);
+        const profitable = evaluated.filter((row: any) => Number(row.return_pct) > 0).length;
+        const average = evaluated.length ? evaluated.reduce((sum: number, row: any) => sum + Number(row.return_pct), 0) / evaluated.length : null;
+        return [
+            "هذه إشارات فنية تاريخية مسجلة بالنظام وليست توصيات جديدة.",
+            `تم تقييم ${evaluated.length} من ${rows.length} إشارة مقابل آخر سعر متاح: ${profitable} رابحة غير محققة و${evaluated.length - profitable} خاسرة غير محققة.`,
+            average == null ? "لا يتوفر سعر حالي كافٍ لحساب العائد." : `متوسط العائد الحسابي غير الموزون: ${average >= 0 ? "+" : ""}${average.toFixed(2)}%. لا يشمل عمولات أو أوزان المحفظة.`,
+            ...rows.slice(0, 10).map((row: any) => row.return_pct == null ? `- ${row.symbol}: السعر الحالي غير متاح.` : `- ${row.symbol}: الدخول ${row.entry_price}، الحالي ${row.current_price}، العائد ${row.return_pct >= 0 ? "+" : ""}${Number(row.return_pct).toFixed(2)}%، ${row.status}.`),
+            "بلوغ الهدف أو وقف الخسارة يحتاج بيانات أسعار تغطي الفترة كاملة؛ العائد هنا مقارنة بآخر سعر متاح فقط."
+        ].join("\n");
+    }
+
+    const historical = toolResults.find(result => result.tool === "get_historical_facts");
+    if (plan.intent === "historical_recall" && historical?.data?.prior_response) {
+        const prior = String(historical.data.prior_response);
+        const symbol = historical.symbols[0] || "السهم المشار إليه";
+        const price = prior.match(/(?:السعر|price)\s*(?:(?:=|:)\s*)?([0-9]+(?:\.[0-9]+)?)/i)?.[1];
+        if (price) return `آخر سعر موثق ظهر في الرد السابق للسهم ${symbol} كان ${price} جنيه. هذه قيمة تاريخية من رد سابق وليست سعراً حياً.`;
+        return `وجدت رداً سابقاً موثقاً للسهم ${symbol}، لكن السعر غير ظاهر بشكل قابل للاستخراج منه. لا أستطيع اختراع قيمة غير موجودة.`;
+    }
+
+    const decision = /(أبيع|ابيع|بيع|أشتري|اشتري|شراء|احتفظ|أحتفظ|اخرج|أخرج)/i.test(userMessage);
+    const stockData = toolResults.filter(result => result.tool === "get_stock" && result.data?.symbol);
+    if (decision && stockData.length > 0) {
+        const lines = stockData.map(result => {
+            const data = result.data;
+            return `- ${data.symbol}: السعر الحالي ${data.price} جنيه، التغير ${data.change_pct}، RSI ${data.rsi_14}، MACD ${data.macd_signal}، نسبة الحجم ${data.vol_ratio}.`;
+        });
+        return [
+            "لا أستطيع تحديد سعر بيع شخصي أو اختراع هدف غير موجود في البيانات.",
+            ...lines,
+            "لا توجد في البيانات الحالية مقاومة أو إشارة بيع موثقة يمكن استخدامها كسعر مستهدف. القرار النهائي يرجع لك وفق خطتك وإدارة المخاطر."
+        ].join("\n");
+    }
+
+    const comparison = toolResults.find(result => result.tool === "get_comparison");
+    if (comparison?.data?.sym1 && comparison?.data?.sym2) {
+        const entries = [comparison.data.sym1, comparison.data.sym2];
+        const describe = (entry: any, fallback: string) => {
+            const symbol = entry.info?.symbol || fallback;
+            const price = entry.price?.close ?? "غير متاح";
+            const change = entry.tech?.change_pct ?? "غير متاح";
+            const rsi = entry.tech?.rsi_14 ?? "غير متاح";
+            const ratio = entry.tech?.volume && entry.tech?.vol_sma20 ? Number(entry.tech.volume) / Number(entry.tech.vol_sma20) : null;
+            return `- ${symbol}: السعر ${price} جنيه، التغير ${change}%، RSI ${rsi}${ratio != null ? `، حجم التداول ${ratio.toFixed(2)}x من المتوسط` : ""}.`;
+        };
+        const dateLabel = plan.entities.requested_date
+            ? `مقارنة مباشرة من البيانات المتاحة بتاريخ ${plan.entities.requested_date}:`
+            : "مقارنة مباشرة من أحدث بيانات متاحة:";
+        const missing = entries
+            .map((entry, index) => ({ entry, symbol: comparison.symbols[index] }))
+            .filter(({ entry }) => !entry.price && !entry.tech)
+            .map(({ symbol }) => symbol);
+        const missingNote = missing.length > 0
+            ? `لا توجد بيانات مسجلة لـ ${missing.join(" و")} في قاعدة البيانات لهذا التاريخ؛ لم أستخدم تاريخاً آخر.`
+            : "ارتفاع RSI يعكس قوة الزخم فقط ولا يكفي منفرداً لاتخاذ قرار.";
+        return [dateLabel, describe(entries[0], comparison.symbols[0]), describe(entries[1], comparison.symbols[1]), missingNote].join("\n");
+    }
+
+    const sector = toolResults.find(result => result.tool === "get_sector");
+    if (sector?.data?.stocks?.length) {
+        const stocks = sector.data.stocks as any[];
+        const advancing = stocks.filter(stock => Number(stock.tech?.change_pct || 0) > 0).length;
+        const declining = stocks.filter(stock => Number(stock.tech?.change_pct || 0) < 0).length;
+        const strongest = [...stocks].sort((a, b) => Number(b.tech?.change_pct || 0) - Number(a.tech?.change_pct || 0)).slice(0, 3);
+        return [
+            `تحليل قطاع ${sector.data.sector} مبني على ${stocks.length} سهماً في أحدث بيانات بتاريخ ${sector.data_time}.`,
+            `- مرتفعة: ${advancing}، منخفضة: ${declining}.`,
+            `- الأفضل أداءً ضمن العينة: ${strongest.map(stock => `${stock.symbol} (${Number(stock.tech?.change_pct || 0).toFixed(2)}%)`).join("، ")}.`,
+            "راجع الجدول للتفاصيل؛ المؤشرات الفنية تصف الزخم والسيولة ولا تمثل توصية استثمارية."
+        ].join("\n");
+    }
+
+    const accumulation = toolResults.find(result => result.tool === "get_accumulation_stocks");
+    if (accumulation?.data?.stocks?.length) {
+        const stocks = (accumulation.data.stocks as any[]).slice(0, 8);
+        return [
+            `أبرز أسهم التجميع والسيولة المؤسسية حسب المسح المؤرخ ${accumulation.data_time}:`,
+            ...stocks.map(stock => `- ${stock.symbol}: درجة التجميع ${stock.acc_score ?? "غير متاح"}/100، نسبة الحجم ${stock.vol_ratio ?? "غير متاح"}x، التغير ${stock.change_pct ?? "غير متاح"}%.`),
+            "هذه نتائج مسح فني وليست توصية شراء أو بيع."
+        ].join("\n");
+    }
+
+    if (plan.entities.requested_date && accumulation) {
+        return `لا توجد بيانات مسح سيولة مسجلة بتاريخ ${plan.entities.requested_date}. لم أستخدم بيانات من تاريخ آخر حتى لا أخلط بين التواريخ.`;
+    }
+
+    const stocks = stockData;
+    if (stocks.length > 0) {
+        const lines = stocks.map(result => {
+            const data = result.data;
+            return `- ${data.symbol} (${data.name}): السعر ${data.price} جنيه، التغير ${data.change_pct}، RSI ${data.rsi_14}، MACD ${data.macd_signal}، حجم التداول ${data.vol_ratio} من متوسط 20 جلسة.`;
+        });
+        return ["ملخص أحدث البيانات المتاحة:", ...lines, "RSI وMACD يقيسان الزخم، ونسبة الحجم تقارن التداول الحالي بمتوسطه ولا تثبت وحدها وجود تجميع أو تصريف."].join("\n");
+    }
+
+    return null;
 }
 
 function shouldReturnNoData(

@@ -21,8 +21,7 @@ function resolveReference(
 ): { symbol: string | null; message_id: string | null; confidence: number } {
     const normMsg = message.replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").toLowerCase();
 
-    const referenceWords = ["ده", "دا", "دي", "هذا", "السهم ده", "السهم دا", "السهم دي", "ده كده"];
-    const hasReference = referenceWords.some(w => normMsg.includes(w));
+    const hasReference = /(?:^|[^\u0621-\u064A])(السهم\s+(?:ده|دا|دي)|ده\s+كده|ده|دا|دي|هذا)(?:$|[^\u0621-\u064A])/.test(normMsg);
 
     if (!hasReference) {
         return { symbol: null, message_id: null, confidence: 0 };
@@ -62,7 +61,8 @@ export async function retrieveRelevantMemory(
     history: Array<{ role: string; content: string }>,
     supabase: any,
     userId: string,
-    sessionId: string
+    sessionId: string,
+    options: { symbols?: string[]; includeSnapshots?: boolean } = {}
 ): Promise<MemoryResult> {
     const resolved = resolveReference(message, sessionSummary, sessionState);
 
@@ -70,12 +70,10 @@ export async function retrieveRelevantMemory(
 
     let relevantSnapshots: FactSnapshot[] = [];
 
-    const symbols = new Set<string>();
-    if (sessionState.last_symbols) sessionState.last_symbols.forEach(s => symbols.add(s));
-    if (sessionSummary?.current_symbols) sessionSummary.current_symbols.forEach(s => symbols.add(s));
+    const symbols = new Set<string>(options.symbols || []);
     if (resolved.symbol) symbols.add(resolved.symbol);
 
-    if (symbols.size > 0 && supabase) {
+    if (options.includeSnapshots !== false && symbols.size > 0 && supabase) {
         try {
             const symbolArray = Array.from(symbols);
             const { data: snapshots } = await supabase

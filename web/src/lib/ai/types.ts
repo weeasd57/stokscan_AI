@@ -62,6 +62,9 @@ export interface IntentPlan {
         sector: string | null;
         timeframe: "current" | "historical" | "unspecified";
         reference: "last_image" | "last_stock" | "previous_analysis" | null;
+        requested_date?: string | null;
+        requested_start_date?: string | null;
+        requested_end_date?: string | null;
     };
     needs_vision_context: boolean;
     needs_history: boolean;
@@ -107,6 +110,7 @@ export interface PlannerResult {
         sector: string | null;
         wants_table: boolean;
         timeframe?: string | null;
+        requested_date?: string | null;
     };
     tools: string[];
     image_summary?: string | null;

@@ -239,7 +239,7 @@ export default function ChatWidget() {
         return (
             <button
                 onClick={() => setIsOpen(true)}
-                className="fixed bottom-6 right-6 h-14 w-14 rounded-full bg-amber-500 hover:bg-amber-400 border-3 border-black text-black flex items-center justify-center shadow-[4px_4px_0px_0px_#000000] dark:shadow-[4px_4px_0px_0px_rgba(255,255,255,0.4)] transition-all hover:scale-105 active:translate-y-1 active:shadow-none z-[9999] animate-in fade-in zoom-in duration-300"
+                className="fixed bottom-5 right-5 h-16 w-16 bg-[#FFE600] hover:bg-[#ffef5c] border-4 border-black dark:border-white text-black flex items-center justify-center shadow-[6px_6px_0_0_#000] dark:shadow-[6px_6px_0_0_#fff] transition-all hover:-translate-x-1 hover:-translate-y-1 hover:shadow-[9px_9px_0_0_#000] dark:hover:shadow-[9px_9px_0_0_#fff] active:translate-x-1 active:translate-y-1 active:shadow-none z-[9999] animate-in fade-in zoom-in duration-300"
                 title="AI Market Assistant"
             >
                 <Sparkles className="h-6 w-6 text-black" />
@@ -250,12 +250,12 @@ export default function ChatWidget() {
     return (
         <div 
             className={`
-                fixed z-[9999] flex bg-white/95 dark:bg-[#09090b]/95 backdrop-blur-2xl border border-zinc-200 dark:border-zinc-800 shadow-2xl transition-all duration-500 overflow-hidden ring-1 ring-amber-500/10 dark:ring-amber-500/20
+                fixed z-[9999] flex bg-[#fffdf2] dark:bg-[#09090b] border-4 border-black dark:border-white transition-all duration-300 overflow-hidden
                 max-md:inset-0 max-md:w-full max-md:h-full max-md:rounded-none max-md:pt-[env(safe-area-inset-top,20px)] max-md:pb-[env(safe-area-inset-bottom,10px)]
-                md:rounded-2xl md:min-w-[400px] md:min-h-[500px] md:max-w-[100vw] md:max-h-[100vh]
+                md:rounded-none md:min-w-[400px] md:min-h-[500px] md:max-w-[100vw] md:max-h-[100vh]
                 ${isExpanded 
-                    ? "md:top-4 md:bottom-4 md:left-4 md:right-4 md:w-[calc(100vw-2rem)] md:h-[calc(100vh-2rem)] md:shadow-[0_0_50px_-12px_rgba(245,158,11,0.15)]" 
-                    : "md:bottom-6 md:right-6 md:top-auto md:left-auto md:w-[700px] md:h-[680px]"
+                    ? "md:top-4 md:bottom-4 md:left-4 md:right-4 md:w-[calc(100vw-2rem)] md:h-[calc(100vh-2rem)] md:shadow-[10px_10px_0_0_#000] dark:md:shadow-[10px_10px_0_0_#fff]"
+                    : "md:bottom-6 md:right-6 md:top-auto md:left-auto md:w-[700px] md:h-[680px] md:shadow-[10px_10px_0_0_#000] dark:md:shadow-[10px_10px_0_0_#fff]"
                 }
             `}
         >
@@ -276,8 +276,8 @@ export default function ChatWidget() {
             {/* Main Chat Container */}
             <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden">
                 {/* Header */}
-                <div className="flex items-center justify-between p-4 border-b border-amber-500/20 bg-gradient-to-l from-amber-50/50 to-transparent dark:from-amber-950/20 dark:to-transparent shrink-0">
-                    <div className="flex items-center gap-2 text-black dark:text-white font-medium">
+                <div className="flex items-center justify-between px-4 py-3 border-b-4 border-black dark:border-white bg-[#FFE600] shrink-0">
+                    <div className="flex items-center gap-2 text-black font-black uppercase tracking-tight">
                         {user && (
                             <button
                                 onClick={() => setIsSidebarOpen(!isSidebarOpen)}
@@ -287,14 +287,14 @@ export default function ChatWidget() {
                                 <PanelLeft className="h-4 w-4" />
                             </button>
                         )}
-                        <div className="p-1.5 rounded-lg bg-amber-500/10">
-                            <Sparkles className="h-4 w-4 text-amber-500" />
+                        <div className="h-9 w-9 border-2 border-black bg-white flex items-center justify-center shadow-[2px_2px_0_0_#000]">
+                            <Sparkles className="h-4 w-4 text-black" />
                         </div>
                         <span>EGX AI Assistant</span>
                     </div>
                     <div className="flex items-center gap-2">
                         {user && (
-                            <div className="text-xs font-medium px-2.5 py-1 bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 rounded-full">
+                            <div className="text-[10px] font-black px-2.5 py-1.5 bg-white text-black border-2 border-black uppercase shadow-[2px_2px_0_0_#000]">
                                 {remainingQuota >= 99 ? "Unlimited ♾️" : `${remainingQuota}/15 Left`}
                             </div>
                         )}
@@ -316,7 +316,7 @@ export default function ChatWidget() {
                 </div>
 
                 {/* Messages Body */}
-                <div className="flex-1 overflow-y-auto overflow-x-hidden p-2 sm:p-4 space-y-3 sm:space-y-4">
+                <div className="flex-1 overflow-y-auto overflow-x-hidden p-3 sm:p-5 space-y-4 neobrutal-grid-bg">
                     {!user ? (
                         <div className="h-full flex flex-col items-center justify-center text-center p-6 space-y-4 my-auto min-h-[300px]">
                             <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-500">
@@ -360,13 +360,13 @@ export default function ChatWidget() {
                             )}
 
                             {messages.length === 0 && (
-                                <div className="h-full flex flex-col items-center justify-center text-center p-6 space-y-3 my-auto min-h-[260px] dir-rtl">
-                                    <div className="p-3 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
+                                <div className="h-full flex flex-col items-center justify-center text-center p-6 space-y-4 my-auto min-h-[260px] dir-rtl">
+                                    <div className="h-16 w-16 border-4 border-black dark:border-white bg-[#67E8F9] text-black flex items-center justify-center shadow-[5px_5px_0_0_#000] dark:shadow-[5px_5px_0_0_#fff] rotate-[-3deg]">
                                         <Sparkles className="h-7 w-7" />
                                     </div>
-                                    <h3 className="font-bold text-base text-black dark:text-white">كيف يمكنني مساعدتك اليوم؟</h3>
+                                    <h3 className="font-black text-xl text-black dark:text-white">اسأل السوق. خذ الإجابة بالبيانات.</h3>
                                     <p className="text-xs text-zinc-400 max-w-[300px] leading-relaxed">
-                                        اختر سهمًا للتحليل، أو استفسر عن مؤشرات RSI والمحافظ المالية، أو أرفق صورة للتحليل الفوري 📊
+                                        تحليل سهم، مقارنة، أخبار تاريخية، أو قراءة صورة محفظة من مكان واحد.
                                     </p>
                                 </div>
                             )}
@@ -378,16 +378,16 @@ export default function ChatWidget() {
                                     className="flex gap-2 sm:gap-4 w-full max-w-3xl mx-auto min-w-0"
                                 >
                                     <div className={`
-                                        h-8 w-8 rounded-full flex items-center justify-center shrink-0 mt-1
-                                        ${msg.role === "user" ? "bg-zinc-200 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400" : "bg-amber-500 text-black"}
+                                        h-9 w-9 border-2 border-black dark:border-white flex items-center justify-center shrink-0 mt-1 shadow-[2px_2px_0_0_#000] dark:shadow-[2px_2px_0_0_#fff]
+                                        ${msg.role === "user" ? "bg-white dark:bg-zinc-800 text-black dark:text-white" : "bg-[#FFE600] text-black"}
                                     `}>
                                         {msg.role === "user" ? <User className="h-5 w-5" /> : <Sparkles className="h-5 w-5" />}
                                     </div>
                                     <div className={`
-                                        flex-1 rounded-2xl p-2.5 sm:p-4 text-xs sm:text-sm max-w-full leading-relaxed min-w-0 overflow-hidden
+                                        flex-1 border-2 border-black dark:border-white p-3 sm:p-4 text-xs sm:text-sm max-w-full leading-relaxed min-w-0 overflow-hidden shadow-[4px_4px_0_0_#000] dark:shadow-[4px_4px_0_0_#fff]
                                         ${msg.role === "user"
-                                            ? "bg-zinc-100 dark:bg-zinc-800 text-black dark:text-zinc-100"
-                                            : "bg-transparent text-black dark:text-zinc-100"}
+                                            ? "bg-[#67E8F9] dark:bg-cyan-950 text-black dark:text-zinc-100"
+                                            : "bg-white dark:bg-zinc-900 text-black dark:text-zinc-100"}
                                     `}>
                                         {/* Show image thumbnails if present */}
                                         {((msg.images && msg.images.length > 0) || (msg.imageUrl && msg.imageUrl !== "[image]") || msg.imagePreviewUrl) && (
@@ -409,6 +409,7 @@ export default function ChatWidget() {
                                             showSuggestedButtons={idx === messages.length - 1}
                                             onButtonClick={(btnText) => sendMessage(btnText)}
                                             isStreaming={msg.isStreaming}
+                                            tables={msg.tables}
                                         />
 
                                     </div>
@@ -456,7 +457,7 @@ export default function ChatWidget() {
                 </div>
 
                 {/* Input Form */}
-                <div className="p-3 sm:p-4 border-t border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/50 shrink-0 min-w-0 overflow-hidden">
+                <div className="p-3 sm:p-4 border-t-4 border-black dark:border-white bg-[#FFE600] shrink-0 min-w-0 overflow-hidden">
                     {user ? (
                         <form onSubmit={handleSubmit} className="space-y-2">
                             {/* Image Previews List */}
@@ -486,7 +487,7 @@ export default function ChatWidget() {
                             )}
 
                             {/* Textarea + Action buttons box */}
-                            <div className="relative flex items-end gap-2 bg-white dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-800 rounded-2xl p-2 focus-within:border-amber-500 transition-colors">
+                            <div className="relative flex items-end gap-2 bg-white dark:bg-zinc-950 border-4 border-black dark:border-white p-2 focus-within:bg-[#fffce0] dark:focus-within:bg-zinc-900 transition-colors shadow-[4px_4px_0_0_#000]">
                                 <input
                                     ref={fileInputRef}
                                     type="file"
@@ -533,10 +534,10 @@ export default function ChatWidget() {
                                     type={isLoading ? "button" : "submit"}
                                     onClick={isLoading ? () => stopResponding() : undefined}
                                     disabled={!isLoading && (!input.trim() && imagePreviews.length === 0)}
-                                    className={`h-9 w-9 shrink-0 rounded-xl flex items-center justify-center transition-all mb-0.5 ${
+                                    className={`h-10 w-10 shrink-0 border-2 border-black flex items-center justify-center transition-all mb-0.5 ${
                                         isLoading
                                             ? "bg-red-500 hover:bg-red-600 text-white cursor-pointer shadow-sm active:scale-95"
-                                            : "bg-amber-500 hover:bg-amber-400 disabled:opacity-50 disabled:hover:bg-amber-500 text-black"
+                                            : "bg-black hover:bg-zinc-800 disabled:opacity-50 text-white"
                                     }`}
                                     title={isLoading ? (language === "ar" ? "إيقاف الرد" : "Stop generation") : (language === "ar" ? "إرسال" : "Send")}
                                 >

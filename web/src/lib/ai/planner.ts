@@ -490,13 +490,16 @@ EXAMPLE 2 - Sector Analysis (CRITICAL FOR SECTOR QUERIES):
 - ⚠️ FOR IMAGES: Count the visible stocks carefully and ensure your symbols array length matches the count
 - Return ONLY the JSON, no extra text`;
 
-    const recentHistoryText = (hasImages || visionProvided) ? "" : (history || []).slice(-6).map((h: any) => `${h.role}: ${h.content}`).join("\n");
+    const hasContextReference = /الاتنين|الإثنين|الاطنين|كلاهما|مع بعض|السهمين|تحليلهم|هاتهم|قولي عنهم|حللهم|بياناتهم|سعرهم|أخبارهم|ده|دا|دي|هذا|السابق|اللي فات|قبل كده|من شوية|تاريخ الشات|سياق المحادثة/i.test(message || "");
+    const recentHistoryText = (hasImages || visionProvided || !hasContextReference) ? "" : (history || []).slice(-4).map((h: any) => `${h.role}: ${h.content}`).join("\n");
     const imageInstructions = visionProvided
         ? ""
         : (hasImages
         ? `\n\n⚠️ UNRESTRICTED EXPERT VISION EXTRACTION ⚠️\n- Thoroughly inspect the uploaded image(s) using full multimodal vision capabilities.\n- If the image contains portfolio holdings, OCR and extract ALL visible uppercase stock tickers.\n- If the image contains technical charts, diagrams, or financial documents: describe every detail, pattern, technical indicator, price target, support/resistance level, and trend visible in image_summary.\n` 
         : "");
-    const sessionContext = (hasImages || visionProvided) ? `Current Session:\n${JSON.stringify(session)}\n\nRecent History:\n${(history || []).slice(-4).map((h: any) => `${h.role}: ${h.content.substring(0, 200)}`).join("\n")}\n\n` : `Current Session:\n${JSON.stringify(session)}\n\nRecent History:\n${recentHistoryText}\n\n`;
+    const sessionContext = hasContextReference
+        ? `Current Session:\n${JSON.stringify(session)}\n\nRecent History:\n${recentHistoryText}\n\n`
+        : "";
     const userPromptText = `${sessionContext}User Request:\n${message || "Analyze input"}${imageInstructions}\n\n⚠️ CRITICAL instruction: You MUST return ONLY a valid JSON object starting with '{' and ending with '}'. Do NOT write any conversational text, explanations, or steps (like 'To analyze the image...'). Respond only with the JSON data.`;
 
     const plannerModels = hasImages
@@ -742,10 +745,6 @@ EXAMPLE 2 - Sector Analysis (CRITICAL FOR SECTOR QUERIES):
                             resolvedSymbols = symbols;
                         } else if (!isMarketScan && !hasImages) {
                             if ((isFollowupQuery || isAggregateTableRequest) && session.last_symbols?.length) {
-                                resolvedSymbols = session.last_symbols;
-                            } else if (session.current_symbol) {
-                                resolvedSymbols = [session.current_symbol];
-                            } else if (session.last_symbols?.length) {
                                 resolvedSymbols = session.last_symbols;
                             }
                         }

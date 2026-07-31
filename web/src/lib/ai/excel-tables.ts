@@ -15,6 +15,11 @@ const cell = (value: unknown): string => {
     return String(value);
 };
 
+const metric = (value: unknown, digits = 2): string => {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric.toFixed(digits).replace(/\.00$/, "") : cell(value);
+};
+
 function stockRow(stock: any, symbolFallback = ""): string[] {
     const tech = stock?.tech || stock;
     const price = stock?.price?.close ?? stock?.price ?? tech?.close ?? "";
@@ -29,10 +34,10 @@ function stockRow(stock: any, symbolFallback = ""): string[] {
         cell(stock?.symbol || symbolFallback),
         cell(stock?.name || stock?.info?.name),
         cell(price),
-        cell(change),
-        cell(volume),
-        cell(tech?.rsi_14 ?? stock?.rsi_14),
-        cell(tech?.macd_signal ?? stock?.macd_signal),
+        metric(change),
+        metric(volume),
+        metric(tech?.rsi_14 ?? stock?.rsi_14),
+        metric(tech?.macd_signal ?? stock?.macd_signal, 4),
         cell(stock?.signal || tech?.signal || "")
     ];
 }
@@ -93,14 +98,16 @@ function buildRecommendationsTable(tool: ToolResult): ExcelTable | null {
     const recommendations = Array.isArray(tool.data) ? tool.data : [];
     const rows = recommendations.map((item: any) => [
         cell(item.symbol), cell(item.name), cell(item.signal), cell(item.entry_price),
-        cell(item.target_price), cell(item.stop_loss), cell(item.created_at)
+        cell(item.target_price), cell(item.stop_loss), cell(item.current_price),
+        item.return_pct == null ? "غير متاح" : `${item.return_pct >= 0 ? "+" : ""}${Number(item.return_pct).toFixed(2)}%`,
+        cell(item.status || "غير محقق"), cell(item.created_at)
     ]);
     if (rows.length === 0) return null;
 
     return {
         id: tool.tool,
         title: "الإشارات المسجلة",
-        headers: ["السهم", "الاسم", "الإشارة", "سعر الدخول", "الهدف", "وقف الخسارة", "التاريخ"],
+        headers: ["السهم", "الاسم", "الإشارة المسجلة", "سعر الدخول", "الهدف", "وقف الخسارة", "السعر الحالي", "العائد غير المحقق", "الحالة", "تاريخ الإشارة"],
         rows,
         source: tool.source,
         data_time: tool.data_time
@@ -153,7 +160,9 @@ function buildNewsTable(tool: ToolResult): ExcelTable | null {
 
 function buildHistoricalFactsTable(tool: ToolResult): ExcelTable | null {
     const facts = tool.data && typeof tool.data === "object" ? tool.data : {};
-    const rows = Object.entries(facts).map(([key, value]) => [key, cell(value)]);
+    const rows = Object.entries(facts)
+        .filter(([key]) => key !== "prior_response")
+        .map(([key, value]) => [key, cell(value)]);
     if (rows.length === 0) return null;
 
     return {

@@ -17,6 +17,16 @@ export type ChatMessage = {
     suggestedButtons?: string[];
     isStreaming?: boolean;
     statusText?: string;
+    tables?: ChatTable[];
+};
+
+export type ChatTable = {
+    id: string;
+    title: string;
+    headers: string[];
+    rows: string[][];
+    source?: string;
+    data_time?: string;
 };
 
 type ChatAction = {
@@ -96,6 +106,13 @@ function saveStoredMessagesSync(sessionId: string, msgs: ChatMessage[]) {
     } catch (e) {
         console.error("Failed to save messages to localStorage:", e);
     }
+}
+
+function stripMarkdownTables(text: string): string {
+    return text
+        .replace(/(?:^|\n)###?[^\n]*\n\|[^\n]+\|\n\|[\s:\-|]+\|(?:\n\|[^\n]+\|)*/g, "")
+        .replace(/\n{3,}/g, "\n\n")
+        .trim();
 }
 
 export function ChatProvider({ children }: { children: ReactNode }) {
@@ -532,7 +549,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
                 if (data.remaining_quota !== undefined) {
                     setRemainingQuota(data.remaining_quota);
                 }
-                assistantMsg.content = sanitizeReply(data.reply || "معذرة، لم أتمكن من معالجة هذا الطلب.");
+                assistantMsg.content = stripMarkdownTables(sanitizeReply(data.reply || "معذرة، لم أتمكن من معالجة هذا الطلب."));
+                assistantMsg.tables = Array.isArray(data.tables) ? data.tables : undefined;
                 assistantMsg.suggestedButtons = Array.isArray(data.suggested_buttons) ? data.suggested_buttons : undefined;
                 assistantMsg.isStreaming = false;
                 assistantMsg.statusText = undefined;
@@ -584,6 +602,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
                                 assistantMsg.isStreaming = false;
                                 assistantMsg.statusText = undefined;
                                 updateAssistantMsgInState(assistantMsg);
+                            } else if (parsed.type === "tables" && Array.isArray(parsed.data)) {
+                                assistantMsg.tables = parsed.data;
+                                updateAssistantMsgInState(assistantMsg);
                             } else if (currentEventName === "status" || parsed.type === "status" || parsed.event === "status" || parsed.status) {
                                 const statusMsg = parsed.status || parsed.message || parsed.content;
                                 if (statusMsg) {
@@ -591,8 +612,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
                                     updateAssistantMsgInState(assistantMsg);
                                 }
                             } else if (currentEventName === "token" || parsed.type === "token" || parsed.event === "token" || parsed.token !== undefined || parsed.delta !== undefined) {
-                                const token = parsed.token ?? parsed.delta ?? parsed.content ?? parsed.text ?? "";
-                                assistantMsg.content += token;
+                                 const token = parsed.token ?? parsed.delta ?? parsed.content ?? parsed.text ?? "";
+                                 assistantMsg.content = sanitizeReply(assistantMsg.content + token);
                                 assistantMsg.isStreaming = true;
                                 
                                 const now = Date.now();
@@ -602,13 +623,14 @@ export function ChatProvider({ children }: { children: ReactNode }) {
                                 }
                             } else if (currentEventName === "done" || parsed.type === "done" || parsed.event === "done") {
                                 if (parsed.reply) {
-                                    assistantMsg.content = sanitizeReply(parsed.reply);
+                                    assistantMsg.content = stripMarkdownTables(sanitizeReply(parsed.reply));
                                 } else if (assistantMsg.content) {
-                                    assistantMsg.content = sanitizeReply(assistantMsg.content);
+                                    assistantMsg.content = stripMarkdownTables(sanitizeReply(assistantMsg.content));
                                 }
                                 if (Array.isArray(parsed.suggested_buttons)) {
                                     assistantMsg.suggestedButtons = parsed.suggested_buttons;
                                 }
+                                if (Array.isArray(parsed.tables)) assistantMsg.tables = parsed.tables;
                                 if (parsed.remaining_quota !== undefined) {
                                     setRemainingQuota(parsed.remaining_quota);
                                 }
@@ -646,7 +668,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             if (!assistantMsg.content && assistantMsg.statusText) {
                 assistantMsg.content = assistantMsg.statusText;
             } else {
-                assistantMsg.content = sanitizeReply(assistantMsg.content);
+                assistantMsg.content = stripMarkdownTables(sanitizeReply(assistantMsg.content));
             }
             updateAssistantMsgInState(assistantMsg);
             flushStoredMessages(currentSessionId);

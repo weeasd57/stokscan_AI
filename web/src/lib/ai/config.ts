@@ -7,6 +7,7 @@ export const AI_CONFIG = {
     response: {
       default: "deepseek-ai/deepseek-v4-flash",
       fallbacks: ["meta/llama-3.1-8b-instruct", "deepseek-ai/deepseek-v4-pro", "meta/llama-3.1-70b-instruct"],
+      agentRouter: ["gpt-5.6-sol"],
       vision: ["nvidia/nemotron-nano-12b-v2-vl", "nvidia/llama-3.1-nemotron-nano-vl-8b-v1", "meta/llama-3.2-11b-vision-instruct"],
     },
   },
@@ -21,6 +22,7 @@ export const AI_CONFIG = {
   api: {
     deepseekOfficialBaseUrl: "https://api.deepseek.com/chat/completions",
     nvidiaBaseUrl: "https://integrate.api.nvidia.com/v1/chat/completions",
+    agentRouterBaseUrl: "https://agentrouter.org/v1/chat/completions",
   },
   tools: {
     defaultCountry: "Egypt",

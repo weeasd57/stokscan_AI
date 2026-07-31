@@ -4,6 +4,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { parseMarkdownTable, exportTableToExcel } from "@/lib/excelExport";
 import { FileSpreadsheet, Download, Check, Sparkles, Copy } from "lucide-react";
 import StockCard, { StockData } from "./StockCard";
+import type { ChatTable } from "@/contexts/ChatContext";
 
 interface FormattedChatMessageProps {
     content: string;
@@ -12,6 +13,7 @@ interface FormattedChatMessageProps {
     onButtonClick?: (text: string) => void;
     showSuggestedButtons?: boolean;
     isStreaming?: boolean;
+    tables?: ChatTable[];
 }
 
 interface RawPipeStock {
@@ -91,6 +93,7 @@ function parseRawPipeLine(line: string): RawPipeStock[] | null {
     if (!line.includes("|")) return null;
     const trimmed = line.trim();
     if (trimmed.startsWith("|")) return null;
+    if (!/(strong_?accumulation|strong_?distribution|accumulation|distribution)/i.test(line)) return null;
     const pipes = line.split("|").map(s => s.trim());
     if (pipes.length < 8) return null;
 
@@ -112,6 +115,10 @@ function parseRawPipeLine(line: string): RawPipeStock[] | null {
             const headerMatch = currentHeader.match(/([A-Z0-9]{2,6})\s+([\d.]+)/i) || currentHeader.match(/([A-Z0-9]{2,6})/i);
             const symbol = headerMatch ? headerMatch[1].toUpperCase() : "STOCK";
             const score = headerMatch && headerMatch[2] ? headerMatch[2] : "N/A";
+            const validSignal = /(strong\s+accumulation|strong\s+distribution|accumulation|distribution)/i.test(signal.replace(/_/g, " "));
+            if (!/^[A-Z0-9]{2,10}$/.test(symbol) || !validSignal || !Number.isFinite(Number(val2)) || !Number.isFinite(Number(val4))) {
+                return null;
+            }
             
             const nextMatch = nextPart.match(/^([\d.]+)\s+(.*)$/);
             let days = nextPart;
@@ -367,7 +374,8 @@ export function FormattedChatMessage({
     suggestedButtons,
     onButtonClick,
     showSuggestedButtons = true,
-    isStreaming = false
+    isStreaming = false,
+    tables = []
 }: FormattedChatMessageProps) {
     const [copiedText, setCopiedText] = useState(false);
     const mermaidContainerRef = useRef<HTMLDivElement>(null);
@@ -419,7 +427,10 @@ export function FormattedChatMessage({
         );
     }
 
-    const blocks: ContentBlock[] = parseContentBlocks(content);
+    const blocks: ContentBlock[] = parseContentBlocks(content).filter(block => {
+        if (block.type !== "table") return true;
+        return !tables.some(table => JSON.stringify(table.headers) === JSON.stringify(block.headers));
+    });
     const renderFormattedText = (text: string, isLastBlock: boolean) => {
         let cleanText = text.replace(/```mermaid\s+[\s\S]*?```/g, "").trim();
         const lines = cleanText.split("\n");
@@ -562,6 +573,14 @@ export function FormattedChatMessage({
 
     return (
         <div className="space-y-3 w-full max-w-full min-w-0 text-right overflow-hidden" dir="rtl">
+            {tables.map((table) => (
+                <div key={`${table.id}-${table.data_time || ""}`} className="space-y-1">
+                    <div className="text-xs font-bold text-zinc-700 dark:text-zinc-300">
+                        {table.title}{table.data_time ? ` (${String(table.data_time).slice(0, 10)})` : ""}
+                    </div>
+                    <ExportableTable headers={table.headers} rows={table.rows} />
+                </div>
+            ))}
             {blocks.map((block, bIdx) => {
                 const isLastBlock = bIdx === blocks.length - 1;
                 if (block.type === "text") {
@@ -641,7 +660,12 @@ export function FormattedChatMessage({
                     <button
                         type="button"
                         onClick={() => {
-                            navigator.clipboard.writeText(content);
+                            const tableText = tables.map(table => [
+                                `${table.title}${table.data_time ? ` (${String(table.data_time).slice(0, 10)})` : ""}`,
+                                table.headers.join("\t"),
+                                ...table.rows.map(row => row.join("\t"))
+                            ].join("\n")).join("\n\n");
+                            navigator.clipboard.writeText([tableText, content].filter(Boolean).join("\n\n"));
                             setCopiedText(true);
                             setTimeout(() => setCopiedText(false), 2000);
                         }}
