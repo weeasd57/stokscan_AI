@@ -3,7 +3,7 @@ import { AI_CONFIG } from "./config";
 import { createHash } from "crypto";
 import { getSupabaseClient } from "@/lib/supabase/route-data";
 
-let cachedStocks: Array<{ symbol: string; name: string; name_ar: string | null }> | null = null;
+let cachedStocks: Array<{ symbol: string; name: string }> | null = null;
 let lastCacheTime = 0;
 const CACHE_TTL = 1000 * 60 * 60 * 24; // 24 hours
 
@@ -57,7 +57,7 @@ const INDEX_TRIGGER_PHRASES = [
     /اسهم\s*(التلاتين|الثلاثين|التلتين)/i,
 ];
 
-async function getStocksList(): Promise<StocksListData> {
+export async function getStocksList(): Promise<StocksListData> {
     const now = Date.now();
     if (!cachedStocks || (now - lastCacheTime > CACHE_TTL)) {
         try {
@@ -77,8 +77,6 @@ async function getStocksList(): Promise<StocksListData> {
     
     const stockMappings: Record<string, string> = {};
     for (const stock of cachedStocks || []) {
-        const nameAr = stock.name_ar?.trim();
-        if (nameAr) stockMappings[nameAr] = stock.symbol.toUpperCase();
         const nameEn = stock.name?.trim();
         if (nameEn) stockMappings[nameEn] = stock.symbol.toUpperCase();
     }
@@ -86,11 +84,20 @@ async function getStocksList(): Promise<StocksListData> {
 
     if (cachedStocks && cachedStocks.length > 0) {
         stocksListStr = cachedStocks
-            .map(s => `- ${s.symbol}: ${s.name}${s.name_ar ? ` | ${s.name_ar}` : ""}`)
+            .map(s => `- ${s.symbol}: ${s.name}`)
             .join("\n");
     }
 
     return { stocksListStr, stockMappings };
+}
+
+export function getSyncStockMappings(): Record<string, string> {
+    const stockMappings: Record<string, string> = {};
+    for (const stock of cachedStocks || []) {
+        const nameEn = stock.name?.trim();
+        if (nameEn) stockMappings[nameEn] = stock.symbol.toUpperCase();
+    }
+    return stockMappings;
 }
 
 let cachedValidSymbols: string[] = [];
