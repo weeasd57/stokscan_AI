@@ -194,6 +194,16 @@ export async function executeStructuredTools(
                             data_type: "live",
                             data: { stocks: accStocksWithNames, date: maxDate }
                         });
+                    } else if (symbols.length > 0) {
+                        textParts.push(`\n [بيانات المسح الفني لأسهم محددة]: بناءً على المسح الفني بتاريخ ${maxDate}، لا يوجد إشارة تجميع أو سيولة مؤسسية على الأسهم المطلوبة (${symbols.join(", ")}). الإشارة الحالية محايدة أو تصريف.`);
+                        results.push({
+                            tool: "get_accumulation_stocks",
+                            source: "stock_scans_summary",
+                            data_time: maxDate,
+                            symbols,
+                            data_type: "live",
+                            data: { stocks: [], date: maxDate, message: "No accumulation detected." }
+                        });
                     }
                 }
             }
@@ -246,6 +256,16 @@ export async function executeStructuredTools(
                             symbols: accStocks.map((r: any) => r.symbol),
                             data_type: "live",
                             data: { stocks: accStocks, date: maxDate }
+                        });
+                    } else if (symbols.length > 0) {
+                        textParts.push(`\n [بيانات المسح الفني لأسهم محددة]: بناءً على المسح الفني بتاريخ ${maxDate}، لا يوجد إشارة تجميع (Accumulation) أو سيولة مؤسسية على الأسهم المطلوبة (${symbols.join(", ")}). الإشارة الحالية محايدة أو تصريف.`);
+                        results.push({
+                            tool: "get_accumulation_stocks",
+                            source: "stock_technical_indicators",
+                            data_time: maxDate,
+                            symbols,
+                            data_type: "live",
+                            data: { stocks: [], date: maxDate, message: "No accumulation detected." }
                         });
                     }
                 }

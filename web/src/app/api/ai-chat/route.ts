@@ -247,7 +247,13 @@ export async function POST(req: NextRequest) {
             const customStream = new ReadableStream({
                 async start(controller) {
                     const sendEvent = (data: any) => {
-                        controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+                        try {
+                            controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+                        } catch (e: any) {
+                            if (e.code !== 'ERR_INVALID_STATE') {
+                                console.warn("Failed to enqueue event:", e.message);
+                            }
+                        }
                     };
 
                     try {
@@ -425,9 +431,11 @@ export async function POST(req: NextRequest) {
                             }
                         }
                     } catch (err: any) {
-                        console.error("Streaming error:", err);
+                        if (err.code !== 'ERR_INVALID_STATE') {
+                            console.error("Streaming error:", err);
+                        }
                         sendEvent({ type: "error", detail: err.message || "Streaming failed" });
-                        controller.close();
+                        try { controller.close(); } catch (e) {}
                     }
                 }
             });

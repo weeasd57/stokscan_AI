@@ -1,7 +1,7 @@
 import { IntentPlan, VisionContext, SessionState, SessionSummary, PlannerResult } from "./types";
 import { analyzeImage } from "./vision";
 import { retrieveRelevantMemory, MemoryResult } from "./memory";
-import { runPlanner } from "./planner";
+import { runPlanner, getSyncStockMappings, getStocksList } from "./planner";
 import { executeStructuredTools, StructuredToolOutput } from "./tools-v2";
 import { generateV2Response, generateV2Stream } from "./final-v2";
 import { loadSessionState, loadSessionSummary, updateSessionSummary, updateSessionState } from "./session";
@@ -85,8 +85,20 @@ export function extractExplicitSymbols(message: string): string[] {
     const excluded = new Set(["EGX", "NEWS", "TODAY", "LAST", "WEEK", "FROM", "BETWEEN", "RSI", "MACD", "VWAP"]);
     const explicit = message.match(/\b[A-Z][A-Z0-9]{1,9}\b/g) || [];
     const lowercaseTickers = message.match(/\b[a-z][a-z0-9]{2,5}\b/g) || [];
+    
+    let matchedSymbols = [...explicit, ...lowercaseTickers];
+
+    // Attempt to match Arabic full names from the mapping
+    const stockMappings = getSyncStockMappings();
+    // Use word boundaries or strict inclusion to prevent false positives for short words
+    for (const [arName, symbol] of Object.entries(stockMappings)) {
+        if (arName.length >= 2 && message.includes(arName)) {
+            matchedSymbols.push(symbol);
+        }
+    }
+
     return Array.from(new Set(
-        [...explicit, ...lowercaseTickers]
+        matchedSymbols
             .map(symbol => symbol.toUpperCase() === "AFID" ? "AFDI" : symbol.toUpperCase())
             .filter(symbol => !excluded.has(symbol))
     ));
@@ -121,7 +133,7 @@ export function extractTemporalContext(message: string): { date: string | null; 
         return { date: null, timeframe: "historical" };
     }
     if (/(النهارده|اليوم|دلوقتي|حاليا|حاليًا|الان|الآن)/i.test(message)) {
-        return { date: new Date().toISOString().slice(0, 10), timeframe: "current" };
+        return { date: null, timeframe: "current" };
     }
     return { date: null, timeframe: "unspecified" };
 }
@@ -222,13 +234,13 @@ export function enforceIntentFromMessage(message: string, plannerIntent: string,
 
     const topMoversQuery = /(أعلى|اعلى|أقوى|اقوى).{0,20}(10|عشرة|الأسهم|اسهم|ارتفاع|ارتفاعاً|صعود|النهارده|اليوم)/i.test(normalized);
     if (topMoversQuery) {
-        return { intent: "market_summary", tools: ["get_market"], replaceTools: true };
+        return { intent: "market_summary", tools: ["get_market", "get_accumulation_stocks"], replaceTools: true };
     }
 
     const liquidityQuery = /((?:ال)?سيول(?:ه)?|تجميع|تصريف|فين.*السوق|where.*liquidity|market liquidity)/i.test(normalized);
     if (liquidityQuery && hasExplicitSymbol) {
         if (/(تجميع|تصريف|مؤسس|institutional|wyckoff)/i.test(normalized)) {
-            return { intent: "accumulation", tools: ["get_accumulation_stocks"], replaceTools: true };
+            return { intent: "accumulation", tools: ["get_stock", "get_accumulation_stocks"], replaceTools: true };
         }
         return { intent: "stock_analysis", tools: ["get_stock"], replaceTools: true };
     }
@@ -329,6 +341,9 @@ export async function* runPipelineStream(
     let vision: VisionContext | null = null;
     let visionError: string | null = null;
     let memory: MemoryResult | null = null;
+
+    // Warm up the Arabic names cache for synchronous extraction later
+    await getStocksList();
 
     // ===== STAGE 1: Vision Analysis (isolated, multi-image support) =====
     if (hasImages) {
