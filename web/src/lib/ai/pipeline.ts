@@ -93,13 +93,26 @@ export function enforceIntentFromMessage(message: string, plannerIntent: string,
         return { intent: "stock_analysis", tools: ["get_stock"], replaceTools: true };
     }
 
-    const liquidityQuery = /(السيول|السيوله|تجميع|تصريف|فين.*السوق|where.*liquidity|market liquidity)/i.test(normalized);
-    if (liquidityQuery && !hasExplicitSymbol) {
-        return { intent: normalized.includes("تجميع") || normalized.includes("تصريف") ? "accumulation" : "market_summary", tools: ["get_market", "get_accumulation_stocks"] };
+    if (/(أخبار|اخبار|خبر|news)/i.test(normalized)) {
+        return { intent: "stock_news", tools: ["get_news"], replaceTools: true };
     }
 
-    if (/(البنوك|بنوك|قطاع البنوك|banking sector|banks)/i.test(normalized)) {
-        return { intent: "sector_analysis", tools: ["get_sector"] };
+    const topMoversQuery = /(أعلى|اعلى|أقوى|اقوى).{0,20}(10|عشرة|الأسهم|اسهم|ارتفاع|ارتفاعاً|صعود)/i.test(normalized);
+    if (topMoversQuery && !hasExplicitSymbol) {
+        return { intent: "market_summary", tools: ["get_market"], replaceTools: true };
+    }
+
+    const liquidityQuery = /(السيول|السيوله|تجميع|تصريف|فين.*السوق|where.*liquidity|market liquidity)/i.test(normalized);
+    if (liquidityQuery && !hasExplicitSymbol) {
+        return {
+            intent: normalized.includes("تجميع") || normalized.includes("تصريف") ? "accumulation" : "market_summary",
+            tools: ["get_market", "get_accumulation_stocks"],
+            replaceTools: true
+        };
+    }
+
+    if (/(البنوك|بنوك|قطاع البنوك|banking sector|banks|الأدوية|ادويه|الادويه|pharma|pharmaceutical)/i.test(normalized)) {
+        return { intent: "sector_analysis", tools: ["get_sector"], replaceTools: true };
     }
 
     return { intent: plannerIntent, tools: [] };
@@ -115,6 +128,19 @@ export function buildMarketLiquidityResponse(tools: StructuredToolOutput): strin
     if (market?.regime) lines.push(`- حالة السوق: ${market.regime}`);
     if (market?.egx30 != null) lines.push(`- EGX30: ${market.egx30} نقطة`);
     if (market?.usd != null) lines.push(`- USD/EGP: ${market.usd} جنيه`);
+
+    if (Array.isArray(market?.top_gainers) && market.top_gainers.length > 0) {
+        lines.push("", "أعلى الأسهم ارتفاعاً اليوم:");
+        market.top_gainers.slice(0, 10).forEach((stock: any, index: number) => {
+            lines.push(`${index + 1}. ${stock.symbol}: ${stock.change ?? stock.change_pct ?? "غير متاح"}%`);
+        });
+    }
+    if (Array.isArray(market?.top_losers) && market.top_losers.length > 0) {
+        lines.push("", "أعلى الأسهم انخفاضاً اليوم:");
+        market.top_losers.slice(0, 10).forEach((stock: any, index: number) => {
+            lines.push(`${index + 1}. ${stock.symbol}: ${stock.change ?? stock.change_pct ?? "غير متاح"}%`);
+        });
+    }
 
     // Top Gainers
     if (market?.top_gainers && Array.isArray(market.top_gainers) && market.top_gainers.length > 0) {
@@ -222,10 +248,13 @@ export async function* runPipelineStream(
     );
 
     const mergedSymbols = mergeVisionSymbols(plannerResult.entities.symbols || [], vision);
+    if (mergedSymbols.length === 0 && sessionState.current_symbol && /(أبيع|ابيع|بيع|أحتفظ|احتفظ|أخرج|اخرج|بكام|بكم|السعر)/i.test(userMessage)) {
+        mergedSymbols.push(sessionState.current_symbol);
+    }
     const enforced = enforceIntentFromMessage(userMessage, plannerResult.intent, mergedSymbols);
 
     const plan: IntentPlan = {
-        intent: mapIntent(enforced.intent),
+        intent: enforced.intent === "accumulation" ? "market_summary" : mapIntent(enforced.intent),
         confidence: plannerResult.confidence || 0.8,
         entities: {
             symbols: mergedSymbols,
@@ -393,10 +422,13 @@ export async function runPipeline(
     );
 
     const mergedSymbols = mergeVisionSymbols(plannerResult.entities.symbols || [], vision);
+    if (mergedSymbols.length === 0 && sessionState.current_symbol && /(أبيع|ابيع|بيع|أحتفظ|احتفظ|أخرج|اخرج|بكام|بكم|السعر)/i.test(userMessage)) {
+        mergedSymbols.push(sessionState.current_symbol);
+    }
     const enforced = enforceIntentFromMessage(userMessage, plannerResult.intent, mergedSymbols);
 
     const plan: IntentPlan = {
-        intent: mapIntent(enforced.intent),
+        intent: enforced.intent === "accumulation" ? "market_summary" : mapIntent(enforced.intent),
         confidence: plannerResult.confidence || 0.8,
         entities: {
             symbols: mergedSymbols,

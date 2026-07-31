@@ -227,6 +227,13 @@ describe("Deterministic intent guards", () => {
         expect(result.tools).toEqual(["get_market", "get_accumulation_stocks"]);
     });
 
+    it("routes top-ten questions to the market tool only", () => {
+        const result = enforceIntentFromMessage("هات أعلى 10 أسهم النهارده", "general_chat", []);
+        expect(result.intent).toBe("market_summary");
+        expect(result.tools).toEqual(["get_market"]);
+        expect(result.replaceTools).toBe(true);
+    });
+
     it("routes bank sector questions to sector data", () => {
         const result = enforceIntentFromMessage("بنوك حالتها إيه؟", "general_chat", []);
         expect(result.intent).toBe("sector_analysis");

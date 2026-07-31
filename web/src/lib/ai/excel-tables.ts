@@ -186,6 +186,22 @@ function buildMarketTable(tool: ToolResult): ExcelTable | null {
     };
 }
 
+function buildMoverTable(tool: ToolResult, key: "top_gainers" | "top_losers", title: string): ExcelTable | null {
+    const movers = Array.isArray(tool.data?.[key]) ? tool.data[key] : [];
+    const rows = movers.slice(0, 10).map((stock: any) => [
+        cell(stock.symbol), cell(stock.name), cell(stock.change ?? stock.change_pct)
+    ]);
+    if (rows.length === 0) return null;
+    return {
+        id: `${tool.tool}-${key}`,
+        title,
+        headers: ["السهم", "الاسم", "التغير %"],
+        rows,
+        source: tool.source,
+        data_time: tool.data_time
+    };
+}
+
 export function buildExcelTables(toolResults: ToolResult[], vision: VisionContext | null): ExcelTable[] {
     const tables: ExcelTable[] = [];
 
@@ -235,7 +251,13 @@ export function buildExcelTables(toolResults: ToolResult[], vision: VisionContex
         else if (tool.tool === "get_accumulation_stocks") table = buildAccumulationTable(tool);
         else if (tool.tool === "get_news") table = buildNewsTable(tool);
         else if (tool.tool === "get_historical_facts") table = buildHistoricalFactsTable(tool);
-        else if (tool.tool === "get_market") table = buildMarketTable(tool);
+        else if (tool.tool === "get_market") {
+            table = buildMarketTable(tool);
+            const gainers = buildMoverTable(tool, "top_gainers", "أعلى الأسهم ارتفاعاً");
+            const losers = buildMoverTable(tool, "top_losers", "أعلى الأسهم انخفاضاً");
+            if (gainers) tables.push(gainers);
+            if (losers) tables.push(losers);
+        }
         else if (tool.tool === "get_stock") table = buildStockTable(tool);
 
         if (table) tables.push(table);

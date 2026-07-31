@@ -115,6 +115,10 @@ export async function executeStructuredTools(
                         .filter((r: any) => r.signal === "accumulation" || Number(r.acc_score || 0) >= 50)
                         .sort((a: any, b: any) => Number(b.acc_score || 0) - Number(a.acc_score || 0))
                         .slice(0, 15);
+                    const accStocksWithNames = accStocks.map((r: any) => ({
+                        ...r,
+                        name: stocksMap.get(r.symbol) || r.symbol
+                    }));
 
                     if (accStocks.length > 0) {
                         textParts.push(`\n [بيانات المسح الفني الشامل لجميع أسهم البورصة المصرية]:\n`);
@@ -131,7 +135,7 @@ export async function executeStructuredTools(
                             data_time: maxDate,
                             symbols: accStocks.map((r: any) => r.symbol),
                             data_type: "live",
-                            data: { stocks: accStocks, date: maxDate }
+                            data: { stocks: accStocksWithNames, date: maxDate }
                         });
                     }
                 }
