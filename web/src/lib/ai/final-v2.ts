@@ -215,16 +215,11 @@ async function callNvidiaApi(
                 const data = await res.json();
                 const reply = data.choices?.[0]?.message?.content?.trim();
                 if (reply) return { response: reply };
-                break;
+                keyIndex++;
             } else {
-                if (res.status === 401 || res.status === 403 || res.status === 429) {
-                    keyIndex++;
-                    continue;
-                }
-                break;
+                keyIndex++;
             }
         } catch (err: any) {
-            if (err.name === "AbortError") break;
             keyIndex++;
         }
     }
@@ -437,7 +432,8 @@ export async function* generateV2Stream(
         }
     }
 
-    yield "عذراً، لم أتمكن من إنشاء الرد.";
+    const fallbackText = buildDeterministicResponse(userMessage, plan, toolResults);
+    yield fallbackText || "عذراً، لم أتمكن من إنشاء الرد.";
 }
 
 function buildVisionUncertaintyResponse(vision: VisionContext): string {
