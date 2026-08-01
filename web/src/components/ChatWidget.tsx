@@ -9,6 +9,8 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { ChatSidebar } from "@/components/chat/ChatSidebar";
 import { FormattedChatMessage } from "@/components/chat/FormattedChatMessage";
+import { isChatAdminEmail } from "@/lib/chat-sharing";
+import { toast } from "sonner";
 
 export default function ChatWidget() {
     const { 
@@ -40,6 +42,31 @@ export default function ChatWidget() {
     const [modelMenuOpen, setModelMenuOpen] = useState(false);
     const [modelMenuPos, setModelMenuPos] = useState<{ bottom: number; left: number; width: number } | null>(null);
     const [loadingStep, setLoadingStep] = useState<1 | 2 | 3>(1);
+    const [sharingMessageId, setSharingMessageId] = useState<string | null>(null);
+    const isChatAdmin = isChatAdminEmail(user?.email);
+
+    const shareAnswer = useCallback(async (messageIndex: number) => {
+        const answerMessage = messages[messageIndex];
+        const questionMessage = [...messages.slice(0, messageIndex)].reverse().find(message => message.role === "user");
+        if (!answerMessage?.content || !questionMessage?.content) return;
+        const shareKey = answerMessage.id || String(messageIndex);
+        setSharingMessageId(shareKey);
+        try {
+            const response = await fetch("/api/chat/share", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ question: questionMessage.content, answer: answerMessage.content }),
+            });
+            const data = await response.json();
+            if (!response.ok || !data.url) throw new Error(data.error || "تعذر إنشاء الرابط");
+            await navigator.clipboard.writeText(data.url);
+            toast.success("تم نشر الإجابة ونسخ رابط المدونة");
+        } catch (error) {
+            toast.error(error instanceof Error ? error.message : "تعذر نشر الإجابة");
+        } finally {
+            setSharingMessageId(null);
+        }
+    }, [messages]);
 
     useEffect(() => {
         if (!isLoading) {
@@ -408,9 +435,12 @@ export default function ChatWidget() {
                                             suggestedButtons={msg.suggestedButtons}
                                             showSuggestedButtons={idx === messages.length - 1}
                                             onButtonClick={(btnText) => sendMessage(btnText)}
-                                            isStreaming={msg.isStreaming}
-                                            tables={msg.tables}
-                                        />
+                                             isStreaming={msg.isStreaming}
+                                             tables={msg.tables}
+                                             showShareButton={isChatAdmin && msg.role === "assistant" && idx === messages.length - 1}
+                                             onShare={() => shareAnswer(idx)}
+                                             sharing={sharingMessageId === (msg.id || String(idx))}
+                                         />
 
                                     </div>
                                 </div>

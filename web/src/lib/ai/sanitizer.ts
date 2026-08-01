@@ -164,6 +164,9 @@ export function sanitizeUiLabel(text: string): string {
         .replace(/Current time:\s*[^\n]+/gi, "")
         .replace(/Working directory:\s*[^\n]+/gi, "")
         .replace(/Workspace root folder:\s*[^\n]+/gi, "")
+        .replace(/<\s*environment_details[\s\S]*$/gi, "")
+        .replace(/environment_details[\s\S]*$/gi, "")
+        .replace(/شير في المدونة\s*$/gim, "")
         .replace(/\s*✅\s*تحليل EGX Bots مبني على بيانات حية[^\n]*/gi, "")
         .trim();
     return /environment_details|Current time:|Working directory:|Workspace root folder:/i.test(clean) ? "" : clean;

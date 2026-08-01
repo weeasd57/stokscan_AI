@@ -2,7 +2,7 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import { parseMarkdownTable, exportTableToExcel } from "@/lib/excelExport";
-import { FileSpreadsheet, Download, Check, Sparkles, Copy } from "lucide-react";
+import { FileSpreadsheet, Download, Check, Sparkles, Copy, Share2 } from "lucide-react";
 import StockCard, { StockData } from "./StockCard";
 import type { ChatTable } from "@/contexts/ChatContext";
 import { sanitizeUiLabel } from "@/lib/ai/sanitizer";
@@ -15,6 +15,9 @@ interface FormattedChatMessageProps {
     showSuggestedButtons?: boolean;
     isStreaming?: boolean;
     tables?: ChatTable[];
+    showShareButton?: boolean;
+    onShare?: () => void;
+    sharing?: boolean;
 }
 
 interface RawPipeStock {
@@ -376,7 +379,10 @@ export function FormattedChatMessage({
     onButtonClick,
     showSuggestedButtons = true,
     isStreaming = false,
-    tables = []
+    tables = [],
+    showShareButton = false,
+    onShare,
+    sharing = false
 }: FormattedChatMessageProps) {
     content = sanitizeUiLabel(content);
     suggestedButtons = suggestedButtons?.map(sanitizeUiLabel).filter(Boolean);
@@ -679,6 +685,19 @@ export function FormattedChatMessage({
                         {copiedText ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
                         <span className="font-sans">{copiedText ? "Copied!" : "Copy"}</span>
                     </button>
+
+                    {showShareButton && onShare && (
+                        <button
+                            type="button"
+                            onClick={onShare}
+                            disabled={sharing}
+                            className="flex items-center gap-1 border-2 border-black bg-[#67E8F9] px-3 py-1.5 text-xs font-black text-black shadow-[2px_2px_0_0_#000] transition-all hover:translate-x-0.5 hover:translate-y-0.5 hover:shadow-none disabled:cursor-wait disabled:opacity-60"
+                            title="نشر آخر سؤال وإجابته في المدونة"
+                        >
+                            <Share2 className="h-3.5 w-3.5" />
+                            {sharing ? "جاري إنشاء الرابط..." : "شير في المدونة"}
+                        </button>
+                    )}
 
                     {onButtonClick && showSuggestedButtons && actionButtons.map((btnText, bIdx) => (
                         <button

@@ -1,6 +1,6 @@
 import { IntentPlan, VisionContext, ToolResult, FactSnapshot } from "./types";
 import { AI_CONFIG } from "./config";
-import { describeDatedFallback } from "./pipeline";
+import { describeDatedFallback, isFairValueScanRequest } from "./pipeline";
 import { sanitizeReply } from "./sanitizer";
 
 const MAX_CONTEXT_CHARS = 30000;
@@ -450,7 +450,22 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
     const levelResults = toolResults.filter(result => result.tool === "get_stock_levels");
     const stockResults = toolResults.filter(result => result.tool === "get_stock" && result.data?.symbol);
     const compoundNews = toolResults.find(result => result.tool === "get_news");
+    const fairValueRequest = /(قيمه عادله|قيمة عادلة|القيمة العادلة|القيمه العادله|fair value|عادله|عادلة)/i.test(userMessage);
     const compoundMessage = /\n|\s+(?:هات|جيب|اعرض|حلل|شوف|قارن|لو\s+كسر)(?:\s|$)|[،,]\s*(?:و\s*)?(?:مين|ايه|إيه|هات|جيب|شوف|حلل)(?:\s|$)/i.test(userMessage);
+    const fairValueScan = toolResults.find(result => result.tool === "get_fair_value_scan");
+    if (fairValueScan) {
+        const stocks = Array.isArray(fairValueScan.data?.stocks) ? fairValueScan.data.stocks : [];
+        if (!stocks.length) return `لا توجد أسهم في بيانات ${fairValueScan.data_time} تتداول فوق القيمة الوسطية لنطاقها السعري خلال آخر 60 جلسة.`;
+        return [
+            `الأسهم الأعلى تداولاً فوق القيمة الوسطية لنطاق 60 جلسة بتاريخ ${fairValueScan.data_time}:`,
+            ...stocks.slice(0, 15).map((stock: any, index: number) => `${index + 1}. ${stock.symbol}: السعر ${Number(stock.close).toFixed(2)} جنيه، القيمة الوسطية ${Number(stock.midpoint).toFixed(2)} جنيه، أعلى منها بـ ${Number(stock.premium_pct).toFixed(1)}%.`),
+            "هذا مسح تقييم فني نسبي وليس قيمة عادلة مالية؛ القيمة الجوهرية تحتاج أرباحاً وتدفقات نقدية ومكررات قطاع موثقة."
+        ].join("\n");
+    }
+    if (isFairValueScanRequest(userMessage)
+        && !toolResults.some(result => result.tool === "get_fair_value_scan")) {
+        return "تعذر تنفيذ مسح الأسهم فوق القيمة العادلة لعدم توفر بيانات الأسعار التاريخية الكافية لحساب نطاق 60 جلسة. لم أستخدم أسماء أو أرقاماً مخمّنة.";
+    }
     if (compoundMessage && (levelResults.length > 0 || stockResults.length > 0 || compoundNews)) {
         const parts: string[] = [];
         for (const result of stockResults) {
@@ -461,6 +476,7 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
             const data = result.data || {};
             parts.push(data.support == null ? `${data.symbol || result.symbols[0]}: لا توجد بيانات مستويات كافية.` : `${data.symbol}: الدعم ${Number(data.support).toFixed(2)} جنيه، المقاومة ${Number(data.resistance).toFixed(2)} جنيه.`);
         }
+        if (fairValueRequest) parts.push(...buildTechnicalValuationLines(stockResults, levelResults));
         if (/(كسر|يكسر).{0,12}الدعم|الدعم.{0,12}(اتكسر|انكسر)/i.test(userMessage)) {
             for (const result of levelResults) {
                 const data = result.data || {};
@@ -725,29 +741,48 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
 
     const stocks = stockData;
     if (stocks.length > 0) {
-        const lines = stocks.map(result => {
+        const lines = stocks.slice(0, 10).map(result => {
             const data = result.data;
             return `- ${data.symbol} (${data.name}): السعر ${data.price} جنيه، التغير ${data.change_pct}، RSI ${data.rsi_14}، MACD ${data.macd_signal}، حجم التداول ${data.vol_ratio} من متوسط 20 جلسة.`;
         });
-        const levelLines = levelResults
+        const levelLines = levelResults.length > 5 ? [] : levelResults
             .map(lvl => {
                 const lvlData = lvl?.data;
                 const lvlSymbol = lvlData?.symbol || lvl?.symbols?.[0];
                 if (lvlData?.support != null && lvlData?.resistance != null) {
-                    return `الدعم الحسابي (لسهم ${lvlSymbol}): ${Number(lvlData.support).toFixed(2)} جنيه، المقاومة الحسابية: ${Number(lvlData.resistance).toFixed(2)} جنيه، من آخر ${lvlData.lookback_sessions} جلسة حتى ${lvl.data_time}.`;
+                    return `الدعم الحسابي: ${Number(lvlData.support).toFixed(2)} جنيه، المقاومة الحسابية: ${Number(lvlData.resistance).toFixed(2)} جنيه (لسهم ${lvlSymbol})، من آخر ${lvlData.lookback_sessions} جلسة حتى ${lvl.data_time}.`;
                 }
                 return null;
             })
             .filter((line): line is string => line !== null);
 
-        const levelFallback = levelLines.length === 0 && levelResults.some(r => r.source === "empty")
+        const levelFallback = levelResults.length <= 5 && levelLines.length === 0 && levelResults.some(r => r.source === "empty")
             ? "لا توجد بيانات سعرية كافية لحساب الدعم والمقاومة."
             : null;
 
-        return [describeDatedFallback(plan.entities.requested_date, stocks[0]?.data_time), "ملخص أحدث البيانات المتاحة:", ...lines, ...levelLines, levelFallback, "RSI وMACD يقيسان الزخم، ونسبة الحجم تقارن التداول الحالي بمتوسطه ولا تثبت وحدها وجود تجميع أو تصريف."].filter(Boolean).join("\n");
+        const omitted = stocks.length > 10 ? `تم عرض ملخص أول 10 أسهم فقط؛ الجدول المنظم يحتوي على جميع الأسهم المتاحة (${stocks.length}).` : null;
+        return [describeDatedFallback(plan.entities.requested_date, stocks[0]?.data_time), "ملخص أحدث البيانات المتاحة:", ...lines, omitted, ...levelLines, levelFallback, ...(fairValueRequest ? buildTechnicalValuationLines(stocks, levelResults) : []), "RSI وMACD يقيسان الزخم، ونسبة الحجم تقارن التداول الحالي بمتوسطه ولا تثبت وحدها وجود تجميع أو تصريف."].filter(Boolean).join("\n");
     }
 
     return null;
+}
+
+function buildTechnicalValuationLines(stockResults: ToolResult[], levelResults: ToolResult[]): string[] {
+    const levelsBySymbol = new Map(levelResults.map(result => [String(result.data?.symbol || result.symbols[0] || "").toUpperCase(), result.data || {}]));
+    return stockResults.flatMap(result => {
+        const data = result.data || {};
+        const symbol = String(data.symbol || result.symbols[0] || "").toUpperCase();
+        const levels = levelsBySymbol.get(symbol);
+        const values = [Number(data.price), Number(levels?.support), Number(levels?.resistance)];
+        if (!values.every(Number.isFinite) || values[2] < values[1]) return [];
+        const [price, support, resistance] = values;
+        const midpoint = (support + resistance) / 2;
+        const position = resistance === support ? 50 : ((price - support) / (resistance - support)) * 100;
+        return [
+            `${symbol}: نطاق التقييم الفني المرجعي ${support.toFixed(2)} إلى ${resistance.toFixed(2)} جنيه، والقيمة الوسطية الحسابية ${midpoint.toFixed(2)} جنيه؛ السعر الحالي عند ${Math.max(0, Math.min(100, position)).toFixed(1)}% من النطاق.`,
+            "هذا ليس قيمة عادلة مالية أو توصية؛ القيمة الجوهرية تحتاج أرباحاً وتدفقات نقدية ومكررات قطاع موثقة، ولا يتم اختراعها من RSI أو MACD."
+        ];
+    });
 }
 
 function shouldReturnNoData(

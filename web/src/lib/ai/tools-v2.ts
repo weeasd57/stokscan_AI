@@ -63,6 +63,53 @@ export async function executeStructuredTools(
         return { results, formattedText: "" };
     }
 
+    // ===== MARKET-WIDE TECHNICAL VALUATION SCAN =====
+    if (plan.tools.includes("get_fair_value_scan")) {
+        try {
+            let techQuery = supabase.from("stock_technical_indicators")
+                .select("symbol, close, rsi_14, change_pct, volume, vol_sma20, date")
+                .order("date", { ascending: false })
+                .limit(1000);
+            if (requestedDate) techQuery = techQuery.eq("date", requestedDate);
+            const { data: techRows } = await techQuery;
+            const dataDate = requestedDate || techRows?.[0]?.date || now.slice(0, 10);
+            const latestRows = (techRows || []).filter((row: any) => row.date === dataDate && Number.isFinite(Number(row.close)));
+            const { data: priceRows } = await supabase.from("stock_prices")
+                .select("symbol, close, high, low, date")
+                .lte("date", dataDate)
+                .order("date", { ascending: false })
+                .limit(50000);
+            const pricesBySymbol = new Map<string, any[]>();
+            (priceRows || []).forEach((price: any) => {
+                const key = String(price.symbol || "").toUpperCase();
+                const rows = pricesBySymbol.get(key) || [];
+                if (rows.length < 60) rows.push(price);
+                pricesBySymbol.set(key, rows);
+            });
+            const candidates = latestRows.map((row: any) => {
+                const prices = pricesBySymbol.get(String(row.symbol).toUpperCase()) || [];
+                if (!prices.length) return null;
+                const support = Math.min(...prices.map((price: any) => Number(price.low ?? price.close)));
+                const resistance = Math.max(...prices.map((price: any) => Number(price.high ?? price.close)));
+                const midpoint = (support + resistance) / 2;
+                const close = Number(row.close);
+                if (![support, resistance, midpoint, close].every(Number.isFinite) || close <= midpoint) return null;
+                return {
+                    symbol: String(row.symbol).toUpperCase(), close, support, resistance, midpoint,
+                    premium_pct: midpoint > 0 ? ((close / midpoint) - 1) * 100 : null,
+                    rsi_14: row.rsi_14,
+                    change_pct: row.change_pct,
+                    vol_ratio: Number(row.vol_sma20) > 0 ? Number(row.volume) / Number(row.vol_sma20) : null
+                };
+            });
+            const stocks = candidates.filter(Boolean).sort((a: any, b: any) => Number(b.premium_pct) - Number(a.premium_pct)).slice(0, 30);
+            results.push({ tool: "get_fair_value_scan", source: "stock_prices", data_time: dataDate, symbols: stocks.map((stock: any) => stock.symbol), data_type: requestedDate ? "historical" : "live", data: { metric: "price_above_60_session_midpoint", stocks } });
+            textParts.push(`[مسح التقييم الفني السوقي بتاريخ ${dataDate}]: ${stocks.length} سهم فوق القيمة الوسطية لنطاق 60 جلسة.`);
+        } catch (e) {
+            console.warn("Error computing fair-value scan:", e);
+        }
+    }
+
     // ===== HISTORICAL RECALL =====
     if (plan.intent === "historical_recall") {
         const requestedDate = plan.entities.requested_date;
@@ -331,7 +378,7 @@ export async function executeStructuredTools(
     // ===== LIVE STOCK DATA =====
     if (plan.needs_live_data && plan.tools.includes("get_stock") && symbols.length > 0) {
         try {
-            const [pricesRes, techsRes, stocksRes] = await Promise.all([
+            const [pricesRes, techsRes, stocksRes, fundamentalsRes] = await Promise.all([
                 Promise.all(
                     symbols.map(sym => {
                         let query = supabase.from("stock_prices")
@@ -352,7 +399,8 @@ export async function executeStructuredTools(
                 ),
                 supabase.from("stocks").select("symbol, name").or(
                     symbols.map(s => `symbol.ilike.${s}`).join(",")
-                )
+                ),
+                supabase.from("stock_fundamentals").select("symbol, data").eq("exchange", "EGX").in("symbol", symbols)
             ]);
 
             const pricesMap = new Map<string, any>();
@@ -367,6 +415,10 @@ export async function executeStructuredTools(
             (stocksRes.data || []).forEach((s: any) => {
                 if (s?.symbol) stocksMap.set(s.symbol.toUpperCase(), s);
             });
+            const fundamentalsMap = new Map<string, any>();
+            (fundamentalsRes.data || []).forEach((row: any) => {
+                if (row?.symbol) fundamentalsMap.set(String(row.symbol).toUpperCase(), row.data || {});
+            });
 
             if (pricesMap.size > 0 || techsMap.size > 0) {
                 textParts.push(`\n [بيانات السوق الحالية - ${now.split("T")[0]}]:\n`);
@@ -374,7 +426,8 @@ export async function executeStructuredTools(
                     const upperSym = sym.toUpperCase();
                     const price = pricesMap.get(upperSym);
                     const tech = techsMap.get(upperSym);
-                    const stockData: any = stocksMap.get(upperSym);
+                        const stockData: any = stocksMap.get(upperSym);
+                        const fundamentals = fundamentalsMap.get(upperSym) || {};
 
                     if (price || tech) {
                         const priceData = price as any;
@@ -407,7 +460,11 @@ export async function executeStructuredTools(
                                 change_pct: changeStr,
                                 rsi_14: rsi,
                                 macd_signal: macd,
-                                vol_ratio: volRatioStr
+                                vol_ratio: volRatioStr,
+                                market_cap: fundamentals.marketCap ?? fundamentals.market_cap ?? null,
+                                eps: fundamentals.eps ?? null,
+                                book_value_per_share: fundamentals.bookValuePerShare ?? fundamentals.book_value_per_share ?? null,
+                                pe_ratio: fundamentals.peRatio ?? fundamentals.pe_ratio ?? null
                             }
                         });
                     }

@@ -2,7 +2,7 @@ const { validateVisionOutput } = require("../ai/vision");
 const { buildV2FinalMessages, buildDeterministicResponse } = require("../ai/final-v2");
 const { retrieveRelevantMemory } = require("../ai/memory");
 const { buildExcelTables, tablesToMarkdown } = require("../ai/excel-tables");
-const { enforceIntentFromMessage, buildMarketLiquidityResponse, buildTopMoversResponse, needsLiveDataForTools, needsHistoricalData, extractSectorFromMessage, extractExplicitSymbols, buildDeterministicPlannerResult, extractRequestedDate, extractRequestedDateRange, extractTemporalContext, isMarketWideRequest, extractSingleStockFromRecentHistory, isEgxWeekend, describeDatedFallback } = require("../ai/pipeline");
+const { enforceIntentFromMessage, buildMarketLiquidityResponse, buildTopMoversResponse, needsLiveDataForTools, needsHistoricalData, extractSectorFromMessage, extractExplicitSymbols, buildDeterministicPlannerResult, extractRequestedDate, extractRequestedDateRange, extractTemporalContext, isMarketWideRequest, isFairValueScanRequest, extractSingleStockFromRecentHistory, isEgxWeekend, describeDatedFallback } = require("../ai/pipeline");
 const { sanitizeReply } = require("../ai/sanitizer");
 const { sanitizeUiLabel } = require("../ai/sanitizer");
 const { parseToolsOutput } = require("../ai/table-builder");
@@ -282,6 +282,29 @@ describe("Deterministic response fallback", () => {
         ]);
         expect(response).toContain("الدعم الحسابي: 8.00");
         expect(response).toContain("المقاومة الحسابية: 12.00");
+    });
+
+    it("shows a bounded technical valuation without calling it intrinsic fair value", () => {
+        const response = buildDeterministicResponse("ايه القيمة العادلة لـ ABCD؟", { ...basePlan, entities: { ...basePlan.entities, symbols: ["ABCD"] } }, [
+            { tool: "get_stock", source: "database", data_time: "2026-07-30", symbols: ["ABCD"], data_type: "live", data: { symbol: "ABCD", price: 10, rsi_14: 50 } },
+            { tool: "get_stock_levels", source: "stock_prices", data_time: "2026-07-30", symbols: ["ABCD"], data_type: "live", data: { symbol: "ABCD", support: 8, resistance: 12 } }
+        ]);
+        expect(response).toContain("نطاق التقييم الفني المرجعي 8.00 إلى 12.00 جنيه");
+        expect(response).toContain("القيمة الوسطية الحسابية 10.00 جنيه");
+        expect(response).toContain("ليس قيمة عادلة مالية");
+    });
+
+    it("keeps the fair-value scan market-wide and avoids previous stock context", () => {
+        const message = "هات الاسهم اللي بتتداول فوق القيمة العادلة";
+        expect(isMarketWideRequest(message)).toBe(true);
+        expect(isFairValueScanRequest(message)).toBe(true);
+        expect(enforceIntentFromMessage(message, "stock_analysis", ["ELSH"]).tools).toEqual(["get_fair_value_scan"]);
+        const plan = buildDeterministicPlannerResult("ات الأسهم اللي بتتداول فوق القيمة العادلة", { current_symbol: "ELKA", last_symbols: ["ELKA"], summary: "تحليل ELKA" });
+        expect(plan).toMatchObject({
+            intent: "market_summary",
+            entities: { symbols: [] },
+            tools: ["get_fair_value_scan"]
+        });
     });
 
     it("uses levels to frame a sell decision without deciding for the user", () => {
