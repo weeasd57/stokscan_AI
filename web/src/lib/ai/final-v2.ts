@@ -340,7 +340,7 @@ export async function* generateV2Stream(
         yield buildVisionUncertaintyResponse(visionContext);
         return;
     }
-    const isAnalyticalQuery = /(سبب|ليه|لماذا|ازاي|إزاي|تفسير|سر|ينزل|يهبط|يطلع|صعود|هبوط|فرص|أحسن|احسن|افضل|أفضل|توقعات|متوقع|مقارن|قارن|حالة|حالتها|رايك|رأيك|توجيه|تجميع|تصريف|تحليل|شراء|بيع|مناسب|مكمل|مستمر|جلسه|جلسة|غدا|غداً|اشترى|اشتري)/i.test(userMessage);
+    const isAnalyticalQuery = /(سبب|ليه|لماذا|ازاي|إزاي|تفسير|سر|ينزل|يهبط|يطلع|صعود|هبوط|فرص|أحسن|احسن|افضل|أفضل|توقعات|متوقع|مقارن|قارن|حالة|حالتها|رايك|رأيك|توجيه|تجميع|تصريف|تحليل|شراء|بيع|مناسب|مكمل|مستمر|جلسه|جلسة|غدا|غداً|اشترى|اشتري|عادله|عادلة|تقييم|قيمته|تسوى|تساوي)/i.test(userMessage);
     const deterministic = !isAnalyticalQuery ? buildDeterministicResponse(userMessage, plan, toolResults) : null;
     if (deterministic) {
         yield deterministic;
@@ -491,7 +491,7 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
     }
 
     const news = toolResults.find(result => result.tool === "get_news");
-    if (news) {
+    if (news && stockResults.length === 0 && levelResults.length === 0) {
         const items = Array.isArray(news.data) ? news.data : [];
         const rangeLabel = plan.entities.requested_start_date && plan.entities.requested_end_date
             ? ` من ${plan.entities.requested_start_date} إلى ${plan.entities.requested_end_date}`
