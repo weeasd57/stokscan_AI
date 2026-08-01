@@ -1,3 +1,25 @@
+
+const ARABIC_STOCK_MAPPINGS: Record<string, string> = {
+    "القلعة": "CCAP", "القلعه": "CCAP", "شركة القلعة": "CCAP",
+    "فوري": "FWRY", "فورى": "FWRY", "فوري لتكنولوجيا البنوك": "FWRY",
+    "طلعت مصطفى": "TMGH", "مجموعة طلعت مصطفى": "TMGH",
+    "إعمار": "EMFD", "اعمار": "EMFD", "اعمار مصر": "EMFD",
+    "أبو قير": "ABUK", "ابو قير": "ABUK", "ابوقير للأسمدة": "ABUK", "أبو قير للأسمدة": "ABUK",
+    "مصر للألومنيوم": "EGAL", "مصر للالومنيوم": "EGAL", "الومنيوم مصر": "EGAL",
+    "حديد عز": "ESRS", "عز": "ESRS", "عز الدخيلة": "ESRS",
+    "مصر بني سويف": "MBSC", "بني سويف للأسمنت": "MBSC",
+    "السويدي": "SWDY", "السويدى": "SWDY", "السويدي إلكتريك": "SWDY",
+    "مدينة نصر": "MNHD", "مدينة مصر": "MNHD",
+    "بالم هيلز": "PHDC", "المصرية للاتصالات": "ETEL", "وي": "ETEL",
+    "ابن سينا": "ISPH", "ابن سينا فارما": "ISPH",
+    "جهينة": "JUFO", "جهينه": "JUFO",
+    "بلتون": "BTFH", "إي فاينانس": "EFIH", "اي فاينانس": "EFIH",
+    "النساجون": "ORWE", "النساجون الشرقيون": "ORWE",
+    "اوراسكوم": "ORAS", "أوراسكوم": "ORAS", "اوراسكوم للتنمية": "ORHD",
+    "سيدي كرير": "SKPC", "سيدى كرير": "SKPC", "اموك": "AMOC", "أموك": "AMOC",
+    "موبكو": "MFPC", "القاهرة للدواجن": "POUL", "المنصورة للدواجن": "MPCO",
+    "دومتي": "DMTY", "عبور لاند": "OLFI", "كليوباترا": "CLHO", "اجواء": "AJWA", "أجواء": "AJWA"
+};
 import { SessionState, PlannerResult, VisionContext } from "./types";
 import { AI_CONFIG } from "./config";
 import { createHash } from "crypto";
@@ -75,7 +97,7 @@ export async function getStocksList(): Promise<StocksListData> {
         }
     }
     
-    const stockMappings: Record<string, string> = {};
+    const stockMappings: Record<string, string> = { ...ARABIC_STOCK_MAPPINGS };
     for (const stock of cachedStocks || []) {
         const nameEn = stock.name?.trim();
         if (nameEn) stockMappings[nameEn] = stock.symbol.toUpperCase();
@@ -92,7 +114,7 @@ export async function getStocksList(): Promise<StocksListData> {
 }
 
 export function getSyncStockMappings(): Record<string, string> {
-    const stockMappings: Record<string, string> = {};
+    const stockMappings: Record<string, string> = { ...ARABIC_STOCK_MAPPINGS };
     for (const stock of cachedStocks || []) {
         const nameEn = stock.name?.trim();
         if (nameEn) stockMappings[nameEn] = stock.symbol.toUpperCase();
@@ -102,7 +124,6 @@ export function getSyncStockMappings(): Record<string, string> {
 
 let cachedValidSymbols: string[] = [];
 let lastSymbolsCacheTime = 0;
-
 async function loadValidSymbols(): Promise<string[]> {
     const now = Date.now();
     if (cachedValidSymbols.length === 0 || (now - lastSymbolsCacheTime > CACHE_TTL)) {
@@ -218,7 +239,8 @@ export function extractSymbolsFromText(
         .replace(/ة/g, "ه")
         .toLowerCase();
 
-    for (const [key, symbolOrArr] of Object.entries(stockMappings)) {
+    const mergedMappings = { ...ARABIC_STOCK_MAPPINGS, ...stockMappings };
+    for (const [key, symbolOrArr] of Object.entries(mergedMappings)) {
         const normalizedKey = key
             .replace(/[أإآ]/g, "ا")
             .replace(/ة/g, "ه")

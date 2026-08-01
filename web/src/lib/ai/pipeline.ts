@@ -91,9 +91,15 @@ export function extractExplicitSymbols(message: string): string[] {
     // Attempt to match Arabic full names from the mapping
     const stockMappings = getSyncStockMappings();
     // Use word boundaries or strict inclusion to prevent false positives for short words
+    const normMsg = message.replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").toLowerCase();
     for (const [arName, symbol] of Object.entries(stockMappings)) {
-        if (arName.length >= 2 && message.includes(arName)) {
-            matchedSymbols.push(symbol);
+        const normKey = arName.replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").toLowerCase();
+        if (normKey.length >= 2 && normMsg.includes(normKey)) {
+            if (Array.isArray(symbol)) {
+                matchedSymbols.push(...symbol);
+            } else {
+                matchedSymbols.push(symbol);
+            }
         }
     }
 
