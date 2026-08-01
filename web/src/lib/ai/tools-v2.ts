@@ -677,7 +677,7 @@ export async function executeStructuredTools(
 
     
     // ===== SECTOR LIST =====
-    if (plan.tools.includes("get_sector_list") || plan.intent === "sector_list") {
+    if (plan.tools.includes("get_sector_list")) {
         try {
             const { data: fundamentalsRows } = await supabase
                 .from("stock_fundamentals")
