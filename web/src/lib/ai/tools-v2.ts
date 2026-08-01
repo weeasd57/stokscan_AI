@@ -675,6 +675,71 @@ export async function executeStructuredTools(
         }
     }
 
+    
+    // ===== SECTOR LIST =====
+    if (plan.tools.includes("get_sector_list") || plan.intent === "sector_list") {
+        try {
+            const { data: fundamentalsRows } = await supabase
+                .from("stock_fundamentals")
+                .select("data")
+                .limit(1000);
+
+            const sectorCounts = new Map<string, number>();
+            const SECTOR_ARABIC_MAP: Record<string, string> = {
+                "Health Technology": "أدوية وتكنولوجيا صحية",
+                "Health Services": "رعاية صحية وخدمات طبية",
+                "Producer Manufacturing": "تصنيع وإنتاج تصنيعي",
+                "Finance": "بنوك وخدمات مالية",
+                "Distribution Services": "خدمات التوزيع واللوجستيات",
+                "Consumer Non-Durables": "أغذية ومستهلكات غير معمرة",
+                "Process Industries": "صناعات تحويلية ومعالجة",
+                "Energy Minerals": "بترول وطاقة",
+                "Retail Trade": "تجارة التجزئة",
+                "Non-Energy Minerals": "مواد بناء وتعدين",
+                "Transportation": "نقل وشحن",
+                "Utilities": "مرافق عامة",
+                "Technology Services": "اتصالات وتكنولوجيا المعلومات",
+                "Consumer Services": "سياحة وخدمات استهلاكية",
+                "Commercial Services": "خدمات تجارية ومقاولات",
+                "Industrial Services": "خدمات صناعية",
+                "Communications": "اتصالات والإعلام",
+                "Consumer Durables": "عقارات وسلع معمرة",
+                "Electronic Technology": "إلكترونيات وتكنولوجيا"
+            };
+
+            (fundamentalsRows || []).forEach((row: any) => {
+                let sector = "";
+                if (row.data && typeof row.data === "object") {
+                    sector = row.data.sector || row.data.Sector || row.data.industry || row.data.Industry || "";
+                } else if (typeof row.data === "string") {
+                    try {
+                        const parsed = JSON.parse(row.data);
+                        sector = parsed.sector || parsed.Sector || parsed.industry || parsed.Industry || "";
+                    } catch {}
+                }
+                if (sector) {
+                    const arabicName = SECTOR_ARABIC_MAP[sector] || sector;
+                    sectorCounts.set(arabicName, (sectorCounts.get(arabicName) || 0) + 1);
+                }
+            });
+
+            const sectors = Array.from(sectorCounts.entries())
+                .map(([sector, stock_count]) => ({ sector, stock_count }))
+                .sort((a, b) => b.stock_count - a.stock_count);
+
+            results.push({
+                tool: "get_sector_list",
+                source: "stock_fundamentals",
+                data_time: now,
+                symbols: [],
+                data_type: "live",
+                data: { sectors }
+            });
+        } catch (e) {
+            console.warn("Error fetching sector list:", e);
+        }
+    }
+
     // ===== SECTOR ANALYSIS =====
     if (plan.tools.includes("get_stock_levels") && symbols.length > 0) {
         const levelResults = await Promise.all(symbols.map(async symbol => {

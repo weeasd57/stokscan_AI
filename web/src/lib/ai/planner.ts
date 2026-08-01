@@ -303,6 +303,7 @@ EXAMPLE: If you see 4 stocks in the image, you MUST extract all 4 symbols, and l
 - "get_news": Fetches recent news headlines, articles, and sentiment scores. Use when the user asks for news (أخبار), announcements, or sentiment.
 - "get_recommendations": Fetches algorithmic buy/sell recommendations. Use when the user explicitly asks for recommendations, buying advice, or signals (e.g. 'تنصحني', 'أشتري', 'توصيات').
 - "get_sector": Fetches aggregated technical and fundamental data for a specific market sector. Use when the user asks about a sector (e.g., 'البنوك', 'الأدوية', 'العقارات', 'قطاع').
+- "get_sector_list": Fetches the full list of available market sectors and stock counts. Use when the user asks 'عندك كام قطاع', 'عدد القطاعات', 'إيه القطاعات المتاحة', 'قائمة القطاعات', 'قطاعات السوق'.
 - "get_market": Fetches overall market summary, EGX30/EGX70 index data, and top gainers/losers. Use when the user asks about the overall market, index, or general liquidity (e.g. 'حالة السوق', 'ايه اللي طلع', 'السوق').
 - "get_accumulation_stocks": Fetches a list of stocks currently in Wyckoff accumulation/distribution phases. Use when the user asks about 'تجميع', 'تصريف', 'سيولة مؤسسية', or 'accumulation'.
 - "get_comparison": Fetches data to compare two or more stocks. Use when the user explicitly asks to compare stocks (e.g., 'مقارنة بين', 'أيهما أفضل').
