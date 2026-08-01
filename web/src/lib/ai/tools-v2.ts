@@ -41,6 +41,10 @@ export async function executeStructuredTools(
             "بنوك": ["bank", "banking", "finance", "financial"],
             "ادويه": ["pharma", "pharmaceutical", "health technology", "health services", "health"],
             "عقارات": ["real estate", "homebuilding", "consumer durables", "durables", "housing", "development", "construction"],
+            "استصلاح اراضي": ["reclamation", "land", "agriculture", "agricultural", "farming", "crop", "استصلاح", "اراضي", "زراعة", "زراعي"],
+            "استصلاح": ["reclamation", "land", "agriculture", "agricultural", "farming", "crop", "استصلاح", "اراضي", "زراعة", "زراعي"],
+            "اراضي": ["reclamation", "land", "agriculture", "agricultural", "farming", "crop", "استصلاح", "اراضي", "زراعة", "زراعي"],
+            "زراعة": ["reclamation", "land", "agriculture", "agricultural", "farming", "crop", "استصلاح", "اراضي", "زراعة", "زراعي"],
             "اغذيه": ["food", "beverage", "consumer non-durables", "agriculture"],
             "بترول": ["oil", "gas", "petroleum", "energy minerals", "energy"],
             "بناء": ["building", "non-energy minerals", "construction", "materials"],
@@ -779,6 +783,10 @@ export async function executeStructuredTools(
                     "ادويه": ["pharmaceutical", "pharma", "drug", "health technology", "health services", "أدوية", "صيدلة", "رعاية صحية"],
                     "عقارات": ["real estate", "realestate", "عقارات", "عقاري", "homebuilding"],
                     "اغذيه": ["food", "beverage", "أغذية", "غذائية", "consumer non-durables", "agricultural"],
+                    "استصلاح اراضي": ["reclamation", "land", "agriculture", "agricultural", "farming", "crop", "استصلاح", "اراضي", "زراعة", "زراعي"],
+                    "استصلاح": ["reclamation", "land", "agriculture", "agricultural", "farming", "crop", "استصلاح", "اراضي", "زراعة", "زراعي"],
+                    "اراضي": ["reclamation", "land", "agriculture", "agricultural", "farming", "crop", "استصلاح", "اراضي", "زراعة", "زراعي"],
+                    "زراعة": ["reclamation", "land", "agriculture", "agricultural", "farming", "crop", "استصلاح", "اراضي", "زراعة", "زراعي"],
                     "بترول": ["oil", "gas", "petroleum", "energy", "بترول", "طاقة"],
                 };
 

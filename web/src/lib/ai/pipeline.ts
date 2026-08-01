@@ -321,6 +321,7 @@ export function enforceIntentFromMessage(message: string, plannerIntent: string,
 
 export function extractSectorFromMessage(message: string): string | null {
     const normalized = message.toLowerCase().replace(/[أإآ]/g, "ا").replace(/ة/g, "ه");
+    if (/(استصلاح|اراضي استصلاح|استصلاح اراضي|اراضى|زراعه|زراعي|زراعيه|agri|agriculture|reclamation)/i.test(normalized)) return "استصلاح أراضي";
     if (/(البنوك|بنوك|banking sector|banks)/i.test(normalized)) return "بنوك";
     if (/(العقارات|عقارات|عقاري|real estate)/i.test(normalized)) return "عقارات";
     if (/(الادويه|ادويه|دواء|pharma|pharmaceutical)/i.test(normalized)) return "أدوية";
