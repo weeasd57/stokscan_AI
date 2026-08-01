@@ -725,12 +725,22 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
             const data = result.data;
             return `- ${data.symbol} (${data.name}): السعر ${data.price} جنيه، التغير ${data.change_pct}، RSI ${data.rsi_14}، MACD ${data.macd_signal}، حجم التداول ${data.vol_ratio} من متوسط 20 جلسة.`;
         });
-        const levelData = levels?.data;
-        const levelSymbol = levelData?.symbol || levels?.symbols?.[0] || stocks[0]?.data?.symbol;
-        const levelLine = levelData?.support != null && levelData?.resistance != null
-            ? `الدعم الحسابي (لسهم ${levelSymbol}): ${Number(levelData.support).toFixed(2)} جنيه، المقاومة الحسابية: ${Number(levelData.resistance).toFixed(2)} جنيه، من آخر ${levelData.lookback_sessions} جلسة حتى ${levels?.data_time}.`
-            : (levels?.source === "empty" ? "لا توجد بيانات سعرية كافية لحساب الدعم والمقاومة." : null);
-        return [describeDatedFallback(plan.entities.requested_date, stocks[0]?.data_time), "ملخص أحدث البيانات المتاحة:", ...lines, levelLine, "RSI وMACD يقيسان الزخم، ونسبة الحجم تقارن التداول الحالي بمتوسطه ولا تثبت وحدها وجود تجميع أو تصريف."].filter(Boolean).join("\n");
+        const levelLines = levelResults
+            .map(lvl => {
+                const lvlData = lvl?.data;
+                const lvlSymbol = lvlData?.symbol || lvl?.symbols?.[0];
+                if (lvlData?.support != null && lvlData?.resistance != null) {
+                    return `الدعم الحسابي (لسهم ${lvlSymbol}): ${Number(lvlData.support).toFixed(2)} جنيه، المقاومة الحسابية: ${Number(lvlData.resistance).toFixed(2)} جنيه، من آخر ${lvlData.lookback_sessions} جلسة حتى ${lvl.data_time}.`;
+                }
+                return null;
+            })
+            .filter((line): line is string => line !== null);
+
+        const levelFallback = levelLines.length === 0 && levelResults.some(r => r.source === "empty")
+            ? "لا توجد بيانات سعرية كافية لحساب الدعم والمقاومة."
+            : null;
+
+        return [describeDatedFallback(plan.entities.requested_date, stocks[0]?.data_time), "ملخص أحدث البيانات المتاحة:", ...lines, ...levelLines, levelFallback, "RSI وMACD يقيسان الزخم، ونسبة الحجم تقارن التداول الحالي بمتوسطه ولا تثبت وحدها وجود تجميع أو تصريف."].filter(Boolean).join("\n");
     }
 
     return null;

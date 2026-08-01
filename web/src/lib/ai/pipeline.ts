@@ -456,10 +456,12 @@ export async function* runPipelineStream(
             vision
         );
 
-    let mergedSymbols = Array.from(new Set([
-        ...extractExplicitSymbols(userMessage),
-        ...mergeVisionSymbols(plannerResult.entities.symbols || [], vision)
-    ]));
+    const explicitSymbols = extractExplicitSymbols(userMessage);
+    let mergedSymbols = explicitSymbols.length > 0
+        ? explicitSymbols
+        : Array.from(new Set([
+            ...mergeVisionSymbols(plannerResult.entities.symbols || [], vision)
+        ]));
     const riskFollowUp = /(يخسر|خسار|يهبط|ينزل).{0,30}(تاني|اكتر|أكتر|اكثر|أكثر|%|في الميه|فى الميه)|(?:ممكن|هل).{0,20}(يخسر|يهبط|ينزل)/i.test(userMessage);
     if (riskFollowUp && mergedSymbols.length === 0) {
         const recentSymbol = extractSingleStockFromRecentHistory(history);
@@ -667,10 +669,12 @@ export async function runPipeline(
             vision
         );
 
-    let mergedSymbols = Array.from(new Set([
-        ...extractExplicitSymbols(userMessage),
-        ...mergeVisionSymbols(plannerResult.entities.symbols || [], vision)
-    ]));
+    const explicitSymbols = extractExplicitSymbols(userMessage);
+    let mergedSymbols = explicitSymbols.length > 0
+        ? explicitSymbols
+        : Array.from(new Set([
+            ...mergeVisionSymbols(plannerResult.entities.symbols || [], vision)
+        ]));
     const riskFollowUp = /(يخسر|خسار|يهبط|ينزل).{0,30}(تاني|اكتر|أكتر|اكثر|أكثر|%|في الميه|فى الميه)|(?:ممكن|هل).{0,20}(يخسر|يهبط|ينزل)/i.test(userMessage);
     if (riskFollowUp && mergedSymbols.length === 0) {
         const recentSymbol = extractSingleStockFromRecentHistory(history);
