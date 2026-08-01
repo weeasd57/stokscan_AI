@@ -18,7 +18,8 @@ const ARABIC_STOCK_MAPPINGS: Record<string, string> = {
     "اوراسكوم": "ORAS", "أوراسكوم": "ORAS", "اوراسكوم للتنمية": "ORHD",
     "سيدي كرير": "SKPC", "سيدى كرير": "SKPC", "اموك": "AMOC", "أموك": "AMOC",
     "موبكو": "MFPC", "القاهرة للدواجن": "POUL", "المنصورة للدواجن": "MPCO",
-    "دومتي": "DMTY", "عبور لاند": "OLFI", "كليوباترا": "CLHO", "اجواء": "AJWA", "أجواء": "AJWA"
+    "دومتي": "DMTY", "عبور لاند": "OLFI", "كليوباترا": "CLHO", "اجواء": "AJWA", "أجواء": "AJWA",
+    "القاهرة للإسكان": "ELKA", "القاهرة للاسكان": "ELKA", "القاهرة والاسكان": "ELKA", "القاهره والاسكان": "ELKA", "القاهره للاسكان": "ELKA", "إلكا": "ELKA", "الكا": "ELKA", "elka": "ELKA", "Elka": "ELKA", "القاهرة للإسكان والتعمير": "ELKA", "القاهرة للاسكان والتعمير": "ELKA", "القاهره للاسكان والتعمير": "ELKA"
 };
 import { SessionState, PlannerResult, VisionContext } from "./types";
 import { AI_CONFIG } from "./config";
@@ -677,19 +678,12 @@ Analyze the user request and return a JSON object. You MUST dynamically choose t
                     break; // Model returned OK but invalid content format - try next model
                 } else {
                     console.warn(`Planner model ${modelName} failed with status ${res.status}`);
-                    if (res.status === 401 || res.status === 403 || res.status === 429) {
-                        keyIndex++;
-                        continue; // Key auth issue - try next key
-                    } else {
-                        break; // Server/model issue - try next model
-                    }
+                    keyIndex++;
+                    continue;
                 }
             } catch (e: any) {
                 console.warn(`Planner model ${modelName} attempt warning:`, e);
-                if (e.name === "AbortError" || e.message?.includes("aborted")) {
-                    break; // Timeout - try next model
-                }
-                keyIndex++; // Network/unknown error - try next key
+                keyIndex++;
             }
         }
         keyIndex = 0;
