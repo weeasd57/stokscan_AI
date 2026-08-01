@@ -38,14 +38,20 @@ export async function executeStructuredTools(
         const { data: fundamentalsRows } = await supabase.from("stock_fundamentals").select("symbol, data").eq("exchange", "EGX").limit(1000);
         const normalizedTarget = targetSector.toLowerCase().replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").replace(/^ال/, "");
         const terms: Record<string, string[]> = {
-            "بنوك": ["bank", "banking"], "ادويه": ["pharma", "pharmaceutical", "health technology", "health services"],
-            "عقارات": ["real estate", "homebuilding"], "اغذيه": ["food", "beverage", "consumer non-durables"],
-            "بترول": ["oil", "gas", "petroleum", "energy minerals"]
+            "بنوك": ["bank", "banking", "finance", "financial"],
+            "ادويه": ["pharma", "pharmaceutical", "health technology", "health services", "health"],
+            "عقارات": ["real estate", "homebuilding", "consumer durables", "durables", "housing", "development", "construction"],
+            "اغذيه": ["food", "beverage", "consumer non-durables", "agriculture"],
+            "بترول": ["oil", "gas", "petroleum", "energy minerals", "energy"],
+            "بناء": ["building", "non-energy minerals", "construction", "materials"],
+            "سياحه": ["tourism", "travel", "consumer services", "hotel"],
+            "اتصالات": ["telecom", "telecommunications", "communications", "technology services"]
         };
+        const searchTerms = terms[normalizedTarget] || [normalizedTarget, targetSector.toLowerCase()];
         return (fundamentalsRows || []).filter((row: any) => {
             const raw = typeof row.data === "string" ? (() => { try { return JSON.parse(row.data); } catch { return {}; } })() : row.data || {};
-            const classification = `${raw.sector || raw.Sector || ""} ${raw.industry || raw.Industry || ""}`.toLowerCase();
-            return (terms[normalizedTarget] || [targetSector.toLowerCase()]).some(term => classification.includes(term));
+            const classification = `${raw.sector || raw.Sector || ""} ${raw.industry || raw.Industry || ""} ${raw.sector_ar || raw.SectorAr || ""}`.toLowerCase();
+            return searchTerms.some(term => classification.includes(term));
         }).map((row: any) => String(row.symbol).toUpperCase());
     };
 
