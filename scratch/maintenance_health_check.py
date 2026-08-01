@@ -1,7 +1,7 @@
 import sys
 import os
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 
 # Force UTF-8 encoding
 if hasattr(sys.stdout, "reconfigure"):
@@ -14,7 +14,7 @@ from api.stock_ai import _init_supabase, supabase
 def run_health_check():
     print("=" * 60)
     print("🛡️ EGXBots Daily Maintenance & Health Audit")
-    print(f"Timestamp: {datetime.utcnow().isoformat()} UTC")
+    print(f"Timestamp: {datetime.now(timezone.utc).isoformat()} UTC")
     print("=" * 60)
 
     _init_supabase()
@@ -29,7 +29,7 @@ def run_health_check():
         "backtests",
         "market_heatmap",
         "model_metadata",
-        "system_config"
+        "bot_configs"
     ]
     
     print("\n📊 1. Supabase Database Table Audits:")
@@ -64,10 +64,12 @@ def run_health_check():
     print("\n💱 3. Market Cache Audit:")
     print("-" * 60)
     try:
-        res = supabase.table("market_cache").select("cache_key, updated_at").execute()
+        res = supabase.table("market_cache").select("cache_key, computed_at").execute()
         if res.data:
-            for item in res.data:
-                print(f"  • Cache Key: {item.get('cache_key'):<25} | Updated: {item.get('updated_at')}")
+            for item in res.data[:5]:
+                print(f"  • Cache Key: {item.get('cache_key'):<25} | Computed: {item.get('computed_at')}")
+            if len(res.data) > 5:
+                print(f"  ... and {len(res.data) - 5} more cache items.")
         else:
             print("  • Market Cache                  : Empty")
     except Exception as e:
@@ -76,10 +78,10 @@ def run_health_check():
     print("\n🤖 4. Model Metadata Check:")
     print("-" * 60)
     try:
-        res = supabase.table("model_metadata").select("model_name, updated_at, win_rate, total_signals").execute()
+        res = supabase.table("model_metadata").select("name, updated_at, accuracy, exchange").execute()
         if res.data:
             for model in res.data:
-                print(f"  • Model: {model.get('model_name'):<15} | Win Rate: {model.get('win_rate')}% | Signals: {model.get('total_signals')} | Updated: {model.get('updated_at')}")
+                print(f"  • Model: {model.get('name'):<15} | Exchange: {model.get('exchange')} | Accuracy: {model.get('accuracy')}% | Updated: {model.get('updated_at')}")
         else:
             print("  • Model Metadata                : No records found")
     except Exception as e:

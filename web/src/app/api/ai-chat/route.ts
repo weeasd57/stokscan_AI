@@ -77,14 +77,35 @@ function isPotentialBlockedPrefix(text: string): boolean {
     return false;
 }
 
+function isPotentialEnvironmentPrefix(text: string): boolean {
+    const suffix = text.toLowerCase().slice(-24);
+    const marker = "<environment_details>";
+    for (let length = 1; length <= marker.length; length++) {
+        if (suffix.endsWith(marker.slice(0, length))) return true;
+    }
+    const plainMarker = "environment_details";
+    for (let length = 1; length <= plainMarker.length; length++) if (suffix.endsWith(plainMarker.slice(0, length))) return true;
+    return false;
+}
+
 function stripEnvironmentMetadata(text: string): string {
-    return text
+    const markerIndex = text.toLowerCase().indexOf("environment_details");
+    if (markerIndex >= 0) text = text.slice(0, markerIndex).replace(/<\s*$/g, "");
+    const clean = text
+        .replace(/<\s*environment_details[^>]*>[\s\S]*$/gi, "")
+        .replace(/<\s*environment_details[\s\S]*$/gi, "")
         .replace(/<environment_details>[\s\S]*?<\/environment_details>/gi, "")
         .replace(/<environment_details[\s\S]*$/gi, "")
         .replace(/\[?environment_details\]?[\s\S]*$/gi, "")
         .replace(/Current time:\s*[^\n]+/gi, "")
         .replace(/Working directory:\s*[^\n]+/gi, "")
-        .replace(/Workspace root folder:\s*[^\n]+/gi, "");
+        .replace(/Workspace root folder:\s*[^\n]+/gi, "")
+        .replace(/<\/?environment_details>/gi, "");
+    return /environment_details|Current time:|Working directory:|Workspace root folder:/i.test(clean) ? "" : clean;
+}
+
+function containsEnvironmentMetadata(text: unknown): boolean {
+    return /environment_details|Current time:|Working directory:|Workspace root folder:/i.test(String(text || ""));
 }
 
 function sanitizeUserMessage(text: string): string {
@@ -122,6 +143,12 @@ function generateSuggestedButtons(plannerResult: any, sessionState: any): string
         "مقارنة COMI و EAST",
         "البنوك حالتها إيه؟"
     ];
+}
+
+function sanitizeSuggestedButtons(buttons: unknown): string[] | undefined {
+    if (!Array.isArray(buttons)) return undefined;
+    const clean = buttons.map(button => stripEnvironmentMetadata(String(button)).replace(/\s*✅\s*تحليل EGX Bots مبني على بيانات حية[^\n]*/gi, "").trim()).filter(Boolean);
+    return clean.length ? clean : undefined;
 }
 
 async function handleSessionResolution(
@@ -329,8 +356,9 @@ export async function POST(req: NextRequest) {
                                     sendEvent({ type: "tables", data: event.data });
                                     break;
                                 case "token":
-                                    const safeToken = stripEnvironmentMetadata(String(event.data || ""));
-                                    fullResponse += safeToken;
+                                    const rawToken = String(event.data || "");
+                                    if (containsEnvironmentMetadata(rawToken)) break;
+                                    fullResponse = stripEnvironmentMetadata(fullResponse + rawToken);
                                     if (filterOutputBlocks(fullResponse)) {
                                         fullResponse = "أنا أداة تحليلية ذكية، ولا يمكنني تقديم نصائح مالية أو توصيات شراء مباشرة. يمكنك مراجعة تقييم الأسهم في صفحة الماسح الذكي لمساعدتك في اتخاذ القرار.";
                                         controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "token", content: fullResponse })}\n\n`));
@@ -338,8 +366,8 @@ export async function POST(req: NextRequest) {
                                         controller.close();
                                         return;
                                     }
-                                    tokenBuffer += safeToken;
-                                    if (isPotentialBlockedPrefix(tokenBuffer) && tokenBuffer.length < 60) {
+                                    tokenBuffer = stripEnvironmentMetadata(tokenBuffer + rawToken);
+                                    if ((isPotentialBlockedPrefix(tokenBuffer) && tokenBuffer.length < 60) || isPotentialEnvironmentPrefix(tokenBuffer)) {
                                         // Buffering to avoid token leakage
                                     } else {
                                         if (tokenBuffer.length > 0) {
@@ -396,7 +424,7 @@ export async function POST(req: NextRequest) {
                                             .insert({ user_id: userId, date: today, chat_count: 1 });
                                     }
 
-                                    const suggestedButtons = generateSuggestedButtons(plannerResult || {}, sessionState);
+                                    const suggestedButtons = sanitizeSuggestedButtons(generateSuggestedButtons(plannerResult || {}, sessionState));
                                     const optimalModel = selectOptimalModel(plannerResult?.intent || "general_chat", plannerResult?.entities?.symbols?.length || 0, userRequestedModel);
                                     const totalLatencyMs = Date.now() - totalRequestStartTime;
 
@@ -466,13 +494,13 @@ export async function POST(req: NextRequest) {
             ? dbHistory
                 .reverse()
                 .map((item: any) => {
-                    let contentStr = String(item.content)
+                    let contentStr = stripEnvironmentMetadata(String(item.content))
                         .replace(/\s*✅\s*تحليل EGX Bots مبني على بيانات حية[^\n]*/g, "")
                         .trim();
                     if (contentStr.length > 500) {
                         contentStr = contentStr.substring(0, 500) + "...";
                     }
-                    return { role: item.role, content: contentStr || "تحليل" };
+                    return { role: item.role, content: stripEnvironmentMetadata(contentStr) || "تحليل" };
                 })
             : [];
 
@@ -534,7 +562,7 @@ export async function POST(req: NextRequest) {
             console.error("Failed to log chat messages to DB:", dbErr);
         }
 
-        const suggestedButtons = generateSuggestedButtons(pipelineResult.plan, sessionState);
+        const suggestedButtons = sanitizeSuggestedButtons(generateSuggestedButtons(pipelineResult.plan, sessionState));
         const totalLatencyMs = Date.now() - totalRequestStartTime;
 
         await logAiInteraction(supabase, {
@@ -563,7 +591,7 @@ export async function POST(req: NextRequest) {
 
     } catch (error: any) {
         console.error("Critical Chat API Error:", error);
-        return NextResponse.json({ detail: error.message || "Failed to process chat request." }, { status: 500 });
+        return NextResponse.json({ detail: stripEnvironmentMetadata(error.message || "Failed to process chat request.") }, { status: 500 });
     }
 }
 
@@ -616,7 +644,7 @@ export async function GET(req: NextRequest) {
 
             const formattedHistory = (messages || []).map((m: any) => ({
                 role: m.role,
-                content: m.content,
+                content: stripEnvironmentMetadata(String(m.content || "")),
                 timestamp: new Date(m.created_at).getTime(),
                 imageUrl: m.image_url || undefined
             }));
@@ -626,7 +654,7 @@ export async function GET(req: NextRequest) {
 
         return NextResponse.json({ detail: "Invalid request parameters" }, { status: 400 });
     } catch (e: any) {
-        return NextResponse.json({ detail: e.message || "Failed to fetch session data" }, { status: 500 });
+        return NextResponse.json({ detail: stripEnvironmentMetadata(e.message || "Failed to fetch session data") }, { status: 500 });
     }
 }
 
@@ -653,7 +681,7 @@ export async function PUT(req: NextRequest) {
 
         return NextResponse.json({ success: true });
     } catch (e: any) {
-        return NextResponse.json({ detail: e.message || "Failed to rename session" }, { status: 500 });
+        return NextResponse.json({ detail: stripEnvironmentMetadata(e.message || "Failed to rename session") }, { status: 500 });
     }
 }
 

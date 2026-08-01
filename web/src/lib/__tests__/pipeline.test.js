@@ -2,8 +2,9 @@ const { validateVisionOutput } = require("../ai/vision");
 const { buildV2FinalMessages, buildDeterministicResponse } = require("../ai/final-v2");
 const { retrieveRelevantMemory } = require("../ai/memory");
 const { buildExcelTables, tablesToMarkdown } = require("../ai/excel-tables");
-const { enforceIntentFromMessage, buildMarketLiquidityResponse, needsLiveDataForTools, needsHistoricalData, extractSectorFromMessage, extractExplicitSymbols, buildDeterministicPlannerResult, extractRequestedDate, extractRequestedDateRange, extractTemporalContext, isMarketWideRequest } = require("../ai/pipeline");
+const { enforceIntentFromMessage, buildMarketLiquidityResponse, buildTopMoversResponse, needsLiveDataForTools, needsHistoricalData, extractSectorFromMessage, extractExplicitSymbols, buildDeterministicPlannerResult, extractRequestedDate, extractRequestedDateRange, extractTemporalContext, isMarketWideRequest, extractSingleStockFromRecentHistory, isEgxWeekend, describeDatedFallback } = require("../ai/pipeline");
 const { sanitizeReply } = require("../ai/sanitizer");
+const { sanitizeUiLabel } = require("../ai/sanitizer");
 const { parseToolsOutput } = require("../ai/table-builder");
 
 // Simple mock for supabase
@@ -230,6 +231,14 @@ describe("Deterministic response fallback", () => {
         expect(response).not.toContain("CAED");
     });
 
+    it("answers identity and model questions deterministically", () => {
+        const plan = buildDeterministicPlannerResult("انتا موديل ايه", { current_symbol: "ABCD", last_symbols: ["ABCD"], summary: null });
+        expect(plan.intent).toBe("general_chat");
+        const response = buildDeterministicResponse("انتا مين", { ...basePlan, intent: "general_chat", entities: { ...basePlan.entities, symbols: [] } }, []);
+        expect(response).toContain("مساعد EGX Bots");
+        expect(response).not.toContain("لم أتمكن من إنشاء الرد");
+    });
+
     it("prefers current stock data over an old response snapshot", () => {
         const response = buildDeterministicResponse("حلل CAED النهارده", { ...basePlan, intent: "stock_analysis" }, [
             { tool: "get_historical_facts", source: "prior_assistant_message", data_time: "2026-07-20", symbols: ["CAED"], data_type: "historical", data: { prior_response: "CAED السعر 99" } },
@@ -262,8 +271,26 @@ describe("Deterministic response fallback", () => {
             tool: "get_stock", source: "database", data_time: "2026-07-30", symbols: ["CAED"], data_type: "live",
             data: { symbol: "CAED", name: "Cairo Educational Services", price: 125.11, change_pct: "-2.64%", rsi_14: "75.25", macd_signal: "12.5232", vol_ratio: "0.29x" }
         }]);
-        expect(response).toContain("لا أستطيع تحديد سعر بيع");
+        expect(response).toContain("لن أحدد سعراً للبيع");
         expect(response).not.toContain("سعر مستهدف 130");
+    });
+
+    it("includes support and resistance in a general stock answer", () => {
+        const response = buildDeterministicResponse("شوف ABCD", { ...basePlan, entities: { ...basePlan.entities, symbols: ["ABCD"] } }, [
+            { tool: "get_stock", source: "database", data_time: "2026-07-30", symbols: ["ABCD"], data_type: "live", data: { symbol: "ABCD", price: 10, change_pct: "+1%", rsi_14: 50, macd_signal: 0, vol_ratio: "1x" } },
+            { tool: "get_stock_levels", source: "stock_prices", data_time: "2026-07-30", symbols: ["ABCD"], data_type: "live", data: { symbol: "ABCD", support: 8, resistance: 12, lookback_sessions: 60 } }
+        ]);
+        expect(response).toContain("الدعم الحسابي: 8.00");
+        expect(response).toContain("المقاومة الحسابية: 12.00");
+    });
+
+    it("uses levels to frame a sell decision without deciding for the user", () => {
+        const response = buildDeterministicResponse("أبيع ABCD ولا لا", { ...basePlan, entities: { ...basePlan.entities, symbols: ["ABCD"] } }, [
+            { tool: "get_stock", source: "database", data_time: "2026-07-30", symbols: ["ABCD"], data_type: "live", data: { symbol: "ABCD", price: 10, change_pct: "+1%", rsi_14: 50, macd_signal: 0, vol_ratio: "1x" } },
+            { tool: "get_stock_levels", source: "stock_prices", data_time: "2026-07-30", symbols: ["ABCD"], data_type: "live", data: { symbol: "ABCD", support: 8, resistance: 12, lookback_sessions: 60 } }
+        ]);
+        expect(response).toContain("كسر الدعم");
+        expect(response).toContain("الاقتراب من المقاومة");
     });
 
     it("calculates and labels recorded-signal performance", () => {
@@ -361,6 +388,125 @@ describe("Deterministic response fallback", () => {
         expect(response).not.toContain("2026-07-30");
     });
 
+    it("answers downside-risk follow-ups for the only stock in the previous scan", () => {
+        expect(extractSingleStockFromRecentHistory([{ role: "assistant", content: "التصريف\n- EITP: درجة التصريف 66.5/100" }])).toBe("EITP");
+        const response = buildDeterministicResponse("ممكن يخسر تاني اكتر من 8 EITP", {
+            ...basePlan,
+            intent: "risk_analysis",
+            entities: { ...basePlan.entities, symbols: ["EITP"], scan_direction: "distribution" }
+        }, [{
+            tool: "get_stock", source: "database", data_time: "2026-07-29", symbols: ["EITP"], data_type: "live",
+            data: { symbol: "EITP", price: 9, change_pct: 4.05, vol_ratio: 0.84, rsi_14: 53 }
+        }, {
+            tool: "get_distribution_stocks", source: "stock_scans_summary", data_time: "2026-07-27", symbols: ["EITP"], data_type: "live",
+            data: { direction: "distribution", scan_rows: [{ symbol: "EITP", dist_score: 66.5, consecutive_dist_days: 1 }] }
+        }]);
+        expect(response).toContain("يمكن أن يخسر EITP أكثر من 8%");
+        expect(response).toContain("66.5/100");
+    });
+
+    it("does not hardcode 8 percent or duplicate units in generic risk answers", () => {
+        const response = buildDeterministicResponse("ممكن يخسر أكتر؟", { ...basePlan, intent: "risk_analysis", entities: { ...basePlan.entities, symbols: ["ABCD"] } }, [{ tool: "get_stock", source: "database", data_time: "2026-07-30", symbols: ["ABCD"], data_type: "live", data: { symbol: "ABCD", change_pct: "+2.36%", vol_ratio: "1.01x", rsi_14: 59 } }]);
+        expect(response).not.toContain("8%");
+        expect(response).not.toContain("%%");
+        expect(response).not.toContain("xx");
+    });
+
+    it("answers a broken-support follow-up from the stock level", () => {
+        const response = buildDeterministicResponse("لو كسر الدعم أعمل ايه؟", { ...basePlan, intent: "levels_analysis", entities: { ...basePlan.entities, symbols: ["ABCD"] } }, [{ tool: "get_stock_levels", source: "stock_prices", data_time: "2026-07-30", symbols: ["ABCD"], data_type: "live", data: { symbol: "ABCD", support: 8, resistance: 12 } }]);
+        expect(response).toContain("أسفل الدعم الحسابي 8.00");
+        expect(response).not.toContain("أسهم التجميع");
+    });
+
+    it("routes and answers a sector-liquidity ranking with a defined metric", () => {
+        expect(enforceIntentFromMessage("ايه اكبر قطاع فيه سيوله", "market_summary", [])).toEqual({ intent: "market_summary", tools: ["get_sector_liquidity"], replaceTools: true });
+        const response = buildDeterministicResponse("ايه اكبر قطاع فيه سيوله", basePlan, [{
+            tool: "get_sector_liquidity", source: "database", data_time: "2026-07-30", symbols: [], data_type: "live",
+            data: { metric: "estimated_traded_value", sectors: [{ sector: "قطاع ألف", traded_value: 250000000, stock_count: 8 }, { sector: "قطاع باء", traded_value: 100000000, stock_count: 5 }] }
+        }]);
+        expect(response).toContain("قطاع ألف");
+        expect(response).toContain("السعر × حجم التداول");
+        expect(response).not.toContain("أسهم التجميع");
+    });
+
+    it("routes liquidity for a named sector without market-wide tools", () => {
+        const plan = buildDeterministicPlannerResult("هات سيوله قطاع الادويه", { current_symbol: null, last_symbols: [], summary: null });
+        expect(plan.intent).toBe("sector_analysis");
+        expect(plan.entities.sector).toBe("أدوية");
+        expect(plan.tools).toEqual(["get_sector_liquidity"]);
+        expect(plan.tools).not.toContain("get_market");
+        expect(plan.tools).not.toContain("get_accumulation_stocks");
+    });
+
+    it("identifies EGX weekend dates and explains the fallback session", () => {
+        expect(isEgxWeekend("2026-07-31")).toBe(true);
+        expect(isEgxWeekend("2026-08-01")).toBe(true);
+        expect(isEgxWeekend("2026-07-30")).toBe(false);
+        expect(describeDatedFallback("2026-07-31", "2026-07-30")).toContain("عطلة أسبوعية");
+    });
+
+    it("routes a finance sector follow-up to sector analysis", () => {
+        const plan = buildDeterministicPlannerResult("اى اكبر سهم في القطاع ده", { current_symbol: null, last_symbols: [], summary: "Finance" });
+        expect(plan).toMatchObject({ intent: "sector_analysis", entities: { sector: "Finance", symbols: [] }, tools: ["get_sector"] });
+    });
+
+    it("routes and answers a request for all recorded sectors", () => {
+        const plan = buildDeterministicPlannerResult("هات قايمه بالقطاعات كلها", { current_symbol: null, last_symbols: [], summary: null });
+        expect(plan.tools).toEqual(["get_sector_list"]);
+        const response = buildDeterministicResponse("هات قايمه بالقطاعات كلها", { ...basePlan, intent: "sector_analysis" }, [{ tool: "get_sector_list", source: "stock_fundamentals", data_time: "2026-08-01", symbols: [], data_type: "live", data: { sectors: [{ sector: "Finance", stock_count: 12 }, { sector: "Healthcare", stock_count: 8 }] } }]);
+        expect(response).toContain("Finance (12 سهم)");
+        expect(response).toContain("Healthcare (8 سهم)");
+    });
+
+    it("treats a listed English sector as a follow-up sector analysis", () => {
+        const plan = buildDeterministicPlannerResult("Process Industries", { current_symbol: null, last_symbols: [], summary: "قائمة القطاعات" });
+        expect(plan.intent).toBe("sector_analysis");
+        expect(plan.entities.sector).toBe("Process Industries");
+        expect(plan.tools).toEqual(["get_sector"]);
+    });
+
+    it("routes support and resistance questions to levels data", () => {
+        const plan = buildDeterministicPlannerResult("ABCD اى مقواماته ودعمه", { current_symbol: null, last_symbols: [], summary: null });
+        expect(plan.intent).toBe("levels_analysis");
+        expect(plan.tools).toEqual(["get_stock_levels"]);
+    });
+
+    it("answers support and resistance for every requested stock", () => {
+        const response = buildDeterministicResponse("ABCD مقاومته ودعمه؟ EFGH مقاومته كام؟", { ...basePlan, intent: "levels_analysis", entities: { ...basePlan.entities, symbols: ["ABCD", "EFGH"] } }, [
+            { tool: "get_stock_levels", source: "stock_prices", data_time: "2026-07-30", symbols: ["ABCD"], data_type: "live", data: { symbol: "ABCD", close: 10, support: 8, resistance: 12, lookback_sessions: 60 } },
+            { tool: "get_stock_levels", source: "stock_prices", data_time: "2026-07-30", symbols: ["EFGH"], data_type: "live", data: { symbol: "EFGH", close: 20, support: 18, resistance: 24, lookback_sessions: 60 } }
+        ]);
+        expect(response).toContain("ABCD: الدعم الحسابي 8.00");
+        expect(response).toContain("EFGH: الدعم الحسابي 18.00");
+        expect(response).toContain("المقاومة الحسابية 24.00");
+    });
+
+    it("combines deterministic results for several questions in one message", () => {
+        const response = buildDeterministicResponse("حلل ABCD\nهات أخباره\nلو كسر الدعم أعمل إيه؟", { ...basePlan, entities: { ...basePlan.entities, symbols: ["ABCD"] } }, [
+            { tool: "get_stock", source: "database", data_time: "2026-07-30", symbols: ["ABCD"], data_type: "live", data: { symbol: "ABCD", price: 10, change_pct: 1, rsi_14: 50, vol_ratio: 1 } },
+            { tool: "get_stock_levels", source: "stock_prices", data_time: "2026-07-30", symbols: ["ABCD"], data_type: "live", data: { symbol: "ABCD", support: 8, resistance: 12 } },
+            { tool: "get_news", source: "database", data_time: "2026-07-30", symbols: ["ABCD"], data_type: "live", data: [] }
+        ]);
+        expect(response).toContain("ABCD: السعر 10");
+        expect(response).toContain("الدعم 8.00");
+        expect(response).toContain("الأخبار: لا توجد أخبار");
+    });
+
+    it("includes the broken-support action in a compound response", () => {
+        const response = buildDeterministicResponse("حلل ABCD\nلو كسر الدعم أعمل إيه؟", { ...basePlan, entities: { ...basePlan.entities, symbols: ["ABCD"] } }, [
+            { tool: "get_stock", source: "database", data_time: "2026-07-30", symbols: ["ABCD"], data_type: "live", data: { symbol: "ABCD", price: 10 } },
+            { tool: "get_stock_levels", source: "stock_prices", data_time: "2026-07-30", symbols: ["ABCD"], data_type: "live", data: { symbol: "ABCD", support: 8, resistance: 12 } }
+        ]);
+        expect(response).toContain("كسر الدعم عند 8.00");
+    });
+
+    it("resolves a stock-news follow-up to the active stock", () => {
+        const plan = buildDeterministicPlannerResult("هات اخباره", { current_symbol: "ABCD", last_symbols: ["ABCD"], summary: "ABCD اى مقواماته ودعمه" });
+        expect(plan.entities.symbols).toEqual(["ABCD"]);
+        expect(plan.tools).toEqual(["get_news"]);
+        expect(plan.session_update.current_symbol).toBe("ABCD");
+    });
+
     it("does not leak environment metadata", () => {
         const { sanitizeReply } = require("../ai/sanitizer");
         const cleaned = sanitizeReply("رد آمن\n<environment_details>Current time: secret\nWorkspace root folder: secret");
@@ -445,8 +591,34 @@ describe("Deterministic response fallback", () => {
         expect(plan.tools).toEqual(["get_market"]);
     });
 
+    it("answers top movers from gainers instead of the liquidity summary", () => {
+        const tools = { formattedText: "", results: [{ tool: "get_market", source: "database", data_time: "2026-07-30", symbols: [], data_type: "live", data: { top_gainers: [{ symbol: "ABCD", name: "Example", change: 7.5 }] } }] };
+        const response = buildTopMoversResponse(tools);
+        expect(response).toContain("ABCD");
+        expect(response).toContain("+7.50%");
+        expect(response).not.toContain("أسهم التجميع");
+    });
+
+    it("returns a deterministic no-data answer when market cache has no gainers", () => {
+        const response = buildTopMoversResponse({ formattedText: "", results: [{ tool: "get_market", source: "database", data_time: "2026-07-30", symbols: [], data_type: "live", data: { egx30: 123, top_gainers: [] } }] });
+        expect(response).toContain("لا توجد بيانات تغير يومي كافية");
+        expect(response).not.toContain("لم أتمكن من إنشاء الرد");
+    });
+
+    it("routes the last-session top-movers wording", () => {
+        const plan = buildDeterministicPlannerResult("أقوى الأسهم لاخر يوم", { current_symbol: null, last_symbols: [], summary: null });
+        expect(plan.tools).toEqual(["get_market"]);
+    });
+
+    it("sanitizes suggested-button labels without adding the disclaimer", () => {
+        expect(sanitizeUiLabel("أقوى الأسهم النهارده ✅ تحليل EGX Bots مبني على بيانات حية — مش نصيحة استثمار")).toBe("أقوى الأسهم النهارده");
+        expect(sanitizeUiLabel("مقارنة\n<environment_details>Current time: secret")).toBe("مقارنة");
+        expect(sanitizeUiLabel("أقوى\n<environment_details\nCurrent time: secret")).toBe("أقوى");
+        expect(sanitizeUiLabel("رد سليم\nenvironment_details\nWorking directory: secret")).toBe("رد سليم");
+    });
+
     it("keeps a generic stock lookup separate from accumulation scans", () => {
-        expect(enforceIntentFromMessage("شوف ABCD", "stock_analysis", ["ABCD"])).toEqual({ intent: "stock_analysis", tools: [] });
+        expect(enforceIntentFromMessage("شوف ABCD", "stock_analysis", ["ABCD"])).toEqual({ intent: "stock_analysis", tools: ["get_stock", "get_stock_levels"], replaceTools: true });
         expect(enforceIntentFromMessage("ABCD عليه تجميع؟", "stock_analysis", ["ABCD"]).tools).toEqual(["get_accumulation_stocks"]);
     });
 
@@ -454,7 +626,7 @@ describe("Deterministic response fallback", () => {
         const plan = buildDeterministicPlannerResult("تحليل AMES يوم 2026-07-10", { current_symbol: null, last_symbols: [], summary: null });
         expect(plan).toMatchObject({
             intent: "stock_analysis",
-            tools: ["get_stock"],
+            tools: ["get_stock", "get_stock_levels"],
             entities: { symbols: ["AMES"], requested_date: "2026-07-10", timeframe: "historical" }
         });
     });
@@ -463,7 +635,7 @@ describe("Deterministic response fallback", () => {
         const plan = buildDeterministicPlannerResult("هاته بتاريخ 10/7", { current_symbol: "AALR", last_symbols: ["AALR"], summary: null });
         expect(plan.entities.symbols).toEqual(["AALR"]);
         expect(plan.entities.requested_date).toBe(`${new Date().getFullYear()}-07-10`);
-        expect(plan.tools).toEqual(["get_stock"]);
+        expect(plan.tools).toEqual(["get_stock", "get_stock_levels"]);
     });
 });
 
@@ -541,6 +713,15 @@ describe("Excel-ready structured tables", () => {
         expect(tables[0].headers).toContain("أيام التصريف");
         expect(tables[0].rows[0]).toContain("4");
     });
+
+    it("builds an exportable sector-liquidity table", () => {
+        const tables = buildExcelTables([{
+            tool: "get_sector_liquidity", source: "database", data_time: "2026-07-30", symbols: [], data_type: "live",
+            data: { sectors: [{ sector: "قطاع ألف", traded_value: 250000000, stock_count: 8, average_volume_ratio: 1.4 }] }
+        }], null);
+        expect(tables[0].title).toBe("سيولة القطاعات");
+        expect(tables[0].rows[0]).toContain("قطاع ألف");
+    });
 });
 
 describe("Deterministic intent guards", () => {
@@ -579,7 +760,7 @@ describe("Deterministic intent guards", () => {
         expect(extractExplicitSymbols("caed, amer")).toEqual(["CAED", "AMER"]);
         const plan = buildDeterministicPlannerResult("caed, amer", { current_symbol: null, last_symbols: [], summary: null });
         expect(plan.entities.symbols).toEqual(["CAED", "AMER"]);
-        expect(plan.tools).toEqual(["get_stock"]);
+        expect(plan.tools).toEqual(["get_stock", "get_stock_levels"]);
     });
 
     it("keeps the previous stock when a follow-up says compare this with another", () => {
@@ -609,7 +790,7 @@ describe("Deterministic intent guards", () => {
     it("removes historical recommendations from sell questions", () => {
         const result = enforceIntentFromMessage("لو معايا AMES أبيع؟", "recommendation", ["AMES"]);
         expect(result.intent).toBe("stock_analysis");
-        expect(result.tools).toEqual(["get_stock"]);
+        expect(result.tools).toEqual(["get_stock", "get_stock_levels"]);
         expect(result.replaceTools).toBe(true);
     });
 

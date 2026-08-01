@@ -32,6 +32,23 @@ export async function executeStructuredTools(
     const requestedEndDate = plan.entities.requested_end_date || null;
     const userMessage = "";
 
+    const resolveSectorSymbols = async (): Promise<string[]> => {
+        const targetSector = plan.entities.sector;
+        if (!targetSector) return [];
+        const { data: fundamentalsRows } = await supabase.from("stock_fundamentals").select("symbol, data").eq("exchange", "EGX").limit(1000);
+        const normalizedTarget = targetSector.toLowerCase().replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").replace(/^ال/, "");
+        const terms: Record<string, string[]> = {
+            "بنوك": ["bank", "banking"], "ادويه": ["pharma", "pharmaceutical", "health technology", "health services"],
+            "عقارات": ["real estate", "homebuilding"], "اغذيه": ["food", "beverage", "consumer non-durables"],
+            "بترول": ["oil", "gas", "petroleum", "energy minerals"]
+        };
+        return (fundamentalsRows || []).filter((row: any) => {
+            const raw = typeof row.data === "string" ? (() => { try { return JSON.parse(row.data); } catch { return {}; } })() : row.data || {};
+            const classification = `${raw.sector || raw.Sector || ""} ${raw.industry || raw.Industry || ""}`.toLowerCase();
+            return (terms[normalizedTarget] || [targetSector.toLowerCase()]).some(term => classification.includes(term));
+        }).map((row: any) => String(row.symbol).toUpperCase());
+    };
+
     if (!plan.needs_live_data && !plan.needs_historical_data) {
         return { results, formattedText: "" };
     }
@@ -155,7 +172,8 @@ export async function executeStructuredTools(
                 .order(scoreField, { ascending: false })
                     .limit(200);
                 if (requestedDate) summaryQuery = summaryQuery.eq("scan_date", requestedDate);
-                if (symbols.length > 0) summaryQuery = summaryQuery.in("symbol", symbols);
+                const scopedSymbols = symbols.length > 0 ? symbols : await resolveSectorSymbols();
+                if (scopedSymbols.length > 0) summaryQuery = summaryQuery.in("symbol", scopedSymbols);
                 const { data: summaryScans } = await summaryQuery;
 
             let hasSummaryData = false;
@@ -179,7 +197,7 @@ export async function executeStructuredTools(
                     const matchingStocks = todayScans
                         .filter((r: any) => r.signal === direction || Number(r[scoreField] || 0) >= 50)
                         .sort((a: any, b: any) => Number(b[scoreField] || 0) - Number(a[scoreField] || 0));
-                    const displayedStocks = symbols.length > 0 ? matchingStocks : matchingStocks.slice(0, 15);
+                    const displayedStocks = symbols.length > 0 || plan.entities.sector ? matchingStocks : matchingStocks.slice(0, 15);
                     const stocksWithNames = displayedStocks.map((r: any) => ({
                         ...r,
                         name: stocksMap.get(r.symbol) || r.symbol
@@ -481,7 +499,7 @@ export async function executeStructuredTools(
                         const { data: moverStocks } = await supabase.from('stocks').select('symbol, name').in('symbol', moverSymbols);
                         const moverNames = new Map<string, string>();
                         (moverStocks || []).forEach((s: any) => { if (s?.symbol) moverNames.set(s.symbol, s.name || s.symbol); });
-                        
+
                         gainers = gainers.map((r: any) => ({ ...r, name: moverNames.get(r.symbol) || r.symbol }));
                         losers = losers.map((r: any) => ({ ...r, name: moverNames.get(r.symbol) || r.symbol }));
                     }
@@ -535,62 +553,7 @@ export async function executeStructuredTools(
             const lookbackDate = requestedStartDate ? new Date(`${requestedStartDate}T00:00:00Z`) : requestedDate ? new Date(`${requestedDate}T00:00:00Z`) : new Date();
             if (!requestedStartDate) lookbackDate.setDate(lookbackDate.getDate() - AI_CONFIG.tools.newsDaysLookback);
             const lookbackDateStr = lookbackDate.toISOString().split("T")[0];
-
-            if (symbols.length > 0) {
-                try {
-                    const { data: stocksData } = await supabase
-                        .from("stocks")
-                        .select("id, symbol")
-                        .or(symbols.map(s => `symbol.ilike.${s}`).join(","));
-
-                    if (stocksData && stocksData.length > 0) {
-                        const stockIds = stocksData.map((s: any) => s.id);
-                        const symbolById = new Map<number, string>(
-                            stocksData.map((s: any) => [s.id, s.symbol])
-                        );
-
-                        let articlesQuery = supabase
-                            .from("news")
-                            .select("stock_id, title, url, source, published_at, sentiment_score, sentiment_label")
-                            .in("stock_id", stockIds)
-                            .gte("published_at", lookbackDate.toISOString())
-                            .order("published_at", { ascending: false })
-                            .limit(AI_CONFIG.tools.newsLimit * 3);
-                        if (requestedStartDate && requestedEndDate) articlesQuery = articlesQuery.gte("published_at", `${requestedStartDate}T00:00:00Z`).lt("published_at", `${requestedEndDate}T23:59:59.999Z`);
-                        else if (requestedDate) articlesQuery = articlesQuery.gte("published_at", `${requestedDate}T00:00:00Z`).lt("published_at", `${requestedDate}T23:59:59.999Z`);
-                        const { data: articles } = await articlesQuery;
-
-                        if (articles && articles.length > 0) {
-                            const articlesBySymbol = new Map<string, any[]>();
-                            articles.forEach((a: any) => {
-                                const sym = symbolById.get(a.stock_id);
-                                if (sym) {
-                                    articleRows.push({ ...a, symbol: sym });
-                                    if (!articlesBySymbol.has(sym)) {
-                                        articlesBySymbol.set(sym, []);
-                                    }
-                                    articlesBySymbol.get(sym)!.push(a);
-                                }
-                            });
-
-                            textParts.push(`\n [أخبار الأسهم - مقالات حية من قاعدة البيانات]:\n`);
-                            articlesBySymbol.forEach((items, sym) => {
-                                textParts.push(`\n ${sym} (${items.length} خبر):`);
-                                items.slice(0, 8).forEach((a: any) => {
-                                    const pubDate = a.published_at
-                                        ? new Date(a.published_at).toLocaleDateString("ar-EG", { day: "numeric", month: "short", year: "numeric" })
-                                        : "غير معروف";
-                                    const sentiment = a.sentiment_label || (a.sentiment_score > 0.15 ? "إيجابي" : a.sentiment_score < -0.15 ? "سلبي" : "محايد");
-                                    textParts.push(`  • ${a.title} (${pubDate} - ${sentiment})`);
-                                });
-                            });
-                        }
-                    }
-                } catch (e) {
-                    console.warn("Error fetching news articles:", e);
-                }
-            }
-
+            const scopedNewsSymbols = symbols.length > 0 ? symbols : await resolveSectorSymbols();
             let newsQuery = supabase
                 .from("stock_news_sentiment")
                 .select("symbol, date, sentiment_score, news_count, headlines")
@@ -600,8 +563,8 @@ export async function executeStructuredTools(
                 .order("date", { ascending: false })
                 .limit(AI_CONFIG.tools.newsLimit);
 
-            if (symbols.length > 0) {
-                newsQuery = newsQuery.or(symbols.map(s => `symbol.ilike.${s}`).join(","));
+            if (scopedNewsSymbols.length > 0) {
+                newsQuery = newsQuery.or(scopedNewsSymbols.map(s => `symbol.ilike.${s}`).join(","));
             }
 
             if (requestedDate) newsQuery = newsQuery.eq("date", requestedDate);
@@ -631,6 +594,12 @@ export async function executeStructuredTools(
                             item.sentiment_score < -0.15 ? "سلبي" : "محايد";
                         const scorePercent = ((item.sentiment_score || 0) * 100).toFixed(1);
                         textParts.push(`  • ${item.symbol}: معنويات = ${sentiment} (${scorePercent}%) | عدد الأخبار: ${item.news_count || 0}`);
+
+                        if (Array.isArray(item.headlines) && item.headlines.length > 0) {
+                            item.headlines.forEach((hl: string) => {
+                                textParts.push(`    - ${hl}`);
+                            });
+                        }
                     });
                 });
             }
@@ -707,6 +676,20 @@ export async function executeStructuredTools(
     }
 
     // ===== SECTOR ANALYSIS =====
+    if (plan.tools.includes("get_stock_levels") && symbols.length > 0) {
+        const levelResults = await Promise.all(symbols.map(async symbol => {
+            const requested = symbol.toUpperCase();
+            let query = supabase.from("stock_prices").select("symbol, date, close, high, low").ilike("symbol", requested).order("date", { ascending: false }).limit(60);
+            if (requestedDate) query = query.lte("date", requestedDate);
+            const { data: prices } = await query;
+            const rows = (prices || []).filter((row: any) => Number.isFinite(Number(row.close)));
+            if (!rows.length) return { tool: "get_stock_levels", source: "empty", data_time: requestedDate || now.slice(0, 10), symbols: [requested], data_type: requestedDate ? "historical" : "live", data: { symbol: requested } } as ToolResult;
+            const latest = rows[0];
+            return { tool: "get_stock_levels", source: "stock_prices", data_time: latest.date, symbols: [requested], data_type: requestedDate ? "historical" : "live", data: { symbol: requested, close: Number(latest.close), support: Math.min(...rows.map((row: any) => Number(row.low ?? row.close))), resistance: Math.max(...rows.map((row: any) => Number(row.high ?? row.close))), lookback_sessions: rows.length } } as ToolResult;
+        }));
+        results.push(...levelResults);
+    }
+
     if (plan.tools.includes("get_sector") || plan.intent === "sector_analysis") {
         try {
             let targetSector = plan.entities.sector || "";
@@ -727,13 +710,13 @@ export async function executeStructuredTools(
                     "اغذيه": ["food", "beverage", "أغذية", "غذائية", "consumer non-durables", "agricultural"],
                     "بترول": ["oil", "gas", "petroleum", "energy", "بترول", "طاقة"],
                 };
-                
+
                 const normalizedTargetSector = normalizeArabic(targetSector);
                 let cleanedTargetSector = normalizedTargetSector;
                 if (cleanedTargetSector.startsWith("ال")) {
                     cleanedTargetSector = cleanedTargetSector.substring(2);
                 }
-                
+
                 const parseFundamentalData = (value: unknown): Record<string, any> => {
                     if (value && typeof value === "object") return value as Record<string, any>;
                     if (typeof value === "string") {

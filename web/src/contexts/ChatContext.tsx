@@ -3,7 +3,7 @@
 import { createContext, useContext, useState, ReactNode, useEffect, useCallback, useRef } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { ChatSession } from "@/components/chat/ChatSidebar";
-import { sanitizeReply } from "@/lib/ai/sanitizer";
+import { sanitizeReply, sanitizeUiLabel } from "@/lib/ai/sanitizer";
 
 export type ChatMessage = {
     id?: string;
@@ -222,11 +222,20 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             setActiveSessionId(latest.id);
             const localMsgs = getStoredMessages(latest.id);
             if (localMsgs.length > 0) {
-                setMessages(localMsgs);
-                sessionMessagesCache.current[latest.id] = localMsgs;
+                const sanitizedMessages = localMsgs.map(message => ({ ...message, content: sanitizeUiLabel(message.content || ""), suggestedButtons: message.suggestedButtons?.map(sanitizeUiLabel).filter(Boolean) }));
+                setMessages(sanitizedMessages);
+                sessionMessagesCache.current[latest.id] = sanitizedMessages;
             }
         }
     }, [setActiveSessionId]);
+
+    useEffect(() => {
+        setMessages(prev => prev.map(message => ({
+            ...message,
+            content: sanitizeUiLabel(message.content || ""),
+            suggestedButtons: message.suggestedButtons?.map(sanitizeUiLabel).filter(Boolean)
+        })));
+    }, []);
 
     useEffect(() => {
         const savedModel = localStorage.getItem("egxbots_selected_model");
@@ -262,6 +271,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
                         const localImg = localImageMap.get(idx);
                         return {
                             ...srvMsg,
+                            content: sanitizeUiLabel(srvMsg.content || ""),
+                            suggestedButtons: srvMsg.suggestedButtons?.map(sanitizeUiLabel).filter(Boolean),
                             imagePreviewUrl: srvMsg.imagePreviewUrl || localImg?.imagePreviewUrl || srvMsg.imageUrl || localImg?.imageUrl,
                             imageUrl: srvMsg.imageUrl || localImg?.imageUrl,
                             images: srvMsg.images || localImg?.images
@@ -551,7 +562,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
                 }
                 assistantMsg.content = stripMarkdownTables(sanitizeReply(data.reply || "معذرة، لم أتمكن من معالجة هذا الطلب."));
                 assistantMsg.tables = Array.isArray(data.tables) ? data.tables : undefined;
-                assistantMsg.suggestedButtons = Array.isArray(data.suggested_buttons) ? data.suggested_buttons : undefined;
+                assistantMsg.suggestedButtons = Array.isArray(data.suggested_buttons) ? data.suggested_buttons.map((button: unknown) => sanitizeUiLabel(String(button))).filter(Boolean) : undefined;
                 assistantMsg.isStreaming = false;
                 assistantMsg.statusText = undefined;
                 updateAssistantMsgInState(assistantMsg);
@@ -598,7 +609,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
                             const parsed = JSON.parse(dataStr);
 
                             if (parsed.type === "error") {
-                                assistantMsg.content = parsed.detail || "حدث خطأ في السيرفر أثناء معالجة الطلب. يرجى المحاولة مرة أخرى لاحقاً.";
+                                assistantMsg.content = sanitizeReply(parsed.detail || "حدث خطأ في السيرفر أثناء معالجة الطلب. يرجى المحاولة مرة أخرى لاحقاً.");
                                 assistantMsg.isStreaming = false;
                                 assistantMsg.statusText = undefined;
                                 updateAssistantMsgInState(assistantMsg);
@@ -628,7 +639,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
                                     assistantMsg.content = stripMarkdownTables(sanitizeReply(assistantMsg.content));
                                 }
                                 if (Array.isArray(parsed.suggested_buttons)) {
-                                    assistantMsg.suggestedButtons = parsed.suggested_buttons;
+                                    assistantMsg.suggestedButtons = parsed.suggested_buttons.map((button: unknown) => sanitizeUiLabel(String(button))).filter(Boolean);
                                 }
                                 if (Array.isArray(parsed.tables)) assistantMsg.tables = parsed.tables;
                                 if (parsed.remaining_quota !== undefined) {
@@ -641,12 +652,12 @@ export function ChatProvider({ children }: { children: ReactNode }) {
                                     assistantMsg.statusText = parsed.status;
                                 }
                                 if (parsed.token || parsed.delta || parsed.text) {
-                                    assistantMsg.content += (parsed.token || parsed.delta || parsed.text);
+                                    assistantMsg.content = sanitizeReply(assistantMsg.content + (parsed.token || parsed.delta || parsed.text));
                                 } else if (parsed.reply && !assistantMsg.content) {
-                                    assistantMsg.content = parsed.reply;
+                                    assistantMsg.content = sanitizeReply(parsed.reply);
                                 }
                                 if (Array.isArray(parsed.suggested_buttons)) {
-                                    assistantMsg.suggestedButtons = parsed.suggested_buttons;
+                                    assistantMsg.suggestedButtons = parsed.suggested_buttons.map((button: unknown) => sanitizeUiLabel(String(button))).filter(Boolean);
                                 }
                                 if (parsed.remaining_quota !== undefined) {
                                     setRemainingQuota(parsed.remaining_quota);
@@ -655,7 +666,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
                             }
                         } catch {
                             // Raw string token in data field
-                            assistantMsg.content += dataStr;
+                            assistantMsg.content = sanitizeReply(assistantMsg.content + dataStr);
                             assistantMsg.isStreaming = true;
                             updateAssistantMsgInState(assistantMsg);
                         }
@@ -666,7 +677,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             // Stream complete
             assistantMsg.isStreaming = false;
             if (!assistantMsg.content && assistantMsg.statusText) {
-                assistantMsg.content = assistantMsg.statusText;
+                assistantMsg.content = sanitizeUiLabel(assistantMsg.statusText);
             } else {
                 assistantMsg.content = stripMarkdownTables(sanitizeReply(assistantMsg.content));
             }
@@ -682,7 +693,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             } else if (err.name === "TypeError" && (err.message?.includes("fetch") || err.message?.includes("Failed to fetch") || err.message?.includes("network"))) {
                 assistantMsg.content = "تعذر الاتصال بالشبكة. يرجى التحقق من اتصالك بالإنترنت وتجربة المحاولة مرة أخرى.";
             } else {
-                assistantMsg.content = err.message || "حدث خطأ أثناء الاتصال بالذكاء الاصطناعي.";
+                    assistantMsg.content = sanitizeReply(err.message || "حدث خطأ أثناء الاتصال بالذكاء الاصطناعي.");
             }
             assistantMsg.isStreaming = false;
             assistantMsg.statusText = undefined;

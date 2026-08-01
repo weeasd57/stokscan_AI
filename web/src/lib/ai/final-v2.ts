@@ -1,5 +1,6 @@
 import { IntentPlan, VisionContext, ToolResult, FactSnapshot } from "./types";
 import { AI_CONFIG } from "./config";
+import { describeDatedFallback } from "./pipeline";
 import { sanitizeReply } from "./sanitizer";
 
 const MAX_CONTEXT_CHARS = 30000;
@@ -300,6 +301,7 @@ export async function generateV2Response(
     }
     const deterministic = buildDeterministicResponse(userMessage, plan, toolResults);
     if (deterministic) return deterministic;
+    console.log("FINAL_V2 DEBUG PLAN:", JSON.stringify(plan, null, 2));
     if (shouldReturnNoData(plan, visionContext, toolResults, relevantFacts)) {
         const requestedDate = plan.entities.requested_date;
         return requestedDate
@@ -441,7 +443,43 @@ function buildVisionUncertaintyResponse(vision: VisionContext): string {
 }
 
 export function buildDeterministicResponse(userMessage: string, plan: IntentPlan, toolResults: ToolResult[]): string | null {
+    const levelResults = toolResults.filter(result => result.tool === "get_stock_levels");
+    const stockResults = toolResults.filter(result => result.tool === "get_stock" && result.data?.symbol);
+    const compoundNews = toolResults.find(result => result.tool === "get_news");
+    const compoundMessage = /\n|\s+(?:هات|جيب|اعرض|حلل|شوف|قارن|لو\s+كسر)(?:\s|$)|[،,]\s*(?:و\s*)?(?:مين|ايه|إيه|هات|جيب|شوف|حلل)(?:\s|$)/i.test(userMessage);
+    if (compoundMessage && (levelResults.length > 0 || stockResults.length > 0 || compoundNews)) {
+        const parts: string[] = [];
+        for (const result of stockResults) {
+            const data = result.data;
+            parts.push(`${data.symbol}: السعر ${data.price ?? "غير متاح"} جنيه، التغير ${data.change_pct ?? "غير متاح"}، RSI ${data.rsi_14 ?? "غير متاح"}، نسبة الحجم ${data.vol_ratio ?? "غير متاحة"}.`);
+        }
+        for (const result of levelResults) {
+            const data = result.data || {};
+            parts.push(data.support == null ? `${data.symbol || result.symbols[0]}: لا توجد بيانات مستويات كافية.` : `${data.symbol}: الدعم ${Number(data.support).toFixed(2)} جنيه، المقاومة ${Number(data.resistance).toFixed(2)} جنيه.`);
+        }
+        if (/(كسر|يكسر).{0,12}الدعم|الدعم.{0,12}(اتكسر|انكسر)/i.test(userMessage)) {
+            for (const result of levelResults) {
+                const data = result.data || {};
+                if (data.support != null) parts.push(`${data.symbol}: كسر الدعم عند ${Number(data.support).toFixed(2)} جنيه يزيد المخاطر الفنية، ويحتاج تأكيد إغلاق وحجم قبل اتخاذ قرار.`);
+            }
+        }
+        if (compoundNews) {
+            const newsItems = Array.isArray(compoundNews.data) ? compoundNews.data : [];
+            parts.push(newsItems.length
+                ? `الأخبار: تم العثور على ${newsItems.length} سجل للأسهم ${compoundNews.symbols.join("، ")}.`
+                : `الأخبار: لا توجد أخبار مسجلة حالياً للأسهم ${compoundNews.symbols.join("، ") || "المطلوبة"}.`);
+        }
+        const scan = toolResults.find(result => result.tool === "get_accumulation_stocks" || result.tool === "get_distribution_stocks");
+        if (scan?.data?.stocks?.length) parts.push(`التجميع/التصريف: ${scan.data.stocks.slice(0, 8).map((stock: any) => stock.symbol).join("، ")}.`);
+        if (parts.length) return Array.from(new Set(parts)).join("\n");
+    }
     if (plan.intent === "general_chat" && toolResults.length === 0) {
+        if (/(انت|إنت|انتا|أنت).{0,12}(مين|موديل|نموذج)|مين انت|مين إنت/i.test(userMessage)) {
+            return "أنا مساعد EGX Bots لتحليل بيانات البورصة المصرية. أستخدم نموذج الذكاء الاصطناعي الذي تختاره من واجهة الشات لصياغة الرد، مع الاعتماد على بيانات النظام وأدواته عند تحليل الأسهم.";
+        }
+        if (/(انت|إنت|انتا|أنت).{0,12}(مين|موديل|نموذج)|مين انت|مين إنت/i.test(userMessage)) {
+            return "أنا مساعد EGX Bots لتحليل بيانات البورصة المصرية. أستخدم نموذج الذكاء الاصطناعي الذي تختاره من واجهة الشات لصياغة الرد، مع الاعتماد على بيانات النظام وأدواته عند تحليل الأسهم.";
+        }
         if (/(ازيك|إزيك|عامل ايه|عامل إيه|اهلا|أهلا|مرحبا|السلام عليكم)/i.test(userMessage)) {
             return "أهلاً بك. أقدر أساعدك في تحليل سهم، مقارنة سهمين، أخبار الشركات، أو تحليل قطاعات البورصة المصرية باستخدام البيانات المتاحة.";
         }
@@ -454,7 +492,7 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
         const rangeLabel = plan.entities.requested_start_date && plan.entities.requested_end_date
             ? ` من ${plan.entities.requested_start_date} إلى ${plan.entities.requested_end_date}`
             : " الحالية";
-        if (items.length === 0) {
+        if (items.length === 0 && !(compoundMessage && (stockResults.length || levelResults.length))) {
             return `لا توجد أخبار أو بيانات معنويات مسجلة خلال الفترة${rangeLabel}${news.symbols.length ? ` للأسهم ${news.symbols.join("، ")}` : ""}.`;
         }
         const headlines = items.filter((item: any) => item?.title).slice(0, 5);
@@ -490,17 +528,57 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
         return `وجدت رداً سابقاً موثقاً للسهم ${symbol}، لكن السعر غير ظاهر بشكل قابل للاستخراج منه. لا أستطيع اختراع قيمة غير موجودة.`;
     }
 
+    const levels = levelResults[0];
+    if (levels && /(كسر|يكسر).{0,12}الدعم|الدعم.{0,12}(اتكسر|انكسر)/i.test(userMessage)) {
+        const data = levels.data || {};
+        if (data.support == null) return `لا توجد بيانات كافية لتحديد دعم حسابي للسهم ${data.symbol || levels.symbols[0]}.`;
+        return `إذا أغلق ${data.symbol || levels.symbols[0]} أسفل الدعم الحسابي ${Number(data.support).toFixed(2)} جنيه، فهذا يزيد المخاطر الفنية ولا يضمن استمرار الهبوط. راجع حجم مركزك وحد الخسارة الذي يناسب تحملك، وانتظر تأكيد الإغلاق والحجم بدلاً من الاعتماد على كسر لحظي. هذه قراءة فنية وليست أمراً بالبيع.`;
+    }
+    if (levelResults.length && /(مقاوم|مقوام|دعم|support|resistance)/i.test(userMessage)) {
+        const lines = levelResults.map(result => {
+            const data = result.data || {};
+            return data.support == null || data.resistance == null
+                ? `${data.symbol || result.symbols[0]}: لا توجد بيانات سعرية كافية لحساب الدعم والمقاومة.`
+                : `${data.symbol}: الدعم الحسابي ${Number(data.support).toFixed(2)} جنيه، المقاومة الحسابية ${Number(data.resistance).toFixed(2)} جنيه، والإغلاق ${Number(data.close).toFixed(2)} جنيه بتاريخ ${result.data_time} (${data.lookback_sessions} جلسة).`;
+        });
+        return [...lines, "هذه مستويات نطاقية حسابية وليست ضماناً لحركة السعر أو توصية بيع وشراء."].join("\n");
+    }
+
     const decision = /(أبيع|ابيع|بيع|أشتري|اشتري|شراء|احتفظ|أحتفظ|اخرج|أخرج)/i.test(userMessage);
     const stockData = toolResults.filter(result => result.tool === "get_stock" && result.data?.symbol);
+    const riskQuestion = /(يخسر|خسار|يهبط|ينزل).{0,30}(تاني|اكتر|أكتر|اكثر|أكثر|%|في الميه|فى الميه)|(?:ممكن|هل).{0,20}(يخسر|يهبط|ينزل)/i.test(userMessage);
+    if (riskQuestion && stockData.length > 0) {
+        const scan = toolResults.find(result => result.tool === "get_distribution_stocks");
+        const data = stockData[0].data;
+        const scanRow = scan?.data?.scan_rows?.find((row: any) => String(row.symbol).toUpperCase() === String(data.symbol).toUpperCase());
+        const unitText = (value: unknown, unit: string) => `${String(value).replace(new RegExp(`\\${unit}+$`), "")}${unit}`;
+        const requestedLoss = userMessage.match(/(?:اكتر|أكتر|اكثر|أكثر|من)?\s*(\d+(?:\.\d+)?)\s*%?/i)?.[1];
+        const riskFactors = [
+            data.change_pct != null ? `التغير الأخير ${unitText(data.change_pct, "%")}` : null,
+            data.vol_ratio != null ? `نسبة الحجم ${unitText(data.vol_ratio, "x")}` : null,
+            data.rsi_14 != null ? `RSI ${data.rsi_14}` : null,
+            scanRow?.dist_score != null ? `درجة التصريف المسجلة ${scanRow.dist_score}/100` : null,
+            scanRow?.consecutive_dist_days != null ? `أيام التصريف المتتالية ${scanRow.consecutive_dist_days}` : null
+        ].filter(Boolean);
+        return [
+            `نعم، من الناحية النظرية يمكن أن يخسر ${data.symbol}${requestedLoss ? ` أكثر من ${requestedLoss}%` : " أكثر"}؛ لا توجد بيانات تضمن سقفاً للخسارة أو تنفيه.`,
+            riskFactors.length ? `عوامل الخطر الظاهرة في البيانات: ${riskFactors.join("، ")}.` : "لا توجد عوامل كمية كافية في البيانات الحالية لتقدير احتمال الخسارة.",
+            "وجود إشارة تصريف أو هبوط سابق يرفع الحذر، لكنه لا يتنبأ بنسبة هبوط محددة. استخدم مستوى المخاطر وخطة وقف الخسارة الخاصة بك، فهذا ليس توصية استثمارية."
+        ].join("\n");
+    }
     if (decision && stockData.length > 0) {
+        const levelData = levels?.data;
         const lines = stockData.map(result => {
             const data = result.data;
             return `- ${data.symbol}: السعر الحالي ${data.price} جنيه، التغير ${data.change_pct}، RSI ${data.rsi_14}، MACD ${data.macd_signal}، نسبة الحجم ${data.vol_ratio}.`;
         });
         return [
-            "لا أستطيع تحديد سعر بيع شخصي أو اختراع هدف غير موجود في البيانات.",
+            "لا أستطيع اتخاذ قرار البيع بدلاً منك، لكن يمكن ربط القرار بالمستويات السعرية الفعلية.",
             ...lines,
-            "لا توجد في البيانات الحالية مقاومة أو إشارة بيع موثقة يمكن استخدامها كسعر مستهدف. القرار النهائي يرجع لك وفق خطتك وإدارة المخاطر."
+            levelData?.support != null && levelData?.resistance != null
+                ? `الدعم الحسابي ${Number(levelData.support).toFixed(2)} جنيه، والمقاومة الحسابية ${Number(levelData.resistance).toFixed(2)} جنيه، محسوبان من آخر ${levelData.lookback_sessions} جلسة حتى ${levels?.data_time}. كسر الدعم قد يزيد المخاطر، والاقتراب من المقاومة قد يستدعي مراجعة خطتك أو جني جزء من الربح حسب تحملك للمخاطر.`
+                : "لا توجد بيانات سعرية كافية لحساب دعم ومقاومة يمكن الاستناد إليهما، لذلك لن أحدد سعراً للبيع.",
+            "هذه قراءة فنية وليست توصية بيع أو شراء."
         ].join("\n");
     }
 
@@ -528,9 +606,46 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
         return [dateLabel, describe(entries[0], comparison.symbols[0]), describe(entries[1], comparison.symbols[1]), missingNote].join("\n");
     }
 
+    const sectorLiquidity = toolResults.find(result => result.tool === "get_sector_liquidity");
+    if (sectorLiquidity) {
+        const sectors = Array.isArray(sectorLiquidity.data?.sectors) ? sectorLiquidity.data.sectors : [];
+        if (sectors.length === 0) return sectorLiquidity.data?.requested_sector
+            ? `لا توجد بيانات حجم وسعر مكتملة لقطاع ${sectorLiquidity.data.requested_sector} بتاريخ ${sectorLiquidity.data_time}.`
+            : `لا توجد بيانات حجم وسعر مكتملة تكفي لمقارنة سيولة القطاعات بتاريخ ${sectorLiquidity.data_time}.`;
+        const top = sectors[0];
+        const formatMillions = (value: number) => `${(Number(value) / 1_000_000).toFixed(2)} مليون جنيه`;
+        if (sectorLiquidity.data?.requested_sector) {
+            return [
+                `سيولة قطاع ${top.sector} بتاريخ ${sectorLiquidity.data_time}:`,
+                `قيمة التداول التقديرية ${formatMillions(top.traded_value)} عبر ${top.stock_count} سهم متاح البيانات.`,
+                top.average_volume_ratio != null ? `متوسط نسبة الحجم لأسهم القطاع: ${Number(top.average_volume_ratio).toFixed(2)}x.` : null,
+                "المقياس المستخدم هو مجموع السعر × حجم التداول لأسهم القطاع فقط."
+            ].filter(Boolean).join("\n");
+        }
+        return [
+            describeDatedFallback(plan.entities.requested_date, sectorLiquidity.data_time),
+            `أكبر قطاع من حيث قيمة التداول التقديرية بتاريخ ${sectorLiquidity.data_time} هو ${top.sector}.`,
+            `قيمة التداول التقديرية: ${formatMillions(top.traded_value)} عبر ${top.stock_count} سهم متاح البيانات.`,
+            ...sectors.slice(1, 5).map((sector: any, index: number) => `${index + 2}. ${sector.sector}: ${formatMillions(sector.traded_value)} عبر ${sector.stock_count} سهم.`),
+            "المقياس المستخدم هو مجموع السعر × حجم التداول لأسهم القطاع في الجلسة، وليس RSI أو درجة التجميع."
+        ].filter(Boolean).join("\n");
+    }
+
+    const sectorList = toolResults.find(result => result.tool === "get_sector_list");
+    if (sectorList) {
+        const sectors = Array.isArray(sectorList.data?.sectors) ? sectorList.data.sectors : [];
+        if (sectors.length === 0) return "لا توجد أسماء قطاعات مسجلة حالياً في بيانات الشركات.";
+        return [`القطاعات المسجلة في بيانات البورصة المصرية (${sectors.length} قطاع):`, ...sectors.map((item: any, index: number) => `${index + 1}. ${item.sector} (${item.stock_count} سهم)`) ].join("\n");
+    }
+
     const sector = toolResults.find(result => result.tool === "get_sector");
     if (sector?.data?.stocks?.length) {
         const stocks = sector.data.stocks as any[];
+        const largest = [...stocks].sort((a, b) => Number(b.tech?.close || 0) * Number(b.tech?.volume || 0) - Number(a.tech?.close || 0) * Number(a.tech?.volume || 0))[0];
+        if (/اكبر|أكبر|largest|biggest/i.test(userMessage)) {
+            const value = Number(largest?.tech?.close || 0) * Number(largest?.tech?.volume || 0);
+            return `أكبر سهم في قطاع ${sector.data.sector} من حيث قيمة التداول التقديرية بتاريخ ${sector.data_time} هو ${largest.symbol} (${largest.name || largest.symbol})، بقيمة تقارب ${(value / 1000000).toFixed(2)} مليون جنيه. المقياس المستخدم هو السعر × حجم التداول، وليس القيمة السوقية أو توصية استثمارية.`;
+        }
         const advancing = stocks.filter(stock => Number(stock.tech?.change_pct || 0) > 0).length;
         const declining = stocks.filter(stock => Number(stock.tech?.change_pct || 0) < 0).length;
         const strongest = [...stocks].sort((a, b) => Number(b.tech?.change_pct || 0) - Number(a.tech?.change_pct || 0)).slice(0, 3);
@@ -574,7 +689,7 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
                     row[consecutiveField] != null ? `أيام ${directionAr}: ${row[consecutiveField]}` : null,
                     row.wyckoff_phase ? `مرحلة Wyckoff: ${row.wyckoff_phase}` : null
                 ].filter(Boolean);
-                return [verdict, `الدليل: ${evidence.join("، ")}.`, "هذه قراءة لمسح فني مسجل وليست توصية شراء أو بيع."].join("\n");
+                return [describeDatedFallback(plan.entities.requested_date, scanResult.data_time), verdict, `الدليل: ${evidence.join("، ")}.`, "هذه قراءة لمسح فني مسجل وليست توصية شراء أو بيع."].filter(Boolean).join("\n");
             }
 
             const technicalRow = Array.isArray(scanResult.data?.technical_rows) ? scanResult.data.technical_rows[0] : null;
@@ -587,10 +702,11 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
         if (stocks.length > 0) {
             const displayed = stocks.slice(0, 8);
             return [
+                describeDatedFallback(plan.entities.requested_date, scanResult.data_time),
                 `أبرز أسهم ${directionAr} حسب المسح المؤرخ ${scanResult.data_time}:`,
                 ...displayed.map(stock => `- ${stock.symbol}: درجة ${directionAr} ${stock[scoreField] ?? "غير متاحة"}/100، نسبة الحجم ${stock.vol_ratio ?? "غير متاحة"}x، ${directionAr} متتالٍ ${stock[consecutiveField] ?? 0} يوم.`),
                 "هذه نتائج مسح فني وليست توصية شراء أو بيع."
-            ].join("\n");
+            ].filter(Boolean).join("\n");
         }
 
         if (plan.entities.requested_date) {
@@ -608,7 +724,11 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
             const data = result.data;
             return `- ${data.symbol} (${data.name}): السعر ${data.price} جنيه، التغير ${data.change_pct}، RSI ${data.rsi_14}، MACD ${data.macd_signal}، حجم التداول ${data.vol_ratio} من متوسط 20 جلسة.`;
         });
-        return ["ملخص أحدث البيانات المتاحة:", ...lines, "RSI وMACD يقيسان الزخم، ونسبة الحجم تقارن التداول الحالي بمتوسطه ولا تثبت وحدها وجود تجميع أو تصريف."].join("\n");
+        const levelData = levels?.data;
+        const levelLine = levelData?.support != null && levelData?.resistance != null
+            ? `الدعم الحسابي: ${Number(levelData.support).toFixed(2)} جنيه، المقاومة الحسابية: ${Number(levelData.resistance).toFixed(2)} جنيه، من آخر ${levelData.lookback_sessions} جلسة حتى ${levels?.data_time}.`
+            : "لا توجد بيانات سعرية كافية لحساب الدعم والمقاومة.";
+        return [describeDatedFallback(plan.entities.requested_date, stocks[0]?.data_time), "ملخص أحدث البيانات المتاحة:", ...lines, levelLine, "RSI وMACD يقيسان الزخم، ونسبة الحجم تقارن التداول الحالي بمتوسطه ولا تثبت وحدها وجود تجميع أو تصريف."].filter(Boolean).join("\n");
     }
 
     return null;

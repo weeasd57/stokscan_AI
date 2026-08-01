@@ -153,9 +153,25 @@ export function convertStockBulletsToTable(replyText: string): string {
     return tableMarkdown + "\n\n" + cleanReply;
 }
 
+export function sanitizeUiLabel(text: string): string {
+    const markerIndex = text.toLowerCase().indexOf("environment_details");
+    if (markerIndex >= 0) text = text.slice(0, markerIndex).replace(/<\s*$/g, "");
+    const clean = text
+        .replace(/<\s*environment_details[^>]*>[\s\S]*$/gi, "")
+        .replace(/<\s*environment_details[\s\S]*$/gi, "")
+        .replace(/<\s*environment_details\s*>[\s\S]*?(?:<\s*\/\s*environment_details\s*>|$)/gi, "")
+        .replace(/environment_details[\s\S]*$/gi, "")
+        .replace(/Current time:\s*[^\n]+/gi, "")
+        .replace(/Working directory:\s*[^\n]+/gi, "")
+        .replace(/Workspace root folder:\s*[^\n]+/gi, "")
+        .replace(/\s*✅\s*تحليل EGX Bots مبني على بيانات حية[^\n]*/gi, "")
+        .trim();
+    return /environment_details|Current time:|Working directory:|Workspace root folder:/i.test(clean) ? "" : clean;
+}
+
 export function sanitizeReply(reply: string, liveDataString?: string): string {
   try {
-    let cleanReply = typeof reply === "string" ? reply.trim() : "";
+    let cleanReply = typeof reply === "string" ? sanitizeUiLabel(reply).trim() : "";
 
     // 1. Clean raw Python array/dict repr if model echoed input payload structure
     if (cleanReply.startsWith("[{'type'") || cleanReply.startsWith('[{"type"')) {

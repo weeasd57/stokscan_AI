@@ -78,6 +78,25 @@ function buildSectorTable(tool: ToolResult): ExcelTable | null {
     };
 }
 
+function buildSectorLiquidityTable(tool: ToolResult): ExcelTable | null {
+    const sectors = Array.isArray(tool.data?.sectors) ? tool.data.sectors : [];
+    if (sectors.length === 0) return null;
+    return {
+        id: tool.tool,
+        title: "سيولة القطاعات",
+        headers: ["القطاع", "قيمة التداول التقديرية", "عدد الأسهم", "متوسط نسبة الحجم"],
+        rows: sectors.map((sector: any) => [cell(sector.sector), metric(sector.traded_value), cell(sector.stock_count), metric(sector.average_volume_ratio)]),
+        source: tool.source,
+        data_time: tool.data_time
+    };
+}
+
+function buildSectorListTable(tool: ToolResult): ExcelTable | null {
+    const sectors = Array.isArray(tool.data?.sectors) ? tool.data.sectors : [];
+    if (!sectors.length) return null;
+    return { id: tool.tool, title: "قائمة القطاعات", headers: ["القطاع", "عدد الأسهم"], rows: sectors.map((item: any) => [cell(item.sector), cell(item.stock_count)]), source: tool.source, data_time: tool.data_time };
+}
+
 function buildComparisonTable(tool: ToolResult): ExcelTable | null {
     const data = tool.data || {};
     const entries = [data.sym1, data.sym2].filter(Boolean);
@@ -257,6 +276,8 @@ export function buildExcelTables(toolResults: ToolResult[], vision: VisionContex
         if (tool.tool === "get_stock") continue;
         let table: ExcelTable | null = null;
         if (tool.tool === "get_sector") table = buildSectorTable(tool);
+        else if (tool.tool === "get_sector_liquidity") table = buildSectorLiquidityTable(tool);
+        else if (tool.tool === "get_sector_list") table = buildSectorListTable(tool);
         else if (tool.tool === "get_comparison") table = buildComparisonTable(tool);
         else if (tool.tool === "get_recommendations") table = buildRecommendationsTable(tool);
         else if (tool.tool === "get_accumulation_stocks" || tool.tool === "get_distribution_stocks") table = buildScanTable(tool);

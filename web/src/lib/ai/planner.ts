@@ -298,65 +298,45 @@ CRITICAL INSTRUCTIONS:
 
 EXAMPLE: If you see 4 stocks in the image, you MUST extract all 4 symbols, and list the exact prices and values for each in the "image_summary" description.
 
-` : ""}**YOUR TASK:**
-Analyze user request and return JSON with this exact structure:
+` : ""}**AVAILABLE TOOLS:**
+- "get_stock": Fetches live price, volume, change %, RSI, MACD, and SMA data for specific stock symbol(s). Use when the user asks for analysis, price, support, resistance, technical indicators, or general info about specific stock(s).
+- "get_news": Fetches recent news headlines, articles, and sentiment scores. Use when the user asks for news (أخبار), announcements, or sentiment.
+- "get_recommendations": Fetches algorithmic buy/sell recommendations. Use when the user explicitly asks for recommendations, buying advice, or signals (e.g. 'تنصحني', 'أشتري', 'توصيات').
+- "get_sector": Fetches aggregated technical and fundamental data for a specific market sector. Use when the user asks about a sector (e.g., 'البنوك', 'الأدوية', 'العقارات', 'قطاع').
+- "get_market": Fetches overall market summary, EGX30/EGX70 index data, and top gainers/losers. Use when the user asks about the overall market, index, or general liquidity (e.g. 'حالة السوق', 'ايه اللي طلع', 'السوق').
+- "get_accumulation_stocks": Fetches a list of stocks currently in Wyckoff accumulation/distribution phases. Use when the user asks about 'تجميع', 'تصريف', 'سيولة مؤسسية', or 'accumulation'.
+- "get_comparison": Fetches data to compare two or more stocks. Use when the user explicitly asks to compare stocks (e.g., 'مقارنة بين', 'أيهما أفضل').
 
-EXAMPLE 1 - Portfolio/Stock Analysis:
+**YOUR TASK:**
+Analyze the user request and return a JSON object. You MUST dynamically choose the correct "tools" array based on the AVAILABLE TOOLS above. Combine multiple tools if necessary (e.g., ["get_stock", "get_news"] if the user asks for analysis and news).
+
+**JSON STRUCTURE TO RETURN:**
 {
-  "intent": "portfolio",
+  "intent": "Brief string describing intent (e.g., stock_analysis, sector_analysis, market_summary, general_chat)",
   "confidence": 0.95,
   "entities": {
-    "symbols": ["COMI", "EAST"],
-    "sector": null,
-    "wants_table": true,
+    "symbols": ["SYMBOL1", "SYMBOL2"], // EXACT stock tickers in uppercase (e.g. COMI). Empty array if none.
+    "sector": "Arabic Sector Name", // e.g. "بنوك", "عقارات". Null if none.
+    "wants_table": false, // Set to true if user wants a table
+      "scan_direction": null, // Set to "accumulation" or "distribution" if requested, else null
     "timeframe": null
   },
-  "tools": ["get_stock"],
+  "tools": ["ToolName1", "ToolName2"], // EXACT tool names selected from AVAILABLE TOOLS. [] for general_chat.
   "image_summary": null,
   "session_update": {
-    "current_symbol": "COMI",
-    "last_symbols": ["COMI", "EAST"],
-    "summary": "stock analysis"
+    "current_symbol": "SYMBOL1",
+    "last_symbols": ["SYMBOL1", "SYMBOL2"],
+    "summary": "Brief summary of request"
   }
 }
 
-EXAMPLE 2 - Sector Analysis (CRITICAL FOR SECTOR QUERIES):
-{
-  "intent": "sector_analysis",
-  "confidence": 0.95,
-  "entities": {
-    "symbols": [],
-    "sector": "بنوك",
-    "wants_table": true,
-    "timeframe": null
-  },
-  "tools": ["get_sector"],
-  "image_summary": null,
-  "session_update": {
-    "current_symbol": null,
-    "last_symbols": [],
-    "summary": "sector analysis for banks"
-  }
-}
-
-**RULES:**
-- For images showing portfolio/holdings lists: use intent "portfolio" and extract visible stock tickers.
-- For images showing TECHNICAL CHARTS (candlesticks, TradingView, harmonic patterns, trendlines, support/resistance): use intent "chart_analysis", set entities.wants_table to FALSE, extract the ticker symbol visible on the chart, and set summary to detailed chart description.
-- For images showing MARKET DEPTH / ORDER BOOK (Bids vs Offers, المطلوب والمعروض, عمق السعر والتنفيذات): use intent "market_depth", set entities.wants_table to FALSE, extract the ticker symbol visible (e.g. from watermark), and write a detailed description of the order book (total bid vs total ask, and major orders) in image_summary.
-- ⚠️ CRITICAL IMAGE PRIORITY RULE: If an image is uploaded (hasImages is true), you MUST prioritize the image analysis. Even if the user's text message contains quoted text, old logs, or list copy-pastes, you MUST assume the user's main goal is to analyze the uploaded image(s). Set intent to "portfolio" (if it is a holdings page), "chart_analysis" (if it is a chart), or "market_depth" (if it is a market depth/order book page), extract all visible stock tickers from the image, and set tools to ["get_stock"]. Do NOT set intent to "recommendation" or "stock_news" or run general recommendation tools unless the user explicitly asks a direct text question about recommendations (e.g., 'give me recommendations') that is completely separate from the image.
-- For USD/market queries: use intent "market_summary" with tools ["get_market","get_indices"]  
-- For news: use intent "stock_news" with tools ["get_news"]
-- For recommendations or signals: use intent "recommendation" with tools ["get_recommendations"]
- - For accumulation or distribution queries (e.g. 'تجميع', 'تصريف', 'accumulation', 'distribution'): use intent "accumulation" with tools ["get_accumulation_stocks"]
- - For comparison queries between two stocks (e.g. 'مقارنة COMI و EAST', 'قارن بين AFMC و BIOC'): use intent "comparison" with tools ["get_comparison"] and set entities.symbols to the two symbols.
- - For historical recall queries where the user asks about previously mentioned prices, technical indicators, or past analyses (e.g., 'السعر اللي قولته قبل كده', 'التحليل اللي فات', 'كان RSI كام في التحليل السابق؟', 'سعر COMI اللي قولته', 'مقارنة بالتحليل السابق'): use intent "historical_recall" with tools [].
- - For sector analysis queries (e.g. 'البنوك حالتها ايه', 'تحليل قطاع الأدوية', 'قطاع البنوك', 'how are banks doing', 'sector analysis'): use intent "sector_analysis" with tools ["get_sector"] and set entities.sector to the Arabic sector name (e.g. 'بنوك', 'أدوية', 'عقارات', 'أغذية'). Always prefer the Arabic sector name. CRITICAL: You MUST extract and set the sector name in entities.sector field!
- - For greetings, general chat, or conversational requests (e.g. 'hello', 'say X', 'how are you', etc.): use intent "general_chat" with tools [] and entities.symbols [].
-- If the user asks about market liquidity, performance, gainers/losers, or general market movement (e.g. 'مين طلع ومين نزل', 'ايه اللي طلع وايه اللي نزل', 'ايه اللى طلع وايه اللى نزل', 'السوق عمل ايه', 'حالة السوق', 'صعود وهبوط', 'gainers and losers', 'what went up', 'whole market', 'where is liquidity'): use intent "market_summary" or "accumulation" with tools ["get_market", "get_accumulation_stocks"] and set entities.symbols to [].
-- If the request is a general market, news, index, or recommendation query, do NOT include stock symbols from the session context in the entities.symbols list. Keep entities.symbols as [] to fetch the whole market data.
-- ⚠️ CRITICAL: In "image_summary" or "summary" or any other string value in your JSON, NEVER use double quotes ("). If you need to quote a stock symbol, name, or index, use single quotes (') instead. This is extremely important to prevent JSON parsing syntax errors!
-- ⚠️ FOR IMAGES: Count the visible stocks carefully and ensure your symbols array length matches the count
-- Return ONLY the JSON, no extra text`;
+**CRITICAL RULES:**
+- If the user asks about a sector (e.g. 'قطاع الأدوية'), you MUST extract the Arabic sector name into entities.sector (e.g. 'أدوية').
+- For historical recall queries ('الرقم اللي قولته قبل كده', 'التحليل اللي فات'): use intent "historical_recall" with tools [].
+- For conversational/greeting queries: use intent "general_chat" with tools [].
+- ⚠️ CRITICAL IMAGE RULE: If an image is uploaded (hasImages is true), prioritize image analysis. Extract all visible tickers into entities.symbols, set intent to "portfolio" or "chart_analysis", and set tools to ["get_stock"].
+- NEVER use double quotes (") inside string values like image_summary. Use single quotes (').
+- Return ONLY valid JSON, starting with '{' and ending with '}'.`;
 
     const hasContextReference = /الاتنين|الإثنين|الاطنين|كلاهما|مع بعض|السهمين|تحليلهم|هاتهم|قولي عنهم|حللهم|بياناتهم|سعرهم|أخبارهم|ده|دا|دي|هذا|السابق|اللي فات|قبل كده|من شوية|تاريخ الشات|سياق المحادثة/i.test(message || "");
     const recentHistoryText = (hasImages || visionProvided || !hasContextReference) ? "" : (history || []).slice(-4).map((h: any) => `${h.role}: ${h.content}`).join("\n");
@@ -693,12 +673,14 @@ EXAMPLE 2 - Sector Analysis (CRITICAL FOR SECTOR QUERIES):
     }
 
     const isMarketSlang = /مين طلع ومين نزل|ايه اللي طلع وايه اللي نزل|ايه اللى طلع وايه اللى نزل|السوق عمل ايه|حالة السوق|صعود وهبوط|gainers and losers|what went up|whole market|where is liquidity/i.test(message);
+    const sectorFollowUp = /^(?:اى|أي|ايه|ما هو|ما هي|مين)\s+(?:اكبر|أكبر)\s+(?:سهم|شركة)\s+(?:في|فى|بقطاع|من)\s+(.+)$/i.exec(message.trim())
+        || /^(?:اكبر|أكبر)\s+(?:سهم|شركة)\s+(?:في|فى|بقطاع|من)\s+(.+)$/i.exec(message.trim());
     const fallbackSymbols = (hasImages || isMarketSlang) ? [] : (session.current_symbol ? [correctStockSymbol(session.current_symbol, validSymbols)] : []);
     return {
-        intent: hasImages ? "portfolio" : "general_chat",
+        intent: hasImages ? "portfolio" : sectorFollowUp ? "sector_analysis" : "general_chat",
         confidence: 0.8,
-        entities: { symbols: fallbackSymbols, sector: null, wants_table: Boolean(hasImages) },
-        tools: fallbackSymbols.length > 0 ? ["get_stock"] : [],
+        entities: { symbols: sectorFollowUp ? [] : fallbackSymbols, sector: sectorFollowUp?.[1] || null, wants_table: Boolean(hasImages) },
+        tools: sectorFollowUp ? ["get_sector"] : fallbackSymbols.length > 0 ? ["get_stock"] : [],
         image_summary: hasImages ? "تحليل البيانات والصورة المرفقة من المحفظة." : undefined,
         session_update: { 
             current_symbol: fallbackSymbols[0] || session.current_symbol, 
