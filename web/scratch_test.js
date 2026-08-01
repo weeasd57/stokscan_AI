@@ -1,14 +1,15 @@
 ﻿const { createClient } = require("@supabase/supabase-js");
 const fs = require("fs");
+const { executeStructuredTools } = require("./src/lib/ai/tools-v2");
+
 function loadEnv() {
-    const data = fs.readFileSync("web/.env.local", "utf8");
+    const data = fs.readFileSync(".env.local", "utf8");
     for (const line of data.split("\n")) {
         const match = line.match(/^([A-Z0-9_]+)=(.*)$/);
         if (match) process.env[match[1]] = match[2].trim();
     }
 }
 loadEnv();
-const { executeStructuredTools } = require("./web/src/lib/ai/tools-v2");
 
 const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 

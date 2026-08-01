@@ -299,7 +299,8 @@ export async function generateV2Response(
     if (visionContext && visionContext.symbols.length === 0 && toolResults.length === 0) {
         return buildVisionUncertaintyResponse(visionContext);
     }
-    const deterministic = buildDeterministicResponse(userMessage, plan, toolResults);
+    const isAnalyticalQuery = /(سبب|ليه|لماذا|ازاي|إزاي|تفسير|سر|ينزل|يهبط|يطلع|صعود|هبوط|فرص|أحسن|احسن|افضل|أفضل|توقعات|متوقع|مقارن|قارن|حالة|حالتها|رايك|رأيك|توجيه|تجميع|تصريف|تحليل|شراء|بيع|مناسب)/i.test(userMessage);
+    const deterministic = !isAnalyticalQuery ? buildDeterministicResponse(userMessage, plan, toolResults) : null;
     if (deterministic) return deterministic;
     console.log("FINAL_V2 DEBUG PLAN:", JSON.stringify(plan, null, 2));
     if (shouldReturnNoData(plan, visionContext, toolResults, relevantFacts)) {
@@ -314,13 +315,16 @@ export async function generateV2Response(
         relevantFacts, recentHistory, resolvedReference
     );
 
-    const model = requestedModel || AI_CONFIG.models.response.default;
-    const result = model === "gpt-5.6-sol"
-        ? await callAgentRouterApi(model, messages)
-        : await callNvidiaApi(model, messages, apiKeys);
-    return result.response
-        ? sanitizeReply(removeModelTables(result.response))
-        : "عذراً، لم أتمكن من إنشاء الرد.";
+    const textModels = requestedModel ? [requestedModel] : [AI_CONFIG.models.response.default, ...AI_CONFIG.models.response.fallbacks];
+    for (const m of textModels) {
+        const result = m === "gpt-5.6-sol"
+            ? await callAgentRouterApi(m, messages)
+            : await callNvidiaApi(m, messages, apiKeys);
+        if (result?.response) {
+            return sanitizeReply(removeModelTables(result.response));
+        }
+    }
+    return buildDeterministicResponse(userMessage, plan, toolResults) || "عذراً، لم أتمكن من إنشاء الرد.";
 }
 
 export async function* generateV2Stream(
@@ -338,7 +342,8 @@ export async function* generateV2Stream(
         yield buildVisionUncertaintyResponse(visionContext);
         return;
     }
-    const deterministic = buildDeterministicResponse(userMessage, plan, toolResults);
+    const isAnalyticalQuery = /(سبب|ليه|لماذا|ازاي|إزاي|تفسير|سر|ينزل|يهبط|يطلع|صعود|هبوط|فرص|أحسن|احسن|افضل|أفضل|توقعات|متوقع|مقارن|قارن|حالة|حالتها|رايك|رأيك|توجيه|تجميع|تصريف|تحليل|شراء|بيع|مناسب)/i.test(userMessage);
+    const deterministic = !isAnalyticalQuery ? buildDeterministicResponse(userMessage, plan, toolResults) : null;
     if (deterministic) {
         yield deterministic;
         return;

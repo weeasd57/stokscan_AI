@@ -18,13 +18,13 @@ const baseUrl = process.env.CHAT_TEST_URL || "http://127.0.0.1:3000";
 
 const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
 
-const email = `chat-test-${Date.now()}@example.com`;
+const email = `synth-test-${Date.now()}@example.com`;
 const password = `Qa!${crypto.randomUUID()}aA1`;
 
 (async () => {
     let userId = null;
     try {
-        const { data: created, error: createError } = await admin.auth.admin.createUser({
+        const { data: created } = await admin.auth.admin.createUser({
             email, password, email_confirm: true
         });
         userId = created.user.id;
@@ -32,21 +32,29 @@ const password = `Qa!${crypto.randomUUID()}aA1`;
         const client = createClient(url, anonKey, { auth: { persistSession: false } });
         const { data: signedIn } = await client.auth.signInWithPassword({ email, password });
 
-        const message = "حلل ABUK هات أخباره لو كسر الدعم أعمل إيه؟";
-        console.log(`\n=== SENDING REQUEST ===\nQuery: ${message}`);
-        
-        const response = await fetch(`${baseUrl}/api/ai-chat`, {
-            method: "POST",
-            headers: {
-                "Authorization": `Bearer ${signedIn.session.access_token}`,
-                "Content-Type": "application/json"
-            },
-            body: JSON.stringify({ message, stream: false })
-        });
-        
-        const data = await response.json();
-        console.log(`Status: ${response.status}`);
-        console.log(`\n--- BOT RESPONSE ---\n${data.reply}\n--------------------\n`);
+        const testQueries = [
+            "ما سبب هبوط سهم القلعة",
+            "قارن بين COMI و EAST ومين فرصته احسن؟",
+            "البنوك حالتها إيه وهل عليها تجميع؟"
+        ];
+
+        for (const q of testQueries) {
+            console.log(`\n=======================================================`);
+            console.log(`Query: "${q}"`);
+            console.log(`=======================================================`);
+            const res = await fetch(`${baseUrl}/api/ai-chat`, {
+                method: "POST",
+                headers: {
+                    "Authorization": `Bearer ${signedIn.session.access_token}`,
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({ message: q, stream: false })
+            });
+
+            const data = await res.json();
+            console.log(`AI Synthesis Response:\n${data.reply}\n`);
+        }
+
     } finally {
         if (userId) await admin.auth.admin.deleteUser(userId);
     }
