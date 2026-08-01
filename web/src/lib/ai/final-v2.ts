@@ -729,7 +729,7 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
         const levelSymbol = levelData?.symbol || levels?.symbols?.[0] || stocks[0]?.data?.symbol;
         const levelLine = levelData?.support != null && levelData?.resistance != null
             ? `الدعم الحسابي (لسهم ${levelSymbol}): ${Number(levelData.support).toFixed(2)} جنيه، المقاومة الحسابية: ${Number(levelData.resistance).toFixed(2)} جنيه، من آخر ${levelData.lookback_sessions} جلسة حتى ${levels?.data_time}.`
-            : (stocks.length === 1 ? "لا توجد بيانات سعرية كافية لحساب الدعم والمقاومة." : null);
+            : (levels?.source === "empty" ? "لا توجد بيانات سعرية كافية لحساب الدعم والمقاومة." : null);
         return [describeDatedFallback(plan.entities.requested_date, stocks[0]?.data_time), "ملخص أحدث البيانات المتاحة:", ...lines, levelLine, "RSI وMACD يقيسان الزخم، ونسبة الحجم تقارن التداول الحالي بمتوسطه ولا تثبت وحدها وجود تجميع أو تصريف."].filter(Boolean).join("\n");
     }
 

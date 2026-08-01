@@ -740,8 +740,8 @@ export async function executeStructuredTools(
         }
     }
 
-    // ===== SECTOR ANALYSIS =====
-    if (plan.tools.includes("get_stock_levels") && symbols.length > 0) {
+    // ===== STOCK LEVELS =====
+    if ((plan.tools.includes("get_stock_levels") || plan.tools.includes("get_stock")) && symbols.length > 0) {
         const levelResults = await Promise.all(symbols.map(async symbol => {
             const requested = symbol.toUpperCase();
             let query = supabase.from("stock_prices").select("symbol, date, close, high, low").ilike("symbol", requested).order("date", { ascending: false }).limit(60);
