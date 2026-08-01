@@ -572,12 +572,13 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
             const data = result.data;
             return `- ${data.symbol}: السعر الحالي ${data.price} جنيه، التغير ${data.change_pct}، RSI ${data.rsi_14}، MACD ${data.macd_signal}، نسبة الحجم ${data.vol_ratio}.`;
         });
+        const levelSymbol = levelData?.symbol || levels?.symbols?.[0] || stockData[0]?.data?.symbol;
         return [
             "لا أستطيع اتخاذ قرار البيع بدلاً منك، لكن يمكن ربط القرار بالمستويات السعرية الفعلية.",
             ...lines,
             levelData?.support != null && levelData?.resistance != null
-                ? `الدعم الحسابي ${Number(levelData.support).toFixed(2)} جنيه، والمقاومة الحسابية ${Number(levelData.resistance).toFixed(2)} جنيه، محسوبان من آخر ${levelData.lookback_sessions} جلسة حتى ${levels?.data_time}. كسر الدعم قد يزيد المخاطر، والاقتراب من المقاومة قد يستدعي مراجعة خطتك أو جني جزء من الربح حسب تحملك للمخاطر.`
-                : "لا توجد بيانات سعرية كافية لحساب دعم ومقاومة يمكن الاستناد إليهما، لذلك لن أحدد سعراً للبيع.",
+                ? `الدعم الحسابي (لسهم ${levelSymbol}) ${Number(levelData.support).toFixed(2)} جنيه، والمقاومة الحسابية ${Number(levelData.resistance).toFixed(2)} جنيه، محسوبان من آخر ${levelData.lookback_sessions} جلسة حتى ${levels?.data_time}. كسر الدعم قد يزيد المخاطر، والاقتراب من المقاومة قد يستدعي مراجعة خطتك أو جني جزء من الربح حسب تحملك للمخاطر.`
+                : "لا توجد بيانات سعرية كافية لحساب دعم ومقاومة يمكن الاستناد إليها، لذلك لن أحدد سعراً للبيع.",
             "هذه قراءة فنية وليست توصية بيع أو شراء."
         ].join("\n");
     }
@@ -725,9 +726,10 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
             return `- ${data.symbol} (${data.name}): السعر ${data.price} جنيه، التغير ${data.change_pct}، RSI ${data.rsi_14}، MACD ${data.macd_signal}، حجم التداول ${data.vol_ratio} من متوسط 20 جلسة.`;
         });
         const levelData = levels?.data;
+        const levelSymbol = levelData?.symbol || levels?.symbols?.[0] || stocks[0]?.data?.symbol;
         const levelLine = levelData?.support != null && levelData?.resistance != null
-            ? `الدعم الحسابي: ${Number(levelData.support).toFixed(2)} جنيه، المقاومة الحسابية: ${Number(levelData.resistance).toFixed(2)} جنيه، من آخر ${levelData.lookback_sessions} جلسة حتى ${levels?.data_time}.`
-            : "لا توجد بيانات سعرية كافية لحساب الدعم والمقاومة.";
+            ? `الدعم الحسابي (لسهم ${levelSymbol}): ${Number(levelData.support).toFixed(2)} جنيه، المقاومة الحسابية: ${Number(levelData.resistance).toFixed(2)} جنيه، من آخر ${levelData.lookback_sessions} جلسة حتى ${levels?.data_time}.`
+            : (stocks.length === 1 ? "لا توجد بيانات سعرية كافية لحساب الدعم والمقاومة." : null);
         return [describeDatedFallback(plan.entities.requested_date, stocks[0]?.data_time), "ملخص أحدث البيانات المتاحة:", ...lines, levelLine, "RSI وMACD يقيسان الزخم، ونسبة الحجم تقارن التداول الحالي بمتوسطه ولا تثبت وحدها وجود تجميع أو تصريف."].filter(Boolean).join("\n");
     }
 
