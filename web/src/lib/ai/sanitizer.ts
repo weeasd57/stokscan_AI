@@ -172,9 +172,14 @@ export function sanitizeUiLabel(text: string): string {
     return /environment_details|Current time:|Working directory:|Workspace root folder:/i.test(clean) ? "" : clean;
 }
 
+export function stripEnvironmentLeak(text: string): string {
+    const marker = text.search(/<?\s*environment_details|Current time:|Working directory:|Workspace root folder:/i);
+    return (marker >= 0 ? text.slice(0, marker) : text).replace(/<\s*$/g, "").trim();
+}
+
 export function sanitizeReply(reply: string, liveDataString?: string): string {
   try {
-    let cleanReply = typeof reply === "string" ? sanitizeUiLabel(reply).trim() : "";
+    let cleanReply = typeof reply === "string" ? stripEnvironmentLeak(sanitizeUiLabel(reply)).trim() : "";
 
     // 1. Clean raw Python array/dict repr if model echoed input payload structure
     if (cleanReply.startsWith("[{'type'") || cleanReply.startsWith('[{"type"')) {

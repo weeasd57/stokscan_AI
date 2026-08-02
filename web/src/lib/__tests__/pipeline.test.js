@@ -798,6 +798,31 @@ describe("Deterministic intent guards", () => {
         expect(plan.tools).not.toContain("get_recommendations");
     });
 
+    it("keeps a multi-stock Arabic request out of stale sector context", () => {
+        const plan = buildDeterministicPlannerResult("ممكن العبور للاستثمار وجنوب الوادى وفوري", { current_symbol: "ELSH", last_symbols: ["ELSH"], summary: "Finance" });
+        expect(plan).toMatchObject({
+            intent: "stock_analysis",
+            entities: { symbols: ["FWRY", "OBRI", "SVCE"] },
+            tools: ["get_stock", "get_stock_levels"]
+        });
+        expect(plan.intent).not.toBe("sector_analysis");
+    });
+
+    it("answers target and correction questions from actual levels", () => {
+        const response = buildDeterministicResponse("سهم جلاكسو ينصح الدخول فيه بكرة ولا قرب يصحح ومستهدف كام", {
+            intent: "stock_analysis", confidence: 1, entities: { symbols: ["BIOC"], sector: null, timeframe: "current", reference: null },
+            needs_vision_context: false, needs_history: false, needs_live_data: true, needs_historical_data: false,
+            tools: ["get_stock", "get_stock_levels"], clarification_needed: false, resolved_from: { symbol: null, message_id: null }
+        }, [
+            { tool: "get_stock", source: "database", data_time: "2026-07-30", symbols: ["BIOC"], data_type: "live", data: { symbol: "BIOC", price: 239.76, change_pct: "+20.00%", rsi_14: "90.39", vol_ratio: "2.16x" } },
+            { tool: "get_stock_levels", source: "stock_prices", data_time: "2026-07-30", symbols: ["BIOC"], data_type: "live", data: { symbol: "BIOC", support: 66.48, resistance: 239.76 } }
+        ]);
+        expect(response).toContain("تشبع شرائي مرتفع");
+        expect(response).toContain("المقاومة الحسابية الحالية 239.76");
+        expect(response).toContain("ليست مستهدفاً جديداً مضموناً");
+        expect(response).not.toContain("ربح غير محقق");
+    });
+
     it("keeps the previous stock when a follow-up says compare this with another", () => {
         const plan = buildDeterministicPlannerResult("قارن ده مع AMER", { current_symbol: "CAED", last_symbols: ["CAED"], summary: null });
         expect(plan.entities.symbols).toEqual(["CAED", "AMER"]);
@@ -866,6 +891,11 @@ describe("Structured table sanitization", () => {
         expect(sanitized).toContain("رد صالح");
         expect(sanitized).not.toContain("environment_details");
         expect(sanitized).not.toContain("Workspace root folder");
+    });
+
+    it("strips environment details appended directly to normal text", () => {
+        expect(sanitizeReply("كمل<environment_details>\nCurrent time: secret")).toContain("كمل");
+        expect(sanitizeReply("كمل<environment_details>\nCurrent time: secret")).not.toContain("environment_details");
     });
 });
 

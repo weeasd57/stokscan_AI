@@ -258,7 +258,9 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
     const knownSectorFollowUp = /^(?:process industries|finance|health technology|health services|consumer services|consumer durables|consumer non-durables|commercial services|communications|distribution services|electronic technology|energy minerals|industrial services|miscellaneous|non-energy minerals|producer manufacturing|retail trade|technology services|transportation|utilities)$/i.test(message.trim())
         ? message.trim()
         : null;
-    const sector = knownSectorFollowUp || extractSectorFromMessage(message) || extractSectorFromMessage(sectorReference || "");
+    let explicitSector = extractSectorFromMessage(message);
+    if (symbols.length > 0 && !/(قطاع|القطاع|بنوك|البنوك|عقارات|العقارات|ادويه|الادويه|اغذيه|الاغذيه|بترول|الطاقه)/i.test(message)) explicitSector = null;
+    const sector = knownSectorFollowUp || explicitSector || extractSectorFromMessage(sectorReference || "");
     const hasExplicitLatinTicker = /(?:^|[^A-Za-z0-9])[A-Z][A-Z0-9]{1,9}(?=$|[^A-Za-z0-9])/.test(message);
     if (sector && !hasExplicitLatinTicker && /(قطاع|القطاعات|البنوك|الاتصالات|العقارات|الادويه|الاغذيه|البترول|الطاقه)/i.test(message)) symbols.length = 0;
     const normalized = message.toLowerCase().replace(/[أإآ]/g, "ا").replace(/ة/g, "ه");
@@ -271,11 +273,13 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
     if (!sector && !isGreeting && !isHistorical && !requestedDate && !isClearMarketRequest && !isClearStockRequest) return null;
 
     const enforced = enforceIntentFromMessage(message, symbols.length ? "stock_analysis" : "market_summary", symbols);
+    const sectorFollowUp = Boolean(sectorReference && symbols.length === 0);
+    const effectiveSector = explicitSector || knownSectorFollowUp || sectorFollowUp ? sector : null;
     return {
-        intent: isGreeting ? "general_chat" : marketNewsRequest ? "market_summary" : requestedDate && symbols.length ? "stock_analysis" : isHistorical ? "historical_recall" : sector ? "sector_analysis" : enforced.intent,
+        intent: isGreeting ? "general_chat" : marketNewsRequest ? "market_summary" : requestedDate && symbols.length ? "stock_analysis" : isHistorical ? "historical_recall" : explicitSector || knownSectorFollowUp || sectorFollowUp ? "sector_analysis" : enforced.intent,
         confidence: 1,
-        entities: { symbols, sector, wants_table: !isGreeting, timeframe: temporal.timeframe, requested_date: requestedDate, scan_direction: enforced.scan_direction || null },
-        tools: isGreeting || (isHistorical && !requestedDate && !marketNewsRequest) ? [] : marketNewsRequest ? ["get_news"] : knownSectorFollowUp ? ["get_sector"] : enforced.replaceTools ? enforced.tools : sector ? ["get_sector"] : symbols.length ? ["get_stock"] : [],
+        entities: { symbols, sector: effectiveSector, wants_table: !isGreeting, timeframe: temporal.timeframe, requested_date: requestedDate, scan_direction: enforced.scan_direction || null },
+        tools: isGreeting || (isHistorical && !requestedDate && !marketNewsRequest) ? [] : marketNewsRequest ? ["get_news"] : knownSectorFollowUp || sectorFollowUp ? ["get_sector"] : enforced.replaceTools ? enforced.tools : explicitSector ? ["get_sector"] : symbols.length ? ["get_stock"] : [],
         session_update: {
             current_symbol: symbols[0] || sessionState.current_symbol,
             last_symbols: symbols.length ? symbols : sessionState.last_symbols,
