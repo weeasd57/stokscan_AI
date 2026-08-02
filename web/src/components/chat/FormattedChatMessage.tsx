@@ -5,7 +5,7 @@ import { parseMarkdownTable, exportTableToExcel } from "@/lib/excelExport";
 import { FileSpreadsheet, Download, Check, Sparkles, Copy, Share2 } from "lucide-react";
 import StockCard, { StockData } from "./StockCard";
 import type { ChatTable } from "@/contexts/ChatContext";
-import { sanitizeUiLabel } from "@/lib/ai/sanitizer";
+import { sanitizeUiLabel, stripEnvironmentLeak } from "@/lib/ai/sanitizer";
 
 interface FormattedChatMessageProps {
     content: string;
@@ -384,8 +384,8 @@ export function FormattedChatMessage({
     onShare,
     sharing = false
 }: FormattedChatMessageProps) {
-    content = sanitizeUiLabel(content);
-    suggestedButtons = suggestedButtons?.map(sanitizeUiLabel).filter(Boolean);
+    content = stripEnvironmentLeak(sanitizeUiLabel(content));
+    suggestedButtons = suggestedButtons?.map(button => stripEnvironmentLeak(sanitizeUiLabel(button))).filter(Boolean);
     if (/environment_details|Current time:|Working directory:|Workspace root folder:/i.test(content)) content = "";
     const [copiedText, setCopiedText] = useState(false);
     const mermaidContainerRef = useRef<HTMLDivElement>(null);

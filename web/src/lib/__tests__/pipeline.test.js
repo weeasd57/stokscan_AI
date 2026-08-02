@@ -823,6 +823,28 @@ describe("Deterministic intent guards", () => {
         expect(response).not.toContain("ربح غير محقق");
     });
 
+    it("resolves a three-stock portfolio question and refuses an invented week-end value", () => {
+        expect(extractExplicitSymbols("داخل بكرة في جلاكسو وايبكو ومطاحن اسكندرية باتنين مليون")).toEqual(["BIOC", "PHAR", "AFMC"]);
+        const plan = {
+            intent: "stock_analysis", confidence: 1, entities: { symbols: ["BIOC", "PHAR", "AFMC"], sector: null, timeframe: "current", reference: null },
+            needs_vision_context: false, needs_history: false, needs_live_data: true, needs_historical_data: false,
+            tools: ["get_stock", "get_stock_levels"], clarification_needed: false, resolved_from: { symbol: null, message_id: null }
+        };
+        const response = buildDeterministicResponse("داخل بكرة في جلاكسو وايبكو ومطاحن اسكندرية باتنين مليون ممكن يبقوا على كام اخر الاسبوع", plan, [
+            { tool: "get_stock", source: "database", data_time: "2026-08-02", symbols: ["BIOC"], data_type: "live", data: { symbol: "BIOC", price: 287.71, change_pct: "+20%", rsi_14: 92.2, vol_ratio: "1.88x" } },
+            { tool: "get_stock", source: "database", data_time: "2026-08-02", symbols: ["PHAR"], data_type: "live", data: { symbol: "PHAR", price: 50, change_pct: "+2%", rsi_14: 60, vol_ratio: "1.1x" } },
+            { tool: "get_stock", source: "database", data_time: "2026-08-02", symbols: ["AFMC"], data_type: "live", data: { symbol: "AFMC", price: 184.78, change_pct: "+19.99%", rsi_14: 89.41, vol_ratio: "2.88x" } },
+            { tool: "get_stock_levels", source: "stock_prices", data_time: "2026-08-02", symbols: ["BIOC"], data_type: "live", data: { symbol: "BIOC", support: 100, resistance: 287.71 } },
+            { tool: "get_stock_levels", source: "stock_prices", data_time: "2026-08-02", symbols: ["PHAR"], data_type: "live", data: { symbol: "PHAR", support: 45, resistance: 55 } },
+            { tool: "get_stock_levels", source: "stock_prices", data_time: "2026-08-02", symbols: ["AFMC"], data_type: "live", data: { symbol: "AFMC", support: 120, resistance: 184.78 } }
+        ]);
+        expect(response).toContain("BIOC:");
+        expect(response).toContain("PHAR:");
+        expect(response).toContain("AFMC:");
+        expect(response).toContain("لا توجد بيانات مستقبلية موثقة");
+        expect(response).not.toMatch(/2[.,]?[0-9]+ مليون/);
+    });
+
     it("keeps the previous stock when a follow-up says compare this with another", () => {
         const plan = buildDeterministicPlannerResult("قارن ده مع AMER", { current_symbol: "CAED", last_symbols: ["CAED"], summary: null });
         expect(plan.entities.symbols).toEqual(["CAED", "AMER"]);

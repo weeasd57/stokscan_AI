@@ -33,7 +33,7 @@ function filterInput(text: string): boolean {
 }
 
 function filterOutput(response: string): string {
-    const blockedOutputRegex = /(اشتري الآن|شراء فوراً|شراء الان|مضمون|ضمان|أرباح مؤكدة|guaranteed|assurance|buy now)/i;
+    const blockedOutputRegex = /(اشتري الآن|شراء فوراً|شراء الان|أرباح مؤكدة|guaranteed profits|buy now)/i;
     const cleanResponse = response
         .replace(/<environment_details>[\s\S]*?<\/environment_details>/gi, "")
         .replace(/<\s*environment_details\s*>[\s\S]*?(?:<\s*\/\s*environment_details\s*>|$)/gi, "")
@@ -51,7 +51,7 @@ function filterOutput(response: string): string {
 }
 
 function filterOutputBlocks(text: string): boolean {
-    const blockedPattern = /(اشتري الآن|شراء فوراً|شراء الان|مضمون|ضمان|أرباح مؤكدة|guaranteed|assurance|buy now)/i;
+    const blockedPattern = /(اشتري الآن|شراء فوراً|شراء الان|أرباح مؤكدة|guaranteed profits|buy now)/i;
     return blockedPattern.test(text);
 }
 

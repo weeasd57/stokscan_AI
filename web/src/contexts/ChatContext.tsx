@@ -3,7 +3,7 @@
 import { createContext, useContext, useState, ReactNode, useEffect, useCallback, useRef } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { ChatSession } from "@/components/chat/ChatSidebar";
-import { sanitizeReply, sanitizeUiLabel } from "@/lib/ai/sanitizer";
+import { sanitizeReply, sanitizeUiLabel, stripEnvironmentLeak } from "@/lib/ai/sanitizer";
 
 export type ChatMessage = {
     id?: string;
@@ -115,6 +115,10 @@ function stripMarkdownTables(text: string): string {
         .trim();
 }
 
+function cleanChatText(text: string): string {
+    return stripEnvironmentLeak(sanitizeUiLabel(text || ""));
+}
+
 export function ChatProvider({ children }: { children: ReactNode }) {
     const { user } = useAuth();
 
@@ -222,7 +226,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             setActiveSessionId(latest.id);
             const localMsgs = getStoredMessages(latest.id);
             if (localMsgs.length > 0) {
-                const sanitizedMessages = localMsgs.map(message => ({ ...message, content: sanitizeUiLabel(message.content || ""), suggestedButtons: message.suggestedButtons?.map(sanitizeUiLabel).filter(Boolean) }));
+                const sanitizedMessages = localMsgs.map(message => ({ ...message, content: cleanChatText(message.content || ""), suggestedButtons: message.suggestedButtons?.map(cleanChatText).filter(Boolean) }));
                 setMessages(sanitizedMessages);
                 sessionMessagesCache.current[latest.id] = sanitizedMessages;
             }
@@ -232,8 +236,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     useEffect(() => {
         setMessages(prev => prev.map(message => ({
             ...message,
-            content: sanitizeUiLabel(message.content || ""),
-            suggestedButtons: message.suggestedButtons?.map(sanitizeUiLabel).filter(Boolean)
+            content: cleanChatText(message.content || ""),
+            suggestedButtons: message.suggestedButtons?.map(cleanChatText).filter(Boolean)
         })));
     }, []);
 
@@ -271,8 +275,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
                         const localImg = localImageMap.get(idx);
                         return {
                             ...srvMsg,
-                            content: sanitizeUiLabel(srvMsg.content || ""),
-                            suggestedButtons: srvMsg.suggestedButtons?.map(sanitizeUiLabel).filter(Boolean),
+                            content: cleanChatText(srvMsg.content || ""),
+                            suggestedButtons: srvMsg.suggestedButtons?.map(cleanChatText).filter(Boolean),
                             imagePreviewUrl: srvMsg.imagePreviewUrl || localImg?.imagePreviewUrl || srvMsg.imageUrl || localImg?.imageUrl,
                             imageUrl: srvMsg.imageUrl || localImg?.imageUrl,
                             images: srvMsg.images || localImg?.images
@@ -340,12 +344,14 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
         // 1. Memory Cache
         if (sessionMessagesCache.current[sessionId] && sessionMessagesCache.current[sessionId].length > 0) {
-            setMessages(sessionMessagesCache.current[sessionId]);
+                setMessages(sessionMessagesCache.current[sessionId].map(message => ({ ...message, content: cleanChatText(message.content), suggestedButtons: message.suggestedButtons?.map(cleanChatText).filter(Boolean) })));
         } else {
             // 2. localStorage
             const localMsgs = getStoredMessages(sessionId);
             if (localMsgs.length > 0) {
-                setMessages(localMsgs);
+                const sanitizedMessages = localMsgs.map(message => ({ ...message, content: cleanChatText(message.content), suggestedButtons: message.suggestedButtons?.map(cleanChatText).filter(Boolean) }));
+                sessionMessagesCache.current[sessionId] = sanitizedMessages;
+                setMessages(sanitizedMessages);
                 sessionMessagesCache.current[sessionId] = localMsgs;
             } else {
                 setMessages([]);
@@ -406,7 +412,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     }, [user, fetchSessions]);
 
     const sendMessage = useCallback(async (text: string, imageInput?: string | string[]) => {
-        text = sanitizeUiLabel(text);
+        text = cleanChatText(text);
         const imagesList: string[] = Array.isArray(imageInput)
             ? imageInput
             : (imageInput ? [imageInput] : []);

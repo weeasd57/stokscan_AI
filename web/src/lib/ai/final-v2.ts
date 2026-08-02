@@ -565,7 +565,7 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
     }
 
     const decision = /(أبيع|ابيع|بيع|أشتري|اشتري|شراء|احتفظ|أحتفظ|اخرج|أخرج)/i.test(userMessage);
-    const entryTiming = /(ينصح|دخول|ادخل|أدخل|بكره|بكرة|يصحح|تصحيح|مستهدف|هدف)/i.test(userMessage);
+    const entryTiming = /(ينصح|داخل|دخول|ادخل|أدخل|بكره|بكرة|يصحح|تصحيح|مستهدف|هدف|اخر الاسبوع|آخر الأسبوع|المحفظه|المحفظة|مليون)/i.test(userMessage);
     const stockData = toolResults.filter(result => result.tool === "get_stock" && result.data?.symbol);
     const riskQuestion = /(يخسر|خسار|يهبط|ينزل).{0,30}(تاني|اكتر|أكتر|اكثر|أكثر|%|في الميه|فى الميه)|(?:ممكن|هل).{0,20}(يخسر|يهبط|ينزل)/i.test(userMessage);
     if (riskQuestion && stockData.length > 0) {
@@ -604,22 +604,24 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
         ].join("\n");
     }
     if (entryTiming && stockData.length > 0) {
-        const data = stockData[0].data;
-        const levelData = levels?.data || {};
-        const rsi = Number(data.rsi_14);
-        const volRatio = Number(String(data.vol_ratio ?? "").replace(/x$/i, ""));
-        const isExtended = Number.isFinite(rsi) && rsi >= 70;
+        const levelMap = new Map(levelResults.map(result => [String(result.data?.symbol || result.symbols[0]).toUpperCase(), result.data || {}]));
+        const lines = stockData.flatMap(result => {
+            const data = result.data;
+            const levelData = levelMap.get(String(data.symbol).toUpperCase()) || {};
+            const rsi = Number(data.rsi_14);
+            const volRatio = Number(String(data.vol_ratio ?? "").replace(/x$/i, ""));
+            const isExtended = Number.isFinite(rsi) && rsi >= 70;
+            return [
+                `${data.symbol}: السعر ${data.price} جنيه، التغير ${data.change_pct}، RSI ${data.rsi_14}، ونسبة الحجم ${data.vol_ratio}.`,
+                isExtended ? `- مخاطرة مرتفعة نسبياً: تشبع شرائي مرتفع${Number.isFinite(volRatio) && volRatio > 1.5 ? " وحجم أعلى من المتوسط" : ""}.` : "- لا توجد إشارة كمية مؤكدة على تصحيح أو صعود خلال أسبوع.",
+                levelData.support != null && levelData.resistance != null ? `- الدعم الحسابي ${Number(levelData.support).toFixed(2)} جنيه، والمقاومة الحسابية الحالية ${Number(levelData.resistance).toFixed(2)} جنيه؛ المقاومة مستوى اختبار وليست مستهدفاً جديداً مضموناً.` : "- لا تتوفر مستويات كافية لهذا السهم."
+            ];
+        });
         return [
-            `${data.symbol}: السعر الحالي ${data.price} جنيه، والتغير ${data.change_pct}، وRSI ${data.rsi_14}، ونسبة الحجم ${data.vol_ratio}.`,
-            isExtended
-                ? `السهم في تشبع شرائي مرتفع${Number.isFinite(volRatio) && volRatio > 1.5 ? " مع حجم أعلى من المتوسط" : ""}؛ لذلك احتمال التذبذب أو جني الأرباح قائم، والدخول بعد جلسة صاعدة قوية يحمل مخاطرة مطاردة السعر.`
-                : "المؤشرات الحالية لا تثبت وحدها قرب تصحيح أو استمرار الصعود؛ يلزم تأكيد حركة السعر والحجم في الجلسة التالية.",
-            levelData.resistance != null
-                ? `المقاومة الحسابية الحالية ${Number(levelData.resistance).toFixed(2)} جنيه. ولأن السعر بلغها أو اقترب منها، فهي مستوى اختبار وليست مستهدفاً جديداً مضموناً؛ أي مستهدف أعلى يحتاج اختراقاً وإغلاقاً مؤكداً فوقها مع حجم تداول داعم.`
-                : "لا توجد مقاومة حسابية موثقة تسمح بتحديد مستهدف سعري.",
-            levelData.support != null ? `الدعم الحسابي ${Number(levelData.support).toFixed(2)} جنيه، لكن اتساع المسافة إليه يعني أن الاعتماد عليه وحده كوقف قريب غير مناسب.` : null,
-            "لا أستطيع أن أوصي بالدخول غداً أو أحدد هدفاً مخمناً؛ هذه قراءة فنية وليست توصية شراء."
-        ].filter(Boolean).join("\n");
+            ...lines,
+            "لا توجد بيانات مستقبلية موثقة تسمح بحساب قيمة المحفظة في نهاية الأسبوع، لذلك لن أفترض عائداً أو سعراً مستهدفاً.",
+            "الدخول بالمبلغ كله في ثلاثة أسهم مرتفعة الزخم يرفع مخاطر التركّز والتوقيت؛ هذه قراءة مخاطر وليست توصية شراء أو توزيع محفظة."
+        ].join("\n");
     }
 
     const comparison = toolResults.find(result => result.tool === "get_comparison");
@@ -793,7 +795,9 @@ function buildTechnicalValuationLines(stockResults: ToolResult[], levelResults: 
         const symbol = String(data.symbol || result.symbols[0] || "").toUpperCase();
         const levels = levelsBySymbol.get(symbol);
         const values = [Number(data.price), Number(levels?.support), Number(levels?.resistance)];
-        if (!values.every(Number.isFinite) || values[2] < values[1]) return [];
+        if (!values.every(Number.isFinite) || values[2] < values[1]) {
+            return [`${symbol}: لا تتوفر بيانات 60 جلسة كاملة لحساب نطاق تقييم فني موثق؛ لم أستخدم نطاق سهم آخر أو قيمة مخمّنة.`];
+        }
         const [price, support, resistance] = values;
         const midpoint = (support + resistance) / 2;
         const position = resistance === support ? 50 : ((price - support) / (resistance - support)) * 100;

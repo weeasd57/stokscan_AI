@@ -20,6 +20,7 @@ const ARABIC_STOCK_MAPPINGS: Record<string, string> = {
     "موبكو": "MFPC", "القاهرة للدواجن": "POUL", "المنصورة للدواجن": "MPCO",
     "دومتي": "DMTY", "عبور لاند": "OLFI", "كليوباترا": "CLHO", "اجواء": "AJWA", "أجواء": "AJWA",
     "جلاكسو": "BIOC", "جلاكسو سميث كلاين": "BIOC", "العبور للاستثمار": "OBRI", "العبور للاستثمار العقاري": "OBRI",
+    "ايبكو": "PHAR", "إيبكو": "PHAR", "ايبيكو": "PHAR", "إيبيكو": "PHAR", "مطاحن اسكندرية": "AFMC", "مطاحن الإسكندرية": "AFMC", "مطاحن الاسكندرية": "AFMC",
     "جنوب الوادي": "SVCE", "جنوب الوادى": "SVCE", "جنوب الوادي للاسمنت": "SVCE", "جنوب الوادى للاسمنت": "SVCE",
     "القاهرة للإسكان": "ELKA", "القاهرة للاسكان": "ELKA", "القاهرة والاسكان": "ELKA", "القاهره والاسكان": "ELKA", "القاهره للاسكان": "ELKA", "إلكا": "ELKA", "الكا": "ELKA", "elka": "ELKA", "Elka": "ELKA", "القاهرة للإسكان والتعمير": "ELKA", "القاهرة للاسكان والتعمير": "ELKA", "القاهره للاسكان والتعمير": "ELKA"
 };
@@ -160,7 +161,7 @@ const STATIC_VALID_SYMBOLS = [
     'GSSC', 'HELI', 'HRHO', 'ICFC', 'IDRE', 'INFI', 'IRON', 'ISMA', 'ISPH', 'JUFO', 'KABO', 'KASABF',
     'KRDI', 'KWIN', 'KZPC', 'LUTS', 'MASR', 'MBSC', 'MCQE', 'MENA', 'MFPC', 'MFSC', 'MICH', 'MILS', 'MNHD',
     'MOIL', 'MOSC', 'MPCO', 'MTIE', 'NCGC', 'NEDA', 'NHPS', 'NINH', 'NIPH', 'OBRI', 'OLFI', 'ORAS', 'ORHD', 'ORWE', 'PHDC', 'PHTV',
-    'POUL', 'PRDC', 'RACC', 'RREI', 'RTVC', 'RUBX', 'SAUD', 'SCEM', 'SCTS', 'SEIG', 'SIPC', 'SKPC', 'SNFC', 'SODIC', 'SVCE',
+    'PHAR', 'POUL', 'PRDC', 'RACC', 'RREI', 'RTVC', 'RUBX', 'SAUD', 'SCEM', 'SCTS', 'SEIG', 'SIPC', 'SKPC', 'SNFC', 'SODIC', 'SVCE',
     'SPIN', 'SWDY', 'TANM', 'TAQA', 'TMGH', 'TRTO', 'TWSA', 'TYCN', 'UEFM', 'UNIT', 'USDEGP', 'VALU', 'VLMRA', 'WATP'
 ];
 
