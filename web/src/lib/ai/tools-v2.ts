@@ -700,8 +700,11 @@ export async function executeStructuredTools(
                 .order("created_at", { ascending: false })
                 .limit(AI_CONFIG.tools.recommendationsLimit);
 
-            if (recsData && recsData.length > 0) {
-                const recommendationSymbols = Array.from(new Set(recsData.map((row: any) => String(row.symbol || "").toUpperCase()).filter(Boolean)));
+            const scopedRecs = symbols.length > 0
+                ? (recsData || []).filter((row: any) => symbols.includes(String(row.symbol || "").toUpperCase()))
+                : (recsData || []);
+            if (scopedRecs.length > 0) {
+                const recommendationSymbols = Array.from(new Set(scopedRecs.map((row: any) => String(row.symbol || "").toUpperCase()).filter(Boolean)));
                 const { data: latestPrices } = await supabase.from("stock_prices")
                     .select("symbol, close, date").in("symbol", recommendationSymbols)
                     .order("date", { ascending: false }).limit(recommendationSymbols.length * 2);
@@ -710,7 +713,7 @@ export async function executeStructuredTools(
                     const key = String(row.symbol || "").toUpperCase();
                     if (key && !latestBySymbol.has(key)) latestBySymbol.set(key, row);
                 });
-                const enrichedRecommendations = recsData.map((row: any) => {
+                const enrichedRecommendations = scopedRecs.map((row: any) => {
                     const entry = Number(row.entry_price);
                     const current = latestBySymbol.get(String(row.symbol || "").toUpperCase());
                     const currentPrice = Number(current?.close);
@@ -732,7 +735,7 @@ export async function executeStructuredTools(
                     tool: "get_recommendations",
                     source: "scan_results",
                     data_time: now,
-                    symbols: recsData.map((r: any) => r.symbol),
+                    symbols: scopedRecs.map((r: any) => r.symbol),
                     data_type: "live",
                     data: enrichedRecommendations
                 });

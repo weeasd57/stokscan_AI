@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseClient } from "@/lib/supabase/route-data";
+import { sanitizeUiLabel } from "@/lib/ai/sanitizer";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -59,13 +60,15 @@ export async function GET(_req: NextRequest) {
             (logsData || []).forEach((log: any) => {
                 const key = log.id || `${log.user_id}_${log.created_at}`;
                 const userName = getUserLabel(log.user_id, log.user_name);
+                const cleanMessage = sanitizeUiLabel(log.message || "");
+                const cleanReply = sanitizeUiLabel(log.reply || "");
                 logsMap.set(key, {
                     id: log.id,
                     user_id: log.user_id || userName,
                     user_name: userName,
                     telegram_chat_id: null,
-                    message: log.message,
-                    reply: log.reply,
+                    message: cleanMessage,
+                    reply: cleanReply,
                     created_at: log.created_at,
                 });
             });
@@ -86,21 +89,23 @@ export async function GET(_req: NextRequest) {
                     const msg = chatMsgs[i];
                     if (msg.role === "user" && msg.user_id) {
                         // Find the assistant reply for this user message in the same session
-                        const assistantMsg = chatMsgs.slice(i + 1).find(
-                            (m: any) => m.session_id === msg.session_id && m.role === "assistant"
-                        );
+                        const assistantMsg = chatMsgs[i + 1]?.session_id === msg.session_id && chatMsgs[i + 1]?.role === "assistant"
+                            ? chatMsgs[i + 1]
+                            : null;
                         const replyContent = assistantMsg ? assistantMsg.content : "";
 
                         const key = `msg_${msg.id}`;
                         const userName = getUserLabel(msg.user_id);
 
+                        const cleanMessage = sanitizeUiLabel(msg.content || "");
+                        const cleanReply = sanitizeUiLabel(replyContent);
                         logsMap.set(key, {
                             id: msg.id,
                             user_id: msg.user_id,
                             user_name: userName,
                             telegram_chat_id: null,
-                            message: msg.content,
-                            reply: replyContent,
+                            message: cleanMessage,
+                            reply: cleanReply,
                             created_at: msg.created_at,
                         });
                     }

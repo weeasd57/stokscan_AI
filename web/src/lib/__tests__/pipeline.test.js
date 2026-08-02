@@ -786,6 +786,18 @@ describe("Deterministic intent guards", () => {
         expect(plan.tools).toEqual(["get_stock", "get_stock_levels"]);
     });
 
+    it("resolves the requested Arabic stock names without inheriting BIOC", () => {
+        expect(extractExplicitSymbols("ممكن العبور للاستثمار وجنوب الوادى وفوري")).toEqual(["FWRY", "OBRI", "SVCE"]);
+        expect(extractExplicitSymbols("سهم جلاكسو ينصح الدخول فيه بكرة ولا قرب يصحح ومستهدف كام")).toEqual(["BIOC"]);
+        const plan = buildDeterministicPlannerResult("سهم جلاكسو ينصح الدخول فيه بكرة ولا قرب يصحح ومستهدف كام", { current_symbol: "AALR", last_symbols: ["AALR"], summary: "توصيات سابقة" });
+        expect(plan).toMatchObject({
+            intent: "stock_analysis",
+            entities: { symbols: ["BIOC"] },
+            tools: ["get_stock", "get_stock_levels"]
+        });
+        expect(plan.tools).not.toContain("get_recommendations");
+    });
+
     it("keeps the previous stock when a follow-up says compare this with another", () => {
         const plan = buildDeterministicPlannerResult("قارن ده مع AMER", { current_symbol: "CAED", last_symbols: ["CAED"], summary: null });
         expect(plan.entities.symbols).toEqual(["CAED", "AMER"]);

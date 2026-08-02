@@ -10,7 +10,7 @@ import { selectOptimalModel } from "@/lib/ai/router";
 import { AI_CONFIG } from "@/lib/ai/config";
 import { logAiInteraction } from "@/lib/ai/logger";
 
-import { runPipeline, runPipelineStream } from "@/lib/ai/pipeline";
+import { extractExplicitSymbols, runPipeline, runPipelineStream } from "@/lib/ai/pipeline";
 import { analyzeImage } from "@/lib/ai/vision";
 import { retrieveRelevantMemory } from "@/lib/ai/memory";
 import { executeStructuredTools } from "@/lib/ai/tools-v2";
@@ -313,6 +313,11 @@ export async function POST(req: NextRequest) {
 
                         const sessionState = await loadSessionState(supabase, activeSessionId, userId);
                         const sessionSummary = await loadSessionSummary(supabase, activeSessionId, userId);
+                        const explicitSymbols = extractExplicitSymbols(message || "");
+                        if (explicitSymbols.length > 0) {
+                            sessionState.current_symbol = explicitSymbols[0];
+                            sessionState.last_symbols = explicitSymbols;
+                        }
 
                         // Use new pipeline for streaming
                         const pipelineStream = runPipelineStream(
@@ -506,6 +511,11 @@ export async function POST(req: NextRequest) {
 
         const sessionState = await loadSessionState(supabase, activeSessionId, userId);
         const sessionSummary = await loadSessionSummary(supabase, activeSessionId, userId);
+        const explicitSymbols = extractExplicitSymbols(message || "");
+        if (explicitSymbols.length > 0) {
+            sessionState.current_symbol = explicitSymbols[0];
+            sessionState.last_symbols = explicitSymbols;
+        }
 
         const pipelineResult = await runPipeline(
             message || "",
