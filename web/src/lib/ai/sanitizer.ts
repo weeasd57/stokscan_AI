@@ -396,7 +396,7 @@ export function sanitizeReply(reply: string, liveDataString?: string): string {
     const escapedDisclaimer = AI_CONFIG.disclaimer.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const disclaimerRegex = new RegExp(`\\s*${escapedDisclaimer}`, "g");
     cleanReply = cleanReply.replace(disclaimerRegex, "").replace(/\s*✅\s*تحليل EGX Bots مبني على بيانات حية[^\n]*/g, "").trim();
-    cleanReply += `\n\n${escapedDisclaimer}`;
+    cleanReply += `\n\n${AI_CONFIG.disclaimer}`;
 
     return cleanReply;
   } catch (sanitizeError) {

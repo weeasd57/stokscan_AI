@@ -894,8 +894,10 @@ describe("Structured table sanitization", () => {
     });
 
     it("strips environment details appended directly to normal text", () => {
-        expect(sanitizeReply("كمل<environment_details>\nCurrent time: secret")).toContain("كمل");
-        expect(sanitizeReply("كمل<environment_details>\nCurrent time: secret")).not.toContain("environment_details");
+        const response = sanitizeReply("كمل<environment_details>\nCurrent time: secret");
+        expect(response).toContain("كمل");
+        expect(response).not.toContain("environment_details");
+        expect(response).not.toContain("\\.");
     });
 });
 

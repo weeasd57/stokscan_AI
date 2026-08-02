@@ -406,6 +406,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     }, [user, fetchSessions]);
 
     const sendMessage = useCallback(async (text: string, imageInput?: string | string[]) => {
+        text = sanitizeUiLabel(text);
         const imagesList: string[] = Array.isArray(imageInput)
             ? imageInput
             : (imageInput ? [imageInput] : []);
@@ -624,7 +625,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
                                 }
                             } else if (currentEventName === "token" || parsed.type === "token" || parsed.event === "token" || parsed.token !== undefined || parsed.delta !== undefined) {
                                  const token = parsed.token ?? parsed.delta ?? parsed.content ?? parsed.text ?? "";
-                                 assistantMsg.content = sanitizeReply(assistantMsg.content + token);
+                                 // Accumulate stream tokens raw; sanitize once after the stream ends.
+                                 // sanitizeReply adds structured output/disclaimers and is not token-safe.
+                                 assistantMsg.content += token;
                                 assistantMsg.isStreaming = true;
                                 
                                 const now = Date.now();
@@ -652,7 +655,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
                                     assistantMsg.statusText = parsed.status;
                                 }
                                 if (parsed.token || parsed.delta || parsed.text) {
-                                    assistantMsg.content = sanitizeReply(assistantMsg.content + (parsed.token || parsed.delta || parsed.text));
+                                     assistantMsg.content += (parsed.token || parsed.delta || parsed.text);
                                 } else if (parsed.reply && !assistantMsg.content) {
                                     assistantMsg.content = sanitizeReply(parsed.reply);
                                 }
@@ -666,7 +669,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
                             }
                         } catch {
                             // Raw string token in data field
-                            assistantMsg.content = sanitizeReply(assistantMsg.content + dataStr);
+                             assistantMsg.content += dataStr;
                             assistantMsg.isStreaming = true;
                             updateAssistantMsgInState(assistantMsg);
                         }
