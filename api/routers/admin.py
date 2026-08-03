@@ -470,38 +470,13 @@ def update_batch(req: UpdateRequest, background_tasks: BackgroundTasks):
 
             tf = getattr(req, "timeframe", "1d") or "1d"
 
-            # Force 1h for crypto in Data Manager as requested
             up = sym.upper()
-            if (
-                "/" in up
-                or ".BINANCE" in up
-                or up.endswith("USD")
-                or up.endswith("USDT")
-            ):
-                tf = "1h"
+            if "/" in up or ".BINANCE" in up or up.endswith("USD") or up.endswith("USDT"):
+                return {"ok": False, "message": "BINANCE/crypto market support has been removed"}
 
             ok, msg = fetch_tradingview_prices(
                 sym, max_days=req.maxPriceDays, timeframe=tf
             )
-
-            # Fallback for Binance symbols if TV fails
-            if not ok and sym.upper().endswith(".BINANCE"):
-                print(
-                    f"DEBUG: TradingView failed for {sym}. Attempting Binance fallback..."
-                )
-                try:
-                    from api.binance_data import fetch_binance_bars_df
-                    from api.stock_ai import sync_df_to_supabase
-
-                    # Use timeframe from request for fallback too
-                    bars = fetch_binance_bars_df(
-                        sym, timeframe=tf, limit=req.maxPriceDays + 30
-                    )
-                    if not bars.empty:
-                        ok, sync_msg = sync_df_to_supabase(sym, bars, timeframe=tf)
-                        msg = f"OK (binance fallback) - {sync_msg}"
-                except Exception as be:
-                    print(f"DEBUG: Binance fallback failed for {sym}: {be}")
 
             # General EODHD fallback for any stock if TV fails
             if not ok:

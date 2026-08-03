@@ -12,6 +12,10 @@ export async function GET(req: Request) {
   const limit = Math.min(parseInt(incomingUrl.searchParams.get("limit") || "50"), 500);
   const searchTerm = incomingUrl.searchParams.get("search_term");
 
+  if (exchange && ["BINANCE", "CRYPTO", "FOREX", "LSE"].includes(exchange.toUpperCase())) {
+    return NextResponse.json({ results: [], error: "Market removed" }, { status: 410 });
+  }
+
   try {
     const supabase = getSupabaseClient();
 

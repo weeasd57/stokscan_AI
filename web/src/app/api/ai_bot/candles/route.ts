@@ -16,6 +16,10 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ candles: [], markers: [] }, { status: 400 });
     }
 
+    if (exchange.toUpperCase() !== "EGX") {
+      return NextResponse.json({ candles: [], markers: [], error: "Only EGX market data is available." }, { status: 410 });
+    }
+
     const supabase = getSupabaseClient();
     let rawCandles: any[] = [];
     let timeframe = "1d";
@@ -31,22 +35,6 @@ export async function GET(req: NextRequest) {
 
       if (!error && data) {
         rawCandles = [...data].reverse(); // reverse to chronological
-      }
-    } else {
-      // Intraday or Crypto bars
-      const { data, error } = await supabase
-        .from("stock_bars_intraday")
-        .select("ts,open,high,low,close,volume,timeframe")
-        .eq("symbol", symbol)
-        .eq("exchange", exchange)
-        .order("ts", { ascending: false })
-        .limit(limit);
-
-      if (!error && data) {
-        rawCandles = [...data].reverse();
-        if (data.length > 0) {
-          timeframe = data[0].timeframe || "15m";
-        }
       }
     }
 

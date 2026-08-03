@@ -102,7 +102,6 @@ export default function CountrySymbolDialog({
             "EGX": "EGX",
             "NYSE": "US",
             "NASDAQ": "US",
-            "LSE": "LSE",
             "XETRA": "XETRA",
             "PA": "PA"
         };

@@ -86,7 +86,7 @@ def fetch_eod_data_free(symbol: str, period: str = "6mo") -> List[Dict[str, Any]
     Falls back to hardcoded/simulated data if APIs are unavailable.
     
     Args:
-        symbol: Ticker symbol (e.g., "^CASE30" for EGX30, "USDEGP=X" for USD/EGP)
+
         period: Data period ("1mo", "3mo", "6mo", "1y", "2y", "5y", "10y", "max")
     
     Returns:
@@ -145,9 +145,6 @@ def fetch_eod_data_free(symbol: str, period: str = "6mo") -> List[Dict[str, Any]
         symbol_map = {
             "EGX30.INDX": "^CASE30",         # Cairo Composite Stock Index (EGX30)
             "EGX100.INDX": "^CASE30",        # Fallback to EGX30 (no EGX100 in yfinance)
-            "USDEGP.FOREX": "USDEGP=X",      # USD/EGP
-            "XAUUSD.FOREX": "GC=F",          # Gold (Futures)
-            "CBKD.LSE": "CBKD.L",            # CBK Bank ADR/GDR
         }
         
         yf_symbol = symbol_map.get(symbol, symbol)
@@ -295,25 +292,6 @@ def fetch_live_rates_free() -> Dict[str, float]:
     except Exception as e:
         logger.debug(f"OpenExchangeRates failed: {e}")
     
-    # Priority 3: Try yfinance for live forex (may be rate-limited)
-    try:
-        import yfinance as yf
-        try:
-            forex = yf.Ticker("USDEGP=X")
-            hist = forex.history(period="1d")
-            if not hist.empty:
-                usd_egp = float(hist["Close"].iloc[-1])
-                if 45 <= usd_egp <= 60:
-                    res["usd_official"] = round(usd_egp, 2)
-                    res["usd_parallel"] = round(usd_egp * 1.02, 2)
-                    res["source"] = "yfinance"
-                    logger.info(f"Fetched USD/EGP from yfinance: {usd_egp}")
-                    return res
-        except Exception as e:
-            logger.debug(f"yfinance forex fetch failed: {e}")
-    except Exception as e:
-        logger.debug(f"yfinance integration failed: {e}")
-    
     # If we still have no data, return fallback with timestamp indication
     logger.warning(f"Using fallback rates (could not fetch live data)")
     res["source"] = "fallback"
@@ -435,7 +413,7 @@ def get_market_status_free(from_date: str = None, period: str = "1y") -> Dict[st
     # Initialize results
     egx30_data = []
     egx100_data = []
-    usdegp_data = []
+
     
     # 1. Fetch existing historical index/forex data from Supabase first (single fetch, no loops)
     logger.info("Seeding market status history from Supabase...")
@@ -465,10 +443,9 @@ def get_market_status_free(from_date: str = None, period: str = "1y") -> Dict[st
             
             # Fetch USD/EGP history
             try:
-                res = supabase.table("stock_prices").select("date,open,high,low,close,volume").eq("symbol", "USDEGP").eq("exchange", "FOREX").gte("date", from_date).order("date", desc=False).execute()
-                all_data = res.data or []
+                all_data = []  # USD/EGP data fetched separately via background task
                 if all_data:
-                    usdegp_data = [
+                    usd_egp_history = [
                         {
                             "date": r["date"],
                             "open": float(r.get("open", 0)),
@@ -479,7 +456,7 @@ def get_market_status_free(from_date: str = None, period: str = "1y") -> Dict[st
                         }
                         for r in all_data
                     ]
-                    logger.info(f"Loaded {len(usdegp_data)} USD/EGP history rows from Supabase")
+
             except Exception as e:
                 logger.debug(f"Supabase USD/EGP history fetch failed: {e}")
 
@@ -530,39 +507,6 @@ def get_market_status_free(from_date: str = None, period: str = "1y") -> Dict[st
     except Exception as e:
         logger.warning(f"EGX100 merge failed: {e}")
 
-    try:
-        fresh_usdegp = fetch_eod_data_free("USDEGP.FOREX", period=period)
-        if fresh_usdegp:
-            merged = {r["date"]: r for r in usdegp_data}
-            for r in fresh_usdegp:
-                merged[r["date"]] = r
-            usdegp_data = [merged[d] for d in sorted(merged.keys())]
-            logger.info(f"USDEGP merged to {len(usdegp_data)} rows after fetch")
-    except Exception as e:
-        logger.warning(f"USDEGP merge failed: {e}")
-
-    # Fallback for latest USD/EGP rate using live rates if fetch failed or returned empty
-    try:
-        today_str = dt.datetime.utcnow().strftime("%Y-%m-%d")
-        if not fresh_usdegp or len(usdegp_data) == 0 or usdegp_data[-1]["date"] < today_str:
-            live_rates = fetch_live_rates_free()
-            live_usd = live_rates.get("usd_official", 0)
-            if live_usd > 0:
-                if len(usdegp_data) > 0 and usdegp_data[-1]["date"] == today_str:
-                    usdegp_data[-1]["close"] = live_usd
-                else:
-                    usdegp_data.append({
-                        "date": today_str,
-                        "open": live_usd,
-                        "high": live_usd,
-                        "low": live_usd,
-                        "close": live_usd,
-                        "volume": 0
-                    })
-                logger.info(f"Appended latest live USD/EGP rate ({live_usd}) to history")
-    except Exception as le:
-        logger.warning(f"Failed to append latest live USD/EGP rate: {le}")
-    
     # EGX100 fallback (if still empty, use EGX30)
     if not egx100_data:
         egx100_data = egx30_data
@@ -594,7 +538,7 @@ def get_market_status_free(from_date: str = None, period: str = "1y") -> Dict[st
     return {
         "egx30": egx30_data,
         "egx100": egx100_data,
-        "usdegp": usdegp_data,
+
         "regime": regime,
         "egx30_return": egx30_return,
         "reject_buys": reject_buys,

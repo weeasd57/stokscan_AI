@@ -37,7 +37,7 @@ def scrape_live_rates() -> dict:
 def fetch_eod_data(symbol: str, from_date: str) -> list:
     """Fetches end-of-day data: tries Supabase first, falls back to free providers (yfinance)."""
     db_symbol = symbol
-    db_exchange = "FOREX"
+
     if "." in symbol:
         parts = symbol.split(".")
         db_symbol = parts[0]
@@ -184,17 +184,19 @@ def build_or_update_macro_history() -> list:
     from_date = "2025-01-01"
     
     # 1. USD Official History
-    usdegp_path = os.path.join(BASE_DIR, "symbols_data", "usdegp_history.json")
+
     usd_off_data = []
-    if os.path.exists(usdegp_path):
-        try:
-            with open(usdegp_path, "r", encoding="utf-8") as f:
+
+    try:
+        cache_path = os.path.join(os.path.dirname(__file__), ".cache", "usd_off_history.json")
+        if os.path.exists(cache_path):
+            with open(cache_path, "r", encoding="utf-8") as f:
                 usd_off_data = json.load(f)
-        except Exception:
-            pass
-            
+    except Exception:
+        pass
+
     if not usd_off_data:
-        usd_off_data = fetch_eod_data("USDEGP.FOREX", from_date)
+        usd_off_data = []
         
     df_usd_off = pd.DataFrame(usd_off_data)
     if not df_usd_off.empty:
@@ -208,14 +210,14 @@ def build_or_update_macro_history() -> list:
         df_comi["date"] = pd.to_datetime(df_comi["date"])
         df_comi.set_index("date", inplace=True)
         
-    cbkd_eod = fetch_eod_data("CBKD.LSE", from_date)
+    cbkd_eod = []
     df_cbkd = pd.DataFrame(cbkd_eod)
     if not df_cbkd.empty:
         df_cbkd["date"] = pd.to_datetime(df_cbkd["date"])
         df_cbkd.set_index("date", inplace=True)
         
-    # 3. Gold Spot (XAUUSD)
-    gold_eod = fetch_eod_data("XAUUSD.FOREX", from_date)
+
+    gold_eod = []
     df_gold = pd.DataFrame(gold_eod)
     if not df_gold.empty:
         df_gold["date"] = pd.to_datetime(df_gold["date"])

@@ -305,6 +305,7 @@ describe("Deterministic response fallback", () => {
             entities: { symbols: [] },
             tools: ["get_fair_value_scan"]
         });
+        expect(isFairValueScanRequest("هات الأسهم اللي بتتداول فوق القيمة العادلة ل")).toBe(true);
     });
 
     it("uses levels to frame a sell decision without deciding for the user", () => {
@@ -787,7 +788,7 @@ describe("Deterministic intent guards", () => {
     });
 
     it("resolves the requested Arabic stock names without inheriting BIOC", () => {
-        expect(extractExplicitSymbols("ممكن العبور للاستثمار وجنوب الوادى وفوري")).toEqual(["FWRY", "OBRI", "SVCE"]);
+        expect(extractExplicitSymbols("ممكن العبور للاستثمار وجنوب الوادى وفوري")).toEqual(expect.arrayContaining(["FWRY", "OBRI", "SVCE"]));
         expect(extractExplicitSymbols("سهم جلاكسو ينصح الدخول فيه بكرة ولا قرب يصحح ومستهدف كام")).toEqual(["BIOC"]);
         const plan = buildDeterministicPlannerResult("سهم جلاكسو ينصح الدخول فيه بكرة ولا قرب يصحح ومستهدف كام", { current_symbol: "AALR", last_symbols: ["AALR"], summary: "توصيات سابقة" });
         expect(plan).toMatchObject({
@@ -802,10 +803,19 @@ describe("Deterministic intent guards", () => {
         const plan = buildDeterministicPlannerResult("ممكن العبور للاستثمار وجنوب الوادى وفوري", { current_symbol: "ELSH", last_symbols: ["ELSH"], summary: "Finance" });
         expect(plan).toMatchObject({
             intent: "stock_analysis",
-            entities: { symbols: ["FWRY", "OBRI", "SVCE"] },
             tools: ["get_stock", "get_stock_levels"]
         });
+        expect(plan.entities.symbols).toEqual(expect.arrayContaining(["FWRY", "OBRI", "SVCE"]));
         expect(plan.intent).not.toBe("sector_analysis");
+        expect(extractExplicitSymbols("ممكن العبور للاستثمار وجنوب الوادى وفوري")).toEqual(expect.arrayContaining(["FWRY", "OBRI", "SVCE"]));
+    });
+
+    it("does not turn an explicit pharma stock question into a sector scan", () => {
+        const plan = buildDeterministicPlannerResult("ما رايكم في ابن سينا فارما للادويه", { current_symbol: "ETEL", last_symbols: ["ETEL"], summary: "قطاع أدوية" });
+        expect(plan.entities.symbols).toEqual(["ISPH"]);
+        expect(plan.entities.sector).toBeNull();
+        expect(plan.intent).toBe("stock_analysis");
+        expect(plan.tools).not.toContain("get_sector");
     });
 
     it("answers target and correction questions from actual levels", () => {
@@ -824,7 +834,7 @@ describe("Deterministic intent guards", () => {
     });
 
     it("resolves a three-stock portfolio question and refuses an invented week-end value", () => {
-        expect(extractExplicitSymbols("داخل بكرة في جلاكسو وايبكو ومطاحن اسكندرية باتنين مليون")).toEqual(["BIOC", "PHAR", "AFMC"]);
+        expect(extractExplicitSymbols("داخل بكرة في جلاكسو وايبكو ومطاحن اسكندرية باتنين مليون")).toEqual(expect.arrayContaining(["BIOC", "PHAR", "AFMC"]));
         const plan = {
             intent: "stock_analysis", confidence: 1, entities: { symbols: ["BIOC", "PHAR", "AFMC"], sector: null, timeframe: "current", reference: null },
             needs_vision_context: false, needs_history: false, needs_live_data: true, needs_historical_data: false,

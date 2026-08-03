@@ -386,7 +386,7 @@ export async function POST(req: NextRequest) {
                                         sendEvent({ type: "token", content: tokenBuffer });
                                         tokenBuffer = "";
                                     }
-                                    const replyText = filterOutput(event.data.response);
+                                    const replyText = filterOutput(stripEnvironmentMetadata(event.data.response));
                                     const sessionUpdate = event.data.session_update;
 
                                     const newCount = (limitData?.chat_count || 0) + 1;
@@ -399,7 +399,7 @@ export async function POST(req: NextRequest) {
                                                     session_id: activeSessionId,
                                                     user_id: userId,
                                                     role: "user",
-                                                    content: message || (hasImages ? "📷 [Image attached]" : ""),
+                                                    content: sanitizeUserMessage(message || (hasImages ? "📷 [Image attached]" : "")),
                                                     image_url: imageList[0] || null,
                                                     created_at: new Date().toISOString()
                                                 },

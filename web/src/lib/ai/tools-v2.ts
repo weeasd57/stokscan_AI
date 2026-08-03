@@ -383,7 +383,8 @@ export async function executeStructuredTools(
                     symbols.map(sym => {
                         let query = supabase.from("stock_prices")
                             .select("symbol, close, volume, date")
-                            .ilike("symbol", sym);
+                            .ilike("symbol", sym)
+                            .eq("exchange", "EGX");
                         if (requestedDate) query = query.eq("date", requestedDate);
                         return query.order("date", { ascending: false }).limit(1).maybeSingle();
                     })
@@ -392,12 +393,13 @@ export async function executeStructuredTools(
                     symbols.map(sym => {
                         let query = supabase.from("stock_technical_indicators")
                             .select("symbol, close, rsi_14, macd_signal, change_pct, volume, vol_sma20, vwap_20, adx_14, momentum_10, date")
-                            .ilike("symbol", sym);
+                            .ilike("symbol", sym)
+                            .eq("exchange", "EGX");
                         if (requestedDate) query = query.eq("date", requestedDate);
                         return query.order("date", { ascending: false }).limit(1).maybeSingle();
                     })
                 ),
-                supabase.from("stocks").select("symbol, name").or(
+                supabase.from("stocks").select("symbol, name").eq("exchange", "EGX").or(
                     symbols.map(s => `symbol.ilike.${s}`).join(",")
                 ),
                 supabase.from("stock_fundamentals").select("symbol, data").eq("exchange", "EGX").in("symbol", symbols)

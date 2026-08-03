@@ -61,7 +61,7 @@ def _get_yahoo_session():
 # Inspired by stockroom model structures
 EXCHANGE_CONFIG = {
     "ADX": {"market": "uae", "tv_id": "ADX", "country": "UAE"},
-    "BINANCE": {"market": "crypto", "tv_id": "BINANCE", "country": "Crypto"},
+
     "OKX": {"market": "crypto", "tv_id": "OKX", "country": "Crypto"},
     "AS": {"market": "netherlands", "tv_id": "EURONEXT", "country": "Netherlands"},
     "AT": {"market": "greece", "tv_id": "ATHEX", "country": "Greece"},
@@ -86,7 +86,7 @@ EXCHANGE_CONFIG = {
     "HE": {"market": "finland", "tv_id": "OMXHEL", "country": "Finland"},
     "HM": {"market": "germany", "tv_id": "HM", "country": "Germany"},
     "IC": {"market": "iceland", "tv_id": "ICEX", "country": "Iceland"},
-    "IL": {"market": "uk", "tv_id": "LSE", "country": "UK"},
+
     "IR": {"market": "ireland", "tv_id": "EURONEXT", "country": "Ireland"},
     "IS": {"market": "turkey", "tv_id": "BIST", "country": "Turkey"},
     "JK": {"market": "indonesia", "tv_id": "IDX", "country": "Indonesia"},
@@ -97,7 +97,7 @@ EXCHANGE_CONFIG = {
     "KQ": {"market": "korea", "tv_id": "KOSDAQ", "country": "Korea"},
     "LIM": {"market": "peru", "tv_id": "LIM", "country": "Peru"},
     "LS": {"market": "portugal", "tv_id": "EURONEXT", "country": "Portugal"},
-    "LSE": {"market": "uk", "tv_id": "LSE", "country": "UK"},
+
     "LU": {"market": "luxembourg", "tv_id": "LUXSE", "country": "Luxembourg"},
     "LUSE": {"market": "zambia", "tv_id": "LUSE", "country": "Zambia"},
     "MC": {"market": "spain", "tv_id": "BME", "country": "Spain"},
@@ -606,7 +606,7 @@ def fetch_tradingview_fundamentals_bulk(
         market_groups[market].append(base)
         
         # KEY: Map the TRADINGVIEW BASE back to the ORIGINAL FULL SYMBOL
-        # So when we get result for "ACXUSDT", we store it under "ACX/USDT.BINANCE"
+
         base_to_tickers_by_market[market][base].append(sym)
     
     out: Dict[str, Tuple[Dict[str, Any], Dict[str, Any]]] = {}

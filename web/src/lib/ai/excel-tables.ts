@@ -163,10 +163,16 @@ function buildScanTable(tool: ToolResult): ExcelTable | null {
 
 function buildNewsTable(tool: ToolResult): ExcelTable | null {
     const news = Array.isArray(tool.data) ? tool.data : [];
-    const rows = news.map((item: any) => [
-        cell(item.symbol), cell(item.date || item.published_at), cell(item.sentiment_label),
-        cell(item.sentiment_score), cell(item.news_count), cell(item.title || item.headline)
-    ]).filter((row: string[]) => row.some(Boolean));
+    const rows = news.map((item: any) => {
+        // headlines is an array in DB; join first 2 as preview
+        const headlinesArr = Array.isArray(item.headlines) ? item.headlines : [];
+        const headlineText = item.title || item.headline ||
+            (headlinesArr.length > 0 ? headlinesArr[0] : "—");
+        return [
+            cell(item.symbol), cell(item.date || item.published_at), cell(item.sentiment_label),
+            cell(item.sentiment_score), cell(item.news_count ?? item.news_count ?? headlinesArr.length), cell(headlineText)
+        ];
+    }).filter((row: string[]) => row.some(Boolean));
     if (rows.length === 0) return null;
 
     return {

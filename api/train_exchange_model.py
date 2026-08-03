@@ -115,49 +115,9 @@ def get_cbe_interest_rate(date) -> float:
 
 
 @lru_cache(maxsize=1)
-def load_usdegp_history() -> pd.DataFrame:
+def _load_training_data():
     import datetime
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    cache_path = os.path.join(base_dir, "symbols_data", "usdegp_history.json")
-    
-    # Try loading from cache first
-    df_cached = None
-    if os.path.exists(cache_path):
-        try:
-            df_cached = pd.read_json(cache_path)
-            if not df_cached.empty:
-                df_cached["date"] = pd.to_datetime(df_cached["date"])
-                df_cached.set_index("date", inplace=True)
-        except Exception:
-            pass
-            
-    # Fetch from EODHD if needed (e.g., if cache doesn't exist or is older than today)
-    api_key = os.getenv("EODHD_API_KEY")
-    if api_key:
-        try:
-            from_date = "2020-01-01"
-            url = f"https://eodhd.com/api/eod/USDEGP.FOREX?api_token={api_key}&fmt=json&period=d&order=a&from={from_date}"
-            import urllib.request as urllib_req
-            import json
-            req = urllib_req.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-            with urllib_req.urlopen(req, timeout=15) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
-            if data:
-                df_new = pd.DataFrame(data)
-                df_new["date"] = pd.to_datetime(df_new["date"])
-                # Save raw json to cache
-                os.makedirs(os.path.dirname(cache_path), exist_ok=True)
-                with open(cache_path, "w", encoding="utf-8") as f:
-                    json.dump(data, f)
-                df_new.set_index("date", inplace=True)
-                return df_new
-        except Exception as e:
-            print(f"Warning: Failed to fetch USDEGP from EODHD: {e}")
-            
-    if df_cached is not None:
-        return df_cached
-        
-    # Final hardcoded fallback if everything else fails
+    # FOREX history was retired; keep a deterministic neutral feature frame.
     fallback_dates = pd.date_range(start="2020-01-01", end=datetime.date.today(), freq="D")
     df_fallback = pd.DataFrame(index=fallback_dates)
     usd_rates = []
@@ -469,16 +429,9 @@ def add_market_context(stock_df, market_df):
     if "market_regime" in market_reindexed.columns:
         stock_df["market_regime"] = market_reindexed["market_regime"]
 
-    # 6. USD/EGP Forex Rate
-    try:
-        usd_df = load_usdegp_history()
-        usd_reindexed = usd_df.reindex(stock_df.index, method="ffill")
-        stock_df["feat_usd_egp"] = usd_reindexed["close"].fillna(47.5)
-        stock_df["feat_usd_egp_change"] = stock_df["feat_usd_egp"].pct_change(20).fillna(0.0)
-    except Exception as e:
-        print(f"Warning: Failed to add USD/EGP macro features: {e}")
-        stock_df["feat_usd_egp"] = 47.5
-        stock_df["feat_usd_egp_change"] = 0.0
+
+    stock_df["feat_usd_egp"] = 47.5
+    stock_df["feat_usd_egp_change"] = 0.0
 
     # 7. CBE Interest Rate
     try:

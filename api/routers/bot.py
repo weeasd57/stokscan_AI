@@ -797,7 +797,7 @@ def get_available_coins(
             return []
 
         if source == "binance":
-            from api.binance_data import fetch_all_binance_symbols
+            raise RuntimeError("BINANCE market support has been removed")
             return fetch_all_binance_symbols(quote_asset="USDT", limit=limit)
         
         if source == "simulated_crypto" or source == "virtual":

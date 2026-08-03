@@ -193,7 +193,7 @@ export default function DataManagerTab({
             // Format for Asset type (minimal)
             const assets = coins.map(c => ({
                 symbol: c.split('.')[0],
-                exchange: c.split('.')[1] || "BINANCE",
+                exchange: c.split('.')[1] || "CRYPTO",
                 name: c.split('.')[0],
                 country: "Crypto"
             }));
@@ -241,12 +241,10 @@ export default function DataManagerTab({
         setCryptoSyncing(true);
         setLogs([]);
         try {
-            // runUpdate expects symbols in "SYMBOL.EXCHANGE" format
-            // We need to map our selectedCryptoSymbols (which are like "BTC/USDT")
-            // to "BTC/USDT.BINANCE" (or whatever exchange they have)
+            // Preserve the explicit provider when present; never default to retired Binance.
             const symbolsToUpdate = Array.from(selectedCryptoSymbols).map(s => {
                 const asset = cryptoAssets.find(a => a.symbol === s);
-                return asset ? `${asset.symbol}.${asset.exchange}` : `${s}.BINANCE`;
+                return asset ? `${asset.symbol}.${asset.exchange}` : `${s}.CRYPTO`;
             });
 
             // We need to temporarily set the main selectedSymbols to our crypto list

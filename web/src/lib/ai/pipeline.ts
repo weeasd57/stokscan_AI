@@ -259,17 +259,17 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
         ? message.trim()
         : null;
     let explicitSector = extractSectorFromMessage(message);
-    if (symbols.length > 0 && !/(قطاع|القطاع|بنوك|البنوك|عقارات|العقارات|ادويه|الادويه|اغذيه|الاغذيه|بترول|الطاقه)/i.test(message)) explicitSector = null;
+    if (symbols.length > 0 && !/(قطاع|القطاع)/i.test(message)) explicitSector = null;
     const sector = knownSectorFollowUp || explicitSector || extractSectorFromMessage(sectorReference || "");
     const hasExplicitLatinTicker = /(?:^|[^A-Za-z0-9])[A-Z][A-Z0-9]{1,9}(?=$|[^A-Za-z0-9])/.test(message);
-    if (sector && !hasExplicitLatinTicker && /(قطاع|القطاعات|البنوك|الاتصالات|العقارات|الادويه|الاغذيه|البترول|الطاقه)/i.test(message)) symbols.length = 0;
+    if (sector && !hasExplicitLatinTicker && symbols.length === 0 && /(قطاع|القطاعات|البنوك|الاتصالات|العقارات|الادويه|الاغذيه|البترول|الطاقه)/i.test(message)) symbols.length = 0;
     const normalized = message.toLowerCase().replace(/[أإآ]/g, "ا").replace(/ة/g, "ه");
     const isGreeting = /(ازيك|إزيك|عامل ايه|عامل إيه|اهلا|أهلا|مرحبا|السلام عليكم|(انت|إنت|انتا|أنت).{0,12}(مين|موديل|نموذج)|مين انت|مين إنت)/i.test(message);
     const isHistorical = needsHistoricalData("", message);
     const marketNewsRequest = /اخبار\s+(?:السوق|البورصه)/i.test(message);
     const requestedDate = temporal.date;
     const isClearMarketRequest = marketWideRequest || /(أعلى|اعلى|أقوى|اقوى|سيول|السيول|السيوله|تجميع|تصريف|القطاعات|قطاعات|حالة السوق|السوق عمل|دولار|usd)/i.test(normalized);
-    const isClearStockRequest = symbols.length > 0 && /(أخبار|اخبار|اخباره|أخباره|خبر|news|مقارن|قارن|compare|تحليل|حلل|شوف|ممكن|ينصح|داخل|دخول|مستهدف|يصحح|بكره|بكرة|اخر الاسبوع|آخر الأسبوع|المحفظه|المحفظة|مليون|السيول|السيوله|سعر|بيع|احتفظ|أحتفظ|اشتري|شراء|يخسر|خسار|يهبط|ينزل|مقاوم|مقاومه|مقوام|دعم|support|resistance|^[\s,،;:/\-a-z0-9]+$)/i.test(message);
+    const isClearStockRequest = symbols.length > 0 && /(أخبار|اخبار|اخباره|أخباره|خبر|news|مقارن|قارن|compare|تحليل|حلل|شوف|رايكم|رأيكم|رايك|رأيك|ممكن|ينصح|داخل|دخول|مستهدف|يصحح|بكره|بكرة|اخر الاسبوع|آخر الأسبوع|المحفظه|المحفظة|مليون|السيول|السيوله|سعر|بيع|احتفظ|أحتفظ|اشتري|شراء|يخسر|خسار|يهبط|ينزل|مقاوم|مقاومه|مقوام|دعم|support|resistance|^[\s,،;:/\-a-z0-9]+$)/i.test(message);
     if (!sector && !isGreeting && !isHistorical && !requestedDate && !isClearMarketRequest && !isClearStockRequest) return null;
 
     const enforced = enforceIntentFromMessage(message, symbols.length ? "stock_analysis" : "market_summary", symbols);
@@ -299,8 +299,18 @@ export function isFairValueScanRequest(message: string): boolean {
         .replace(/ة/g, "ه")
         .toLowerCase()
         .replace(/[؟?]/g, " ");
-    return /(?:الاسهم|اسهم|السهم|سهم).{0,45}(?:فوق|اعلى|أعلى|متداول).{0,35}(?:القيمه|قيمه|قيمتها|التقييم).{0,20}(?:العادله|العادل|العادلة|العادله الفنية|الفني)/i.test(normalized)
-        || /(?:القيمه|قيمه|التقييم).{0,20}(?:العادله|العادل|العادلة).{0,45}(?:الاسهم|اسهم|السهم|سهم)/i.test(normalized);
+    // الصيغة الأساسية: أسهم تتداول فوق القيمة العادلة
+    if (/(?:الاسهم|اسهم|السهم|سهم).{0,45}(?:فوق|اعلى|أعلى|متداول|بتتداول|يتداول).{0,35}(?:القيمه|قيمه|قيمتها|التقييم).{0,20}(?:العادله|العادل|العادله)/i.test(normalized)) return true;
+    // الصيغة المعكوسة: القيمة العادلة + أسهم
+    if (/(?:القيمه|قيمه|التقييم).{0,20}(?:العادله|العادل).{0,45}(?:الاسهم|اسهم|السهم|سهم)/i.test(normalized)) return true;
+    // الصيغة المنقوصة: "فوق القيمة العادلة" بدون تحديد كلمة "أسهم"
+    if (/(?:فوق|اعلى).{0,10}(?:القيمه|قيمه).{0,10}(?:العادله|العادل)/i.test(normalized)) return true;
+    // صيغة مباشرة: "القيمة العادلة" فقط كسؤال
+    if (/(?:الاسهم|اسهم).{0,25}(?:القيمه|قيمه).{0,10}(?:العادله|العادل)/i.test(normalized)) return true;
+    // صيغة: "مبالغ فيها" أو "أغلى من قيمتها"
+    if (/(?:مبالغ|باهظ|غالي|غالى).{0,20}(?:قيمت|تقييم|اسعار)/i.test(normalized)) return true;
+    if (/(?:الاسهم|اسهم).{0,15}(?:مبالغ|باهظ|غاليه)/i.test(normalized)) return true;
+    return false;
 }
 
 export function enforceIntentFromMessage(message: string, plannerIntent: string, symbols: string[]): {
@@ -325,6 +335,7 @@ export function enforceIntentFromMessage(message: string, plannerIntent: string,
     if (/(كسر|يكسر).{0,12}الدعم|الدعم.{0,12}(اتكسر|انكسر)/i.test(normalized) && hasSymbol) return { intent: "levels_analysis", tools: ["get_stock_levels"], replaceTools: true };
     if (/(ابيع|بيع|احتفظ|اخرج|اشتري|شراء)/i.test(normalized) && hasSymbol) return { intent: "stock_analysis", tools: ["get_stock", "get_stock_levels"], replaceTools: true };
     if (/(ينصح|داخل|دخول|مستهدف|يصحح|تصحيح|بكره|بكرة|اخر الاسبوع|المحفظه|مليون)/i.test(normalized) && hasSymbol) return { intent: "stock_analysis", tools: ["get_stock", "get_stock_levels"], replaceTools: true };
+    if (symbols.length >= 2 && hasSymbol && !/(اخبار|خبر|قارن|مقارن|قطاع|تجميع|تصريف)/i.test(normalized)) return { intent: "stock_analysis", tools: ["get_stock", "get_stock_levels"], replaceTools: true };
     if (/(اكبر|اعلى|اقوى)\s+قطاع.{0,25}(سيول|تداول)|(?:(?:ال)?سيول(?:ه)?).{0,25}(قطاع|القطاعات)|قطاع.{0,25}(?:(?:ال)?سيول(?:ه)?|تداول)/i.test(normalized)) {
         const sector = extractSectorFromMessage(normalized);
         return sector ? { intent: "sector_analysis", tools: ["get_sector_liquidity"], replaceTools: true, sector } : { intent: "market_summary", tools: ["get_sector_liquidity"], replaceTools: true };

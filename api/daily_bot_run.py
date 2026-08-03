@@ -2318,7 +2318,7 @@ def _refresh_market_status_cache():
         res_data = get_market_status_free(period="1y")
         egx30_data = res_data.get("egx30", [])
         egx100_data = res_data.get("egx100", [])
-        usdegp_data = res_data.get("usdegp", [])
+
         regime = res_data.get("regime", "sideways")
         egx30_return = res_data.get("egx30_return", 0.0)
         
@@ -2355,7 +2355,7 @@ def _refresh_market_status_cache():
                 INDEX_META = [
                     ("EGX30", "INDX", egx30_data),
                     ("EGX100", "INDX", egx100_data),
-                    ("USDEGP", "FOREX", usdegp_data),
+
                 ]
                 
                 # Ensure these index symbols exist in stock_fundamentals to satisfy foreign key constraints

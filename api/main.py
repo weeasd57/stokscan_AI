@@ -1430,7 +1430,7 @@ def update_market_status_cache():
 
     egx30_data = []
     egx100_data = []
-    usdegp_data = []
+
 
     # Fetch EGX30
     try:
@@ -1449,15 +1449,6 @@ def update_market_status_cache():
             egx100_data = _json.loads(resp.read().decode("utf-8"))
     except Exception as e:
         print(f"Background: Error fetching EGX100 from EODHD: {e}")
-
-    # Fetch USD/EGP Forex
-    try:
-        url = f"https://eodhd.com/api/eod/USDEGP.FOREX?api_token={api_key}&fmt=json&period=d&order=a&from={from_date}&to={to_date}"
-        req = _urllib_request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        with _urllib_request.urlopen(req, timeout=8) as resp:
-            usdegp_data = _json.loads(resp.read().decode("utf-8"))
-    except Exception as e:
-        print(f"Background: Error fetching USD/EGP from EODHD: {e}")
 
     # If EGX30 is empty, try Supabase fallback
     if not egx30_data or (isinstance(egx30_data, list) and len(egx30_data) == 0):
@@ -1520,7 +1511,7 @@ def update_market_status_cache():
     res_data = {
         "egx30": egx30_data,
         "egx100": egx100_data,
-        "usdegp": usdegp_data,
+
         "regime": regime,
         "egx30_return": egx30_return,
         "reject_buys": regime == "panic",
@@ -1595,7 +1586,7 @@ def get_market_status(background_tasks: BackgroundTasks):
 
     egx30_data = []
     egx100_data = []
-    usdegp_data = []
+
 
     # Fetch EGX30
     try:
@@ -1614,15 +1605,6 @@ def get_market_status(background_tasks: BackgroundTasks):
             egx100_data = _json.loads(resp.read().decode("utf-8"))
     except Exception as e:
         print(f"Error fetching EGX100 from EODHD: {e}")
-
-    # Fetch USD/EGP Forex
-    try:
-        url = f"https://eodhd.com/api/eod/USDEGP.FOREX?api_token={api_key}&fmt=json&period=d&order=a&from={from_date}&to={to_date}"
-        req = _urllib_request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        with _urllib_request.urlopen(req, timeout=5) as resp:
-            usdegp_data = _json.loads(resp.read().decode("utf-8"))
-    except Exception as e:
-        print(f"Error fetching USD/EGP from EODHD: {e}")
 
     # If EGX30 is empty, try Supabase fallback
     if not egx30_data or (isinstance(egx30_data, list) and len(egx30_data) == 0):
@@ -1662,8 +1644,8 @@ def get_market_status(background_tasks: BackgroundTasks):
         except Exception as le:
             print(f"Local JSON fallback for EGX30 failed: {le}")
 
-    if (not egx30_data or not egx100_data or not usdegp_data) and file_fallback_data:
-        print("One or more EODHD fetches failed, falling back to cached market status")
+    if (not egx30_data or not egx100_data) and file_fallback_data:
+        print("One or more EGX index fetches failed, falling back to cached market status")
         return file_fallback_data
 
     # Calculate current regime based on EGX30
@@ -1684,7 +1666,7 @@ def get_market_status(background_tasks: BackgroundTasks):
     res_data = {
         "egx30": egx30_data,
         "egx100": egx100_data,
-        "usdegp": usdegp_data,
+
         "regime": regime,
         "egx30_return": egx30_return,
         "reject_buys": regime == "panic",

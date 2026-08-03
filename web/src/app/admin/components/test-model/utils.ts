@@ -6,7 +6,7 @@ export function parseModelExchange(modelName: string | null): string | null {
     if (match) return match[1].toUpperCase();
 
     const upper = modelName.toUpperCase();
-    const exchanges = ["EGX", "USA", "US", "KSA", "SA", "KQ", "BA", "TO", "LSE", "PA", "F"];
+    const exchanges = ["EGX", "USA", "US", "KSA", "SA", "KQ", "BA", "TO", "PA", "F"];
 
     for (const ex of exchanges) {
         const regex = new RegExp(`(?:^|[\\s_.,])${ex}(?:$|[\\s_.,])`, 'i');

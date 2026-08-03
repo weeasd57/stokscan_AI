@@ -57,7 +57,7 @@ class BotConfig:
     poll_seconds: int = 120
     timeframe: str = "1Hour"
     use_council: bool = True
-    data_source: str = "binance"
+    data_source: str = "tvdata"
 
     # Risk
     max_open_positions: int = 8
@@ -2034,7 +2034,7 @@ class LiveBot:
             bars_limit=int(float(_read_env("BARS_LIMIT", "500") or 500)),
             poll_seconds=int(float(_read_env("POLL_SECONDS", "300") or 300)),
             timeframe=str(_read_env("TIMEFRAME", "1Hour")),
-            data_source=str(_read_env("LIVE_DATA_SOURCE", "binance") or "binance")
+            data_source=str(_read_env("LIVE_DATA_SOURCE", "tvdata") or "tvdata")
             .strip()
             .lower(),
             enable_sells=_parse_bool(_read_env("LIVE_ENABLE_SELLS", "1"), True),
@@ -2758,32 +2758,10 @@ class LiveBot:
             # If already failed on primary, might already be routed or need routing
             pass
 
-        if is_crypto:
-            return self._get_crypto_bars(symbol, limit)
-        elif source == "tvdata":
+        if source == "tvdata":
             return self._get_tvdata_bars(symbol, limit)
         else:
             return self._get_stock_bars(symbol, limit)
-
-    def _get_crypto_bars(self, symbol: str, limit: int) -> pd.DataFrame:
-        """Fetch crypto bars (Binance default)."""
-        # ✅ Strict Symbol Filter
-        normalized_symbol = symbol.strip().upper()
-        allowed_symbols = [s.strip().upper() for s in (self.config.coins or [])]
-
-        if normalized_symbol not in allowed_symbols:
-            self._log(f"{symbol}: NOT IN CONFIG - Rejecting fetch")
-            return pd.DataFrame()
-
-        try:
-            from api.binance_data import fetch_binance_bars_df
-
-            bars = fetch_binance_bars_df(
-                symbol, timeframe=self.config.timeframe, limit=int(limit)
-            )
-            return self._process_bars(bars, symbol, "binance", limit)
-        except Exception as e:
-            return self._handle_fetch_error(e, symbol, limit)
 
     def _get_stock_bars(self, symbol: str, limit: int) -> pd.DataFrame:
         """Fetch stock bars."""

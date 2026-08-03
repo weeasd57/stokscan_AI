@@ -11,6 +11,7 @@ export async function GET(req: NextRequest) {
     const country = url.searchParams.get("country");
     const exchange = url.searchParams.get("exchange")?.toLowerCase();
     const limit = Math.min(Number(url.searchParams.get("limit") || 25), 100);
+    const removedExchanges = new Set(["binance", "crypto", "forex", "lse"]);
 
     const supabase = getSupabaseClient();
     
@@ -66,6 +67,7 @@ export async function GET(req: NextRequest) {
       const itemCountry = String(item.Country || item.country || country || "");
 
       // Apply exchange filter
+      if (removedExchanges.has(ex)) continue;
       if (exchange && ex !== exchange) continue;
 
       // Apply query filter (matches symbol or name)

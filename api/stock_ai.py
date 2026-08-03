@@ -726,7 +726,7 @@ def _infer_symbol_exchange(ticker: str, exchange_hint: Optional[str] = None) -> 
         "sr": "SR",
         "south korea": "KQ",
         "canada": "TO",
-        "uk": "LSE",
+
         "france": "PA",
         "germany": "F"
     }
@@ -1632,7 +1632,7 @@ def _candidate_symbols(ticker: str, exchange: Optional[str] = None) -> List[str]
         "US": "US",    # USA
         "NYSE": "US",
         "NASDAQ": "US",
-        "LSE": "LSE",  # UK
+
         "WAR": "WAR",  # Poland
         "TO": "TO",    # Canada
         "V": "V",      # Canada Venture
@@ -1766,6 +1766,11 @@ def get_stock_data_eodhd(
             
             if all_data:
                 df = pd.DataFrame(all_data)
+                try:
+                    from api.archive_reader import merge_with_archive
+                    df = merge_with_archive(supabase, s, df)
+                except Exception as e:
+                    print(f"Archive reader error: {e}")
                 if not df.empty:
                     # Convert to standard format
                     df['date'] = pd.to_datetime(df['date'])
@@ -1934,6 +1939,9 @@ def _get_supabase_info(ticker: str) -> Dict[str, Any]:
             sb_symbol = parts[0]
             sb_exchange = parts[1]
             if sb_exchange in ["CC", "CA"]: sb_exchange = "EGX"
+
+        if sb_exchange.upper() in {"BINANCE", "FOREX", "LSE"}:
+            return out
             
         res = supabase.table("stock_prices")\
             .select("date", count="exact")\
@@ -2068,9 +2076,12 @@ def sync_df_to_supabase(ticker: str, df: pd.DataFrame, timeframe: str = "1d") ->
             sb_symbol = parts[0]
             sb_exchange = parts[1]
             if sb_exchange in ["CC", "CA"]: sb_exchange = "EGX"
+
+        if sb_exchange.upper() in {"BINANCE", "FOREX", "LSE"}:
+            return False, f"Exchange {sb_exchange} has been removed"
         
         # Normalize all crypto exchanges to "CRYPTO" for consistency
-        crypto_exchanges = ["BINANCE", "OKX", "BYBIT", "MEXC", "COINBASE", "BITTREX", "HUOBI"]
+        crypto_exchanges = ["OKX", "BYBIT", "MEXC", "COINBASE", "BITTREX", "HUOBI"]
         is_crypto_sym = sb_exchange.upper() in crypto_exchanges or "/" in sb_symbol
         if is_crypto_sym:
             sb_exchange = "CRYPTO"
