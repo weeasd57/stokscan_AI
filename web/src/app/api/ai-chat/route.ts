@@ -108,6 +108,11 @@ function containsEnvironmentMetadata(text: unknown): boolean {
     return /environment_details|Current time:|Working directory:|Workspace root folder:/i.test(String(text || ""));
 }
 
+function hasPartialEnvironmentMetadata(text: string): boolean {
+    const normalized = text.toLowerCase();
+    return /(?:<\s*environment_details?|environment_detail|current\s*time|working\s*directory|workspace\s*root)/i.test(normalized.slice(-80));
+}
+
 function sanitizeUserMessage(text: string): string {
     return stripEnvironmentMetadata(text).replace(/\s{2,}/g, " ").trim();
 }
@@ -362,7 +367,7 @@ export async function POST(req: NextRequest) {
                                     break;
                                 case "token":
                                     const rawToken = String(event.data || "");
-                                    if (containsEnvironmentMetadata(rawToken)) break;
+                                    if (containsEnvironmentMetadata(rawToken) || hasPartialEnvironmentMetadata(rawToken)) break;
                                     fullResponse = stripEnvironmentMetadata(fullResponse + rawToken);
                                     if (filterOutputBlocks(fullResponse)) {
                                         fullResponse = "أنا أداة تحليلية ذكية، ولا يمكنني تقديم نصائح مالية أو توصيات شراء مباشرة. يمكنك مراجعة تقييم الأسهم في صفحة الماسح الذكي لمساعدتك في اتخاذ القرار.";
@@ -372,6 +377,10 @@ export async function POST(req: NextRequest) {
                                         return;
                                     }
                                     tokenBuffer = stripEnvironmentMetadata(tokenBuffer + rawToken);
+                                    if (hasPartialEnvironmentMetadata(tokenBuffer)) {
+                                        tokenBuffer = "";
+                                        break;
+                                    }
                                     if ((isPotentialBlockedPrefix(tokenBuffer) && tokenBuffer.length < 60) || isPotentialEnvironmentPrefix(tokenBuffer)) {
                                         // Buffering to avoid token leakage
                                     } else {

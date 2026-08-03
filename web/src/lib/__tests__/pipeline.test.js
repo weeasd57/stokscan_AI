@@ -306,6 +306,7 @@ describe("Deterministic response fallback", () => {
             tools: ["get_fair_value_scan"]
         });
         expect(isFairValueScanRequest("هات الأسهم اللي بتتداول فوق القيمة العادلة ل")).toBe(true);
+        expect(buildDeterministicPlannerResult("ات الأسهم اللي بتتداول فوق القيمة العادلة", { current_symbol: "ELKA", last_symbols: ["ELKA"], summary: "market" })?.tools).toEqual(["get_fair_value_scan"]);
     });
 
     it("uses levels to frame a sell decision without deciding for the user", () => {

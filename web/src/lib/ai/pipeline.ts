@@ -513,9 +513,12 @@ export async function* runPipelineStream(
     if (isMarketWideRequest(userMessage)) mergedSymbols = [];
     if (plannerResult.entities.sector && extractExplicitSymbols(userMessage).length === 0) mergedSymbols = [];
     const compoundRequest = splitChatCommands(userMessage).length > 1;
-    const enforced = compoundRequest
-        ? { intent: plannerResult.intent, tools: plannerResult.tools || [], replaceTools: true, scan_direction: plannerResult.entities.scan_direction || undefined }
-        : enforceIntentFromMessage(userMessage, plannerResult.intent, mergedSymbols);
+    const fairValueScanRequest = isFairValueScanRequest(userMessage);
+    const enforced = fairValueScanRequest
+        ? { intent: "market_summary", tools: ["get_fair_value_scan"], replaceTools: true }
+        : compoundRequest
+            ? { intent: plannerResult.intent, tools: plannerResult.tools || [], replaceTools: true, scan_direction: plannerResult.entities.scan_direction || undefined }
+            : enforceIntentFromMessage(userMessage, plannerResult.intent, mergedSymbols);
     const datedDomainRequest = Boolean(extractRequestedDate(userMessage) || extractRequestedDateRange(userMessage)) && ["stock_analysis", "stock_news", "comparison", "sector_analysis", "accumulation_distribution"].includes(enforced.intent);
     const historicalRequest = needsHistoricalData(enforced.intent, userMessage);
     const effectiveIntent = historicalRequest && !datedDomainRequest ? "historical_recall" : enforced.intent;
@@ -569,6 +572,7 @@ export async function* runPipelineStream(
     const deterministicLiquidityResponse = topMoversRequest
         ? buildTopMoversResponse(tools)
         : plan.intent === "market_summary" && plan.entities.symbols.length === 0
+        && !plan.tools.includes("get_fair_value_scan")
         && !plan.entities.scan_direction
         ? buildMarketLiquidityResponse(tools)
         : null;

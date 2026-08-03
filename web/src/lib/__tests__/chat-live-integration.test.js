@@ -60,4 +60,17 @@ describe("Live Supabase chatbot integration", () => {
         expect(news?.symbols).not.toContain("ELSH");
         expect(scan?.symbols).not.toContain("ELSH");
     }, 30000);
+
+    liveTest("returns a fair-value scan instead of market liquidity", async () => {
+        const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+        const message = "هات الأسهم اللي بتتداول فوق القيمة العادلة ل";
+        const plan = buildPlan(message, { current_symbol: "ELKA", last_symbols: ["ELKA"], summary: "ملخص السوق" });
+        const output = await executeStructuredTools(supabase, plan, [], "live-eval-user", "live-eval-fair-value-session");
+        const response = buildDeterministicResponse(message, plan, output.results);
+
+        expect(plan.tools).toEqual(["get_fair_value_scan"]);
+        expect(output.results.some(result => result.tool === "get_fair_value_scan")).toBe(true);
+        expect(response).toContain("تقييم فني");
+        expect(response).not.toContain("ملخص سيولة السوق");
+    }, 30000);
 });
