@@ -224,7 +224,14 @@ export async function POST(req: NextRequest) {
             ? images 
             : (typeof image === "string" && image.startsWith("data:image/") ? [image] : []);
         
-        const imageList = rawImages.filter(img => typeof img === "string" && img.startsWith("data:image/"));
+        const allowedImageMime = /^data:image\/(jpeg|jpg|png|webp);base64,/i;
+        const maxImageBytes = 5 * 1024 * 1024;
+        const imageList = rawImages.filter(img =>
+            typeof img === "string" && allowedImageMime.test(img) && Buffer.from(img.split(",", 2)[1] || "", "base64").byteLength <= maxImageBytes
+        ).slice(0, 3);
+        if (rawImages.length > 3 || imageList.length !== rawImages.length) {
+            return NextResponse.json({ detail: "Images must be JPEG, PNG, or WebP and no larger than 5 MB each; maximum 3 images." }, { status: 400 });
+        }
         const hasImages = imageList.length > 0;
 
         if (!message && !hasImages) {
@@ -244,15 +251,13 @@ export async function POST(req: NextRequest) {
         const isUnlimited = AI_CONFIG.unlimitedEmails.includes(userEmail) || AI_CONFIG.unlimitedEmails.includes(userEmail.toLowerCase());
 
         const today = new Date().toISOString().split("T")[0];
-        let { data: limitData } = await supabase
-            .from("ai_chatbot_limits")
-            .select("chat_count")
-            .eq("user_id", userId)
-            .eq("date", today)
-            .maybeSingle();
-
-        if (!isUnlimited && limitData && limitData.chat_count >= AI_CONFIG.limits.dailyMessages) {
-            return NextResponse.json({ detail: `Daily limit reached. You can send up to ${AI_CONFIG.limits.dailyMessages} messages per day.` }, { status: 429 });
+        let limitData: { chat_count: number } | null = null;
+        if (!isUnlimited) {
+            const { data: quotaRows, error: quotaError } = await supabase.rpc("consume_ai_chat_quota", { p_user_id: userId, p_date: today, p_limit: AI_CONFIG.limits.dailyMessages });
+            if (quotaError) return NextResponse.json({ detail: "Unable to reserve chat quota" }, { status: 503 });
+            const quota = Array.isArray(quotaRows) ? quotaRows[0] : quotaRows;
+            if (!quota?.allowed) return NextResponse.json({ detail: `Daily limit reached. You can send up to ${AI_CONFIG.limits.dailyMessages} messages per day.` }, { status: 429 });
+            limitData = { chat_count: Number(quota.chat_count || 0) };
         }
 
         const { data: dbSettings } = await supabase.from("ai_chatbot_settings").select("api_key").eq("id", 1).maybeSingle();
@@ -392,13 +397,14 @@ export async function POST(req: NextRequest) {
                                     break;
                                 case "done":
                                     if (tokenBuffer.length > 0) {
-                                        sendEvent({ type: "token", content: tokenBuffer });
+                                        const safeBuffer = stripEnvironmentMetadata(tokenBuffer);
+                                        if (safeBuffer && !filterOutputBlocks(safeBuffer) && !containsEnvironmentMetadata(safeBuffer)) sendEvent({ type: "token", content: safeBuffer });
                                         tokenBuffer = "";
                                     }
                                     const replyText = filterOutput(stripEnvironmentMetadata(event.data.response));
                                     const sessionUpdate = event.data.session_update;
 
-                                    const newCount = (limitData?.chat_count || 0) + 1;
+                                    const newCount = limitData?.chat_count || 0;
 
                                     // Save messages to DB
                                     try {
@@ -423,19 +429,6 @@ export async function POST(req: NextRequest) {
                                         }
                                     } catch (dbErr) {
                                         console.error("Failed to log chat messages to DB:", dbErr);
-                                    }
-
-                                    // Update Limits
-                                    if (limitData) {
-                                        await supabase
-                                            .from("ai_chatbot_limits")
-                                            .update({ chat_count: limitData.chat_count + 1 })
-                                            .eq("user_id", userId)
-                                            .eq("date", today);
-                                    } else {
-                                        await supabase
-                                            .from("ai_chatbot_limits")
-                                            .insert({ user_id: userId, date: today, chat_count: 1 });
                                     }
 
                                     const suggestedButtons = sanitizeSuggestedButtons(generateSuggestedButtons(plannerResult || {}, sessionState));
@@ -543,18 +536,7 @@ export async function POST(req: NextRequest) {
         const replyText = filterOutput(pipelineResult.response);
 
         // Update Limits
-        const newCount = (limitData?.chat_count || 0) + 1;
-        if (limitData) {
-            await supabase
-                .from("ai_chatbot_limits")
-                .update({ chat_count: limitData.chat_count + 1 })
-                .eq("user_id", userId)
-                .eq("date", today);
-        } else {
-            await supabase
-                .from("ai_chatbot_limits")
-                .insert({ user_id: userId, date: today, chat_count: 1 });
-        }
+        const newCount = limitData?.chat_count || 0;
 
         // Save messages to DB
         try {

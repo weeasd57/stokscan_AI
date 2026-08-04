@@ -82,7 +82,9 @@ function mergeVisionSymbols(planSymbols: string[], vision: VisionContext | null)
 }
 
 export function extractExplicitSymbols(message: string): string[] {
-    const excluded = new Set(["EGX", "NEWS", "TODAY", "LAST", "WEEK", "FROM", "BETWEEN", "RSI", "MACD", "VWAP"]);
+    // These are product/platform labels frequently used in Arabic investor questions,
+    // not EGX ticker symbols. Treating them as stocks creates empty comparisons.
+    const excluded = new Set(["EGX", "NEWS", "TODAY", "LAST", "WEEK", "FROM", "BETWEEN", "RSI", "MACD", "VWAP", "CLOUD", "THNDR"]);
     const explicit = message.match(/(?:^|[^A-Za-z0-9])([A-Z][A-Z0-9]{1,9})(?=$|[^A-Za-z0-9])/g)?.map(match => match.replace(/^[^A-Za-z0-9]+/, "")) || [];
     const lowercaseTickers = message.match(/\b[a-z][a-z0-9]{2,5}\b/g) || [];
     
@@ -108,6 +110,45 @@ export function extractExplicitSymbols(message: string): string[] {
             .map(symbol => symbol.toUpperCase() === "AFID" ? "AFDI" : symbol.toUpperCase())
             .filter(symbol => !excluded.has(symbol))
     ));
+}
+
+export type InvestorGuidanceIntent = "onboarding" | "allocation" | "product_comparison" | "product_explainer";
+
+export function getInvestorGuidanceIntent(message: string): InvestorGuidanceIntent | null {
+    const normalized = message
+        .replace(/[أإآ]/g, "ا")
+        .replace(/ة/g, "ه")
+        .toLowerCase();
+    const symbols = extractExplicitSymbols(message);
+    const hasNamedStock = symbols.length > 0;
+    const mentionsDefensiveProduct = /(صندوق|صناديق|دخل\s+(?:ال)?ثابت|عائد\s+(?:ال)?يومي|عائد\s+(?:ال)?ثابت|شهاده|وديعة|حساب توفير|سوق المال|money market|cash|cloud|ثاندر|thndr)/i.test(normalized);
+    const asksComparison = /(مقارن|قارن|compare|افضل.*ولا|ولا.*افضل|فرق.*بين|(?:سيب|اسيب|احط|اختار).{0,50}ولا)/i.test(normalized);
+    const asksHowItWorks = /(بيشتغل.*ازاي|ازاي.*بيشتغل|يعني ايه|ايه.*فكره|فكرة.*ايه|مخاطر.*ايه|امان.*ولا|آمن.*ولا|مضمون.*ولا)/i.test(normalized);
+    const asksAllocation = /(محفظ|اوزع|وزع|توزيع|راس المال|رأس المال|كل الفلوس|ميزاني|استثمر|ادخل.*اسهم|اشتري.*اسهم|اشتري.*ايه|اشتري.*اي|فلوسي.*فين)/i.test(normalized);
+    const signalsInexperience = /(معنديش خبر|ما عنديش خبر|بدون خبر|مبتدئ|اول مره|ابني|بناء.*محفظ|ابدا.*استثمر|بدايه.*استثمار|(?:عايز|عاوز|مش فاهم|مش عارف).{0,40}(?:استثمار|الاسهم|اسهم|البورصه))/i.test(normalized);
+
+    if (asksComparison && mentionsDefensiveProduct && (hasNamedStock || /سهم|اسهم|الاسهم/.test(normalized))) {
+        return "product_comparison";
+    }
+    if (mentionsDefensiveProduct && asksHowItWorks && !hasNamedStock) {
+        return "product_explainer";
+    }
+    if (asksAllocation && !hasNamedStock) {
+        return "allocation";
+    }
+    if (signalsInexperience && !hasNamedStock) {
+        return "onboarding";
+    }
+    return null;
+}
+
+export function isBeginnerPortfolioQuestion(message: string): boolean {
+    const intent = getInvestorGuidanceIntent(message);
+    return intent === "onboarding" || intent === "allocation";
+}
+
+export function isNonEquityProductComparison(message: string): boolean {
+    return getInvestorGuidanceIntent(message) === "product_comparison";
 }
 
 export function splitChatCommands(message: string): string[] {
@@ -239,6 +280,19 @@ export function extractRequestedDateRange(message: string, referenceDate: Date =
 }
 
 export function buildDeterministicPlannerResult(message: string, sessionState: SessionState): PlannerResult | null {
+    if (getInvestorGuidanceIntent(message)) {
+        return {
+            intent: "general_chat",
+            confidence: 1,
+            entities: { symbols: [], sector: null, wants_table: false, timeframe: "current", requested_date: null, scan_direction: null },
+            tools: [],
+            session_update: {
+                current_symbol: sessionState.current_symbol,
+                last_symbols: sessionState.last_symbols,
+                summary: message
+            }
+        };
+    }
     const symbols = extractExplicitSymbols(message);
     const temporal = extractTemporalContext(message);
     const marketWideRequest = isMarketWideRequest(message);
@@ -264,22 +318,23 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
     const hasExplicitLatinTicker = /(?:^|[^A-Za-z0-9])[A-Z][A-Z0-9]{1,9}(?=$|[^A-Za-z0-9])/.test(message);
     if (sector && !hasExplicitLatinTicker && symbols.length === 0 && /(قطاع|القطاعات|البنوك|الاتصالات|العقارات|الادويه|الاغذيه|البترول|الطاقه)/i.test(message)) symbols.length = 0;
     const normalized = message.toLowerCase().replace(/[أإآ]/g, "ا").replace(/ة/g, "ه");
-    const isGreeting = /(ازيك|إزيك|عامل ايه|عامل إيه|اهلا|أهلا|مرحبا|السلام عليكم|(انت|إنت|انتا|أنت).{0,12}(مين|موديل|نموذج)|مين انت|مين إنت)/i.test(message);
+    const isGreeting = /^(?:ازيك|إزيك|عامل ايه|عامل إيه|اهلا|أهلا|مرحبا|السلام عليكم)[؟?،,.!\s]*$/i.test(message.trim()) || /(?:انت|إنت|انتا|أنت).{0,12}(مين|موديل|نموذج)|مين انت|مين إنت/i.test(message);
+    const beginnerPortfolioRequest = /(معنديش|ما عنديش).{0,20}(خبره|خبرة).{0,40}(اسهم|الاسهم)|(?:ابني|اعمل|ابدأ).{0,25}(محفظه|محفظة)|صناديق.{0,20}(دخل ثابت|عائد يومي)/i.test(normalized);
     const isHistorical = needsHistoricalData("", message);
     const marketNewsRequest = /اخبار\s+(?:السوق|البورصه)/i.test(message);
     const requestedDate = temporal.date;
     const isClearMarketRequest = marketWideRequest || /(أعلى|اعلى|أقوى|اقوى|سيول|السيول|السيوله|تجميع|تصريف|القطاعات|قطاعات|حالة السوق|السوق عمل|دولار|usd)/i.test(normalized);
     const isClearStockRequest = symbols.length > 0 && /(أخبار|اخبار|اخباره|أخباره|خبر|news|مقارن|قارن|compare|تحليل|حلل|شوف|رايكم|رأيكم|رايك|رأيك|ممكن|ينصح|داخل|دخول|مستهدف|يصحح|بكره|بكرة|اخر الاسبوع|آخر الأسبوع|المحفظه|المحفظة|مليون|السيول|السيوله|سعر|بيع|احتفظ|أحتفظ|اشتري|شراء|يخسر|خسار|يهبط|ينزل|مقاوم|مقاومه|مقوام|دعم|support|resistance|^[\s,،;:/\-a-z0-9]+$)/i.test(message);
-    if (!sector && !isGreeting && !isHistorical && !requestedDate && !isClearMarketRequest && !isClearStockRequest) return null;
+    if (!sector && !isGreeting && !beginnerPortfolioRequest && !isHistorical && !requestedDate && !isClearMarketRequest && !isClearStockRequest) return null;
 
     const enforced = enforceIntentFromMessage(message, symbols.length ? "stock_analysis" : "market_summary", symbols);
     const sectorFollowUp = Boolean(sectorReference && symbols.length === 0);
     const effectiveSector = explicitSector || knownSectorFollowUp || sectorFollowUp ? sector : null;
     return {
-        intent: isGreeting ? "general_chat" : marketNewsRequest ? "market_summary" : requestedDate && symbols.length ? "stock_analysis" : isHistorical ? "historical_recall" : explicitSector || knownSectorFollowUp || sectorFollowUp ? "sector_analysis" : enforced.intent,
+        intent: isGreeting || beginnerPortfolioRequest ? "general_chat" : marketNewsRequest ? "market_summary" : requestedDate && symbols.length ? "stock_analysis" : isHistorical ? "historical_recall" : explicitSector || knownSectorFollowUp || sectorFollowUp ? "sector_analysis" : enforced.intent,
         confidence: 1,
         entities: { symbols, sector: effectiveSector, wants_table: !isGreeting, timeframe: temporal.timeframe, requested_date: requestedDate, scan_direction: enforced.scan_direction || null },
-        tools: isGreeting || (isHistorical && !requestedDate && !marketNewsRequest) ? [] : marketNewsRequest ? ["get_news"] : knownSectorFollowUp || sectorFollowUp ? ["get_sector"] : enforced.replaceTools ? enforced.tools : explicitSector ? ["get_sector"] : symbols.length ? ["get_stock"] : [],
+        tools: isGreeting || beginnerPortfolioRequest || (isHistorical && !requestedDate && !marketNewsRequest) ? [] : marketNewsRequest ? ["get_news"] : knownSectorFollowUp || sectorFollowUp ? ["get_sector"] : enforced.replaceTools ? enforced.tools : explicitSector ? ["get_sector"] : symbols.length ? ["get_stock"] : [],
         session_update: {
             current_symbol: symbols[0] || sessionState.current_symbol,
             last_symbols: symbols.length ? symbols : sessionState.last_symbols,
@@ -411,7 +466,11 @@ export function buildTopMoversResponse(tools: StructuredToolOutput): string | nu
     const gainers = Array.isArray(market?.data?.top_gainers) ? market.data.top_gainers.filter((stock: any) => Number.isFinite(Number(stock?.change))) : [];
     if (!market) return null;
     if (gainers.length === 0) {
-        return `لا توجد بيانات تغير يومي كافية لترتيب أقوى الأسهم في آخر جلسة متاحة بتاريخ ${market.data_time}. بيانات المؤشر وحدها لا تكفي لاختيار أسهم صاعدة، لذلك لم أخمّن أسماء أو نسباً.`;
+        return [
+            `لا توجد بيانات تغير يومي كافية لترتيب أقوى الأسهم في آخر جلسة متاحة بتاريخ ${market.data_time}.`,
+            "بيانات EGX30 وحدها تصف حالة السوق، لكنها لا تثبت أن سهماً معيناً كان الأقوى؛ لذلك لن أضع أسماء أو نسباً مخمّنة.",
+            "الأفضل إعادة الطلب بعد تحديث بيانات الجلسة، أو طلب تحليل سهم محدد إذا كنت تريد فحص السعر والسيولة والمستويات المتاحة له."
+        ].join("\n");
     }
     return [
         `أقوى الأسهم ارتفاعاً حسب آخر جلسة متاحة بتاريخ ${market.data_time}:`,
@@ -527,9 +586,11 @@ export async function* runPipelineStream(
         ? enforced.tools
         : Array.from(new Set([...(plannerResult.tools || []), ...enforced.tools]));
     const requestedRange = extractRequestedDateRange(userMessage);
+    const guidanceIntent = getInvestorGuidanceIntent(userMessage);
     const plan: IntentPlan = {
         intent: mapIntent(effectiveIntent),
         confidence: plannerResult.confidence || 0.8,
+        guidance_intent: guidanceIntent,
         entities: {
             symbols: mergedSymbols,
             sector: enforced.sector || plannerResult.entities.sector || null,
@@ -741,9 +802,11 @@ export async function runPipeline(
         ? enforced.tools
         : Array.from(new Set([...(plannerResult.tools || []), ...enforced.tools]));
     const requestedRange = extractRequestedDateRange(userMessage);
+    const guidanceIntent = getInvestorGuidanceIntent(userMessage);
     const plan: IntentPlan = {
         intent: mapIntent(effectiveIntent),
         confidence: plannerResult.confidence || 0.8,
+        guidance_intent: guidanceIntent,
         entities: {
             symbols: mergedSymbols,
             sector: enforced.sector || plannerResult.entities.sector || null,

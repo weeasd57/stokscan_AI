@@ -1,12 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseClient } from "@/lib/supabase/route-data";
 import { sanitizeUiLabel } from "@/lib/ai/sanitizer";
+import { requireAdmin } from "@/lib/admin-auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(_req: NextRequest) {
     try {
+        const auth = await requireAdmin(_req);
+        if (auth instanceof Response) return auth;
         const supabase = getSupabaseClient();
 
         // 1. Fetch user emails from auth.admin API to map user_id -> email

@@ -28,12 +28,12 @@ export async function GET(req: NextRequest) {
     if (!error && cacheRow?.payload && Array.isArray(cacheRow.payload)) {
       allSymbols = cacheRow.payload;
     } else {
-      // Fallback: query directly from symbols table in Supabase
-      console.warn(`Cache miss for ${cacheKey} — falling back to symbols table`);
+      // Fallback to the canonical stocks table.
+      console.warn(`Cache miss for ${cacheKey} — falling back to stocks table`);
       let symbolQuery = supabase
-        .from("symbols")
-        .select("symbol, exchange, name, country, type, currency")
-        .eq("isListed", true)
+        .from("stocks")
+        .select("symbol, exchange, name, country, currency")
+        .eq("is_active", true)
         .limit(2000);
 
       if (country) symbolQuery = symbolQuery.eq("country", country);
@@ -46,7 +46,7 @@ export async function GET(req: NextRequest) {
           Exchange: s.exchange,
           Name: s.name,
           Country: s.country,
-          Type: s.type,
+          Type: "Common Stock",
           Currency: s.currency,
         }));
       } else {

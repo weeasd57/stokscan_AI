@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { requireAdmin } from "@/lib/admin-auth";
 
 function getSupabaseAdminClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || "";
@@ -7,16 +8,10 @@ function getSupabaseAdminClient() {
   return createClient(url, key);
 }
 
-function checkAuth(request: Request): boolean {
-    const adminKey = process.env.ADMIN_SECRET_KEY || process.env.NEXT_PUBLIC_ADMIN_KEY;
-    const reqAdminKey = request.headers.get("x-admin-key");
-    if (adminKey && reqAdminKey === adminKey) return true;
-    if (process.env.NODE_ENV === "development" || !adminKey) return true;
-    return false;
-}
-
 export async function GET(request: Request) {
     try {
+        const auth = await requireAdmin(request);
+        if (auth instanceof Response) return auth;
         const supabase = getSupabaseAdminClient();
         const { data, error } = await supabase
             .from("ai_chatbot_settings")
@@ -32,24 +27,27 @@ export async function GET(request: Request) {
             return NextResponse.json({ error: error.message }, { status: 500 });
         }
 
-        return NextResponse.json(data || {});
+        const safe = data ? { ...data, api_key: undefined } : {};
+        delete (safe as any).api_key;
+        return NextResponse.json(safe);
     } catch (err: any) {
         return NextResponse.json({ error: err.message }, { status: 500 });
     }
 }
 
 export async function POST(request: Request) {
-    if (!checkAuth(request)) {
-        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const auth = await requireAdmin(request);
+    if (auth instanceof Response) return auth;
 
     try {
         const body = await request.json();
+        const update: any = { id: 1, updated_at: new Date().toISOString() };
+        for (const key of ["api_url", "api_key", "model", "system_prompt"]) if (body[key] !== undefined) update[key] = body[key];
         const supabase = getSupabaseAdminClient();
         
         const { data, error } = await supabase
             .from("ai_chatbot_settings")
-            .upsert({ id: 1, ...body, updated_at: new Date().toISOString() })
+            .upsert(update)
             .select()
             .single();
 
@@ -58,7 +56,9 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: error.message }, { status: 500 });
         }
 
-        return NextResponse.json(data);
+        const safe = { ...data } as any;
+        delete safe.api_key;
+        return NextResponse.json(safe);
     } catch (err: any) {
         return NextResponse.json({ error: err.message }, { status: 500 });
     }

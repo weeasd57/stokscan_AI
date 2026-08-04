@@ -1,12 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseClient } from "@/lib/supabase/route-data";
 import { getAdminChatId, sendTelegramMessage } from "@/lib/supportTelegram";
+import { requireAdmin } from "@/lib/admin-auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
   try {
+    const auth = await requireAdmin(req);
+    if (auth instanceof Response) return auth;
     const body = await req.json().catch(() => ({}));
     const sessionId = String(body.session_id || "");
     const content = String(body.content || "").trim();
@@ -18,12 +21,13 @@ export async function POST(req: NextRequest) {
     const supabase = getSupabaseClient();
     const { data, error } = await supabase
       .from("support_messages")
-      .insert({
-        session_id: sessionId,
-        sender: "admin",
-        content,
-        user_name: "Admin"
-      })
+        .insert({
+          session_id: sessionId,
+          sender: "admin",
+          content,
+          user_name: "Admin",
+          user_id: sessionId
+        })
       .select("*")
       .single();
 

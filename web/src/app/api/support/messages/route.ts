@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSupabaseClient } from "@/lib/supabase/route-data";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -9,6 +10,11 @@ export async function GET(req: Request) {
     const url = new URL(req.url);
     const sessionId = url.searchParams.get("session_id") || "";
     if (!sessionId) return NextResponse.json({ messages: [] });
+
+    const authClient = createSupabaseServerClient(req as any);
+    const { data: { user } } = await authClient.auth.getUser();
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (sessionId !== user.id) return NextResponse.json({ error: "Invalid support session" }, { status: 403 });
 
     const supabase = getSupabaseClient();
     const { data } = await supabase

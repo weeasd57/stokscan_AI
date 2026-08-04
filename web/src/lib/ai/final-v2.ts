@@ -1,6 +1,6 @@
 import { IntentPlan, VisionContext, ToolResult, FactSnapshot } from "./types";
 import { AI_CONFIG } from "./config";
-import { describeDatedFallback, isFairValueScanRequest } from "./pipeline";
+import { describeDatedFallback, getInvestorGuidanceIntent, isFairValueScanRequest } from "./pipeline";
 import { sanitizeReply } from "./sanitizer";
 
 const MAX_CONTEXT_CHARS = 30000;
@@ -15,17 +15,29 @@ export function buildV2FinalMessages(
     resolvedReference: { symbol: string | null; message_id: string | null; confidence: number }
 ): { role: string; content: any }[] {
     const sections: string[] = [];
+    const guidanceIntent = plan.guidance_intent || getInvestorGuidanceIntent(userMessage);
 
     sections.push("=== USER REQUEST ===\n" + (userMessage || "(بدون رسالة)"));
 
     sections.push("=== INTENT PLAN ===");
     sections.push(JSON.stringify({
         intent: plan.intent,
+        guidance_intent: guidanceIntent,
         confidence: plan.confidence,
         entities: plan.entities,
         needs_live_data: plan.needs_live_data,
         needs_historical_data: plan.needs_historical_data
     }, null, 2));
+
+    if (guidanceIntent) {
+        const guidanceRules: Record<NonNullable<IntentPlan["guidance_intent"]>, string> = {
+            onboarding: "المستخدم في بداية الاستثمار. اشرح الأساسيات بلغة مصرية بسيطة، واطلب المعلومات الناقصة قبل الانتقال إلى أسماء أسهم أو نسب توزيع.",
+            allocation: "المستخدم يطلب توزيع مبلغ أو اختيار ما يشتريه. لا تحوّل الإشارات أو البيانات التاريخية إلى توصية شخصية؛ اسأل عن الهدف والمدة والسيولة المطلوبة وتحمل المخاطر، ثم قدم إطاراً تعليمياً متدرجاً.",
+            product_comparison: "المستخدم يقارن منتجاً ادخارياً أو دفاعياً بسهم. وضّح أنهما فئتان مختلفتان ولا تقارن بينهما بسعر السهم أو RSI؛ قارن الهدف والسيولة والمخاطر والأفق الزمني والرسوم، واطلب اسم المنتج الكامل عند الحاجة.",
+            product_explainer: "المستخدم يسأل عن منتج ادخاري أو دخل ثابت. اشرح كيف يقيّمه من مصدره الرسمي: العائد المعلن أو المتغير، السيولة، الرسوم، المخاطر، وشروط الاسترداد. لا تفترض ضماناً أو عائداً غير موجود في السياق."
+        };
+        sections.push("=== RESPONSE MODE: INVESTOR EDUCATION ===\n" + guidanceRules[guidanceIntent]);
+    }
 
     const allowedSymbols = Array.from(new Set([
         ...toolResults.flatMap(result => result.symbols || []),
@@ -298,7 +310,8 @@ export async function generateV2Response(
         return buildVisionUncertaintyResponse(visionContext);
     }
     const isAnalyticalQuery = /(سبب|ليه|لماذا|ازاي|إزاي|تفسير|سر|ينزل|يهبط|يطلع|صعود|هبوط|فرص|أحسن|احسن|افضل|أفضل|توقعات|متوقع|مقارن|قارن|حالة|حالتها|رايك|رأيك|توجيه|تجميع|تصريف|تحليل|شراء|بيع|مناسب)/i.test(userMessage);
-    const deterministic = !isAnalyticalQuery ? buildDeterministicResponse(userMessage, plan, toolResults) : null;
+    const needsGuidanceResponse = plan.guidance_intent || getInvestorGuidanceIntent(userMessage);
+    const deterministic = !needsGuidanceResponse && !isAnalyticalQuery ? buildDeterministicResponse(userMessage, plan, toolResults) : null;
     if (deterministic) return deterministic;
     console.log("FINAL_V2 DEBUG PLAN:", JSON.stringify(plan, null, 2));
     if (shouldReturnNoData(plan, visionContext, toolResults, relevantFacts)) {
@@ -313,7 +326,9 @@ export async function generateV2Response(
         relevantFacts, recentHistory, resolvedReference
     );
 
-    const textModels = requestedModel ? [requestedModel] : [AI_CONFIG.models.response.default, ...AI_CONFIG.models.response.fallbacks];
+    const allowedModels = new Set([AI_CONFIG.models.response.default, ...AI_CONFIG.models.response.fallbacks, ...AI_CONFIG.models.response.agentRouter]);
+    const safeRequestedModel = requestedModel && allowedModels.has(requestedModel) ? requestedModel : undefined;
+    const textModels = safeRequestedModel ? [safeRequestedModel] : [AI_CONFIG.models.response.default, ...AI_CONFIG.models.response.fallbacks];
     for (const m of textModels) {
         const result = m === "gpt-5.6-sol"
             ? await callAgentRouterApi(m, messages)
@@ -341,7 +356,8 @@ export async function* generateV2Stream(
         return;
     }
     const isAnalyticalQuery = /(سبب|ليه|لماذا|ازاي|إزاي|تفسير|سر|ينزل|يهبط|يطلع|صعود|هبوط|فرص|أحسن|احسن|افضل|أفضل|توقعات|متوقع|مقارن|قارن|حالة|حالتها|رايك|رأيك|توجيه|تجميع|تصريف|تحليل|شراء|بيع|مناسب|مكمل|مستمر|جلسه|جلسة|غدا|غداً|اشترى|اشتري|عادله|عادلة|تقييم|قيمته|تسوى|تساوي)/i.test(userMessage);
-    const deterministic = !isAnalyticalQuery ? buildDeterministicResponse(userMessage, plan, toolResults) : null;
+    const needsGuidanceResponse = plan.guidance_intent || getInvestorGuidanceIntent(userMessage);
+    const deterministic = !needsGuidanceResponse && !isAnalyticalQuery ? buildDeterministicResponse(userMessage, plan, toolResults) : null;
     if (deterministic) {
         yield deterministic;
         return;
@@ -358,7 +374,9 @@ export async function* generateV2Stream(
         relevantFacts, recentHistory, resolvedReference
     );
 
-    const textModels = requestedModel ? [requestedModel] : [AI_CONFIG.models.response.default, ...AI_CONFIG.models.response.fallbacks];
+    const allowedModels = new Set([AI_CONFIG.models.response.default, ...AI_CONFIG.models.response.fallbacks, ...AI_CONFIG.models.response.agentRouter]);
+    const safeRequestedModel = requestedModel && allowedModels.has(requestedModel) ? requestedModel : undefined;
+    const textModels = safeRequestedModel ? [safeRequestedModel] : [AI_CONFIG.models.response.default, ...AI_CONFIG.models.response.fallbacks];
 
     if (textModels[0] === "gpt-5.6-sol") {
         const result = await callAgentRouterApi(textModels[0], messages, false);
@@ -451,6 +469,9 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
     const stockResults = toolResults.filter(result => result.tool === "get_stock" && result.data?.symbol);
     const compoundNews = toolResults.find(result => result.tool === "get_news");
     const fairValueRequest = /(قيمه عادله|قيمة عادلة|القيمة العادلة|القيمه العادله|fair value|عادله|عادلة)/i.test(userMessage);
+    if (/\bCLOUD\b/i.test(userMessage)) {
+        return "CLOUD المذكور كمنتج ادخاري داخل تطبيق Thndr ليس رمز سهم EGX موثقاً في قاعدة بيانات الأسهم، لذلك لا تصح مقارنته فنياً بسهم COMI. يمكن مقارنة العائد والسيولة والمخاطر والرسوم بين المنتج وصندوق دخل ثابت، أو مقارنة COMI بسهم بورصة آخر.";
+    }
     const compoundMessage = /\n|\s+(?:هات|جيب|اعرض|حلل|شوف|قارن|لو\s+كسر)(?:\s|$)|[،,]\s*(?:و\s*)?(?:مين|ايه|إيه|هات|جيب|شوف|حلل)(?:\s|$)/i.test(userMessage);
     const fairValueScan = toolResults.find(result => result.tool === "get_fair_value_scan");
     if (fairValueScan) {
@@ -494,6 +515,18 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
         if (parts.length) return Array.from(new Set(parts)).join("\n");
     }
     if (plan.intent === "general_chat" && toolResults.length === 0) {
+        if (/(معنديش|ما عنديش).{0,20}(خبره|خبرة).{0,40}(اسهم|الاسهم)|(?:ابني|اعمل|ابدأ).{0,25}(محفظه|محفظة)|صناديق.{0,20}(دخل ثابت|عائد يومي)/i.test(userMessage)) {
+            return [
+                "بما إنك مبتدئ وكل أموالك حالياً في أدوات دخل ثابت، الأفضل تتعلم وتنتقل للأسهم تدريجياً بدل نقل المحفظة كلها مرة واحدة.",
+                "1. احتفظ أولاً بصندوق طوارئ يغطي 3 إلى 6 أشهر من مصروفاتك في أداة منخفضة المخاطر وسهلة السحب.",
+                "2. حدد مدة الاستثمار وقدرتك على تحمل هبوط مؤقت؛ الأموال المطلوبة خلال سنة أو سنتين لا تناسبها مخاطرة أسهم مرتفعة.",
+                "3. ابدأ بنسبة صغيرة تجريبية من الأموال المخصصة للاستثمار، ووزع الشراء على دفعات زمنية بدلاً من الدخول في يوم واحد.",
+                "4. نوّع بين قطاعات وشركات مختلفة، ولا تجعل سهماً واحداً أو قطاعاً واحداً يمثل معظم جزء الأسهم.",
+                "5. قبل شراء أي سهم راجع الربحية والديون والتدفقات النقدية والتقييم والسيولة، ثم ضع سبباً واضحاً للشراء وحداً للمخاطرة.",
+                "6. قارن العائد المتوقع بعد المخاطر بعائد صندوق الدخل الثابت؛ ارتفاع العائد المحتمل في الأسهم يأتي مع احتمال خسارة وتقلب أعلى.",
+                "يمكنك البدء تعليمياً بطلب: تحليل قطاع البنوك، مقارنة COMI وEAST، أو شرح مكرر الربحية والقيمة الدفترية. هذه خطوات تعليمية عامة وليست توزيعاً شخصياً لمحفظتك."
+            ].join("\n");
+        }
         if (/(انت|إنت|انتا|أنت).{0,12}(مين|موديل|نموذج)|مين انت|مين إنت/i.test(userMessage)) {
             return "أنا مساعد EGX Bots لتحليل بيانات البورصة المصرية. أستخدم نموذج الذكاء الاصطناعي الذي تختاره من واجهة الشات لصياغة الرد، مع الاعتماد على بيانات النظام وأدواته عند تحليل الأسهم.";
         }
@@ -504,6 +537,12 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
             return "أهلاً بك. أقدر أساعدك في تحليل سهم، مقارنة سهمين، أخبار الشركات، أو تحليل قطاعات البورصة المصرية باستخدام البيانات المتاحة.";
         }
         return null;
+    }
+    if (/\bCLOUD\b/i.test(userMessage)) {
+        return "CLOUD المذكور كمنتج ادخاري داخل تطبيق Thndr ليس رمز سهم EGX موثقاً في قاعدة بيانات الأسهم، لذلك لا تصح مقارنته فنياً بسهم COMI. يمكن مقارنة العائد والسيولة والمخاطر والرسوم بين المنتج وصندوق دخل ثابت، أو مقارنة COMI بسهم بورصة آخر.";
+    }
+    if (/\bCLOUD\b/i.test(userMessage)) {
+        return "CLOUD المذكور كمنتج ادخاري داخل تطبيق Thndr ليس رمز سهم EGX موثقاً في قاعدة بيانات الأسهم، لذلك لا تصح مقارنته فنياً بسهم COMI. يمكن مقارنة العائد والسيولة والمخاطر والرسوم بين المنتج وصندوق دخل ثابت، أو مقارنة COMI بسهم بورصة آخر.";
     }
 
     const news = toolResults.find(result => result.tool === "get_news");

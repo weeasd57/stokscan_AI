@@ -2,7 +2,7 @@ const { validateVisionOutput } = require("../ai/vision");
 const { buildV2FinalMessages, buildDeterministicResponse } = require("../ai/final-v2");
 const { retrieveRelevantMemory } = require("../ai/memory");
 const { buildExcelTables, tablesToMarkdown } = require("../ai/excel-tables");
-const { enforceIntentFromMessage, buildMarketLiquidityResponse, buildTopMoversResponse, needsLiveDataForTools, needsHistoricalData, extractSectorFromMessage, extractExplicitSymbols, buildDeterministicPlannerResult, extractRequestedDate, extractRequestedDateRange, extractTemporalContext, isMarketWideRequest, isFairValueScanRequest, extractSingleStockFromRecentHistory, isEgxWeekend, describeDatedFallback } = require("../ai/pipeline");
+const { enforceIntentFromMessage, buildMarketLiquidityResponse, buildTopMoversResponse, needsLiveDataForTools, needsHistoricalData, extractSectorFromMessage, extractExplicitSymbols, buildDeterministicPlannerResult, extractRequestedDate, extractRequestedDateRange, extractTemporalContext, isMarketWideRequest, isFairValueScanRequest, extractSingleStockFromRecentHistory, isEgxWeekend, describeDatedFallback, getInvestorGuidanceIntent, isBeginnerPortfolioQuestion, isNonEquityProductComparison } = require("../ai/pipeline");
 const { sanitizeReply } = require("../ai/sanitizer");
 const { sanitizeUiLabel } = require("../ai/sanitizer");
 const { parseToolsOutput } = require("../ai/table-builder");
@@ -819,6 +819,29 @@ describe("Deterministic intent guards", () => {
         expect(plan.tools).not.toContain("get_sector");
     });
 
+    it("does not reduce a beginner portfolio question to a greeting", () => {
+        const message = "السلام عليكم، معنديش أي خبرة مع الأسهم ولا عارف ابني محفظة قوية ازاي؟";
+        const plan = buildDeterministicPlannerResult(message, { current_symbol: null, last_symbols: [], summary: null });
+        expect(plan).toMatchObject({ intent: "general_chat", tools: [] });
+        const response = buildDeterministicResponse(message, {
+            intent: "general_chat", confidence: 1, entities: { symbols: [], sector: null, timeframe: "current", reference: null },
+            needs_vision_context: false, needs_history: false, needs_live_data: false, needs_historical_data: false,
+            tools: [], clarification_needed: false, resolved_from: { symbol: null, message_id: null }
+        }, []);
+        expect(response).toContain("صندوق طوارئ");
+        expect(response).toContain("ابدأ بنسبة صغيرة");
+    });
+
+    it("explains that Thndr CLOUD is not an EGX stock", () => {
+        const response = buildDeterministicResponse("مقارنة CLOUD مع COMI", {
+            intent: "comparison", confidence: 1, entities: { symbols: ["COMI"], sector: null, timeframe: "current", reference: null },
+            needs_vision_context: false, needs_history: false, needs_live_data: true, needs_historical_data: false,
+            tools: ["get_comparison"], clarification_needed: false, resolved_from: { symbol: null, message_id: null }
+        }, []);
+        expect(response).toContain("ليس رمز سهم EGX");
+        expect(response).not.toContain("لم أتمكن");
+    });
+
     it("answers target and correction questions from actual levels", () => {
         const response = buildDeterministicResponse("سهم جلاكسو ينصح الدخول فيه بكرة ولا قرب يصحح ومستهدف كام", {
             intent: "stock_analysis", confidence: 1, entities: { symbols: ["BIOC"], sector: null, timeframe: "current", reference: null },
@@ -931,6 +954,62 @@ describe("Structured table sanitization", () => {
         expect(response).toContain("كمل");
         expect(response).not.toContain("environment_details");
         expect(response).not.toContain("\\.");
+    });
+});
+
+describe("Beginner investing guidance", () => {
+    const emptyPlan = {
+        intent: "general_chat",
+        confidence: 1,
+        entities: { symbols: [], sector: null, timeframe: "current", reference: null },
+        needs_vision_context: false,
+        needs_history: false,
+        needs_live_data: false,
+        needs_historical_data: false,
+        tools: [],
+        clarification_needed: false,
+        resolved_from: { symbol: null, message_id: null }
+    };
+
+    it("routes a novice portfolio question to educational guidance without market tools", () => {
+        const message = "السلام عليكم، عندي فلوس في صناديق دخل ثابت على ثاندر ومعنديش خبرة بالأسهم، أبني محفظة ازاي؟";
+        expect(isBeginnerPortfolioQuestion(message)).toBe(true);
+        const plan = buildDeterministicPlannerResult(message, { current_symbol: null, last_symbols: [], summary: null });
+        expect(plan).toMatchObject({ intent: "general_chat", tools: [] });
+        const messages = buildV2FinalMessages(message, { ...emptyPlan, guidance_intent: "allocation" }, null, [], [], [], { symbol: null, message_id: null, confidence: 0 });
+        expect(messages[1].content).toContain("RESPONSE MODE: INVESTOR EDUCATION");
+        expect(messages[1].content).toContain("لا تحوّل الإشارات أو البيانات التاريخية إلى توصية شخصية");
+    });
+
+    it("does not interpret CLOUD as an EGX ticker in a product-versus-stock comparison", () => {
+        const message = "مقارنة CLOUD مع COMI";
+        expect(isNonEquityProductComparison(message)).toBe(true);
+        expect(extractExplicitSymbols(message)).toEqual(["COMI"]);
+        const plan = buildDeterministicPlannerResult(message, { current_symbol: null, last_symbols: [], summary: null });
+        expect(plan).toMatchObject({ intent: "general_chat", tools: [] });
+        const messages = buildV2FinalMessages(message, { ...emptyPlan, guidance_intent: "product_comparison" }, null, [], [], [], { symbol: null, message_id: null, confidence: 0 });
+        expect(messages[1].content).toContain("لا تقارن بينهما بسعر السهم أو RSI");
+    });
+
+    it.each([
+        ["عايز أبدأ استثمار ومش فاهم الأسهم", "onboarding"],
+        ["معايا 20 ألف أوزعهم على إيه؟", "allocation"],
+        ["أسيب فلوسي في صندوق دخل ثابت ولا أشتري سهم COMI؟", "product_comparison"],
+        ["صندوق الدخل الثابت بيشتغل إزاي ومخاطره إيه؟", "product_explainer"]
+    ])("classifies related investor question: %s", (message, intent) => {
+        expect(getInvestorGuidanceIntent(message)).toBe(intent);
+        const plan = buildDeterministicPlannerResult(message, { current_symbol: null, last_symbols: [], summary: null });
+        expect(plan).toMatchObject({ intent: "general_chat", tools: [] });
+        expect(buildDeterministicResponse(message, emptyPlan, [])).toBeNull();
+    });
+
+    it("explains missing top-mover data and suggests a safe next step", () => {
+        const response = buildTopMoversResponse({
+            results: [{ tool: "get_market", data_time: "2026-08-03", data_type: "live", source: "database", symbols: ["EGX30"], data: { egx30: 54094.3 } }],
+            formattedText: ""
+        });
+        expect(response).toContain("لن أضع أسماء أو نسباً مخمّنة");
+        expect(response).toContain("إعادة الطلب بعد تحديث بيانات الجلسة");
     });
 });
 

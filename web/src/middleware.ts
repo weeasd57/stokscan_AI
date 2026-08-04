@@ -23,6 +23,7 @@ export async function middleware(request: NextRequest) {
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??
       process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY;
 
+    if (!url || !anonKey) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     if (url && anonKey) {
       const supabase = createServerClient(url, anonKey, {
         cookies: {
@@ -48,9 +49,10 @@ export async function middleware(request: NextRequest) {
           if (adminKey) {
             requestHeaders.set("x-admin-key", adminKey);
           }
-        }
+        } else return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
       } catch (err) {
         console.error("Middleware auth check failed for /api/admin:", err);
+        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
       }
     }
   }
