@@ -18,7 +18,7 @@ import { generateV2Response, generateV2Stream } from "@/lib/ai/final-v2";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+export const maxDuration = 120;
 
 const BLOCKED_INPUT_PATTERNS = [
     "system prompt", "ignore previous", "your instructions",
@@ -294,7 +294,9 @@ export async function POST(req: NextRequest) {
             const encoder = new TextEncoder();
             const customStream = new ReadableStream({
                 async start(controller) {
+                    let streamClosed = false;
                     const sendEvent = (data: any) => {
+                        if (streamClosed) return;
                         try {
                             controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
                         } catch (e: any) {
@@ -303,6 +305,7 @@ export async function POST(req: NextRequest) {
                             }
                         }
                     };
+                    const heartbeat = setInterval(() => sendEvent({ type: "heartbeat", timestamp: Date.now() }), 12000);
 
                     try {
                         // STEP 1: RESOLVE SESSION ID
@@ -394,6 +397,8 @@ export async function POST(req: NextRequest) {
                                         fullResponse = "أنا أداة تحليلية ذكية، ولا يمكنني تقديم نصائح مالية أو توصيات شراء مباشرة. يمكنك مراجعة تقييم الأسهم في صفحة الماسح الذكي لمساعدتك في اتخاذ القرار.";
                                         controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "token", content: fullResponse })}\n\n`));
                                         controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+                                        streamClosed = true;
+                                        clearInterval(heartbeat);
                                         controller.close();
                                         return;
                                     }
@@ -481,6 +486,8 @@ export async function POST(req: NextRequest) {
                                     });
 
                                     controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+                                    streamClosed = true;
+                                    clearInterval(heartbeat);
                                     controller.close();
                                     return;
                             }
@@ -490,6 +497,8 @@ export async function POST(req: NextRequest) {
                             console.error("Streaming error:", err);
                         }
                         sendEvent({ type: "error", detail: err.message || "Streaming failed" });
+                        streamClosed = true;
+                        clearInterval(heartbeat);
                         try { controller.close(); } catch (e) {}
                     }
                 }

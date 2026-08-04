@@ -205,6 +205,10 @@ const ARABIC_STOCK_MAPPINGS: Record<string, string> = {
     "الشمس": "ELSH",
     "النيل للادوية": "NIPH",
     "العربية للادوية": "ADCI",
+    "مستشفى النزهة": "NINH", "مستشفي النزهة": "NINH",
+    "النزهة الدولي": "NINH", "النزهه الدولي": "NINH",
+    "النزهة للاستثمار": "NINH",
+    "النزهة": "NINH", "النزهه": "NINH",
 };
 import { SessionState, PlannerResult, VisionContext } from "./types";
 import { AI_CONFIG } from "./config";
@@ -213,22 +217,15 @@ import { getSupabaseClient } from "@/lib/supabase/route-data";
 
 let cachedStocks: Array<{ symbol: string; name: string }> | null = null;
 let lastCacheTime = 0;
-const CACHE_TTL = 1000 * 60 * 60 * 24; // 24 hours
+const CACHE_TTL = 1000 * 60 * 60 * 24;
 
 export interface StocksListData {
     stocksListStr: string;
     stockMappings: Record<string, string | string[]>;
 }
 
-// EGX30 Index Constituent Stocks (top 30 most liquid stocks on Egyptian Exchange)
-// Cross-referenced with stocks available in our database
 const EGX30_CONSTITUENTS: string[] = [
-    'COMI',  // Commercial International Bank
-    'TMGH',  // Talaat Moustafa Group
-    'HRHO',  // EFG Hermes
-    'EAST',  // Eastern Company
-    'SWDY',  // El Sewedy Electric
-    'EFIH',  // E-Finance
+    'COMI', 'TMGH', 'HRHO', 'EAST', 'SWDY', 'EFIH',
     'ABUK',  // Abu Qir Fertilizers
     'ETEL',  // Telecom Egypt
     'FWRY',  // Fawry

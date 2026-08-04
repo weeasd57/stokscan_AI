@@ -584,6 +584,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             let buffer = "";
             let currentEventName = "";
             let lastRenderTime = 0;
+            let receivedDone = false;
+            let receivedError = false;
 
             while (true) {
                 const { done, value } = await reader.read();
@@ -608,8 +610,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
                     if (trimmed.startsWith("data:")) {
                         const dataStr = trimmed.slice(5).trim();
                         if (dataStr === "[DONE]") {
-                            assistantMsg.isStreaming = false;
-                            updateAssistantMsgInState(assistantMsg);
+                            receivedDone = true;
                             continue;
                         }
 
@@ -617,6 +618,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
                             const parsed = JSON.parse(dataStr);
 
                             if (parsed.type === "error") {
+                                receivedError = true;
                                 assistantMsg.content = sanitizeReply(parsed.detail || "حدث خطأ في السيرفر أثناء معالجة الطلب. يرجى المحاولة مرة أخرى لاحقاً.");
                                 assistantMsg.isStreaming = false;
                                 assistantMsg.statusText = undefined;
@@ -643,6 +645,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
                                     updateAssistantMsgInState(assistantMsg);
                                 }
                             } else if (currentEventName === "done" || parsed.type === "done" || parsed.event === "done") {
+                                receivedDone = true;
                                 if (parsed.reply) {
                                     assistantMsg.content = stripMarkdownTables(sanitizeReply(parsed.reply));
                                 } else if (assistantMsg.content) {
@@ -685,6 +688,15 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             }
 
             // Stream complete
+            if (!receivedDone && !receivedError) {
+                assistantMsg.content = assistantMsg.content
+                    ? `${stripMarkdownTables(sanitizeReply(assistantMsg.content))}\n\nالرد انقطع قبل اكتماله. يمكنك الضغط على إعادة المحاولة أو إرسال: كمل الرد.`
+                    : "الرد انقطع قبل اكتماله. يرجى إعادة المحاولة.";
+                assistantMsg.isStreaming = false;
+                assistantMsg.statusText = undefined;
+                updateAssistantMsgInState(assistantMsg);
+                return;
+            }
             assistantMsg.isStreaming = false;
             if (!assistantMsg.content && assistantMsg.statusText) {
                 assistantMsg.content = sanitizeUiLabel(assistantMsg.statusText);

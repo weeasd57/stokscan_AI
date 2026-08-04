@@ -220,7 +220,7 @@ async function callNvidiaApi(
                     model: modelName,
                     messages,
                     temperature: 0.15,
-                    max_tokens: 4096,
+                    max_tokens: AI_CONFIG.limits.responseMaxTokens,
                     stream
                 })
             });
@@ -259,7 +259,7 @@ async function callAgentRouterApi(
                 "x-api-key": key
             },
             signal: controller.signal,
-            body: JSON.stringify({ model: modelName, messages, temperature: 0.15, max_tokens: 4096, stream })
+            body: JSON.stringify({ model: modelName, messages, temperature: 0.15, max_tokens: AI_CONFIG.limits.responseMaxTokens, stream })
         });
         if (!res.ok) return { response: null };
         const data = await res.json();
@@ -394,7 +394,7 @@ export async function* generateV2Stream(
             const key = apiKeys[keyIndex];
             try {
                 const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 25000);
+                const timeoutId = setTimeout(() => controller.abort(), AI_CONFIG.limits.responseTimeoutMs);
 
                 const res = await fetch("https://integrate.api.nvidia.com/v1/chat/completions", {
                     method: "POST",
@@ -407,7 +407,7 @@ export async function* generateV2Stream(
                         model,
                         messages,
                         temperature: 0.15,
-                        max_tokens: 4096,
+                        max_tokens: AI_CONFIG.limits.responseMaxTokens,
                         stream: true
                     })
                 });
@@ -417,6 +417,7 @@ export async function* generateV2Stream(
                     const reader = res.body.getReader();
                     const decoder = new TextDecoder();
                     let buffer = "";
+                    let providerDone = false;
 
                     while (true) {
                         const { done, value } = await reader.read();
@@ -430,16 +431,21 @@ export async function* generateV2Stream(
                             const trimmed = line.trim();
                             if (trimmed.startsWith("data: ")) {
                                 const dataStr = trimmed.slice(6);
-                                if (dataStr === "[DONE]") continue;
+                                if (dataStr === "[DONE]") {
+                                    providerDone = true;
+                                    continue;
+                                }
                                 try {
                                     const parsed = JSON.parse(dataStr);
+                                    if (parsed.choices?.[0]?.finish_reason) providerDone = true;
                                     const token = parsed.choices?.[0]?.delta?.content || "";
                                     if (token) yield token;
                                 } catch {}
                             }
                         }
                     }
-                    return;
+                    if (providerDone) return;
+                    throw new Error("LLM stream ended before provider completion marker");
                 } else {
                     if (res.status === 401 || res.status === 403 || res.status === 429) {
                         keyIndex++;

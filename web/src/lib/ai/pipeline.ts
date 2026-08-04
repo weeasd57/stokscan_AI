@@ -6,6 +6,7 @@ import { executeStructuredTools, StructuredToolOutput } from "./tools-v2";
 import { buildDeterministicResponse, generateV2Response, generateV2Stream } from "./final-v2";
 import { loadSessionState, loadSessionSummary, updateSessionSummary, updateSessionState } from "./session";
 import { buildExcelTables, ExcelTable } from "./excel-tables";
+import { AI_CONFIG } from "./config";
 
 export interface PipelineResult {
     vision: VisionContext | null;
@@ -497,6 +498,10 @@ export async function* runPipelineStream(
     messageId: string,
     requestedModel?: string
 ): AsyncGenerator<{ type: string; data: any }> {
+    const deadlineAt = Date.now() + AI_CONFIG.limits.requestDeadlineMs;
+    const ensureBudget = (reserveMs = 0) => {
+        if (Date.now() + reserveMs >= deadlineAt) throw new Error("PIPELINE_DEADLINE_EXCEEDED");
+    };
     const hasImages = images.length > 0;
     let vision: VisionContext | null = null;
     let visionError: string | null = null;
@@ -578,7 +583,7 @@ export async function* runPipelineStream(
     if (plannerResult.entities.sector && extractExplicitSymbols(userMessage).length === 0) mergedSymbols = [];
     const compoundRequest = splitChatCommands(userMessage).length > 1;
     const fairValueScanRequest = isFairValueScanRequest(userMessage);
-    const enforced = fairValueScanRequest
+    const enforced: ReturnType<typeof enforceIntentFromMessage> = fairValueScanRequest
         ? { intent: "market_summary", tools: ["get_fair_value_scan"], replaceTools: true }
         : compoundRequest
             ? { intent: plannerResult.intent, tools: plannerResult.tools || [], replaceTools: true, scan_direction: plannerResult.entities.scan_direction || undefined }
@@ -624,7 +629,11 @@ export async function* runPipelineStream(
     if (plan.needs_live_data || plan.needs_historical_data) {
         yield { type: "status", data: { status: "tools", message: "جلب بيانات السوق..." } };
     }
-    const tools = await executeStructuredTools(supabase, plan, apiKeys, userId, sessionId);
+    ensureBudget(8000);
+    const tools = await Promise.race([
+        executeStructuredTools(supabase, plan, apiKeys, userId, sessionId),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error("TOOLS_TIMEOUT")), AI_CONFIG.limits.toolsTimeoutMs)),
+    ]);
     const tables = buildExcelTables(tools.results, vision);
     if (tables.length > 0) yield { type: "tables", data: tables };
     if (tools.results.length > 0) {
@@ -657,6 +666,7 @@ export async function* runPipelineStream(
     const scopedMemory = plan.needs_historical_data || plan.entities.reference
         ? memory?.relevant_snapshots || []
         : [];
+    ensureBudget(5000);
     const stream = generateV2Stream(
         userMessage, plan, vision, tools.results,
         scopedMemory,
@@ -798,7 +808,7 @@ export async function runPipeline(
     if (isMarketWideRequest(userMessage)) mergedSymbols = [];
     if (plannerResult.entities.sector && extractExplicitSymbols(userMessage).length === 0) mergedSymbols = [];
     const compoundRequest = splitChatCommands(userMessage).length > 1;
-    const enforced = compoundRequest
+    const enforced: ReturnType<typeof enforceIntentFromMessage> = compoundRequest
         ? { intent: plannerResult.intent, tools: plannerResult.tools || [], replaceTools: true, scan_direction: plannerResult.entities.scan_direction || undefined }
         : enforceIntentFromMessage(userMessage, plannerResult.intent, mergedSymbols);
     const datedDomainRequest = Boolean(extractRequestedDate(userMessage) || extractRequestedDateRange(userMessage)) && ["stock_analysis", "stock_news", "comparison", "sector_analysis", "accumulation_distribution"].includes(enforced.intent);
