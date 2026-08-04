@@ -206,6 +206,7 @@ async function handleSessionResolution(
 export async function POST(req: NextRequest) {
     try {
         const totalRequestStartTime = Date.now();
+        const correlationId = req.headers.get("x-correlation-id")?.slice(0, 128) || crypto.randomUUID();
         const authClient = createSupabaseServerClient(req);
         const supabase = getSupabaseClient();
 
@@ -219,6 +220,7 @@ export async function POST(req: NextRequest) {
         const rawMessage = typeof body.message === "string" ? body.message : "";
         const message = sanitizeUserMessage(rawMessage);
         const { history, image, images, model: userRequestedModel, session_id: inputSessionId, stream } = body;
+        const clientMessageId = typeof body.client_message_id === "string" ? body.client_message_id.trim().slice(0, 128) : "";
 
         const rawImages: string[] = Array.isArray(images) && images.length > 0 
             ? images 
@@ -250,6 +252,14 @@ export async function POST(req: NextRequest) {
 
         const userEmail = user.email || "";
         const isUnlimited = AI_CONFIG.unlimitedEmails.includes(userEmail) || AI_CONFIG.unlimitedEmails.includes(userEmail.toLowerCase());
+
+        if (clientMessageId) {
+            const { data: existing } = await supabase.from("ai_chat_idempotency").select("status,response").eq("user_id", userId).eq("client_message_id", clientMessageId).maybeSingle();
+            if (existing?.status === "completed" && existing.response) return NextResponse.json({ reply: existing.response, duplicate: true });
+            if (existing?.status === "processing") return NextResponse.json({ detail: "Request already in progress" }, { status: 409 });
+            const { error: reserveError } = await supabase.from("ai_chat_idempotency").insert({ user_id: userId, client_message_id: clientMessageId, status: "processing" });
+            if (reserveError) return NextResponse.json({ detail: "Request already in progress" }, { status: 409 });
+        }
 
         const today = new Date().toISOString().split("T")[0];
         let limitData: { chat_count: number } | null = null;
@@ -353,6 +363,7 @@ export async function POST(req: NextRequest) {
                         let toolsLatencyMs = 0;
                         let responseLatencyMs = 0;
                         let toolsStartTime = 0;
+                        let responseStartTime = 0;
 
                         for await (const event of pipelineStream) {
                             switch (event.type) {
@@ -364,9 +375,13 @@ export async function POST(req: NextRequest) {
                                     break;
                                 case "plan":
                                     plannerResult = event.data;
+                                    plannerLatencyMs = Date.now() - totalRequestStartTime;
+                                    toolsStartTime = Date.now();
                                     break;
                                 case "tools_data":
                                     liveDataString = event.data.formattedText || "";
+                                    toolsLatencyMs = toolsStartTime ? Date.now() - toolsStartTime : 0;
+                                    responseStartTime = Date.now();
                                     break;
                                 case "tables":
                                     sendEvent({ type: "tables", data: event.data });
@@ -397,12 +412,14 @@ export async function POST(req: NextRequest) {
                                     }
                                     break;
                                 case "done":
+                                    responseLatencyMs = responseStartTime ? Date.now() - responseStartTime : Math.max(0, Date.now() - totalRequestStartTime - plannerLatencyMs - toolsLatencyMs);
                                     if (tokenBuffer.length > 0) {
                                         const safeBuffer = stripEnvironmentMetadata(tokenBuffer);
                                         if (safeBuffer && !filterOutputBlocks(safeBuffer) && !containsEnvironmentMetadata(safeBuffer)) sendEvent({ type: "token", content: safeBuffer });
                                         tokenBuffer = "";
                                     }
                                     const replyText = filterOutput(stripEnvironmentMetadata(event.data.response));
+                                    if (clientMessageId) await supabase.from("ai_chat_idempotency").update({ status: "completed", response: replyText }).eq("user_id", userId).eq("client_message_id", clientMessageId);
                                     const sessionUpdate = event.data.session_update;
 
                                     const newCount = limitData?.chat_count || 0;
@@ -416,6 +433,7 @@ export async function POST(req: NextRequest) {
                                                     user_id: userId,
                                                     role: "user",
                                                     content: sanitizeUserMessage(message || (hasImages ? "📷 [Image attached]" : "")),
+                                                    client_message_id: clientMessageId || null,
                                                     image_url: imageList[0] || null,
                                                     created_at: new Date().toISOString()
                                                 },
@@ -446,6 +464,7 @@ export async function POST(req: NextRequest) {
                                         plannerLatencyMs,
                                         toolsLatencyMs,
                                         responseLatencyMs,
+                                        correlationId,
                                         totalLatencyMs,
                                         dataSizeChars: liveDataString ? liveDataString.length : 0,
                                         error: null
@@ -520,6 +539,7 @@ export async function POST(req: NextRequest) {
             sessionState.last_symbols = explicitSymbols;
         }
 
+        const pipelineStartTime = Date.now();
         const pipelineResult = await runPipeline(
             message || "",
             imageList,
@@ -535,6 +555,7 @@ export async function POST(req: NextRequest) {
         );
 
         const replyText = filterOutput(pipelineResult.response);
+        if (clientMessageId) await supabase.from("ai_chat_idempotency").update({ status: "completed", response: replyText }).eq("user_id", userId).eq("client_message_id", clientMessageId);
 
         // Update Limits
         const newCount = limitData?.chat_count || 0;
@@ -548,6 +569,7 @@ export async function POST(req: NextRequest) {
                         user_id: userId,
                         role: "user",
                         content: message || (hasImages ? "📷 [Image attached]" : ""),
+                        client_message_id: clientMessageId || null,
                         image_url: imageList[0] || null,
                         created_at: new Date().toISOString()
                     },
@@ -574,9 +596,10 @@ export async function POST(req: NextRequest) {
             symbols: pipelineResult.plan.entities.symbols || [],
             plannerModel: hasImages ? AI_CONFIG.models.planner.vision[0] : AI_CONFIG.models.planner.text[0],
             responseModel: AI_CONFIG.models.response.default,
-            plannerLatencyMs: 0,
-            toolsLatencyMs: 0,
-            responseLatencyMs: 0,
+            plannerLatencyMs: null,
+            toolsLatencyMs: null,
+            responseLatencyMs: null,
+            correlationId,
             totalLatencyMs,
             dataSizeChars: pipelineResult.tools?.formattedText?.length || 0,
             error: pipelineResult.vision_error

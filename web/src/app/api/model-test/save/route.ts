@@ -1,5 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextRequest, NextResponse } from 'next/server';
+import { createSupabaseServerClient } from '@/lib/supabase/server';
+import { isChatAdminEmail } from '@/lib/chat-sharing';
 
 export async function POST(req: NextRequest) {
   try {
@@ -13,8 +15,9 @@ export async function POST(req: NextRequest) {
     }
 
     // Get the auth token from the request
-    const authHeader = req.headers.get('authorization');
-    if (!authHeader) {
+    const authClient = createSupabaseServerClient(req);
+    const { data: { user } } = await authClient.auth.getUser();
+    if (!user || !(user.app_metadata?.role === 'admin' || isChatAdminEmail(user.email))) {
       return NextResponse.json(
         { error: 'Unauthorized' },
         { status: 401 }

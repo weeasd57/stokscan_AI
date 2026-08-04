@@ -5,16 +5,17 @@ export interface AiTelemetryEvent {
     symbols: string[];
     plannerModel: string;
     responseModel: string;
-    plannerLatencyMs: number;
-    toolsLatencyMs: number;
-    responseLatencyMs: number;
+    plannerLatencyMs: number | null;
+    toolsLatencyMs: number | null;
+    responseLatencyMs: number | null;
     totalLatencyMs: number;
     dataSizeChars: number;
+    correlationId?: string;
     error?: string | null;
 }
 
 export async function logAiInteraction(supabase: any, event: AiTelemetryEvent): Promise<void> {
-    console.log(`[AI TELEMETRY] Intent=${event.intent} Symbols=${event.symbols.join(",")} Latency=${event.totalLatencyMs}ms Model=${event.responseModel}`);
+    console.log(`[AI TELEMETRY] Correlation=${event.correlationId || "n/a"} Intent=${event.intent} Symbols=${event.symbols.join(",")} Latency=${event.totalLatencyMs}ms Model=${event.responseModel}`);
     try {
         await supabase.from("ai_analytics").insert([{
             session_id: event.sessionId,
@@ -28,6 +29,7 @@ export async function logAiInteraction(supabase: any, event: AiTelemetryEvent): 
             response_latency_ms: event.responseLatencyMs,
             total_latency_ms: event.totalLatencyMs,
             data_size_chars: event.dataSizeChars,
+            correlation_id: event.correlationId || null,
             error: event.error || null
         }]);
     } catch (e) {

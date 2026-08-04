@@ -513,6 +513,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
                     image: imagesList[0] || undefined,
                     model: selectedModel,
                     session_id: currentSessionId,
+                    client_message_id: `${currentSessionId}:${newUserMsg.timestamp}`,
                     stream: true,
                 })
             });

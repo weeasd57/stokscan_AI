@@ -21,6 +21,7 @@ import io
 import json
 
 import os
+import hmac
 
 import urllib.request
 
@@ -72,7 +73,7 @@ from typing import Any, Dict, List, Literal, Optional
 
 import yfinance as yf
 
-from fastapi import BackgroundTasks, FastAPI, HTTPException, Query, Request
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Query, Request, Header
 
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -92,6 +93,12 @@ from api.health import router as health_router
 
 
 app = FastAPI(title="Artoro API", version="1.0.0")
+
+def require_internal_admin(request: Request) -> None:
+    expected = os.getenv("ADMIN_SECRET_KEY", "").strip()
+    provided = request.headers.get("x-admin-key", "").strip()
+    if not expected or not provided or not hmac.compare_digest(provided, expected):
+        raise HTTPException(status_code=401, detail="Unauthorized")
 
 
 
@@ -433,7 +440,8 @@ app.include_router(health_router)
 
 @app.post("/api/admin/run-daily-bot")
 
-async def trigger_daily_bot(background_tasks: BackgroundTasks):
+async def trigger_daily_bot(request: Request, background_tasks: BackgroundTasks):
+    require_internal_admin(request)
 
     from api.daily_bot_run import run_daily_job
 
@@ -509,9 +517,9 @@ async def telegram_webhook(
 
 
 
-@app.get("/tg-set-webhook")
+@app.post("/tg-set-webhook")
 
-async def tg_set_webhook_from_local():
+async def tg_set_webhook_from_local(request: Request):
 
     """Set Telegram webhook from LOCAL machine (bypasses HF firewall).
 
@@ -523,6 +531,7 @@ async def tg_set_webhook_from_local():
 
     """
 
+    require_internal_admin(request)
     import requests as req
 
     support_token = os.getenv("SUPPORT_BOT_TOKEN", "").strip()
