@@ -232,6 +232,7 @@ export async function POST(req: NextRequest) {
         if (rawImages.length > 3 || imageList.length !== rawImages.length) {
             return NextResponse.json({ detail: "Images must be JPEG, PNG, or WebP and no larger than 5 MB each; maximum 3 images." }, { status: 400 });
         }
+        if (message.length > 4000) return NextResponse.json({ detail: "Message is too long" }, { status: 413 });
         const hasImages = imageList.length > 0;
 
         if (!message && !hasImages) {

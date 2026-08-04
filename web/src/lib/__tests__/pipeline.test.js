@@ -832,6 +832,18 @@ describe("Deterministic intent guards", () => {
         expect(response).toContain("ابدأ بنسبة صغيرة");
     });
 
+    it("guides a first-day market beginner deterministically", () => {
+        const message = "انا اول يوم ليا فى البورصه وعايز افهم اعمل اى";
+        const plan = buildDeterministicPlannerResult(message, { current_symbol: null, last_symbols: [], summary: null });
+        expect(plan).toMatchObject({ intent: "general_chat", tools: [] });
+        const response = buildDeterministicResponse(message, {
+            intent: "general_chat", confidence: 1, entities: { symbols: [], sector: null, timeframe: "current", reference: null },
+            needs_vision_context: false, needs_history: false, needs_live_data: false, needs_historical_data: false,
+            tools: [], clarification_needed: false, resolved_from: { symbol: null, message_id: null }
+        }, []);
+        expect(response).toContain("ابدأ بنسبة صغيرة");
+    });
+
     it("explains that Thndr CLOUD is not an EGX stock", () => {
         const response = buildDeterministicResponse("مقارنة CLOUD مع COMI", {
             intent: "comparison", confidence: 1, entities: { symbols: ["COMI"], sector: null, timeframe: "current", reference: null },

@@ -319,7 +319,7 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
     if (sector && !hasExplicitLatinTicker && symbols.length === 0 && /(قطاع|القطاعات|البنوك|الاتصالات|العقارات|الادويه|الاغذيه|البترول|الطاقه)/i.test(message)) symbols.length = 0;
     const normalized = message.toLowerCase().replace(/[أإآ]/g, "ا").replace(/ة/g, "ه");
     const isGreeting = /^(?:ازيك|إزيك|عامل ايه|عامل إيه|اهلا|أهلا|مرحبا|السلام عليكم)[؟?،,.!\s]*$/i.test(message.trim()) || /(?:انت|إنت|انتا|أنت).{0,12}(مين|موديل|نموذج)|مين انت|مين إنت/i.test(message);
-    const beginnerPortfolioRequest = /(معنديش|ما عنديش).{0,20}(خبره|خبرة).{0,40}(اسهم|الاسهم)|(?:ابني|اعمل|ابدأ).{0,25}(محفظه|محفظة)|صناديق.{0,20}(دخل ثابت|عائد يومي)/i.test(normalized);
+    const beginnerPortfolioRequest = /(معنديش|ما عنديش).{0,20}(خبره|خبرة).{0,40}(اسهم|الاسهم)|(?:ابني|اعمل|ابدأ).{0,25}(محفظه|محفظة)|صناديق.{0,20}(دخل ثابت|عائد يومي)|(?:اول|أول)\s+يوم.{0,20}(البورصه|البورصة)|عايز\s+افهم\s+اعمل/i.test(normalized);
     const isHistorical = needsHistoricalData("", message);
     const marketNewsRequest = /اخبار\s+(?:السوق|البورصه)/i.test(message);
     const requestedDate = temporal.date;
@@ -637,8 +637,10 @@ export async function* runPipelineStream(
         && !plan.entities.scan_direction
         ? buildMarketLiquidityResponse(tools)
         : null;
-    if (deterministicLiquidityResponse) {
-        const response = deterministicLiquidityResponse;
+    const deterministicDomainResponse = buildDeterministicResponse(userMessage, plan, tools.results);
+    const deterministicResponse = deterministicLiquidityResponse || deterministicDomainResponse;
+    if (deterministicResponse) {
+        const response = deterministicResponse;
         yield { type: "token", data: response };
         await persistPipelineSession(sessionState, sessionSummary, plan, vision, memory, sessionId, userId, supabase, hasImages);
         yield { type: "done", data: { response, session_update: { current_symbol: sessionState.current_symbol, last_symbols: sessionState.last_symbols, summary: userMessage }, tables } };
