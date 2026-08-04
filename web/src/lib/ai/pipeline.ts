@@ -3,7 +3,7 @@ import { analyzeImage } from "./vision";
 import { retrieveRelevantMemory, MemoryResult } from "./memory";
 import { runPlanner, getSyncStockMappings, getStocksList } from "./planner";
 import { executeStructuredTools, StructuredToolOutput } from "./tools-v2";
-import { generateV2Response, generateV2Stream } from "./final-v2";
+import { buildDeterministicResponse, generateV2Response, generateV2Stream } from "./final-v2";
 import { loadSessionState, loadSessionSummary, updateSessionSummary, updateSessionState } from "./session";
 import { buildExcelTables, ExcelTable } from "./excel-tables";
 
@@ -846,7 +846,8 @@ export async function runPipeline(
     const scopedMemory = plan.needs_historical_data || plan.entities.reference
         ? memory?.relevant_snapshots || []
         : [];
-    const generatedResponse = deterministicLiquidityResponse || await generateV2Response(
+    const deterministicDomainResponse = buildDeterministicResponse(userMessage, plan, tools.results);
+    const generatedResponse = deterministicLiquidityResponse || deterministicDomainResponse || await generateV2Response(
         userMessage, plan, vision, tools.results,
         scopedMemory,
         memory?.recent_messages || [],

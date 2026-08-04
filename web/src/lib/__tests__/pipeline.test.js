@@ -856,6 +856,15 @@ describe("Deterministic intent guards", () => {
         expect(response).not.toContain("environment_details");
     });
 
+    it("keeps CLOUD comparison from falling through to a model failure", () => {
+        const response = buildDeterministicResponse("مقارنة CLOUD مع COMI", {
+            intent: "comparison", confidence: 1, entities: { symbols: ["COMI"], sector: null, timeframe: "current", reference: null },
+            needs_vision_context: false, needs_history: false, needs_live_data: true, needs_historical_data: false,
+            tools: ["get_comparison"], clarification_needed: false, resolved_from: { symbol: null, message_id: null }
+        }, []);
+        expect(response).toContain("ليس رمز سهم EGX");
+    });
+
     it("answers target and correction questions from actual levels", () => {
         const response = buildDeterministicResponse("سهم جلاكسو ينصح الدخول فيه بكرة ولا قرب يصحح ومستهدف كام", {
             intent: "stock_analysis", confidence: 1, entities: { symbols: ["BIOC"], sector: null, timeframe: "current", reference: null },
