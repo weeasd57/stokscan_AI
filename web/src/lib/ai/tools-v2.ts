@@ -32,6 +32,14 @@ export async function executeStructuredTools(
     const requestedEndDate = plan.entities.requested_end_date || null;
     const userMessage = "";
 
+    const dataDateQuality = (date: unknown, maxAgeDays: number, requested: string | null = null) => {
+        const value = String(date || "").slice(0, 10);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return { ok: false, reason: "missing_date" };
+        if (requested && value !== requested) return { ok: false, reason: "date_mismatch" };
+        const ageDays = Math.floor((Date.now() - Date.parse(`${value}T23:59:59Z`)) / 86400000);
+        return { ok: ageDays <= maxAgeDays, reason: ageDays <= maxAgeDays ? null : "stale", ageDays };
+    };
+
     const resolveSectorSymbols = async (): Promise<string[]> => {
         const targetSector = plan.entities.sector;
         if (!targetSector) return [];
@@ -74,6 +82,12 @@ export async function executeStructuredTools(
             const { data: techRows } = await techQuery;
             const dataDate = requestedDate || techRows?.[0]?.date || now.slice(0, 10);
             const latestRows = (techRows || []).filter((row: any) => row.date === dataDate && Number.isFinite(Number(row.close)));
+            const quality = dataDateQuality(dataDate, requestedDate ? 3650 : 3, requestedDate);
+            if (!quality.ok) {
+                results.push({ tool: "get_fair_value_scan", source: "validation", data_time: dataDate, symbols: [], data_type: requestedDate ? "historical" : "live", data: { stocks: [], validation: quality } });
+                textParts.push(`[مسح التقييم]: البيانات غير صالحة للعرض (${quality.reason}).`);
+                return { results, formattedText: textParts.join("\n") };
+            }
             const { data: priceRows } = await supabase.from("stock_prices")
                 .select("symbol, close, high, low, date")
                 .lte("date", dataDate)
@@ -717,11 +731,25 @@ export async function executeStructuredTools(
                 });
                 const enrichedRecommendations = scopedRecs.map((row: any) => {
                     const entry = Number(row.entry_price);
+                    const target = Number(row.target_price);
+                    const stop = Number(row.stop_loss);
+                    const signal = String(row.signal || "").toUpperCase();
+                    const quality = dataDateQuality(row.created_at, 30);
+                    const levelsValid = signal === "BUY"
+                        ? Number.isFinite(entry) && Number.isFinite(target) && Number.isFinite(stop) && stop < entry && target > entry
+                        : signal === "SELL"
+                            ? Number.isFinite(entry) && Number.isFinite(target) && Number.isFinite(stop) && target < entry && stop > entry
+                            : false;
                     const current = latestBySymbol.get(String(row.symbol || "").toUpperCase());
                     const currentPrice = Number(current?.close);
                     const returnPct = Number.isFinite(entry) && entry > 0 && Number.isFinite(currentPrice) ? ((currentPrice - entry) / entry) * 100 : null;
-                    return { ...row, current_price: Number.isFinite(currentPrice) ? currentPrice : null, current_date: current?.date || null, return_pct: returnPct, status: returnPct == null ? "غير مقيم" : returnPct >= 0 ? "ربح غير محقق" : "خسارة غير محققة" };
-                });
+                    return { ...row, current_price: Number.isFinite(currentPrice) ? currentPrice : null, current_date: current?.date || null, return_pct: returnPct, status: returnPct == null ? "غير مقيم" : returnPct >= 0 ? "ربح غير محقق" : "خسارة غير محققة", validation: { ok: quality.ok && levelsValid, date: quality, levels: levelsValid ? null : "invalid_trade_levels" } };
+                }).filter((row: any) => row.validation.ok);
+                if (enrichedRecommendations.length === 0) {
+                    results.push({ tool: "get_recommendations", source: "validation", data_time: now, symbols: [], data_type: "historical", data: [], error: "كل الإشارات المتاحة قديمة أو متناقضة وتم حجبها." });
+                    textParts.push("[الإشارات التاريخية]: تم حجب البيانات القديمة أو غير المنطقية.");
+                    return { results, formattedText: textParts.join("\n") };
+                }
                 textParts.push(`\n [إشارات وتوصيات تداول البورصة المصرية من قاعدة البيانات]:\n`);
                 enrichedRecommendations.forEach((r: any) => {
                     const signal = String(r.signal || "BUY").toUpperCase();
@@ -736,9 +764,9 @@ export async function executeStructuredTools(
                 results.push({
                     tool: "get_recommendations",
                     source: "scan_results",
-                    data_time: now,
-                    symbols: scopedRecs.map((r: any) => r.symbol),
-                    data_type: "live",
+                    data_time: enrichedRecommendations.map((r: any) => String(r.created_at || "").slice(0, 10)).filter(Boolean).sort().pop() || now,
+                    symbols: enrichedRecommendations.map((r: any) => r.symbol),
+                    data_type: "historical",
                     data: enrichedRecommendations
                 });
             }

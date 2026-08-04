@@ -10,7 +10,8 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "prepare": "husky",
-    "test": "jest"
+    "test": "jest",
+    "test:live": "node scripts/run-live-tests.js"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.15",

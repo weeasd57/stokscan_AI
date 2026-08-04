@@ -383,8 +383,13 @@ export function enforceIntentFromMessage(message: string, plannerIntent: string,
     if (direction) return { intent: "accumulation_distribution", tools: [direction === "distribution" ? "get_distribution_stocks" : "get_accumulation_stocks"], replaceTools: true, scan_direction: direction };
     if (/(قيمه عادله|القيمه العادله|fair value|عادله)/i.test(normalized) && hasSymbol) return { intent: "stock_analysis", tools: ["get_stock", "get_stock_levels"], replaceTools: true };
     if (/(?:سبب|اسباب|ليه|لماذا)/i.test(normalized) && hasSymbol) return { intent: "stock_news", tools: ["get_stock", "get_news", "get_stock_levels"], replaceTools: true };
+    if (/(مقاوم|مقوام|دعم|support|resistance)/i.test(normalized) && hasSymbol && !/حلل.{0,30}(اخبار|أخبار)/i.test(normalized)) return { intent: "levels_analysis", tools: ["get_stock_levels"], replaceTools: true };
+    if (/(سيول|السيوله)/i.test(normalized) && hasSymbol) return { intent: "stock_analysis", tools: ["get_stock"], replaceTools: true };
+    if (hasSymbol && /(حلل|لو\s+كسر|اعمل\s+ايه|أعمل\s+إيه)/i.test(normalized)) {
+        const compoundAnalysis = /حلل.{0,20}(هات|اخبار|أخبار)|هات.{0,20}(اخبار|أخبار)|لو\s+كسر.{0,20}(اخبار|أخبار)/i.test(normalized);
+        return { intent: "stock_analysis", tools: compoundAnalysis ? ["get_stock", "get_stock_levels", "get_news"] : ["get_stock", "get_stock_levels"], replaceTools: true };
+    }
     if (/(?:اخبار|خبر|news)/i.test(normalized) && hasSymbol) return { intent: "stock_news", tools: ["get_news"], replaceTools: true };
-    if (/(مقاوم|مقوام|دعم|support|resistance)/i.test(normalized) && hasSymbol) return { intent: "levels_analysis", tools: ["get_stock_levels"], replaceTools: true };
     if (/(مقارن|قارن|compare)/i.test(normalized) && symbols.length >= 2) return { intent: "comparison", tools: ["get_comparison"], replaceTools: true };
     if (/(يخسر|خسار|يهبط|ينزل|يطلع|صعود|هبوط)/i.test(normalized) && hasSymbol) return { intent: "risk_analysis", tools: ["get_stock", "get_distribution_stocks"], replaceTools: true, scan_direction: "distribution" };
     if (/(كسر|يكسر).{0,12}الدعم|الدعم.{0,12}(اتكسر|انكسر)/i.test(normalized) && hasSymbol) return { intent: "levels_analysis", tools: ["get_stock_levels"], replaceTools: true };
@@ -638,7 +643,7 @@ export async function* runPipelineStream(
         ? buildMarketLiquidityResponse(tools)
         : null;
     const deterministicDomainResponse = buildDeterministicResponse(userMessage, plan, tools.results);
-    const deterministicResponse = deterministicLiquidityResponse || deterministicDomainResponse;
+    const deterministicResponse = deterministicLiquidityResponse || (plan.guidance_intent ? null : deterministicDomainResponse);
     if (deterministicResponse) {
         const response = deterministicResponse;
         yield { type: "token", data: response };
@@ -849,7 +854,7 @@ export async function runPipeline(
         ? memory?.relevant_snapshots || []
         : [];
     const deterministicDomainResponse = buildDeterministicResponse(userMessage, plan, tools.results);
-    const generatedResponse = deterministicLiquidityResponse || deterministicDomainResponse || await generateV2Response(
+    const generatedResponse = deterministicLiquidityResponse || (plan.guidance_intent ? null : deterministicDomainResponse) || await generateV2Response(
         userMessage, plan, vision, tools.results,
         scopedMemory,
         memory?.recent_messages || [],
