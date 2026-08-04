@@ -842,6 +842,20 @@ describe("Deterministic intent guards", () => {
         expect(response).not.toContain("لم أتمكن");
     });
 
+    it("explains a stock drop from available data without inventing news", () => {
+        const response = buildDeterministicResponse("ما سبب هبوط سهم القلعة", {
+            intent: "stock_news", confidence: 1, entities: { symbols: ["CCAP"], sector: null, timeframe: "current", reference: null },
+            needs_vision_context: false, needs_history: false, needs_live_data: true, needs_historical_data: false,
+            tools: ["get_stock", "get_stock_levels"], clarification_needed: false, resolved_from: { symbol: null, message_id: null }
+        }, [
+            { tool: "get_stock", source: "database", data_time: "2026-08-03", symbols: ["CCAP"], data_type: "live", data: { symbol: "CCAP", price: 5.23, change_pct: "-2.61%", rsi_14: 44.63, vol_ratio: "0.51x" } },
+            { tool: "get_stock_levels", source: "stock_prices", data_time: "2026-08-03", symbols: ["CCAP"], data_type: "live", data: { symbol: "CCAP", support: 4.47, resistance: 5.78 } }
+        ]);
+        expect(response).toContain("لا توجد في البيانات الحالية أخبار مؤكدة");
+        expect(response).toContain("انخفاض حجم التداول");
+        expect(response).not.toContain("environment_details");
+    });
+
     it("answers target and correction questions from actual levels", () => {
         const response = buildDeterministicResponse("سهم جلاكسو ينصح الدخول فيه بكرة ولا قرب يصحح ومستهدف كام", {
             intent: "stock_analysis", confidence: 1, entities: { symbols: ["BIOC"], sector: null, timeframe: "current", reference: null },

@@ -324,7 +324,7 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
     const marketNewsRequest = /اخبار\s+(?:السوق|البورصه)/i.test(message);
     const requestedDate = temporal.date;
     const isClearMarketRequest = marketWideRequest || /(أعلى|اعلى|أقوى|اقوى|سيول|السيول|السيوله|تجميع|تصريف|القطاعات|قطاعات|حالة السوق|السوق عمل|دولار|usd)/i.test(normalized);
-    const isClearStockRequest = symbols.length > 0 && /(أخبار|اخبار|اخباره|أخباره|خبر|news|مقارن|قارن|compare|تحليل|حلل|شوف|رايكم|رأيكم|رايك|رأيك|ممكن|ينصح|داخل|دخول|مستهدف|يصحح|بكره|بكرة|اخر الاسبوع|آخر الأسبوع|المحفظه|المحفظة|مليون|السيول|السيوله|سعر|بيع|احتفظ|أحتفظ|اشتري|شراء|يخسر|خسار|يهبط|ينزل|مقاوم|مقاومه|مقوام|دعم|support|resistance|^[\s,،;:/\-a-z0-9]+$)/i.test(message);
+    const isClearStockRequest = symbols.length > 0 && /(أخبار|اخبار|اخباره|أخباره|خبر|news|مقارن|قارن|compare|تحليل|حلل|شوف|رايكم|رأيكم|رايك|رأيك|سبب|ليه|لماذا|ممكن|ينصح|داخل|دخول|مستهدف|يصحح|بكره|بكرة|اخر الاسبوع|آخر الأسبوع|المحفظه|المحفظة|مليون|السيول|السيوله|سعر|بيع|احتفظ|أحتفظ|اشتري|شراء|يخسر|خسار|يهبط|ينزل|مقاوم|مقاومه|مقوام|دعم|support|resistance|^[\s,،;:/\-a-z0-9]+$)/i.test(message);
     if (!sector && !isGreeting && !beginnerPortfolioRequest && !isHistorical && !requestedDate && !isClearMarketRequest && !isClearStockRequest) return null;
 
     const enforced = enforceIntentFromMessage(message, symbols.length ? "stock_analysis" : "market_summary", symbols);

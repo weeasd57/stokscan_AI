@@ -539,6 +539,24 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
         return "CLOUD المذكور كمنتج ادخاري داخل تطبيق Thndr ليس رمز سهم EGX موثقاً في قاعدة بيانات الأسهم، لذلك لا تصح مقارنته فنياً بسهم COMI. يمكن مقارنة العائد والسيولة والمخاطر والرسوم بين المنتج وصندوق دخل ثابت، أو مقارنة COMI بسهم بورصة آخر.";
     }
 
+    if (/(سبب|ليه|لماذا).{0,20}(هبوط|يهبط|نزل|ينزل)/i.test(userMessage) && stockResults.length > 0) {
+        const data = stockResults[0].data;
+        const levelData = levelResults.find(result => String(result.data?.symbol || result.symbols[0]).toUpperCase() === String(data.symbol).toUpperCase())?.data || {};
+        const factors = [
+            data.change_pct != null ? `التغير الأخير ${data.change_pct}` : null,
+            data.vol_ratio != null ? `نسبة الحجم ${data.vol_ratio} من المتوسط` : null,
+            data.rsi_14 != null ? `RSI ${data.rsi_14}` : null,
+            levelData.resistance != null && Number(data.price) < Number(levelData.resistance) ? `السعر ما زال أسفل المقاومة الحسابية ${Number(levelData.resistance).toFixed(2)} جنيه` : null,
+        ].filter(Boolean);
+        return [
+            `لا توجد في البيانات الحالية أخبار مؤكدة تثبت سبباً جوهرياً لهبوط ${data.symbol}.`,
+            factors.length ? `أقرب التفسيرات الفنية المتاحة: ${factors.join("، ")}.` : "لا تكفي البيانات الكمية لتفسير الحركة بدقة.",
+            "انخفاض حجم التداول لا يثبت وحده وجود خبر سلبي؛ قد يكون تراجعاً فنياً أو ضعف طلب مؤقت. راجع أخبار الشركة والقوائم المالية قبل استنتاج سبب أساسي.",
+            levelData.support != null ? `الدعم الحسابي ${Number(levelData.support).toFixed(2)} جنيه؛ كسره بإغلاق وحجم أعلى من المعتاد يزيد المخاطر الفنية، لكنه لا يحدد سبب الهبوط وحده.` : null,
+            "هذا تحليل للبيانات المتاحة وليس توصية بيع أو شراء."
+        ].filter(Boolean).join("\n");
+    }
+
     const news = toolResults.find(result => result.tool === "get_news");
     if (news && stockResults.length === 0 && levelResults.length === 0) {
         const items = Array.isArray(news.data) ? news.data : [];
