@@ -32,7 +32,7 @@ export async function GET(req: NextRequest) {
       console.warn(`Cache miss for ${cacheKey} — falling back to stocks table`);
       let symbolQuery = supabase
         .from("stocks")
-        .select("symbol, exchange, name, country, currency")
+        .select("symbol, exchange, name, country")
         .eq("is_active", true)
         .limit(2000);
 
@@ -47,10 +47,10 @@ export async function GET(req: NextRequest) {
           Name: s.name,
           Country: s.country,
           Type: "Common Stock",
-          Currency: s.currency,
+          Currency: "EGP",
         }));
-      } else {
-        console.error(`Failed to fetch symbols from cache key ${cacheKey}:`, error);
+      } else if (symErr) {
+        console.error(`Failed to fetch symbols from stocks table for key ${cacheKey}:`, symErr);
         return NextResponse.json({ results: [] });
       }
     }

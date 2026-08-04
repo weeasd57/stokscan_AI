@@ -990,6 +990,11 @@ describe("Structured table sanitization", () => {
         expect(response).not.toContain("environment_details");
         expect(response).not.toContain("\\.");
     });
+
+    it("resolves NINH and strips pasted development logs", () => {
+        expect(extractExplicitSymbols("رأيك في سهم مستشفى النزهة")).toContain("NINH");
+        expect(sanitizeReply("سؤال طبيعي\nSignals Backend URL: http://127.0.0.1:8000\n✓ Compiled /admin")).not.toContain("Backend URL");
+    });
 });
 
 describe("Beginner investing guidance", () => {

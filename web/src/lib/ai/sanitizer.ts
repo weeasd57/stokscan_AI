@@ -173,7 +173,7 @@ export function sanitizeUiLabel(text: string): string {
 }
 
 export function stripEnvironmentLeak(text: string): string {
-    const marker = text.search(/<?\s*environment_details|Current time:|Working directory:|Workspace root folder:/i);
+    const marker = text.search(/<?\s*environment_details|Current time:|Working directory:|Workspace root folder:|Signals Backend URL:|✓\s*Compiled|Admin proxy error:|ConnectTimeoutError:/i);
     return (marker >= 0 ? text.slice(0, marker) : text).replace(/<\s*$/g, "").trim();
 }
 

@@ -254,9 +254,11 @@ export async function POST(req: NextRequest) {
         const isUnlimited = AI_CONFIG.unlimitedEmails.includes(userEmail) || AI_CONFIG.unlimitedEmails.includes(userEmail.toLowerCase());
 
         if (clientMessageId) {
-            const { data: existing } = await supabase.from("ai_chat_idempotency").select("status,response").eq("user_id", userId).eq("client_message_id", clientMessageId).maybeSingle();
+            const { data: existing } = await supabase.from("ai_chat_idempotency").select("status,response,updated_at,created_at").eq("user_id", userId).eq("client_message_id", clientMessageId).maybeSingle();
             if (existing?.status === "completed" && existing.response) return NextResponse.json({ reply: existing.response, duplicate: true });
-            if (existing?.status === "processing") return NextResponse.json({ detail: "Request already in progress" }, { status: 409 });
+            const reservationAge = existing ? Date.now() - Date.parse(existing.updated_at || existing.created_at) : 0;
+            if (existing?.status === "processing" && reservationAge < 90000) return NextResponse.json({ detail: "Request already in progress" }, { status: 409 });
+            if (existing) await supabase.from("ai_chat_idempotency").delete().eq("user_id", userId).eq("client_message_id", clientMessageId);
             const { error: reserveError } = await supabase.from("ai_chat_idempotency").insert({ user_id: userId, client_message_id: clientMessageId, status: "processing" });
             if (reserveError) return NextResponse.json({ detail: "Request already in progress" }, { status: 409 });
         }
@@ -424,7 +426,7 @@ export async function POST(req: NextRequest) {
                                         tokenBuffer = "";
                                     }
                                     const replyText = filterOutput(stripEnvironmentMetadata(event.data.response));
-                                    if (clientMessageId) await supabase.from("ai_chat_idempotency").update({ status: "completed", response: replyText }).eq("user_id", userId).eq("client_message_id", clientMessageId);
+                                    if (clientMessageId) await supabase.from("ai_chat_idempotency").update({ status: "completed", response: replyText, updated_at: new Date().toISOString() }).eq("user_id", userId).eq("client_message_id", clientMessageId);
                                     const sessionUpdate = event.data.session_update;
 
                                     const newCount = limitData?.chat_count || 0;
@@ -493,6 +495,7 @@ export async function POST(req: NextRequest) {
                             }
                         }
                     } catch (err: any) {
+                        if (clientMessageId) await supabase.from("ai_chat_idempotency").delete().eq("user_id", userId).eq("client_message_id", clientMessageId);
                         if (err.code !== 'ERR_INVALID_STATE') {
                             console.error("Streaming error:", err);
                         }
@@ -564,7 +567,7 @@ export async function POST(req: NextRequest) {
         );
 
         const replyText = filterOutput(pipelineResult.response);
-        if (clientMessageId) await supabase.from("ai_chat_idempotency").update({ status: "completed", response: replyText }).eq("user_id", userId).eq("client_message_id", clientMessageId);
+        if (clientMessageId) await supabase.from("ai_chat_idempotency").update({ status: "completed", response: replyText, updated_at: new Date().toISOString() }).eq("user_id", userId).eq("client_message_id", clientMessageId);
 
         // Update Limits
         const newCount = limitData?.chat_count || 0;

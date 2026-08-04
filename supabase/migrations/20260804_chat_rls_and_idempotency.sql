@@ -23,6 +23,7 @@ create table if not exists public.ai_chat_idempotency (
   client_message_id text not null,
   status text not null default 'processing',
   response text,
+  updated_at timestamptz not null default now(),
   created_at timestamptz not null default now(),
   primary key (user_id, client_message_id)
 );
