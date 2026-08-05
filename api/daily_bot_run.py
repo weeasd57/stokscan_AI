@@ -20,6 +20,10 @@ from typing import List, Dict, Any, Tuple, Optional, Set
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, project_root)
 
+from dotenv import load_dotenv
+load_dotenv(os.path.join(project_root, ".env"))
+load_dotenv(os.path.join(project_root, "web", ".env.local"), override=True)
+
 import api.stock_ai as stock_ai
 from api.stock_ai import _init_supabase
 

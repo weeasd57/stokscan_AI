@@ -9,6 +9,11 @@ from datetime import datetime
 from typing import Any, Optional
 
 import requests
+from dotenv import load_dotenv
+
+_base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+load_dotenv(os.path.join(_base_dir, ".env"))
+load_dotenv(os.path.join(_base_dir, "web", ".env.local"), override=True)
 
 # Configure logging
 logging.basicConfig(
@@ -21,15 +26,6 @@ logging.getLogger("telegram").setLevel(logging.WARNING)
 
 
 class TelegramBot:
-    """Telegram bot bridge — 100 % `requests`-based, zero httpx.
-
-    Supports two modes:
-    1. Webhook mode  — when WEBHOOK_URL env var is set (production / HF Spaces)
-    2. Long-Polling  — when WEBHOOK_URL is NOT set (local development)
-    """
-
-    # Telegram API — use TELEGRAM_RELAY_URL (Supabase Edge Function) when available
-    # to bypass HF Spaces network restrictions that block api.telegram.org outbound
     _DIRECT_API = "https://api.telegram.org"
     DEFAULT_CHANNEL_ID = "-1002083067817"
     DEFAULT_THREAD_ID = 153
@@ -996,7 +992,24 @@ _telegram_bot_instance: Optional[TelegramBot] = None
 
 
 def get_telegram_bot() -> Optional[TelegramBot]:
-    """Get the global TelegramBot instance (if initialized)."""
+    """Get the global TelegramBot instance (if initialized), or auto-initialize if token exists in environment."""
+    global _telegram_bot_instance
+    if _telegram_bot_instance is None:
+        token = os.getenv("ARTORO_AI_BOT") or os.getenv("TELEGRAM_BOT_TOKEN")
+        if token:
+            try:
+                live_bot = None
+                try:
+                    from api.live_bot import bot_instance
+                    live_bot = bot_instance
+                except Exception:
+                    pass
+                bridge = TelegramBot(token, live_bot)
+                bridge.start_in_thread()
+                _telegram_bot_instance = bridge
+                print("[TELEGRAM] Auto-initialized Telegram bot bridge for background/daily job operation.")
+            except Exception as exc:
+                print(f"[TELEGRAM] Failed to auto-initialize Telegram bot bridge: {exc}")
     return _telegram_bot_instance
 
 
