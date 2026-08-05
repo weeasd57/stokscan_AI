@@ -1125,6 +1125,20 @@ describe("Beginner investing guidance", () => {
         expect(buildDeterministicResponse(message, emptyPlan, [])).toBeNull();
     });
 
+    it("prioritizes portfolio allocation over a plain accumulation scan when allocating large capital to end of year", () => {
+        const message = "عندي نصف مليون أوزعها في أسهم فيها تجميع لنهاية السنة";
+        expect(getInvestorGuidanceIntent(message)).toBe("allocation");
+        const plan = buildDeterministicPlannerResult(message, { current_symbol: null, last_symbols: [], summary: null });
+        expect(plan).toMatchObject({
+            intent: "general_chat",
+            tools: ["get_accumulation_stocks"],
+            entities: { scan_direction: "accumulation" }
+        });
+        const messages = buildV2FinalMessages(message, { ...emptyPlan, guidance_intent: "allocation" }, null, [], [], [], { symbol: null, message_id: null, confidence: 0 });
+        expect(messages[1].content).toContain("RESPONSE MODE: INVESTOR EDUCATION");
+        expect(messages[1].content).toContain("نصف مليون أو 500 ألف");
+    });
+
     it("explains missing top-mover data and suggests a safe next step", () => {
         const response = buildTopMoversResponse({
             results: [{ tool: "get_market", data_time: "2026-08-03", data_type: "live", source: "database", symbols: ["EGX30"], data: { egx30: 54094.3 } }],

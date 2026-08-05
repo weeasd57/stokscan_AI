@@ -276,6 +276,21 @@ export function extractRequestedDateRange(message: string, referenceDate: Date =
 }
 
 export function buildDeterministicPlannerResult(message: string, sessionState: SessionState): PlannerResult | null {
+    const guidance = getInvestorGuidanceIntent(message);
+    if (guidance) {
+        const wantsAccumulation = /تجميع|accumulation/i.test(message);
+        return {
+            intent: "general_chat",
+            confidence: 1,
+            entities: { symbols: [], sector: null, wants_table: false, timeframe: "current", requested_date: null, scan_direction: wantsAccumulation ? "accumulation" : null },
+            tools: wantsAccumulation ? ["get_accumulation_stocks"] : [],
+            session_update: {
+                current_symbol: null,
+                last_symbols: sessionState.last_symbols,
+                summary: message
+            }
+        };
+    }
     if (isFairValueScanRequest(message)) {
         const filters = getFairValueFilters(message);
         return {
@@ -296,19 +311,6 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
         };
     }
     if (isUsageLimitQuestion(message)) {
-        return {
-            intent: "general_chat",
-            confidence: 1,
-            entities: { symbols: [], sector: null, wants_table: false, timeframe: "current", requested_date: null, scan_direction: null },
-            tools: [],
-            session_update: {
-                current_symbol: sessionState.current_symbol,
-                last_symbols: sessionState.last_symbols,
-                summary: message
-            }
-        };
-    }
-    if (getInvestorGuidanceIntent(message)) {
         return {
             intent: "general_chat",
             confidence: 1,
