@@ -40,6 +40,28 @@ export async function executeStructuredTools(
         return { ok: ageDays <= maxAgeDays, reason: ageDays <= maxAgeDays ? null : "stale", ageDays };
     };
 
+    if (plan.tools.includes("get_price_history")) {
+        for (const symbol of symbols) {
+            const { data: rows } = await supabase.from("stock_prices")
+                .select("date,open,high,low,close")
+                .eq("exchange", AI_CONFIG.tools.defaultExchange)
+                .ilike("symbol", symbol)
+                .order("date", { ascending: false })
+                .limit(250);
+            const prices = rows || [];
+            if (!prices.length) {
+                results.push({ tool: "get_price_history", source: "empty", data_time: now, symbols: [symbol], data_type: "historical", data: {} });
+                continue;
+            }
+            const latest = prices[0];
+            const highest = prices.reduce((best: any, row: any) => Number(row.high) > Number(best.high) ? row : best, prices[0]);
+            const previous = prices[1] || null;
+            const upperLimit = previous?.close != null ? Number(previous.close) * 1.2 : null;
+            const lowerLimit = previous?.close != null ? Number(previous.close) * 0.8 : null;
+            results.push({ tool: "get_price_history", source: "stock_prices", data_time: latest.date, symbols: [symbol], data_type: "historical", data: { symbol, latest, previous_close: previous?.close ?? null, highest_250_sessions: { price: highest.high, date: highest.date }, upper_limit_20pct: upperLimit, lower_limit_20pct: lowerLimit } });
+        }
+    }
+
     const resolveSectorSymbols = async (): Promise<string[]> => {
         const targetSector = plan.entities.sector;
         if (!targetSector) return [];
@@ -74,6 +96,8 @@ export async function executeStructuredTools(
     // ===== MARKET-WIDE TECHNICAL VALUATION SCAN =====
     if (plan.tools.includes("get_fair_value_scan")) {
         try {
+            const fairValueDirection = plan.entities.fair_value_direction || "above";
+            const requireDistribution = Boolean(plan.entities.require_distribution);
             let techQuery = supabase.from("stock_technical_indicators")
                 .select("symbol, close, rsi_14, change_pct, volume, vol_sma20, date")
                 .order("date", { ascending: false })
@@ -93,6 +117,19 @@ export async function executeStructuredTools(
                 .lte("date", dataDate)
                 .order("date", { ascending: false })
                 .limit(50000);
+            const distributionBySymbol = new Map<string, any>();
+            if (requireDistribution) {
+                const distributionQuery = supabase.from("stock_scans_summary")
+                    .select("symbol, scan_date, signal, dist_score, consecutive_dist_days")
+                    .lte("scan_date", dataDate)
+                    .order("scan_date", { ascending: false })
+                    .limit(5000);
+                const { data: distributionRows } = await distributionQuery;
+                (distributionRows || []).forEach((row: any) => {
+                    const symbol = String(row.symbol || "").toUpperCase();
+                    if (symbol && !distributionBySymbol.has(symbol)) distributionBySymbol.set(symbol, row);
+                });
+            }
             const pricesBySymbol = new Map<string, any[]>();
             (priceRows || []).forEach((price: any) => {
                 const key = String(price.symbol || "").toUpperCase();
@@ -107,25 +144,38 @@ export async function executeStructuredTools(
                 const resistance = Math.max(...prices.map((price: any) => Number(price.high ?? price.close)));
                 const midpoint = (support + resistance) / 2;
                 const close = Number(row.close);
-                if (![support, resistance, midpoint, close].every(Number.isFinite) || close <= midpoint) return null;
+                if (![support, resistance, midpoint, close].every(Number.isFinite)) return null;
+                if (fairValueDirection === "above" && close <= midpoint) return null;
+                if (fairValueDirection === "below" && close >= midpoint) return null;
+                const symbol = String(row.symbol).toUpperCase();
+                const distribution = distributionBySymbol.get(symbol);
+                const isDistribution = distribution?.signal === "distribution" || Number(distribution?.dist_score || 0) >= 50;
+                if (requireDistribution && !isDistribution) return null;
                 return {
-                    symbol: String(row.symbol).toUpperCase(), close, support, resistance, midpoint,
+                    symbol, close, support, resistance, midpoint,
                     premium_pct: midpoint > 0 ? ((close / midpoint) - 1) * 100 : null,
                     rsi_14: row.rsi_14,
                     change_pct: row.change_pct,
-                    vol_ratio: Number(row.vol_sma20) > 0 ? Number(row.volume) / Number(row.vol_sma20) : null
+                    vol_ratio: Number(row.vol_sma20) > 0 ? Number(row.volume) / Number(row.vol_sma20) : null,
+                    dist_score: distribution?.dist_score ?? null,
+                    consecutive_dist_days: distribution?.consecutive_dist_days ?? null
                 };
             });
-            const stocks = candidates.filter(Boolean).sort((a: any, b: any) => Number(b.premium_pct) - Number(a.premium_pct)).slice(0, 30);
-            results.push({ tool: "get_fair_value_scan", source: "stock_prices", data_time: dataDate, symbols: stocks.map((stock: any) => stock.symbol), data_type: requestedDate ? "historical" : "live", data: { metric: "price_above_60_session_midpoint", stocks } });
-            textParts.push(`[مسح التقييم الفني السوقي بتاريخ ${dataDate}]: ${stocks.length} سهم فوق القيمة الوسطية لنطاق 60 جلسة.`);
+            const stocks = candidates.filter(Boolean)
+                .sort((a: any, b: any) => fairValueDirection === "above"
+                    ? Number(b.premium_pct) - Number(a.premium_pct)
+                    : Number(a.premium_pct) - Number(b.premium_pct))
+                .slice(0, 30);
+            const relation = fairValueDirection === "above" ? "above" : "below";
+            results.push({ tool: "get_fair_value_scan", source: requireDistribution ? "stock_prices+stock_scans_summary" : "stock_prices", data_time: dataDate, symbols: stocks.map((stock: any) => stock.symbol), data_type: requestedDate ? "historical" : "live", data: { metric: `price_${relation}_60_session_midpoint`, direction: fairValueDirection, require_distribution: requireDistribution, stocks } });
+            textParts.push(`[مسح التقييم الفني السوقي بتاريخ ${dataDate}]: ${stocks.length} سهم ${fairValueDirection === "above" ? "فوق" : "تحت"} القيمة الوسطية لنطاق 60 جلسة${requireDistribution ? " مع إشارة تصريف" : ""}.`);
         } catch (e) {
             console.warn("Error computing fair-value scan:", e);
         }
     }
 
     // ===== HISTORICAL RECALL =====
-    if (plan.intent === "historical_recall") {
+    if (plan.intent === "historical_recall" && !plan.tools.includes("get_recommendations") && !plan.tools.includes("get_signals")) {
         const requestedDate = plan.entities.requested_date;
         if (symbols.length === 0 && requestedDate) {
             try {
@@ -703,18 +753,27 @@ export async function executeStructuredTools(
     // ===== RECOMMENDATIONS / SIGNALS =====
     if (plan.tools.includes("get_recommendations") || plan.tools.includes("get_signals")) {
         try {
-            let recsQuery = supabase
-                .from("scan_results")
-                .select("symbol, name, signal, entry_price, target_price, stop_loss, created_at")
-                .eq("country", AI_CONFIG.tools.defaultCountry);
-
-            if (symbols.length > 0) {
-                recsQuery = recsQuery.or(symbols.map(s => `symbol.ilike.${s}`).join(","));
+            const oldestRequest = plan.entities.recommendation_order === "oldest";
+            const fetchRecommendationPage = (from: number, to: number) => {
+                let query = supabase.from("scan_results")
+                    .select("symbol, name, signal, entry_price, target_price, stop_loss, created_at")
+                    .eq("country", AI_CONFIG.tools.defaultCountry);
+                if (symbols.length > 0) query = query.or(symbols.map(s => `symbol.ilike.${s}`).join(","));
+                return query.order("created_at", { ascending: oldestRequest }).range(from, to);
+            };
+            let recsData: any[] = [];
+            if (oldestRequest) {
+                for (let from = 0; ; from += 1000) {
+                    const { data: page, error } = await fetchRecommendationPage(from, from + 999);
+                    if (error) throw error;
+                    recsData.push(...(page || []));
+                    if (!page || page.length < 1000) break;
+                }
+            } else {
+                const { data, error } = await fetchRecommendationPage(0, AI_CONFIG.tools.recommendationsLimit - 1);
+                if (error) throw error;
+                recsData = data || [];
             }
-
-            const { data: recsData } = await recsQuery
-                .order("created_at", { ascending: false })
-                .limit(AI_CONFIG.tools.recommendationsLimit);
 
             const scopedRecs = symbols.length > 0
                 ? (recsData || []).filter((row: any) => symbols.includes(String(row.symbol || "").toUpperCase()))
@@ -734,7 +793,7 @@ export async function executeStructuredTools(
                     const target = Number(row.target_price);
                     const stop = Number(row.stop_loss);
                     const signal = String(row.signal || "").toUpperCase();
-                    const quality = dataDateQuality(row.created_at, 30);
+                    const quality = oldestRequest ? { ok: Boolean(row.created_at), reason: row.created_at ? null : "missing_date" } : dataDateQuality(row.created_at, 30);
                     const levelsValid = signal === "BUY"
                         ? Number.isFinite(entry) && Number.isFinite(target) && Number.isFinite(stop) && stop < entry && target > entry
                         : signal === "SELL"
@@ -744,7 +803,7 @@ export async function executeStructuredTools(
                     const currentPrice = Number(current?.close);
                     const returnPct = Number.isFinite(entry) && entry > 0 && Number.isFinite(currentPrice) ? ((currentPrice - entry) / entry) * 100 : null;
                     return { ...row, current_price: Number.isFinite(currentPrice) ? currentPrice : null, current_date: current?.date || null, return_pct: returnPct, status: returnPct == null ? "غير مقيم" : returnPct >= 0 ? "ربح غير محقق" : "خسارة غير محققة", validation: { ok: quality.ok && levelsValid, date: quality, levels: levelsValid ? null : "invalid_trade_levels" } };
-                }).filter((row: any) => row.validation.ok);
+                }).filter((row: any) => row.validation.ok).slice(0, AI_CONFIG.tools.recommendationsLimit);
                 if (enrichedRecommendations.length === 0) {
                     results.push({ tool: "get_recommendations", source: "validation", data_time: now, symbols: [], data_type: "historical", data: [], error: "كل الإشارات المتاحة قديمة أو متناقضة وتم حجبها." });
                     textParts.push("[الإشارات التاريخية]: تم حجب البيانات القديمة أو غير المنطقية.");

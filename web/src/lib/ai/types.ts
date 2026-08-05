@@ -64,6 +64,9 @@ export interface IntentPlan {
         timeframe: "current" | "historical" | "unspecified";
         reference: "last_image" | "last_stock" | "previous_analysis" | null;
         scan_direction?: "accumulation" | "distribution" | null;
+        fair_value_direction?: "above" | "below" | null;
+        require_distribution?: boolean;
+        recommendation_order?: "oldest" | "newest" | null;
         requested_date?: string | null;
         requested_start_date?: string | null;
         requested_end_date?: string | null;
@@ -74,6 +77,7 @@ export interface IntentPlan {
     needs_historical_data: boolean;
     tools: string[];
     clarification_needed: boolean;
+    service_degraded_message?: string | null;
     resolved_from: {
         symbol: string | null;
         message_id: string | null;
@@ -107,6 +111,7 @@ export interface PipelineContext {
 export interface PlannerResult {
     intent: string;
     confidence: number;
+    guidance_intent?: "onboarding" | "allocation" | "product_comparison" | "product_explainer" | null;
     entities: {
         symbols: string[];
         sector: string | null;
@@ -114,9 +119,13 @@ export interface PlannerResult {
         timeframe?: string | null;
         requested_date?: string | null;
         scan_direction?: "accumulation" | "distribution" | null;
+        fair_value_direction?: "above" | "below" | null;
+        require_distribution?: boolean;
+        recommendation_order?: "oldest" | "newest" | null;
     };
     tools: string[];
     image_summary?: string | null;
+    service_degraded_message?: string | null;
     session_update: {
         current_symbol: string | null;
         last_symbols: string[];

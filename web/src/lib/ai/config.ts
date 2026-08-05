@@ -15,6 +15,7 @@ export const AI_CONFIG = {
     dailyMessages: 15,
     sessionHistoryCap: 15,
     plannerTimeoutMs: 5_000,
+    plannerMaxTokens: 320,
     toolsTimeoutMs: 12_000,
     responseTimeoutMs: 28_000,
     requestDeadlineMs: 52_000,

@@ -107,6 +107,7 @@ const ARABIC_STOCK_MAPPINGS: Record<string, string> = {
 
     // ── GBCO  جي بي كورب / GB Auto ──────────────────────────
     "جي بي كورب": "GBCO",
+    "جدوى": "GDWA", "جدوي": "GDWA", "العبور": "OBRI",
 
     // ── HELI  هيليوبوليس / مصر الجديدة ──────────────────────
     "مصر الجديدة": "HELI", "مصر الجديده": "HELI",
@@ -527,6 +528,7 @@ Analyze the user request and return a JSON object. You MUST dynamically choose t
 {
   "intent": "Brief string describing intent (e.g., stock_analysis, sector_analysis, market_summary, general_chat)",
   "confidence": 0.95,
+  "guidance_intent": null,
   "entities": {
     "symbols": ["SYMBOL1", "SYMBOL2"], // EXACT stock tickers in uppercase (e.g. COMI). Empty array if none.
     "sector": "Arabic Sector Name", // e.g. "بنوك", "عقارات". Null if none.
@@ -547,6 +549,9 @@ Analyze the user request and return a JSON object. You MUST dynamically choose t
 - If the user asks about a sector (e.g. 'قطاع الأدوية'), you MUST extract the Arabic sector name into entities.sector (e.g. 'أدوية').
 - For historical recall queries ('الرقم اللي قولته قبل كده', 'التحليل اللي فات'): use intent "historical_recall" with tools [].
 - For conversational/greeting queries: use intent "general_chat" with tools [].
+- For beginners, savings, brokerage products, or portfolio allocation: set guidance_intent to onboarding, allocation, product_comparison, or product_explainer. Do not fetch recommendations until goals, horizon, liquidity, and risk tolerance are known.
+- Thndr/ثندر is a brokerage platform in phrases like 'أستثمر في ثندر'; it is not a stock or a slang signal for explosive price movement.
+- Do not select recommendation tools merely because the request says 'فرص' or 'النهارده'. Use them only for explicit recorded recommendations/signals.
 - ⚠️ CRITICAL IMAGE RULE: If an image is uploaded (hasImages is true), prioritize image analysis. Extract all visible tickers into entities.symbols, set intent to "portfolio" or "chart_analysis", and set tools to ["get_stock"].
 - NEVER use double quotes (") inside string values like image_summary. Use single quotes (').
 - Return ONLY valid JSON, starting with '{' and ending with '}'.`;
@@ -662,7 +667,7 @@ Analyze the user request and return a JSON object. You MUST dynamically choose t
                         { role: "user", content: userPromptText }
                     ],
                     response_format: { type: "json_object" },
-                    max_tokens: 1500,
+                    max_tokens: AI_CONFIG.limits.plannerMaxTokens || 320,
                     temperature: 0.05
                 })
             });
@@ -682,8 +687,7 @@ Analyze the user request and return a JSON object. You MUST dynamically choose t
                     const tools = Array.isArray(parsed.tools) ? parsed.tools : ["get_stock"];
 
                     const normMsg = (message || "").toLowerCase();
-                    const hasRecommendationKeywords = normMsg.includes("توصي") || normMsg.includes("اشار") || normMsg.includes("إشار") || normMsg.includes("فرص");
-                    const hasMarketKeywords = normMsg.includes("سيولة") || normMsg.includes("السيولة") || normMsg.includes("السوق كله") || normMsg.includes("حجم التداول") || normMsg.includes("اخبار") || normMsg.includes("أخبار") || normMsg.includes("النهاردة") || normMsg.includes("حالة البورصة");
+                    const hasRecommendationKeywords = /توصيات|توصيه|توصية|اشارات النظام|إشارات النظام|سجل التوصيات|اقدم توصيه|أقدم توصية/i.test(message || "");
 
                     // إذا سأل عن سهم بعبارة معلوماتية → اضمن get_stock + get_news
                     const hasStockInfoKeywords = /خبرني|حدثني|حلل|معلومات|تحليل|سعر|عامل|بكم|وضع|ايه رأيك|ايه رأي|عمل ايه|معاه ايه|ايه اللي|رسم|شارت|chart/.test(normMsg);
@@ -692,12 +696,8 @@ Analyze the user request and return a JSON object. You MUST dynamically choose t
                         if (!tools.includes("get_news")) tools.push("get_news");
                     }
 
-                    if ((hasRecommendationKeywords || hasMarketKeywords) && !hasImages) {
+                    if (hasRecommendationKeywords && !hasImages) {
                         if (!tools.includes("get_recommendations")) tools.push("get_recommendations");
-                        if (!tools.includes("get_signals")) tools.push("get_signals");
-                        if (!tools.includes("get_market")) tools.push("get_market");
-                        if (!tools.includes("get_news")) tools.push("get_news");
-                        if (!tools.includes("get_accumulation_stocks")) tools.push("get_accumulation_stocks");
                     }
 
                     // Clean Intent Resolution: If intent is general market scan or tools include accumulation/market without explicit tickers, do not attach old symbols
@@ -716,6 +716,7 @@ Analyze the user request and return a JSON object. You MUST dynamically choose t
                     return {
                         intent: finalIntent,
                         confidence: parsed.confidence || 0.95,
+                        guidance_intent: parsed.guidance_intent || null,
                         entities: { symbols: finalSymbols, sector: parsed.entities?.sector || null, wants_table: parsed.entities?.wants_table ?? (finalSymbols.length > 0), timeframe: parsed.entities?.timeframe || "1d" },
                         tools: tools,
                         session_update: { current_symbol: finalSymbols[0] || null, last_symbols: finalSymbols, summary: parsed.session_update?.summary || "" }
@@ -728,10 +729,16 @@ Analyze the user request and return a JSON object. You MUST dynamically choose t
     }
 
     let keyIndex = 0;
+    // Planner output is a tiny JSON object. Bound provider retries so an
+    // outage cannot consume the whole chat request before we fail clearly.
+    let plannerAttempts = 0;
+    const maxPlannerAttempts = 2;
+    const maxKeysPerModel = 1;
     for (const modelName of plannerModels) {
-        while (keyIndex < apiKeys.length) {
+        while (keyIndex < Math.min(apiKeys.length, maxKeysPerModel) && plannerAttempts < maxPlannerAttempts) {
             const key = apiKeys[keyIndex];
             try {
+                plannerAttempts += 1;
                 const controller = new AbortController();
                 const timeoutMs = hasImages ? 15000 : (AI_CONFIG.limits.plannerTimeoutMs || 6000);
                 const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
@@ -742,7 +749,7 @@ Analyze the user request and return a JSON object. You MUST dynamically choose t
                         { role: "system", content: plannerSystemPrompt },
                         { role: "user", content: userContent }
                     ],
-                    max_tokens: 1500,
+                    max_tokens: AI_CONFIG.limits.plannerMaxTokens || 320,
                     temperature: 0.05
                 };
                 if (!hasImages) {
@@ -848,6 +855,7 @@ Analyze the user request and return a JSON object. You MUST dynamically choose t
                         const result: PlannerResult = {
                             intent: finalIntent,
                             confidence: parsed.confidence || 0.95,
+                            guidance_intent: parsed.guidance_intent || null,
                             entities: {
                                 symbols: resolvedSymbols,
                                 sector: parsed.entities?.sector || null,
@@ -897,13 +905,14 @@ Analyze the user request and return a JSON object. You MUST dynamically choose t
         || /^(?:اكبر|أكبر)\s+(?:سهم|شركة)\s+(?:في|فى|بقطاع|من)\s+(.+)$/i.exec(message.trim());
     const fallbackSymbols = (hasImages || isMarketSlang) ? [] : (session.current_symbol ? [correctStockSymbol(session.current_symbol, validSymbols)] : []);
     return {
-        intent: hasImages ? "portfolio" : sectorFollowUp ? "sector_analysis" : "general_chat",
-        confidence: 0.8,
-        entities: { symbols: sectorFollowUp ? [] : fallbackSymbols, sector: sectorFollowUp?.[1] || null, wants_table: Boolean(hasImages) },
-        tools: sectorFollowUp ? ["get_sector"] : fallbackSymbols.length > 0 ? ["get_stock"] : [],
+        intent: "general_chat",
+        confidence: 0,
+        entities: { symbols: [], sector: null, wants_table: false },
+        tools: [],
+        service_degraded_message: "تعذر عليّ فهم الطلب حالياً بسبب ضغط مؤقت في خدمة التحليل. من فضلك أعد المحاولة بعد لحظات.",
         image_summary: hasImages ? "تحليل البيانات والصورة المرفقة من المحفظة." : undefined,
         session_update: { 
-            current_symbol: fallbackSymbols[0] || session.current_symbol, 
+            current_symbol: session.current_symbol,
             last_symbols: session.last_symbols ? session.last_symbols.map((s: string) => correctStockSymbol(s, validSymbols)) : [], 
             summary: message 
         }

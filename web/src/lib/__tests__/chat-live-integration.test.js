@@ -115,6 +115,7 @@ describe("Live Supabase chatbot integration", () => {
                 ]));
                 history.push({ role: "user", content: message }, { role: "assistant", content: result.response });
                 state = { ...state, ...result.session_update };
+                if (/المؤشر|أقدم توصية/.test(message)) expect(result.session_update.current_symbol).toBeNull();
             }
 
             const { data: session } = await supabase.from("ai_chat_sessions").select("state,summary_state").eq("id", sessionId).single();
@@ -123,6 +124,39 @@ describe("Live Supabase chatbot integration", () => {
             expect(session?.state?.last_symbols).toEqual(expect.arrayContaining(["CCAP", "COMI", "EAST"]));
             expect(count).toBe(6);
             expect(factsCount).toBeGreaterThan(0);
+        } finally {
+            await supabase.from("ai_chat_sessions").delete().eq("id", sessionId);
+            await supabase.auth.admin.deleteUser(userId);
+        }
+    }, 240000);
+
+    liveTest("handles advanced financial follow-ups without stale context", async () => {
+        const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+        const { data: authData, error: authError } = await supabase.auth.admin.createUser({ email: `advanced-eval-${Date.now()}@example.invalid`, password: crypto.randomUUID(), email_confirm: true });
+        if (authError || !authData.user) throw new Error(authError?.message || "Unable to create advanced evaluation user");
+        const userId = authData.user.id;
+        const sessionId = crypto.randomUUID();
+        let state = { current_symbol: null, last_symbols: [], summary: null };
+        const history = [];
+        const turns = [
+            ["حلل لي سهم KWIN", /رأيي الفني/],
+            ["طيب ده قريب من الحد اليومي؟", /حد السعري|حد الصعود/],
+            ["طيب ارجعلي لـ KWIN تاني، إيه أعلى سعر وصله؟", /أعلى سعر مسجل/],
+            ["ولي رأيك في أداء المؤشر النهارده", /ملخص سيولة السوق|EGX30/],
+            ["هات أقدم توصية عندك", /إشارات فنية تاريخية|إشارة|إشارة قديمة|الإشارات/],
+            ["الأسهم فوق القيمة الفنية", /فوق القيمة الوسطية/],
+            ["والأقل من القيمة العادلة", /تحت القيمة الوسطية/],
+            ["هات الأسهم اللي تحت القيمة الفنية وفيها تصريف", /تحت القيمة الوسطية.*تصريف/s],
+        ];
+        try {
+            await retry(() => supabase.from("ai_chat_sessions").insert({ id: sessionId, user_id: userId, title: "advanced live evaluation" }));
+            for (const [message, expected] of turns) {
+                const result = await runPipeline(message, [], state, null, history, supabase, [], userId, sessionId, `advanced-${Date.now()}`);
+                expect(result.response).toMatch(expected);
+                if (/المؤشر|أقدم توصية|تحت القيمة/.test(message)) expect(result.plan.entities.symbols).toEqual([]);
+                history.push({ role: "user", content: message }, { role: "assistant", content: result.response });
+                state = { ...state, ...result.session_update };
+            }
         } finally {
             await supabase.from("ai_chat_sessions").delete().eq("id", sessionId);
             await supabase.auth.admin.deleteUser(userId);

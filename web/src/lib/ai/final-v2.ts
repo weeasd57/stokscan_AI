@@ -1,6 +1,6 @@
 import { IntentPlan, VisionContext, ToolResult, FactSnapshot } from "./types";
 import { AI_CONFIG } from "./config";
-import { describeDatedFallback, getInvestorGuidanceIntent, isFairValueScanRequest } from "./pipeline";
+import { describeDatedFallback, getFairValueFilters, getInvestorGuidanceIntent, isDailyPriceLimitQuestion, isEarningsDataRequest, isFairValueScanRequest, isUsageLimitQuestion } from "./intent-policy";
 import { sanitizeReply } from "./sanitizer";
 
 const MAX_CONTEXT_CHARS = 30000;
@@ -313,7 +313,6 @@ export async function generateV2Response(
     const needsGuidanceResponse = plan.guidance_intent || getInvestorGuidanceIntent(userMessage);
     const deterministic = !needsGuidanceResponse && !isAnalyticalQuery ? buildDeterministicResponse(userMessage, plan, toolResults) : null;
     if (deterministic) return deterministic;
-    console.log("FINAL_V2 DEBUG PLAN:", JSON.stringify(plan, null, 2));
     if (shouldReturnNoData(plan, visionContext, toolResults, relevantFacts)) {
         const requestedDate = plan.entities.requested_date;
         return requestedDate
@@ -471,24 +470,62 @@ function buildVisionUncertaintyResponse(vision: VisionContext): string {
 }
 
 export function buildDeterministicResponse(userMessage: string, plan: IntentPlan, toolResults: ToolResult[]): string | null {
+    if (plan.intent === "clarification" && /(?:اقوى|أقوى)\s+(?:الاسهم|الأسهم)/i.test(userMessage)) {
+        return "تقصد أقوى الأسهم بأي معيار: أعلى ارتفاع في آخر جلسة، أعلى سيولة، أقوى زخم فني، أم أفضل أداء خلال أسبوع؟ حدّد المعيار والفترة حتى لا أخلط بين القوة السعرية والسيولة.";
+    }
     const levelResults = toolResults.filter(result => result.tool === "get_stock_levels");
     const stockResults = toolResults.filter(result => result.tool === "get_stock" && result.data?.symbol);
     const compoundNews = toolResults.find(result => result.tool === "get_news");
+    if (isUsageLimitQuestion(userMessage)) {
+        return "لا أستطيع تأكيد عدد الرسائل المتبقية من سياق السهم السابق. راجع عداد الاستخدام الظاهر في المحادثة، ولن أستخدم بيانات سهم للإجابة عن سؤال الحساب.";
+    }
+    if (isEarningsDataRequest(userMessage) && plan.entities.symbols.length > 0) {
+        return `لا تتوفر لدي حالياً بيانات أرباح موثقة للفترة المطلوبة للسهم ${plan.entities.symbols.join("، ")}. لذلك لن أستبدل سؤال الأرباح بالسعر أو RSI. يمكنني تحليل السعر فنياً، أو عرض الأرباح عند إضافة مصدر قوائم مالية مؤرخ للنظام.`;
+    }
+    const priceHistory = toolResults.find(result => result.tool === "get_price_history");
+    if (priceHistory?.data?.symbol) {
+        const data = priceHistory.data;
+        if (isDailyPriceLimitQuestion(userMessage)) {
+            const close = data.latest?.close == null ? NaN : Number(data.latest.close);
+            const upper = data.upper_limit_20pct == null ? NaN : Number(data.upper_limit_20pct);
+            const lower = data.lower_limit_20pct == null ? NaN : Number(data.lower_limit_20pct);
+            if (![close, upper, lower].every(Number.isFinite)) {
+                return `${data.symbol}: لا يتوفر إغلاق سابق موثق يكفي لحساب المسافة من الحد السعري اليومي. لن أستخدم صفراً أو نسبة افتراضية بدل البيانات الناقصة.`;
+            }
+            const upperDistance = Number.isFinite(close) && Number.isFinite(upper) ? ((upper - close) / close) * 100 : null;
+            const lowerDistance = Number.isFinite(close) && Number.isFinite(lower) ? ((close - lower) / close) * 100 : null;
+            return `${data.symbol}: آخر إغلاق ${close.toFixed(2)} جنيه بتاريخ ${priceHistory.data_time}. الحد السعري الحسابي التقريبي وفق ±20% من إغلاق الجلسة السابقة: صعود ${upper.toFixed(2)} جنيه وهبوط ${lower.toFixed(2)} جنيه. السهم بعيد عن حد الصعود بنحو ${upperDistance?.toFixed(1)}% وعن حد الهبوط بنحو ${lowerDistance?.toFixed(1)}%. تحقّق من قواعد وحدود الجلسة الفعلية لدى البورصة/الوسيط لأن النسبة قد تختلف حسب حالة الورقة.`;
+        }
+        if (/(اعلى|أعلى).{0,15}(سعر|قمه|قمة)/i.test(userMessage)) {
+            return `${data.symbol}: أعلى سعر مسجل في آخر ${250} جلسة متاحة هو ${Number(data.highest_250_sessions.price).toFixed(2)} جنيه بتاريخ ${data.highest_250_sessions.date}. الفترة محددة بآخر 250 جلسة وليست أعلى سعر تاريخي منذ الإدراج.`;
+        }
+    }
     const fairValueRequest = /(قيمه عادله|قيمة عادلة|القيمة العادلة|القيمه العادله|fair value|عادله|عادلة)/i.test(userMessage);
     const compoundMessage = /\n|\s+(?:هات|جيب|اعرض|حلل|شوف|قارن|لو\s+كسر)(?:\s|$)|[،,]\s*(?:و\s*)?(?:مين|ايه|إيه|هات|جيب|شوف|حلل)(?:\s|$)/i.test(userMessage);
     const fairValueScan = toolResults.find(result => result.tool === "get_fair_value_scan");
     if (fairValueScan) {
         const stocks = Array.isArray(fairValueScan.data?.stocks) ? fairValueScan.data.stocks : [];
-        if (!stocks.length) return `لا توجد أسهم في بيانات ${fairValueScan.data_time} تتداول فوق القيمة الوسطية لنطاقها السعري خلال آخر 60 جلسة.`;
+        const direction = fairValueScan.data?.direction || plan.entities.fair_value_direction || "above";
+        const requiresDistribution = Boolean(fairValueScan.data?.require_distribution || plan.entities.require_distribution);
+        const relation = direction === "below" ? "تحت" : "فوق";
+        const relativeWord = direction === "below" ? "أقل" : "أعلى";
+        const distributionSuffix = requiresDistribution ? " وتحقق إشارة تصريف" : "";
+        if (!stocks.length) return `لا توجد أسهم في بيانات ${fairValueScan.data_time} تتداول ${relation} القيمة الوسطية لنطاقها السعري خلال آخر 60 جلسة${distributionSuffix}.`;
         return [
-            `الأسهم الأعلى تداولاً فوق القيمة الوسطية لنطاق 60 جلسة بتاريخ ${fairValueScan.data_time}:`,
-            ...stocks.slice(0, 15).map((stock: any, index: number) => `${index + 1}. ${stock.symbol}: السعر ${Number(stock.close).toFixed(2)} جنيه، القيمة الوسطية ${Number(stock.midpoint).toFixed(2)} جنيه، أعلى منها بـ ${Number(stock.premium_pct).toFixed(1)}%.`),
+            `الأسهم المتداولة ${relation} القيمة الوسطية لنطاق 60 جلسة بتاريخ ${fairValueScan.data_time}${distributionSuffix}:`,
+            ...stocks.slice(0, 15).map((stock: any, index: number) => {
+                const distribution = requiresDistribution && stock.dist_score != null
+                    ? `، درجة التصريف ${Number(stock.dist_score).toFixed(1)}/100`
+                    : "";
+                return `${index + 1}. ${stock.symbol}: السعر ${Number(stock.close).toFixed(2)} جنيه، القيمة الوسطية ${Number(stock.midpoint).toFixed(2)} جنيه، ${relativeWord} منها بـ ${Math.abs(Number(stock.premium_pct)).toFixed(1)}%${distribution}.`;
+            }),
             "هذا مسح تقييم فني نسبي وليس قيمة عادلة مالية؛ القيمة الجوهرية تحتاج أرباحاً وتدفقات نقدية ومكررات قطاع موثقة."
         ].join("\n");
     }
     if (isFairValueScanRequest(userMessage)
         && !toolResults.some(result => result.tool === "get_fair_value_scan")) {
-        return "تعذر تنفيذ مسح الأسهم فوق القيمة العادلة لعدم توفر بيانات الأسعار التاريخية الكافية لحساب نطاق 60 جلسة. لم أستخدم أسماء أو أرقاماً مخمّنة.";
+        const filters = getFairValueFilters(userMessage);
+        return `تعذر تنفيذ مسح الأسهم ${filters.fair_value_direction === "below" ? "تحت" : "فوق"} القيمة الوسطية لعدم توفر بيانات الأسعار التاريخية الكافية لحساب نطاق 60 جلسة. لم أستخدم أسماء أو أرقاماً مخمّنة.`;
     }
     if (compoundMessage && (levelResults.length > 0 || stockResults.length > 0 || compoundNews)) {
         const parts: string[] = [];
@@ -588,7 +625,9 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
     const recommendations = toolResults.find(result => result.tool === "get_recommendations" || result.tool === "get_signals");
     if (recommendations) {
         const rows = Array.isArray(recommendations.data) ? recommendations.data : [];
-        if (rows.length === 0) return "لا توجد إشارات مسجلة يمكن تقييمها حالياً.";
+        if (rows.length === 0) return recommendations.error
+            ? `${recommendations.error} لا أعرض إشارة قديمة أو متناقضة على أنها توصية حالية.`
+            : "لا توجد إشارات تاريخية مسجلة يمكن تقييمها حالياً.";
         const evaluated = rows.filter((row: any) => row.return_pct != null);
         const profitable = evaluated.filter((row: any) => Number(row.return_pct) > 0).length;
         const average = evaluated.length ? evaluated.reduce((sum: number, row: any) => sum + Number(row.return_pct), 0) / evaluated.length : null;

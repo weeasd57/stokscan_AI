@@ -2,7 +2,7 @@ const { validateVisionOutput } = require("../ai/vision");
 const { buildV2FinalMessages, buildDeterministicResponse } = require("../ai/final-v2");
 const { retrieveRelevantMemory } = require("../ai/memory");
 const { buildExcelTables, tablesToMarkdown } = require("../ai/excel-tables");
-const { enforceIntentFromMessage, buildMarketLiquidityResponse, buildTopMoversResponse, needsLiveDataForTools, needsHistoricalData, extractSectorFromMessage, extractExplicitSymbols, buildDeterministicPlannerResult, extractRequestedDate, extractRequestedDateRange, extractTemporalContext, isMarketWideRequest, isFairValueScanRequest, extractSingleStockFromRecentHistory, isEgxWeekend, describeDatedFallback, getInvestorGuidanceIntent, isBeginnerPortfolioQuestion, isNonEquityProductComparison } = require("../ai/pipeline");
+const { enforceIntentFromMessage, buildMarketLiquidityResponse, buildTopMoversResponse, needsLiveDataForTools, needsHistoricalData, extractSectorFromMessage, extractExplicitSymbols, buildDeterministicPlannerResult, extractRequestedDate, extractRequestedDateRange, extractTemporalContext, isMarketWideRequest, isFairValueScanRequest, getFairValueFilters, isEarningsDataRequest, isUsageLimitQuestion, extractSingleStockFromRecentHistory, isEgxWeekend, describeDatedFallback, getInvestorGuidanceIntent, isBeginnerPortfolioQuestion, isNonEquityProductComparison, sanitizePlannerTools } = require("../ai/pipeline");
 const { sanitizeReply } = require("../ai/sanitizer");
 const { sanitizeUiLabel } = require("../ai/sanitizer");
 const { parseToolsOutput } = require("../ai/table-builder");
@@ -307,6 +307,52 @@ describe("Deterministic response fallback", () => {
         });
         expect(isFairValueScanRequest("هات الأسهم اللي بتتداول فوق القيمة العادلة ل")).toBe(true);
         expect(buildDeterministicPlannerResult("ات الأسهم اللي بتتداول فوق القيمة العادلة", { current_symbol: "ELKA", last_symbols: ["ELKA"], summary: "market" })?.tools).toEqual(["get_fair_value_scan"]);
+    });
+
+    it("preserves below-value and distribution filters instead of reversing them", () => {
+        const message = "هات الأسهم اللي تحت القيمة العادلة وفيها تصريف";
+        expect(isFairValueScanRequest(message)).toBe(true);
+        expect(getFairValueFilters(message)).toEqual({ fair_value_direction: "below", require_distribution: true });
+        expect(enforceIntentFromMessage(message, "stock_analysis", ["KWIN"])).toMatchObject({
+            tools: ["get_fair_value_scan"],
+            fair_value_direction: "below",
+            require_distribution: true
+        });
+        expect(buildDeterministicPlannerResult(message, { current_symbol: "KWIN", last_symbols: ["KWIN"], summary: "تحليل KWIN" })).toMatchObject({
+            entities: { symbols: [], fair_value_direction: "below", require_distribution: true },
+            tools: ["get_fair_value_scan"]
+        });
+    });
+
+    it("does not substitute price data for an unavailable earnings request", () => {
+        const message = "قد إيه أرباح COMI الشهر اللي فات؟";
+        expect(isEarningsDataRequest(message)).toBe(true);
+        const plan = buildDeterministicPlannerResult(message, { current_symbol: "KWIN", last_symbols: ["KWIN"], summary: "تحليل KWIN" });
+        expect(plan).toMatchObject({ entities: { symbols: ["COMI"] }, tools: [] });
+        const response = buildDeterministicResponse(message, {
+            ...basePlan,
+            entities: { ...basePlan.entities, symbols: ["COMI"] }
+        }, []);
+        expect(response).toContain("لن أستبدل سؤال الأرباح بالسعر أو RSI");
+    });
+
+    it("distinguishes account quota from a stock daily price limit", () => {
+        const message = "فاضل كام رسالة من الحد اليومي للشات؟";
+        expect(isUsageLimitQuestion(message)).toBe(true);
+        const plan = buildDeterministicPlannerResult(message, { current_symbol: "KWIN", last_symbols: ["KWIN"], summary: "تحليل KWIN" });
+        expect(plan).toMatchObject({ intent: "general_chat", entities: { symbols: [] }, tools: [] });
+        const response = buildDeterministicResponse(message, { ...basePlan, entities: { ...basePlan.entities, symbols: [] } }, []);
+        expect(response).toContain("لن أستخدم بيانات سهم");
+        const priceLimitPlan = buildDeterministicPlannerResult("طيب ده قريب من الحد اليومي؟", { current_symbol: "KWIN", last_symbols: ["KWIN"], summary: "تحليل KWIN" });
+        expect(priceLimitPlan.entities.symbols).toContain("KWIN");
+        expect(priceLimitPlan.tools).toContain("get_price_history");
+        const missingPrevious = buildDeterministicResponse("ده قريب من الحد اليومي؟", {
+            intent: "levels_analysis", confidence: 1, entities: { symbols: ["KWIN"], sector: null, timeframe: "current", reference: null },
+            needs_vision_context: false, needs_history: false, needs_live_data: true, needs_historical_data: false,
+            tools: ["get_price_history"], clarification_needed: false, resolved_from: { symbol: null, message_id: null }
+        }, [{ tool: "get_price_history", source: "stock_prices", data_time: "2026-08-04", symbols: ["KWIN"], data_type: "historical", data: { symbol: "KWIN", latest: { close: 87.2 }, previous_close: null, upper_limit_20pct: null, lower_limit_20pct: null } }]);
+        expect(missingPrevious).toContain("لا يتوفر إغلاق سابق موثق");
+        expect(missingPrevious).not.toContain("0.00 جنيه");
     });
 
     it("uses levels to frame a sell decision without deciding for the user", () => {
@@ -994,6 +1040,41 @@ describe("Structured table sanitization", () => {
     it("resolves NINH and strips pasted development logs", () => {
         expect(extractExplicitSymbols("رأيك في سهم مستشفى النزهة")).toContain("NINH");
         expect(sanitizeReply("سؤال طبيعي\nSignals Backend URL: http://127.0.0.1:8000\n✓ Compiled /admin")).not.toContain("Backend URL");
+    });
+
+    it("routes advanced follow-ups without leaking stale stock context", () => {
+        expect(extractExplicitSymbols("جدوى ماشية ازاي")).toContain("GDWA");
+        expect(isFairValueScanRequest("هات الاسهم اللي تحت القيمة الفنية وفيها تصريف")).toBe(true);
+        expect(getFairValueFilters("هات الاسهم اللي تحت القيمة الفنية وفيها تصريف")).toEqual({ fair_value_direction: "below", require_distribution: true });
+        const sectorPlan = buildDeterministicPlannerResult("البنوك حالتها ايه", { current_symbol: "COMI", last_symbols: ["COMI"], summary: "COMI" });
+        expect(sectorPlan.session_update.current_symbol).toBeNull();
+        const limitPlan = buildDeterministicPlannerResult("طيب ده قريب من الحد اليومي؟", { current_symbol: "KWIN", last_symbols: ["KWIN"], summary: "KWIN" });
+        expect(limitPlan.tools).toEqual(expect.arrayContaining(["get_price_history"]));
+        expect(limitPlan.entities.symbols).toContain("KWIN");
+        const oldestPlan = buildDeterministicPlannerResult("هات أقدم توصية عندك", { current_symbol: "KWIN", last_symbols: ["KWIN"], summary: "KWIN" });
+        expect(oldestPlan.tools).toEqual(["get_recommendations"]);
+        expect(oldestPlan.entities.symbols).toEqual([]);
+        expect(oldestPlan.entities.recommendation_order).toBe("oldest");
+    });
+
+    it("asks for the strength criterion and treats Thndr as a platform", () => {
+        const strongest = buildDeterministicPlannerResult("أقوى الأسهم", { current_symbol: null, last_symbols: [], summary: null });
+        expect(strongest.intent).toBe("clarification");
+        expect(buildDeterministicResponse("أقوى الأسهم", {
+            intent: "clarification",
+            confidence: 1,
+            entities: { symbols: [], sector: null, timeframe: "current", reference: null },
+            needs_vision_context: false,
+            needs_history: false,
+            needs_live_data: false,
+            needs_historical_data: false,
+            tools: [],
+            clarification_needed: true,
+            resolved_from: { symbol: null, message_id: null }
+        }, [])).toContain("بأي معيار");
+        expect(getInvestorGuidanceIntent("إيه فرص الاستثمار لمدخراتي النهارده على ثندر؟")).toBe("allocation");
+        expect(sanitizePlannerTools("إيه فرص الاستثمار النهارده؟", ["get_market", "get_recommendations", "get_signals"])).toEqual(["get_market"]);
+        expect(sanitizePlannerTools("هات أقدم توصية", ["get_recommendations"])).toEqual(["get_recommendations"]);
     });
 });
 
