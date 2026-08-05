@@ -15,12 +15,12 @@ export function isEarningsDataRequest(message: string): boolean {
     return /(أرباح|ارباح|نتائج أعمال|قوائم مالية|إيرادات|ارباح الشركة)/i.test(message);
 }
 
-export function getFairValueFilters(message: string): { fair_value_direction: "above" | "below"; require_distribution: boolean } {
+export function getFairValueFilters(message: string): { fair_value_direction: "above" | "below"; require_distribution: boolean; require_accumulation: boolean } {
     const value = normalizeArabicIntent(message);
     const above = /(فوق|اعلي|مبالغ|غالي|اغلي)/i.test(value);
     const below = /(تحت|اقل|رخيص|ارخص|اقل من)/i.test(value);
     const requireDistribution = /تصريف|distribution/i.test(value);
-    return { fair_value_direction: below ? "below" : "above", require_distribution: requireDistribution };
+    return { fair_value_direction: below ? "below" : "above", require_distribution: requireDistribution, require_accumulation: /تجميع|accumulation/i.test(value) };
 }
 
 export const egyptianMarketTerms = {
@@ -55,7 +55,8 @@ export function isFairValueScanRequest(message: string): boolean {
     return /(?:الاسهم|اسهم|السهم|سهم).{0,45}(?:فوق|تحت|اعلي|اقل|متداول|بتتداول|يتداول).{0,35}(?:القيمه|قيمه|قيمتها|التقييم).{0,20}(?:العادله|العادل|الفنيه|الفنيه|الوسطيه)/i.test(normalized)
         || /(?:القيمه|قيمه|التقييم).{0,20}(?:العادله|العادل|الفنيه|الوسطيه).{0,45}(?:الاسهم|اسهم|السهم|سهم)/i.test(normalized)
         || /(?:فوق|تحت|اعلي|اقل).{0,10}(?:القيمه|قيمه).{0,10}(?:العادله|العادل|الفنيه|الوسطيه)/i.test(normalized)
-        || /(?:الاسهم|اسهم).{0,25}(?:القيمه|قيمه).{0,10}(?:العادله|العادل|الفنيه|الوسطيه)/i.test(normalized);
+        || /(?:الاسهم|اسهم).{0,25}(?:القيمه|قيمه).{0,10}(?:العادله|العادل|الفنيه|الوسطيه)/i.test(normalized)
+        || /(?:فوق|تحت|اعلي|اقل).{0,12}(?:القيمه|قيمه).{0,20}(?:تجميع|تصريف)/i.test(normalized);
 }
 
 export function describeDatedFallback(requestedDate: string | null | undefined, dataDate: string | null | undefined): string | null {

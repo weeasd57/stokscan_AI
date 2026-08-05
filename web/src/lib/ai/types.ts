@@ -66,6 +66,7 @@ export interface IntentPlan {
         scan_direction?: "accumulation" | "distribution" | null;
         fair_value_direction?: "above" | "below" | null;
         require_distribution?: boolean;
+        require_accumulation?: boolean;
         recommendation_order?: "oldest" | "newest" | null;
         requested_date?: string | null;
         requested_start_date?: string | null;
@@ -121,6 +122,7 @@ export interface PlannerResult {
         scan_direction?: "accumulation" | "distribution" | null;
         fair_value_direction?: "above" | "below" | null;
         require_distribution?: boolean;
+        require_accumulation?: boolean;
         recommendation_order?: "oldest" | "newest" | null;
     };
     tools: string[];

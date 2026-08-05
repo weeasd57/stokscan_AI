@@ -507,17 +507,19 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
         const stocks = Array.isArray(fairValueScan.data?.stocks) ? fairValueScan.data.stocks : [];
         const direction = fairValueScan.data?.direction || plan.entities.fair_value_direction || "above";
         const requiresDistribution = Boolean(fairValueScan.data?.require_distribution || plan.entities.require_distribution);
+        const requiresAccumulation = Boolean(fairValueScan.data?.require_accumulation || plan.entities.require_accumulation);
         const relation = direction === "below" ? "تحت" : "فوق";
         const relativeWord = direction === "below" ? "أقل" : "أعلى";
-        const distributionSuffix = requiresDistribution ? " وتحقق إشارة تصريف" : "";
-        if (!stocks.length) return `لا توجد أسهم في بيانات ${fairValueScan.data_time} تتداول ${relation} القيمة الوسطية لنطاقها السعري خلال آخر 60 جلسة${distributionSuffix}.`;
+        const signalSuffix = requiresDistribution ? " وتحقق إشارة تصريف" : requiresAccumulation ? " وتحقق إشارة تجميع" : "";
+        if (!stocks.length) return `لا توجد أسهم في بيانات ${fairValueScan.data_time} تتداول ${relation} القيمة الوسطية لنطاقها السعري خلال آخر 60 جلسة${signalSuffix}.`;
         return [
-            `الأسهم المتداولة ${relation} القيمة الوسطية لنطاق 60 جلسة بتاريخ ${fairValueScan.data_time}${distributionSuffix}:`,
+            `الأسهم المتداولة ${relation} القيمة الوسطية لنطاق 60 جلسة بتاريخ ${fairValueScan.data_time}${signalSuffix}:`,
             ...stocks.slice(0, 15).map((stock: any, index: number) => {
                 const distribution = requiresDistribution && stock.dist_score != null
                     ? `، درجة التصريف ${Number(stock.dist_score).toFixed(1)}/100`
                     : "";
-                return `${index + 1}. ${stock.symbol}: السعر ${Number(stock.close).toFixed(2)} جنيه، القيمة الوسطية ${Number(stock.midpoint).toFixed(2)} جنيه، ${relativeWord} منها بـ ${Math.abs(Number(stock.premium_pct)).toFixed(1)}%${distribution}.`;
+                const accumulation = requiresAccumulation && stock.acc_score != null ? `، درجة التجميع ${Number(stock.acc_score).toFixed(1)}/100` : "";
+                return `${index + 1}. ${stock.symbol}: السعر ${Number(stock.close).toFixed(2)} جنيه، القيمة الوسطية ${Number(stock.midpoint).toFixed(2)} جنيه، ${relativeWord} منها بـ ${Math.abs(Number(stock.premium_pct)).toFixed(1)}%${distribution}${accumulation}.`;
             }),
             "هذا مسح تقييم فني نسبي وليس قيمة عادلة مالية؛ القيمة الجوهرية تحتاج أرباحاً وتدفقات نقدية ومكررات قطاع موثقة."
         ].join("\n");
@@ -525,7 +527,8 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
     if (isFairValueScanRequest(userMessage)
         && !toolResults.some(result => result.tool === "get_fair_value_scan")) {
         const filters = getFairValueFilters(userMessage);
-        return `تعذر تنفيذ مسح الأسهم ${filters.fair_value_direction === "below" ? "تحت" : "فوق"} القيمة الوسطية لعدم توفر بيانات الأسعار التاريخية الكافية لحساب نطاق 60 جلسة. لم أستخدم أسماء أو أرقاماً مخمّنة.`;
+        const condition = filters.require_distribution ? " مع تصريف" : filters.require_accumulation ? " مع تجميع" : "";
+        return `تعذر تنفيذ مسح الأسهم ${filters.fair_value_direction === "below" ? "تحت" : "فوق"} القيمة الوسطية${condition} لعدم توفر بيانات الأسعار والمسح الفني الكافية ضمن المهلة. لم أستخدم أسماء أو أرقاماً مخمّنة.`;
     }
     if (compoundMessage && (levelResults.length > 0 || stockResults.length > 0 || compoundNews)) {
         const parts: string[] = [];

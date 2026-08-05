@@ -37,8 +37,8 @@ describe("fair-value scan filters", () => {
                 { symbol: "HIGD", close: 7, rsi_14: 65, change_pct: 2, volume: 200, vol_sma20: 100, date: today }
             ],
             stock_prices: [
-                { symbol: "LOWD", close: 4, low: 2, high: 8, date: today },
-                { symbol: "HIGD", close: 7, low: 2, high: 8, date: today }
+                { symbol: "LOWD", exchange: "EGX", close: 4, low: 2, high: 8, date: today },
+                { symbol: "HIGD", exchange: "EGX", close: 7, low: 2, high: 8, date: today }
             ],
             stock_scans_summary: [
                 { symbol: "LOWD", signal: "distribution", dist_score: 74, consecutive_dist_days: 2, scan_date: today },
@@ -50,7 +50,7 @@ describe("fair-value scan filters", () => {
             confidence: 1,
             entities: {
                 symbols: [], sector: null, timeframe: "current", reference: null,
-                fair_value_direction: "below", require_distribution: true
+                fair_value_direction: "below", require_distribution: true, require_accumulation: false
             },
             needs_vision_context: false,
             needs_history: false,

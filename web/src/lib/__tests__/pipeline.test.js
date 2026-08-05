@@ -312,7 +312,7 @@ describe("Deterministic response fallback", () => {
     it("preserves below-value and distribution filters instead of reversing them", () => {
         const message = "هات الأسهم اللي تحت القيمة العادلة وفيها تصريف";
         expect(isFairValueScanRequest(message)).toBe(true);
-        expect(getFairValueFilters(message)).toEqual({ fair_value_direction: "below", require_distribution: true });
+        expect(getFairValueFilters(message)).toEqual({ fair_value_direction: "below", require_distribution: true, require_accumulation: false });
         expect(enforceIntentFromMessage(message, "stock_analysis", ["KWIN"])).toMatchObject({
             tools: ["get_fair_value_scan"],
             fair_value_direction: "below",
@@ -1045,7 +1045,8 @@ describe("Structured table sanitization", () => {
     it("routes advanced follow-ups without leaking stale stock context", () => {
         expect(extractExplicitSymbols("جدوى ماشية ازاي")).toContain("GDWA");
         expect(isFairValueScanRequest("هات الاسهم اللي تحت القيمة الفنية وفيها تصريف")).toBe(true);
-        expect(getFairValueFilters("هات الاسهم اللي تحت القيمة الفنية وفيها تصريف")).toEqual({ fair_value_direction: "below", require_distribution: true });
+        expect(getFairValueFilters("هات الاسهم اللي تحت القيمة الفنية وفيها تصريف")).toEqual({ fair_value_direction: "below", require_distribution: true, require_accumulation: false });
+        expect(getFairValueFilters("تحت القيمة مع تجميع")).toEqual({ fair_value_direction: "below", require_distribution: false, require_accumulation: true });
         const sectorPlan = buildDeterministicPlannerResult("البنوك حالتها ايه", { current_symbol: "COMI", last_symbols: ["COMI"], summary: "COMI" });
         expect(sectorPlan.session_update.current_symbol).toBeNull();
         const limitPlan = buildDeterministicPlannerResult("طيب ده قريب من الحد اليومي؟", { current_symbol: "KWIN", last_symbols: ["KWIN"], summary: "KWIN" });

@@ -147,6 +147,7 @@ describe("Live Supabase chatbot integration", () => {
             ["الأسهم فوق القيمة الفنية", /فوق القيمة الوسطية/],
             ["والأقل من القيمة العادلة", /تحت القيمة الوسطية/],
             ["هات الأسهم اللي تحت القيمة الفنية وفيها تصريف", /تحت القيمة الوسطية.*تصريف/s],
+            ["تحت القيمة مع تجميع", /تحت القيمة الوسطية.*تجميع/s],
         ];
         try {
             await retry(() => supabase.from("ai_chat_sessions").insert({ id: sessionId, user_id: userId, title: "advanced live evaluation" }));

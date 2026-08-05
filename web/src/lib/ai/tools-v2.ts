@@ -98,6 +98,7 @@ export async function executeStructuredTools(
         try {
             const fairValueDirection = plan.entities.fair_value_direction || "above";
             const requireDistribution = Boolean(plan.entities.require_distribution);
+            const requireAccumulation = Boolean(plan.entities.require_accumulation);
             let techQuery = supabase.from("stock_technical_indicators")
                 .select("symbol, close, rsi_14, change_pct, volume, vol_sma20, date")
                 .order("date", { ascending: false })
@@ -112,15 +113,18 @@ export async function executeStructuredTools(
                 textParts.push(`[مسح التقييم]: البيانات غير صالحة للعرض (${quality.reason}).`);
                 return { results, formattedText: textParts.join("\n") };
             }
+            const latestSymbols = Array.from(new Set(latestRows.map((row: any) => String(row.symbol).toUpperCase())));
             const { data: priceRows } = await supabase.from("stock_prices")
                 .select("symbol, close, high, low, date")
+                .eq("exchange", AI_CONFIG.tools.defaultExchange)
+                .in("symbol", latestSymbols)
                 .lte("date", dataDate)
                 .order("date", { ascending: false })
-                .limit(50000);
+                .limit(20000);
             const distributionBySymbol = new Map<string, any>();
-            if (requireDistribution) {
+            if (requireDistribution || requireAccumulation) {
                 const distributionQuery = supabase.from("stock_scans_summary")
-                    .select("symbol, scan_date, signal, dist_score, consecutive_dist_days")
+                    .select("symbol, scan_date, signal, acc_score, dist_score, consecutive_acc_days, consecutive_dist_days")
                     .lte("scan_date", dataDate)
                     .order("scan_date", { ascending: false })
                     .limit(5000);
@@ -150,7 +154,9 @@ export async function executeStructuredTools(
                 const symbol = String(row.symbol).toUpperCase();
                 const distribution = distributionBySymbol.get(symbol);
                 const isDistribution = distribution?.signal === "distribution" || Number(distribution?.dist_score || 0) >= 50;
+                const isAccumulation = distribution?.signal === "accumulation" || distribution?.signal === "strong_accumulation" || Number(distribution?.acc_score || 0) >= 50;
                 if (requireDistribution && !isDistribution) return null;
+                if (requireAccumulation && !isAccumulation) return null;
                 return {
                     symbol, close, support, resistance, midpoint,
                     premium_pct: midpoint > 0 ? ((close / midpoint) - 1) * 100 : null,
@@ -158,6 +164,8 @@ export async function executeStructuredTools(
                     change_pct: row.change_pct,
                     vol_ratio: Number(row.vol_sma20) > 0 ? Number(row.volume) / Number(row.vol_sma20) : null,
                     dist_score: distribution?.dist_score ?? null,
+                    acc_score: distribution?.acc_score ?? null,
+                    consecutive_acc_days: distribution?.consecutive_acc_days ?? null,
                     consecutive_dist_days: distribution?.consecutive_dist_days ?? null
                 };
             });
@@ -167,10 +175,12 @@ export async function executeStructuredTools(
                     : Number(a.premium_pct) - Number(b.premium_pct))
                 .slice(0, 30);
             const relation = fairValueDirection === "above" ? "above" : "below";
-            results.push({ tool: "get_fair_value_scan", source: requireDistribution ? "stock_prices+stock_scans_summary" : "stock_prices", data_time: dataDate, symbols: stocks.map((stock: any) => stock.symbol), data_type: requestedDate ? "historical" : "live", data: { metric: `price_${relation}_60_session_midpoint`, direction: fairValueDirection, require_distribution: requireDistribution, stocks } });
-            textParts.push(`[مسح التقييم الفني السوقي بتاريخ ${dataDate}]: ${stocks.length} سهم ${fairValueDirection === "above" ? "فوق" : "تحت"} القيمة الوسطية لنطاق 60 جلسة${requireDistribution ? " مع إشارة تصريف" : ""}.`);
+            const source = requireDistribution || requireAccumulation ? "stock_prices+stock_scans_summary" : "stock_prices";
+            results.push({ tool: "get_fair_value_scan", source, data_time: dataDate, symbols: stocks.map((stock: any) => stock.symbol), data_type: requestedDate ? "historical" : "live", data: { metric: `price_${relation}_60_session_midpoint`, direction: fairValueDirection, require_distribution: requireDistribution, require_accumulation: requireAccumulation, stocks } });
+            textParts.push(`[مسح التقييم الفني السوقي بتاريخ ${dataDate}]: ${stocks.length} سهم ${fairValueDirection === "above" ? "فوق" : "تحت"} القيمة الوسطية لنطاق 60 جلسة${requireDistribution ? " مع إشارة تصريف" : requireAccumulation ? " مع إشارة تجميع" : ""}.`);
         } catch (e) {
             console.warn("Error computing fair-value scan:", e);
+            results.push({ tool: "get_fair_value_scan", source: "error", data_time: now, symbols: [], data_type: requestedDate ? "historical" : "live", data: { direction: plan.entities.fair_value_direction || "above", require_distribution: Boolean(plan.entities.require_distribution), require_accumulation: Boolean(plan.entities.require_accumulation), stocks: [] }, error: "تعذر إكمال تقاطع بيانات الأسعار والمسح الفني ضمن المهلة." });
         }
     }
 

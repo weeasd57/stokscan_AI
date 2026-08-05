@@ -387,6 +387,7 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
             scan_direction: enforced.scan_direction || null,
             fair_value_direction: enforced.fair_value_direction || null,
             require_distribution: Boolean(enforced.require_distribution),
+            require_accumulation: Boolean(enforced.require_accumulation),
             recommendation_order: enforced.recommendation_order || null,
         },
         tools: isGreeting || beginnerPortfolioRequest || (isHistorical && !requestedDate && !marketNewsRequest && !oldestRecommendationRequest) ? [] : marketNewsRequest ? ["get_news"] : knownSectorFollowUp || sectorFollowUp ? ["get_sector"] : enforced.replaceTools ? enforced.tools : explicitSector ? ["get_sector"] : symbols.length ? ["get_stock"] : [],
@@ -428,6 +429,7 @@ export function enforceIntentFromMessage(message: string, plannerIntent: string,
     scan_direction?: "accumulation" | "distribution";
     fair_value_direction?: "above" | "below";
     require_distribution?: boolean;
+    require_accumulation?: boolean;
     recommendation_order?: "oldest" | "newest";
 } {
     const normalized = message.toLowerCase().replace(/[أإآ]/g, "ا").replace(/ة/g, "ه");
@@ -671,6 +673,7 @@ export async function* runPipelineStream(
             ,scan_direction: enforced.scan_direction || plannerResult.entities.scan_direction || null
             ,fair_value_direction: enforced.fair_value_direction || plannerResult.entities.fair_value_direction || null
             ,require_distribution: Boolean(enforced.require_distribution || plannerResult.entities.require_distribution)
+            ,require_accumulation: Boolean(enforced.require_accumulation || plannerResult.entities.require_accumulation)
             ,recommendation_order: enforced.recommendation_order || plannerResult.entities.recommendation_order || null
             ,requested_date: requestedRange ? null : extractTemporalContext(userMessage).date
             ,requested_start_date: requestedRange?.start || null
@@ -916,6 +919,7 @@ export async function runPipeline(
             ,scan_direction: enforced.scan_direction || plannerResult.entities.scan_direction || null
             ,fair_value_direction: enforced.fair_value_direction || plannerResult.entities.fair_value_direction || null
             ,require_distribution: Boolean(enforced.require_distribution || plannerResult.entities.require_distribution)
+            ,require_accumulation: Boolean(enforced.require_accumulation || plannerResult.entities.require_accumulation)
             ,recommendation_order: enforced.recommendation_order || plannerResult.entities.recommendation_order || null
             ,requested_date: requestedRange ? null : extractTemporalContext(userMessage).date
             ,requested_start_date: requestedRange?.start || null
