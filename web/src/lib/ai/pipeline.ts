@@ -288,6 +288,29 @@ export function extractRequestedDateRange(message: string, referenceDate: Date =
 }
 
 export function buildDeterministicPlannerResult(message: string, sessionState: SessionState): PlannerResult | null {
+    if (isFairValueScanRequest(message)) {
+        const filters = getFairValueFilters(message);
+        return {
+            intent: "market_summary",
+            confidence: 1,
+            entities: { symbols: [], sector: null, wants_table: true, timeframe: "current", requested_date: null, scan_direction: null, ...filters },
+            tools: ["get_fair_value_scan"],
+            session_update: { current_symbol: null, last_symbols: sessionState.last_symbols, summary: message }
+        };
+    }
+    if (isUsageLimitQuestion(message)) {
+        return {
+            intent: "general_chat",
+            confidence: 1,
+            entities: { symbols: [], sector: null, wants_table: false, timeframe: "current", requested_date: null, scan_direction: null },
+            tools: [],
+            session_update: {
+                current_symbol: sessionState.current_symbol,
+                last_symbols: sessionState.last_symbols,
+                summary: message
+            }
+        };
+    }
     if (getInvestorGuidanceIntent(message)) {
         return {
             intent: "general_chat",
@@ -297,6 +320,20 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
             session_update: {
                 current_symbol: sessionState.current_symbol,
                 last_symbols: sessionState.last_symbols,
+                summary: message
+            }
+        };
+    }
+    if (isEarningsDataRequest(message)) {
+        const symbols = extractExplicitSymbols(message);
+        return {
+            intent: "stock_analysis",
+            confidence: 1,
+            entities: { symbols, sector: null, wants_table: false, timeframe: "current", requested_date: null, scan_direction: null },
+            tools: [],
+            session_update: {
+                current_symbol: symbols[0] || sessionState.current_symbol,
+                last_symbols: symbols.length ? symbols : sessionState.last_symbols,
                 summary: message
             }
         };
@@ -345,7 +382,7 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
         entities: { symbols, sector: effectiveSector, wants_table: !isGreeting, timeframe: temporal.timeframe, requested_date: requestedDate, scan_direction: enforced.scan_direction || null },
         tools: isGreeting || beginnerPortfolioRequest || (isHistorical && !requestedDate && !marketNewsRequest) ? [] : marketNewsRequest ? ["get_news"] : knownSectorFollowUp || sectorFollowUp ? ["get_sector"] : enforced.replaceTools ? enforced.tools : explicitSector ? ["get_sector"] : symbols.length ? ["get_stock"] : [],
         session_update: {
-            current_symbol: symbols[0] || sessionState.current_symbol,
+            current_symbol: effectiveSector ? null : (symbols[0] || sessionState.current_symbol),
             last_symbols: symbols.length ? symbols : sessionState.last_symbols,
             summary: message
         }
@@ -363,18 +400,40 @@ export function isFairValueScanRequest(message: string): boolean {
         .replace(/ة/g, "ه")
         .toLowerCase()
         .replace(/[؟?]/g, " ");
-    // الصيغة الأساسية: أسهم تتداول فوق القيمة العادلة
-    if (/(?:الاسهم|اسهم|السهم|سهم).{0,45}(?:فوق|اعلى|أعلى|متداول|بتتداول|يتداول).{0,35}(?:القيمه|قيمه|قيمتها|التقييم).{0,20}(?:العادله|العادل|العادله)/i.test(normalized)) return true;
-    // الصيغة المعكوسة: القيمة العادلة + أسهم
-    if (/(?:القيمه|قيمه|التقييم).{0,20}(?:العادله|العادل).{0,45}(?:الاسهم|اسهم|السهم|سهم)/i.test(normalized)) return true;
-    // الصيغة المنقوصة: "فوق القيمة العادلة" بدون تحديد كلمة "أسهم"
-    if (/(?:فوق|اعلى).{0,10}(?:القيمه|قيمه).{0,10}(?:العادله|العادل)/i.test(normalized)) return true;
-    // صيغة مباشرة: "القيمة العادلة" فقط كسؤال
-    if (/(?:الاسهم|اسهم).{0,25}(?:القيمه|قيمه).{0,10}(?:العادله|العادل)/i.test(normalized)) return true;
-    // صيغة: "مبالغ فيها" أو "أغلى من قيمتها"
+    // الصيغة الأساسية: أسهم تتداول تحت/فوق القيمة العادلة أو الفنية
+    if (/(?:الاسهم|اسهم|السهم|سهم).{0,45}(?:فوق|تحت|اعلى|أعلى|اقل|أقل|متداول|بتتداول|يتداول).{0,35}(?:القيمه|قيمه|قيمتها|التقييم).{0,20}(?:العادله|العادل|الفنيه|الفنية)/i.test(normalized)) return true;
+    if (/(?:القيمه|قيمه|التقييم).{0,20}(?:العادله|العادل|الفنيه|الفنية).{0,45}(?:الاسهم|اسهم|السهم|سهم)/i.test(normalized)) return true;
+    if (/(?:فوق|تحت|اعلى|اقل).{0,10}(?:القيمه|قيمه).{0,10}(?:العادله|العادل|الفنيه|الفنية)/i.test(normalized)) return true;
+    if (/(?:الاسهم|اسهم).{0,25}(?:القيمه|قيمه).{0,10}(?:العادله|العادل|الفنيه|الفنية)/i.test(normalized)) return true;
     if (/(?:مبالغ|باهظ|غالي|غالى).{0,20}(?:قيمت|تقييم|اسعار)/i.test(normalized)) return true;
     if (/(?:الاسهم|اسهم).{0,15}(?:مبالغ|باهظ|غاليه)/i.test(normalized)) return true;
     return false;
+}
+
+export function getFairValueFilters(message: string): { fair_value_direction?: "above" | "below"; require_distribution?: boolean; recommendation_order?: "highest" | "lowest" } {
+    const normalized = message.toLowerCase();
+    const above = /(فوق|اعلى|أعلى|مبالغ|غالي|أغلى)/i.test(normalized);
+    const below = /(تحت|اقل|أقل|رخيص|أرخص|اقل من)/i.test(normalized);
+    const require_distribution = /تصريف|distribution/i.test(normalized);
+    const res: any = {
+        fair_value_direction: above ? "above" : below ? "below" : "above",
+        require_distribution,
+    };
+    if (above && !require_distribution) res.recommendation_order = "highest";
+    if (below && !require_distribution) res.recommendation_order = "lowest";
+    return res;
+}
+
+export function isDailyPriceLimitQuestion(message: string): boolean {
+    return /(حدود|الحد الأقصى|الحد الادنى|نسبة الصعود|نسبة الهبوط|حد التداول|الحد اليومي)/i.test(message) && !isUsageLimitQuestion(message);
+}
+
+export function isEarningsDataRequest(message: string): boolean {
+    return /(أرباح|ارباح|نتائج أعمال|قوائم مالية|إيرادات|ارباح الشركة)/i.test(message);
+}
+
+export function isUsageLimitQuestion(message: string): boolean {
+    return /(فاضل كام رسالة|كم رسالة باقي|كوتا الحساب|الحد اليومي للشات|استهلاك الحساب|كم باقي من الرسائل)/i.test(message);
 }
 
 export function enforceIntentFromMessage(message: string, plannerIntent: string, symbols: string[]): {
@@ -383,12 +442,16 @@ export function enforceIntentFromMessage(message: string, plannerIntent: string,
     replaceTools?: boolean;
     sector?: string;
     scan_direction?: "accumulation" | "distribution";
+    fair_value_direction?: "above" | "below";
+    require_distribution?: boolean;
+    recommendation_order?: "highest" | "lowest";
 } {
     const normalized = message.toLowerCase().replace(/[أإآ]/g, "ا").replace(/ة/g, "ه");
     const hasSymbol = symbols.length > 0 || /\b[A-Z]{2,6}\b/.test(message);
     const marketFairValueScan = isFairValueScanRequest(message);
     const direction = /تصريف|distribution/i.test(normalized) ? "distribution" : /تجميع|accumulation/i.test(normalized) ? "accumulation" : null;
-    if (marketFairValueScan) return { intent: "market_summary", tools: ["get_fair_value_scan"], replaceTools: true };
+    if (marketFairValueScan) return { intent: "market_summary", tools: ["get_fair_value_scan"], replaceTools: true, ...getFairValueFilters(message) };
+    if (isDailyPriceLimitQuestion(message)) return { intent: "levels_analysis", tools: ["get_price_history", "get_stock_levels"], replaceTools: true };
     if (direction) return { intent: "accumulation_distribution", tools: [direction === "distribution" ? "get_distribution_stocks" : "get_accumulation_stocks"], replaceTools: true, scan_direction: direction };
     if (/(قيمه عادله|القيمه العادله|fair value|عادله)/i.test(normalized) && hasSymbol) return { intent: "stock_analysis", tools: ["get_stock", "get_stock_levels"], replaceTools: true };
     if (/(?:سبب|اسباب|ليه|لماذا)/i.test(normalized) && hasSymbol) return { intent: "stock_news", tools: ["get_stock", "get_news", "get_stock_levels"], replaceTools: true };
@@ -517,8 +580,9 @@ export async function* runPipelineStream(
     let visionError: string | null = null;
     let memory: MemoryResult | null = null;
 
-    // Warm up the Arabic names cache for synchronous extraction later
-    await getStocksList();
+    try {
+        // Warm up the Arabic names cache for synchronous extraction later
+        await getStocksList();
 
     // ===== STAGE 1: Vision Analysis (isolated, multi-image support) =====
     if (hasImages) {
@@ -730,9 +794,21 @@ export async function* runPipelineStream(
     if (memory?.resolved_references?.symbol) {
         summaryUpdate.open_references = [memory.resolved_references.symbol];
     }
-    await updateSessionSummary(supabase, sessionId, userId, summaryUpdate);
-
     yield { type: "done", data: { response: fullResponse, session_update: sessionUpdate, tables } };
+    } catch (err: any) {
+        console.error("Pipeline stream error caught:", err);
+        const isTimeout = /PIPELINE_DEADLINE_EXCEEDED|DEADLINE|Timeout|AbortError/i.test(err?.message || "");
+        const fallbackText = isTimeout
+            ? "معذرة، استغرق التحليل وقتًا أطول من المتوقع نظرًا لضغط السيرفرات حالياً. يرجى إعادة إرسال السؤال أو تجربة السؤال بدون صورة للحصول على رد فوري."
+            : "حدث خطأ أثناء معالجة الطلب، يرجى إعادة المحاولة مرة أخرى.";
+
+        yield { type: "token", data: fallbackText };
+        yield { type: "done", data: {
+            response: fallbackText,
+            session_update: { current_symbol: sessionState.current_symbol, last_symbols: sessionState.last_symbols, summary: sessionState.summary },
+            tables: []
+        } };
+    }
 }
 
 function isMarkdownTableLine(line: string): boolean {

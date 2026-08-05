@@ -72,7 +72,8 @@ export function validateVisionOutput(data: any): VisionContext | null {
     };
 }
 
-const VISION_TIMEOUT_MS = 12000;
+const VISION_TIMEOUT_MS = 6500;
+const MAX_VISION_TOTAL_TIME_MS = 13000;
 
 export async function analyzeImage(
     imageUrl: string,
@@ -93,8 +94,15 @@ export async function analyzeImage(
     userContent.push({ type: "image_url", image_url: { url: imageUrl } });
 
     const candidates: VisionContext[] = [];
+    const visionStartTime = Date.now();
+
     visionLoop: for (const model of visionModels) {
-        for (const key of apiKeys.slice(0, 2)) {
+        if (Date.now() - visionStartTime >= MAX_VISION_TOTAL_TIME_MS) {
+            console.warn("⚠️ Vision total time budget exceeded (13s cap). Skipping remaining vision models.");
+            break;
+        }
+        for (const key of apiKeys.slice(0, 1)) { // 1 key per vision model is enough to save budget
+            if (Date.now() - visionStartTime >= MAX_VISION_TOTAL_TIME_MS) break visionLoop;
             try {
                 const controller = new AbortController();
                 const timeoutId = setTimeout(() => controller.abort(), VISION_TIMEOUT_MS);
@@ -133,11 +141,12 @@ export async function analyzeImage(
                     }
                 } else {
                     console.warn(`Vision model ${model} failed with status ${res.status}`);
-                    if (res.status === 401 || res.status === 403 || res.status === 429) continue;
+                    if (res.status === 529 || res.status === 429 || res.status >= 500) {
+                        break; // Skip to next model immediately if provider is overloaded/down
+                    }
                 }
             } catch (err: any) {
                 console.warn(`Vision model ${model} error:`, err.message);
-                if (err.name === "AbortError") continue;
             }
         }
     }

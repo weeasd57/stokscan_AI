@@ -499,7 +499,11 @@ export async function POST(req: NextRequest) {
                         if (err.code !== 'ERR_INVALID_STATE') {
                             console.error("Streaming error:", err);
                         }
-                        sendEvent({ type: "error", detail: err.message || "Streaming failed" });
+                        let friendlyDetail = err.message || "Streaming failed";
+                        if (/PIPELINE_DEADLINE_EXCEEDED|DEADLINE|Timeout|AbortError/i.test(friendlyDetail)) {
+                            friendlyDetail = "استغرق التحليل وقتًا أطول من المتوقع نظرًا لضغط السيرفرات حالياً. يرجى إعادة إرسال السؤال أو تجربة إرساله بدون صورة للحصول على رد فوري.";
+                        }
+                        sendEvent({ type: "error", detail: friendlyDetail });
                         streamClosed = true;
                         clearInterval(heartbeat);
                         try { controller.close(); } catch (e) {}
