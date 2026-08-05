@@ -872,17 +872,17 @@ def _notify_service_subscribers(service_type: str, message: str):
                 print(f"[SERVICE_NOTIFY] No subscribers found with valid telegram_chat_id for {service_type}")
                 return
                 
-            sent_count = 0
+            queued_count = 0
             for subscriber in subscribers:
                 chat_id = subscriber.get("telegram_chat_id")
                 if chat_id:
                     try:
-                        bot.send_notification(message, chat_id=str(chat_id))
-                        sent_count += 1
+                        if bot.send_notification(message, chat_id=str(chat_id)):
+                            queued_count += 1
                     except Exception as send_err:
                         print(f"[SERVICE_NOTIFY] Failed to send to {chat_id}: {send_err}")
             
-            print(f"[SERVICE_NOTIFY] Successfully sent {service_type} message to {sent_count}/{len(subscribers)} subscribers")
+            print(f"[SERVICE_NOTIFY] Queued {service_type} message for {queued_count}/{len(subscribers)} subscribers; delivery is handled asynchronously")
             
         except Exception as db_err:
             print(f"[SERVICE_NOTIFY] Database query failed for {service_type}: {db_err}")
@@ -993,8 +993,9 @@ def _notify_central_telegram(message: str, service_type: str = "central"):
         chat_id = os.getenv("TELEGRAM_CHAT_ID") or getattr(bot, "chat_id", None) or "-1002083067817_153"
         if str(chat_id).strip() in {"", "-1003699330518"}:
             chat_id = "-1002083067817_153"
-        bot.send_notification(message, chat_id=str(chat_id))
-        print(f"[CENTRAL_NOTIFY] Queued {service_type} message to {chat_id}")
+        delivered = bot.send_notification(message, chat_id=str(chat_id), wait_for_delivery=True)
+        print(f"[CENTRAL_NOTIFY] {'Delivered' if delivered else 'Failed'} {service_type} message to {chat_id}")
+        return delivered
     except Exception as e:
         print(f"[CENTRAL_NOTIFY] {service_type} notification error: {e}")
 
@@ -2283,14 +2284,18 @@ async def generate_daily_recommendations(model_name: Optional[str] = None):
             f"👉 [اضغط هنا لفتح المنصة]({web_origin}/scanner/backtests?tab=bots)"
         )
         
-        _notify_central_telegram("\n".join(msg_lines), "daily_recommendations")
-        print("[RECOMMENDATIONS] Sent beautiful detailed recommendations to Telegram.")
+        delivered = _notify_central_telegram("\n".join(msg_lines), "daily_recommendations")
+        print(f"[RECOMMENDATIONS] {'Delivered' if delivered else 'Failed to deliver'} detailed recommendations for Telegram.")
         
         # Record today's date in market_cache to track sent status
         try:
+            # The sender is asynchronous, so a queued message is not proof of
+            # delivery. Keep the audit trail explicit and do not mark it sent
+            # until the Telegram sender confirms ok=true.
             cache_res = supabase.table("market_cache").select("payload").eq("cache_key", "telegram_recommendations_sent").maybe_single().execute()
-            payload = cache_res.data["payload"] if (cache_res.data and cache_res.data.get("payload")) else {"sent_dates": []}
-            if current_date not in payload.get("sent_dates", []):
+            existing_payload = getattr(cache_res, "data", None) if cache_res is not None else None
+            payload = existing_payload.get("payload") if isinstance(existing_payload, dict) and existing_payload.get("payload") else {"sent_dates": [], "queued_dates": []}
+            if delivered and current_date not in payload.get("sent_dates", []):
                 payload.setdefault("sent_dates", []).append(current_date)
                 supabase.table("market_cache").upsert({
                     "cache_key": "telegram_recommendations_sent",
@@ -2298,7 +2303,7 @@ async def generate_daily_recommendations(model_name: Optional[str] = None):
                     "payload": payload,
                     "computed_at": dt.datetime.utcnow().isoformat()
                 }).execute()
-                print("[RECOMMENDATIONS] Logged telegram sent status in market_cache.")
+                print("[RECOMMENDATIONS] Recorded confirmed Telegram delivery status.")
         except Exception as cache_err:
             print(f"[RECOMMENDATIONS] Failed to record telegram sent status: {cache_err}")
     except Exception as e:

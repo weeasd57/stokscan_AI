@@ -16,6 +16,13 @@ deploy_to_hf.py — رفع ملفات الكود لـ HuggingFace Space مباش
 """
 from huggingface_hub import HfApi
 import os
+import sys
+
+# Force UTF-8 encoding on standard output and error to prevent UnicodeEncodeError under Windows console
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8")
 
 # ─── الإعدادات ─────────────────────────────────────────────────────────
 HF_TOKEN = os.getenv("HF_TOKEN", "")  # set via: $env:HF_TOKEN="hf_your_token_here"

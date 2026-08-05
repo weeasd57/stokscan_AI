@@ -34,6 +34,7 @@ class TelegramBot:
     DEFAULT_CHANNEL_ID = "-1002083067817"
     DEFAULT_THREAD_ID = 153
     LEGACY_BAD_CHAT_IDS = {"-1003699330518"}
+    MAX_MESSAGE_LENGTH = 3900
 
     @property
     def API(self) -> str:
@@ -51,7 +52,10 @@ class TelegramBot:
         self.chat_id: Optional[Any] = None
         self.bot_username: Optional[str] = None
         self._ready = False
-        self._queue: deque = deque(maxlen=200)  # outbound message queue
+        # Keep public-channel traffic isolated from subscriber traffic. A blocked
+        # subscriber must never hold a channel announcement behind it.
+        self._channel_queue: deque = deque(maxlen=200)
+        self._queue: deque = deque(maxlen=200)  # subscriber/interactive queue
         self._net_ok = False  # last-known network status
         self._polling = False  # True when using long-polling
         self._poll_offset = 0  # getUpdates offset
@@ -119,6 +123,44 @@ class TelegramBot:
         except ValueError:
             self._log(f"Invalid target chat ID: {chat_id}")
             return None
+
+    def _is_public_channel_target(self, target: Any) -> bool:
+        target_str = str(target).strip()
+        if "_" in target_str:
+            target_str = target_str.split("_", 1)[0]
+        if target_str in self.LEGACY_BAD_CHAT_IDS:
+            target_str = self.DEFAULT_CHANNEL_ID
+        return target_str == self.DEFAULT_CHANNEL_ID
+
+    def _split_message(self, text: str) -> list[str]:
+        """Split long Telegram messages without cutting a line in half."""
+        if len(text) <= self.MAX_MESSAGE_LENGTH:
+            return [text]
+        chunks: list[str] = []
+        remaining = text
+        while len(remaining) > self.MAX_MESSAGE_LENGTH:
+            cut = remaining.rfind("\n", 0, self.MAX_MESSAGE_LENGTH)
+            if cut < 1000:
+                cut = self.MAX_MESSAGE_LENGTH
+            chunks.append(remaining[:cut].rstrip())
+            remaining = remaining[cut:].lstrip("\n")
+        if remaining:
+            chunks.append(remaining)
+        return chunks
+
+    def _mark_blocked_target(self, target: Any) -> None:
+        """Best-effort removal of a Telegram chat that blocked the bot."""
+        if self._is_public_channel_target(target):
+            return
+        try:
+            from api.stock_ai import supabase
+            if supabase:
+                supabase.table("profiles").update({"telegram_chat_id": None}).eq(
+                    "telegram_chat_id", str(target)
+                ).execute()
+                self._log(f"Disabled blocked subscriber target {target}")
+        except Exception as exc:
+            self._log(f"Could not disable blocked subscriber target {target}: {exc}")
 
     def _save_chat_id(self, chat_id: int):
         self.chat_id = chat_id
@@ -210,8 +252,18 @@ class TelegramBot:
 
     # ── outbound messaging (queued) ──────────────────────────────────
 
-    def send_notification(self, message: str, chat_id: Optional[Any] = None, message_thread_id: Optional[int] = None):
-        """Queue a message for delivery.  Returns immediately."""
+    def send_notification(
+        self,
+        message: str,
+        chat_id: Optional[Any] = None,
+        message_thread_id: Optional[int] = None,
+        wait_for_delivery: bool = False,
+    ) -> bool:
+        """Send immediately when requested, otherwise enqueue for background delivery.
+
+        Returns ``True`` only when the request was accepted by Telegram in
+        synchronous mode, or when all message chunks were queued successfully.
+        """
         targets = set()
         if chat_id:
             targets.add(str(chat_id).strip())
@@ -231,17 +283,41 @@ class TelegramBot:
         # Send to all unique target chat IDs
         if not targets or not self.token:
             self._log("Cannot send: no targets or token.")
-            return
+            return False
 
         queued = 0
+        queue = self._channel_queue if any(self._is_public_channel_target(t) for t in targets) else self._queue
         for target in targets:
             payload = self._build_send_payload(message, target, message_thread_id)
             if payload:
-                self._queue.append(payload)
-                queued += 1
+                chunks = self._split_message(message)
+                for chunk_index, chunk in enumerate(chunks):
+                    chunk_payload = dict(payload)
+                    chunk_payload["text"] = chunk
+                    if wait_for_delivery:
+                        result = self._call_api("sendMessage", chunk_payload)
+                        if not result.get("ok"):
+                            desc = str(result.get("description", "")).lower()
+                            if "forbidden" in desc or result.get("error_code") in {400, 403}:
+                                self._mark_blocked_target(target)
+                            else:
+                                # Preserve the failed chunk and every chunk
+                                # after it for the background retry worker.
+                                # This prevents a transient timeout in a long
+                                # announcement from losing its tail.
+                                for remaining_chunk in chunks[chunk_index:]:
+                                    retry_payload = dict(payload)
+                                    retry_payload["text"] = remaining_chunk
+                                    queue.append(retry_payload)
+                            self._log(f"Immediate delivery failed for {target}: {result.get('description', result)}")
+                            return False
+                    else:
+                        queue.append(chunk_payload)
+                    queued += 1
         self._log(
-            f"Queued notification to {queued} targets ({len(self._queue)} in queue)"
+            f"{'Delivered' if wait_for_delivery else 'Queued'} notification to {queued} message(s) ({len(self._channel_queue) + len(self._queue)} queued)"
         )
+        return queued > 0
 
     def send_message_with_keyboard(
         self,
@@ -269,7 +345,8 @@ class TelegramBot:
         if parse_mode:
             payload["parse_mode"] = parse_mode
 
-        self._queue.append(payload)
+        queue = self._channel_queue if self._is_public_channel_target(chat_id) else self._queue
+        queue.append(payload)
         self._log(f"Queued keyboard message to {payload['chat_id']} (thread: {payload.get('message_thread_id')})")
 
     def _sender_loop(self):
@@ -277,22 +354,25 @@ class TelegramBot:
         self._log("Sender thread started.")
         backoff = 5
         while True:
-            if not self._queue:
+            if not self._channel_queue and not self._queue:
                 time.sleep(1)
                 backoff = 5  # reset when idle
                 continue
 
-            # Try to send the oldest message
-            payload = self._queue[0]
+            # Always drain public-channel messages first. Subscriber failures
+            # must not delay market announcements.
+            active_queue = self._channel_queue if self._channel_queue else self._queue
+            payload = active_queue[0]
             retry_count = payload.get("_retry_count", 0) + 1
             payload["_retry_count"] = retry_count
 
-            result = self._call_api("sendMessage", payload)
+            api_payload = {key: value for key, value in payload.items() if not key.startswith("_")}
+            result = self._call_api("sendMessage", api_payload)
             if result.get("ok"):
-                self._queue.popleft()
+                active_queue.popleft()
                 self._net_ok = True
                 backoff = 5
-                self._log(f"Sent to {payload.get('chat_id')} ({len(self._queue)} left)")
+                self._log(f"Sent to {payload.get('chat_id')} ({len(self._channel_queue) + len(self._queue)} left)")
             else:
                 desc = str(result.get('description', '')).lower()
                 err_code = result.get('error_code')
@@ -304,17 +384,19 @@ class TelegramBot:
                     payload_plain.pop("parse_mode", None)
                     if "text" in payload_plain:
                         payload_plain["text"] = payload_plain["text"].replace("*", "").replace("`", "").replace("_", "").replace("[", "").replace("]", "")
-                    result_plain = self._call_api("sendMessage", payload_plain)
+                    result_plain = self._call_api("sendMessage", {key: value for key, value in payload_plain.items() if not key.startswith("_")})
                     if result_plain.get("ok"):
-                        self._queue.popleft()
+                        active_queue.popleft()
                         self._net_ok = True
-                        self._log(f"Sent plain text fallback to {payload.get('chat_id')} ({len(self._queue)} left)")
+                        self._log(f"Sent plain text fallback to {payload.get('chat_id')} ({len(self._channel_queue) + len(self._queue)} left)")
                         continue
 
                 # Permanent failure cases or max retries reached (>= 2)
                 if retry_count >= 2 or "bad request" in desc or "chat not found" in desc or "forbidden" in desc or err_code == 400:
                     self._log(f"Permanent/max-retry send failure (discarding message after {retry_count} tries): {desc or result}")
-                    self._queue.popleft()
+                    active_queue.popleft()
+                    if "forbidden" in desc or err_code in {400, 403}:
+                        self._mark_blocked_target(payload.get("chat_id"))
                     backoff = 5
                 else:
                     self._net_ok = False

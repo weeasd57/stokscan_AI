@@ -80,9 +80,9 @@ async function proxyAdminRequest(req: Request, context: { params: { path?: strin
   const body = method === "GET" || method === "HEAD" ? undefined : await req.arrayBuffer();
 
   try {
-    // Streaming & training routes need longer timeout
-    const isStreamingRoute = path.includes("stream") || path.includes("train");
-    const timeoutMs = isStreamingRoute ? 55000 : 10000;
+    // Heavy admin routes like logs, streaming, training need longer timeout
+    const isHeavyRoute = path.includes("stream") || path.includes("train") || path.includes("logs") || path.includes("history");
+    const timeoutMs = isHeavyRoute ? 55000 : 30000;
 
     const backendRes = await fetch(backendUrl.toString(), {
       method,
