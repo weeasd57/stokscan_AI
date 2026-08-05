@@ -551,8 +551,8 @@ export async function executeStructuredTools(
             console.warn("Error fetching market data:", e);
         }
 
-        if (!usedCache) {
-            // Fallback: compute top gainers/losers from technical indicators
+        if (!usedCache || results.find(r => r.tool === "get_market")?.data?.top_gainers?.length === 0 || plan.tools.includes("get_market")) {
+            // Complete the market cache with session-level movers from technical indicators.
             try {
                 let techQuery = supabase
                     .from("stock_technical_indicators")

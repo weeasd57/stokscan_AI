@@ -844,10 +844,30 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
             : null;
 
         const omitted = stocks.length > 10 ? `تم عرض ملخص أول 10 أسهم فقط؛ الجدول المنظم يحتوي على جميع الأسهم المتاحة (${stocks.length}).` : null;
-        return [describeDatedFallback(plan.entities.requested_date, stocks[0]?.data_time), "ملخص أحدث البيانات المتاحة:", ...lines, omitted, ...levelLines, levelFallback, ...(fairValueRequest ? buildTechnicalValuationLines(stocks, levelResults) : []), "RSI وMACD يقيسان الزخم، ونسبة الحجم تقارن التداول الحالي بمتوسطه ولا تثبت وحدها وجود تجميع أو تصريف."].filter(Boolean).join("\n");
+        const opinionLines = stocks.length <= 3 ? stocks.map(result => buildStockOpinion(result, levelResults)) : [];
+        return [describeDatedFallback(plan.entities.requested_date, stocks[0]?.data_time), "ملخص أحدث البيانات المتاحة:", ...lines, omitted, ...levelLines, levelFallback, ...opinionLines, ...(fairValueRequest ? buildTechnicalValuationLines(stocks, levelResults) : []), "الرأي مبني على السعر والزخم والحجم والمستويات المتاحة، وليس توصية شراء أو بيع. لو ذكرت هدفك ومدة الاستثمار وسعر دخولك أقدر أربط التحليل بوضعك بشكل أوضح."].filter(Boolean).join("\n");
     }
 
     return null;
+}
+
+function buildStockOpinion(result: ToolResult, levelResults: ToolResult[]): string {
+    const data = result.data || {};
+    const symbol = String(data.symbol || result.symbols[0] || "");
+    const rsi = Number(data.rsi_14);
+    const volume = Number(String(data.vol_ratio || "").replace(/x/i, ""));
+    const levels = levelResults.find(level => String(level.data?.symbol || level.symbols[0]).toUpperCase() === symbol.toUpperCase())?.data || {};
+    const price = Number(data.price);
+    const support = Number(levels.support);
+    const resistance = Number(levels.resistance);
+    const notes: string[] = [];
+    if (Number.isFinite(rsi)) notes.push(rsi >= 70 ? "الزخم مرتفع والسهم في منطقة تشبع شرائي تستدعي الحذر من مطاردة السعر" : rsi <= 30 ? "الزخم ضعيف والسهم قريب من تشبع بيعي، لكن ذلك لا يؤكد الارتداد" : rsi >= 55 ? "الزخم إيجابي بدرجة متوسطة" : rsi <= 45 ? "الزخم ضعيف إلى محايد" : "الزخم متوازن");
+    if (Number.isFinite(volume)) notes.push(volume >= 1.5 ? "الحجم أعلى من المتوسط ويدعم أهمية الحركة الحالية" : volume < 0.7 ? "الحجم أقل من المتوسط، لذلك الحركة الحالية تأكيدها ضعيف" : "الحجم قريب من المعتاد");
+    if ([price, support, resistance].every(Number.isFinite) && resistance > support) {
+        const position = (price - support) / (resistance - support);
+        notes.push(position >= 0.8 ? "السعر قريب من المقاومة، فالأفضل انتظار اختراق مؤكد أو تراجع أفضل" : position <= 0.25 ? "السعر قريب من الدعم، لكن يلزم ثباته وحجم داعم" : "السعر في منتصف النطاق ولا توجد أفضلية واضحة من الموقع وحده");
+    }
+    return `${symbol} - رأيي الفني: ${notes.join("؛ ") || "البيانات الحالية لا تكفي لرأي فني موثوق"}.`;
 }
 
 function buildTechnicalValuationLines(stockResults: ToolResult[], levelResults: ToolResult[]): string[] {

@@ -215,7 +215,7 @@ import { AI_CONFIG } from "./config";
 import { createHash } from "crypto";
 import { getSupabaseClient } from "@/lib/supabase/route-data";
 
-let cachedStocks: Array<{ symbol: string; name: string }> | null = null;
+let cachedStocks: Array<{ symbol: string; name: string; name_ar?: string | null }> | null = null;
 let lastCacheTime = 0;
 const CACHE_TTL = 1000 * 60 * 60 * 24;
 
@@ -269,7 +269,8 @@ export async function getStocksList(): Promise<StocksListData> {
             const supabase = getSupabaseClient();
             const { data } = await supabase
                 .from("stocks")
-                .select("symbol, name")
+                .select("symbol, name, name_ar")
+                .eq("exchange", "EGX")
                 .eq("is_active", true);
             if (data && data.length > 0) {
                 cachedStocks = data;
@@ -284,6 +285,7 @@ export async function getStocksList(): Promise<StocksListData> {
     for (const stock of cachedStocks || []) {
         const nameEn = stock.name?.trim();
         if (nameEn) stockMappings[nameEn] = stock.symbol.toUpperCase();
+        String(stock.name_ar || "").split(/[,،|/]/).map(name => name.trim()).filter(Boolean).forEach(name => { stockMappings[name] = stock.symbol.toUpperCase(); });
     }
     let stocksListStr = "";
 
@@ -301,6 +303,7 @@ export function getSyncStockMappings(): Record<string, string> {
     for (const stock of cachedStocks || []) {
         const nameEn = stock.name?.trim();
         if (nameEn) stockMappings[nameEn] = stock.symbol.toUpperCase();
+        String(stock.name_ar || "").split(/[,،|/]/).map(name => name.trim()).filter(Boolean).forEach(name => { stockMappings[name] = stock.symbol.toUpperCase(); });
     }
     return stockMappings;
 }
@@ -424,7 +427,7 @@ export function extractSymbolsFromText(
 
     const mergedMappings = { ...ARABIC_STOCK_MAPPINGS, ...stockMappings };
     // Use regex with Arabic/Latin word boundaries to avoid substring false positives
-    for (const [key, symbolOrArr] of Object.entries(mergedMappings)) {
+    for (const [key, symbolOrArr] of Object.entries(mergedMappings).sort((a, b) => b[0].length - a[0].length)) {
         const normalizedKey = key
             .replace(/[أإآ]/g, "ا")
             .replace(/ة/g, "ه")

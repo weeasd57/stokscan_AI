@@ -69,7 +69,14 @@ async function saveFactSnapshots(
         }
 
         if (rows.length > 0) {
-            await supabase.from("ai_chat_facts").insert(rows);
+            const { error } = await supabase.from("ai_chat_facts").insert(rows);
+            if (error?.code === "PGRST204" && /context_id/i.test(error.message || "")) {
+                const legacyRows = rows.map(({ context_id, ...row }) => row);
+                const legacyResult = await supabase.from("ai_chat_facts").insert(legacyRows);
+                if (legacyResult.error) throw legacyResult.error;
+            } else if (error) {
+                throw error;
+            }
         }
     } catch (e) {
         console.warn("Failed to save fact snapshots:", e);
@@ -95,7 +102,7 @@ export function extractExplicitSymbols(message: string): string[] {
     const stockMappings = getSyncStockMappings();
     // Use word boundaries or strict inclusion to prevent false positives for short words
     const normMsg = message.replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").toLowerCase();
-    for (const [arName, symbol] of Object.entries(stockMappings)) {
+    for (const [arName, symbol] of Object.entries(stockMappings).sort((a, b) => b[0].length - a[0].length)) {
         const normKey = arName.replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").toLowerCase();
         if (normKey.length >= 2 && normMsg.includes(normKey)) {
             if (Array.isArray(symbol)) {
@@ -309,6 +316,7 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
         symbols.push(sessionState.current_symbol);
     }
     if (/(كسر|يكسر).{0,12}الدعم|الدعم.{0,12}(اتكسر|انكسر)/i.test(message) && symbols.length === 0 && sessionState.current_symbol) symbols.push(sessionState.current_symbol);
+    if (/(ابيع|أبيع|بيع|احتفظ|أحتفظ|استنى|أستنى|اخرج|أخرج)/i.test(message) && symbols.length === 0 && sessionState.current_symbol) symbols.push(sessionState.current_symbol);
     const sectorReference = /القطاع\s+(?:ده|دا|هذا)/i.test(message) ? sessionState.summary : null;
     const knownSectorFollowUp = /^(?:process industries|finance|health technology|health services|consumer services|consumer durables|consumer non-durables|commercial services|communications|distribution services|electronic technology|energy minerals|industrial services|miscellaneous|non-energy minerals|producer manufacturing|retail trade|technology services|transportation|utilities)$/i.test(message.trim())
         ? message.trim()
@@ -324,8 +332,8 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
     const isHistorical = needsHistoricalData("", message);
     const marketNewsRequest = /اخبار\s+(?:السوق|البورصه)/i.test(message);
     const requestedDate = temporal.date;
-    const isClearMarketRequest = marketWideRequest || /(أعلى|اعلى|أقوى|اقوى|سيول|السيول|السيوله|تجميع|تصريف|القطاعات|قطاعات|حالة السوق|السوق عمل|دولار|usd)/i.test(normalized);
-    const isClearStockRequest = symbols.length > 0 && /(أخبار|اخبار|اخباره|أخباره|خبر|news|مقارن|قارن|compare|تحليل|حلل|شوف|رايكم|رأيكم|رايك|رأيك|سبب|ليه|لماذا|ممكن|ينصح|داخل|دخول|مستهدف|يصحح|بكره|بكرة|اخر الاسبوع|آخر الأسبوع|المحفظه|المحفظة|مليون|السيول|السيوله|سعر|بيع|احتفظ|أحتفظ|اشتري|شراء|يخسر|خسار|يهبط|ينزل|مقاوم|مقاومه|مقوام|دعم|support|resistance|^[\s,،;:/\-a-z0-9]+$)/i.test(message);
+    const isClearMarketRequest = marketWideRequest || /(أعلى|اعلى|أقوى|اقوى|سيول|السيول|السيوله|تجميع|تصريف|القطاعات|قطاعات|حالة السوق|حاله البورصه|حالة البورصة|السوق عمل|دولار|usd)/i.test(normalized);
+    const isClearStockRequest = symbols.length > 0;
     if (!sector && !isGreeting && !beginnerPortfolioRequest && !isHistorical && !requestedDate && !isClearMarketRequest && !isClearStockRequest) return null;
 
     const enforced = enforceIntentFromMessage(message, symbols.length ? "stock_analysis" : "market_summary", symbols);
@@ -390,7 +398,7 @@ export function enforceIntentFromMessage(message: string, plannerIntent: string,
         const compoundAnalysis = /حلل.{0,20}(هات|اخبار|أخبار)|هات.{0,20}(اخبار|أخبار)|لو\s+كسر.{0,20}(اخبار|أخبار)/i.test(normalized);
         return { intent: "stock_analysis", tools: compoundAnalysis ? ["get_stock", "get_stock_levels", "get_news"] : ["get_stock", "get_stock_levels"], replaceTools: true };
     }
-    if (/(?:اخبار|خبر|news)/i.test(normalized) && hasSymbol) return { intent: "stock_news", tools: ["get_news"], replaceTools: true };
+    if (/(?:اخبار|أخبار|(?:^|\s)خبر(?:\s|$)|news)/i.test(normalized) && hasSymbol) return { intent: "stock_news", tools: ["get_news"], replaceTools: true };
     if (/(مقارن|قارن|compare)/i.test(normalized) && symbols.length >= 2) return { intent: "comparison", tools: ["get_comparison"], replaceTools: true };
     if (/(يخسر|خسار|يهبط|ينزل|يطلع|صعود|هبوط)/i.test(normalized) && hasSymbol) return { intent: "risk_analysis", tools: ["get_stock", "get_distribution_stocks"], replaceTools: true, scan_direction: "distribution" };
     if (/(كسر|يكسر).{0,12}الدعم|الدعم.{0,12}(اتكسر|انكسر)/i.test(normalized) && hasSymbol) return { intent: "levels_analysis", tools: ["get_stock_levels"], replaceTools: true };
@@ -403,9 +411,11 @@ export function enforceIntentFromMessage(message: string, plannerIntent: string,
     }
     if (/(قائمه|قايمه|قائمة|هات|جيب|اعرض).{0,20}(القطاعات|قطاعات)/i.test(normalized)) return { intent: "sector_analysis", tools: ["get_sector_list"], replaceTools: true };
     if (/(اعلى|اقوى|أعلى|أقوى).{0,25}(الاسهم|الأسهم|ارتفاع|صعود|اليوم|النهارده|اخر يوم|آخر يوم)/i.test(normalized)) return { intent: "market_summary", tools: ["get_market"], replaceTools: true };
+    if (/(حاله|حالة).{0,12}(السوق|البورصه|البورصة)|(?:السوق|البورصه|البورصة).{0,12}(النهارده|اليوم|عامل|حاله|حالة)/i.test(normalized)) return { intent: "market_summary", tools: ["get_market"], replaceTools: true };
     if (/(سيول|تداول|liquidity)/i.test(normalized) && hasSymbol) return { intent: "stock_analysis", tools: ["get_stock"], replaceTools: true };
     if (/(سيول|تداول|liquidity)/i.test(normalized) && !hasSymbol) return { intent: "market_summary", tools: ["get_market", "get_accumulation_stocks"], replaceTools: true };
     const sector = extractSectorFromMessage(normalized);
+    if (sector && /(اخبار|خبر|news)/i.test(normalized)) return { intent: "sector_analysis", tools: ["get_sector", "get_news"], replaceTools: true, sector };
     if (sector && !hasSymbol) return { intent: "sector_analysis", tools: ["get_sector"], replaceTools: true, sector };
     if (plannerIntent === "stock_analysis" && hasSymbol) return { intent: "stock_analysis", tools: ["get_stock", "get_stock_levels"], replaceTools: true };
     return { intent: plannerIntent, tools: [] };
@@ -770,12 +780,15 @@ export async function runPipeline(
         }
     }
 
-    // Stage 2: Memory
-    memory = await retrieveRelevantMemory(userMessage, sessionSummary, sessionState, history, supabase, userId, sessionId);
+    const deterministicPlan = !hasImages ? buildCompoundDeterministicPlan(userMessage, sessionState) : null;
 
-    // Stage 3: Planner (no raw images)
-    const plannerResult = (!hasImages ? buildCompoundDeterministicPlan(userMessage, sessionState) : null)
-        || await runPlanner(
+    // Stage 2: Memory is only needed when deterministic routing cannot resolve the request.
+    if (!deterministicPlan || deterministicPlan.intent === "historical_recall") {
+        memory = await retrieveRelevantMemory(userMessage, sessionSummary, sessionState, history, supabase, userId, sessionId);
+    }
+
+    // Stage 3: LLM planner handles only unresolved or ambiguous requests.
+    const plannerResult = deterministicPlan || await runPlanner(
             userMessage,
             [],
             sessionState,
@@ -857,6 +870,7 @@ export async function runPipeline(
     const deterministicLiquidityResponse = topMoversRequest
         ? buildTopMoversResponse(tools)
         : plan.intent === "market_summary" && plan.entities.symbols.length === 0
+        && !plan.tools.includes("get_fair_value_scan")
         && !plan.entities.scan_direction
         ? buildMarketLiquidityResponse(tools)
         : null;

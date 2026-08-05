@@ -57,6 +57,7 @@ export interface FactSnapshot {
 export interface IntentPlan {
     intent: "image_analysis" | "stock_analysis" | "stock_news" | "levels_analysis" | "risk_analysis" | "sector_analysis" | "comparison" | "historical_recall" | "market_summary" | "accumulation_distribution" | "current_data" | "previous_analysis_comparison" | "follow_up" | "clarification" | "general_chat";
     confidence: number;
+    guidance_intent?: "onboarding" | "allocation" | "product_comparison" | "product_explainer" | null;
     entities: {
         symbols: string[];
         sector: string | null;
