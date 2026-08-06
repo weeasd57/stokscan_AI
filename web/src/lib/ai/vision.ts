@@ -72,8 +72,8 @@ export function validateVisionOutput(data: any): VisionContext | null {
     };
 }
 
-const VISION_TIMEOUT_MS = 6500;
-const MAX_VISION_TOTAL_TIME_MS = 13000;
+const VISION_TIMEOUT_MS = 3500;
+const MAX_VISION_TOTAL_TIME_MS = 4500;
 
 export async function analyzeImage(
     imageUrl: string,
@@ -82,9 +82,8 @@ export async function analyzeImage(
     messageId: string
 ): Promise<{ vision: VisionContext | null; error: string | null }> {
     const visionModels = [
-        "nvidia/nemotron-nano-12b-v2-vl",
-        "nvidia/llama-3.1-nemotron-nano-vl-8b-v1",
-        "meta/llama-3.2-11b-vision-instruct"
+        "meta/llama-3.2-11b-vision-instruct",
+        "nvidia/nemotron-nano-12b-v2-vl"
     ];
 
     const userContent = [];

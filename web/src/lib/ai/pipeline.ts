@@ -631,7 +631,8 @@ export async function* runPipelineStream(
     // ===== STAGE 3: Intent / Entity Planner (no raw images — uses vision context) =====
     yield { type: "status", data: { status: "planner", message: "تحليل النية وتخطيط الأدوات..." } };
     if (!hasImages) await getStocksList();
-    const plannerResult = (!hasImages ? buildCompoundDeterministicPlan(userMessage, sessionState) : null)
+    const deterministicPlan = userMessage?.trim() ? buildCompoundDeterministicPlan(userMessage, sessionState) : null;
+    const plannerResult = deterministicPlan
         || await runPlanner(
             userMessage,
             [], // Never pass raw images to planner when vision already analyzed
