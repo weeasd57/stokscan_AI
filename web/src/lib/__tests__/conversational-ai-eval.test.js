@@ -1,4 +1,4 @@
-import { extractInvestorPreferences, fuzzyArabicIntentMatch, isBestBuyStockQuestion } from "../ai/intent-policy";
+import { extractInvestorPreferences, fuzzyArabicIntentMatch, isBestBuyStockQuestion, isTermsDefinitionRequest } from "../ai/intent-policy";
 import { buildDeterministicPlannerResult } from "../ai/pipeline";
 import { buildV2FinalMessages, buildFastConversationalAdvisorResponse, buildDeterministicResponse } from "../ai/final-v2";
 import { sanitizeReply } from "../ai/sanitizer";
@@ -236,6 +236,11 @@ describe("Conversational AI & Investor Preference Memory Evaluation", () => {
             expect(response).toContain("التصريف");
             expect(response).toContain("مؤشر MACD");
             expect(response).not.toContain("EITP");
+        });
+
+        test("correctly identifies short follow-up term request like 'و rsi' as terms definition", () => {
+            const message = "و rsi";
+            expect(isTermsDefinitionRequest(message)).toBe(true);
         });
     });
 

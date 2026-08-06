@@ -38,6 +38,8 @@ export type InvestorGuidanceIntent = "onboarding" | "allocation" | "product_comp
 
 export function isTermsDefinitionRequest(message: string): boolean {
     const norm = normalizeArabicIntent(message);
+    const isShortFollowupTerm = /^(?:و\s*)?(?:الـ?\s*)?(?:rsi|macd|vwap|جمعية|جمعيه|مارجن|مقاومة|مقاومه|دعم|وقف\s+خسارة|وقف\s+خساره)[؟?\s]*$/i.test(norm.trim());
+    if (isShortFollowupTerm) return true;
     const hasDefineVerb = /(عرف|تعريف|يعني\s+ايه|يعني\s+إيه|شرح|ما\s+هو|ما\s+هي|ما\s+المقصود|قصده\s+ايه|معنى|معني)/i.test(norm);
     if (!hasDefineVerb) return false;
     return /(تجميع|تصريف|جمعيه|جمعية|عموميه|عمومية|macd|rsi|مقاومه|مقاومة|دعم|مؤشر|مؤشرات|وقف\s+خساره|وقف\s+خسارة|ارباح|أرباح|مارجن|مضاربه|مضاربة)/i.test(norm);
