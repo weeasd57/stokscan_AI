@@ -5,8 +5,8 @@ export const AI_CONFIG = {
       vision: ["nvidia/nemotron-nano-12b-v2-vl", "nvidia/llama-3.1-nemotron-nano-vl-8b-v1", "meta/llama-3.2-11b-vision-instruct"],
     },
     response: {
-      default: "meta/llama-3.1-8b-instruct",
-      fallbacks: ["meta/llama-3.1-70b-instruct"],
+      default: "meta/llama-3.1-70b-instruct",
+      fallbacks: ["meta/llama-3.3-70b-instruct", "meta/llama-3.1-8b-instruct"],
       agentRouter: ["gpt-5.6-sol"],
       vision: ["nvidia/nemotron-nano-12b-v2-vl", "nvidia/llama-3.1-nemotron-nano-vl-8b-v1", "meta/llama-3.2-11b-vision-instruct"],
     },
