@@ -81,6 +81,16 @@ export default function ChatWidget() {
             clearTimeout(timer2);
         };
     }, [isLoading]);
+
+    // Automatically open ChatWidget modal if URL contains chat=open parameter
+    useEffect(() => {
+        if (typeof window !== "undefined") {
+            const params = new URLSearchParams(window.location.search);
+            if (params.get("chat") === "open" || params.get("chat") === "1" || params.get("openChat") === "true") {
+                setIsOpen(true);
+            }
+        }
+    }, [setIsOpen]);
     
     const bottomRef = useRef<HTMLDivElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);

@@ -4,6 +4,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { useChat } from "@/contexts/ChatContext";
 import {
     Brain,
     Zap,
@@ -91,6 +92,7 @@ const FALLBACK_SIMILARITY_STOCKS = [
 export default function HomePage() {
     const { user } = useAuth();
     const { language } = useLanguage();
+    const { setIsOpen } = useChat();
     const isAr = language === "ar";
 
     const [activeTestimonial, setActiveTestimonial] = useState(0);
@@ -451,14 +453,14 @@ export default function HomePage() {
                                 </div>
                             </div>
                             <div className="shrink-0 w-full md:w-auto">
-                                <Link
-                                    href="/scanner/ai"
-                                    className="w-full md:w-auto h-14 px-8 border-4 border-black bg-yellow-400 hover:bg-yellow-300 text-black font-black uppercase tracking-wider shadow-[4px_4px_0px_rgba(0,0,0,1)] hover:translate-x-[-2px] hover:translate-y-[-2px] hover:shadow-[6px_6px_0px_rgba(0,0,0,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all duration-100 flex items-center justify-center gap-3 text-base sm:text-lg"
+                                <button
+                                    onClick={() => setIsOpen(true)}
+                                    className="w-full md:w-auto h-14 px-8 border-4 border-black bg-yellow-400 hover:bg-yellow-300 text-black font-black uppercase tracking-wider shadow-[4px_4px_0px_rgba(0,0,0,1)] hover:translate-x-[-2px] hover:translate-y-[-2px] hover:shadow-[6px_6px_0px_rgba(0,0,0,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all duration-100 flex items-center justify-center gap-3 text-base sm:text-lg cursor-pointer"
                                 >
                                     <MessageSquare className="w-5 h-5 text-black" />
                                     <span>{isAr ? "تحدث مع البوت الذكي الآن" : "Chat With AI Assistant"}</span>
                                     <ArrowRight className={`w-5 h-5 ${isAr ? "rotate-180" : ""}`} />
-                                </Link>
+                                </button>
                             </div>
                         </div>
                     </div>
@@ -498,13 +500,13 @@ export default function HomePage() {
 
                     {/* Actions */}
                     <div className="flex flex-col sm:flex-row gap-6 justify-center items-stretch sm:items-center px-4 max-w-3xl mx-auto">
-                        <Link
-                            href="/scanner/ai"
+                        <button
+                            onClick={() => setIsOpen(true)}
                             className="h-16 px-8 border-4 border-black dark:border-white bg-amber-300 dark:bg-amber-400 text-black font-black uppercase tracking-wider shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_rgba(255,255,255,1)] hover:translate-x-[-2px] hover:translate-y-[-2px] hover:shadow-[6px_6px_0px_rgba(0,0,0,1)] dark:hover:shadow-[6px_6px_0px_rgba(255,255,255,1)] active:translate-x-[4px] active:translate-y-[4px] active:shadow-none transition-all duration-100 cursor-pointer flex items-center justify-center gap-3 text-base sm:text-xl"
                         >
                             <MessageSquare className="w-6 h-6 text-black" />
                             {isAr ? "تحدث مع الشات بوت الذكي 🤖" : "Interactive AI Chatbot 🤖"}
-                        </Link>
+                        </button>
                         <Link
                             href={user ? "/scanner/backtests" : "/signup"}
                             className="h-16 px-8 border-4 border-black dark:border-white bg-white dark:bg-zinc-900 text-black dark:text-white font-black uppercase tracking-wider shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_rgba(255,255,255,1)] hover:translate-x-[-2px] hover:translate-y-[-2px] hover:shadow-[6px_6px_0px_rgba(0,0,0,1)] dark:hover:shadow-[6px_6px_0px_rgba(255,255,255,1)] active:translate-x-[4px] active:translate-y-[4px] active:shadow-none transition-all duration-100 cursor-pointer flex items-center justify-center gap-3 text-base sm:text-xl"
