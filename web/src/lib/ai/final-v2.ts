@@ -1,6 +1,6 @@
 import { IntentPlan, VisionContext, ToolResult, FactSnapshot, SessionState } from "./types";
 import { AI_CONFIG } from "./config";
-import { describeDatedFallback, getFairValueFilters, getInvestorGuidanceIntent, isBestBuyStockQuestion, isDailyPriceLimitQuestion, isEarningsDataRequest, isFairValueScanRequest, isUsageLimitQuestion } from "./intent-policy";
+import { describeDatedFallback, getFairValueFilters, getInvestorGuidanceIntent, isBestBuyStockQuestion, isDailyPriceLimitQuestion, isEarningsDataRequest, isFairValueScanRequest, isTermsDefinitionRequest, isUsageLimitQuestion } from "./intent-policy";
 import { sanitizeReply } from "./sanitizer";
 
 const MAX_CONTEXT_CHARS = 30000;
@@ -41,7 +41,16 @@ export function buildV2FinalMessages(
     sections.push("=== INTENT PLAN ===");
     sections.push(JSON.stringify({
         intent: plan.intent,
-        guidance_intent: guidanceIntent,
+        guidance_intent: (function() {
+            const gMap: Record<string, string> = {
+                onboarding: "بدء البورصة للمستثمر المبتدئ",
+                allocation: "توزيع رأس المال وإدارة المحفظة",
+                product_comparison: "المقارنة بين أدوات الاستثمار والأسهم",
+                product_explainer: "شرح منتجات الدخل الثابت والأدوات الادخارية",
+                terms_explainer: "شرح وتوضيح المصطلحات والمفاهيم المالية"
+            };
+            return guidanceIntent ? (gMap[guidanceIntent] || guidanceIntent) : guidanceIntent;
+        })(),
         confidence: plan.confidence,
         entities: plan.entities,
         needs_live_data: plan.needs_live_data,
@@ -49,7 +58,7 @@ export function buildV2FinalMessages(
     }, null, 2));
 
     if (guidanceIntent) {
-        const guidanceRules: Record<NonNullable<IntentPlan["guidance_intent"]>, string> = {
+        const guidanceRules: Record<string, string> = {
             onboarding: "المستخدم في بداية الاستثمار. اشرح الأساسيات بلغة مصرية بسيطة، واطلب المعلومات الناقصة قبل الانتقال إلى أسماء أسهم أو نسب توزيع.",
             allocation: "المستخدم يطلب توزيع مبلغ أو سيولة استثمارية (مثل نصف مليون أو 500 ألف) حتى لو اشترط أسهم تجميع أو هدفاً زمنياً (مثل نهاية السنة). لا تحوّل الإشارات أو البيانات التاريخية إلى توصية شخصية أو وعد بمكسب، ولا تعتمد على بيانات قديمة بدون التنويه بتاريخها؛ اسأل أولاً عن أفق الاستثمار (المدة)، قدرة تحمل المخاطر والتقلبات، ونسبة الدخل الثابت/الطوارئ مقابل الأسهم، ثم قدم إطاراً استرشادياً تعليمياً متدرجاً واطلب تحديد تفاصيل المخاطر كخطوة تالية قبل اختيار الأسهم.",
             product_comparison: "المستخدم يقارن منتجاً ادخارياً أو دفاعياً بسهم. وضّح أنهما فئتان مختلفتان ولا تقارن بينهما بسعر السهم أو RSI؛ قارن الهدف والسيولة والمخاطر والأفق الزمني والرسوم، واطلب اسم المنتج الكامل عند الحاجة.",
@@ -81,7 +90,12 @@ export function buildV2FinalMessages(
     if (plan.needs_history && recentHistory.length > 0) {
         sections.push("=== RECENT MESSAGES ===");
         recentHistory.forEach(m => {
-            sections.push(`${m.role}: ${String(m.content).substring(0, 500)}`);
+            const content = String(m.content || "")
+                .replace(/ERROR:.*image.*model does not support image input[^.]*\.?/gi, "")
+                .replace(/Cannot read ["']?image\.(?:png|jpe?g|webp)["']?[^.]*\.?/gi, "")
+                .replace(/===\s*(?:USER REQUEST|LIVE DATA|INTENT PLAN|RESPONSE RULES)\s*===/gi, "")
+                .trim();
+            if (content) sections.push(`${m.role}: ${content.substring(0, 500)}`);
         });
     }
 
@@ -380,6 +394,13 @@ export async function* generateV2Stream(
     requestedModel?: string,
     sessionState?: SessionState | null
 ): AsyncGenerator<string, void, unknown> {
+    const forcedDeterministic = plan.service_degraded_message || plan.tools.includes("get_fair_value_scan")
+        ? buildDeterministicResponse(userMessage, plan, toolResults, sessionState)
+        : null;
+    if (forcedDeterministic) {
+        yield forcedDeterministic;
+        return;
+    }
     if (visionContext && visionContext.symbols.length === 0 && toolResults.length === 0) {
         yield buildVisionUncertaintyResponse(visionContext);
         return;
@@ -392,7 +413,7 @@ export async function* generateV2Stream(
 
     const isAnalyticalQuery = /(سبب|ليه|لماذا|ازاي|إزاي|تفسير|سر|ينزل|يهبط|يطلع|صعود|هبوط|فرص|أحسن|احسن|افضل|أفضل|توقعات|متوقع|مقارن|قارن|حالة|حالتها|رايك|رأيك|توجيه|تجميع|تصريف|تحليل|شراء|بيع|مناسب|مكمل|مستمر|جلسه|جلسة|غدا|غداً|اشترى|اشتري|عادله|عادلة|تقييم|قيمته|تسوى|تساوي)/i.test(userMessage);
     const needsGuidanceResponse = plan.guidance_intent || getInvestorGuidanceIntent(userMessage);
-    const deterministic = !needsGuidanceResponse && !isAnalyticalQuery ? buildDeterministicResponse(userMessage, plan, toolResults) : null;
+    const deterministic = !needsGuidanceResponse && !isAnalyticalQuery ? buildDeterministicResponse(userMessage, plan, toolResults, sessionState) : null;
     if (deterministic) {
         yield deterministic;
         return;
@@ -495,7 +516,7 @@ export async function* generateV2Stream(
         }
     }
 
-    const fallbackText = buildDeterministicResponse(userMessage, plan, toolResults);
+    const fallbackText = buildDeterministicResponse(userMessage, plan, toolResults, sessionState);
     yield fallbackText || "عذراً، لم أتمكن من إنشاء الرد.";
 }
 
@@ -517,6 +538,66 @@ export function buildFastConversationalAdvisorResponse(
 
     const hasSpecificSymbols = Boolean(plan.entities?.symbols?.length);
 
+    // 0. Terms Explanation Query (e.g. "عرف التجميع والجمعيه العموميه والتصريف و ال macd")
+    if (guidanceIntent === "terms_explainer" || isTermsDefinitionRequest(userMessage)) {
+        const wantsAccumulation = /(تجميع|التجميع)/i.test(normMsg);
+        const wantsDistribution = /(تصريف|التصريف)/i.test(normMsg);
+        const wantsAssembly = /(جمعيه|جمعية|عموميه|عمومية)/i.test(normMsg);
+        const wantsMacd = /(macd|الـ\s*macd)/i.test(normMsg);
+
+        const sections: string[] = [];
+        sections.push("أهلاً بك! إليك الشرح المبسط لأهم المفاهيم والمصطلحات المالية في البورصة:");
+        sections.push("");
+
+        if (wantsAccumulation || (!wantsDistribution && !wantsAssembly && !wantsMacd)) {
+            sections.push("🔹 **التجميع (Accumulation):**\nهو قيام المستثمرين الكبار والمؤسسات بشراء كميات كبيرة من السهم بشكل هادئ وتدريجي على فترات ممتدة، دون رفع السعر كبيراً، لبناء مركز مالي قوي قبل بدء موجة الصعود الرئيسية.");
+            sections.push("");
+        }
+
+        if (wantsAssembly || (!wantsAccumulation && !wantsDistribution && !wantsMacd)) {
+            sections.push("🔹 **الجمعية العمومية (General Assembly):**\nهي الاجتماع الرسمي المباشر لمساهمي الشركة لمناقشة نتائج الأعمال السنوية، والاهتمام بإقرار توزيعات الأرباح النقدية أو المجانية، وانتخاب مجلس الإدارة، والتصويت على قرارات الشركة المصيرية.");
+            sections.push("");
+        }
+
+        if (wantsDistribution || (!wantsAccumulation && !wantsAssembly && !wantsMacd)) {
+            sections.push("🔹 **التصريف (Distribution):**\nهو عكس التجميع؛ حيث يبدأ كبار المستثمرين في بيع وتصريف كمياتهم تدريجياً لجمهور المستثمرين الأفراد عند قمم الأسعار المرتفعة، استعداداً لبدء مرحلة هبوط أو تصحيح للسعر.");
+            sections.push("");
+        }
+
+        if (wantsMacd || (!wantsAccumulation && !wantsDistribution && !wantsAssembly)) {
+            sections.push("🔹 **مؤشر MACD (تقاطع المتوسطات المتحركة والزخم):**\nهو مؤشر فني يقيس اتجاه وقوة زخم الحركة السعرية عبر تتبع تقاطع متوسطين متحركين (سريع وبطيء). تقاطع خط الـ MACD لأعلى يُعد إشارة إيجابية لبداية صعود، والتقاطع لأسفل إشارة سلبية لصالح البائعين.");
+            sections.push("");
+        }
+
+        sections.push("❓ **سؤال تفاعلي:** هل تحب نطبق المفاهيم دي على سهم معين حالياً ونقيس مؤشر الـ MACD أو مرحلة التجميع الخاصة بيه؟");
+
+        return sections.join("\n");
+    }
+
+    const allocationBetweenNamedStocks = guidanceIntent === "allocation"
+        && plan.entities.symbols.length >= 2
+        && /(احط|اوزع|قسم|استثمر).{0,30}(مين|فيهم|بينهم|الاتنين|السهمين)/i.test(normMsg);
+    if (allocationBetweenNamedStocks) {
+        const stocks = toolResults.filter(result => result.tool === "get_stock" && result.data?.symbol);
+        const comparison = stocks.map(result => {
+            const data = result.data;
+            const rsi = data.rsi_14 ?? data.rsi;
+            const volumeRatio = data.volume_ratio ?? (data.vol_sma20 && data.volume != null ? Number(data.volume) / Number(data.vol_sma20) : null);
+            const facts = [
+                rsi != null ? `RSI ${Number(rsi).toFixed(1)}` : null,
+                volumeRatio != null ? `الحجم ${Number(volumeRatio).toFixed(2)}x من المتوسط` : null,
+                data.change_pct != null ? `تغير الجلسة ${Number(data.change_pct) >= 0 ? "+" : ""}${Number(data.change_pct).toFixed(2)}%` : null
+            ].filter(Boolean).join("، ");
+            return `- ${data.symbol}: ${facts || "البيانات المتاحة لا تكفي للمفاضلة"}.`;
+        });
+        return [
+            `المبلغ المسجل ${sessionState?.investment_budget ? `${sessionState.investment_budget.toLocaleString("ar-EG")} جنيه` : "غير محدد"}، لكن لا يصح أن أختار نسبة بين ${plan.entities.symbols.join(" و")} من جلسة واحدة فقط.`,
+            ...comparison,
+            "السهم الأعلى زخماً ليس بالضرورة الأنسب إذا كان في تشبع شرائي، والسهم الأهدأ ليس أفضل تلقائياً لمجرد انخفاض RSI.",
+            "حدد مدة الاستثمار ومستوى المخاطرة وسعر دخولك إن كنت مالكاً للسهمين؛ بعدها يمكن وضع نطاقات توزيع استرشادية بدلاً من نسبة 60/40 أو 80/20 غير مبررة."
+        ].join("\n");
+    }
+
     // 1. Allocation & Product Distribution Queries (e.g. "لو هوزع المبلغ ده، تنصحني بأي نسبة بين الأسهم والصناديق؟")
     const isAllocationRatioQuery = !hasSpecificSymbols && (
         /(توزيع|نسبة|نسبه|اوزع|أوزع|اوزعها|قسم|تقسيم).{0,35}(أسهم|اسهم).{0,35}(صناديق|صندوق|دخل ثابت|ادخار)/i.test(normMsg)
@@ -525,20 +606,32 @@ export function buildFastConversationalAdvisorResponse(
     );
 
     if (isAllocationRatioQuery) {
-        let budgetStr = sessionState?.investment_budget ? ` لمبلغ ${sessionState.investment_budget.toLocaleString("ar-EG")} جنيه` : "";
-        let riskStr = sessionState?.risk_tolerance ? (sessionState.risk_tolerance === "low" ? "المحافظة" : sessionState.risk_tolerance === "high" ? "المغامرة" : "المتوازنة") : "المتوازنة";
+        const budgetStr = sessionState?.investment_budget ? ` لمبلغ ${sessionState.investment_budget.toLocaleString("ar-EG")} جنيه` : "";
+        const risk = sessionState?.risk_tolerance;
+        if (!risk) {
+            return [
+                `أقدر أضع إطار توزيع${budgetStr}، لكن نسبة الأسهم لا ينبغي افتراضها قبل معرفة قدرتك على تحمل الهبوط المؤقت.`,
+                "حدّد أولاً هل مستوى المخاطرة منخفض أم متوسط أم مرتفع، وهل لديك احتياطي طوارئ منفصل؛ بعدها يمكن عرض نطاق استرشادي مناسب بدلاً من نسبة ثابتة مضللة."
+            ].join("\n\n");
+        }
+        const riskStr = risk === "low" ? "المحافظة" : risk === "high" ? "عالية المخاطر" : "المتوازنة";
+        const allocation = risk === "low"
+            ? { stocks: 30, fixedIncome: 50, cash: 20 }
+            : risk === "high"
+                ? { stocks: 70, fixedIncome: 20, cash: 10 }
+                : { stocks: 50, fixedIncome: 35, cash: 15 };
 
         return [
-            `أهلاً بك! بناءً على استراتيجية الاستثمار ${riskStr}${budgetStr}، فإن التوزيع المثالي يراعي التوازن بين نمو رأس المال وحمايته من التقلبات:`,
+            `بناءً على استراتيجية الاستثمار ${riskStr}${budgetStr}، فهذا إطار مبدئي قابل للتعديل بعد مراعاة التزاماتك واحتياطي الطوارئ:`,
             "",
             "📊 **إطار التوزيع الاسترشادي المقترح:**",
-            "1. **60% أسهم ذات زخم وقوة مالية/فنية:** تركيز على أسهم القطاعات النشطة (مثل القطاع المفضل لديك) مع اختيار أسهم تتداول قرب قيمها الوسطية الفنية.",
-            "2. **30% أدوات دخل ثابت / صناديق نقدية:** لحماية جزء رئيسي من رأس المال، وتوفير عائد دوري مستقر يقلل من حدة تذبذب البورصة.",
-            "3. **10% سيولة نقدية جاهزة:** للاقتناص التكتيكي عند حدوث أي تصحيحات سعرية مؤقتة في السوق.",
+            `1. **${allocation.stocks}% أسهم:** توزع على أكثر من سهم وقطاع، مع دخول متدرج بدل تنفيذ الحصة كاملة في جلسة واحدة.`,
+            `2. **${allocation.fixedIncome}% أدوات دخل ثابت / صناديق نقدية:** لتقليل تذبذب المحفظة، بعد مراجعة العائد والرسوم وشروط الاسترداد من المصدر الرسمي.`,
+            `3. **${allocation.cash}% سيولة واحتياطي:** يظل خارج المخاطرة السوقية للطوارئ أو الفرص التي تتوافق لاحقاً مع خطتك.`,
             "",
-            "📌 **نصيحة المستشار:** لا تقم بالدخول بكامل حصة الأسهم مرة واحدة، بل قسّم الدخول على 2-3 دفعات عند مستويات الدعم الفنية.",
+            "هذا توزيع تعليمي وليس نسبة مثالية للجميع؛ إذا لم يكن لديك احتياطي طوارئ منفصل، تكون الأولوية لبنائه قبل زيادة حصة الأسهم.",
             "",
-            "❓ **سؤال تفاعلي:** هل تفضل الاستثمار في صناديق الأسهم كإدارة محترفة، أم اختيار الأسهم الفردية بنفسك وفق تحليلات الزخم؟"
+            "الخطوة التالية هي تحديد مدة الاستثمار وقدرتك الفعلية على تحمل هبوط مؤقت قبل تحويل الإطار إلى نطاقات أكثر دقة."
         ].join("\n");
     }
 
@@ -550,29 +643,42 @@ export function buildFastConversationalAdvisorResponse(
         const fairValueScan = toolResults.find(r => r.tool === "get_fair_value_scan");
         const stocks = Array.isArray(sectorResult?.data?.stocks) ? sectorResult.data.stocks : (Array.isArray(fairValueScan?.data?.stocks) ? fairValueScan.data.stocks : []);
 
-        let greeting = "أهلاً بك! بناءً على البيانات الحية وأرقام مسح الجلسة لقطاعك المفضل والأسهم المتداولة:";
+        let greeting = "بناءً على البيانات الحية المتاحة، هذه مقارنة فنية بين أبرز الأسهم الظاهرة في المسح، وليست أمراً بالشراء:";
         if (sessionState?.investment_budget || sessionState?.risk_tolerance) {
-            greeting = `أهلاً بك! استكمالاً لتحليل قطاعك المفضل ووفق تفضيلاتك المسجلة معي (${sessionState.investment_budget ? `ميزانية ${sessionState.investment_budget.toLocaleString("ar-EG")} جنيه` : "استثمار متوازن"}): إليك قراءة لأبرز الأسهم المرشحة بالقطاع:`;
+            greeting = `استكمالاً لتحليل قطاعك ووفق تفضيلاتك المسجلة (${sessionState.investment_budget ? `ميزانية ${sessionState.investment_budget.toLocaleString("ar-EG")} جنيه` : "دون ميزانية محددة"})، هذه مقارنة فنية للأسهم الظاهرة في البيانات وليست توصية شخصية:`;
         }
+
+        const levelBySymbol = new Map(toolResults
+            .filter(result => result.tool === "get_stock_levels" && result.data?.symbol)
+            .map(result => [String(result.data.symbol), result.data]));
 
         const topStocksList = stocks.slice(0, 5).map((s: any) => {
             const sym = s.symbol;
-            const price = Number(s.close || s.price).toFixed(2);
-            const changeVal = s.change_pct != null ? Number(s.change_pct) : 0;
+            const tech = s.tech || s;
+            const rawPrice = tech.close ?? s.close ?? s.price;
+            const price = rawPrice != null && Number.isFinite(Number(rawPrice)) ? `${Number(rawPrice).toFixed(2)} جنيه` : "غير متاح";
+            const changeVal = tech.change_pct != null ? Number(tech.change_pct) : 0;
             const changeStr = changeVal !== 0 ? `${changeVal > 0 ? "+" : ""}${changeVal.toFixed(2)}%` : "استقرار";
-            const rsiVal = s.rsi != null ? Number(s.rsi).toFixed(1) : null;
-            const premium = s.premium_pct != null ? Math.abs(Number(s.premium_pct)).toFixed(1) : null;
-
-            let reason = "دخول سيولة إيجابية وتماسك فني فوق مستويات الدعم.";
+            const rawRsi = tech.rsi_14 ?? tech.rsi;
+            const rsiVal = rawRsi != null && Number.isFinite(Number(rawRsi)) ? Number(rawRsi).toFixed(1) : null;
+            const premium = s.premium_pct != null && Number.isFinite(Number(s.premium_pct)) ? Number(s.premium_pct) : null;
+            const volumeRatio = s.volume_ratio ?? (tech.vol_sma20 && tech.volume != null ? Number(tech.volume) / Number(tech.vol_sma20) : null);
+            const accumulationScore = s.accumulation_score ?? s.accumulationScore ?? s.acc_score ?? null;
+            const level: any = levelBySymbol.get(String(sym));
+            const facts: string[] = [];
             if (rsiVal && Number(rsiVal) >= 45 && Number(rsiVal) <= 68) {
-                reason = `زخم فني صحي متوازن (RSI: ${rsiVal}) يتيح مساحة صعود مستقرة دون مخاطرة تشبع شرائي.`;
-            } else if (premium) {
-                reason = `يتداول أعلى قيمته الوسطية بـ ${premium}% مما يعكس تفوق القوة الشرائية والمؤسسية.`;
-            } else if (changeVal > 0) {
-                reason = `حركة سعرية إيجابية بزيادة ${changeStr} مع إشارات تجميع في التداولات الحية.`;
+                facts.push(`RSI عند ${rsiVal} ويقع في نطاق زخم متوسط`);
+            } else if (rsiVal) {
+                facts.push(`RSI عند ${rsiVal}`);
             }
+            if (premium !== null) facts.push(`السعر ${premium >= 0 ? "أعلى" : "أقل"} من القيمة الوسطية الفنية بـ ${Math.abs(premium).toFixed(1)}%`);
+            if (volumeRatio != null && Number.isFinite(Number(volumeRatio))) facts.push(`حجم التداول ${Number(volumeRatio).toFixed(2)}x من المتوسط`);
+            if (accumulationScore != null && Number.isFinite(Number(accumulationScore))) facts.push(`درجة التجميع المسجلة ${Number(accumulationScore).toFixed(1)}`);
+            if (level?.support != null && level?.resistance != null) facts.push(`الدعم الحسابي ${Number(level.support).toFixed(2)} والمقاومة ${Number(level.resistance).toFixed(2)} جنيه`);
+            if (changeVal !== 0) facts.push(`تغير الجلسة ${changeStr}`);
+            const reason = facts.length ? facts.join("، ") : "لا تتوفر مؤشرات كافية لتفسير ترتيبه خارج البيانات المعروضة";
 
-            return `• **${sym}** (بسعر ${price} جنيه | ${changeStr}):\n  👈 **سبب الترشيح البسيط:** ${reason}`;
+            return `• **${sym}** (السعر ${price} | ${changeStr}):\n  **البيانات الداعمة للمقارنة:** ${reason}.`;
         }).join("\n\n");
 
         return [
@@ -580,11 +686,11 @@ export function buildFastConversationalAdvisorResponse(
             "",
             topStocksList || "• الأسهم الموضحة بالجدول أعلاه تعكس أحدث حركة للسيولة والزخم السعري للقطاع.",
             "",
-            "📌 **قواعد الدخول وإدارة المخاطر:**",
-            "1. **الدخول المتدرج:** لا تشتري بكامل السيولة دفعة واحدة، بل قسم الدخول على مرتين قرب نقطة الدعم.",
-            "2. **حماية أرباحك (وقف الخسارة):** حدد مستوى كسر الدعم بنسبة 3% كحد أقصى للتراجع.",
+            "📌 **إدارة المخاطر:**",
+            "1. لا تحوّل ترتيب المسح وحده إلى قرار شراء؛ راجع سيولة السهم واتجاهه ومستوياته الفعلية.",
+            "2. لا يمكن اشتقاق وقف خسارة ثابت دون دعم فعلي وتذبذب السهم وحجم المركز؛ استخدم مستوى الدعم الموثق فقط إن ظهر في البيانات.",
             "",
-            "❓ **سؤال تفاعلي:** هل تحب نحدد نقطة الدعم والمقاومة الدقيقة لأي سهم من دول بالتفصيل؟"
+            "يمكن بعد ذلك مقارنة الدعم والمقاومة الفعليين للأسهم التي اجتازت هذه التصفية."
         ].join("\n");
     }
 
@@ -594,6 +700,10 @@ export function buildFastConversationalAdvisorResponse(
 export function buildDeterministicResponse(userMessage: string, plan: IntentPlan, toolResults: ToolResult[], sessionState?: SessionState | null): string | null {
     const fastAdvisor = buildFastConversationalAdvisorResponse(userMessage, plan, toolResults, sessionState);
     if (fastAdvisor) return fastAdvisor;
+
+    if (plan.intent === "clarification" && !userMessage.trim() && plan.service_degraded_message) {
+        return "تعذر قراءة الصورة المرفقة بوضوح هذه المرة، لذلك لم أستخرج منها أسهماً أو أرقاماً حتى لا أخمّن. أرسل نسخة أوضح أو اكتب اسم السهم وما تريد تحليله، وسأعتمد على السؤال النصي مباشرة.";
+    }
 
     if (plan.intent === "clarification" && /(?:اقوى|أقوى)\s+(?:الاسهم|الأسهم)/i.test(userMessage)) {
         return "تقصد أقوى الأسهم بأي معيار: أعلى ارتفاع في آخر جلسة، أعلى سيولة، أقوى زخم فني، أم أفضل أداء خلال أسبوع؟ حدّد المعيار والفترة حتى لا أخلط بين القوة السعرية والسيولة.";
@@ -636,17 +746,32 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
         const relation = direction === "below" ? "تحت" : "فوق";
         const relativeWord = direction === "below" ? "أقل" : "أعلى";
         const signalSuffix = requiresDistribution ? " وتحقق إشارة تصريف" : requiresAccumulation ? " وتحقق إشارة تجميع" : "";
-        if (!stocks.length) return `لا توجد أسهم في بيانات ${fairValueScan.data_time} تتداول ${relation} القيمة الوسطية لنطاقها السعري خلال آخر 60 جلسة${signalSuffix}.`;
+        if (fairValueScan.error || fairValueScan.source === "error") {
+            return `فهمت أنك تريد تقاطع التداول ${relation} القيمة الوسطية الفنية${requiresAccumulation ? " مع تجميع حديث" : requiresDistribution ? " مع تصريف حديث" : ""}، لكن تعذر إكمال المسح الحالي ضمن المهلة. لم أستخدم قائمة قديمة أو أعلن عدم وجود فرص لأن نتيجة التقاطع لم تكتمل.`;
+        }
+        if (fairValueScan.source === "validation" || fairValueScan.data?.validation?.ok === false) {
+            return `تعذر الاعتماد على بيانات المسح لهذا الطلب لأن أحدث بيانات متاحة بتاريخ ${fairValueScan.data_time} لم تجتز فحص الحداثة أو التاريخ المطلوب. لم أعرض جدول تجميع قديم بديلاً عن تقاطع الشروط الحالي.`;
+        }
+        if (!stocks.length) {
+            return [
+                `فهمت طلبك: تريد تقاطع شرطين معاً، أسهماً تتداول ${relation} القيمة الوسطية الفنية لنطاق 60 جلسة${requiresAccumulation ? " وعليها تجميع حديث" : requiresDistribution ? " وعليها تصريف حديث" : ""}.`,
+                `بحسب أحدث بيانات أسعار متاحة بتاريخ ${fairValueScan.data_time}، لا توجد حالياً نتائج موثقة تحقق الشرطين معاً. لذلك لم أعد عرض قائمة التجميع القديمة وحدها لأنها لا تثبت أن الأسهم ما زالت ${relation} القيمة الوسطية الآن.`,
+                "يمكن توسيع البحث لاحقاً بتخفيف شرط حداثة الإشارة أو مقارنة الأسهم القريبة من القيمة الوسطية، لكن يجب عرض ذلك كمسح مختلف بوضوح."
+            ].join("\n\n");
+        }
         return [
-            `الأسهم المتداولة ${relation} القيمة الوسطية لنطاق 60 جلسة بتاريخ ${fairValueScan.data_time}${signalSuffix}:`,
+            `فهمت طلبك: هذه فقط الأسهم التي حققت الشرطين معاً، التداول ${relation} القيمة الوسطية الفنية لنطاق 60 جلسة${signalSuffix}، وفق أحدث أسعار بتاريخ ${fairValueScan.data_time}:`,
             ...stocks.slice(0, 15).map((stock: any, index: number) => {
                 const distribution = requiresDistribution && stock.dist_score != null
                     ? `، درجة التصريف ${Number(stock.dist_score).toFixed(1)}/100`
                     : "";
                 const accumulation = requiresAccumulation && stock.acc_score != null ? `، درجة التجميع ${Number(stock.acc_score).toFixed(1)}/100` : "";
-                return `${index + 1}. ${stock.symbol}: السعر ${Number(stock.close).toFixed(2)} جنيه، القيمة الوسطية ${Number(stock.midpoint).toFixed(2)} جنيه، ${relativeWord} منها بـ ${Math.abs(Number(stock.premium_pct)).toFixed(1)}%${distribution}${accumulation}.`;
+                const scanDate = stock.scan_date ? `، إشارة المسح بتاريخ ${stock.scan_date}` : "";
+                const volume = stock.vol_ratio != null ? `، الحجم ${Number(stock.vol_ratio).toFixed(2)}x من المتوسط` : "";
+                return `${index + 1}. ${stock.symbol}: السعر ${Number(stock.close).toFixed(2)} جنيه، القيمة الوسطية ${Number(stock.midpoint).toFixed(2)} جنيه، ${relativeWord} منها بـ ${Math.abs(Number(stock.premium_pct)).toFixed(1)}%${distribution}${accumulation}${volume}${scanDate}.`;
             }),
-            "هذا مسح تقييم فني نسبي وليس قيمة عادلة مالية؛ القيمة الجوهرية تحتاج أرباحاً وتدفقات نقدية ومكررات قطاع موثقة."
+            "ابدأ بالمقارنة بين قوة التجميع والسيولة وقرب السعر من الدعم، ولا تعتبر وجود السهم في القائمة أمراً بالشراء.",
+            "تنبيه: المقصود هنا قيمة وسطية فنية وليست قيمة عادلة مالية؛ القيمة الجوهرية تحتاج أرباحاً وتدفقات نقدية ومكررات قطاع موثقة."
         ].join("\n");
     }
     if (isFairValueScanRequest(userMessage)
@@ -683,6 +808,16 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
         if (parts.length) return Array.from(new Set(parts)).join("\n");
     }
     if (plan.intent === "general_chat" && toolResults.length === 0) {
+        if (/^\s*(?:جدع|عاش|تمام|تسلم|شكرا|شكراً|حلو|ممتاز|برافو)\s*[!؟?.]*$/i.test(userMessage)) {
+            return "تسلم. المهم أن يظل التحليل مرتبطاً بالبيانات والمخاطر، وليس مجرد اختيار نسبة أو سهم بلا مبرر.";
+        }
+        if (/(?:عرف|عرّف|يعني ايه|ما هو|ما هي).{0,40}(?:التجميع|الجمعيه العموميه|الجمعية العمومية)/i.test(userMessage)) {
+            return [
+                "التجميع: مرحلة يزيد فيها الشراء تدريجياً، وقد تظهر في صورة أحجام تداول مرتفعة وتماسك سعري وامتصاص للبيع. لا يمكن إثباتها من الحجم وحده، ويجب ربطها بالسعر والاتجاه وعدة جلسات.",
+                "الجمعية العمومية: اجتماع رسمي لمساهمي الشركة لمناقشة واعتماد أمور مثل القوائم المالية، توزيعات الأرباح، انتخاب مجلس الإدارة، أو قرارات زيادة رأس المال وفق جدول الأعمال والإفصاح الرسمي.",
+                "الفرق: التجميع مفهوم فني متعلق بسلوك التداول، أما الجمعية العمومية فهي حدث قانوني وإداري للشركة."
+            ].join("\n\n");
+        }
         if (/(معنديش|ما عنديش).{0,20}(خبره|خبرة).{0,40}(اسهم|الاسهم)|(?:ابني|اعمل|ابدأ).{0,25}(محفظه|محفظة)|صناديق.{0,20}(دخل ثابت|عائد يومي)|(?:اول|أول)\s+يوم.{0,20}(البورصه|البورصة)|عايز\s+افهم\s+اعمل/i.test(userMessage)) {
             return [
                 "بما إنك مبتدئ وكل أموالك حالياً في أدوات دخل ثابت، الأفضل تتعلم وتنتقل للأسهم تدريجياً بدل نقل المحفظة كلها مرة واحدة.",

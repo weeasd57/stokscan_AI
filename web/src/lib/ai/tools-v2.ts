@@ -153,10 +153,12 @@ export async function executeStructuredTools(
                 if (fairValueDirection === "below" && close >= midpoint) return null;
                 const symbol = String(row.symbol).toUpperCase();
                 const distribution = distributionBySymbol.get(symbol);
+                const scanDate = String(distribution?.scan_date || "").slice(0, 10);
+                const scanAgeDays = scanDate ? Math.floor((Date.parse(`${dataDate}T23:59:59Z`) - Date.parse(`${scanDate}T23:59:59Z`)) / 86400000) : Number.POSITIVE_INFINITY;
                 const isDistribution = distribution?.signal === "distribution" || Number(distribution?.dist_score || 0) >= 50;
                 const isAccumulation = distribution?.signal === "accumulation" || distribution?.signal === "strong_accumulation" || Number(distribution?.acc_score || 0) >= 50;
-                if (requireDistribution && !isDistribution) return null;
-                if (requireAccumulation && !isAccumulation) return null;
+                if (requireDistribution && (!isDistribution || scanAgeDays > 7)) return null;
+                if (requireAccumulation && (!isAccumulation || scanAgeDays > 7)) return null;
                 return {
                     symbol, close, support, resistance, midpoint,
                     premium_pct: midpoint > 0 ? ((close / midpoint) - 1) * 100 : null,
@@ -166,7 +168,8 @@ export async function executeStructuredTools(
                     dist_score: distribution?.dist_score ?? null,
                     acc_score: distribution?.acc_score ?? null,
                     consecutive_acc_days: distribution?.consecutive_acc_days ?? null,
-                    consecutive_dist_days: distribution?.consecutive_dist_days ?? null
+                    consecutive_dist_days: distribution?.consecutive_dist_days ?? null,
+                    scan_date: scanDate || null
                 };
             });
             const stocks = candidates.filter(Boolean)
@@ -552,7 +555,10 @@ export async function executeStructuredTools(
     }
 
     // ===== MARKET / INDICES =====
-    if ((plan.tools.includes("get_market") || plan.tools.includes("get_indices") || plan.intent === "market_summary") && plan.needs_live_data) {
+    const needsGeneralMarketData = plan.tools.includes("get_market")
+        || plan.tools.includes("get_indices")
+        || (plan.intent === "market_summary" && plan.tools.length === 0);
+    if (needsGeneralMarketData && plan.needs_live_data) {
         let usedCache = false;
         try {
             const { data: marketCache } = await supabase

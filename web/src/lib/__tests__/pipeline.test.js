@@ -55,6 +55,53 @@ describe("Vision Analyzer Outputs", () => {
     });
 });
 
+describe("Vision timeout configuration", () => {
+    it("keeps the total vision budget consistent with the model timeout", () => {
+        const fs = require("fs");
+        const source = fs.readFileSync(require.resolve("../ai/vision"), "utf8");
+        expect(source).not.toContain("13s cap");
+        expect(source).toContain("MAX_VISION_TOTAL_TIME_MS = 25000");
+        expect(source).toContain("for (const model of visionModels)");
+    });
+});
+
+describe("Image failure response safety", () => {
+    it("returns a deterministic clarification without leaking internal prompt markers", () => {
+        const response = buildDeterministicResponse("", {
+            intent: "clarification",
+            confidence: 1,
+            entities: { symbols: [], sector: null, timeframe: "current", reference: null },
+            needs_vision_context: false,
+            needs_history: false,
+            needs_live_data: false,
+            needs_historical_data: false,
+            tools: [],
+            clarification_needed: false,
+            service_degraded_message: "Cannot read image.png",
+            resolved_from: { symbol: null, message_id: null }
+        }, []);
+        expect(response).toContain("تعذر قراءة الصورة");
+        expect(response).not.toContain("USER REQUEST");
+        expect(response).not.toContain("image.png");
+    });
+});
+
+describe("Standalone recommendation routing", () => {
+    it("does not inherit the previous fair-value scan for a new recommendation request", () => {
+        const plan = buildDeterministicPlannerResult("هات توصيه", {
+            current_symbol: null,
+            last_symbols: [],
+            summary: "هات الأسهم اللي عليها تجميع وتحت القيمة العادلة"
+        });
+        expect(plan).toMatchObject({
+            intent: "market_summary",
+            tools: ["get_recommendations"],
+            entities: { recommendation_order: "newest" }
+        });
+        expect(plan.tools).not.toContain("get_fair_value_scan");
+    });
+});
+
 describe("Memory Reference Resolution", () => {
     it("correctly resolves references like 'ده' or 'السهم ده' based on session history", async () => {
         const sessionSummary = {
@@ -1047,6 +1094,12 @@ describe("Structured table sanitization", () => {
         expect(isFairValueScanRequest("هات الاسهم اللي تحت القيمة الفنية وفيها تصريف")).toBe(true);
         expect(getFairValueFilters("هات الاسهم اللي تحت القيمة الفنية وفيها تصريف")).toEqual({ fair_value_direction: "below", require_distribution: true, require_accumulation: false });
         expect(getFairValueFilters("تحت القيمة مع تجميع")).toEqual({ fair_value_direction: "below", require_distribution: false, require_accumulation: true });
+        expect(getFairValueFilters("هات الاسهم اللى عليها تجميع وتبقى تحدت القيمه العادله")).toEqual({ fair_value_direction: "below", require_distribution: false, require_accumulation: true });
+        expect(buildDeterministicPlannerResult("هات الاسهم اللى عليها تجميع وتبقى تحدت القيمه العادله", { current_symbol: null, last_symbols: [], summary: null })).toMatchObject({
+            intent: "market_summary",
+            tools: ["get_fair_value_scan"],
+            entities: { fair_value_direction: "below", require_accumulation: true }
+        });
         const sectorPlan = buildDeterministicPlannerResult("البنوك حالتها ايه", { current_symbol: "COMI", last_symbols: ["COMI"], summary: "COMI" });
         expect(sectorPlan.session_update.current_symbol).toBeNull();
         const limitPlan = buildDeterministicPlannerResult("طيب ده قريب من الحد اليومي؟", { current_symbol: "KWIN", last_symbols: ["KWIN"], summary: "KWIN" });

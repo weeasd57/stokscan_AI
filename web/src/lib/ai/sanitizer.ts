@@ -212,6 +212,11 @@ export function sanitizeReply(reply: string, liveDataString?: string): string {
         .replace(/Current time:\s*[^\n]+/gi, "")
         .replace(/Working directory:\s*[^\n]+/gi, "")
         .replace(/Workspace root folder:\s*[^\n]+/gi, "")
+        .replace(/ERROR:.*image.*model does not support image input[^.]*\.?/gi, "")
+        .replace(/Cannot read ["']?image\.(?:png|jpe?g|webp)["']?[^.]*\.?/gi, "")
+        .replace(/===\s*(?:USER REQUEST|LIVE DATA|INTENT PLAN|RESPONSE RULES)\s*===/gi, "")
+        .replace(/^\s*(?:حسناً[،.]?\s*)?لا توجد صورة مرفقة[^\n]*$/gim, "")
+        .replace(/^\s*سأقوم (?:بتحليل|بتقديم)[^\n]*$/gim, "")
         .replace(/\n{3,}/g, "\n\n")
         .trim();
 

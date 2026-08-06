@@ -20,7 +20,11 @@ export async function loadSessionState(supabase: any, sessionId: string, userId:
                 last_symbols: Array.isArray(state.last_symbols) ? state.last_symbols : [],
                 summary: state.summary || sessionData.title || null,
                 current_sector: state.current_sector || null,
-                language: state.language || "ar"
+                language: state.language || "ar",
+                investment_budget: state.investment_budget ?? null,
+                investment_horizon: state.investment_horizon ?? null,
+                risk_tolerance: state.risk_tolerance ?? null,
+                preferred_sectors: Array.isArray(state.preferred_sectors) ? state.preferred_sectors : []
             };
         }
 
@@ -95,7 +99,13 @@ export async function updateSessionState(
         last_symbols: update.last_symbols 
             ? Array.from(new Set([...update.last_symbols, ...(current.last_symbols || [])])).slice(0, 15) 
             : current.last_symbols,
-        summary: update.summary !== undefined ? update.summary : current.summary
+        summary: update.summary !== undefined ? update.summary : current.summary,
+        investment_budget: update.investment_budget !== undefined ? update.investment_budget : current.investment_budget,
+        investment_horizon: update.investment_horizon !== undefined ? update.investment_horizon : current.investment_horizon,
+        risk_tolerance: update.risk_tolerance !== undefined ? update.risk_tolerance : current.risk_tolerance,
+        preferred_sectors: update.preferred_sectors
+            ? Array.from(new Set([...(current.preferred_sectors || []), ...update.preferred_sectors]))
+            : current.preferred_sectors
     };
 
     try {

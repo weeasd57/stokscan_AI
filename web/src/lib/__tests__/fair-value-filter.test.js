@@ -68,4 +68,37 @@ describe("fair-value scan filters", () => {
         expect(scan.data.stocks.map(stock => stock.symbol)).toEqual(["LOWD"]);
         expect(scan.data.stocks[0].dist_score).toBe(74);
     });
+
+    it("keeps only below-midpoint stocks with a recent accumulation signal", async () => {
+        const today = new Date().toISOString().slice(0, 10);
+        const stale = new Date(Date.now() - 10 * 86400000).toISOString().slice(0, 10);
+        const supabase = createSupabase({
+            stock_technical_indicators: [
+                { symbol: "FRESH", close: 4, volume: 200, vol_sma20: 100, date: today },
+                { symbol: "STALE", close: 4, volume: 200, vol_sma20: 100, date: today },
+                { symbol: "ABOVE", close: 7, volume: 200, vol_sma20: 100, date: today }
+            ],
+            stock_prices: [
+                { symbol: "FRESH", exchange: "EGX", close: 4, low: 2, high: 8, date: today },
+                { symbol: "STALE", exchange: "EGX", close: 4, low: 2, high: 8, date: today },
+                { symbol: "ABOVE", exchange: "EGX", close: 7, low: 2, high: 8, date: today }
+            ],
+            stock_scans_summary: [
+                { symbol: "FRESH", signal: "strong_accumulation", acc_score: 82, consecutive_acc_days: 3, scan_date: today },
+                { symbol: "STALE", signal: "accumulation", acc_score: 90, consecutive_acc_days: 5, scan_date: stale },
+                { symbol: "ABOVE", signal: "accumulation", acc_score: 88, consecutive_acc_days: 2, scan_date: today }
+            ]
+        });
+        const plan = {
+            intent: "market_summary", confidence: 1,
+            entities: { symbols: [], sector: null, timeframe: "current", reference: null, fair_value_direction: "below", require_distribution: false, require_accumulation: true },
+            needs_vision_context: false, needs_history: false, needs_live_data: true, needs_historical_data: false,
+            tools: ["get_fair_value_scan"], clarification_needed: false, resolved_from: { symbol: null, message_id: null }
+        };
+
+        const output = await executeStructuredTools(supabase, plan, []);
+        const scan = output.results.find(result => result.tool === "get_fair_value_scan");
+        expect(scan.data.stocks.map(stock => stock.symbol)).toEqual(["FRESH"]);
+        expect(scan.data.stocks[0]).toMatchObject({ acc_score: 82, scan_date: today });
+    });
 });

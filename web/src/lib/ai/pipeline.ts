@@ -7,8 +7,8 @@ import { buildDeterministicResponse, generateV2Response, generateV2Stream } from
 import { loadSessionState, loadSessionSummary, updateSessionSummary, updateSessionState } from "./session";
 import { buildExcelTables, ExcelTable } from "./excel-tables";
 import { AI_CONFIG } from "./config";
-import { extractInvestorPreferences, getFairValueFilters, getInvestorGuidanceIntent as classifyInvestorGuidance, isDailyPriceLimitQuestion, isEarningsDataRequest, isUsageLimitQuestion, isBestBuyStockQuestion } from "./intent-policy";
-export { extractInvestorPreferences, getFairValueFilters, isDailyPriceLimitQuestion, isEarningsDataRequest, isUsageLimitQuestion, isBestBuyStockQuestion } from "./intent-policy";
+import { extractInvestorPreferences, getFairValueFilters, isFairValueScanRequest, getInvestorGuidanceIntent as classifyInvestorGuidance, isDailyPriceLimitQuestion, isEarningsDataRequest, isTermsDefinitionRequest, isUsageLimitQuestion, isBestBuyStockQuestion } from "./intent-policy";
+export { extractInvestorPreferences, getFairValueFilters, isFairValueScanRequest, isDailyPriceLimitQuestion, isEarningsDataRequest, isTermsDefinitionRequest, isUsageLimitQuestion, isBestBuyStockQuestion } from "./intent-policy";
 
 export interface PipelineResult {
     vision: VisionContext | null;
@@ -132,7 +132,7 @@ export function extractExplicitSymbols(message: string): string[] {
     ));
 }
 
-export type InvestorGuidanceIntent = "onboarding" | "allocation" | "product_comparison" | "product_explainer";
+export type InvestorGuidanceIntent = "onboarding" | "allocation" | "product_comparison" | "product_explainer" | "terms_explainer";
 
 export function getInvestorGuidanceIntent(message: string, hasNamedStock?: boolean): InvestorGuidanceIntent | null {
     const hasSymbols = hasNamedStock ?? (extractExplicitSymbols(message).length > 0);
@@ -277,10 +277,47 @@ export function extractRequestedDateRange(message: string, referenceDate: Date =
 }
 
 export function buildDeterministicPlannerResult(message: string, sessionState: SessionState): PlannerResult | null {
+    if (/^\s*(?:جدع|عاش|تمام|تسلم|شكرا|شكراً|حلو|ممتاز|برافو)\s*[!؟?.]*$/i.test(message)) {
+        return {
+            intent: "general_chat", confidence: 1,
+            entities: { symbols: [], sector: null, wants_table: false, timeframe: "current", requested_date: null, scan_direction: null },
+            tools: [],
+            session_update: { current_symbol: sessionState.current_symbol, last_symbols: sessionState.last_symbols, summary: message }
+        };
+    }
+    if (isTermsDefinitionRequest(message)) {
+        return {
+            intent: "general_chat",
+            confidence: 1,
+            guidance_intent: "terms_explainer",
+            entities: { symbols: [], sector: null, wants_table: false, timeframe: "current", requested_date: null, scan_direction: null },
+            tools: [],
+            session_update: { current_symbol: sessionState.current_symbol, last_symbols: sessionState.last_symbols, summary: message }
+        };
+    }
+    if (isFairValueScanRequest(message)) {
+        const filters = getFairValueFilters(message);
+        return {
+            intent: "market_summary",
+            confidence: 1,
+            entities: { symbols: [], sector: null, wants_table: true, timeframe: "current", requested_date: null, scan_direction: null, ...filters },
+            tools: ["get_fair_value_scan"],
+            session_update: { current_symbol: null, last_symbols: sessionState.last_symbols, summary: message }
+        };
+    }
     const explicitSymbols = extractExplicitSymbols(message);
     const hasGroupReference = /(فيهم|منهم|من دول|بينهم|أيهم|أيها|أحسن واحد|احسن واحد|أفضل واحد|افضل واحد|الأسهم دي|الاسهم دي)/i.test(message) && sessionState.last_symbols.length > 0;
+    const allocationSymbols = explicitSymbols.length >= 2 ? explicitSymbols : hasGroupReference ? sessionState.last_symbols.slice(0, 5) : [];
+    if (allocationSymbols.length >= 2 && /(احط|أحط|اوزع|أوزع|قسم|اقسم|استثمر).{0,30}(مين|فيهم|بينهم|الاتنين|السهمين)/i.test(message)) {
+        return {
+            intent: "comparison", confidence: 1, guidance_intent: "allocation",
+            entities: { symbols: allocationSymbols, sector: null, wants_table: true, timeframe: "current", requested_date: null, scan_direction: null },
+            tools: ["get_stock", "get_stock_levels"],
+            session_update: { current_symbol: allocationSymbols[0], last_symbols: allocationSymbols, summary: message }
+        };
+    }
     const hasNamedStock = explicitSymbols.length > 0 || hasGroupReference;
-    const guidance = getInvestorGuidanceIntent(message, hasNamedStock);
+    const guidance = isFairValueScanRequest(message) ? null : getInvestorGuidanceIntent(message, hasNamedStock);
     if (guidance) {
         const wantsAccumulation = /تجميع|accumulation/i.test(message);
         return {
@@ -295,22 +332,22 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
             }
         };
     }
+    const recommendationRequest = /^\s*(?:هات|اعرض|وريني|عايز|عاوز)?\s*(?:احدث|أحدث|اخر|آخر)?\s*(?:توصيه|توصية|توصيات|اشاره|إشارة|اشارات|إشارات)(?:\s+(?:عندك|النظام|اليوم|النهارده))?\s*[؟?!.]*$/i.test(message);
+    if (recommendationRequest) {
+        return {
+            intent: "market_summary",
+            confidence: 1,
+            entities: { symbols: [], sector: null, wants_table: true, timeframe: "current", requested_date: null, scan_direction: null, recommendation_order: "newest" },
+            tools: ["get_recommendations"],
+            session_update: { current_symbol: null, last_symbols: sessionState.last_symbols, summary: message }
+        };
+    }
     if (isBestBuyStockQuestion(message) && !hasNamedStock) {
         return {
             intent: "market_summary",
             confidence: 1,
             entities: { symbols: [], sector: null, wants_table: true, timeframe: "current", requested_date: null, scan_direction: null },
             tools: ["get_recommendations", "get_fair_value_scan"],
-            session_update: { current_symbol: null, last_symbols: sessionState.last_symbols, summary: message }
-        };
-    }
-    if (isFairValueScanRequest(message)) {
-        const filters = getFairValueFilters(message);
-        return {
-            intent: "market_summary",
-            confidence: 1,
-            entities: { symbols: [], sector: null, wants_table: true, timeframe: "current", requested_date: null, scan_direction: null, ...filters },
-            tools: ["get_fair_value_scan"],
             session_update: { current_symbol: null, last_symbols: sessionState.last_symbols, summary: message }
         };
     }
@@ -423,21 +460,6 @@ export function isMarketWideRequest(message: string): boolean {
     return isFairValueScanRequest(message) || /(اخبار\s+(السوق|البورصه)|(?:السيول|السيوله)\s+(فين|في\s+السوق|ل?يوم|لبوم|بتاريخ|يوم)|(?:اكبر|اعلى|اقوى)\s+قطاع.{0,20}(سيول|تداول)|حاله\s+السوق|السوق\s+عمل|(?:اقوى|اعلى)\s+الاسهم|(?:كل|جميع).{0,12}(?:اسهم|الاسهم).{0,12}(?:المؤشر|الموشر|موشر).{0,8}30|^(?:و?ال)?(?:تجميع|تصريف)(?:\s+(?:فين|ايه|الاسهم|الأسهم|النهارده|اليوم))?[؟?\s]*$)/i.test(normalized.trim());
 }
 
-export function isFairValueScanRequest(message: string): boolean {
-    const normalized = message
-        .replace(/[أإآ]/g, "ا")
-        .replace(/ة/g, "ه")
-        .toLowerCase()
-        .replace(/[؟?]/g, " ");
-    // الصيغة الأساسية: أسهم تتداول تحت/فوق القيمة العادلة أو الفنية
-    if (/(?:الاسهم|اسهم|السهم|سهم).{0,45}(?:فوق|تحت|اعلى|أعلى|اقل|أقل|متداول|بتتداول|يتداول).{0,35}(?:القيمه|قيمه|قيمتها|التقييم).{0,20}(?:العادله|العادل|الفنيه|الفنية)/i.test(normalized)) return true;
-    if (/(?:القيمه|قيمه|التقييم).{0,20}(?:العادله|العادل|الفنيه|الفنية).{0,45}(?:الاسهم|اسهم|السهم|سهم)/i.test(normalized)) return true;
-    if (/(?:فوق|تحت|اعلى|اقل).{0,10}(?:القيمه|قيمه).{0,10}(?:العادله|العادل|الفنيه|الفنية)/i.test(normalized)) return true;
-    if (/(?:الاسهم|اسهم).{0,25}(?:القيمه|قيمه).{0,10}(?:العادله|العادل|الفنيه|الفنية)/i.test(normalized)) return true;
-    if (/(?:مبالغ|باهظ|غالي|غالى).{0,20}(?:قيمت|تقييم|اسعار)/i.test(normalized)) return true;
-    if (/(?:الاسهم|اسهم).{0,15}(?:مبالغ|باهظ|غاليه)/i.test(normalized)) return true;
-    return false;
-}
 
 
 export function enforceIntentFromMessage(message: string, plannerIntent: string, symbols: string[]): {

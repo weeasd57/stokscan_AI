@@ -18,7 +18,7 @@ export function isEarningsDataRequest(message: string): boolean {
 export function getFairValueFilters(message: string): { fair_value_direction: "above" | "below"; require_distribution: boolean; require_accumulation: boolean } {
     const value = normalizeArabicIntent(message);
     const above = /(فوق|اعلي|مبالغ|غالي|اغلي)/i.test(value);
-    const below = /(تحت|اقل|رخيص|ارخص|اقل من)/i.test(value);
+    const below = /(تحت|تحدت|اقل|رخيص|ارخص|اقل من)/i.test(value);
     const requireDistribution = /تصريف|distribution/i.test(value);
     return { fair_value_direction: below ? "below" : "above", require_distribution: requireDistribution, require_accumulation: /تجميع|accumulation/i.test(value) };
 }
@@ -34,10 +34,18 @@ export const egyptianMarketTerms = {
     guaranteeRequest: /مضمون|اكيد|ضمان/i,
 };
 
-export type InvestorGuidanceIntent = "onboarding" | "allocation" | "product_comparison" | "product_explainer";
+export type InvestorGuidanceIntent = "onboarding" | "allocation" | "product_comparison" | "product_explainer" | "terms_explainer";
+
+export function isTermsDefinitionRequest(message: string): boolean {
+    const norm = normalizeArabicIntent(message);
+    const hasDefineVerb = /(عرف|تعريف|يعني\s+ايه|يعني\s+إيه|شرح|ما\s+هو|ما\s+هي|ما\s+المقصود|قصده\s+ايه|معنى|معني)/i.test(norm);
+    if (!hasDefineVerb) return false;
+    return /(تجميع|تصريف|جمعيه|جمعية|عموميه|عمومية|macd|rsi|مقاومه|مقاومة|دعم|مؤشر|مؤشرات|وقف\s+خساره|وقف\s+خسارة|ارباح|أرباح|مارجن|مضاربه|مضاربة)/i.test(norm);
+}
 
 export function getInvestorGuidanceIntent(message: string, hasNamedStock = false): InvestorGuidanceIntent | null {
     const normalized = normalizeArabicIntent(message);
+    if (isTermsDefinitionRequest(message)) return "terms_explainer";
     const mentionsDefensiveProduct = /(صندوق|صناديق|دخل\s+(?:ال)?ثابت|عائد\s+(?:ال)?يومي|عائد\s+(?:ال)?ثابت|شهاده|وديعه|حساب توفير|سوق المال|money market|cash|cloud|ثاندر|ثندر|thndr)/i.test(normalized);
     const asksComparison = /(مقارن|قارن|compare|افضل.*ولا|ولا.*افضل|فرق.*بين|(?:سيب|اسيب|احط|اختار).{0,50}ولا)/i.test(normalized);
     const asksHowItWorks = /(بيشتغل.*ازاي|ازاي.*بيشتغل|يعني ايه|ايه.*فكره|مخاطر.*ايه|امان.*ولا|مضمون.*ولا)/i.test(normalized);
@@ -60,12 +68,13 @@ export function isBestBuyStockQuestion(message: string): boolean {
 }
 
 export function isFairValueScanRequest(message: string): boolean {
+    if (isTermsDefinitionRequest(message)) return false;
     const normalized = normalizeArabicIntent(message).replace(/[؟?]/g, " ");
-    return /(?:الاسهم|اسهم|السهم|سهم).{0,45}(?:فوق|تحت|اعلي|اقل|متداول|بتتداول|يتداول).{0,35}(?:القيمه|قيمه|قيمتها|التقييم).{0,20}(?:العادله|العادل|الفنيه|الفنيه|الوسطيه)/i.test(normalized)
+    return /(?:الاسهم|اسهم|السهم|سهم).{0,45}(?:فوق|تحت|تحدت|تحدث|تكون|اقل|اعلي).{0,45}(?:القيمه|قيمه|قيمتها|التقييم).{0,20}(?:العادله|العادل|الفنيه|الوسطيه)/i.test(normalized)
         || /(?:القيمه|قيمه|التقييم).{0,20}(?:العادله|العادل|الفنيه|الوسطيه).{0,45}(?:الاسهم|اسهم|السهم|سهم)/i.test(normalized)
-        || /(?:فوق|تحت|اعلي|اقل).{0,10}(?:القيمه|قيمه).{0,10}(?:العادله|العادل|الفنيه|الوسطيه)/i.test(normalized)
-        || /(?:الاسهم|اسهم).{0,25}(?:القيمه|قيمه).{0,10}(?:العادله|العادل|الفنيه|الوسطيه)/i.test(normalized)
-        || /(?:فوق|تحت|اعلي|اقل).{0,12}(?:القيمه|قيمه).{0,20}(?:تجميع|تصريف)/i.test(normalized);
+        || /(?:فوق|تحت|تحدت|تحدث|اعلي|اقل).{0,10}(?:القيمه|قيمه).{0,10}(?:العادله|العادل|الفنيه|الوسطيه)/i.test(normalized)
+        || /(?:فوق|تحت|تحدت|تحدث|اعلي|اقل).{0,12}(?:القيمه|قيمه).{0,20}(?:تجميع|تصريف)/i.test(normalized)
+        || /(?:تجميع|تصريف).{0,35}(?:القيمه|قيمه)/i.test(normalized);
 }
 
 export function describeDatedFallback(requestedDate: string | null | undefined, dataDate: string | null | undefined): string | null {
@@ -97,14 +106,13 @@ export function extractInvestorPreferences(message: string): ExtractedInvestorPr
     } else if (/(?:مليون)/i.test(value)) {
         budget = 1000000;
     } else {
-        const numMatch = value.match(/(?:معايا|ميزانيتي|مبلغي|سيولة|سيولتي|عندي|بـ|بامكانية)?\s*(\d+[\d,._]*)\s*(الف|ألف|k|kilo|جنيه)?/i);
+        const numMatch = value.match(/(?:معايا|ميزانيتي|مبلغي|سيولة|سيولتي|عندي|بامكانية)\s*(\d+[\d,._]*)\s*(الف|ألف|k|kilo|جنيه)?/i)
+            || value.match(/(\d+[\d,._]*)\s*(الف|ألف|k|kilo|جنيه)/i);
         if (numMatch) {
             let rawNum = parseFloat(numMatch[1].replace(/[,_]/g, ""));
             if (!isNaN(rawNum)) {
-                if (/(الف|ألف|k)/i.test(numMatch[2] || "") || rawNum < 1000) {
-                    if (rawNum < 1000) rawNum *= 1000;
-                }
-                if (rawNum >= 1000) {
+                if (/(الف|ألف|k|kilo)/i.test(numMatch[2] || "")) rawNum *= 1000;
+                if (rawNum > 0) {
                     budget = rawNum;
                 }
             }
