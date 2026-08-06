@@ -242,6 +242,12 @@ describe("Conversational AI & Investor Preference Memory Evaluation", () => {
             const message = "و rsi";
             expect(isTermsDefinitionRequest(message)).toBe(true);
         });
+
+        test("resolves Arabic names 'النيل ولا راميدا' to symbols NIPH and RMDA", () => {
+            const plan = buildDeterministicPlannerResult("النيل ولا راميدا ؟", { current_symbol: null, last_symbols: [], summary: null });
+            expect(plan.entities.symbols).toContain("NIPH");
+            expect(plan.entities.symbols).toContain("RMDA");
+        });
     });
 
     describe("6. Evidence-bound advisor responses", () => {
