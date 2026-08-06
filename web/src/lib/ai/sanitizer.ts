@@ -386,16 +386,17 @@ export function sanitizeReply(reply: string, liveDataString?: string): string {
         const key = trimmed.replace(/[\*\_\:\-\s]/g, "").toLowerCase();
         const count = lineCountMap.get(key) || 0;
         
-        // Strict 1-occurrence limit for headings (###) and bullet items (• or *)
-        const isHeaderOrBullet = trimmed.startsWith("#") || trimmed.startsWith("*") || trimmed.startsWith("•") || trimmed.includes("تحليل السيولة");
-        const maxAllowed = isHeaderOrBullet ? 1 : 2;
+        // Strict 1-occurrence limit for all headings, bullets, and paragraphs
+        const maxAllowed = 1;
 
         if (count < maxAllowed) {
             lineCountMap.set(key, count + 1);
             cleanLines.push(line);
         }
     }
-    cleanReply = cleanLines.join("\n").trim();
+    cleanReply = cleanLines.join("\n").trim()
+        .replace(/في الوقت الحالي، لا أجد أي بيانات سهمية متاحة في\s*\.?/gi, "")
+        .replace(/لا أجد أي بيانات سهمية متاحة في\s*\.?/gi, "");
 
     // 4. Clean up disclaimer duplicates
     const escapedDisclaimer = AI_CONFIG.disclaimer.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
