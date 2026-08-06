@@ -4,6 +4,10 @@ export interface SessionState {
     summary: string | null;
     current_sector?: string | null;
     language?: string;
+    investment_budget?: number | null;
+    investment_horizon?: "short_term" | "medium_term" | "long_term" | null;
+    risk_tolerance?: "low" | "medium" | "high" | null;
+    preferred_sectors?: string[];
 }
 
 export interface VisionContext {

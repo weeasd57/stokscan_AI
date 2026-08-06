@@ -74,3 +74,75 @@ export function describeDatedFallback(requestedDate: string | null | undefined, 
     }
     return `لا توجد بيانات جلسة مسجلة بتاريخ ${requestedDate}؛ استخدمت آخر جلسة سابقة متاحة بتاريخ ${dataDate}. قد يكون السبب عطلة رسمية أو عدم اكتمال البيانات.`;
 }
+
+export interface ExtractedInvestorPreferences {
+    budget: number | null;
+    horizon: "short_term" | "medium_term" | "long_term" | null;
+    risk_tolerance: "low" | "medium" | "high" | null;
+    sector: string | null;
+}
+
+export function extractInvestorPreferences(message: string): ExtractedInvestorPreferences {
+    const value = normalizeArabicIntent(message);
+    let budget: number | null = null;
+    let horizon: "short_term" | "medium_term" | "long_term" | null = null;
+    let risk_tolerance: "low" | "medium" | "high" | null = null;
+    let sector: string | null = null;
+
+    // Budget extraction
+    if (/(?:نصف|نص)\s*مليون/i.test(value)) {
+        budget = 500000;
+    } else if (/(?:مليون)/i.test(value)) {
+        budget = 1000000;
+    } else {
+        const numMatch = value.match(/(?:معايا|ميزانيتي|مبلغي|سيولة|سيولتي|عندي|بـ|بامكانية)?\s*(\d+[\d,._]*)\s*(الف|ألف|k|kilo|جنيه)?/i);
+        if (numMatch) {
+            let rawNum = parseFloat(numMatch[1].replace(/[,_]/g, ""));
+            if (!isNaN(rawNum)) {
+                if (/(الف|ألف|k)/i.test(numMatch[2] || "") || rawNum < 1000) {
+                    if (rawNum < 1000) rawNum *= 1000;
+                }
+                if (rawNum >= 1000) {
+                    budget = rawNum;
+                }
+            }
+        }
+    }
+
+    // Horizon extraction
+    if (/(مضاربة|مضاربه|سريعة|سريعه|عدة أيام|عده ايام|اسبوع|أسبوع|يومي|قصير)/i.test(value)) {
+        horizon = "short_term";
+    } else if (/(استثمار متوسط|عدة شهور|عده شهور|سنة|سنه|لنهاية السنة|لنهاية السنه|اخر السنة|اخر السنه|متوسط الأجل|متوسط الاجل)/i.test(value)) {
+        horizon = "medium_term";
+    } else if (/(طويل|سنتين|سنوات|طويل الأجل|طويل الاجل|استثمار هادئ|استثمار طويل)/i.test(value)) {
+        horizon = "long_term";
+    }
+
+    // Risk tolerance extraction
+    if (/(بدون مخاطرة|بدون مخاطره|قليلة|منخفضة|منخفضه|محافظ|أمان|امان|متحفظ|بعيد عن الريسك)/i.test(value)) {
+        risk_tolerance = "low";
+    } else if (/(متوازنة|متوازنه|متوازن|معتدل|مخاطرة متوسطة|مخاطره متوسطه)/i.test(value)) {
+        risk_tolerance = "medium";
+    } else if (/(عالية|عاليه|مرتفعة|مرتفعه|مغامرة|مغامره|مجازف|مضارب جريء|مخاطرة عالية)/i.test(value)) {
+        risk_tolerance = "high";
+    }
+
+    // Sector extraction
+    const sectorMatch = value.match(/(?:قطاع|في|مجال)\s+(البنوك|العقارات|الاغذية|الأغذية|البتروكيماويات|الاتصالات|التكنولوجيا|الحديد|الادوية|الأدوية|الاسكان|الإسكان)/i);
+    if (sectorMatch) {
+        sector = sectorMatch[1];
+    } else if (/(بنوك|عقارات|اغذية|أغذية|بتروكيماويات|اتصالات|تكنولوجيا|حديد|ادوية|أدوية)/i.test(value)) {
+        const m = value.match(/(بنوك|عقارات|اغذية|أغذية|بتروكيماويات|اتصالات|تكنولوجيا|حديد|ادوية|أدوية)/i);
+        if (m) sector = m[1];
+    }
+
+    return { budget, horizon, risk_tolerance, sector };
+}
+
+export function fuzzyArabicIntentMatch(message: string, targets: string[]): boolean {
+    const normMsg = normalizeArabicIntent(message);
+    return targets.some(target => {
+        const normTarget = normalizeArabicIntent(target);
+        return normMsg.includes(normTarget);
+    });
+}

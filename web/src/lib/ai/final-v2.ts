@@ -1,4 +1,4 @@
-import { IntentPlan, VisionContext, ToolResult, FactSnapshot } from "./types";
+import { IntentPlan, VisionContext, ToolResult, FactSnapshot, SessionState } from "./types";
 import { AI_CONFIG } from "./config";
 import { describeDatedFallback, getFairValueFilters, getInvestorGuidanceIntent, isBestBuyStockQuestion, isDailyPriceLimitQuestion, isEarningsDataRequest, isFairValueScanRequest, isUsageLimitQuestion } from "./intent-policy";
 import { sanitizeReply } from "./sanitizer";
@@ -12,12 +12,31 @@ export function buildV2FinalMessages(
     toolResults: ToolResult[],
     relevantFacts: FactSnapshot[],
     recentHistory: Array<{ role: string; content: string }>,
-    resolvedReference: { symbol: string | null; message_id: string | null; confidence: number }
+    resolvedReference: { symbol: string | null; message_id: string | null; confidence: number },
+    sessionState?: SessionState | null
 ): { role: string; content: any }[] {
     const sections: string[] = [];
     const guidanceIntent = plan.guidance_intent || getInvestorGuidanceIntent(userMessage);
 
     sections.push("=== USER REQUEST ===\n" + (userMessage || "(بدون رسالة)"));
+
+    if (sessionState && (sessionState.investment_budget || sessionState.investment_horizon || sessionState.risk_tolerance || sessionState.preferred_sectors?.length)) {
+        sections.push("=== INVESTOR PROFILE & SESSION CONTEXT ===");
+        if (sessionState.investment_budget) {
+            sections.push(`- الميزانية المتاحة للمستثمر: ${sessionState.investment_budget.toLocaleString("ar-EG")} جنيه مصري`);
+        }
+        if (sessionState.investment_horizon) {
+            const hMap: Record<string, string> = { short_term: "مضاربة / قصير الأجل (عدة أيام لأسبوع)", medium_term: "استثمار متوسط الأجل (عدة أشهُر حتى نهاية السنة)", long_term: "استثمار طويل الأجل (سنة فأكثر)" };
+            sections.push(`- أفق الاستثمار المطلوب: ${hMap[sessionState.investment_horizon] || sessionState.investment_horizon}`);
+        }
+        if (sessionState.risk_tolerance) {
+            const rMap: Record<string, string> = { low: "مخاطرة منخفضة / محافظ على رأس المال", medium: "مخاطرة متوازنة / معتدلة", high: "مخاطرة مرتفعة / مضاربة جريئة" };
+            sections.push(`- مستوى تحمل المخاطرة: ${rMap[sessionState.risk_tolerance] || sessionState.risk_tolerance}`);
+        }
+        if (sessionState.preferred_sectors?.length) {
+            sections.push(`- القطاعات المفضلة لدى المستثمر: ${sessionState.preferred_sectors.join("، ")}`);
+        }
+    }
 
     sections.push("=== INTENT PLAN ===");
     sections.push(JSON.stringify({
@@ -310,7 +329,8 @@ export async function generateV2Response(
     recentHistory: Array<{ role: string; content: string }>,
     resolvedReference: { symbol: string | null; message_id: string | null; confidence: number },
     apiKeys: string[],
-    requestedModel?: string
+    requestedModel?: string,
+    sessionState?: SessionState | null
 ): Promise<string> {
     if (visionContext && visionContext.symbols.length === 0 && toolResults.length === 0) {
         return buildVisionUncertaintyResponse(visionContext);
@@ -328,7 +348,7 @@ export async function generateV2Response(
 
     const messages = buildV2FinalMessages(
         userMessage, plan, visionContext, toolResults,
-        relevantFacts, recentHistory, resolvedReference
+        relevantFacts, recentHistory, resolvedReference, sessionState
     );
 
     const allowedModels = new Set([AI_CONFIG.models.response.default, ...AI_CONFIG.models.response.fallbacks, ...AI_CONFIG.models.response.agentRouter]);
@@ -354,7 +374,8 @@ export async function* generateV2Stream(
     recentHistory: Array<{ role: string; content: string }>,
     resolvedReference: { symbol: string | null; message_id: string | null; confidence: number },
     apiKeys: string[],
-    requestedModel?: string
+    requestedModel?: string,
+    sessionState?: SessionState | null
 ): AsyncGenerator<string, void, unknown> {
     if (visionContext && visionContext.symbols.length === 0 && toolResults.length === 0) {
         yield buildVisionUncertaintyResponse(visionContext);
@@ -376,8 +397,9 @@ export async function* generateV2Stream(
 
     const messages = buildV2FinalMessages(
         userMessage, plan, visionContext, toolResults,
-        relevantFacts, recentHistory, resolvedReference
+        relevantFacts, recentHistory, resolvedReference, sessionState
     );
+
 
     const allowedModels = new Set([AI_CONFIG.models.response.default, ...AI_CONFIG.models.response.fallbacks, ...AI_CONFIG.models.response.agentRouter]);
     const safeRequestedModel = requestedModel && allowedModels.has(requestedModel) ? requestedModel : undefined;

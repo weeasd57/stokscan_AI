@@ -7,8 +7,8 @@ import { buildDeterministicResponse, generateV2Response, generateV2Stream } from
 import { loadSessionState, loadSessionSummary, updateSessionSummary, updateSessionState } from "./session";
 import { buildExcelTables, ExcelTable } from "./excel-tables";
 import { AI_CONFIG } from "./config";
-import { getFairValueFilters, getInvestorGuidanceIntent as classifyInvestorGuidance, isDailyPriceLimitQuestion, isEarningsDataRequest, isUsageLimitQuestion, isBestBuyStockQuestion } from "./intent-policy";
-export { getFairValueFilters, isDailyPriceLimitQuestion, isEarningsDataRequest, isUsageLimitQuestion, isBestBuyStockQuestion } from "./intent-policy";
+import { extractInvestorPreferences, getFairValueFilters, getInvestorGuidanceIntent as classifyInvestorGuidance, isDailyPriceLimitQuestion, isEarningsDataRequest, isUsageLimitQuestion, isBestBuyStockQuestion } from "./intent-policy";
+export { extractInvestorPreferences, getFairValueFilters, isDailyPriceLimitQuestion, isEarningsDataRequest, isUsageLimitQuestion, isBestBuyStockQuestion } from "./intent-policy";
 
 export interface PipelineResult {
     vision: VisionContext | null;
@@ -641,6 +641,19 @@ export async function* runPipelineStream(
             vision
         );
 
+    const prefs = extractInvestorPreferences(userMessage);
+    if (prefs.budget !== null || prefs.horizon !== null || prefs.risk_tolerance !== null || prefs.sector !== null) {
+        sessionState = {
+            ...sessionState,
+            investment_budget: prefs.budget !== null ? prefs.budget : sessionState.investment_budget,
+            investment_horizon: prefs.horizon !== null ? prefs.horizon : sessionState.investment_horizon,
+            risk_tolerance: prefs.risk_tolerance !== null ? prefs.risk_tolerance : sessionState.risk_tolerance,
+            preferred_sectors: prefs.sector 
+                ? Array.from(new Set([...(sessionState.preferred_sectors || []), prefs.sector]))
+                : sessionState.preferred_sectors
+        };
+    }
+
     const explicitSymbols = extractExplicitSymbols(userMessage);
     let mergedSymbols = explicitSymbols.length > 0
         ? explicitSymbols
@@ -763,7 +776,8 @@ export async function* runPipelineStream(
         memory?.recent_messages || [],
         memory?.resolved_references || { symbol: null, message_id: null, confidence: 0 },
         apiKeys,
-        requestedModel
+        requestedModel,
+        sessionState
     );
 
     let fullResponse = "";
