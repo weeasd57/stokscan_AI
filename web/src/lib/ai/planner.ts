@@ -213,6 +213,7 @@ const ARABIC_STOCK_MAPPINGS: Record<string, string> = {
 };
 import { SessionState, PlannerResult, VisionContext } from "./types";
 import { AI_CONFIG } from "./config";
+import { isBestBuyStockQuestion } from "./intent-policy";
 import { createHash } from "crypto";
 import { getSupabaseClient } from "@/lib/supabase/route-data";
 
@@ -900,10 +901,26 @@ Analyze the user request and return a JSON object. You MUST dynamically choose t
         keyIndex = 0;
     }
 
+    const isBestBuy = isBestBuyStockQuestion(message);
     const isMarketSlang = /مين طلع ومين نزل|ايه اللي طلع وايه اللي نزل|ايه اللى طلع وايه اللى نزل|السوق عمل ايه|حالة السوق|صعود وهبوط|gainers and losers|what went up|whole market|where is liquidity/i.test(message);
     const sectorFollowUp = /^(?:اى|أي|ايه|ما هو|ما هي|مين)\s+(?:اكبر|أكبر)\s+(?:سهم|شركة)\s+(?:في|فى|بقطاع|من)\s+(.+)$/i.exec(message.trim())
         || /^(?:اكبر|أكبر)\s+(?:سهم|شركة)\s+(?:في|فى|بقطاع|من)\s+(.+)$/i.exec(message.trim());
-    const fallbackSymbols = (hasImages || isMarketSlang) ? [] : (session.current_symbol ? [correctStockSymbol(session.current_symbol, validSymbols)] : []);
+    const fallbackSymbols = (hasImages || isMarketSlang) ? [] : (session.last_symbols?.length ? session.last_symbols : (session.current_symbol ? [correctStockSymbol(session.current_symbol, validSymbols)] : []));
+
+    if (isBestBuy) {
+        return {
+            intent: fallbackSymbols.length > 0 ? "stock_analysis" : "market_summary",
+            confidence: 0.8,
+            entities: { symbols: fallbackSymbols, sector: null, wants_table: true },
+            tools: fallbackSymbols.length > 0 ? ["get_stock", "get_stock_levels"] : ["get_recommendations", "get_fair_value_scan"],
+            session_update: {
+                current_symbol: fallbackSymbols[0] || session.current_symbol,
+                last_symbols: session.last_symbols ? session.last_symbols.map((s: string) => correctStockSymbol(s, validSymbols)) : [],
+                summary: message
+            }
+        };
+    }
+
     return {
         intent: "general_chat",
         confidence: 0,
