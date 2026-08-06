@@ -49,12 +49,22 @@ export default function FAQClient() {
       items: [
         {
           q: {
+            en: "What makes EGX Bots different from basic signal-only bots?",
+            ar: "ما الفرق بين EGX Bots كمساعد محادثة تفاعلي وبين بوتات الإشارات التقليدية؟",
+          },
+          a: {
+            en: "EGX Bots features a 24/7 Interactive AI Chatbot where you can chat naturally in Arabic or English, upload portfolio screenshots for instant Vision AI analysis, and discuss technical support and resistance levels. Static signal bots only send one-way text alerts without chat or interactive discussion capabilities.",
+            ar: "EGX Bots يوفر شات بوت محادثة ذكي تفاعلي بالكامل (Interactive AI Chatbot) تدردش معه بالعربية والإنجليزي، ترفع له صور وسكرين شوت للمحفظة الاستثمارية لتحليلها فوراً بالرؤية الحسابية، وتسأله عن تفاصيل الدعم والمقاومة وتوزيع السيولة. هذا يختلف جذرياً عن البوتات المغلقة التي تقتصر على إرسال إشارات شراء وبيع جافة ومكتوبة مقدماً بدون محادثة أو مناقشة.",
+          },
+        },
+        {
+          q: {
             en: "What is EGX Bots?",
             ar: "ما هو EGX Bots؟",
           },
           a: {
-            en: "EGX Bots is an AI-powered analysis platform for the Egyptian Exchange (EGX). It combines a technical scanner, machine-learning models (Random Forest), historical backtesting, and historical-similarity pattern matching to deliver data-driven trading signals for Egyptian investors.",
-            ar: "EGX Bots هي منصة تحليل أسهم البورصة المصرية (EGX) بالذكاء الاصطناعي. تجمع المنصة بين الماسح الفني، نماذج التعلم الآلي (الغابة العشوائية)، المحاكاة التاريخية (Backtest)، وتشابه النماذج التاريخية لتقديم إشارات تداول مدعومة بالبيانات للمستثمر المصري.",
+            en: "EGX Bots is an AI-powered analysis platform for the Egyptian Exchange (EGX). It combines a 24/7 interactive AI chatbot, a technical scanner, machine-learning models, backtesting, and pattern matching for Egyptian investors.",
+            ar: "EGX Bots هي منصة تحليل أسهم البورصة المصرية (EGX) بالذكاء الاصطناعي. تجمع المنصة بين الشات بوت التفاعلي 24/7، الماسح الفني، نماذج التعلم الآلي، المحاكاة التاريخية، وتشابه النماذج لتقديم إشارات وتحليلات مدعومة بالبيانات.",
           },
         },
         {

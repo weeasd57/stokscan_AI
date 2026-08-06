@@ -24,6 +24,9 @@ import {
     Landmark,
     Layers,
     AlertTriangle,
+    MessageSquare,
+    Camera,
+    CheckCircle2,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import RecommendationsTable from "@/components/RecommendationsTable";
@@ -416,6 +419,50 @@ export default function HomePage() {
                             : "Our AI does the hard work, analyzing hundreds of metrics per day per stock and rating their probability of beating the market with the AI Score."}
                     </p>
 
+                    {/* Interactive AI Chatbot Spotlight Feature Banner */}
+                    <div className="max-w-4xl mx-auto mb-14 p-6 sm:p-8 border-4 border-black dark:border-white neobrutal-bg-cyan text-black shadow-[8px_8px_0px_rgba(0,0,0,1)] dark:shadow-[8px_8px_0px_rgba(255,255,255,1)] rotate-[-0.5deg] hover:rotate-0 transition-transform duration-300 relative overflow-hidden text-right">
+                        <div className="flex flex-col md:flex-row items-center justify-between gap-6 relative z-10 font-sans">
+                            <div className="flex-1 space-y-3">
+                                <div className="inline-flex items-center gap-2 border-2 border-black bg-yellow-300 px-3 py-1 text-xs font-black uppercase tracking-wider shadow-[2px_2px_0px_rgba(0,0,0,1)]">
+                                    <Sparkles className="w-4 h-4 text-black animate-bounce" style={{ animationDuration: '2s' }} />
+                                    {isAr ? "الميزة الاستثنائية: شات بوت محادثة 24/7" : "Exclusive Feature: 24/7 Interactive AI Chatbot"}
+                                </div>
+                                <h3 className="text-2xl sm:text-4xl font-black text-black tracking-tight leading-tight">
+                                    {isAr ? "🤖 شات بوت تفاعلي حقيقي للبورصة المصرية (وليس إشارات جافة فقط)" : "🤖 Real Interactive AI Chatbot (Not Just Static Signals)"}
+                                </h3>
+                                <p className="text-sm sm:text-base font-bold text-zinc-900 leading-relaxed">
+                                    {isAr
+                                        ? "على عكس المنصات التي تكتفي بإرسال إشارات أوتوماتيكية جافة، يتيح لك EGX Bots شات بوت محادثة ذكي يمكنك التحدث معه بالعربية والإنجليزي، رفع صورة/سكرين شوت لمحفظتك لتحليلها بالرؤية الحسابية، وسؤاله عن نقاط الدعم والمقاومة وتوزيع السيولة."
+                                        : "Unlike basic signal-only platforms, EGX Bots features a full interactive AI Chatbot where you can chat naturally, upload portfolio screenshots for instant Vision AI analysis, and discuss key technical levels in real time."}
+                                </p>
+                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-2">
+                                    <div className="flex items-center gap-2 text-xs font-black bg-white/90 border-2 border-black p-2 shadow-[2px_2px_0px_rgba(0,0,0,1)] text-black">
+                                        <MessageSquare className="w-4 h-4 text-indigo-600 shrink-0" />
+                                        <span>{isAr ? "محادثة طبيعية 24/7" : "24/7 Natural Chat"}</span>
+                                    </div>
+                                    <div className="flex items-center gap-2 text-xs font-black bg-white/90 border-2 border-black p-2 shadow-[2px_2px_0px_rgba(0,0,0,1)] text-black">
+                                        <Camera className="w-4 h-4 text-emerald-600 shrink-0" />
+                                        <span>{isAr ? "تحليل سكرين شوت المحفظة" : "Portfolio Vision AI"}</span>
+                                    </div>
+                                    <div className="flex items-center gap-2 text-xs font-black bg-white/90 border-2 border-black p-2 shadow-[2px_2px_0px_rgba(0,0,0,1)] text-black">
+                                        <Zap className="w-4 h-4 text-amber-600 shrink-0" />
+                                        <span>{isAr ? "تحليل النوايا والسيولة" : "Smart Intent & Capital Allocation"}</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="shrink-0 w-full md:w-auto">
+                                <Link
+                                    href="/scanner/ai"
+                                    className="w-full md:w-auto h-14 px-8 border-4 border-black bg-yellow-400 hover:bg-yellow-300 text-black font-black uppercase tracking-wider shadow-[4px_4px_0px_rgba(0,0,0,1)] hover:translate-x-[-2px] hover:translate-y-[-2px] hover:shadow-[6px_6px_0px_rgba(0,0,0,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all duration-100 flex items-center justify-center gap-3 text-base sm:text-lg"
+                                >
+                                    <MessageSquare className="w-5 h-5 text-black" />
+                                    <span>{isAr ? "تحدث مع البوت الذكي الآن" : "Chat With AI Assistant"}</span>
+                                    <ArrowRight className={`w-5 h-5 ${isAr ? "rotate-180" : ""}`} />
+                                </Link>
+                            </div>
+                        </div>
+                    </div>
+
                     {/* AI Score Staircase (danelfin visual concept but neobrutalist) */}
                     <div className="max-w-4xl mx-auto mb-16 px-4">
                         <div className="w-full overflow-x-auto py-6 -mx-4 px-4 scrollbar-thin scrollbar-thumb-zinc-700 flex justify-start md:justify-center">
@@ -450,20 +497,20 @@ export default function HomePage() {
                     </div>
 
                     {/* Actions */}
-                    <div className="flex flex-col sm:flex-row gap-6 justify-center items-stretch sm:items-center px-4 max-w-2xl mx-auto">
+                    <div className="flex flex-col sm:flex-row gap-6 justify-center items-stretch sm:items-center px-4 max-w-3xl mx-auto">
                         <Link
-                            href={user ? "/scanner/backtests" : "/signup"}
-                            className="h-16 px-10 border-4 border-black dark:border-white bg-amber-300 dark:bg-amber-400 text-black font-black uppercase tracking-wider shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_rgba(255,255,255,1)] hover:translate-x-[-2px] hover:translate-y-[-2px] hover:shadow-[6px_6px_0px_rgba(0,0,0,1)] dark:hover:shadow-[6px_6px_0px_rgba(255,255,255,1)] active:translate-x-[4px] active:translate-y-[4px] active:shadow-none transition-all duration-100 cursor-pointer flex items-center justify-center gap-3 text-base sm:text-xl"
+                            href="/scanner/ai"
+                            className="h-16 px-8 border-4 border-black dark:border-white bg-amber-300 dark:bg-amber-400 text-black font-black uppercase tracking-wider shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_rgba(255,255,255,1)] hover:translate-x-[-2px] hover:translate-y-[-2px] hover:shadow-[6px_6px_0px_rgba(0,0,0,1)] dark:hover:shadow-[6px_6px_0px_rgba(255,255,255,1)] active:translate-x-[4px] active:translate-y-[4px] active:shadow-none transition-all duration-100 cursor-pointer flex items-center justify-center gap-3 text-base sm:text-xl"
                         >
-                            {user ? (isAr ? "عرض أفضل الأسهم" : "View Top Stocks") : (isAr ? "أنشئ حساباً مجانياً" : "Create Free Account")}
-                            <ArrowRight className={`w-6 h-6 transition-transform ${isAr ? "rotate-180" : ""}`} />
+                            <MessageSquare className="w-6 h-6 text-black" />
+                            {isAr ? "تحدث مع الشات بوت الذكي 🤖" : "Interactive AI Chatbot 🤖"}
                         </Link>
                         <Link
-                            href="/scanner/technical"
-                            className="h-16 px-10 border-4 border-black dark:border-white bg-white dark:bg-zinc-900 text-black dark:text-white font-black text-base sm:text-xl shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_rgba(255,255,255,1)] hover:translate-x-[-2px] hover:translate-y-[-2px] hover:shadow-[6px_6px_0px_rgba(0,0,0,1)] dark:hover:shadow-[6px_6px_0px_rgba(255,255,255,1)] active:translate-x-[4px] active:translate-y-[4px] active:shadow-none transition-all duration-100 cursor-pointer flex items-center justify-center gap-3"
+                            href={user ? "/scanner/backtests" : "/signup"}
+                            className="h-16 px-8 border-4 border-black dark:border-white bg-white dark:bg-zinc-900 text-black dark:text-white font-black uppercase tracking-wider shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_rgba(255,255,255,1)] hover:translate-x-[-2px] hover:translate-y-[-2px] hover:shadow-[6px_6px_0px_rgba(0,0,0,1)] dark:hover:shadow-[6px_6px_0px_rgba(255,255,255,1)] active:translate-x-[4px] active:translate-y-[4px] active:shadow-none transition-all duration-100 cursor-pointer flex items-center justify-center gap-3 text-base sm:text-xl"
                         >
-                            <Activity className="w-6 h-6 text-indigo-600 dark:text-indigo-400" />
-                            {isAr ? "جرب الماسح الفني" : "Try Technical Scanner"}
+                            {user ? (isAr ? "أفضل الأسهم" : "View Top Stocks") : (isAr ? "أنشئ حساباً مجانياً" : "Create Free Account")}
+                            <ArrowRight className={`w-6 h-6 transition-transform ${isAr ? "rotate-180" : ""}`} />
                         </Link>
                     </div>
                 </div>
