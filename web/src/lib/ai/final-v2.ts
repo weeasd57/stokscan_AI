@@ -1,6 +1,6 @@
 import { IntentPlan, VisionContext, ToolResult, FactSnapshot } from "./types";
 import { AI_CONFIG } from "./config";
-import { describeDatedFallback, getFairValueFilters, getInvestorGuidanceIntent, isDailyPriceLimitQuestion, isEarningsDataRequest, isFairValueScanRequest, isUsageLimitQuestion } from "./intent-policy";
+import { describeDatedFallback, getFairValueFilters, getInvestorGuidanceIntent, isBestBuyStockQuestion, isDailyPriceLimitQuestion, isEarningsDataRequest, isFairValueScanRequest, isUsageLimitQuestion } from "./intent-policy";
 import { sanitizeReply } from "./sanitizer";
 
 const MAX_CONTEXT_CHARS = 30000;
@@ -151,13 +151,19 @@ export function buildV2FinalMessages(
     sections.push("=== RESPONSE RULES ===");
     sections.push("- استخدم طلب المستخدم الحالي كأولوية أولى");
     sections.push("- استخدم نية الـ planner كأولوية ثانية");
+    sections.push("- كُن مساعداً حوارياً ذكياً، ودواداً، ومحاوراً حقيقياً يبدأ بالترحيب والتفاعل مع المستثمر طبيعياً دون جمود القوالب.");
+    sections.push("- عندما يسأل المستخدم سؤالاً عاماً عن أفضل أسهم للشراء أو الترشيحات أو الدخول (مثل: مين أدخله بكرة، أشتري إيه، أفضل سهم للشراء):");
+    sections.push("  1. تبادل الحديث معه بأسلوب حواري مخصص ومرحب في البداية.");
+    sections.push("  2. قدم تحليلاً حوارياً لأبرز الأسهم المرشحة ذات التقييم والزخم المرتفع من البيانات الحية المتاحة.");
+    sections.push("  3. وضح له نقاط الدعم والمقاومة، وذكّره بأهمية عدم وضع السيولة كلها في سهم واحد.");
+    sections.push("  4. اختم حديثك بسؤال تفاعلي يسأله عن أفق استثماره ومدى تحمله للمخاطر لتحديد أنسب نقطة دخول.");
     sections.push("- استخدم بيانات الصورة فقط إذا كانت موجودة في === IMAGE ANALYSIS ===");
     sections.push("- استخدم نتائج الأدوات الحالية من === LIVE DATA ===");
     sections.push("- استخدم البيانات التاريخية من === HISTORICAL DATA ===");
     sections.push("- لا تخترع أرقاماً غير موجودة في الأقسام أعلاه");
     sections.push("- لا تعطِ توصيات شراء أو بيع صريحة");
     sections.push("- اذكر مصدر كل رقم (صورة، بيانات حية، بيانات تاريخية)");
-    sections.push("- اكتب بالعربية الفصحى المفهومة");
+    sections.push("- اكتب بالعربية الفصحى المفهومة والمحاورة الطليقة");
     sections.push("- تحليل السيولة المصاحب: اشرح RSI و MACD ونسبة السيولة من البيانات إن وجدت");
     sections.push("- لا تنشئ جدول Markdown من نفسك؛ سيضيف النظام الجدول المنظم المستخرج من البيانات بعد ردك");
     sections.push("- لا تذكر أو تسرد أي رمز أو اسم شركة غير موجود في مصادر البيانات والجداول أعلاه");
@@ -503,7 +509,7 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
     const fairValueRequest = /(قيمه عادله|قيمة عادلة|القيمة العادلة|القيمه العادله|fair value|عادله|عادلة)/i.test(userMessage);
     const compoundMessage = /\n|\s+(?:هات|جيب|اعرض|حلل|شوف|قارن|لو\s+كسر)(?:\s|$)|[،,]\s*(?:و\s*)?(?:مين|ايه|إيه|هات|جيب|شوف|حلل)(?:\s|$)/i.test(userMessage);
     const fairValueScan = toolResults.find(result => result.tool === "get_fair_value_scan");
-    if (fairValueScan) {
+    if (fairValueScan && !isBestBuyStockQuestion(userMessage)) {
         const stocks = Array.isArray(fairValueScan.data?.stocks) ? fairValueScan.data.stocks : [];
         const direction = fairValueScan.data?.direction || plan.entities.fair_value_direction || "above";
         const requiresDistribution = Boolean(fairValueScan.data?.require_distribution || plan.entities.require_distribution);
