@@ -20,7 +20,7 @@ export const AI_CONFIG = {
     toolsTimeoutMs: 12_000,
     responseTimeoutMs: 12_000,
     requestDeadlineMs: 52_000,
-    responseMaxTokens: 900,
+    responseMaxTokens: 1200,
     responseTimeoutFallbackMs: 20_000,
     cacheTtlMs: 24 * 60 * 60 * 1000,
   },
