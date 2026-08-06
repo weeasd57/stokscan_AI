@@ -1,5 +1,5 @@
 import { extractInvestorPreferences, fuzzyArabicIntentMatch, isBestBuyStockQuestion } from "../ai/intent-policy";
-import { buildV2FinalMessages } from "../ai/final-v2";
+import { buildV2FinalMessages, buildFastConversationalAdvisorResponse } from "../ai/final-v2";
 
 describe("Conversational AI & Investor Preference Memory Evaluation", () => {
     describe("1. Investor Preference Extraction (extractInvestorPreferences)", () => {
@@ -131,6 +131,69 @@ describe("Conversational AI & Investor Preference Memory Evaluation", () => {
             expect(userPromptContent).toContain("مخاطرة متوازنة");
             expect(userPromptContent).toContain("العقارات، البنوك");
             expect(userPromptContent).toContain("كُن مساعداً حوارياً ذكياً، ودواداً، ومحاوراً حقيقياً");
+        });
+    });
+
+    describe("5. Exact Telemetry Scenario Verification (Fast Response & No Timeout)", () => {
+        test("handles sector purchase follow up and allocation ratio queries instantly without timeouts", () => {
+            const mockSession = {
+                current_symbol: null,
+                last_symbols: [],
+                summary: "قطاع العقارات",
+                investment_budget: 200000,
+                investment_horizon: "medium_term",
+                risk_tolerance: "medium",
+                preferred_sectors: ["العقارات"]
+            };
+
+            const mockToolResults = [{
+                tool: "get_sector",
+                source: "stock_prices",
+                data_time: "2026-08-05",
+                symbols: ["UTOP", "AALR", "EMFD"],
+                data_type: "live",
+                data: {
+                    sector: "عقارات",
+                    stocks: [
+                        { symbol: "UTOP", close: 118.83, change_pct: 10, rsi: 89.75 },
+                        { symbol: "AALR", close: 303.07, change_pct: 9.81, rsi: 73.41 },
+                        { symbol: "EMFD", close: 12.1, change_pct: 5.31, rsi: 56.02 }
+                    ]
+                }
+            }];
+
+            const mockPlan = {
+                intent: "sector_analysis",
+                confidence: 1,
+                entities: { symbols: [], sector: "العقارات", timeframe: "current" },
+                needs_live_data: true,
+                tools: ["get_sector"]
+            };
+
+            // Query 2: "طيب أشتري إيه من القطاع ده بناءً على الأرقام الحالية؟"
+            const res2 = buildFastConversationalAdvisorResponse(
+                "طيب أشتري إيه من القطاع ده بناءً على الأرقام الحالية؟",
+                mockPlan,
+                mockToolResults,
+                mockSession
+            );
+            expect(res2).not.toBeNull();
+            expect(res2).toContain("UTOP");
+            expect(res2).toContain("AALR");
+            expect(res2).toContain("EMFD");
+            expect(res2).toContain("نقاط المتابعة والتحليل الفني");
+
+            // Query 3: "لو هوزع المبلغ ده، تنصحني بأي نسبة بين الأسهم والصناديق؟"
+            const res3 = buildFastConversationalAdvisorResponse(
+                "لو هوزع المبلغ ده، تنصحني بأي نسبة بين الأسهم والصناديق؟",
+                mockPlan,
+                mockToolResults,
+                mockSession
+            );
+            expect(res3).not.toBeNull();
+            expect(res3).toContain("إطار التوزيع الاسترشادي المقترح");
+            expect(res3).toContain("60% أسهم");
+            expect(res3).toContain("30% أدوات دخل ثابت");
         });
     });
 });

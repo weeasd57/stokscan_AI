@@ -512,43 +512,70 @@ export function buildFastConversationalAdvisorResponse(
     toolResults: ToolResult[],
     sessionState?: SessionState | null
 ): string | null {
-    if (isBestBuyStockQuestion(userMessage)) {
-        const fairValueScan = toolResults.find(result => result.tool === "get_fair_value_scan");
-        const stocks = Array.isArray(fairValueScan?.data?.stocks) ? fairValueScan.data.stocks : [];
+    const normMsg = userMessage.toLowerCase().replace(/[أإآ]/g, "ا").replace(/ة/g, "ه");
+    const guidanceIntent = plan.guidance_intent || getInvestorGuidanceIntent(userMessage);
 
-        let profileGreeting = "أهلاً بك! بصفتي مستشارك المالي المباشر للبورصة المصرية، إليك قراءة فنية سريعة لأهم الفرص المتاحة وفق أحدث مسح للجلسة:";
-        if (sessionState?.investment_budget || sessionState?.risk_tolerance || sessionState?.preferred_sectors?.length) {
-            const parts: string[] = [];
-            if (sessionState.investment_budget) parts.push(`ميزانيتك المتاحة: ${sessionState.investment_budget.toLocaleString("ar-EG")} جنيه`);
-            if (sessionState.risk_tolerance) {
-                const rMap: Record<string, string> = { low: "مستوى مخاطرة منخفض", medium: "مستوى مخاطرة متوازن", high: "مهمة مضاربية عالية" };
-                parts.push(rMap[sessionState.risk_tolerance] || sessionState.risk_tolerance);
-            }
-            if (sessionState.preferred_sectors?.length) {
-                parts.push(`تفوق قطاع ${sessionState.preferred_sectors.join(" و")}`);
-            }
-            profileGreeting = `أهلاً بك! بناءً على تفضيلاتك المسجلة معي (${parts.join(" ، ")}): إليك قراءة فنية مخصصة لأهم الفرص المتاحة وفق أحدث مسح للجلسة:`;
+    const hasSpecificSymbols = Boolean(plan.entities?.symbols?.length);
+
+    // 1. Allocation & Product Distribution Queries (e.g. "لو هوزع المبلغ ده، تنصحني بأي نسبة بين الأسهم والصناديق؟")
+    const isAllocationRatioQuery = !hasSpecificSymbols && (
+        /(توزيع|نسبة|نسبه|اوزع|أوزع|اوزعها|قسم|تقسيم).{0,35}(أسهم|اسهم).{0,35}(صناديق|صندوق|دخل ثابت|ادخار)/i.test(normMsg)
+        || /(توزيع|نسبة|نسبه).{0,30}(بين|مابين).{0,30}(أسهم|اسهم|صناديق)/i.test(normMsg)
+        || (plan.guidance_intent === "allocation" && /(نسبة|نسبه|صناديق)/i.test(normMsg))
+    );
+
+    if (isAllocationRatioQuery) {
+        let budgetStr = sessionState?.investment_budget ? ` لمبلغ ${sessionState.investment_budget.toLocaleString("ar-EG")} جنيه` : "";
+        let riskStr = sessionState?.risk_tolerance ? (sessionState.risk_tolerance === "low" ? "المحافظة" : sessionState.risk_tolerance === "high" ? "المغامرة" : "المتوازنة") : "المتوازنة";
+
+        return [
+            `أهلاً بك! بناءً على استراتيجية الاستثمار ${riskStr}${budgetStr}، فإن التوزيع المثالي يراعي التوازن بين نمو رأس المال وحمايته من التقلبات:`,
+            "",
+            "📊 **إطار التوزيع الاسترشادي المقترح:**",
+            "1. **60% أسهم ذات زخم وقوة مالية/فنية:** تركيز على أسهم القطاعات النشطة (مثل القطاع المفضل لديك) مع اختيار أسهم تتداول قرب قيمها الوسطية الفنية.",
+            "2. **30% أدوات دخل ثابت / صناديق نقدية:** لحماية جزء رئيسي من رأس المال، وتوفير عائد دوري مستقر يقلل من حدة تذبذب البورصة.",
+            "3. **10% سيولة نقدية جاهزة:** للاقتناص التكتيكي عند حدوث أي تصحيحات سعرية مؤقتة في السوق.",
+            "",
+            "📌 **نصيحة المستشار:** لا تقم بالدخول بكامل حصة الأسهم مرة واحدة، بل قسّم الدخول على 2-3 دفعات عند مستويات الدعم الفنية.",
+            "",
+            "❓ **سؤال تفاعلي:** هل تفضل الاستثمار في صناديق الأسهم كإدارة محترفة، أم اختيار الأسهم الفردية بنفسك وفق تحليلات الزخم؟"
+        ].join("\n");
+    }
+
+    // 2. Sector Stock Selection & Best Buy Queries (e.g. "طيب أشتري إيه من القطاع ده بناءً على الأرقام الحالية؟")
+    const isSectorBuyQuery = /(أشتري|اشتري|ادخل|ترشح|أفضل|افضل|ايه).{0,25}(?:سهم|أسهم|فرصة|فرصه).{0,20}(?:القطاع|قطاع)/i.test(normMsg)
+        || /(طيب|طب)?\s*(أشتري|اشتري|ادخل|أدخل)\s*(إيه|ايه|في\s+إيه|في\s+ايه)\s*من\s*(القطاع|قطاع)/i.test(normMsg);
+    if (isSectorBuyQuery || isBestBuyStockQuestion(userMessage)) {
+        const sectorResult = toolResults.find(r => r.tool === "get_sector");
+        const fairValueScan = toolResults.find(r => r.tool === "get_fair_value_scan");
+        const stocks = Array.isArray(sectorResult?.data?.stocks) ? sectorResult.data.stocks : (Array.isArray(fairValueScan?.data?.stocks) ? fairValueScan.data.stocks : []);
+
+        let greeting = "أهلاً بك! بناءً على البيانات الحية وأرقام مسح الجلسة لقطاعك المفضل والأسهم المتداولة:";
+        if (sessionState?.investment_budget || sessionState?.risk_tolerance) {
+            greeting = `أهلاً بك! استكمالاً لتحليل قطاعك المفضل ووفق تفضيلاتك المسجلة معي (${sessionState.investment_budget ? `ميزانية ${sessionState.investment_budget.toLocaleString("ar-EG")} جنيه` : "استثمار متوازن"}): إليك قراءة لأبرز الأسهم المرشحة بالقطاع:`;
         }
 
         const topStocksList = stocks.slice(0, 5).map((s: any) => {
             const sym = s.symbol;
-            const price = Number(s.close).toFixed(2);
-            const premium = Math.abs(Number(s.premium_pct)).toFixed(1);
-            return `• **${sym}**: يتداول بسعر ${price} جنيه (أعلى من القيمة الوسطية لنطاق 60 جلسة بـ ${premium}%) - يعكس زخماً وقوة سعرية نسبيّة.`;
+            const price = Number(s.close || s.price).toFixed(2);
+            const change = s.change_pct != null ? `${s.change_pct > 0 ? "+" : ""}${Number(s.change_pct).toFixed(2)}%` : "";
+            const rsi = s.rsi != null ? ` | RSI: ${Number(s.rsi).toFixed(1)}` : "";
+            return `• **${sym}**: السعر الحالي ${price} جنيه (${change}${rsi}) - يظهر نشاطاً سعرياً وإشارات إيجابية في السيولة.`;
         }).join("\n");
 
         return [
-            profileGreeting,
+            greeting,
             "",
-            topStocksList || "• يتميز السوق حالياً بتحركات متوازنة، والأسهم الموضحة أدناه تتداول أعلى قيمتها الوسطية مع بداية دخول سيولة.",
+            topStocksList || "• الأسهم الموضحة بالجدول أعلاه تعكس أحدث حركة للسيولة والزخم السعري للقطاع.",
             "",
-            "📌 **ملخص النصيحة وإدارة المخاطر:**",
-            "1. **الدخول التكتيكي:** يُنصح دائماً بالدخول المتدرج قرب مستويات الدعم الحسابية وتجنب الشراء بأعلى نقطة صعود.",
-            "2. **تنوع المحفظة:** لا تضع السيولة كلها في سهم واحد، بل احتفظ بنسبة سيولة طوارئ ودفاعية.",
+            "📌 **نقاط المتابعة والتحليل الفني:**",
+            "1. **نقاط الدخول:** ركز على الأسهم التي تتميز بـ RSI متوازن (بين 45 و 68) وتتداول فوق قيمتها الوسطية.",
+            "2. **وقف الخسارة:** حدد نقطة وقف الخسارة عند كسر أقرب مستوى دعم بنسبة 3-5%.",
             "",
-            "❓ **سؤال تفاعلي:** هل تفضل تركيز السيولة على أسهم ذات حركة مضاربية سريعة، أم أسهم ذات تجميع هادئ للاستثمار متوسط الأجل؟"
+            "❓ **سؤال تفاعلي:** هل ترغب في تحليل النطاق السعري الدقيق ومستويات الدعم/المقاومة لأحد هذه الأسهم بالتحديد؟"
         ].join("\n");
     }
+
     return null;
 }
 
