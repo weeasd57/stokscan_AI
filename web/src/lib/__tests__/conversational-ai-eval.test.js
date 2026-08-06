@@ -181,7 +181,7 @@ describe("Conversational AI & Investor Preference Memory Evaluation", () => {
             expect(res2).toContain("UTOP");
             expect(res2).toContain("AALR");
             expect(res2).toContain("EMFD");
-            expect(res2).toContain("نقاط المتابعة والتحليل الفني");
+            expect(res2).toContain("قواعد الدخول وإدارة المخاطر");
 
             // Query 3: "لو هوزع المبلغ ده، تنصحني بأي نسبة بين الأسهم والصناديق؟"
             const res3 = buildFastConversationalAdvisorResponse(

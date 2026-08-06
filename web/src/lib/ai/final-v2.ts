@@ -558,21 +558,33 @@ export function buildFastConversationalAdvisorResponse(
         const topStocksList = stocks.slice(0, 5).map((s: any) => {
             const sym = s.symbol;
             const price = Number(s.close || s.price).toFixed(2);
-            const change = s.change_pct != null ? `${s.change_pct > 0 ? "+" : ""}${Number(s.change_pct).toFixed(2)}%` : "";
-            const rsi = s.rsi != null ? ` | RSI: ${Number(s.rsi).toFixed(1)}` : "";
-            return `• **${sym}**: السعر الحالي ${price} جنيه (${change}${rsi}) - يظهر نشاطاً سعرياً وإشارات إيجابية في السيولة.`;
-        }).join("\n");
+            const changeVal = s.change_pct != null ? Number(s.change_pct) : 0;
+            const changeStr = changeVal !== 0 ? `${changeVal > 0 ? "+" : ""}${changeVal.toFixed(2)}%` : "استقرار";
+            const rsiVal = s.rsi != null ? Number(s.rsi).toFixed(1) : null;
+            const premium = s.premium_pct != null ? Math.abs(Number(s.premium_pct)).toFixed(1) : null;
+
+            let reason = "دخول سيولة إيجابية وتماسك فني فوق مستويات الدعم.";
+            if (rsiVal && Number(rsiVal) >= 45 && Number(rsiVal) <= 68) {
+                reason = `زخم فني صحي متوازن (RSI: ${rsiVal}) يتيح مساحة صعود مستقرة دون مخاطرة تشبع شرائي.`;
+            } else if (premium) {
+                reason = `يتداول أعلى قيمته الوسطية بـ ${premium}% مما يعكس تفوق القوة الشرائية والمؤسسية.`;
+            } else if (changeVal > 0) {
+                reason = `حركة سعرية إيجابية بزيادة ${changeStr} مع إشارات تجميع في التداولات الحية.`;
+            }
+
+            return `• **${sym}** (بسعر ${price} جنيه | ${changeStr}):\n  👈 **سبب الترشيح البسيط:** ${reason}`;
+        }).join("\n\n");
 
         return [
             greeting,
             "",
             topStocksList || "• الأسهم الموضحة بالجدول أعلاه تعكس أحدث حركة للسيولة والزخم السعري للقطاع.",
             "",
-            "📌 **نقاط المتابعة والتحليل الفني:**",
-            "1. **نقاط الدخول:** ركز على الأسهم التي تتميز بـ RSI متوازن (بين 45 و 68) وتتداول فوق قيمتها الوسطية.",
-            "2. **وقف الخسارة:** حدد نقطة وقف الخسارة عند كسر أقرب مستوى دعم بنسبة 3-5%.",
+            "📌 **قواعد الدخول وإدارة المخاطر:**",
+            "1. **الدخول المتدرج:** لا تشتري بكامل السيولة دفعة واحدة، بل قسم الدخول على مرتين قرب نقطة الدعم.",
+            "2. **حماية أرباحك (وقف الخسارة):** حدد مستوى كسر الدعم بنسبة 3% كحد أقصى للتراجع.",
             "",
-            "❓ **سؤال تفاعلي:** هل ترغب في تحليل النطاق السعري الدقيق ومستويات الدعم/المقاومة لأحد هذه الأسهم بالتحديد؟"
+            "❓ **سؤال تفاعلي:** هل تحب نحدد نقطة الدعم والمقاومة الدقيقة لأي سهم من دول بالتفصيل؟"
         ].join("\n");
     }
 
