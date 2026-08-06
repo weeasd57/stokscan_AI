@@ -374,7 +374,7 @@ const ARABIC_STOCK_MAPPINGS: Record<string, string> = {
 };
 import { SessionState, PlannerResult, VisionContext } from "./types";
 import { AI_CONFIG } from "./config";
-import { isBestBuyStockQuestion } from "./intent-policy";
+import { isBestBuyStockQuestion, isTermsDefinitionRequest } from "./intent-policy";
 import { createHash } from "crypto";
 import { getSupabaseClient } from "@/lib/supabase/route-data";
 
@@ -864,26 +864,31 @@ Analyze the user request and return a JSON object. You MUST dynamically choose t
                     }
 
                     // Clean Intent Resolution: If intent is general market scan or tools include accumulation/market without explicit tickers, do not attach old symbols
-                    const isMarketScan = (parsed.intent === "accumulation" || parsed.intent === "market_summary" || parsed.intent === "sector_analysis" || tools.includes("get_accumulation_stocks") || tools.includes("get_market")) && parsed.intent !== "comparison";
-                    const rawSymbols = isMarketScan && extracted.length === 0 ? [] : (Array.isArray(parsed.entities?.symbols) ? parsed.entities.symbols : []);
+                    const isTermsQuestion = isTermsDefinitionRequest(message) && extracted.length === 0;
+                    const isMarketScan = (isTermsQuestion || parsed.intent === "accumulation" || parsed.intent === "market_summary" || parsed.intent === "sector_analysis" || tools.includes("get_accumulation_stocks") || tools.includes("get_market")) && parsed.intent !== "comparison";
+                    const rawSymbols = (isMarketScan || isTermsQuestion) && extracted.length === 0 ? [] : (Array.isArray(parsed.entities?.symbols) ? parsed.entities.symbols : []);
                     const normalizedSymbols = rawSymbols.map((s: string) => correctStockSymbol(s, validSymbols)).filter((s: string) => validSymbols.includes(s));
-                    const finalSymbols = (isMarketScan && extracted.length === 0 ? [] : Array.from(new Set([...extracted, ...normalizedSymbols])))
+                    const finalSymbols = ((isMarketScan || isTermsQuestion) && extracted.length === 0 ? [] : Array.from(new Set([...extracted, ...normalizedSymbols])))
                         .filter((s: string) => /^[A-Z]{2,6}$/.test(s) && !/^\d+$/.test(s));
 
                     const isHistoricalRecallQuery = /التحليل (اللي فات|السابق)|الرقم اللي (قولته|ذكرته) قبل كده|السعر اللي قولته|كان (RSI|macd|السعر) كام|من شوية|قبل كده/i.test(message);
-                    let finalIntent = parsed.intent || "stock_analysis";
+                    let finalIntent = isTermsQuestion ? "general_chat" : (parsed.intent || "stock_analysis");
                     if (hasRecommendationKeywords) {
                         finalIntent = "recommendations";
+                    } else if (isTermsQuestion) {
+                        finalIntent = "general_chat";
                     } else if (isHistoricalRecallQuery) {
                         finalIntent = "historical_recall";
                     }
 
+                    const finalTools = isTermsQuestion ? [] : tools;
+
                     return {
                         intent: finalIntent,
                         confidence: parsed.confidence || 0.95,
-                        guidance_intent: parsed.guidance_intent || null,
+                        guidance_intent: isTermsQuestion ? "terms_explainer" : (parsed.guidance_intent || null),
                         entities: { symbols: finalSymbols, sector: parsed.entities?.sector || null, wants_table: parsed.entities?.wants_table ?? (finalSymbols.length > 0), timeframe: parsed.entities?.timeframe || "1d" },
-                        tools: tools,
+                        tools: finalTools,
                         session_update: { current_symbol: finalSymbols[0] || null, last_symbols: finalSymbols, summary: parsed.session_update?.summary || "" }
                     };
                 }
@@ -980,22 +985,25 @@ Analyze the user request and return a JSON object. You MUST dynamically choose t
                             /مين طلع ومين نزل|ايه اللي طلع وايه اللي نزل|ايه اللى طلع وايه اللى نزل|السوق عمل ايه|حالة السوق|صعود وهبوط|gainers and losers|what went up|whole market|where is liquidity|اسهم (الشهر|السهر)|(الشهر|السهر) (اللي|اللى) (فات|الماضي)|سيولة|تجميع/i.test(message))
                             && parsed.intent !== "comparison";
 
+                        const isTermsQuestion = isTermsDefinitionRequest(message) && symbols.length === 0;
                         let resolvedSymbols: string[] = [];
                         if (symbols.length > 0) {
                             resolvedSymbols = symbols;
-                        } else if (!isMarketScan && !hasImages) {
+                        } else if (!isMarketScan && !hasImages && !isTermsQuestion) {
                             if ((isFollowupQuery || isAggregateTableRequest) && session.last_symbols?.length) {
                                 resolvedSymbols = session.last_symbols;
                             }
                         }
 
-                        let finalIntent = parsed.intent || (hasImages ? "portfolio" : "general_chat");
+                        let finalIntent = isTermsQuestion ? "general_chat" : (parsed.intent || (hasImages ? "portfolio" : "general_chat"));
                         const isHistoryQuery = /سيره كام سهم|ذكرنا كام سهم|سيرة كام سهم|سياق المحادثة|تاريخ الشات|الملخص|قلنا ايه/i.test(message);
                         const isHistoricalRecallQuery = /التحليل (اللي فات|السابق)|الرقم اللي (قولته|ذكرته) قبل كده|السعر اللي قولته|كان (RSI|macd|السعر) كام|من شوية|قبل كده/i.test(message);
                         
                         const hasRecommendationKw = /(?:في|فى|فيه|عندك|هل\s+يوجد|موجود)?\s*(?:توصيات|توصيه|توصية|إشارة|إشارات|اشارة|اشارات|اشارات\s+النظام|إشارات\s+النظام|سجل\s+التوصيات|اقدم\s+توصيه|أقدم\s+توصية)/i.test(message || "");
                         if (hasRecommendationKw) {
                             finalIntent = "recommendations";
+                        } else if (isTermsQuestion) {
+                            finalIntent = "general_chat";
                         } else if (isHistoryQuery) {
                             finalIntent = "general_chat";
                         } else if (isHistoricalRecallQuery) {
@@ -1004,7 +1012,7 @@ Analyze the user request and return a JSON object. You MUST dynamically choose t
                             finalIntent = "portfolio";
                         }
 
-                        const toolsList: string[] = finalIntent === "general_chat" 
+                        const toolsList: string[] = (finalIntent === "general_chat" || isTermsQuestion)
                             ? [] 
                             : (Array.isArray(parsed.tools) ? parsed.tools : []);
                         if (resolvedSymbols.length > 0 && !toolsList.includes("get_stock") && finalIntent !== "general_chat") {
