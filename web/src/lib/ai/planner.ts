@@ -872,7 +872,9 @@ Analyze the user request and return a JSON object. You MUST dynamically choose t
 
                     const isHistoricalRecallQuery = /التحليل (اللي فات|السابق)|الرقم اللي (قولته|ذكرته) قبل كده|السعر اللي قولته|كان (RSI|macd|السعر) كام|من شوية|قبل كده/i.test(message);
                     let finalIntent = parsed.intent || "stock_analysis";
-                    if (isHistoricalRecallQuery) {
+                    if (hasRecommendationKeywords) {
+                        finalIntent = "recommendations";
+                    } else if (isHistoricalRecallQuery) {
                         finalIntent = "historical_recall";
                     }
 
@@ -991,7 +993,10 @@ Analyze the user request and return a JSON object. You MUST dynamically choose t
                         const isHistoryQuery = /سيره كام سهم|ذكرنا كام سهم|سيرة كام سهم|سياق المحادثة|تاريخ الشات|الملخص|قلنا ايه/i.test(message);
                         const isHistoricalRecallQuery = /التحليل (اللي فات|السابق)|الرقم اللي (قولته|ذكرته) قبل كده|السعر اللي قولته|كان (RSI|macd|السعر) كام|من شوية|قبل كده/i.test(message);
                         
-                        if (isHistoryQuery) {
+                        const hasRecommendationKw = /(?:في|فى|فيه|عندك|هل\s+يوجد|موجود)?\s*(?:توصيات|توصيه|توصية|إشارة|إشارات|اشارة|اشارات|اشارات\s+النظام|إشارات\s+النظام|سجل\s+التوصيات|اقدم\s+توصيه|أقدم\s+توصية)/i.test(message || "");
+                        if (hasRecommendationKw) {
+                            finalIntent = "recommendations";
+                        } else if (isHistoryQuery) {
                             finalIntent = "general_chat";
                         } else if (isHistoricalRecallQuery) {
                             finalIntent = "historical_recall";
@@ -1005,8 +1010,6 @@ Analyze the user request and return a JSON object. You MUST dynamically choose t
                         if (resolvedSymbols.length > 0 && !toolsList.includes("get_stock") && finalIntent !== "general_chat") {
                             toolsList.unshift("get_stock");
                         }
-                        // إذا سأل عن سهم بعبارة معلوماتية → اضمن get_stock + get_news دائمًا
-                        const hasRecommendationKw = /(?:في|فى|فيه|عندك|هل\s+يوجد|موجود)?\s*(?:توصيات|توصيه|توصية|إشارة|إشارات|اشارة|اشارات|اشارات\s+النظام|إشارات\s+النظام|سجل\s+التوصيات|اقدم\s+توصيه|أقدم\s+توصية)/i.test(message || "");
                         if (hasRecommendationKw && !hasImages) {
                             if (!toolsList.includes("get_recommendations")) toolsList.push("get_recommendations");
                             if (!toolsList.includes("get_signals")) toolsList.push("get_signals");
