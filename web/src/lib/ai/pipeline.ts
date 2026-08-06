@@ -473,6 +473,9 @@ export function enforceIntentFromMessage(message: string, plannerIntent: string,
     require_accumulation?: boolean;
     recommendation_order?: "oldest" | "newest";
 } {
+    if (isTermsDefinitionRequest(message)) {
+        return { intent: "general_chat", tools: [], replaceTools: true };
+    }
     const normalized = message.toLowerCase().replace(/[أإآ]/g, "ا").replace(/ة/g, "ه");
     const hasSymbol = symbols.length > 0 || /\b[A-Z]{2,6}\b/.test(message);
     const marketFairValueScan = isFairValueScanRequest(message);
