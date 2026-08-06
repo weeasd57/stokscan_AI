@@ -248,20 +248,23 @@ export function buildExcelTables(toolResults: ToolResult[], vision: VisionContex
         const rows = vision.symbols.map(symbol => [
             cell(symbol.symbol),
             cell(symbol.name),
-            cell(symbol.visible_values.price),
-            cell(symbol.visible_values.change_pct),
-            cell(symbol.visible_values.quantity),
+            cell(symbol.visible_values?.price),
+            cell(symbol.visible_values?.change_pct),
+            cell(symbol.visible_values?.quantity),
             cell(observations.get(`${symbol.symbol}:RSI`)),
             cell(observations.get(`${symbol.symbol}:MACD`))
         ]);
-        tables.push({
-            id: "vision",
-            title: "البيانات المستخرجة من الصورة",
-            headers: ["السهم", "الاسم", "السعر الظاهر", "التغير الظاهر %", "الكمية الظاهرة", "RSI", "MACD"],
-            rows,
-            source: "vision_analysis",
-            data_time: vision.analyzed_at
-        });
+        const hasVisibleNumericData = rows.some(row => row.slice(2).some(val => val !== ""));
+        if (hasVisibleNumericData) {
+            tables.push({
+                id: "vision",
+                title: "البيانات المستخرجة من الصورة",
+                headers: ["السهم", "الاسم", "السعر الظاهر", "التغير الظاهر %", "الكمية الظاهرة", "RSI", "MACD"],
+                rows,
+                source: "vision_analysis",
+                data_time: vision.analyzed_at
+            });
+        }
     }
 
     const stockTools = toolResults.filter(tool => tool.tool === "get_stock");
