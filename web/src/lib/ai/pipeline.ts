@@ -112,15 +112,18 @@ export function extractExplicitSymbols(message: string): string[] {
 
     // Attempt to match Arabic full names from the mapping
     const stockMappings = getSyncStockMappings();
-    // Use word boundaries or strict inclusion to prevent false positives for short words
     const normMsg = message.replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").toLowerCase();
     for (const [arName, symbol] of Object.entries(stockMappings).sort((a, b) => b[0].length - a[0].length)) {
         const normKey = arName.replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").toLowerCase();
-        if (normKey.length >= 2 && normMsg.includes(normKey)) {
-            if (Array.isArray(symbol)) {
-                matchedSymbols.push(...symbol);
-            } else {
-                matchedSymbols.push(symbol);
+        if (normKey.length >= 2) {
+            const escapedKey = normKey.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+            const regex = new RegExp(`(?:^|[^a-z0-9\u0621-\u064a\u0671-\u06d3])(?:و|ف|ب|ل|ك|ال)?${escapedKey}(?:$|[^a-z0-9\u0621-\u064a\u0671-\u06d3])`, "i");
+            if (regex.test(normMsg)) {
+                if (Array.isArray(symbol)) {
+                    matchedSymbols.push(...symbol);
+                } else {
+                    matchedSymbols.push(symbol);
+                }
             }
         }
     }

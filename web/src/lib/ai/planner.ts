@@ -598,7 +598,7 @@ export function extractSymbolsFromText(
 
         // Escape regex special characters in the key
         const escapedKey = normalizedKey.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-        const regex = new RegExp(`(?:^|[^a-z0-9\u0600-\u06ff])${escapedKey}(?:$|[^a-z0-9\u0600-\u06ff])`, "i");
+        const regex = new RegExp(`(?:^|[^a-z0-9\u0621-\u064a\u0671-\u06d3])(?:و|ف|ب|ل|ك|ال)?${escapedKey}(?:$|[^a-z0-9\u0621-\u064a\u0671-\u06d3])`, "i");
         if (regex.test(normalizedText)) {
             if (Array.isArray(symbolOrArr)) {
                 found.push(...symbolOrArr);
