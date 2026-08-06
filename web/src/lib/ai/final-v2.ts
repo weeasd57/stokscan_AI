@@ -551,38 +551,47 @@ export function buildFastConversationalAdvisorResponse(
 
     const hasSpecificSymbols = Boolean(plan.entities?.symbols?.length);
 
-    // 0. Terms Explanation Query (e.g. "عرف التجميع والجمعيه العموميه والتصريف و ال macd")
+    // 0. Terms Explanation Query
+    const isSpecificLiquidityQuery = /(سيوله|سيولة).{0,30}(ازاي|إزاي|كيف|طريقة|طريقه|علامات|بعد|دخل|عرف)/i.test(normMsg) || /(ازاي|إزاي|كيف|طريقة|طريقه|علامات).{0,30}(سيوله|سيولة|دخلت)/i.test(normMsg);
+    if (isSpecificLiquidityQuery) {
+        return null; // Yield to LLM for customized expert explanation of post-session liquidity indicators
+    }
+
     if (guidanceIntent === "terms_explainer" || isTermsDefinitionRequest(userMessage)) {
         const wantsAccumulation = /(تجميع|التجميع)/i.test(normMsg);
         const wantsDistribution = /(تصريف|التصريف)/i.test(normMsg);
         const wantsAssembly = /(جمعيه|جمعية|عموميه|عمومية)/i.test(normMsg);
         const wantsMacd = /(macd|الـ\s*macd)/i.test(normMsg);
 
+        if (!wantsAccumulation && !wantsDistribution && !wantsAssembly && !wantsMacd) {
+            return null; // Return null if it's a specific question so LLM generates a tailored response
+        }
+
         const sections: string[] = [];
-        sections.push("أهلاً بك! إليك الشرح المبسط لأهم المفاهيم والمصطلحات المالية في البورصة:");
+        sections.push("أهلاً بك! إليك الشرح المبسط للمفاهيم التي طلبتها في البورصة:");
         sections.push("");
 
-        if (wantsAccumulation || (!wantsDistribution && !wantsAssembly && !wantsMacd)) {
+        if (wantsAccumulation) {
             sections.push("🔹 **التجميع (Accumulation):**\nهو قيام المستثمرين الكبار والمؤسسات بشراء كميات كبيرة من السهم بشكل هادئ وتدريجي على فترات ممتدة، دون رفع السعر كبيراً، لبناء مركز مالي قوي قبل بدء موجة الصعود الرئيسية.");
             sections.push("");
         }
 
-        if (wantsAssembly || (!wantsAccumulation && !wantsDistribution && !wantsMacd)) {
+        if (wantsAssembly) {
             sections.push("🔹 **الجمعية العمومية (General Assembly):**\nهي الاجتماع الرسمي المباشر لمساهمي الشركة لمناقشة نتائج الأعمال السنوية، والاهتمام بإقرار توزيعات الأرباح النقدية أو المجانية، وانتخاب مجلس الإدارة، والتصويت على قرارات الشركة المصيرية.");
             sections.push("");
         }
 
-        if (wantsDistribution || (!wantsAccumulation && !wantsAssembly && !wantsMacd)) {
+        if (wantsDistribution) {
             sections.push("🔹 **التصريف (Distribution):**\nهو عكس التجميع؛ حيث يبدأ كبار المستثمرين في بيع وتصريف كمياتهم تدريجياً لجمهور المستثمرين الأفراد عند قمم الأسعار المرتفعة، استعداداً لبدء مرحلة هبوط أو تصحيح للسعر.");
             sections.push("");
         }
 
-        if (wantsMacd || (!wantsAccumulation && !wantsDistribution && !wantsAssembly)) {
+        if (wantsMacd) {
             sections.push("🔹 **مؤشر MACD (تقاطع المتوسطات المتحركة والزخم):**\nهو مؤشر فني يقيس اتجاه وقوة زخم الحركة السعرية عبر تتبع تقاطع متوسطين متحركين (سريع وبطيء). تقاطع خط الـ MACD لأعلى يُعد إشارة إيجابية لبداية صعود، والتقاطع لأسفل إشارة سلبية لصالح البائعين.");
             sections.push("");
         }
 
-        sections.push("❓ **سؤال تفاعلي:** هل تحب نطبق المفاهيم دي على سهم معين حالياً ونقيس مؤشر الـ MACD أو مرحلة التجميع الخاصة بيه؟");
+        sections.push("❓ **سؤال تفاعلي:** هل تحب نطبق هذه المفاهيم على سهم معين حالياً ونحلل مؤشراته الفنية؟");
 
         return sections.join("\n");
     }
