@@ -45,8 +45,8 @@ describe("Live User Query Simulation Test", () => {
         );
 
         const promptContent = messages[1].content;
-        expect(promptContent).toContain("عند سؤال المستخدم عن قرار البيع أو الشراء أو الاحتفاظ بسهم معين");
-        expect(promptContent).toContain("يمنع منعاً باتاً استخدام القوالب الجافة أو عبارات المسح العامة");
+        expect(promptContent).toContain("عندما يسأل المستخدم عن قرار البيع أو الشراء أو الاحتفاظ بسهم معين");
+        expect(promptContent).toContain("قدم تحليلاً استراتيجياً مفسراً للمؤشرات");
         
         console.log("=== VERIFIED: FAST ADVISOR RETURNED NULL (NO GENERIC TEMPLATE) ===");
     });
