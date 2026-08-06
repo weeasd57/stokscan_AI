@@ -1147,6 +1147,16 @@ describe("Beginner investing guidance", () => {
         expect(plan.intent).not.toBe("general_chat");
     });
 
+    it("routes 'best stock to buy tomorrow' queries deterministically without stalling planner models", () => {
+        const message = "ايه افضل سهم للشراء بكره ان شاء الله";
+        const session = { current_symbol: null, last_symbols: [], summary: null };
+        const plan = buildDeterministicPlannerResult(message, session);
+        expect(plan).toMatchObject({
+            intent: "market_summary",
+            tools: expect.arrayContaining(["get_recommendations", "get_fair_value_scan"])
+        });
+    });
+
     it("explains missing top-mover data and suggests a safe next step", () => {
         const response = buildTopMoversResponse({
             results: [{ tool: "get_market", data_time: "2026-08-03", data_type: "live", source: "database", symbols: ["EGX30"], data: { egx30: 54094.3 } }],

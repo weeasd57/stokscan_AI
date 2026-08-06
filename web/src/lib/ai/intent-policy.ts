@@ -50,6 +50,12 @@ export function getInvestorGuidanceIntent(message: string, hasNamedStock = false
     return null;
 }
 
+export function isBestBuyStockQuestion(message: string): boolean {
+    const value = normalizeArabicIntent(message);
+    return /(?:افضل|أفضل|احسن|أحسن|ترشح|أشتري|اشتري|ايه\s+افضل|إيه\s+أفضل|ايه\s+احسن).{0,30}(?:سهم|أسهم|الأسهم|الاسهم|فرصة|فرصه).{0,30}(?:للشراء|شراء|بكره|بكرة|النهاردة|النهارده|الجلسة|الجلسه|طالعة|طالعه)/i.test(value)
+        || /^(?:ايه\s+افضل\s+سهم\s+للشراء|افضل\s+سهم\s+للشراء|أفضل\s+سهم\s+للشراء|اشتري\s+ايه\s+بكره|أشتري\s+إيه\s+بكرة)/i.test(value);
+}
+
 export function isFairValueScanRequest(message: string): boolean {
     const normalized = normalizeArabicIntent(message).replace(/[؟?]/g, " ");
     return /(?:الاسهم|اسهم|السهم|سهم).{0,45}(?:فوق|تحت|اعلي|اقل|متداول|بتتداول|يتداول).{0,35}(?:القيمه|قيمه|قيمتها|التقييم).{0,20}(?:العادله|العادل|الفنيه|الفنيه|الوسطيه)/i.test(normalized)

@@ -7,8 +7,8 @@ import { buildDeterministicResponse, generateV2Response, generateV2Stream } from
 import { loadSessionState, loadSessionSummary, updateSessionSummary, updateSessionState } from "./session";
 import { buildExcelTables, ExcelTable } from "./excel-tables";
 import { AI_CONFIG } from "./config";
-import { getFairValueFilters, getInvestorGuidanceIntent as classifyInvestorGuidance, isDailyPriceLimitQuestion, isEarningsDataRequest, isUsageLimitQuestion } from "./intent-policy";
-export { getFairValueFilters, isDailyPriceLimitQuestion, isEarningsDataRequest, isUsageLimitQuestion } from "./intent-policy";
+import { getFairValueFilters, getInvestorGuidanceIntent as classifyInvestorGuidance, isDailyPriceLimitQuestion, isEarningsDataRequest, isUsageLimitQuestion, isBestBuyStockQuestion } from "./intent-policy";
+export { getFairValueFilters, isDailyPriceLimitQuestion, isEarningsDataRequest, isUsageLimitQuestion, isBestBuyStockQuestion } from "./intent-policy";
 
 export interface PipelineResult {
     vision: VisionContext | null;
@@ -293,6 +293,15 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
                 last_symbols: sessionState.last_symbols,
                 summary: message
             }
+        };
+    }
+    if (isBestBuyStockQuestion(message) && !hasNamedStock) {
+        return {
+            intent: "market_summary",
+            confidence: 1,
+            entities: { symbols: [], sector: null, wants_table: true, timeframe: "current", requested_date: null, scan_direction: null },
+            tools: ["get_recommendations", "get_fair_value_scan"],
+            session_update: { current_symbol: null, last_symbols: sessionState.last_symbols, summary: message }
         };
     }
     if (isFairValueScanRequest(message)) {
