@@ -849,7 +849,7 @@ Analyze the user request and return a JSON object. You MUST dynamically choose t
                     const tools = Array.isArray(parsed.tools) ? parsed.tools : ["get_stock"];
 
                     const normMsg = (message || "").toLowerCase();
-                    const hasRecommendationKeywords = /توصيات|توصيه|توصية|اشارات النظام|إشارات النظام|سجل التوصيات|اقدم توصيه|أقدم توصية/i.test(message || "");
+                    const hasRecommendationKeywords = /(?:في|فى|فيه|عندك|هل\s+يوجد|موجود)?\s*(?:توصيات|توصيه|توصية|إشارة|إشارات|اشارة|اشارات|اشارات\s+النظام|إشارات\s+النظام|سجل\s+التوصيات|اقدم\s+توصيه|أقدم\s+توصية)/i.test(message || "");
 
                     // إذا سأل عن سهم بعبارة معلوماتية → اضمن get_stock + get_news
                     const hasStockInfoKeywords = /خبرني|حدثني|حلل|معلومات|تحليل|سعر|عامل|بكم|وضع|ايه رأيك|ايه رأي|عمل ايه|معاه ايه|ايه اللي|رسم|شارت|chart/.test(normMsg);
@@ -860,6 +860,7 @@ Analyze the user request and return a JSON object. You MUST dynamically choose t
 
                     if (hasRecommendationKeywords && !hasImages) {
                         if (!tools.includes("get_recommendations")) tools.push("get_recommendations");
+                        if (!tools.includes("get_signals")) tools.push("get_signals");
                     }
 
                     // Clean Intent Resolution: If intent is general market scan or tools include accumulation/market without explicit tickers, do not attach old symbols
@@ -1005,11 +1006,10 @@ Analyze the user request and return a JSON object. You MUST dynamically choose t
                             toolsList.unshift("get_stock");
                         }
                         // إذا سأل عن سهم بعبارة معلوماتية → اضمن get_stock + get_news دائمًا
-                        const normMsgNv = (message || "").toLowerCase();
-                        const hasStockInfoKw = /خبرني|حدثني|حلل|معلومات|تحليل|سعر|عامل|بكم|وضع|ايه رأيك|ايه رأي|عمل ايه|معاه ايه|ايه اللي|رسم|شارت|chart/.test(normMsgNv);
-                        if (resolvedSymbols.length > 0 && hasStockInfoKw) {
-                            if (!toolsList.includes("get_stock")) toolsList.unshift("get_stock");
-                            if (!toolsList.includes("get_news")) toolsList.push("get_news");
+                        const hasRecommendationKw = /(?:في|فى|فيه|عندك|هل\s+يوجد|موجود)?\s*(?:توصيات|توصيه|توصية|إشارة|إشارات|اشارة|اشارات|اشارات\s+النظام|إشارات\s+النظام|سجل\s+التوصيات|اقدم\s+توصيه|أقدم\s+توصية)/i.test(message || "");
+                        if (hasRecommendationKw && !hasImages) {
+                            if (!toolsList.includes("get_recommendations")) toolsList.push("get_recommendations");
+                            if (!toolsList.includes("get_signals")) toolsList.push("get_signals");
                         }
 
                         const imageSummary = hasImages ? (parsed.image_summary || "تحليل البيانات والصورة المرفقة من المحفظة.") : null;
