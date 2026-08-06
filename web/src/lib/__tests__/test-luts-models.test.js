@@ -1,22 +1,21 @@
 import { buildCompoundDeterministicPlan } from "../ai/pipeline";
 import { generateV2Response } from "../ai/final-v2";
 
-describe("Verify Response Speed & Completeness", () => {
+describe("Test 3 UI Models with 'سهم لوتس' Query", () => {
     const userMsg = "سلام عليكم اشتريت اليوم في سهم لوتس ونزل بيا تنصحوني اعمل ايه ؟";
     const sessionState = { current_symbol: null, last_symbols: [], summary: null };
-    const apiKeys = [
-        process.env.NVIDIA_API_KEY,
-        process.env.NVIDIA_SECONDARY_API_KEY,
-        "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"
-    ].filter(Boolean) as string[];
+    const apiKeys = ["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"];
 
     const modelsToTest = [
+        "deepseek-ai/deepseek-v4-flash",
         "deepseek-ai/deepseek-v4-pro",
-        "deepseek-ai/deepseek-v4-flash"
+        "meta/llama-3.1-70b-instruct"
     ];
 
-    test.each(modelsToTest)("Verifies response generation for %s", async (modelName) => {
+    test.each(modelsToTest)("Generates response using model %s", async (modelName) => {
         const plan = buildCompoundDeterministicPlan(userMsg, sessionState);
+        expect(plan).not.toBeNull();
+        expect(plan.entities.symbols).toContain("LUTS");
 
         const toolResults = [{
             tool: "get_stock",
@@ -39,7 +38,7 @@ describe("Verify Response Speed & Completeness", () => {
 
         const response = await generateV2Response(
             userMsg,
-            plan!,
+            plan,
             null,
             toolResults,
             [],
@@ -50,7 +49,11 @@ describe("Verify Response Speed & Completeness", () => {
             sessionState
         );
 
+        console.log(`\n================ MODEL: ${modelName} ================`);
+        console.log(response);
+        console.log("========================================================\n");
+
         expect(response).toBeTruthy();
         expect(response).not.toContain("بناءً على البيانات الحية المتاحة، هذه مقارنة فنية بين أبرز الأسهم");
-    }, 45000);
+    }, 30000);
 });

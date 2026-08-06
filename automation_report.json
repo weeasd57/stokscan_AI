@@ -1,0 +1,358 @@
+{
+  "generated_at": "2026-08-05T18:12:56.990Z",
+  "total": 18,
+  "passed": 18,
+  "warned": 0,
+  "failed": 0,
+  "results": [
+    {
+      "category": "سعر سهم",
+      "q": "خبرني عن جنوب الوادي",
+      "pass": true,
+      "responseOk": true,
+      "plannerLayerWorked": true,
+      "intent": "stock_analysis",
+      "symbols": [
+        "SVCE"
+      ],
+      "tools": [
+        "get_stock",
+        "get_stock_levels"
+      ],
+      "reply": "ملخص أحدث البيانات المتاحة:\n- SVCE (South Valley Cement Co.): السعر 9.36 جنيه، التغير +1.74%، RSI 48.18، MACD 0.0492، حجم التداول 1.01x من متوسط 20 جلسة.\nالدعم الحسابي: 7.98 جنيه، المقاومة الحسابية: 10.00 جنيه (لسهم SVCE)، من آخر 60 جلسة حتى 2026-08-05.\nSVCE - رأيي الفني: الزخم متوازن؛ الحجم قريب من",
+      "missingSymbols": [],
+      "falsePositives": [],
+      "missingTools": [],
+      "failReasons": []
+    },
+    {
+      "category": "سعر سهم",
+      "q": "سعر سهم فوري النهارده",
+      "pass": true,
+      "responseOk": true,
+      "plannerLayerWorked": true,
+      "intent": "stock_analysis",
+      "symbols": [
+        "FWRY"
+      ],
+      "tools": [
+        "get_stock",
+        "get_stock_levels"
+      ],
+      "reply": "ملخص أحدث البيانات المتاحة:\n- FWRY (Fawry For Banking Technology And Electronic Payment): السعر 19.54 جنيه، التغير +2.36%، RSI 65.02، MACD 0.0017، حجم التداول 2.53x من متوسط 20 جلسة.\nالدعم الحسابي: 17.71 جنيه، المقاومة الحسابية: 21.66 جنيه (لسهم FWRY)، من آخر 60 جلسة حتى 2026-08-05.\nFWRY - رأيي الفن",
+      "missingSymbols": [],
+      "falsePositives": [],
+      "missingTools": [],
+      "failReasons": []
+    },
+    {
+      "category": "سعر سهم",
+      "q": "مصر الجديدة بكم",
+      "pass": true,
+      "responseOk": true,
+      "plannerLayerWorked": true,
+      "intent": "stock_analysis",
+      "symbols": [
+        "HELI"
+      ],
+      "tools": [
+        "get_stock",
+        "get_stock_levels"
+      ],
+      "reply": "ملخص أحدث البيانات المتاحة:\n- HELI (Heliopolis Housing): السعر 8.28 جنيه، التغير +0.12%، RSI 66.67، MACD 0.4145، حجم التداول 0.58x من متوسط 20 جلسة.\nالدعم الحسابي: 6.28 جنيه، المقاومة الحسابية: 8.65 جنيه (لسهم HELI)، من آخر 60 جلسة حتى 2026-08-05.\nHELI - رأيي الفني: الزخم إيجابي بدرجة متوسطة؛ الحجم ",
+      "missingSymbols": [],
+      "falsePositives": [],
+      "missingTools": [],
+      "failReasons": []
+    },
+    {
+      "category": "سعر سهم",
+      "q": "ابن سينا وصل فين",
+      "pass": true,
+      "responseOk": true,
+      "plannerLayerWorked": true,
+      "intent": "stock_analysis",
+      "symbols": [
+        "ISPH"
+      ],
+      "tools": [
+        "get_stock",
+        "get_stock_levels"
+      ],
+      "reply": "ملخص أحدث البيانات المتاحة:\n- ISPH (Ibnsina Pharma): السعر 13.1 جنيه، التغير -2.02%، RSI 69.03، MACD 0.0950، حجم التداول 1.47x من متوسط 20 جلسة.\nالدعم الحسابي: 10.80 جنيه، المقاومة الحسابية: 16.93 جنيه (لسهم ISPH)، من آخر 60 جلسة حتى 2026-08-05.\nISPH - رأيي الفني: الزخم إيجابي بدرجة متوسطة؛ الحجم قر",
+      "missingSymbols": [],
+      "falsePositives": [],
+      "missingTools": [],
+      "failReasons": []
+    },
+    {
+      "category": "تحليل",
+      "q": "حلل لي طلعت مصطفى",
+      "pass": true,
+      "responseOk": true,
+      "plannerLayerWorked": true,
+      "intent": "stock_analysis",
+      "symbols": [
+        "TMGH"
+      ],
+      "tools": [
+        "get_stock",
+        "get_stock_levels"
+      ],
+      "reply": "ملخص أحدث البيانات المتاحة:\n- TMGH (Talaat Moustafa Group Holding): السعر 99.39 جنيه، التغير -0.51%، RSI 44.99، MACD 0.7858، حجم التداول 0.57x من متوسط 20 جلسة.\nالدعم الحسابي: 92.10 جنيه، المقاومة الحسابية: 103.87 جنيه (لسهم TMGH)، من آخر 60 جلسة حتى 2026-08-05.\nTMGH - رأيي الفني: الزخم ضعيف إلى محا",
+      "missingSymbols": [],
+      "falsePositives": [],
+      "missingTools": [],
+      "failReasons": []
+    },
+    {
+      "category": "تحليل",
+      "q": "ايه رأيك في سهم القلعة",
+      "pass": true,
+      "responseOk": true,
+      "plannerLayerWorked": true,
+      "intent": "stock_analysis",
+      "symbols": [
+        "CCAP"
+      ],
+      "tools": [
+        "get_stock",
+        "get_stock_levels"
+      ],
+      "reply": "ملخص أحدث البيانات المتاحة:\n- CCAP (QALA For Financial Investments): السعر 5.25 جنيه، التغير -0.57%، RSI 42.34، MACD 0.0604، حجم التداول 0.52x من متوسط 20 جلسة.\nالدعم الحسابي: 4.47 جنيه، المقاومة الحسابية: 5.78 جنيه (لسهم CCAP)، من آخر 60 جلسة حتى 2026-08-05.\nCCAP - رأيي الفني: الزخم ضعيف إلى محايد؛",
+      "missingSymbols": [],
+      "falsePositives": [],
+      "missingTools": [],
+      "failReasons": []
+    },
+    {
+      "category": "تحليل",
+      "q": "ممكن معلومات عن السويدي",
+      "pass": true,
+      "responseOk": true,
+      "plannerLayerWorked": true,
+      "intent": "stock_analysis",
+      "symbols": [
+        "SWDY"
+      ],
+      "tools": [
+        "get_stock",
+        "get_stock_levels"
+      ],
+      "reply": "ملخص أحدث البيانات المتاحة:\n- SWDY (El Sewedy Electric Company): السعر 105.2 جنيه، التغير -3.50%، RSI 74.11، MACD 2.3455، حجم التداول 1.98x من متوسط 20 جلسة.\nالدعم الحسابي: 84.01 جنيه، المقاومة الحسابية: 114.50 جنيه (لسهم SWDY)، من آخر 60 جلسة حتى 2026-08-05.\nSWDY - رأيي الفني: الزخم مرتفع والسهم في",
+      "missingSymbols": [],
+      "falsePositives": [],
+      "missingTools": [],
+      "failReasons": []
+    },
+    {
+      "category": "مقارنة",
+      "q": "قارن بين التجاري الدولي والشرقية للدخان",
+      "pass": true,
+      "responseOk": true,
+      "plannerLayerWorked": true,
+      "intent": "comparison",
+      "symbols": [
+        "COMI",
+        "EAST"
+      ],
+      "tools": [
+        "get_comparison"
+      ],
+      "reply": "مقارنة مباشرة من أحدث بيانات متاحة:\n- COMI: السعر 139.15 جنيه، التغير -0.7702%، RSI 62.6604، حجم التداول 1.25x من المتوسط.\n- EAST: السعر 36.25 جنيه، التغير 0.3877%، RSI 50.2304، حجم التداول 1.04x من المتوسط.\nارتفاع RSI يعكس قوة الزخم فقط ولا يكفي منفرداً لاتخاذ قرار.",
+      "missingSymbols": [],
+      "falsePositives": [],
+      "missingTools": [],
+      "failReasons": []
+    },
+    {
+      "category": "مقارنة",
+      "q": "حلل بالم هيلز وسوديك",
+      "pass": true,
+      "responseOk": true,
+      "plannerLayerWorked": true,
+      "intent": "stock_analysis",
+      "symbols": [
+        "PHDC",
+        "OCDI"
+      ],
+      "tools": [
+        "get_stock",
+        "get_stock_levels"
+      ],
+      "reply": "ملخص أحدث البيانات المتاحة:\n- PHDC (Palm Hills Development Co.): السعر 15.45 جنيه، التغير +1.11%، RSI 54.79، MACD 0.0321، حجم التداول 1.55x من متوسط 20 جلسة.\n- OCDI (Six of October Development & Investment (SODIC)): السعر 30.5 جنيه، التغير +5.17%، RSI 70.09، MACD 1.2413، حجم التداول 1.00x من متوسط 2",
+      "missingSymbols": [],
+      "falsePositives": [],
+      "missingTools": [],
+      "failReasons": []
+    },
+    {
+      "category": "متعدد",
+      "q": "ممكن العبور للاستثمار وجنوب الوادى وفوري",
+      "pass": true,
+      "responseOk": true,
+      "plannerLayerWorked": true,
+      "intent": "stock_analysis",
+      "symbols": [
+        "OBRI",
+        "SVCE",
+        "FWRY"
+      ],
+      "tools": [
+        "get_stock",
+        "get_stock_levels"
+      ],
+      "reply": "ملخص أحدث البيانات المتاحة:\n- OBRI (El Obour Real Estate Investment): السعر 32.18 جنيه، التغير -0.09%، RSI 15.40، MACD -0.5196، حجم التداول 0.56x من متوسط 20 جلسة.\n- SVCE (South Valley Cement Co.): السعر 9.36 جنيه، التغير +1.74%، RSI 48.18، MACD 0.0492، حجم التداول 1.01x من متوسط 20 جلسة.\n- FWRY (Fa",
+      "missingSymbols": [],
+      "falsePositives": [],
+      "missingTools": [],
+      "failReasons": []
+    },
+    {
+      "category": "سوق",
+      "q": "ايه حالة البورصة النهارده",
+      "pass": true,
+      "responseOk": true,
+      "plannerLayerWorked": true,
+      "intent": "market_summary",
+      "symbols": [],
+      "tools": [
+        "get_market"
+      ],
+      "reply": "### ملخص سيولة السوق\n\nالبيانات التالية وصفية ومأخوذة من المسح الفعلي، وليست توصية شراء أو بيع.\n- حالة السوق: sideways\n- EGX30: 54659.6 نقطة\n- USD/EGP: 50.28 جنيه\n\nلا توجد حالياً قائمة موثقة لأسهم التجميع والسيولة المؤسسية في أحدث مسح.\n\nملاحظة: لا يتم استخدام RSI أو MACD لقياس سيولة السوق الكلية، ولا",
+      "missingSymbols": [],
+      "falsePositives": [],
+      "missingTools": [],
+      "failReasons": []
+    },
+    {
+      "category": "سوق",
+      "q": "مين اقوى الأسهم النهارده",
+      "pass": true,
+      "responseOk": true,
+      "plannerLayerWorked": true,
+      "intent": "market_summary",
+      "symbols": [],
+      "tools": [
+        "get_market"
+      ],
+      "reply": "أقوى الأسهم ارتفاعاً حسب آخر جلسة متاحة بتاريخ 2026-08-05:\n1. LUTS: +19.90%.\n2. MOIN (Mohandes Insurance Co.): +15.13%.\n3. AFMC (Alexandria Flour Mills Co.): +10.58%.\n4. GGCC (Giza General Contracting & Real Estate Investment): +10.49%.\n5. UTOP (Utopia Real Estate Investment & Tourism SAE): +10.00%.",
+      "missingSymbols": [],
+      "falsePositives": [],
+      "missingTools": [],
+      "failReasons": []
+    },
+    {
+      "category": "سوق",
+      "q": "أسهم فوق القيمة العادلة",
+      "pass": true,
+      "responseOk": true,
+      "plannerLayerWorked": true,
+      "intent": "market_summary",
+      "symbols": [],
+      "tools": [
+        "get_fair_value_scan"
+      ],
+      "reply": "الأسهم المتداولة فوق القيمة الوسطية لنطاق 60 جلسة بتاريخ 2026-08-05:\n1. UTOP: السعر 118.83 جنيه، القيمة الوسطية 100.00 جنيه، أعلى منها بـ 18.8%.\n2. MOIN: السعر 35.00 جنيه، القيمة الوسطية 29.96 جنيه، أعلى منها بـ 16.8%.\n3. AFMC: السعر 231.99 جنيه، القيمة الوسطية 199.00 جنيه، أعلى منها بـ 16.6%.\n4. LU",
+      "missingSymbols": [],
+      "falsePositives": [],
+      "missingTools": [],
+      "failReasons": []
+    },
+    {
+      "category": "أخبار",
+      "q": "أخبار سهم هيرميس",
+      "pass": true,
+      "responseOk": true,
+      "plannerLayerWorked": true,
+      "intent": "stock_analysis",
+      "symbols": [
+        "HRHO"
+      ],
+      "tools": [
+        "get_news"
+      ],
+      "reply": "لا توجد أخبار أو بيانات معنويات مسجلة خلال الفترة الحالية للأسهم HRHO.",
+      "missingSymbols": [],
+      "falsePositives": [],
+      "missingTools": [],
+      "failReasons": []
+    },
+    {
+      "category": "أخبار",
+      "q": "أخبار قطاع البنوك",
+      "pass": true,
+      "responseOk": true,
+      "plannerLayerWorked": true,
+      "intent": "sector_analysis",
+      "symbols": [],
+      "tools": [
+        "get_sector",
+        "get_news"
+      ],
+      "reply": "تم العثور على 25 سجل أخبار ومعنويات من قاعدة البيانات خلال الفترة الحالية.\n- معنويات OBRI: محايدة، عدد الأخبار 1.\n- معنويات TANM: محايدة، عدد الأخبار 1.\n- معنويات GPPL: إيجابية، عدد الأخبار 1.",
+      "missingSymbols": [],
+      "falsePositives": [],
+      "missingTools": [],
+      "failReasons": []
+    },
+    {
+      "category": "حدود ✅",
+      "q": "وي للاتصالات",
+      "pass": true,
+      "responseOk": true,
+      "plannerLayerWorked": true,
+      "intent": "stock_analysis",
+      "symbols": [
+        "ETEL"
+      ],
+      "tools": [
+        "get_stock",
+        "get_stock_levels"
+      ],
+      "reply": "ملخص أحدث البيانات المتاحة:\n- ETEL (Telecom Egypt): السعر 111 جنيه، التغير +2.66%، RSI 69.99، MACD 2.9504، حجم التداول 1.83x من متوسط 20 جلسة.\nالدعم الحسابي: 89.01 جنيه، المقاومة الحسابية: 114.87 جنيه (لسهم ETEL)، من آخر 60 جلسة حتى 2026-08-05.\nETEL - رأيي الفني: الزخم إيجابي بدرجة متوسطة؛ الحجم أعل",
+      "missingSymbols": [],
+      "falsePositives": [],
+      "missingTools": [],
+      "failReasons": []
+    },
+    {
+      "category": "حدود ✅",
+      "q": "للأدوية وللاستثمار",
+      "pass": true,
+      "responseOk": true,
+      "plannerLayerWorked": true,
+      "intent": "sector_analysis",
+      "symbols": [],
+      "tools": [
+        "get_sector"
+      ],
+      "reply": "تحليل قطاع أدوية مبني على 15 سهماً في أحدث بيانات بتاريخ 2026-08-05.\n- مرتفعة: 4، منخفضة: 9.\n- الأفضل أداءً ضمن العينة: AMES (7.66%)، NIPH (3.04%)، MPCI (2.19%).\nراجع الجدول للتفاصيل؛ المؤشرات الفنية تصف الزخم والسيولة ولا تمثل توصية استثمارية.",
+      "missingSymbols": [],
+      "falsePositives": [],
+      "missingTools": [],
+      "failReasons": []
+    },
+    {
+      "category": "مركب",
+      "q": "حلل ABUK هات أخباره لو كسر الدعم أعمل إيه؟",
+      "pass": true,
+      "responseOk": true,
+      "plannerLayerWorked": true,
+      "intent": "follow_up",
+      "symbols": [
+        "ABUK"
+      ],
+      "tools": [
+        "get_stock",
+        "get_stock_levels",
+        "get_news"
+      ],
+      "reply": "ABUK: السعر 74 جنيه، التغير +1.12%، RSI 56.86، نسبة الحجم 0.82x.\nABUK: الدعم 66.66 جنيه، المقاومة 90.87 جنيه.\nABUK: كسر الدعم عند 66.66 جنيه يزيد المخاطر الفنية، ويحتاج تأكيد إغلاق وحجم قبل اتخاذ قرار.\nالأخبار: لا توجد أخبار مسجلة حالياً للأسهم ABUK.",
+      "missingSymbols": [],
+      "falsePositives": [],
+      "missingTools": [],
+      "failReasons": []
+    }
+  ]
+}
