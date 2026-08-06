@@ -1139,6 +1139,14 @@ describe("Beginner investing guidance", () => {
         expect(messages[1].content).toContain("نصف مليون أو 500 ألف");
     });
 
+    it("resolves group reference pronouns (فيهم/منهم) to last_symbols instead of treating allocation as generic", () => {
+        const message = "أي أحسن واحد فيهم الأيام دي أحط فيه 100 ألف؟";
+        const session = { current_symbol: "ZEOT", last_symbols: ["AFMC", "AALR", "TAQA", "ATQA", "ZEOT"], summary: null };
+        const plan = buildDeterministicPlannerResult(message, session);
+        expect(plan.entities.symbols).toEqual(["AFMC", "AALR", "TAQA", "ATQA", "ZEOT"]);
+        expect(plan.intent).not.toBe("general_chat");
+    });
+
     it("explains missing top-mover data and suggests a safe next step", () => {
         const response = buildTopMoversResponse({
             results: [{ tool: "get_market", data_time: "2026-08-03", data_type: "live", source: "database", symbols: ["EGX30"], data: { egx30: 54094.3 } }],

@@ -134,8 +134,9 @@ export function extractExplicitSymbols(message: string): string[] {
 
 export type InvestorGuidanceIntent = "onboarding" | "allocation" | "product_comparison" | "product_explainer";
 
-export function getInvestorGuidanceIntent(message: string): InvestorGuidanceIntent | null {
-    return classifyInvestorGuidance(message, extractExplicitSymbols(message).length > 0);
+export function getInvestorGuidanceIntent(message: string, hasNamedStock?: boolean): InvestorGuidanceIntent | null {
+    const hasSymbols = hasNamedStock ?? (extractExplicitSymbols(message).length > 0);
+    return classifyInvestorGuidance(message, hasSymbols);
 }
 
 export function isBeginnerPortfolioQuestion(message: string): boolean {
@@ -276,7 +277,10 @@ export function extractRequestedDateRange(message: string, referenceDate: Date =
 }
 
 export function buildDeterministicPlannerResult(message: string, sessionState: SessionState): PlannerResult | null {
-    const guidance = getInvestorGuidanceIntent(message);
+    const explicitSymbols = extractExplicitSymbols(message);
+    const hasGroupReference = /(فيهم|منهم|من دول|بينهم|أيهم|أيها|أحسن واحد|احسن واحد|أفضل واحد|افضل واحد|الأسهم دي|الاسهم دي)/i.test(message) && sessionState.last_symbols.length > 0;
+    const hasNamedStock = explicitSymbols.length > 0 || hasGroupReference;
+    const guidance = getInvestorGuidanceIntent(message, hasNamedStock);
     if (guidance) {
         const wantsAccumulation = /تجميع|accumulation/i.test(message);
         return {
@@ -342,7 +346,11 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
     const marketWideRequest = isMarketWideRequest(message);
     const riskFollowUp = /(يخسر|خسار|يهبط|ينزل).{0,30}(تاني|اكتر|أكتر|اكثر|أكثر|%|في الميه|فى الميه)|(?:ممكن|هل).{0,20}(يخسر|يهبط|ينزل)/i.test(message);
     const hasPreviousReference = /(?:^|[^\u0621-\u064A])(ده|دا|دي|هذا|السهم ده|السهم دا|السهم دي|هاته|هاتها|اخباره|أخباره|خبره|الاتنين|السهمين)(?:$|[^\u0621-\u064A])/i.test(message);
-    if (hasPreviousReference && sessionState.current_symbol && !symbols.includes(sessionState.current_symbol)) {
+    if (hasGroupReference && sessionState.last_symbols.length > 0) {
+        sessionState.last_symbols.forEach(sym => {
+            if (!symbols.includes(sym)) symbols.push(sym);
+        });
+    } else if (hasPreviousReference && sessionState.current_symbol && !symbols.includes(sessionState.current_symbol)) {
         symbols.unshift(sessionState.current_symbol);
     }
     if (temporal.date && symbols.length === 0 && sessionState.current_symbol && !marketWideRequest) {
