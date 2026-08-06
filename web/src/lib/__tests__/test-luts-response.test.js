@@ -1,5 +1,5 @@
 import { buildCompoundDeterministicPlan } from "../ai/pipeline";
-import { buildV2FinalMessages } from "../ai/final-v2";
+import { buildV2FinalMessages, buildFastConversationalAdvisorResponse } from "../ai/final-v2";
 
 describe("Live User Query Simulation Test", () => {
     test("Simulates user query 'سلام عليكم اشتريت اليوم في سهم لوتس ونزل بيا تنصحوني اعمل ايه ؟'", () => {
@@ -29,6 +29,10 @@ describe("Live User Query Simulation Test", () => {
             }
         }];
 
+        // Verify that fastAdvisor DOES NOT intercept this single stock query with generic template
+        const fastAdvisor = buildFastConversationalAdvisorResponse(userMsg, plan, toolResults, sessionState);
+        expect(fastAdvisor).toBeNull();
+
         const messages = buildV2FinalMessages(
             userMsg,
             plan,
@@ -41,12 +45,9 @@ describe("Live User Query Simulation Test", () => {
         );
 
         const promptContent = messages[1].content;
-        
-        // Assert instructions for single stock queries are injected
         expect(promptContent).toContain("عند سؤال المستخدم عن قرار البيع أو الشراء أو الاحتفاظ بسهم معين");
         expect(promptContent).toContain("يمنع منعاً باتاً استخدام القوالب الجافة أو عبارات المسح العامة");
         
-        console.log("=== VERIFIED SIMULATED PROMPT FOR LUTS ===");
-        console.log(promptContent);
+        console.log("=== VERIFIED: FAST ADVISOR RETURNED NULL (NO GENERIC TEMPLATE) ===");
     });
 });

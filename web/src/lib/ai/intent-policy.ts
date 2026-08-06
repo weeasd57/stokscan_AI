@@ -67,6 +67,8 @@ export function isBestBuyStockQuestion(message: string): boolean {
     const value = normalizeArabicIntent(message);
     const mentionsDefensiveProduct = /(صندوق|صناديق|دخل\s+(?:ال)?ثابت|عائد|شهاده|وديعه|حساب توفير|سوق المال)/i.test(value);
     if (mentionsDefensiveProduct) return false;
+    const isOwnedStockAdviceQuery = /(اشتريت|نزل بي|نزل بيا|خسران|نازل بيا|عمل ايه|اعمل ايه).{0,30}(سهم|لوتس|[a-z0-9]+)/i.test(value) || /(اشتريت.*في.*سهم)/i.test(value);
+    if (isOwnedStockAdviceQuery) return false;
     return /(?:افضل|أفضل|احسن|أحسن|ترشح|أشتري|اشتري|اشتريه|أشتريه|ادخل|أدخل|ادخله|أدخله|ايه\s+افضل|إيه\s+أفضل|ايه\s+احسن|مين\s+ادخل|مين\s+أدخل|مين\s+اشتري|مين\s+أشتري).{0,35}(?:سهم|أسهم|الأسهم|الاسهم|فرصة|فرصه|فيه|فيها|بكره|بكرة|النهاردة|النهارده|الجلسة|الجلسه|طالعة|طالعه)/i.test(value)
         || /(?:مين\s+(?:ادخله|أدخله|ادخل\s+فيه|أدخل\s+فيه|اشتريه|أشتريه)|ادخل\s+في\s+(?:مين|ايه|إيه)|اشتري\s+في\s+(?:مين|ايه|إيه))/i.test(value)
         || /^(?:ايه\s+افضل\s+سهم\s+للشراء|افضل\s+سهم\s+للشراء|أفضل\s+سهم\s+للشراء|اشتري\s+ايه\s+بكره|أشتري\s+إيه\s+بكرة|مين\s+ادخله\s+بكره|مين\s+أدخله\s+بكرة)/i.test(value);
