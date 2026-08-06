@@ -18,7 +18,7 @@ export const AI_CONFIG = {
     plannerTimeoutMs: 5_000,
     plannerMaxTokens: 320,
     toolsTimeoutMs: 12_000,
-    responseTimeoutMs: 28_000,
+    responseTimeoutMs: 12_000,
     requestDeadlineMs: 52_000,
     responseMaxTokens: 900,
     responseTimeoutFallbackMs: 20_000,
