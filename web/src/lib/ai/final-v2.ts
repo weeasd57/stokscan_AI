@@ -379,9 +379,9 @@ export async function generateV2Response(
         relevantFacts, recentHistory, resolvedReference, sessionState
     );
 
-    const allowedModels = new Set([AI_CONFIG.models.response.default, ...AI_CONFIG.models.response.fallbacks, ...AI_CONFIG.models.response.agentRouter]);
+    const allowedModels = new Set([...(AI_CONFIG.models.response.allowedUserModels || []), AI_CONFIG.models.response.default, ...AI_CONFIG.models.response.fallbacks, ...AI_CONFIG.models.response.agentRouter]);
     const safeRequestedModel = requestedModel && allowedModels.has(requestedModel) ? requestedModel : undefined;
-    const textModels = safeRequestedModel ? [safeRequestedModel] : [AI_CONFIG.models.response.default, ...AI_CONFIG.models.response.fallbacks];
+    const textModels = safeRequestedModel ? [safeRequestedModel, ...AI_CONFIG.models.response.fallbacks] : [AI_CONFIG.models.response.default, ...AI_CONFIG.models.response.fallbacks];
     for (const m of textModels) {
         const result = m === "gpt-5.6-sol"
             ? await callAgentRouterApi(m, messages)
@@ -442,9 +442,9 @@ export async function* generateV2Stream(
     );
 
 
-    const allowedModels = new Set([AI_CONFIG.models.response.default, ...AI_CONFIG.models.response.fallbacks, ...AI_CONFIG.models.response.agentRouter]);
+    const allowedModels = new Set([...(AI_CONFIG.models.response.allowedUserModels || []), AI_CONFIG.models.response.default, ...AI_CONFIG.models.response.fallbacks, ...AI_CONFIG.models.response.agentRouter]);
     const safeRequestedModel = requestedModel && allowedModels.has(requestedModel) ? requestedModel : undefined;
-    const textModels = safeRequestedModel ? [safeRequestedModel] : [AI_CONFIG.models.response.default, ...AI_CONFIG.models.response.fallbacks];
+    const textModels = safeRequestedModel ? [safeRequestedModel, ...AI_CONFIG.models.response.fallbacks] : [AI_CONFIG.models.response.default, ...AI_CONFIG.models.response.fallbacks];
 
     if (textModels[0] === "gpt-5.6-sol") {
         const result = await callAgentRouterApi(textModels[0], messages, false);
