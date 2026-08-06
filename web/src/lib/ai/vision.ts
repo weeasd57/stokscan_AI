@@ -110,7 +110,7 @@ export async function analyzeImage(
                     messages: [
                         { role: "user", content: userContent }
                     ],
-                    max_tokens: 300,
+                    max_tokens: 600,
                     temperature: 0.05
                 })
             });
@@ -142,10 +142,6 @@ export async function analyzeImage(
     if (candidates.length > 0) {
         if (candidates.length === 1) {
             const single = candidates[0];
-            single.symbols = [];
-            single.technical_observations = [];
-            single.uncertainties.push("لم يتوفر تحقق بصري ثانٍ؛ تم حجب الرموز والمؤشرات لتجنب استخراج غير مؤكد.");
-            single.confidence = Math.min(single.confidence, 0.49);
             return { vision: single, error: null };
         }
 
@@ -155,9 +151,7 @@ export async function analyzeImage(
                 symbolCounts.set(symbol, (symbolCounts.get(symbol) || 0) + 1);
             });
         });
-        const agreedSymbols = new Set(
-            Array.from(symbolCounts.entries()).filter(([, count]) => count >= 2).map(([symbol]) => symbol)
-        );
+        const agreedSymbols = new Set(Array.from(symbolCounts.keys()));
         const primary = candidates[0];
         const valuesAgree = (left: number | null, right: number | null, relativeTolerance = 0.02, absoluteTolerance = 0.01): boolean => {
             if (left == null || right == null || !Number.isFinite(left) || !Number.isFinite(right)) return false;
