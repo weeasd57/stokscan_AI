@@ -53,6 +53,9 @@ export function getInvestorGuidanceIntent(message: string, hasNamedStock = false
     const asksHowItWorks = /(بيشتغل.*ازاي|ازاي.*بيشتغل|يعني ايه|ايه.*فكره|مخاطر.*ايه|امان.*ولا|مضمون.*ولا)/i.test(normalized);
     const asksAllocation = /(محفظ|اوزع|وزع|توزيع|تقسيم|قسم|قسمها|اوزعها|أوزعها|نصف\s*مليون|نص\s*مليون|مليون|معايا\s+مبلغ|عندي\s+مبلغ|معايا\s+سيول|عندي\s+سيول|سيولتي|\d+\s*(?:الف|ألف)|راس المال|كل الفلوس|كل المبلغ|المدخرات|مدخراتي|ميزاني|استثمر|فرص الاستثمار|ادخل.*اسهم|اشتري.*اسهم|اشتري.*ايه|فلوسي.*فين|نهايه\s*السنه|نهاية\s*السنة|اخر\s*السنه|آخر\s*السنة)/i.test(normalized) || egyptianMarketTerms.concentrationRisk.test(normalized) || egyptianMarketTerms.leverageRisk.test(normalized);
     const signalsInexperience = /(معنديش خبر|ما عنديش خبر|بدون خبر|مبتدئ|اول مره|ابني|بناء.*محفظ|ابدا.*استثمر|بدايه.*استثمار|(?:عايز|عاوز|مش فاهم|مش عارف).{0,40}(?:استثمار|الاسهم|اسهم|البورصه))/i.test(normalized);
+    const isSingleStockAdviceRequest = (hasNamedStock && /(اشتريت|نزل بي|نزل بيا|خسران|نازل بيا)/i.test(normalized)) || /(اشتريت.*في.*سهم.*و(?:نزل|خسر))/i.test(normalized);
+    if (isSingleStockAdviceRequest) return null;
+
     if (asksComparison && mentionsDefensiveProduct && (hasNamedStock || /سهم|اسهم|الاسهم/.test(normalized))) return "product_comparison";
     if (mentionsDefensiveProduct && asksHowItWorks && !hasNamedStock) return "product_explainer";
     if (asksAllocation && !hasNamedStock) return "allocation";
