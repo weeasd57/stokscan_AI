@@ -232,7 +232,7 @@ async function callNvidiaApi(
         const key = apiKeys[keyIndex];
         try {
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 25000);
+            const timeoutId = setTimeout(() => controller.abort(), 6000);
 
             const res = await fetch("https://integrate.api.nvidia.com/v1/chat/completions", {
                 method: "POST",
@@ -274,7 +274,7 @@ async function callAgentRouterApi(
     const key = process.env.AGENT_ROUTER_API_KEY || process.env.AGENTROUTER_API_KEY;
     if (!key) return { response: null };
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30000);
+    const timeoutId = setTimeout(() => controller.abort(), 7000);
     try {
         const res = await fetch(AI_CONFIG.api.agentRouterBaseUrl, {
             method: "POST",
@@ -335,9 +335,12 @@ export async function generateV2Response(
     if (visionContext && visionContext.symbols.length === 0 && toolResults.length === 0) {
         return buildVisionUncertaintyResponse(visionContext);
     }
+    const fastAdvisor = buildFastConversationalAdvisorResponse(userMessage, plan, toolResults, sessionState);
+    if (fastAdvisor) return fastAdvisor;
+
     const isAnalyticalQuery = /(سبب|ليه|لماذا|ازاي|إزاي|تفسير|سر|ينزل|يهبط|يطلع|صعود|هبوط|فرص|أحسن|احسن|افضل|أفضل|توقعات|متوقع|مقارن|قارن|حالة|حالتها|رايك|رأيك|توجيه|تجميع|تصريف|تحليل|شراء|بيع|مناسب)/i.test(userMessage);
     const needsGuidanceResponse = plan.guidance_intent || getInvestorGuidanceIntent(userMessage);
-    const deterministic = !needsGuidanceResponse && !isAnalyticalQuery ? buildDeterministicResponse(userMessage, plan, toolResults) : null;
+    const deterministic = !needsGuidanceResponse && !isAnalyticalQuery ? buildDeterministicResponse(userMessage, plan, toolResults, sessionState) : null;
     if (deterministic) return deterministic;
     if (shouldReturnNoData(plan, visionContext, toolResults, relevantFacts)) {
         const requestedDate = plan.entities.requested_date;
@@ -362,7 +365,7 @@ export async function generateV2Response(
             return sanitizeReply(removeModelTables(result.response));
         }
     }
-    return buildDeterministicResponse(userMessage, plan, toolResults) || "عذراً، لم أتمكن من إنشاء الرد.";
+    return buildDeterministicResponse(userMessage, plan, toolResults, sessionState) || "عذراً، لم أتمكن من إنشاء الرد.";
 }
 
 export async function* generateV2Stream(
@@ -381,6 +384,12 @@ export async function* generateV2Stream(
         yield buildVisionUncertaintyResponse(visionContext);
         return;
     }
+    const fastAdvisor = buildFastConversationalAdvisorResponse(userMessage, plan, toolResults, sessionState);
+    if (fastAdvisor) {
+        yield fastAdvisor;
+        return;
+    }
+
     const isAnalyticalQuery = /(سبب|ليه|لماذا|ازاي|إزاي|تفسير|سر|ينزل|يهبط|يطلع|صعود|هبوط|فرص|أحسن|احسن|افضل|أفضل|توقعات|متوقع|مقارن|قارن|حالة|حالتها|رايك|رأيك|توجيه|تجميع|تصريف|تحليل|شراء|بيع|مناسب|مكمل|مستمر|جلسه|جلسة|غدا|غداً|اشترى|اشتري|عادله|عادلة|تقييم|قيمته|تسوى|تساوي)/i.test(userMessage);
     const needsGuidanceResponse = plan.guidance_intent || getInvestorGuidanceIntent(userMessage);
     const deterministic = !needsGuidanceResponse && !isAnalyticalQuery ? buildDeterministicResponse(userMessage, plan, toolResults) : null;
@@ -497,7 +506,56 @@ function buildVisionUncertaintyResponse(vision: VisionContext): string {
     return `لم أجد في الصورة بيانات مالية مرئية مؤكدة يمكن تحويلها إلى تحليل سهم. لم أستخدم أي رمز أو رقم غير واضح حتى لا أختلق بيانات.${uncertainty}`;
 }
 
-export function buildDeterministicResponse(userMessage: string, plan: IntentPlan, toolResults: ToolResult[]): string | null {
+export function buildFastConversationalAdvisorResponse(
+    userMessage: string,
+    plan: IntentPlan,
+    toolResults: ToolResult[],
+    sessionState?: SessionState | null
+): string | null {
+    if (isBestBuyStockQuestion(userMessage)) {
+        const fairValueScan = toolResults.find(result => result.tool === "get_fair_value_scan");
+        const stocks = Array.isArray(fairValueScan?.data?.stocks) ? fairValueScan.data.stocks : [];
+
+        let profileGreeting = "أهلاً بك! بصفتي مستشارك المالي المباشر للبورصة المصرية، إليك قراءة فنية سريعة لأهم الفرص المتاحة وفق أحدث مسح للجلسة:";
+        if (sessionState?.investment_budget || sessionState?.risk_tolerance || sessionState?.preferred_sectors?.length) {
+            const parts: string[] = [];
+            if (sessionState.investment_budget) parts.push(`ميزانيتك المتاحة: ${sessionState.investment_budget.toLocaleString("ar-EG")} جنيه`);
+            if (sessionState.risk_tolerance) {
+                const rMap: Record<string, string> = { low: "مستوى مخاطرة منخفض", medium: "مستوى مخاطرة متوازن", high: "مهمة مضاربية عالية" };
+                parts.push(rMap[sessionState.risk_tolerance] || sessionState.risk_tolerance);
+            }
+            if (sessionState.preferred_sectors?.length) {
+                parts.push(`تفوق قطاع ${sessionState.preferred_sectors.join(" و")}`);
+            }
+            profileGreeting = `أهلاً بك! بناءً على تفضيلاتك المسجلة معي (${parts.join(" ، ")}): إليك قراءة فنية مخصصة لأهم الفرص المتاحة وفق أحدث مسح للجلسة:`;
+        }
+
+        const topStocksList = stocks.slice(0, 5).map((s: any) => {
+            const sym = s.symbol;
+            const price = Number(s.close).toFixed(2);
+            const premium = Math.abs(Number(s.premium_pct)).toFixed(1);
+            return `• **${sym}**: يتداول بسعر ${price} جنيه (أعلى من القيمة الوسطية لنطاق 60 جلسة بـ ${premium}%) - يعكس زخماً وقوة سعرية نسبيّة.`;
+        }).join("\n");
+
+        return [
+            profileGreeting,
+            "",
+            topStocksList || "• يتميز السوق حالياً بتحركات متوازنة، والأسهم الموضحة أدناه تتداول أعلى قيمتها الوسطية مع بداية دخول سيولة.",
+            "",
+            "📌 **ملخص النصيحة وإدارة المخاطر:**",
+            "1. **الدخول التكتيكي:** يُنصح دائماً بالدخول المتدرج قرب مستويات الدعم الحسابية وتجنب الشراء بأعلى نقطة صعود.",
+            "2. **تنوع المحفظة:** لا تضع السيولة كلها في سهم واحد، بل احتفظ بنسبة سيولة طوارئ ودفاعية.",
+            "",
+            "❓ **سؤال تفاعلي:** هل تفضل تركيز السيولة على أسهم ذات حركة مضاربية سريعة، أم أسهم ذات تجميع هادئ للاستثمار متوسط الأجل؟"
+        ].join("\n");
+    }
+    return null;
+}
+
+export function buildDeterministicResponse(userMessage: string, plan: IntentPlan, toolResults: ToolResult[], sessionState?: SessionState | null): string | null {
+    const fastAdvisor = buildFastConversationalAdvisorResponse(userMessage, plan, toolResults, sessionState);
+    if (fastAdvisor) return fastAdvisor;
+
     if (plan.intent === "clarification" && /(?:اقوى|أقوى)\s+(?:الاسهم|الأسهم)/i.test(userMessage)) {
         return "تقصد أقوى الأسهم بأي معيار: أعلى ارتفاع في آخر جلسة، أعلى سيولة، أقوى زخم فني، أم أفضل أداء خلال أسبوع؟ حدّد المعيار والفترة حتى لا أخلط بين القوة السعرية والسيولة.";
     }
