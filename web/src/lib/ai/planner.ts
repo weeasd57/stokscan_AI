@@ -868,9 +868,9 @@ Analyze the user request and return a JSON object. You MUST dynamically choose t
                     const isMarketScan = (isTermsQuestion || parsed.intent === "accumulation" || parsed.intent === "market_summary" || parsed.intent === "sector_analysis" || tools.includes("get_accumulation_stocks") || tools.includes("get_market")) && parsed.intent !== "comparison";
                     const rawSymbols = (isMarketScan || isTermsQuestion) && extracted.length === 0 ? [] : (Array.isArray(parsed.entities?.symbols) ? parsed.entities.symbols : []);
                     const normalizedSymbols = rawSymbols.map((s: string) => correctStockSymbol(s, validSymbols)).filter((s: string) => validSymbols.includes(s));
-                    const isComparisonQuery = /قارن|مقارنة|مفاضلة|بين/i.test(message) || extracted.length >= 2;
+                    const isComparisonQuery = /قارن|مقارنة|مفاضلة|بين|الاتنين|السهمين/i.test(message) || extracted.length >= 2;
                     const finalSymbols = (extracted.length > 0 && !isComparisonQuery)
-                        ? extracted
+                        ? [extracted[0]]
                         : (((isMarketScan || isTermsQuestion) && extracted.length === 0 ? [] : Array.from(new Set([...extracted, ...normalizedSymbols])))
                             .filter((s: string) => /^[A-Z]{2,6}$/.test(s) && !/^\d+$/.test(s)));
 
@@ -989,10 +989,10 @@ Analyze the user request and return a JSON object. You MUST dynamically choose t
                             && parsed.intent !== "comparison";
 
                         const isTermsQuestion = isTermsDefinitionRequest(message) && symbols.length === 0;
-                        const isComparisonQuery = /قارن|مقارنة|مفاضلة|بين/i.test(message) || symbols.length >= 2;
+                        const isExplicitComparison = /قارن|مقارنة|مفاضلة|بين|الاتنين|السهمين/i.test(message) || symbolsTextExtracted.length >= 2;
                         let resolvedSymbols: string[] = [];
-                        if (symbols.length > 0 && !isComparisonQuery) {
-                            resolvedSymbols = [symbols[0]];
+                        if (symbolsTextExtracted.length > 0 && !isExplicitComparison) {
+                            resolvedSymbols = [symbolsTextExtracted[0]];
                         } else if (symbols.length > 0) {
                             resolvedSymbols = symbols;
                         } else if (!isMarketScan && !hasImages && !isTermsQuestion) {
