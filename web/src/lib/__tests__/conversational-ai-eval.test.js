@@ -248,6 +248,12 @@ describe("Conversational AI & Investor Preference Memory Evaluation", () => {
             expect(plan.entities.symbols).toContain("NIPH");
             expect(plan.entities.symbols).toContain("RMDA");
         });
+
+        test("resolves 'اشتريت اليوم في سهم لوتس ونزل بيا تنصحوني اعمل ايه' to symbol LUTS", () => {
+            const plan = buildDeterministicPlannerResult("اشتريت اليوم في سهم لوتس ونزل بيا تنصحوني اعمل ايه ؟", { current_symbol: null, last_symbols: [], summary: null });
+            expect(plan.entities.symbols).toContain("LUTS");
+            expect(plan.tools).toContain("get_stock");
+        });
     });
 
     describe("6. Evidence-bound advisor responses", () => {
