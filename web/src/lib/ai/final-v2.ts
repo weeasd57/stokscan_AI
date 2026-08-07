@@ -16,9 +16,7 @@ export function buildV2FinalMessages(
     sessionState?: SessionState | null
 ): { role: string; content: any }[] {
     const sections: string[] = [];
-    const guidanceIntent = plan.guidance_intent || getInvestorGuidanceIntent(userMessage);
-
-    sections.push("=== USER REQUEST ===\n" + (userMessage || "(بدون رسالة)"));
+    const guidanceIntent = plan.guidance_intent;
 
     if (sessionState && (sessionState.investment_budget || sessionState.investment_horizon || sessionState.risk_tolerance || sessionState.preferred_sectors?.length)) {
         sections.push("=== INVESTOR PROFILE & SESSION CONTEXT ===");
@@ -88,17 +86,7 @@ export function buildV2FinalMessages(
         }, null, 2));
     }
 
-    if (plan.needs_history && recentHistory.length > 0) {
-        sections.push("=== RECENT MESSAGES ===");
-        recentHistory.forEach(m => {
-            const content = String(m.content || "")
-                .replace(/ERROR:.*image.*model does not support image input[^.]*\.?/gi, "")
-                .replace(/Cannot read ["']?image\.(?:png|jpe?g|webp)["']?[^.]*\.?/gi, "")
-                .replace(/===\s*(?:USER REQUEST|LIVE DATA|INTENT PLAN|RESPONSE RULES)\s*===/gi, "")
-                .trim();
-            if (content) sections.push(`${m.role}: ${content.substring(0, 500)}`);
-        });
-    }
+    // Recent history is no longer injected into sections; it's passed as actual chat messages below.
 
     if (resolvedReference.symbol) {
         sections.push("=== RESOLVED REFERENCE ===");
@@ -220,18 +208,36 @@ export function buildV2FinalMessages(
     sections.push("- قواعد التفسير الفني الصحيح الدقيق (يُمنع التناقض أو الهلوسة ببديهيات المؤشرات):");
     sections.push("  • مؤشر RSI: إذا كان أكبر من 70 فهو يعني 'تشبع شرائي مرتفع (Overbought) وزخم صاعد قوي قد يتلوه جني أرباح فني'، ولا يعني إطلاقاً فقر السيولة!");
     sections.push("  • نسبة الحجم (Volume Ratio): إذا كانت أكبر من 1.0x (مثل 2.78x) فهي تعني 'تداول وسيولة مرتفعة أعلى من متوسط 20 جلسة'، ولا تعني إطلاقاً فقر السيولة!");
+    sections.push("  • مؤشر التجميع (acc_score / Accumulation): يجب ترجمته بـ 'تجميع' أو 'درجة تجميع' ويُمنع تماماً استخدام كلمة 'توزيع' أو 'تصريف' لوصفه.");
+    sections.push("  • مؤشر التصريف (dist_score / Distribution): يجب ترجمته بـ 'تصريف' أو 'درجة تصريف' ويُمنع تماماً استخدام كلمة 'توزيع' أو 'تجميع' لوصفه.");
+    sections.push("  • مؤشر RSI: النسبة بين 50 و 69 (مثل 64) تعني 'منطقة إيجابية محايدة/صاعدة' وليست 'تشبع شرائي'؛ التشبع الشرائي (Overbought) يبدأ حصرياً من 70 فأعلى.");
+    sections.push("  • تجنب تماماً استخدام نفس الصيغ اللفظية المتكررة لوصف مؤشرات مختلفة (مثل تكرار 'يظهر إشارات قوية للاستمرار في...' لأكثر من مؤشر)؛ صف كل مؤشر بدقة وبتعبيرات مالية متنوعة.");
+    sections.push("  • في نهاية الرد، يجب دائماً كتابة جملة إخلاء المسؤولية الثابتة بالحرف في سطر منفصل: 'الرأي مبني على السعر والزخم والحجم والمستويات الفنية المتاحة، وليس توصية شراء أو بيع.'");
+    sections.push("  • لا تقل أبداً 'إليك الجدول أدناه/التالي/أدناه:' أو تعد بجدول تالٍ في ردك النصي؛ لأن الجداول الفنية والمسوح تظهر تلقائياً في أعلى ردك مباشرة كجزء من واجهة المستخدم.");
+    sections.push("  • 🚫 قاعدة صارمة لمنع الاختراع والهلوسة بالبيانات (Zero Hallucination Rule):");
+    sections.push("    1. يمنع تماماً اختراع أو افتراض أي رقم، نسبة، أو مرحلة Wyckoff غير موجودة حرفياً في البيانات المتاحة أعلاه (مثل اختراع درجة تصريف أو أيام تصريف غير صفرية إذا كانت في البيانات صفر).");
+    sections.push("    2. إذا سأل المستخدم عن مؤشر فني أو قيمة معينة (مثل SMA, EMA, المتوسطات المتحركة, درجة التصريف dist_score, أيام التصريف, إلخ) وهذه القيمة غير متوفرة أو قيمتها صفر في البيانات المتاحة أعلاه (=== DATABASE DATA ===):");
+    sections.push("       - يمنع تماماً استخدام رقم أو مؤشر آخر بدلاً منها (مثل استخدام السعر الحالي أو سعر الإغلاق 30 كقيمة للمتوسطات المتحركة SMA/EMA).");
+    sections.push("       - يمنع تماماً اختراع أي قيمة تقديرية لها من عقلك.");
+    sections.push("       - يجب أن تكتب حرفياً باللغة العربية: 'بيانات [اسم المؤشر] غير متوفرة حالياً لهذا السهم في قاعدة البيانات'.");
+    sections.push("    3. التزم بالتماسك المنطقي التام؛ يمنع التناقض في نفس الرد (مثل القول بأن السهم في مرحلة تجميع صاعدة ثم القول في نفس الفقرة بأنه في مرحلة تصريف). طابق كلامك مع إشارات التجميع والتصريف الفعلية الواردة في البيانات.");
+    sections.push("    4. 📅 قاعدة توضيح تواريخ المؤشرات: إذا كانت هناك بيانات أو مؤشرات لنفس السهم من تواريخ مختلفة (مثل السعر اللحظي مقابل مسح Wyckoff من تاريخ سابق): يجب عليك كتابة تاريخ كل مؤشر بوضوح بجانبه (مثال: 'مؤشر RSI يبلغ قيمته الفلانية (في تاريخ كذا)، بينما كان قيمته الأخرى في تاريخ المسح الفلاني')؛ يمنع تماماً دمج أو سرد قيم مختلفة لنفس المؤشر دون توضيح التواريخ المرتبطة بكل قيمة بشكل واضح ودقيق.");
+    sections.push("  • عندما يسألك المستخدم عن التجميع والتصريف (Accumulation/Distribution) لسهم معين:");
+    sections.push("    1. يجب أن تبحث عن أداة get_accumulation_stocks أو get_distribution_stocks في البيانات وتستخرج منها درجة التجميع (acc_score) ودرجة التصريف (dist_score) ومرحلة Wyckoff (wyckoff_phase) وأيام التجميع/التصريف.");
+    sections.push("    2. اشرح النتيجة بوضوح مستنداً لتلك الأرقام والتواريخ (مثال: السهم في مرحلة تجميع قوي بدرجة 80.3 بناءً على مسح Wyckoff بتاريخ...).");
+    sections.push("    3. يمنع تماماً تجاهل بيانات التجميع الفنية المتاحة أو استخدام مؤشر RSI كبديل للتعبير عن التجميع.");
+    sections.push("  • يمنع تكرار نفس التفسير أو الجملة اللفظية لأكثر من سؤال أو مؤشر (مثل تكرار جملة 'هذا يعني أن السهم في مرحلة تشبع... ويمكن أن يبدأ في هبوط قريباً'). صِف كل مؤشر وقيمته الرقمية بشكل منفصل وبتفسير فني دقيق ومتنوع.");
     sections.push("  • تقريب الأرقام السعرية ومستويات الدعم والمقاومة إلى رقمين عشريين دائماً (مثال: 0.43 جنيه وليس 0.428684 جنيه).");
     sections.push("  • يمنع تماماً تكرار الجمل التمهيدية (مثل: حسناً دعونا نبدأ... حسناً دعونا نبدأ) أو تكرار الفقرات ذات المعنى المماثل في الرد.");
     sections.push("- عندما يسأل المستخدم صراحة عن وجود توصية لسهم معين:");
     sections.push("  • إذا وجدت توصيات أو إشارات لهذا السهم في بيانات الأدوات (المسترجعة من get_recommendations أو get_signals): قم بعرض تفاصيل التوصية بوضوح (سعر الدخول، الهدف، وقف الخسارة، ونسبة العائد المتوقعة).");
     sections.push("  • إذا لم تكن هناك توصيات مسجلة لهذا السهم في البيانات: ابدأ الرد بإجابة حوارية مباشرة موضحاً أنه لا توجد حالياً توصية جديدة مسجلة على هذا السهم بصفحة التوصيات بالنظام، ثم قدم له قراءة فنية لمستويات الدعم والمقاومة للاسترشاد بها.");
 
+    sections.push("=== USER REQUEST ===\n" + (userMessage || "(بدون رسالة)"));
+
     let contextText = sections.join("\n\n");
     if (contextText.length > MAX_CONTEXT_CHARS) {
-        const requestEnd = contextText.indexOf("\n\n");
-        const request = requestEnd >= 0 ? contextText.slice(0, requestEnd + 2) : "";
-        const tail = contextText.slice(-Math.max(0, MAX_CONTEXT_CHARS - request.length));
-        contextText = `${request}${tail}\n\n[تم اقتطاع السياق القديم - تجاوز الحد الأقصى]`;
+        contextText = `...\n\n[تم اقتطاع السياق القديم - تجاوز الحد الأقصى]\n\n` + contextText.slice(-MAX_CONTEXT_CHARS);
     }
 
     const today = new Date().toISOString().split("T")[0];
@@ -242,10 +248,27 @@ export function buildV2FinalMessages(
 استخدم الأقسام المتاحة لبناء التحليل. ارحّب بالمستثمر واشرح له المعنى الفني خلف كل رقم (RSI, MACD, الدعم, المقاومة) مع تقديم سيناريوهات واضحة للتعامل مع السهم، ووجهه بعدم اتخاذ قرارات انفعالية.
 قدم تحليلاً فنياً وموضوعياً يستند للبيانات فقط، دون إعطاء وعود جازمة بمكسب، مع مراعاة الحفاظ على أسلوب استشاري رفيع ومحاور خبير.`;
 
-    return [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: contextText }
+    const messages: { role: string; content: any }[] = [
+        { role: "system", content: systemPrompt }
     ];
+
+    if (plan.needs_history && recentHistory.length > 0) {
+        recentHistory.forEach(m => {
+            const content = String(m.content || "")
+                .replace(/ERROR:.*image.*model does not support image input[^.]*\.?/gi, "")
+                .replace(/Cannot read ["']?image\.(?:png|jpe?g|webp)["']?[^.]*\.?/gi, "")
+                .replace(/===\s*(?:USER REQUEST|LIVE DATA|INTENT PLAN|RESPONSE RULES)\s*===/gi, "")
+                .trim();
+            if (content) {
+                const role = m.role === "user" || m.role === "assistant" ? m.role : "user";
+                messages.push({ role, content: content.substring(0, 800) });
+            }
+        });
+    }
+
+    messages.push({ role: "user", content: contextText });
+
+    return messages;
 }
 
 async function callNvidiaApi(
@@ -366,7 +389,7 @@ export async function generateV2Response(
     if (fastAdvisor) return fastAdvisor;
 
     const isAnalyticalQuery = /(سبب|ليه|لماذا|ازاي|إزاي|تفسير|سر|ينزل|يهبط|يطلع|صعود|هبوط|فرص|أحسن|احسن|افضل|أفضل|توقعات|متوقع|مقارن|قارن|حالة|حالتها|رايك|رأيك|توجيه|تجميع|تصريف|تحليل|شراء|بيع|مناسب|اشتريت|خسران|نازل)/i.test(userMessage);
-    const needsGuidanceResponse = plan.guidance_intent || getInvestorGuidanceIntent(userMessage);
+    const needsGuidanceResponse = plan.guidance_intent;
     const deterministic = !needsGuidanceResponse && !isAnalyticalQuery ? buildDeterministicResponse(userMessage, plan, toolResults, sessionState) : null;
     if (deterministic) return deterministic;
     if (shouldReturnNoData(plan, visionContext, toolResults, relevantFacts)) {
@@ -424,8 +447,9 @@ export async function* generateV2Stream(
         return;
     }
 
-    const isAnalyticalQuery = /(سبب|ليه|لماذا|ازاي|إزاي|تفسير|سر|ينزل|يهبط|يطلع|صعود|هبوط|فرص|أحسن|احسن|افضل|أفضل|توقعات|متوقع|مقارن|قارن|حالة|حالتها|رايك|رأيك|توجيه|تجميع|تصريف|تحليل|شراء|بيع|مناسب|مكمل|مستمر|جلسه|جلسة|غدا|غداً|اشترى|اشتري|اشتريت|خسران|نازل|عادله|عادلة|تقييم|قيمته|تسوى|تساوي)/i.test(userMessage);
-    const needsGuidanceResponse = plan.guidance_intent || getInvestorGuidanceIntent(userMessage);
+    const isAnalyticalQueryRegex = /(سبب|ليه|لماذا|ازاي|إزاي|تفسير|سر|ينزل|يهبط|يطلع|صعود|هبوط|فرص|أحسن|احسن|افضل|أفضل|توقعات|متوقع|مقارن|قارن|حالة|حالتها|رايك|رأيك|توجيه|تجميع|تصريف|تحليل|شراء|بيع|مناسب|مكمل|مستمر|جلسه|جلسة|غدا|غداً|اشترى|اشتري|اشتريت|خسران|نازل|عادله|عادلة|تقييم|قيمته|تسوى|تساوي|أهداف|اهداف|احتفاظ|خروج|دخول|بيجمع|ينطلق|مؤشر|مؤشرات|اخبار|أخبار|إيه|ايه|هل|فين|مين|مسح|شروط|\?|؟)/i;
+    const isAnalyticalQuery = isAnalyticalQueryRegex.test(userMessage) || userMessage.trim().split(/\s+/).length > 4;
+    const needsGuidanceResponse = plan.guidance_intent;
     const deterministic = !needsGuidanceResponse && !isAnalyticalQuery ? buildDeterministicResponse(userMessage, plan, toolResults, sessionState) : null;
     if (deterministic) {
         yield deterministic;
@@ -529,8 +553,7 @@ export async function* generateV2Stream(
         }
     }
 
-    const fallbackText = buildDeterministicResponse(userMessage, plan, toolResults, sessionState);
-    yield fallbackText || "عذراً، لم أتمكن من إنشاء الرد.";
+    yield "عذراً، يبدو أن هناك ضغطاً على السيرفرات حالياً أو أن نماذج الذكاء الاصطناعي لم تستجب للطلب. يرجى إعادة إرسال رسالتك من جديد.";
 }
 
 function buildVisionUncertaintyResponse(vision: VisionContext): string {
@@ -547,7 +570,7 @@ export function buildFastConversationalAdvisorResponse(
     sessionState?: SessionState | null
 ): string | null {
     const normMsg = userMessage.toLowerCase().replace(/[أإآ]/g, "ا").replace(/ة/g, "ه");
-    const guidanceIntent = plan.guidance_intent || getInvestorGuidanceIntent(userMessage);
+    const guidanceIntent = plan.guidance_intent;
 
     const hasSpecificSymbols = Boolean(plan.entities?.symbols?.length);
 
@@ -557,7 +580,7 @@ export function buildFastConversationalAdvisorResponse(
         return null; // Yield to LLM for customized expert explanation of post-session liquidity indicators
     }
 
-    if (guidanceIntent === "terms_explainer" || isTermsDefinitionRequest(userMessage)) {
+    if (!hasSpecificSymbols && (guidanceIntent === "terms_explainer" || isTermsDefinitionRequest(userMessage))) {
         const wantsAccumulation = /(تجميع|التجميع)/i.test(normMsg);
         const wantsDistribution = /(تصريف|التصريف)/i.test(normMsg);
         const wantsAssembly = /(جمعيه|جمعية|عموميه|عمومية)/i.test(normMsg);

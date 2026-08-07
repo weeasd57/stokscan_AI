@@ -469,7 +469,7 @@ export async function executeStructuredTools(
                 Promise.all(
                     symbols.map(sym => {
                         let query = supabase.from("stock_technical_indicators")
-                            .select("symbol, close, rsi_14, macd_signal, change_pct, volume, vol_sma20, vwap_20, adx_14, momentum_10, date")
+                            .select("symbol, close, rsi_14, macd_signal, change_pct, volume, vol_sma20, vwap_20, adx_14, momentum_10, date, sma_50, ema_50, sma_200, ema_200, bb_upper, bb_lower, stoch_k, stoch_d")
                             .ilike("symbol", sym)
                             .eq("exchange", "EGX");
                         if (requestedDate) query = query.eq("date", requestedDate);
@@ -524,7 +524,16 @@ export async function executeStructuredTools(
                             volRatioStr = `${(Number(vol) / Number(volSma20)).toFixed(2)}x`;
                         }
 
-                        textParts.push(`• ${sym} (${stockData?.name || sym}): السعر = ${closePrice} ج.م, التغير = ${changeStr}, RSI = ${rsi}, MACD = ${macd}, نسبة السيولة = ${volRatioStr}`);
+                        const sma50 = techData?.sma_50 != null ? Number(techData.sma_50).toFixed(2) : "N/A";
+                        const ema50 = techData?.ema_50 != null ? Number(techData.ema_50).toFixed(2) : "N/A";
+                        const sma200 = techData?.sma_200 != null ? Number(techData.sma_200).toFixed(2) : "N/A";
+                        const ema200 = techData?.ema_200 != null ? Number(techData.ema_200).toFixed(2) : "N/A";
+                        const bbUpper = techData?.bb_upper != null ? Number(techData.bb_upper).toFixed(2) : "N/A";
+                        const bbLower = techData?.bb_lower != null ? Number(techData.bb_lower).toFixed(2) : "N/A";
+                        const stochK = techData?.stoch_k != null ? Number(techData.stoch_k).toFixed(2) : "N/A";
+                        const stochD = techData?.stoch_d != null ? Number(techData.stoch_d).toFixed(2) : "N/A";
+
+                        textParts.push(`• ${sym} (${stockData?.name || sym}): السعر = ${closePrice} ج.م, التغير = ${changeStr}, RSI = ${rsi}, MACD = ${macd}, SMA 50 = ${sma50}, EMA 50 = ${ema50}, SMA 200 = ${sma200}, EMA 200 = ${ema200}, Bollinger Upper = ${bbUpper}, Bollinger Lower = ${bbLower}, Stochastic %K = ${stochK}, Stochastic %D = ${stochD}, نسبة السيولة = ${volRatioStr}`);
 
                         results.push({
                             tool: "get_stock",
@@ -540,6 +549,14 @@ export async function executeStructuredTools(
                                 rsi_14: rsi,
                                 macd_signal: macd,
                                 vol_ratio: volRatioStr,
+                                sma_50: sma50,
+                                ema_50: ema50,
+                                sma_200: sma200,
+                                ema_200: ema200,
+                                bb_upper: bbUpper,
+                                bb_lower: bbLower,
+                                stoch_k: stochK,
+                                stoch_d: stochD,
                                 market_cap: fundamentals.marketCap ?? fundamentals.market_cap ?? null,
                                 eps: fundamentals.eps ?? null,
                                 book_value_per_share: fundamentals.bookValuePerShare ?? fundamentals.book_value_per_share ?? null,

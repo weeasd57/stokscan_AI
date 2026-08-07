@@ -394,7 +394,7 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
     const temporal = extractTemporalContext(message);
     const marketWideRequest = isMarketWideRequest(message);
     const riskFollowUp = /(يخسر|خسار|يهبط|ينزل).{0,30}(تاني|اكتر|أكتر|اكثر|أكثر|%|في الميه|فى الميه)|(?:ممكن|هل).{0,20}(يخسر|يهبط|ينزل)/i.test(message);
-    const hasPreviousReference = /(?:^|[^\u0621-\u064A])(ده|دا|دي|هذا|السهم ده|السهم دا|السهم دي|هاته|هاتها|اخباره|أخباره|خبره|الاتنين|السهمين)(?:$|[^\u0621-\u064A])/i.test(message);
+    const hasPreviousReference = /(?:^|[^\u0621-\u064A])(ده|دا|دي|هذا|السهم ده|السهم دا|السهم دي|هاته|هاتها|اخباره|أخباره|خبره|الاتنين|السهمين|عليه|فيه|ليه|عليها|فيها|ليها|عنه|عنها|به|بها|معاه|معاها|هو|هي)(?:$|[^\u0621-\u064A])/i.test(message);
     if (hasGroupReference && sessionState.last_symbols.length > 0) {
         sessionState.last_symbols.forEach(sym => {
             if (!symbols.includes(sym)) symbols.push(sym);
@@ -482,7 +482,20 @@ export function enforceIntentFromMessage(message: string, plannerIntent: string,
     const normalized = message.toLowerCase().replace(/[أإآ]/g, "ا").replace(/ة/g, "ه");
     const hasSymbol = symbols.length > 0 || /\b[A-Z]{2,6}\b/.test(message);
     const marketFairValueScan = isFairValueScanRequest(message);
-    const direction = /تصريف|distribution/i.test(normalized) ? "distribution" : /تجميع|accumulation/i.test(normalized) ? "accumulation" : null;
+    const hasDist = /تصريف|distribution/i.test(normalized);
+    const hasAcc = /تجميع|accumulation/i.test(normalized);
+    const noDist = /(?:لا|بدون|مفيش|صفر|0|zero).{0,15}(?:يوجد)?.{0,15}(?:تصريف|distribution)/i.test(normalized) || /(?:تصريف|distribution)\s*(?:=|يساوي)\s*0/.test(normalized);
+    const noAcc = /(?:لا|بدون|مفيش|صفر|0|zero).{0,15}(?:يوجد)?.{0,15}(?:تجميع|accumulation)/i.test(normalized) || /(?:تجميع|accumulation)\s*(?:=|يساوي)\s*0/.test(normalized);
+    let direction: "accumulation" | "distribution" | null = null;
+    if (hasAcc && noDist) direction = "accumulation";
+    else if (hasDist && noAcc) direction = "distribution";
+    else if (hasAcc && !hasDist) direction = "accumulation";
+    else if (hasDist && !hasAcc) direction = "distribution";
+    else if (hasAcc && hasDist) {
+        const accIdx = Math.max(normalized.indexOf("تجميع"), normalized.indexOf("accumulation"));
+        const distIdx = Math.max(normalized.indexOf("تصريف"), normalized.indexOf("distribution"));
+        direction = (accIdx !== -1 && accIdx < distIdx) ? "accumulation" : "distribution";
+    }
     if (marketFairValueScan) return { intent: "market_summary", tools: ["get_fair_value_scan"], replaceTools: true, ...getFairValueFilters(message) };
     if (isDailyPriceLimitQuestion(message)) return { intent: "levels_analysis", tools: ["get_price_history", "get_stock_levels"], replaceTools: true };
     if (/(اعلى|أعلى).{0,15}(سعر|قمه|قمة)/i.test(normalized) && hasSymbol) return { intent: "stock_analysis", tools: ["get_price_history"], replaceTools: true };
@@ -704,6 +717,12 @@ export async function* runPipelineStream(
     if (mergedSymbols.length === 0 && sessionState.current_symbol && /(يخسر|خسار|يهبط|ينزل).{0,30}(تاني|اكتر|أكتر|اكثر|أكثر|%|في الميه|فى الميه)|(?:ممكن|هل).{0,20}(يخسر|يهبط|ينزل)/i.test(userMessage)) {
         mergedSymbols.push(sessionState.current_symbol);
     }
+    if (mergedSymbols.length === 0 && sessionState.current_symbol && (
+        /(عليه|عليها|فيه|فيها|ليه|ليها|له|لها|عنه|عنها|به|بها|معاه|معاها|هو|هي|ده|دي|هذا|هذه|تجميع|تصريف|تحليل|مؤشر|مؤشرات|دعم|مقاومة|مقاومه)/i.test(userMessage) ||
+        userMessage.trim().split(/\s+/).length <= 3
+    ) && !isMarketWideRequest(userMessage)) {
+        mergedSymbols.push(sessionState.current_symbol);
+    }
     if (isMarketWideRequest(userMessage)) mergedSymbols = [];
     if (plannerResult.entities.sector && extractExplicitSymbols(userMessage).length === 0) mergedSymbols = [];
     const compoundRequest = splitChatCommands(userMessage).length > 1;
@@ -721,7 +740,10 @@ export async function* runPipelineStream(
         ? enforced.tools
         : Array.from(new Set([...(plannerResult.tools || []), ...enforced.tools])));
     const requestedRange = extractRequestedDateRange(userMessage);
-    const guidanceIntent = plannerResult.guidance_intent || getInvestorGuidanceIntent(userMessage);
+    let guidanceIntent = plannerResult.guidance_intent || getInvestorGuidanceIntent(userMessage, mergedSymbols.length > 0);
+    if (mergedSymbols.length > 0 && guidanceIntent !== "product_comparison") {
+        guidanceIntent = null;
+    }
     const plan: IntentPlan = {
         intent: mapIntent(effectiveIntent),
         confidence: plannerResult.confidence || 0.8,
@@ -763,6 +785,45 @@ export async function* runPipelineStream(
         executeStructuredTools(supabase, plan, apiKeys, userId, sessionId),
         new Promise<never>((_, reject) => setTimeout(() => reject(new Error("TOOLS_TIMEOUT")), AI_CONFIG.limits.toolsTimeoutMs)),
     ]);
+    // Apply custom user filters if present in message (e.g. "أعلى من 75", "يومين")
+    if (userMessage) {
+        const scoreMatch = userMessage.match(/(?:أعلى|اكثر|أكبر|اكبر|فوق).{1,10}?(\d{2,3})/i) || userMessage.match(/(\d{2,3}).{1,10}?(?:فأكثر|فاكثر)/i);
+        const minScore = scoreMatch ? parseInt(scoreMatch[1] || scoreMatch[2] || "0", 10) : 0;
+        
+        const volMatch = userMessage.match(/(?:نسبة الحجم|سيوله|سيولة).{1,15}?(?:أكبر|اعلى|أعلى).{1,10}?(\d+(?:\.\d+)?)/i);
+        const minVol = volMatch ? parseFloat(volMatch[1]) : 0;
+        
+        const daysMatch = userMessage.match(/(?:يومين)/i) ? 2 : (userMessage.match(/(?:أيام|ايام).{1,10}?(\d+)/i) ? parseInt(userMessage.match(/(?:أيام|ايام).{1,10}?(\d+)/i)![1], 10) : 0);
+        
+        tools.results.forEach(res => {
+            if (res.tool === "get_accumulation_stocks" || res.tool === "get_distribution_stocks") {
+                const scoreField = res.tool === "get_accumulation_stocks" ? "acc_score" : "dist_score";
+                const daysField = res.tool === "get_accumulation_stocks" ? "consecutive_acc_days" : "consecutive_dist_days";
+                
+                const filterFn = (s: any) => {
+                    let pass = true;
+                    if (minScore > 0 && Number(s[scoreField] || 0) <= minScore) pass = false;
+                    if (minVol > 0 && Number(s.vol_ratio || 0) <= minVol) pass = false;
+                    if (daysMatch > 0 && Number(s[daysField] || 0) < daysMatch) pass = false;
+                    return pass;
+                };
+
+                if (Array.isArray(res.data?.stocks)) {
+                    res.data.stocks = res.data.stocks.filter(filterFn);
+                }
+                if (Array.isArray(res.data?.scan_rows)) {
+                    res.data.scan_rows = res.data.scan_rows.filter(filterFn);
+                }
+                if (Array.isArray(res.symbols)) {
+                    res.symbols = res.symbols.filter((sym: string) => {
+                        const row = (res.data?.stocks || []).find((s: any) => String(s.symbol).toUpperCase() === String(sym).toUpperCase());
+                        return !!row;
+                    });
+                }
+            }
+        });
+    }
+
     const tables = buildExcelTables(tools.results, vision);
     if (tables.length > 0) yield { type: "tables", data: tables };
     if (tools.results.length > 0) {
@@ -780,8 +841,24 @@ export async function* runPipelineStream(
         && !plan.entities.scan_direction
         ? buildMarketLiquidityResponse(tools)
         : null;
-    const deterministicDomainResponse = buildDeterministicResponse(userMessage, plan, tools.results);
-    const deterministicResponse = deterministicLiquidityResponse || (plan.guidance_intent ? null : deterministicDomainResponse);
+    const isAnalyticalQueryRegex = /(سبب|ليه|لماذا|ازاي|إزاي|تفسير|سر|ينزل|يهبط|يطلع|صعود|هبوط|فرص|أحسن|احسن|افضل|أفضل|توقعات|متوقع|مقارن|قارن|حالة|حالتها|رايك|رأيك|توجيه|تجميع|تصريف|تحليل|شراء|بيع|مناسب|مكمل|مستمر|جلسه|جلسة|غدا|غداً|اشترى|اشتري|اشتريت|خسران|نازل|عادله|عادلة|تقييم|قيمته|تسوى|تساوي|أهداف|اهداف|احتفاظ|خروج|دخول|بيجمع|ينطلق|مؤشر|مؤشرات|اخبار|أخبار|إيه|ايه|هل|فين|مين|مسح|شروط|\?|؟)/i;
+    const isAnalyticalQuery = isAnalyticalQueryRegex.test(userMessage) || userMessage.trim().split(/\s+/).length > 4;
+    
+    // Check if scan filters resulted in 0 stocks to prevent LLM hallucinations
+    let emptyScanResult = false;
+    tools.results.forEach(res => {
+        if (res.tool === "get_accumulation_stocks" || res.tool === "get_distribution_stocks") {
+            if (Array.isArray(res.data?.stocks) && res.data.stocks.length === 0) {
+                emptyScanResult = true;
+            }
+        }
+    });
+
+    const deterministicDomainResponse = emptyScanResult 
+        ? "عذراً، لم أجد أي أسهم تطابق الشروط التي حددتها حالياً في قاعدة البيانات. يمكنك محاولة تخفيف الشروط (مثل تقليل درجة التجميع المطلوبة أو نسبة الحجم) للحصول على نتائج."
+        : buildDeterministicResponse(userMessage, plan, tools.results);
+
+    const deterministicResponse = deterministicLiquidityResponse || (plan.guidance_intent || (isAnalyticalQuery && !emptyScanResult) ? null : deterministicDomainResponse);
     if (deterministicResponse) {
         const response = deterministicResponse;
         const deterministicSessionUpdate = clearsStockContext(plan)
@@ -954,6 +1031,12 @@ export async function runPipeline(
     if (mergedSymbols.length === 0 && sessionState.current_symbol && /(يخسر|خسار|يهبط|ينزل).{0,30}(تاني|اكتر|أكتر|اكثر|أكثر|%|في الميه|فى الميه)|(?:ممكن|هل).{0,20}(يخسر|يهبط|ينزل)/i.test(userMessage)) {
         mergedSymbols.push(sessionState.current_symbol);
     }
+    if (mergedSymbols.length === 0 && sessionState.current_symbol && (
+        /(عليه|عليها|فيه|فيها|ليه|ليها|له|لها|عنه|عنها|به|بها|معاه|معاها|هو|هي|ده|دي|هذا|هذه|تجميع|تصريف|تحليل|مؤشر|مؤشرات|دعم|مقاومة|مقاومه)/i.test(userMessage) ||
+        userMessage.trim().split(/\s+/).length <= 3
+    ) && !isMarketWideRequest(userMessage)) {
+        mergedSymbols.push(sessionState.current_symbol);
+    }
     if (isMarketWideRequest(userMessage)) mergedSymbols = [];
     if (plannerResult.entities.sector && extractExplicitSymbols(userMessage).length === 0) mergedSymbols = [];
     const compoundRequest = splitChatCommands(userMessage).length > 1;
@@ -968,7 +1051,10 @@ export async function runPipeline(
         ? enforced.tools
         : Array.from(new Set([...(plannerResult.tools || []), ...enforced.tools])));
     const requestedRange = extractRequestedDateRange(userMessage);
-    const guidanceIntent = plannerResult.guidance_intent || getInvestorGuidanceIntent(userMessage);
+    let guidanceIntent = plannerResult.guidance_intent || getInvestorGuidanceIntent(userMessage, mergedSymbols.length > 0);
+    if (mergedSymbols.length > 0 && guidanceIntent !== "product_comparison") {
+        guidanceIntent = null;
+    }
     const plan: IntentPlan = {
         intent: mapIntent(effectiveIntent),
         confidence: plannerResult.confidence || 0.8,
@@ -1001,6 +1087,46 @@ export async function runPipeline(
 
     // Stage 4: Tools
     const tools = await executeStructuredTools(supabase, plan, apiKeys, userId, sessionId);
+    
+    // Apply custom user filters if present in message (e.g. "أعلى من 75", "يومين")
+    if (userMessage) {
+        const scoreMatch = userMessage.match(/(?:أعلى|اكثر|أكبر|اكبر|فوق).{1,10}?(\d{2,3})/i) || userMessage.match(/(\d{2,3}).{1,10}?(?:فأكثر|فاكثر)/i);
+        const minScore = scoreMatch ? parseInt(scoreMatch[1] || scoreMatch[2] || "0", 10) : 0;
+        
+        const volMatch = userMessage.match(/(?:نسبة الحجم|سيوله|سيولة).{1,15}?(?:أكبر|اعلى|أعلى).{1,10}?(\d+(?:\.\d+)?)/i);
+        const minVol = volMatch ? parseFloat(volMatch[1]) : 0;
+        
+        const daysMatch = userMessage.match(/(?:يومين)/i) ? 2 : (userMessage.match(/(?:أيام|ايام).{1,10}?(\d+)/i) ? parseInt(userMessage.match(/(?:أيام|ايام).{1,10}?(\d+)/i)![1], 10) : 0);
+        
+        tools.results.forEach(res => {
+            if (res.tool === "get_accumulation_stocks" || res.tool === "get_distribution_stocks") {
+                const scoreField = res.tool === "get_accumulation_stocks" ? "acc_score" : "dist_score";
+                const daysField = res.tool === "get_accumulation_stocks" ? "consecutive_acc_days" : "consecutive_dist_days";
+                
+                const filterFn = (s: any) => {
+                    let pass = true;
+                    if (minScore > 0 && Number(s[scoreField] || 0) <= minScore) pass = false;
+                    if (minVol > 0 && Number(s.vol_ratio || 0) <= minVol) pass = false;
+                    if (daysMatch > 0 && Number(s[daysField] || 0) < daysMatch) pass = false;
+                    return pass;
+                };
+
+                if (Array.isArray(res.data?.stocks)) {
+                    res.data.stocks = res.data.stocks.filter(filterFn);
+                }
+                if (Array.isArray(res.data?.scan_rows)) {
+                    res.data.scan_rows = res.data.scan_rows.filter(filterFn);
+                }
+                if (Array.isArray(res.symbols)) {
+                    res.symbols = res.symbols.filter((sym: string) => {
+                        const row = (res.data?.stocks || []).find((s: any) => String(s.symbol).toUpperCase() === String(sym).toUpperCase());
+                        return !!row;
+                    });
+                }
+            }
+        });
+    }
+
     const tables = buildExcelTables(tools.results, vision);
 
     await saveFactSnapshots(supabase, userId, sessionId, tools, vision, messageId);
@@ -1017,8 +1143,23 @@ export async function runPipeline(
     const scopedMemory = plan.needs_historical_data || plan.entities.reference
         ? memory?.relevant_snapshots || []
         : [];
-    const deterministicDomainResponse = buildDeterministicResponse(userMessage, plan, tools.results);
-    const generatedResponse = deterministicLiquidityResponse || (plan.guidance_intent ? null : deterministicDomainResponse) || await generateV2Response(
+    const isAnalyticalQueryRegex = /(سبب|ليه|لماذا|ازاي|إزاي|تفسير|سر|ينزل|يهبط|يطلع|صعود|هبوط|فرص|أحسن|احسن|افضل|أفضل|توقعات|متوقع|مقارن|قارن|حالة|حالتها|رايك|رأيك|توجيه|تجميع|تصريف|تحليل|شراء|بيع|مناسب|مكمل|مستمر|جلسه|جلسة|غدا|غداً|اشترى|اشتري|اشتريت|خسران|نازل|عادله|عادلة|تقييم|قيمته|تسوى|تساوي|أهداف|اهداف|احتفاظ|خروج|دخول|بيجمع|ينطلق|مؤشر|مؤشرات|اخبار|أخبار|إيه|ايه|هل|فين|مين|مسح|شروط|\?|؟)/i;
+    const isAnalyticalQuery = isAnalyticalQueryRegex.test(userMessage) || userMessage.trim().split(/\s+/).length > 4;
+    // Check if scan filters resulted in 0 stocks to prevent LLM hallucinations
+    let emptyScanResult = false;
+    tools.results.forEach(res => {
+        if (res.tool === "get_accumulation_stocks" || res.tool === "get_distribution_stocks") {
+            if (Array.isArray(res.data?.stocks) && res.data.stocks.length === 0) {
+                emptyScanResult = true;
+            }
+        }
+    });
+
+    const deterministicDomainResponse = emptyScanResult 
+        ? "عذراً، لم أجد أي أسهم تطابق الشروط التي حددتها حالياً في قاعدة البيانات. يمكنك محاولة تخفيف الشروط (مثل تقليل درجة التجميع المطلوبة أو نسبة الحجم) للحصول على نتائج."
+        : buildDeterministicResponse(userMessage, plan, tools.results);
+
+    const generatedResponse = deterministicLiquidityResponse || (plan.guidance_intent || (isAnalyticalQuery && !emptyScanResult) ? null : deterministicDomainResponse) || await generateV2Response(
         userMessage, plan, vision, tools.results,
         scopedMemory,
         memory?.recent_messages || [],
