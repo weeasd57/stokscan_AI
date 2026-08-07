@@ -96,6 +96,15 @@ export default function ChatWidget() {
     const fileInputRef = useRef<HTMLInputElement>(null);
     const modelMenuRef = useRef<HTMLDivElement>(null);
     const portalMenuRef = useRef<HTMLDivElement>(null);
+    const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+    // Dynamic auto-expand textarea height as user types
+    useEffect(() => {
+        if (textareaRef.current) {
+            textareaRef.current.style.height = "auto";
+            textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 220)}px`;
+        }
+    }, [input]);
 
     // Close model menu when clicking outside
     useEffect(() => {
@@ -318,10 +327,10 @@ export default function ChatWidget() {
                         {user && (
                             <button
                                 onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-                                className="md:hidden p-1.5 rounded-lg text-zinc-500 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-800 transition-colors"
-                                title="قائمة المحادثات"
+                                className="p-1.5 bg-white text-black border-2 border-black shadow-[2px_2px_0_0_#000] hover:bg-amber-400 active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all cursor-pointer"
+                                title="سجل المحادثات"
                             >
-                                <PanelLeft className="h-4 w-4" />
+                                <PanelLeft className="h-4 w-4 stroke-[2.5]" />
                             </button>
                         )}
                         <div className="h-9 w-9 border-2 border-black bg-white flex items-center justify-center shadow-[2px_2px_0_0_#000]">
@@ -337,17 +346,17 @@ export default function ChatWidget() {
                         )}
                         <button
                             onClick={() => setIsExpanded(!isExpanded)}
-                            className="hidden md:flex p-1.5 rounded-lg text-zinc-500 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-800 hover:text-black dark:hover:text-white transition-colors"
+                            className="hidden md:flex p-1.5 bg-white text-black border-2 border-black shadow-[2px_2px_0_0_#000] hover:bg-amber-400 active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all cursor-pointer"
                             title={isExpanded ? "تعديل الحجم الافتراضي" : "تكبير النافذة"}
                         >
-                            {isExpanded ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+                            {isExpanded ? <Minimize2 className="h-4 w-4 stroke-[2.5]" /> : <Maximize2 className="h-4 w-4 stroke-[2.5]" />}
                         </button>
                         <button
                             onClick={() => setIsOpen(false)}
-                            className="p-2 rounded-xl text-zinc-500 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-800 hover:text-black dark:hover:text-white transition-colors flex items-center justify-center active:scale-95"
+                            className="p-1.5 bg-white text-black border-2 border-black shadow-[2px_2px_0_0_#000] hover:bg-rose-400 active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all cursor-pointer flex items-center justify-center"
                             title="إغلاق"
                         >
-                            <X className="h-5 w-5" />
+                            <X className="h-4 w-4 stroke-[2.5]" />
                         </button>
                     </div>
                 </div>
@@ -553,6 +562,7 @@ export default function ChatWidget() {
                                 </button>
 
                                 <textarea
+                                    ref={textareaRef}
                                     rows={1}
                                     value={input}
                                     onChange={(e) => setInput(e.target.value)}
@@ -567,7 +577,7 @@ export default function ChatWidget() {
                                             ? (language === "ar" ? `أضف وصفاً لـ (${imagePreviews.length}) صور (اختياري)...` : `Add description for (${imagePreviews.length}) images (optional)...`) 
                                             : (language === "ar" ? "اسأل عن أي سهم في البورصة المصرية... (Shift+Enter لسطر جديد)" : "Ask about any EGX stock... (Shift+Enter for newline)")
                                     }
-                                    className="flex-1 min-h-[36px] max-h-[120px] py-1.5 px-2 bg-transparent text-sm text-black dark:text-zinc-100 placeholder:text-zinc-500 focus:outline-none resize-none leading-relaxed"
+                                    className="flex-1 min-h-[42px] max-h-[220px] py-2 px-3 bg-transparent text-base md:text-sm text-black dark:text-zinc-100 placeholder:text-zinc-500 focus:outline-none resize-none leading-relaxed overflow-y-auto transition-all duration-150"
                                 />
 
                                 <button
