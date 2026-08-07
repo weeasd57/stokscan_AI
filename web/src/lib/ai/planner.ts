@@ -380,10 +380,10 @@ const ARABIC_STOCK_MAPPINGS: Record<string, string | string[]> = {
     "مطاحن الاسكندريه": "AFMC",
     "الاسكندرية مطاحن": "AFMC",
     "الاسكندريه مطاحن": "AFMC",
-    "المطاحن": ["EDFM", "SCFM", "WCDF", "MILS", "UEFM", "AFMC", "CEFM"],
-    "مطاحن": ["EDFM", "SCFM", "WCDF", "MILS", "UEFM", "AFMC", "CEFM"],
-    "الاسكندرية": ["AMOC", "ALCN", "AFMC", "AXPH", "ALEX", "AMES", "SPIN"],
-    "الاسكندريه": ["AMOC", "ALCN", "AFMC", "AXPH", "ALEX", "AMES", "SPIN"],
+    "المطاحن": "AFMC",
+    "مطاحن": "AFMC",
+    "الاسكندرية": "ALCN",
+    "الاسكندريه": "ALCN",
 };
 import { SessionState, PlannerResult, VisionContext } from "./types";
 import { AI_CONFIG } from "./config";
