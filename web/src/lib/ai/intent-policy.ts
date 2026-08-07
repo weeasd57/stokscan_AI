@@ -132,21 +132,6 @@ export function extractInvestorPreferences(message: string): ExtractedInvestorPr
         }
     }
 
-    if (isFairValueScanRequest(message)) {
-        const filters = getFairValueFilters(message);
-        const tools: string[] = ["get_fair_value_scan"];
-        // When accumulation is required, also fetch Wyckoff scan data for enriched context
-        if (filters.require_accumulation) tools.push("get_accumulation_stocks");
-        if (filters.require_distribution) tools.push("get_distribution_stocks");
-        return {
-            intent: "market_summary",
-            confidence: 1,
-            entities: { symbols: [], sector: null, wants_table: true, timeframe: "current", requested_date: null, scan_direction: null, ...filters },
-            tools,
-            session_update: { current_symbol: null, last_symbols: sessionState.last_symbols, summary: message }
-        };
-    }
-
     // Horizon extraction
     if (/(مضاربة|مضاربه|سريعة|سريعه|عدة أيام|عده ايام|اسبوع|أسبوع|يومي|قصير)/i.test(value)) {
         horizon = "short_term";

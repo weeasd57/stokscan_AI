@@ -216,9 +216,14 @@ export function buildV2FinalMessages(
     sections.push("  • عندما يسأل المستخدم 'في أي منطقة' أو 'منطقة إيه حالياً' لسهم معين:");
     sections.push("    1. قارن السعر الحالي بمستويات الدعم والمقاومة بدقة وحدد موقعه بينهما.");
     sections.push("    2. صنّف المنطقة فنيّاً وبوضوح إلى واحدة من هذه المناطق فقط: (منطقة دعم / منطقة شراء تميل للإيجابية / منطقة حيادية للمراقبة / منطقة مقاومة / منطقة جني أرباح وتخفيف مضاربي) مع ذكر السبب الفني المباشر باختصار.");
-    sections.push("- عندما يسأل المستخدم صراحة عن وجود توصية لسهم معين:");
-    sections.push("  • إذا وجدت توصيات أو إشارات لهذا السهم في بيانات الأدوات (المسترجعة من get_recommendations أو get_signals): قم بعرض تفاصيل التوصية بوضوح (سعر الدخول، الهدف، وقف الخسارة، ونسبة العائد المتوقعة).");
-    sections.push("  • إذا لم تكن هناك توصيات مسجلة لهذا السهم في البيانات: ابدأ الرد بإجابة حوارية مباشرة موضحاً أنه لا توجد حالياً توصية جديدة مسجلة على هذا السهم بصفحة التوصيات بالنظام، ثم قدم له قراءة فنية لمستويات الدعم والمقاومة للاسترشاد بها.");
+    sections.push("- عندما يسأل المستخدم عن وجود توصيات أو إشارات (أو عند العثور على توصيات في البيانات):");
+    sections.push("  • إذا توفرت توصيات أو إشارات في بيانات الأدوات (المسترجعة من get_recommendations أو get_signals): قم بعرض تفاصيل كل توصية بوضوح (سعر الدخول، الهدف، وقف الخسارة، ونسبة العائد المتوقعة أو الفعلية والتقييم الفعلي لأدائها).");
+    sections.push("  • إذا لم تكن هناك توصيات مسجلة للأسهم المطلوبة في البيانات: ابدأ الرد بإجابة حوارية مباشرة موضحاً أنه لا توجد حالياً توصيات جديدة مسجلة على هذه الأسهم بصفحة التوصيات بالنظام، ثم قدم له قراءة فنية لمستويات الدعم والمقاومة للاسترشاد بها.");
+    sections.push("  • 🚫 قاعدة صارمة لتقييم 'الأقوى' أو 'الأفضل' أداءً في التوصيات:");
+    sections.push("    1. العائد بقيمة 0.00% يعني تعادلاً تاماً (صفقة راكدة لم تتحرك)، وليس ربحاً ولا ينبغي تسميتها 'مرحلة إيجابية' أو 'صفقة رابحة'.");
+    sections.push("    2. الترتيب الصحيح لقوة أداء الصفقات هو: الأعلى ربحاً (الموجب) > الأقرب للتعادل (الأقل خسارة أو 0.00%) > الأكبر خسارة (السالب).");
+    sections.push("    3. إذا كانت كل الصفقات/الإشارات خاسرة أو متعادلة، يجب قول ذلك بصدق وصراحة كاملة، مثلاً: 'لا توجد توصية رابحة حالياً من بين الصفقات المسجلة؛ صفقة X متعادلة بـ 0.00%، بينما صفقات Y و Z تسجل خسائر غير محققة بنسبة...'");
+    sections.push("    4. يمنع تماماً نعت توصية متعادلة بـ 'الأقوى فنياً' أو 'مرحلة إيجابية' لمجرد أن النسبة صفر أو موجب رمزياً، دون مقارنتها بباقي الصفقات.");
     sections.push("  • في نهاية الرد، يجب دائماً كتابة جملة إخلاء المسؤولية الثابتة بالحرف في سطر منفصل: 'الرأي مبني على السعر والزخم والحجم والمستويات الفنية المتاحة، وليس توصية شراء أو بيع.'");
     sections.push("  • لا تقل أبداً 'إليك الجدول أدناه/التالي/أدناه:' أو تعد بجدول تالٍ في ردك النصي؛ لأن الجداول الفنية والمسوح تظهر تلقائياً في أعلى ردك مباشرة كجزء من واجهة المستخدم.");
     sections.push("  • 🚫 قاعدة صارمة لمنع الاختراع والهلوسة بالبيانات (Zero Hallucination Rule):");
@@ -237,9 +242,9 @@ export function buildV2FinalMessages(
     sections.push("  • يمنع تكرار نفس التفسير أو الجملة اللفظية لأكثر من سؤال أو مؤشر (مثل تكرار جملة 'هذا يعني أن السهم في مرحلة تشبع... ويمكن أن يبدأ في هبوط قريباً'). صِف كل مؤشر وقيمته الرقمية بشكل منفصل وبتفسير فني دقيق ومتنوع.");
     sections.push("  • تقريب الأرقام السعرية ومستويات الدعم والمقاومة إلى رقمين عشريين دائماً (مثال: 0.43 جنيه وليس 0.428684 جنيه).");
     sections.push("  • يمنع تماماً تكرار الجمل التمهيدية (مثل: حسناً دعونا نبدأ... حسناً دعونا نبدأ) أو تكرار الفقرات ذات المعنى المماثل في الرد.");
-    sections.push("- عندما يسأل المستخدم صراحة عن وجود توصية لسهم معين:");
-    sections.push("  • إذا وجدت توصيات أو إشارات لهذا السهم في بيانات الأدوات (المسترجعة من get_recommendations أو get_signals): قم بعرض تفاصيل التوصية بوضوح (سعر الدخول، الهدف، وقف الخسارة، ونسبة العائد المتوقعة).");
-    sections.push("  • إذا لم تكن هناك توصيات مسجلة لهذا السهم في البيانات: ابدأ الرد بإجابة حوارية مباشرة موضحاً أنه لا توجد حالياً توصية جديدة مسجلة على هذا السهم بصفحة التوصيات بالنظام، ثم قدم له قراءة فنية لمستويات الدعم والمقاومة للاسترشاد بها.");
+    sections.push("- عندما يسأل المستخدم عن وجود توصيات أو إشارات (أو عند العثور على توصيات في البيانات):");
+    sections.push("  • إذا توفرت توصيات أو إشارات في بيانات الأدوات (المسترجعة من get_recommendations أو get_signals): قم بعرض تفاصيل كل توصية بوضوح (سعر الدخول، الهدف، وقف الخسارة، ونسبة العائد المتوقعة أو الفعلية والتقييم الفعلي لأدائها).");
+    sections.push("  • إذا لم تكن هناك توصيات مسجلة للأسهم المطلوبة في البيانات: ابدأ الرد بإجابة حوارية مباشرة موضحاً أنه لا توجد حالياً توصيات جديدة مسجلة على هذه الأسهم بصفحة التوصيات بالنظام، ثم قدم له قراءة فنية لمستويات الدعم والمقاومة للاسترشاد بها.");
 
     sections.push("=== USER REQUEST ===\n" + (userMessage || "(بدون رسالة)"));
 
@@ -250,11 +255,15 @@ export function buildV2FinalMessages(
 
     const today = new Date().toISOString().split("T")[0];
 
+    const lengthRule = (plan.intent === "stock_analysis" || plan.intent === "general_chat")
+        ? "أجب مباشرة وبصيغة تحليلية إحترافية (3 أسطر فقط) وبدون أي مقدمات استهلالية أو حشو (مثل: مرحباً، من خلال البيانات، يظهر أن)."
+        : "أجب مباشرة وبصيغة تحليلية إحترافية شاملة ومفصلة وبدون أي مقدمات استهلالية أو حشو (مثل: مرحباً، من خلال البيانات، يظهر أن).";
+
     const systemPrompt = `أنت الخبير والمحلل الفني الاحترافي للبورصة المصرية (EGX Bots). اليوم: ${today}.
 دورك تقديم قراءة فنية موضوعية ومباشرة تعتمد حكراً على الأرقام الحقيقية في البيانات.
 
 قواعد تحليل وتغطية الأسهم الصارمة:
-1. أجب مباشرة وبصيغة تحليلية إحترافية (3 أسطر فقط) وبدون أي مقدمات استهلالية أو حشو (مثل: مرحباً، من خلال البيانات، يظهر أن).
+1. ${lengthRule}
 2. يجب تغطية ومقارنة جميع الأسهم المذكورة في البيانات أدناه وعدم تجاهل أي سهم منها.
 3. قواعد القراءة الفنية للمؤشرات:
    - RSI أكبر من أو يساوي 70: منطقة تشبع شرائي (Overbought) وتخفيف/جني أرباح، وتعتبر مرتفعة المخاطر للشراء.
@@ -263,7 +272,7 @@ export function buildV2FinalMessages(
    - نسبة الحجم (Volume Ratio): أكبر من 1.0x تعني تداولاً جثيثاً فوق المتوسط، وأقل من 1.0x تعني تداولاً أقل من المتوسط.
 4. سلامة اللغة والموضوعية:
    - اكتب بلغة عربية فصحى سليمة 100% وبدون أخطاء إملائية أو ركيكة (يمنع استخدام عبارات مثل "يوصي بنا" أو "أن نستثمر").
-   - اذكر الجانب الفني لكل سهم وموقعه الموضوعي باختصار شديد دون تقديم أمور شراء صريحة.`;
+   - اذكر الجانب الفني لكل سهم وموقعه الموضوعي باختصار شديد. في حالة الاستعلام عن وجود توصيات أو صفقات بالاسم، اعرض تفاصيل التوصية المتوفرة (سعر الدخول، الهدف، وقف الخسارة، ونسبة العائد الفعلي)؛ خلاف ذلك اذكر الجانب الفني دون تقديم أوامر شراء صريحة.`;
 
     const messages: { role: string; content: any }[] = [
         { role: "system", content: systemPrompt }
@@ -853,7 +862,7 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
     const fastAdvisor = buildFastConversationalAdvisorResponse(userMessage, plan, toolResults, sessionState);
     if (fastAdvisor) return fastAdvisor;
     const scan = toolResults.find(result => result.tool === "get_accumulation_stocks" || result.tool === "get_distribution_stocks");
-    if (scan && scan.data?.stocks) {
+    if (scan && scan.data?.stocks && !plan.tools.includes("get_fair_value_scan")) {
         const stocks = scan.data.stocks;
         const direction = scan.data.direction === "distribution" ? "تصريف" : "تجميع";
         const oppositeDirection = scan.data.direction === "distribution" ? "تجميع" : "تصريف";
@@ -936,7 +945,8 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
     const fairValueRequest = /(قيمه عادله|قيمة عادلة|القيمة العادلة|القيمه العادله|fair value|عادله|عادلة)/i.test(userMessage);
     const compoundMessage = /\n|\s+(?:هات|جيب|اعرض|حلل|شوف|قارن|لو\s+كسر)(?:\s|$)|[،,]\s*(?:و\s*)?(?:مين|ايه|إيه|هات|جيب|شوف|حلل)(?:\s|$)/i.test(userMessage);
     const fairValueScan = toolResults.find(result => result.tool === "get_fair_value_scan");
-    if (fairValueScan && !isBestBuyStockQuestion(userMessage)) {
+    const isCompoundWithOtherTools = compoundMessage && (levelResults.length > 0 || stockResults.length > 0 || !!compoundNews);
+    if (fairValueScan && !isBestBuyStockQuestion(userMessage) && !isCompoundWithOtherTools) {
         const stocks = Array.isArray(fairValueScan.data?.stocks) ? fairValueScan.data.stocks : [];
         const direction = fairValueScan.data?.direction || plan.entities.fair_value_direction || "above";
         const requiresDistribution = Boolean(fairValueScan.data?.require_distribution || plan.entities.require_distribution);
@@ -1005,6 +1015,32 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
         }
         const scan = toolResults.find(result => result.tool === "get_accumulation_stocks" || result.tool === "get_distribution_stocks");
         if (scan?.data?.stocks?.length) parts.push(`التجميع/التصريف: ${scan.data.stocks.slice(0, 8).map((stock: any) => stock.symbol).join("، ")}.`);
+        
+        const fairValueScan = toolResults.find(result => result.tool === "get_fair_value_scan");
+        if (fairValueScan) {
+            const stocks = Array.isArray(fairValueScan.data?.stocks) ? fairValueScan.data.stocks : [];
+            const direction = fairValueScan.data?.direction || plan.entities.fair_value_direction || "above";
+            const requiresDistribution = Boolean(fairValueScan.data?.require_distribution || plan.entities.require_distribution);
+            const requiresAccumulation = Boolean(fairValueScan.data?.require_accumulation || plan.entities.require_accumulation);
+            const relation = direction === "below" ? "تحت" : "فوق";
+            const relativeWord = direction === "below" ? "أقل" : "أعلى";
+            const signalSuffix = requiresDistribution ? " وتحقق إشارة تصريف" : requiresAccumulation ? " وتحقق إشارة تجميع" : "";
+            
+            if (stocks.length > 0) {
+                parts.push(`مسح التقييم الفني (الأسهم ${relation} القيمة الوسطية لنطاق 60 جلسة${signalSuffix}):`);
+                stocks.slice(0, 15).forEach((stock: any, index: number) => {
+                    const distribution = requiresDistribution && stock.dist_score != null
+                        ? `، درجة التصريف ${Number(stock.dist_score).toFixed(1)}/100`
+                        : "";
+                    const accumulation = requiresAccumulation && stock.acc_score != null ? `، درجة التجميع ${Number(stock.acc_score).toFixed(1)}/100` : "";
+                    const scanDate = stock.scan_date ? `، إشارة المسح بتاريخ ${stock.scan_date}` : "";
+                    const volume = stock.vol_ratio != null ? `، الحجم ${Number(stock.vol_ratio).toFixed(2)}x من المتوسط` : "";
+                    parts.push(`${index + 1}. ${stock.symbol}: السعر ${Number(stock.close).toFixed(2)} جنيه، القيمة الوسطية ${Number(stock.midpoint).toFixed(2)} جنيه، ${relativeWord} منها بـ ${Math.abs(Number(stock.premium_pct)).toFixed(1)}%${distribution}${accumulation}${volume}${scanDate}.`);
+                });
+            } else {
+                parts.push(`مسح التقييم الفني: لم أجد أي أسهم تحقق تقاطع شرطين معاً (التداول ${relation} القيمة الوسطية لنطاق 60 جلسة${signalSuffix}) في أحدث جلسة.`);
+            }
+        }
         if (parts.length) return Array.from(new Set(parts)).join("\n");
     }
     if (plan.intent === "general_chat" && toolResults.length === 0) {

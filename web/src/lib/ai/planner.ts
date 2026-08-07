@@ -370,6 +370,7 @@ const ARABIC_STOCK_MAPPINGS: Record<string, string | string[]> = {
     "الشمس": "ELSH",
     "العربية للادوية": "ADCI",
     "مستشفى النزهة": "NINH", "مستشفي النزهة": "NINH",
+    "أصول للوساطة": "EBSC", "أصول": "EBSC",
     "النزهة الدولي": "NINH", "النزهه الدولي": "NINH",
     "النزهة": "NINH", "النزهه": "NINH",
     "ابوقير": "ABUK",

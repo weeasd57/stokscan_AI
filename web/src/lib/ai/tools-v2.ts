@@ -836,21 +836,38 @@ export async function executeStructuredTools(
                     const signal = String(row.signal || "").toUpperCase();
                     const quality = oldestRequest ? { ok: Boolean(row.created_at), reason: row.created_at ? null : "missing_date" } : dataDateQuality(row.created_at, 30);
                     const levelsValid = signal === "BUY"
-                        ? Number.isFinite(entry) && Number.isFinite(target) && Number.isFinite(stop) && stop < entry && target > entry
+                        ? Number.isFinite(entry) && Number.isFinite(target) && Number.isFinite(stop) && target > entry
                         : signal === "SELL"
-                            ? Number.isFinite(entry) && Number.isFinite(target) && Number.isFinite(stop) && target < entry && stop > entry
+                            ? Number.isFinite(entry) && Number.isFinite(target) && Number.isFinite(stop) && target < entry
                             : false;
                     const current = latestBySymbol.get(String(row.symbol || "").toUpperCase());
                     const currentPrice = Number(current?.close);
                     const returnPct = Number.isFinite(entry) && entry > 0 && Number.isFinite(currentPrice) ? ((currentPrice - entry) / entry) * 100 : null;
                     return { ...row, current_price: Number.isFinite(currentPrice) ? currentPrice : null, current_date: current?.date || null, return_pct: returnPct, status: returnPct == null ? "غير مقيم" : returnPct >= 0 ? "ربح غير محقق" : "خسارة غير محققة", validation: { ok: quality.ok && levelsValid, date: quality, levels: levelsValid ? null : "invalid_trade_levels" } };
                 }).filter((row: any) => row.validation.ok).slice(0, AI_CONFIG.tools.recommendationsLimit);
+
                 if (enrichedRecommendations.length === 0) {
                     results.push({ tool: "get_recommendations", source: "validation", data_time: now, symbols: [], data_type: "historical", data: [], error: "كل الإشارات المتاحة قديمة أو متناقضة وتم حجبها." });
                     textParts.push("[الإشارات التاريخية]: تم حجب البيانات القديمة أو غير المنطقية.");
                     return { results, formattedText: textParts.join("\n") };
                 }
+
                 textParts.push(`\n [إشارات وتوصيات تداول البورصة المصرية من قاعدة البيانات]:\n`);
+
+                const validRecs = enrichedRecommendations.filter((r: any) => r.return_pct != null);
+                if (validRecs.length > 0) {
+                    const rankedRecs = [...validRecs].sort((a: any, b: any) => Number(b.return_pct) - Number(a.return_pct));
+                    const best = rankedRecs[0];
+                    const bestReturn = Number(best.return_pct);
+                    if (bestReturn > 0) {
+                        textParts.push(`📊 [التقييم الفعلي لأداء الصفقات]: التوصية الأفضل أداءً هي ${best.symbol} بعائد غير محقق يبلغ +${bestReturn.toFixed(2)}%، بينما تختلف باقي الصفقات.`);
+                    } else if (bestReturn === 0) {
+                        textParts.push(`📊 [التقييم الفعلي لأداء الصفقات]: لا توجد توصيات رابحة حالياً (كل التوصيات خاسرة أو متعادلة). الصفقة الأقرب للتعادل هي ${best.symbol} بعائد 0.00% (تعادل تام دون أي أرباح فعلية وتعتبر صفقة راكدة لم تتحرك)، وباقي الصفقات تسجل خسائر غير محققة.`);
+                    } else {
+                        textParts.push(`📊 [التقييم الفعلي لأداء الصفقات]: لا توجد أي توصية رابحة أو متعادلة حالياً (جميع التوصيات في حالة خسارة غير محققة). الأقل خسارة هي ${best.symbol} بخسارة غير محققة تبلغ ${bestReturn.toFixed(2)}%.`);
+                    }
+                }
+
                 enrichedRecommendations.forEach((r: any) => {
                     const signal = String(r.signal || "BUY").toUpperCase();
                     const entry = r.entry_price ? `${r.entry_price} ج.م` : "N/A";
