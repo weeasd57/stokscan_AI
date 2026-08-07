@@ -893,15 +893,23 @@ export async function* runPipelineStream(
     let fullResponse = "";
     let pendingModelText = "";
 
-    // ⛔ Phrases that, if detected in streaming output, should stop further output
-    const STREAM_STOP_PHRASES = [
-        "📌 إدارة المخاطر",
-        "إدارة المخاطر:",
+    // 🔇 Lines containing these phrases are silently SKIPPED (dropped) but streaming continues
+    const STREAM_SKIP_PHRASES = [
         "البيانات الحية المتاحة، هذه مقارنة فنية",
         "الأسهم الموضحة بالجدول أعلاه",
         "وليست أمراً بالشراء",
         "مرحباً بكم في هذا المقال",
         "مرحبا بكم في هذا المقال",
+        "سنتحدث اليوم عن",
+        "دعونا نبدأ بتحليل",
+        "من خلال البيانات المتاحة",
+        "سوف أستخدم البيانات الحية",
+    ];
+
+    // ⛔ Lines containing these phrases STOP the entire stream (trailing filler)
+    const STREAM_STOP_PHRASES = [
+        "📌 إدارة المخاطر",
+        "إدارة المخاطر:",
     ];
 
     let streamStopped = false;
@@ -914,19 +922,22 @@ export async function* runPipelineStream(
         for (const line of lines) {
             if (streamStopped) break;
             if (isMarkdownTableLine(line)) continue;
-            // Check if this line triggers a stop phrase
-            const shouldStop = STREAM_STOP_PHRASES.some(phrase => line.includes(phrase));
-            if (shouldStop) {
+            // Check STOP first
+            if (STREAM_STOP_PHRASES.some(phrase => line.includes(phrase))) {
                 streamStopped = true;
                 break;
+            }
+            // Check SKIP
+            if (STREAM_SKIP_PHRASES.some(phrase => line.includes(phrase))) {
+                continue; // drop this line, keep streaming
             }
             fullResponse += `${line}\n`;
             yield { type: "token", data: `${line}\n` };
         }
     }
     if (!streamStopped && pendingModelText && !isMarkdownTableLine(pendingModelText)) {
-        const shouldStop = STREAM_STOP_PHRASES.some(phrase => pendingModelText.includes(phrase));
-        if (!shouldStop) {
+        if (!STREAM_STOP_PHRASES.some(p => pendingModelText.includes(p)) &&
+            !STREAM_SKIP_PHRASES.some(p => pendingModelText.includes(p))) {
             fullResponse += pendingModelText;
             yield { type: "token", data: pendingModelText };
         }
