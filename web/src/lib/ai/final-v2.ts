@@ -247,10 +247,12 @@ export function buildV2FinalMessages(
     const today = new Date().toISOString().split("T")[0];
 
     const systemPrompt = `أنت الخبير والاستشاري المالي الاحترافي للبورصة المصرية (EGX Bots). اليوم: ${today}.
-دورك تقديم استشارات فنية موجزة وعمليّة ومباشرة تفيد المستثمر وتساعده على إدارة مخاطره بذكاء وحكمة دون مقدمات إنشائية أو كتابة مقالات.
-أجب مباشرة واختصار ودقة عن سؤال المستثمر دون مقدمات طويلة كالمقالات (مثل: مرحباً بكم في هذا المقال). لا تشرح المعنى العام للمؤشرات بل طبّق قيمتها الرقمية مباشرة على حالة السهم الفنية الحالية.
-اعتمد على أقوى الأدلة والمؤشرات المتاحة في البيانات أولاً (مثل درجة التجميع ومرحلة Wyckoff وأيام التجميع لوصف التجميع، بدلاً من استخدام RSI كبديل).
-قدم تحليلاً فنياً وموضوعياً يستند للبيانات المتاحة فقط، دون إعطاء وعود جازمة بمكسب، مع مراعاة الحفاظ على أسلوب استشاري رفيع ومحاور خبير وموجز.`;
+دورك تقديم استشارات فنية موجزة وعمليّة ومباشرة تفيد المستثمر وتساعده على اتخاذ قرار شراء أو بيع أو الانتظار بوضوح.
+أجب مباشرة واختصار ودقة عن سؤال المستثمر دون مقدمات طويلة أو مقالات إنشائية.
+اعتمد على أقوى الأدلة والمؤشرات المتاحة في البيانات أولاً (مثل درجة التجميع ومرحلة Wyckoff وأيام التجميع، أو RSI/MACD إذا كانت فقط المتاحة).
+عند وجود عدة أسهم، حدد الأفضل منها بناءً على الزخم والسيولة والاتجاه، واذكر السبب في جملة واحدة.
+إذا كانت البيانات غير كافية، قل ذلك صراحة ولا تحذف السهم من المقارنة بدون سبب واضح.
+عند السؤال "اشتري مين"، اختر السهم الأفضل بناءً على المعطيات واذكر التحذير المناسب في جملة واحدة فقط.`;
 
     const messages: { role: string; content: any }[] = [
         { role: "system", content: systemPrompt }
@@ -687,14 +689,14 @@ export function buildFastConversationalAdvisorResponse(
     // 2. Sector Stock Selection & Best Buy Queries (e.g. "طيب أشتري إيه من القطاع ده بناءً على الأرقام الحالية؟")
     const isSectorBuyQuery = /(أشتري|اشتري|ادخل|ترشح|أفضل|افضل|ايه).{0,25}(?:سهم|أسهم|فرصة|فرصه).{0,20}(?:القطاع|قطاع)/i.test(normMsg)
         || /(طيب|طب)?\s*(أشتري|اشتري|ادخل|أدخل)\s*(إيه|ايه|في\s+إيه|في\s+ايه)\s*من\s*(القطاع|قطاع)/i.test(normMsg);
-    if (isSectorBuyQuery || isBestBuyStockQuestion(userMessage)) {
+    if ((isSectorBuyQuery || isBestBuyStockQuestion(userMessage)) && !hasSpecificSymbols) {
         const sectorResult = toolResults.find(r => r.tool === "get_sector");
         const fairValueScan = toolResults.find(r => r.tool === "get_fair_value_scan");
         const stocks = Array.isArray(sectorResult?.data?.stocks) ? sectorResult.data.stocks : (Array.isArray(fairValueScan?.data?.stocks) ? fairValueScan.data.stocks : []);
 
-        let greeting = "بناءً على البيانات الحية المتاحة، هذه مقارنة فنية بين أبرز الأسهم الظاهرة في المسح، وليست أمراً بالشراء:";
+        let greeting = "بناءً على البيانات الحية المتاحة، هذه مقارنة فنية بين أبرز الأسهم الظاهرة في المسح:";
         if (sessionState?.investment_budget || sessionState?.risk_tolerance) {
-            greeting = `استكمالاً لتحليل قطاعك ووفق تفضيلاتك المسجلة (${sessionState.investment_budget ? `ميزانية ${sessionState.investment_budget.toLocaleString("ar-EG")} جنيه` : "دون ميزانية محددة"})، هذه مقارنة فنية للأسهم الظاهرة في البيانات وليست توصية شخصية:`;
+            greeting = `استكمالاً لتحليل قطاعك ووفق تفضيلاتك المسجلة (${sessionState.investment_budget ? `ميزانية ${sessionState.investment_budget.toLocaleString("ar-EG")} جنيه` : "دون ميزانية محددة"})، هذه مقارنة فنية للأسهم الظاهرة في البيانات:`;
         }
 
         const levelBySymbol = new Map(toolResults
@@ -735,11 +737,11 @@ export function buildFastConversationalAdvisorResponse(
             "",
             topStocksList || "• الأسهم الموضحة بالجدول أعلاه تعكس أحدث حركة للسيولة والزخم السعري للقطاع.",
             "",
-            "📌 **إدارة المخاطر:**",
-            "1. لا تحوّل ترتيب المسح وحده إلى قرار شراء؛ راجع سيولة السهم واتجاهه ومستوياته الفعلية.",
-            "2. لا يمكن اشتقاق وقف خسارة ثابت دون دعم فعلي وتذبذب السهم وحجم المركز؛ استخدم مستوى الدعم الموثق فقط إن ظهر في البيانات.",
+            "📌 **التوصية:**",
+            "1. حدد السهم الأفضل بناءً على أقوى مؤشرات السهم في الجدول (acc_score مرتفع + حجم مرتفع + RSI مناسب).",
+            "2. إذا لم يتوفر للسهم المختار إشارة MACD أو دعم واضح، فانتظر حتى يتوفر تأكيد فني إضافي.",
             "",
-            "يمكن بعد ذلك مقارنة الدعم والمقاومة الفعليين للأسهم التي اجتازت هذه التصفية."
+            "يمكنك الآن مقارنة الدعم والمقاومة الفعليين للأسهم التي اجتازت هذه التصفية."
         ].join("\n");
     }
 
@@ -789,7 +791,7 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
         lines.push("");
         lines.push(`الخلاصة: وفقاً للشروط التي حددتها، ${stocks.length === 1 ? `سهم ${stocks[0].symbol} هو السهم الوحيد المطابق حالياً.` : `هذه هي الأسهم المطابقة حالياً في قاعدة البيانات.`}`);
         lines.push("");
-        lines.push("الرأي مبني على السعر والزخم والحجم والمستويات الفنية المتاحة، وليس توصية شراء أو بيع.");
+        lines.push("حدد من هذه القائمة السهم الأنسب لحالتك، واتخذ قرار الشراء أو الانتظار وفقاً لتأكيد الإشارة على الرسم البياني.");
 
         return lines.join("\n");
     }
@@ -864,7 +866,7 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
                 const volume = stock.vol_ratio != null ? `، الحجم ${Number(stock.vol_ratio).toFixed(2)}x من المتوسط` : "";
                 return `${index + 1}. ${stock.symbol}: السعر ${Number(stock.close).toFixed(2)} جنيه، القيمة الوسطية ${Number(stock.midpoint).toFixed(2)} جنيه، ${relativeWord} منها بـ ${Math.abs(Number(stock.premium_pct)).toFixed(1)}%${distribution}${accumulation}${volume}${scanDate}.`;
             }),
-            "ابدأ بالمقارنة بين قوة التجميع والسيولة وقرب السعر من الدعم، ولا تعتبر وجود السهم في القائمة أمراً بالشراء.",
+            "ابدأ بالمقارنة بين قوة التجميع والسيولة وقرب السعر من الدعم، واتخذ قرار الشراء أو الانتظار وفقاً لتأكيد الإشارة على الرسم البياني.",
             "تنبيه: المقصود هنا قيمة وسطية فنية وليست قيمة عادلة مالية؛ القيمة الجوهرية تحتاج أرباحاً وتدفقات نقدية ومكررات قطاع موثقة."
         ].join("\n");
     }
@@ -903,7 +905,7 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
     }
     if (plan.intent === "general_chat" && toolResults.length === 0) {
         if (/^\s*(?:جدع|عاش|تمام|تسلم|شكرا|شكراً|حلو|ممتاز|برافو)\s*[!؟?.]*$/i.test(userMessage)) {
-            return "تسلم. المهم أن يظل التحليل مرتبطاً بالبيانات والمخاطر، وليس مجرد اختيار نسبة أو سهم بلا مبرر.";
+            return "تسلم. المهم أن يظل التحليل مرتبطاً بالبيانات والمخاطر، وليس مجرد اختيار نسبة أو سهم بلا مبرر. لو عندك سهم معين، قارن بين المؤشرات واختر الأقوى.";
         }
         if (/(?:عرف|عرّف|يعني ايه|ما هو|ما هي).{0,40}(?:التجميع|الجمعيه العموميه|الجمعية العمومية)/i.test(userMessage)) {
             return [
