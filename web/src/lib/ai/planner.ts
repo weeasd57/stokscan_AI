@@ -6,7 +6,7 @@
 //  2. كل مدخل يُطابَق بنظام word-boundary (regex) في extractSymbolsFromText
 //  3. الأولوية للمسمى الأطول عند وجود تعارض محتمل
 // ============================================================
-const ARABIC_STOCK_MAPPINGS: Record<string, string> = {
+const ARABIC_STOCK_MAPPINGS: Record<string, string | string[]> = {
 
     // ── ABUK  أبو قير للأسمدة ──────────────────────────────
     "أبو قير": "ABUK", "ابو قير": "ABUK",
@@ -371,6 +371,23 @@ const ARABIC_STOCK_MAPPINGS: Record<string, string> = {
     "مستشفى النزهة": "NINH", "مستشفي النزهة": "NINH",
     "النزهة الدولي": "NINH", "النزهه الدولي": "NINH",
     "النزهة": "NINH", "النزهه": "NINH",
+    "ابوقير": "ABUK",
+    "أبوقير": "ABUK",
+    "شمس": "ELSH",
+    "الاسكندرية للمطاحن": "AFMC",
+    "الاسكندريه للمطاحن": "AFMC",
+    "مطاحن الاسكندرية": "AFMC",
+    "مطاحن الاسكندريه": "AFMC",
+    "مطاحن الإسكندرية": "AFMC",
+    "مطاحن الإسكندريه": "AFMC",
+    "الاسكندرية والمطاحن": "AFMC",
+    "الاسكندريه والمطاحن": "AFMC",
+    "الاسكندرية مطاحن": "AFMC",
+    "الاسكندريه مطاحن": "AFMC",
+    "المطاحن": ["EDFM", "SCFM", "WCDF", "MILS", "UEFM", "AFMC", "CEFM"],
+    "مطاحن": ["EDFM", "SCFM", "WCDF", "MILS", "UEFM", "AFMC", "CEFM"],
+    "الاسكندرية": ["AMOC", "ALCN", "AFMC", "AXPH", "ALEX", "AMES", "SPIN"],
+    "الاسكندريه": ["AMOC", "ALCN", "AFMC", "AXPH", "ALEX", "AMES", "SPIN"],
 };
 import { SessionState, PlannerResult, VisionContext } from "./types";
 import { AI_CONFIG } from "./config";
@@ -444,7 +461,7 @@ export async function getStocksList(): Promise<StocksListData> {
         }
     }
     
-    const stockMappings: Record<string, string> = { ...ARABIC_STOCK_MAPPINGS };
+    const stockMappings: Record<string, string | string[]> = { ...ARABIC_STOCK_MAPPINGS };
     for (const stock of cachedStocks || []) {
         const nameEn = stock.name?.trim();
         if (nameEn) stockMappings[nameEn] = stock.symbol.toUpperCase();
@@ -461,8 +478,8 @@ export async function getStocksList(): Promise<StocksListData> {
     return { stocksListStr, stockMappings };
 }
 
-export function getSyncStockMappings(): Record<string, string> {
-    const stockMappings: Record<string, string> = { ...ARABIC_STOCK_MAPPINGS };
+export function getSyncStockMappings(): Record<string, string | string[]> {
+    const stockMappings: Record<string, string | string[]> = { ...ARABIC_STOCK_MAPPINGS };
     for (const stock of cachedStocks || []) {
         const nameEn = stock.name?.trim();
         if (nameEn) stockMappings[nameEn] = stock.symbol.toUpperCase();
@@ -583,7 +600,7 @@ export function extractSymbolsFromText(
         }
     }
 
-    const normalizedText = text
+    let normalizedText = text
         .replace(/[أإآ]/g, "ا")
         .replace(/ة/g, "ه")
         .toLowerCase();
@@ -605,6 +622,7 @@ export function extractSymbolsFromText(
             } else {
                 found.push(symbolOrArr);
             }
+            normalizedText = normalizedText.replace(normalizedKey, " ".repeat(normalizedKey.length));
         }
     }
 

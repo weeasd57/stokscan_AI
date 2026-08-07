@@ -112,7 +112,7 @@ export function extractExplicitSymbols(message: string): string[] {
 
     // Attempt to match Arabic full names from the mapping
     const stockMappings = getSyncStockMappings();
-    const normMsg = message.replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").toLowerCase();
+    let normMsg = message.replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").toLowerCase();
     for (const [arName, symbol] of Object.entries(stockMappings).sort((a, b) => b[0].length - a[0].length)) {
         const normKey = arName.replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").toLowerCase();
         if (normKey.length >= 2) {
@@ -124,6 +124,7 @@ export function extractExplicitSymbols(message: string): string[] {
                 } else {
                     matchedSymbols.push(symbol);
                 }
+                normMsg = normMsg.replace(normKey, " ".repeat(normKey.length));
             }
         }
     }
