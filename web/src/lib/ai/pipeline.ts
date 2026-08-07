@@ -301,14 +301,18 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
     }
     if (isFairValueScanRequest(message)) {
         const filters = getFairValueFilters(message);
+        const fvTools: string[] = ["get_fair_value_scan"];
+        if (filters.require_accumulation) fvTools.push("get_accumulation_stocks");
+        if (filters.require_distribution) fvTools.push("get_distribution_stocks");
         return {
             intent: "market_summary",
             confidence: 1,
             entities: { symbols: [], sector: null, wants_table: true, timeframe: "current", requested_date: null, scan_direction: null, ...filters },
-            tools: ["get_fair_value_scan"],
+            tools: fvTools,
             session_update: { current_symbol: null, last_symbols: sessionState.last_symbols, summary: message }
         };
     }
+
     const explicitSymbols = extractExplicitSymbols(message);
     const hasGroupReference = /(فيهم|منهم|من دول|بينهم|أيهم|أيها|أحسن واحد|احسن واحد|أفضل واحد|افضل واحد|الأسهم دي|الاسهم دي)/i.test(message) && sessionState.last_symbols.length > 0;
     const allocationSymbols = explicitSymbols.length >= 2 ? explicitSymbols : hasGroupReference ? sessionState.last_symbols.slice(0, 5) : [];

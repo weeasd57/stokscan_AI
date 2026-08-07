@@ -17,8 +17,11 @@ export function isEarningsDataRequest(message: string): boolean {
 
 export function getFairValueFilters(message: string): { fair_value_direction: "above" | "below"; require_distribution: boolean; require_accumulation: boolean } {
     const value = normalizeArabicIntent(message);
-    const above = /(فوق|اعلي|مبالغ|غالي|اغلي)/i.test(value);
-    const below = /(تحت|تحدت|اقل|رخيص|ارخص|اقل من)/i.test(value);
+    // Proximity-based check: تحت must appear near القيمة to count as "below"
+    const belowNearValue = /(تحت|تحدت|اقل|رخيص|ارخص).{0,40}(القيمه|قيمه|قيمتها|التقييم)/i.test(value)
+        || /(القيمه|قيمه|قيمتها).{0,40}(تحت|تحدت|اقل|رخيص|ارخص)/i.test(value);
+    const below = belowNearValue || /(تحت|تحدت|اقل\s+من|ارخص).{0,10}(القيمه|قيمه)/i.test(value);
+    const above = !below && /(فوق|اعلي|مبالغ|غالي|اغلي)/i.test(value);
     const requireDistribution = /تصريف|distribution/i.test(value) && !/(?:^|[\s،,.;:])(?:لا|بدون|مفيش|صفر|0|zero)(?:[\s،,.;:]|$).{0,15}(?:يوجد)?.{0,15}(?:تصريف|distribution)/i.test(value) && !/(?:تصريف|distribution)\s*(?:=|يساوي)\s*0/.test(value);
     const requireAccumulation = /تجميع|accumulation/i.test(value) && !/(?:^|[\s،,.;:])(?:لا|بدون|مفيش|صفر|0|zero)(?:[\s،,.;:]|$).{0,15}(?:يوجد)?.{0,15}(?:تجميع|accumulation)/i.test(value) && !/(?:تجميع|accumulation)\s*(?:=|يساوي)\s*0/.test(value);
     return { fair_value_direction: below ? "below" : "above", require_distribution: requireDistribution, require_accumulation: requireAccumulation };
@@ -127,6 +130,21 @@ export function extractInvestorPreferences(message: string): ExtractedInvestorPr
                 }
             }
         }
+    }
+
+    if (isFairValueScanRequest(message)) {
+        const filters = getFairValueFilters(message);
+        const tools: string[] = ["get_fair_value_scan"];
+        // When accumulation is required, also fetch Wyckoff scan data for enriched context
+        if (filters.require_accumulation) tools.push("get_accumulation_stocks");
+        if (filters.require_distribution) tools.push("get_distribution_stocks");
+        return {
+            intent: "market_summary",
+            confidence: 1,
+            entities: { symbols: [], sector: null, wants_table: true, timeframe: "current", requested_date: null, scan_direction: null, ...filters },
+            tools,
+            session_update: { current_symbol: null, last_symbols: sessionState.last_symbols, summary: message }
+        };
     }
 
     // Horizon extraction
