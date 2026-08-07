@@ -217,6 +217,23 @@ export function sanitizeReply(reply: string, liveDataString?: string): string {
         .replace(/===\s*(?:USER REQUEST|LIVE DATA|INTENT PLAN|RESPONSE RULES)\s*===/gi, "")
         .replace(/^\s*(?:حسناً[،.]?\s*)?لا توجد صورة مرفقة[^\n]*$/gim, "")
         .replace(/^\s*سأقوم (?:بتحليل|بتقديم)[^\n]*$/gim, "")
+        // 🔥 NEW: Remove repetitive filler phrases (ENHANCED)
+        .replace(/^(?:مرحباً بكم|مرحبا|حسناً|حسنا|بالتأكيد|طبعاً|طبعا)[!،.؛:\s]*/gim, "")
+        .replace(/^(?:سوف أستخدم البيانات الحية المتاحة|من خلال البيانات المتاحة|من البيانات المتاحة)[،.\s]*/gim, "")
+        .replace(/^(?:دعونا نبدأ بتحليل|دعنا نبدأ بتحليل|نبدأ بتحليل)[^\n]*\n/gim, "")
+        .replace(/(?:في هذا التحليل الفني|في هذا الرد|من خلال هذا التحليل)[،.\s]*/gi, "")
+        // 🔥 NEW: Remove verbose repetitive patterns
+        .replace(/^(?:يظهر أن|نجد أن|من ناحية|من حيث|بناءً على|بالإضافة إلى ذلك)[،.\s]*/gim, "")
+        .replace(/^(?:من الضروري أن نلاحظ|من المهم أن نضع في اعتبارنا|في نهاية المطاف)[،.\s]*/gim, "")
+        .replace(/^(?:استكمالاً|وفق تفضيلاتك|يمكن بعد ذلك)[^\n]*/gim, "")
+        .replace(/(?:مما يعني أن)[،.\s]*/gi, "")
+        // Remove long risk management sections
+        .replace(/📌\s*إدارة المخاطر:[\s\S]*?(?=\n\n|$)/gi, "")
+        .replace(/\d+\.\s*لا تحوّل[\s\S]*?(?=\n\n|$)/gi, "")
+        // Fix broken Arabic grammar patterns
+        .replace(/يوصي بنا/gi, "يرجح التحليل الفني")
+        .replace(/أن نستثمر في/gi, "الأقوى فنيّاً")
+        .replace(/الرأي مبني على السعر والزخم والحجم والمستويات الفنية المتاحة، وليس توصية شراء أو بيع\./gi, "")
         .replace(/\n{3,}/g, "\n\n")
         .trim();
 
@@ -247,6 +264,15 @@ export function sanitizeReply(reply: string, liveDataString?: string): string {
         // If after stripping the table the reply is mostly empty, just use the analysis part
         if (cleanReply.replace(/\s/g, "").length < 10) {
             cleanReply = "تحليل فني.";
+        }
+
+        // 🔥 NEW: Truncate overly long responses (max 6 lines or 400 chars)
+        const responseLines = cleanReply.split("\n").filter(l => l.trim());
+        if (responseLines.length > 6) {
+            cleanReply = responseLines.slice(0, 6).join("\n");
+        }
+        if (cleanReply.length > 400) {
+            cleanReply = cleanReply.substring(0, 400) + "...";
         }
 
         // Build the final output: programmatic table + analysis
