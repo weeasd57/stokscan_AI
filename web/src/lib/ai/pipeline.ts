@@ -934,16 +934,19 @@ export async function* runPipelineStream(
                 continue;
             }
 
-            fullResponse += `${line}\n`;
-            yield { type: "token", data: `${line}\n` };
+            let cleanLine = line.replace(/^(?:من خلال التحليل الفني|من خلال تحليل البيانات|من خلال البيانات|بناءً على التحليل الفني|بناءً على البيانات|بناء على البيانات|يظهر أن|يظهر ان)[،.\s]*/gi, "");
+
+            fullResponse += `${cleanLine}\n`;
+            yield { type: "token", data: `${cleanLine}\n` };
         }
     }
     if (!streamStopped && pendingModelText && !isMarkdownTableLine(pendingModelText)) {
         const shouldStop = STREAM_STOP_PHRASES.some(phrase => pendingModelText.includes(phrase));
         const shouldSkip = STREAM_SKIP_PHRASES.some(phrase => pendingModelText.includes(phrase));
         if (!shouldStop && !shouldSkip) {
-            fullResponse += pendingModelText;
-            yield { type: "token", data: pendingModelText };
+            const cleanText = pendingModelText.replace(/^(?:من خلال التحليل الفني|من خلال تحليل البيانات|من خلال البيانات|بناءً على التحليل الفني|بناءً على البيانات|بناء على البيانات|يظهر أن|يظهر ان)[،.\s]*/gi, "");
+            fullResponse += cleanText;
+            yield { type: "token", data: cleanText };
         }
     }
 
