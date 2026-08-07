@@ -752,7 +752,50 @@ export function buildFastConversationalAdvisorResponse(
 export function buildDeterministicResponse(userMessage: string, plan: IntentPlan, toolResults: ToolResult[], sessionState?: SessionState | null): string | null {
     const fastAdvisor = buildFastConversationalAdvisorResponse(userMessage, plan, toolResults, sessionState);
     if (fastAdvisor) return fastAdvisor;
+    const scan = toolResults.find(result => result.tool === "get_accumulation_stocks" || result.tool === "get_distribution_stocks");
+    if (scan && scan.data?.stocks) {
+        const stocks = scan.data.stocks;
+        const direction = scan.data.direction === "distribution" ? "تصريف" : "تجميع";
+        const oppositeDirection = scan.data.direction === "distribution" ? "تجميع" : "تصريف";
+        const actionAr = scan.data.direction === "distribution" ? "التصريف" : "التجميع";
+        const scoreField = scan.data.direction === "distribution" ? "dist_score" : "acc_score";
+        const oppScoreField = scan.data.direction === "distribution" ? "acc_score" : "dist_score";
+        const consecutiveField = scan.data.direction === "distribution" ? "consecutive_dist_days" : "consecutive_acc_days";
 
+        if (stocks.length === 0) {
+            return `عذراً، لم أجد أي أسهم تطابق الشروط التي حددتها حالياً في قاعدة البيانات.`;
+        }
+
+        const countWord = stocks.length === 1 ? "سهم واحد" : stocks.length === 2 ? "سهمين" : `${stocks.length} أسهم`;
+        const lines = [
+            `تم العثور على ${countWord} يطابق الشروط المحددة:`
+        ];
+
+        stocks.slice(0, 15).forEach((stock: any) => {
+            const score = stock[scoreField];
+            const oppScore = stock[oppScoreField] || 0;
+            const vol = stock.vol_ratio;
+            const consecutiveDays = stock[consecutiveField];
+            const wyckoff = stock.wyckoff_phase;
+            const rsi = stock.rsi_14;
+
+            lines.push("");
+            lines.push(`📌 **${stock.symbol} (${stock.name || stock.symbol})**`);
+            lines.push(`✅ درجة ${actionAr}: ${score}/100`);
+            lines.push(`✅ نسبة الحجم: ${vol}x`);
+            lines.push(`✅ لا يوجد ${oppositeDirection} (درجة ${oppositeDirection === "تصريف" ? "التصريف" : "التجميع"}: ${oppScore})`);
+            lines.push(`✅ ${actionAr} مستمر: ${consecutiveDays} أيام متتالية`);
+            if (rsi) lines.push(`• RSI: ${rsi}`);
+            if (wyckoff) lines.push(`• مرحلة Wyckoff: ${wyckoff}`);
+        });
+
+        lines.push("");
+        lines.push(`الخلاصة: وفقاً للشروط التي حددتها، ${stocks.length === 1 ? `سهم ${stocks[0].symbol} هو السهم الوحيد المطابق حالياً.` : `هذه هي الأسهم المطابقة حالياً في قاعدة البيانات.`}`);
+        lines.push("");
+        lines.push("الرأي مبني على السعر والزخم والحجم والمستويات الفنية المتاحة، وليس توصية شراء أو بيع.");
+
+        return lines.join("\n");
+    }
     if (plan.intent === "clarification" && !userMessage.trim() && plan.service_degraded_message) {
         return "تعذر قراءة الصورة المرفقة بوضوح هذه المرة، لذلك لم أستخرج منها أسهماً أو أرقاماً حتى لا أخمّن. أرسل نسخة أوضح أو اكتب اسم السهم وما تريد تحليله، وسأعتمد على السؤال النصي مباشرة.";
     }

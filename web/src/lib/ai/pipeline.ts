@@ -854,11 +854,14 @@ export async function* runPipelineStream(
         }
     });
 
+    const hasScanTool = tools.results.some(res => res.tool === "get_accumulation_stocks" || res.tool === "get_distribution_stocks");
+    const isMarketWideScan = hasScanTool && mergedSymbols.length === 0;
+
     const deterministicDomainResponse = emptyScanResult 
         ? "عذراً، لم أجد أي أسهم تطابق الشروط التي حددتها حالياً في قاعدة البيانات. يمكنك محاولة تخفيف الشروط (مثل تقليل درجة التجميع المطلوبة أو نسبة الحجم) للحصول على نتائج."
         : buildDeterministicResponse(userMessage, plan, tools.results);
 
-    const deterministicResponse = deterministicLiquidityResponse || (plan.guidance_intent || (isAnalyticalQuery && !emptyScanResult) ? null : deterministicDomainResponse);
+    const deterministicResponse = deterministicLiquidityResponse || (plan.guidance_intent || (isAnalyticalQuery && !emptyScanResult && !isMarketWideScan) ? null : deterministicDomainResponse);
     if (deterministicResponse) {
         const response = deterministicResponse;
         const deterministicSessionUpdate = clearsStockContext(plan)
@@ -1155,11 +1158,14 @@ export async function runPipeline(
         }
     });
 
+    const hasScanTool = tools.results.some(res => res.tool === "get_accumulation_stocks" || res.tool === "get_distribution_stocks");
+    const isMarketWideScan = hasScanTool && mergedSymbols.length === 0;
+
     const deterministicDomainResponse = emptyScanResult 
         ? "عذراً، لم أجد أي أسهم تطابق الشروط التي حددتها حالياً في قاعدة البيانات. يمكنك محاولة تخفيف الشروط (مثل تقليل درجة التجميع المطلوبة أو نسبة الحجم) للحصول على نتائج."
         : buildDeterministicResponse(userMessage, plan, tools.results);
 
-    const generatedResponse = deterministicLiquidityResponse || (plan.guidance_intent || (isAnalyticalQuery && !emptyScanResult) ? null : deterministicDomainResponse) || await generateV2Response(
+    const generatedResponse = deterministicLiquidityResponse || (plan.guidance_intent || (isAnalyticalQuery && !emptyScanResult && !isMarketWideScan) ? null : deterministicDomainResponse) || await generateV2Response(
         userMessage, plan, vision, tools.results,
         scopedMemory,
         memory?.recent_messages || [],
