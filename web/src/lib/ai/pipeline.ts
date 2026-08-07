@@ -892,19 +892,44 @@ export async function* runPipelineStream(
 
     let fullResponse = "";
     let pendingModelText = "";
+
+    // ⛔ Phrases that, if detected in streaming output, should stop further output
+    const STREAM_STOP_PHRASES = [
+        "📌 إدارة المخاطر",
+        "إدارة المخاطر:",
+        "البيانات الحية المتاحة، هذه مقارنة فنية",
+        "الأسهم الموضحة بالجدول أعلاه",
+        "وليست أمراً بالشراء",
+        "مرحباً بكم في هذا المقال",
+        "مرحبا بكم في هذا المقال",
+    ];
+
+    let streamStopped = false;
+
     for await (const chunk of stream) {
+        if (streamStopped) break;
         pendingModelText += chunk;
         const lines = pendingModelText.split("\n");
         pendingModelText = lines.pop() || "";
         for (const line of lines) {
+            if (streamStopped) break;
             if (isMarkdownTableLine(line)) continue;
+            // Check if this line triggers a stop phrase
+            const shouldStop = STREAM_STOP_PHRASES.some(phrase => line.includes(phrase));
+            if (shouldStop) {
+                streamStopped = true;
+                break;
+            }
             fullResponse += `${line}\n`;
             yield { type: "token", data: `${line}\n` };
         }
     }
-    if (pendingModelText && !isMarkdownTableLine(pendingModelText)) {
-        fullResponse += pendingModelText;
-        yield { type: "token", data: pendingModelText };
+    if (!streamStopped && pendingModelText && !isMarkdownTableLine(pendingModelText)) {
+        const shouldStop = STREAM_STOP_PHRASES.some(phrase => pendingModelText.includes(phrase));
+        if (!shouldStop) {
+            fullResponse += pendingModelText;
+            yield { type: "token", data: pendingModelText };
+        }
     }
 
     // ===== Update Session =====
