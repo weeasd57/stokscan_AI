@@ -157,8 +157,8 @@ export async function executeStructuredTools(
                 const scanAgeDays = scanDate ? Math.floor((Date.parse(`${dataDate}T23:59:59Z`) - Date.parse(`${scanDate}T23:59:59Z`)) / 86400000) : Number.POSITIVE_INFINITY;
                 const isDistribution = distribution?.signal === "distribution" || Number(distribution?.dist_score || 0) >= 50;
                 const isAccumulation = distribution?.signal === "accumulation" || distribution?.signal === "strong_accumulation" || Number(distribution?.acc_score || 0) >= 50;
-                if (requireDistribution && (!isDistribution || scanAgeDays > 7)) return null;
-                if (requireAccumulation && (!isAccumulation || scanAgeDays > 7)) return null;
+                if (requireDistribution && (!isDistribution || scanAgeDays > 21)) return null;
+                if (requireAccumulation && (!isAccumulation || scanAgeDays > 21)) return null;
                 return {
                     symbol, close, support, resistance, midpoint,
                     premium_pct: midpoint > 0 ? ((close / midpoint) - 1) * 100 : null,
