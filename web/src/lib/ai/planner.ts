@@ -18,7 +18,7 @@ const ARABIC_STOCK_MAPPINGS: Record<string, string | string[]> = {
 
     // ── AFMC  مطاحن الإسكندرية ─────────────────────────────
     "مطاحن الإسكندرية": "AFMC", "مطاحن الاسكندرية": "AFMC",
-    "مطاحن اسكندرية": "AFMC",
+    "مطاحن اسكندرية": "AFMC", "المطاحن": "AFMC",
 
     // ── AJWA  أجواء ─────────────────────────────────────────
     "أجواء للصناعات الغذائية": "AJWA", "اجواء للصناعات الغذائية": "AJWA",
@@ -123,6 +123,7 @@ const ARABIC_STOCK_MAPPINGS: Record<string, string | string[]> = {
     "باندا": "ADPC", "أراب ديري": "ADPC", "اراب ديري": "ADPC", "ألبان العرب": "ADPC",
     "الأهلي للتنمية": "AFDI", "الاهلي للتنمية": "AFDI", "الاهلي للاستثمار": "AFDI",
     "حاويات": "ALCN", "حاويات اسكندرية": "ALCN", "الاسكندرية للحاويات": "ALCN", "الإسكندرية للحاويات": "ALCN", "حاوية": "ALCN",
+    "الاسكندرية": "ALCN", "الإسكندرية": "ALCN",
     "أسمنت الإسكندرية": "ALEX", "اسمنت الاسكندرية": "ALEX",
     "العربية للألومنيوم": "ALUM", "العربية للالومنيوم": "ALUM", "الومنيوم العرب": "ALUM",
     "المركز الطبي بأسكندرية": "AMES", "اسكندرية للمركز الطبي": "AMES",
@@ -512,7 +513,7 @@ async function loadValidSymbols(): Promise<string[]> {
 
 const STATIC_VALID_SYMBOLS = [
     'AALR', 'ABUK', 'ACAMD', 'ACAP', 'ADCI', 'ADPC', 'AFMC', 'AIH', 'AIIH', 'AJWA', 'ALCN', 'ALUM', 'AMES', 'AMOC',
-    'APPC', 'ARAB', 'AREH', 'ARVA', 'ATQA', 'AXPH', 'BIOC', 'BTFH', 'CCAP', 'CIEB', 'CIRA', 'CLHO',
+    'APPC', 'ARAB', 'AREH', 'ARVA', 'ATQA', 'AXPH', 'BIOC', 'BTFH', 'CAED', 'CCAP', 'CIEB', 'CIRA', 'CLHO',
     'CNFN', 'COMI', 'COPR', 'CPCI', 'CRST', 'DMTY', 'EAST', 'EEII', 'EFID', 'EFIH', 'EGAL', 'EGAS', 'EGBE',
     'EGCH', 'EGREF', 'EGSA', 'EGTS', 'EGX30', 'EGX70', 'EGX100', 'EHDR', 'EITP', 'EKHO', 'ELKA', 'ELSH', 'EMFD', 'EOSB',
     'ESRS', 'ETEL', 'ETRS', 'FAIT', 'FERC', 'FTNS', 'FWRY', 'GBCO', 'GDWA', 'GGCC', 'GGRN', 'GMCI', 'GOUR',
@@ -837,7 +838,7 @@ Analyze the user request and return a JSON object. You MUST dynamically choose t
                 },
                 signal: controller.signal,
                 body: JSON.stringify({
-                    model: "deepseek-v4-flash",
+                    model: "deepseek-chat",
                     messages: [
                         { role: "system", content: plannerSystemPrompt },
                         { role: "user", content: userPromptText }

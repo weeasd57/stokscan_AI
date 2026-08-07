@@ -845,18 +845,20 @@ export async function* runPipelineStream(
     const isAnalyticalQueryRegex = /(سبب|ليه|لماذا|ازاي|إزاي|تفسير|سر|ينزل|يهبط|يطلع|صعود|هبوط|فرص|أحسن|احسن|افضل|أفضل|توقعات|متوقع|مقارن|قارن|حالة|حالتها|رايك|رأيك|توجيه|تجميع|تصريف|تحليل|شراء|بيع|مناسب|مكمل|مستمر|جلسه|جلسة|غدا|غداً|اشترى|اشتري|اشتريت|خسران|نازل|عادله|عادلة|تقييم|قيمته|تسوى|تساوي|أهداف|اهداف|احتفاظ|خروج|دخول|بيجمع|ينطلق|مؤشر|مؤشرات|اخبار|أخبار|إيه|ايه|هل|فين|مين|مسح|شروط|\?|؟)/i;
     const isAnalyticalQuery = isAnalyticalQueryRegex.test(userMessage) || userMessage.trim().split(/\s+/).length > 4;
     
-    // Check if scan filters resulted in 0 stocks to prevent LLM hallucinations
-    let emptyScanResult = false;
-    tools.results.forEach(res => {
-        if (res.tool === "get_accumulation_stocks" || res.tool === "get_distribution_stocks") {
-            if (Array.isArray(res.data?.stocks) && res.data.stocks.length === 0) {
-                emptyScanResult = true;
-            }
-        }
-    });
-
     const hasScanTool = tools.results.some(res => res.tool === "get_accumulation_stocks" || res.tool === "get_distribution_stocks");
     const isMarketWideScan = hasScanTool && mergedSymbols.length === 0;
+
+    // Check if scan filters resulted in 0 stocks on a market-wide scan to prevent LLM hallucinations
+    let emptyScanResult = false;
+    if (isMarketWideScan) {
+        tools.results.forEach(res => {
+            if (res.tool === "get_accumulation_stocks" || res.tool === "get_distribution_stocks") {
+                if (Array.isArray(res.data?.stocks) && res.data.stocks.length === 0) {
+                    emptyScanResult = true;
+                }
+            }
+        });
+    }
 
     const deterministicDomainResponse = emptyScanResult 
         ? "عذراً، لم أجد أي أسهم تطابق الشروط التي حددتها حالياً في قاعدة البيانات. يمكنك محاولة تخفيف الشروط (مثل تقليل درجة التجميع المطلوبة أو نسبة الحجم) للحصول على نتائج."

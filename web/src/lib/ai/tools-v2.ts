@@ -306,7 +306,8 @@ export async function executeStructuredTools(
                 .order(scoreField, { ascending: false })
                     .limit(200);
                 if (requestedDate) summaryQuery = summaryQuery.eq("scan_date", requestedDate);
-                const scopedSymbols = symbols.length > 0 ? symbols : await resolveSectorSymbols();
+                const compoundMarketScan = plan.tools.includes("get_stock") && (plan.tools.includes("get_accumulation_stocks") || plan.tools.includes("get_distribution_stocks"));
+                const scopedSymbols = compoundMarketScan ? [] : symbols.length > 0 ? symbols : await resolveSectorSymbols();
                 if (scopedSymbols.length > 0) summaryQuery = summaryQuery.in("symbol", scopedSymbols);
                 const { data: summaryScans } = await summaryQuery;
 
@@ -328,8 +329,15 @@ export async function executeStructuredTools(
                         if (s?.symbol) stocksMap.set(s.symbol, s.name || s.symbol);
                     });
 
+                    const strictAccumulation = direction === "accumulation" && plan.entities.min_acc_score != null;
                     const matchingStocks = todayScans
-                        .filter((r: any) => r.signal === direction || Number(r[scoreField] || 0) >= 50)
+                        .filter((r: any) => {
+                            if (!strictAccumulation) return r.signal === direction || Number(r[scoreField] || 0) >= 50;
+                            return Number(r.acc_score || 0) > Number(plan.entities.min_acc_score)
+                                && Number(r.vol_ratio || 0) > Number(plan.entities.min_vol_ratio)
+                                && Number(r.dist_score || 0) <= Number(plan.entities.max_dist_score)
+                                && Number(r.consecutive_acc_days || 0) >= Number(plan.entities.min_consecutive_acc_days);
+                        })
                         .sort((a: any, b: any) => Number(b[scoreField] || 0) - Number(a[scoreField] || 0));
                     const displayedStocks = symbols.length > 0 || plan.entities.sector ? matchingStocks : matchingStocks.slice(0, 15);
                     const stocksWithNames = displayedStocks.map((r: any) => ({

@@ -272,6 +272,33 @@ describe("Deterministic response fallback", () => {
         expect(response).not.toContain("لم أتمكن");
     });
 
+    it("classifies a stock location without article boilerplate", () => {
+        const response = buildDeterministicResponse("سهم جدوى حاليا فى اي منطقة", { ...basePlan, entities: { ...basePlan.entities, symbols: ["GDWA"] } }, [
+            { tool: "get_stock", source: "database", data_time: "2026-08-06", symbols: ["GDWA"], data_type: "live", data: { symbol: "GDWA", name: "Gadwa", price: 0.816, change_pct: "-0.24%", rsi_14: "38.24", macd_signal: "0.0089", vol_ratio: "0.53x" } },
+            { tool: "get_stock_levels", source: "stock_prices", data_time: "2026-08-06", symbols: ["GDWA"], data_type: "live", data: { symbol: "GDWA", support: 0.756, resistance: 0.893, lookback_sessions: 60 } }
+        ]);
+        expect(response).toContain("منطقة حيادية للمراقبة");
+        expect(response).not.toContain("مرحباً بكم في هذا المقال");
+        expect(response).not.toContain("RSI عند 38.24");
+    });
+
+    it("routes a broad accumulation request to the accumulation scan", () => {
+        const plan = buildDeterministicPlannerResult("اية الاسهم اللى عليها تجميع كبير الفترة الحالية وفرصتهم فالصعود عالية خلال فترة قريبه", { current_symbol: null, last_symbols: [], summary: null });
+        expect(plan).toMatchObject({ intent: "market_summary", tools: ["get_accumulation_stocks"], entities: { scan_direction: "accumulation" } });
+        expect(plan.entities.min_acc_score).toBeUndefined();
+    });
+
+    it("keeps stock analysis when a compound request also has an empty scan", () => {
+        const response = buildDeterministicResponse("انا شاري سهم RAYA ب 8.14 وهو قعد ينزل ابيعه بكام؟ واية الاسهم اللى عليها تجميع", { ...basePlan, entities: { ...basePlan.entities, symbols: ["RAYA"] }, tools: ["get_stock", "get_stock_levels", "get_accumulation_stocks"] }, [
+            { tool: "get_stock", source: "database", data_time: "2026-08-06", symbols: ["RAYA"], data_type: "live", data: { symbol: "RAYA", name: "Raya", price: 7.42, change_pct: "-1.07%", rsi_14: "34.01", macd_signal: "0.0179", vol_ratio: "0.41x" } },
+            { tool: "get_stock_levels", source: "stock_prices", data_time: "2026-08-06", symbols: ["RAYA"], data_type: "live", data: { symbol: "RAYA", support: 7, resistance: 9, lookback_sessions: 60 } },
+            { tool: "get_accumulation_stocks", source: "stock_scans_summary", data_time: "2026-07-27", symbols: [], data_type: "live", data: { stocks: [], scan_rows: [], direction: "accumulation" } }
+        ]);
+        expect(response).toContain("RAYA");
+        expect(response).toContain("الدعم الحسابي (لسهم RAYA) 7.00");
+        expect(response).not.toContain("لم أجد أي أسهم تطابق");
+    });
+
     it("answers greetings without inheriting stock context", () => {
         const response = buildDeterministicResponse("ازيك النهارده؟", { ...basePlan, intent: "general_chat", entities: { ...basePlan.entities, symbols: [] } }, []);
         expect(response).toContain("أهلاً");

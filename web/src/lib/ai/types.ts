@@ -71,6 +71,10 @@ export interface IntentPlan {
         fair_value_direction?: "above" | "below" | null;
         require_distribution?: boolean;
         require_accumulation?: boolean;
+        min_acc_score?: number | null;
+        min_vol_ratio?: number | null;
+        max_dist_score?: number | null;
+        min_consecutive_acc_days?: number | null;
         recommendation_order?: "oldest" | "newest" | null;
         requested_date?: string | null;
         requested_start_date?: string | null;
@@ -127,6 +131,10 @@ export interface PlannerResult {
         fair_value_direction?: "above" | "below" | null;
         require_distribution?: boolean;
         require_accumulation?: boolean;
+        min_acc_score?: number | null;
+        min_vol_ratio?: number | null;
+        max_dist_score?: number | null;
+        min_consecutive_acc_days?: number | null;
         recommendation_order?: "oldest" | "newest" | null;
     };
     tools: string[];

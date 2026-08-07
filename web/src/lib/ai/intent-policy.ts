@@ -19,8 +19,8 @@ export function getFairValueFilters(message: string): { fair_value_direction: "a
     const value = normalizeArabicIntent(message);
     const above = /(فوق|اعلي|مبالغ|غالي|اغلي)/i.test(value);
     const below = /(تحت|تحدت|اقل|رخيص|ارخص|اقل من)/i.test(value);
-    const requireDistribution = /تصريف|distribution/i.test(value) && !/(?:لا|بدون|مفيش|صفر|0|zero).{0,15}(?:يوجد)?.{0,15}(?:تصريف|distribution)/i.test(value) && !/(?:تصريف|distribution)\s*(?:=|يساوي)\s*0/.test(value);
-    const requireAccumulation = /تجميع|accumulation/i.test(value) && !/(?:لا|بدون|مفيش|صفر|0|zero).{0,15}(?:يوجد)?.{0,15}(?:تجميع|accumulation)/i.test(value) && !/(?:تجميع|accumulation)\s*(?:=|يساوي)\s*0/.test(value);
+    const requireDistribution = /تصريف|distribution/i.test(value) && !/(?:^|[\s،,.;:])(?:لا|بدون|مفيش|صفر|0|zero)(?:[\s،,.;:]|$).{0,15}(?:يوجد)?.{0,15}(?:تصريف|distribution)/i.test(value) && !/(?:تصريف|distribution)\s*(?:=|يساوي)\s*0/.test(value);
+    const requireAccumulation = /تجميع|accumulation/i.test(value) && !/(?:^|[\s،,.;:])(?:لا|بدون|مفيش|صفر|0|zero)(?:[\s،,.;:]|$).{0,15}(?:يوجد)?.{0,15}(?:تجميع|accumulation)/i.test(value) && !/(?:تجميع|accumulation)\s*(?:=|يساوي)\s*0/.test(value);
     return { fair_value_direction: below ? "below" : "above", require_distribution: requireDistribution, require_accumulation: requireAccumulation };
 }
 

@@ -295,7 +295,7 @@ async function callNvidiaApi(
         const key = apiKeys[keyIndex];
         try {
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 6000);
+            const timeoutId = setTimeout(() => controller.abort(), 20000);
 
             const res = await fetch("https://integrate.api.nvidia.com/v1/chat/completions", {
                 method: "POST",
@@ -356,6 +356,74 @@ async function callAgentRouterApi(
         return { response: null };
     } finally {
         clearTimeout(timeoutId);
+    }
+}
+
+async function callDeepseekOfficialApi(
+    messages: { role: string; content: any }[],
+    stream: boolean = false
+): Promise<{ response: string | null; streamGen?: AsyncGenerator<string> }> {
+    const key = process.env.DEEPSEEK_OFFICIAL_API_KEY;
+    if (!key) return { response: null };
+    try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 12000);
+        const res = await fetch("https://api.deepseek.com/chat/completions", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${key}`
+            },
+            signal: controller.signal,
+            body: JSON.stringify({
+                model: "deepseek-chat",
+                messages,
+                temperature: 0.15,
+                max_tokens: AI_CONFIG.limits.responseMaxTokens,
+                stream
+            })
+        });
+        clearTimeout(timeoutId);
+        if (!res.ok) return { response: null };
+        if (stream) {
+            return { response: null, streamGen: parseSseStream(res) };
+        } else {
+            const data = await res.json();
+            const reply = data.choices?.[0]?.message?.content || null;
+            return { response: reply };
+        }
+    } catch {
+        return { response: null };
+    }
+}
+
+async function* parseSseStream(res: Response): AsyncGenerator<string, void, unknown> {
+    if (!res.body) return;
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    try {
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split("\n");
+            buffer = lines.pop() || "";
+            for (const line of lines) {
+                const trimmed = line.trim();
+                if (trimmed.startsWith("data: ")) {
+                    const dataStr = trimmed.slice(6);
+                    if (dataStr === "[DONE]") return;
+                    try {
+                        const parsed = JSON.parse(dataStr);
+                        const token = parsed.choices?.[0]?.delta?.content || "";
+                        if (token) yield token;
+                    } catch {}
+                }
+            }
+        }
+    } finally {
+        reader.releaseLock();
     }
 }
 
@@ -699,7 +767,14 @@ export function buildFastConversationalAdvisorResponse(
     if ((isSectorBuyQuery || isBestBuyStockQuestion(userMessage)) && !hasSpecificSymbols) {
         const sectorResult = toolResults.find(r => r.tool === "get_sector");
         const fairValueScan = toolResults.find(r => r.tool === "get_fair_value_scan");
-        const stocks = Array.isArray(sectorResult?.data?.stocks) ? sectorResult.data.stocks : (Array.isArray(fairValueScan?.data?.stocks) ? fairValueScan.data.stocks : []);
+        const liveStocks = toolResults
+            .filter(result => result.tool === "get_stock" && result.data?.symbol)
+            .map(result => ({ symbol: result.data.symbol, name: result.data.name, tech: result.data }));
+        const stocks = Array.isArray(sectorResult?.data?.stocks)
+            ? sectorResult.data.stocks
+            : Array.isArray(fairValueScan?.data?.stocks)
+                ? fairValueScan.data.stocks
+                : liveStocks;
 
         let greeting = "بناءً على البيانات الحية المتاحة، هذه مقارنة فنية بين أبرز الأسهم الظاهرة في المسح:";
         if (sessionState?.investment_budget || sessionState?.risk_tolerance) {
@@ -713,14 +788,14 @@ export function buildFastConversationalAdvisorResponse(
         const topStocksList = stocks.slice(0, 5).map((s: any) => {
             const sym = s.symbol;
             const tech = s.tech || s;
-            const rawPrice = tech.close ?? s.close ?? s.price;
+            const rawPrice = tech.price ?? tech.close ?? s.close ?? s.price;
             const price = rawPrice != null && Number.isFinite(Number(rawPrice)) ? `${Number(rawPrice).toFixed(2)} جنيه` : "غير متاح";
-            const changeVal = tech.change_pct != null ? Number(tech.change_pct) : 0;
+            const changeVal = tech.change_pct != null ? Number(String(tech.change_pct).replace("%", "")) : 0;
             const changeStr = changeVal !== 0 ? `${changeVal > 0 ? "+" : ""}${changeVal.toFixed(2)}%` : "استقرار";
             const rawRsi = tech.rsi_14 ?? tech.rsi;
             const rsiVal = rawRsi != null && Number.isFinite(Number(rawRsi)) ? Number(rawRsi).toFixed(1) : null;
             const premium = s.premium_pct != null && Number.isFinite(Number(s.premium_pct)) ? Number(s.premium_pct) : null;
-            const volumeRatio = s.volume_ratio ?? (tech.vol_sma20 && tech.volume != null ? Number(tech.volume) / Number(tech.vol_sma20) : null);
+            const volumeRatio = s.volume_ratio ?? (tech.vol_ratio != null ? Number(String(tech.vol_ratio).replace("x", "")) : (tech.vol_sma20 && tech.volume != null ? Number(tech.volume) / Number(tech.vol_sma20) : null));
             const accumulationScore = s.accumulation_score ?? s.accumulationScore ?? s.acc_score ?? null;
             const level: any = levelBySymbol.get(String(sym));
             const facts: string[] = [];
@@ -739,9 +814,24 @@ export function buildFastConversationalAdvisorResponse(
             return `• **${sym}** (السعر ${price} | ${changeStr}):\n  **البيانات الداعمة للمقارنة:** ${reason}.`;
         }).join("\n\n");
 
+        const rankedStocks = stocks.map((stock: any) => {
+            const tech = stock.tech || stock;
+            const rsi = Number(tech.rsi_14 ?? tech.rsi);
+            const volumeRatio = Number(String(stock.volume_ratio ?? tech.vol_ratio ?? (tech.vol_sma20 && tech.volume != null ? Number(tech.volume) / Number(tech.vol_sma20) : 0)).replace("x", ""));
+            const change = Number(String(tech.change_pct || 0).replace("%", ""));
+            const rsiScore = Number.isFinite(rsi) ? (rsi >= 50 && rsi <= 68 ? 3 : rsi >= 45 && rsi < 70 ? 2 : rsi >= 70 ? -1 : 0) : 0;
+            const volumeScore = Number.isFinite(volumeRatio) ? Math.min(volumeRatio, 2) : 0;
+            return { symbol: stock.symbol, score: rsiScore + volumeScore + Math.max(-1, Math.min(1, change / 5)) };
+        }).sort((a: { score: number }, b: { score: number }) => b.score - a.score);
+        const bestStockLine = rankedStocks[0]?.symbol
+            ? `**الأفضل فنياً بين المتاح حالياً: ${rankedStocks[0].symbol}**؛ لأنه حقق أفضل توازن نسبي بين الزخم والسيولة مقارنة بباقي الأسهم المعروضة.`
+            : null;
+
         return [
             greeting,
             "",
+            bestStockLine || "",
+            bestStockLine ? "" : "",
             topStocksList || "• الأسهم الموضحة بالجدول أعلاه تعكس أحدث حركة للسيولة والزخم السعري للقطاع.",
             "",
             "📌 **التوصية:**",
@@ -769,6 +859,9 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
         const consecutiveField = scan.data.direction === "distribution" ? "consecutive_dist_days" : "consecutive_acc_days";
 
         if (stocks.length === 0) {
+            if (plan.entities?.symbols?.length) {
+                return null;
+            }
             return `عذراً، لم أجد أي أسهم تطابق الشروط التي حددتها حالياً في قاعدة البيانات.`;
         }
 
@@ -1058,6 +1151,9 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
     }
     if (decision && stockData.length > 0) {
         const levelData = levels?.data;
+        const compoundScan = toolResults.find(result => result.tool === "get_accumulation_stocks" || result.tool === "get_distribution_stocks");
+        const compoundScanStocks = Array.isArray(compoundScan?.data?.stocks) ? compoundScan.data.stocks.slice(0, 8) : [];
+        const scanDirection = compoundScan?.tool === "get_distribution_stocks" ? "التصريف" : "التجميع";
         const lines = stockData.map(result => {
             const data = result.data;
             return `- ${data.symbol}: السعر الحالي ${data.price} جنيه، التغير ${data.change_pct}، RSI ${data.rsi_14}، MACD ${data.macd_signal}، نسبة الحجم ${data.vol_ratio}.`;
@@ -1069,8 +1165,11 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
             levelData?.support != null && levelData?.resistance != null
                 ? `الدعم الحسابي (لسهم ${levelSymbol}) ${Number(levelData.support).toFixed(2)} جنيه، والمقاومة الحسابية ${Number(levelData.resistance).toFixed(2)} جنيه، محسوبان من آخر ${levelData.lookback_sessions} جلسة حتى ${levels?.data_time}. كسر الدعم قد يزيد المخاطر، والاقتراب من المقاومة قد يستدعي مراجعة خطتك أو جني جزء من الربح حسب تحملك للمخاطر.`
                 : "لا توجد بيانات سعرية كافية لحساب دعم ومقاومة يمكن الاستناد إليها، لذلك لن أحدد سعراً للبيع.",
-            "هذه قراءة فنية وليست توصية بيع أو شراء."
-        ].join("\n");
+            "هذه قراءة فنية وليست توصية بيع أو شراء.",
+            compoundScanStocks.length ? "" : null,
+            compoundScanStocks.length ? `أبرز أسهم ${scanDirection} حسب المسح المؤرخ ${compoundScan?.data_time}:` : null,
+            ...compoundScanStocks.map((stock: any) => `- ${stock.symbol}: درجة ${scanDirection} ${stock[compoundScan?.tool === "get_distribution_stocks" ? "dist_score" : "acc_score"] ?? "غير متاحة"}/100، نسبة الحجم ${stock.vol_ratio ?? "غير متاحة"}x.`)
+        ].filter(Boolean).join("\n");
     }
     if (entryTiming && stockData.length > 0) {
         const levelMap = new Map(levelResults.map(result => [String(result.data?.symbol || result.symbols[0]).toUpperCase(), result.data || {}]));
@@ -1272,7 +1371,12 @@ function buildStockOpinion(result: ToolResult, levelResults: ToolResult[]): stri
     if (Number.isFinite(volume)) notes.push(volume >= 1.5 ? "الحجم أعلى من المتوسط ويدعم أهمية الحركة الحالية" : volume < 0.7 ? "الحجم أقل من المتوسط، لذلك الحركة الحالية تأكيدها ضعيف" : "الحجم قريب من المعتاد");
     if ([price, support, resistance].every(Number.isFinite) && resistance > support) {
         const position = (price - support) / (resistance - support);
-        notes.push(position >= 0.8 ? "السعر قريب من المقاومة، فالأفضل انتظار اختراق مؤكد أو تراجع أفضل" : position <= 0.25 ? "السعر قريب من الدعم، لكن يلزم ثباته وحجم داعم" : "السعر في منتصف النطاق ولا توجد أفضلية واضحة من الموقع وحده");
+        const region = position >= 0.8
+            ? "منطقة مقاومة وجني أرباح محتمل"
+            : position <= 0.25
+                ? "منطقة دعم، لكن يلزم ثبات الدعم وحجم داعم"
+                : "منطقة حيادية للمراقبة";
+        notes.push(region);
     }
     return `${symbol} - رأيي الفني: ${notes.join("؛ ") || "البيانات الحالية لا تكفي لرأي فني موثوق"}.`;
 }
