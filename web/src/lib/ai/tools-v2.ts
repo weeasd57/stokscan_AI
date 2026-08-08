@@ -20,7 +20,8 @@ export async function executeStructuredTools(
     plan: IntentPlan,
     apiKeys: string[],
     userId: string = "",
-    sessionId: string = ""
+    sessionId: string = "",
+    userMessage: string = ""
 ): Promise<StructuredToolOutput> {
     const results: ToolResult[] = [];
     const textParts: string[] = [];
@@ -30,7 +31,6 @@ export async function executeStructuredTools(
     const requestedDate = plan.entities.requested_date || null;
     const requestedStartDate = plan.entities.requested_start_date || null;
     const requestedEndDate = plan.entities.requested_end_date || null;
-    const userMessage = "";
 
     const dataDateQuality = (date: unknown, maxAgeDays: number, requested: string | null = null) => {
         const value = String(date || "").slice(0, 10);
@@ -307,7 +307,9 @@ export async function executeStructuredTools(
                     .limit(200);
                 if (requestedDate) summaryQuery = summaryQuery.eq("scan_date", requestedDate);
                 const compoundMarketScan = plan.tools.includes("get_stock") && (plan.tools.includes("get_accumulation_stocks") || plan.tools.includes("get_distribution_stocks"));
-                const scopedSymbols = compoundMarketScan ? [] : symbols.length > 0 ? symbols : await resolveSectorSymbols();
+                const asksForMarketWideList = /(?:الأسهم|الاسهم|أسهم|اسهم|قائمة|قائمه|شاشه|شاشة)\s+(?:التجميع|التصريف|تجميع|تصريف)/i.test(userMessage) 
+                    || /(?:أقوى|اقوى|أفضل|افضل|أعلى|اعلى|أرخص|ارخص)\s+(?:الأسهم|الاسهم|أسهم|اسهم)/i.test(userMessage);
+                const scopedSymbols = (compoundMarketScan && asksForMarketWideList) ? [] : symbols.length > 0 ? symbols : await resolveSectorSymbols();
                 if (scopedSymbols.length > 0) summaryQuery = summaryQuery.in("symbol", scopedSymbols);
                 const { data: summaryScans } = await summaryQuery;
 

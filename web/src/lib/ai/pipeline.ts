@@ -827,7 +827,7 @@ export async function* runPipelineStream(
     }
     ensureBudget(8000);
     const tools = await Promise.race([
-        executeStructuredTools(supabase, plan, apiKeys, userId, sessionId),
+        executeStructuredTools(supabase, plan, apiKeys, userId, sessionId, userMessage),
         new Promise<never>((_, reject) => setTimeout(() => reject(new Error("TOOLS_TIMEOUT")), AI_CONFIG.limits.toolsTimeoutMs)),
     ]);
     // Apply custom user filters if present in message (e.g. "أعلى من 75", "يومين")
@@ -1308,7 +1308,7 @@ export async function runPipeline(
     };
 
     // Stage 4: Tools
-    const tools = await executeStructuredTools(supabase, plan, apiKeys, userId, sessionId);
+    const tools = await executeStructuredTools(supabase, plan, apiKeys, userId, sessionId, userMessage);
     
     // Apply custom user filters if present in message (e.g. "أعلى من 75", "يومين")
     if (userMessage) {
