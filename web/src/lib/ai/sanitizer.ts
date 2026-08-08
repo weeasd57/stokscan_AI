@@ -315,6 +315,7 @@ export function sanitizeReply(reply: string, liveDataString?: string): string {
         .replace(/Current time:\s*[^\n]+/gi, "")
         .replace(/Working directory:\s*[^\n]+/gi, "")
         .replace(/Workspace root folder:\s*[^\n]+/gi, "")
+        .replace(/\|\s*السهم\s*\|\s*السعر اللحظي[\s\S]*?(?=\n\s*[^|\n]|$)/gi, "")
         .trim();
 
     // 🛡️ Post-processing safety: detect and remove tables with ALL empty/dash values

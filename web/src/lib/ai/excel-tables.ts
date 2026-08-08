@@ -304,7 +304,7 @@ export function buildExcelTables(toolResults: ToolResult[], vision: VisionContex
         if (table) tables.push(table);
     }
 
-    return tables;
+    return tables.filter((table, index, all) => all.findIndex(candidate => candidate.id === table.id) === index);
 }
 
 export function tablesToMarkdown(tables: ExcelTable[]): string {

@@ -325,8 +325,6 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
     if (isFairValueScanRequest(message)) {
         const filters = getFairValueFilters(message);
         const fvTools: string[] = ["get_fair_value_scan"];
-        if (filters.require_accumulation) fvTools.push("get_accumulation_stocks");
-        if (filters.require_distribution) fvTools.push("get_distribution_stocks");
         return {
             intent: "market_summary",
             confidence: 1,
@@ -338,6 +336,7 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
 
     const normalized = normalizeArabicIntent(message);
     const explicitSymbols = extractExplicitSymbols(message);
+    const broadScan = explicitSymbols.length === 0 && /(?:الاسهم|اسهم|هات|ابعت|اعرض).{0,45}(?:تجميع|تصريف)|(?:تجميع|تصريف).{0,45}(?:الاسهم|اسهم)/i.test(normalized);
     const hasGroupReference = /(فيهم|منهم|من دول|بينهم|أيهم|أيها|أحسن واحد|احسن واحد|أفضل واحد|افضل واحد|الأسهم دي|الاسهم دي)/i.test(normalized) && sessionState.last_symbols.length > 0;
     const allocationSymbols = explicitSymbols.length >= 2 ? explicitSymbols : hasGroupReference ? sessionState.last_symbols.slice(0, 5) : [];
     if (allocationSymbols.length >= 2 && /(احط|أحط|اوزع|أوزع|قسم|اقسم|استثمر).{0,30}(مين|فيهم|بينهم|الاتنين|السهمين)/i.test(normalized)) {
@@ -374,21 +373,21 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
             session_update: { current_symbol: null, last_symbols: sessionState.last_symbols, summary: message }
         };
     }
+    if (/(?:اقوي|اقوى|أقوى)\s+(?:الاسهم|الأسهم)\s*[؟?\s]*$/i.test(normalized.trim()) && !/(النهارده|اليوم|جلسه|جلسة|اسبوع|أسبوع|سيول|سيولة|زخم|ارتفاع)/i.test(normalized)) {
+        return {
+            intent: "clarification",
+            confidence: 1,
+            entities: { symbols: [], sector: null, wants_table: false, timeframe: "unspecified", requested_date: null, scan_direction: null },
+            tools: [],
+            session_update: { current_symbol: null, last_symbols: sessionState.last_symbols, summary: message }
+        };
+    }
     if (isBestBuyStockQuestion(message) && !hasNamedStock) {
         return {
             intent: "market_summary",
             confidence: 1,
             entities: { symbols: [], sector: null, wants_table: true, timeframe: "current", requested_date: null, scan_direction: null },
             tools: ["get_recommendations", "get_fair_value_scan"],
-            session_update: { current_symbol: null, last_symbols: sessionState.last_symbols, summary: message }
-        };
-    }
-    if (/(?:اقوى|أقوى)\s+(?:الاسهم|الأسهم)\s*[؟?\s]*$/i.test(normalized.trim()) && !/(النهارده|اليوم|جلسه|جلسة|اسبوع|أسبوع|سيول|سيولة|زخم|ارتفاع)/i.test(normalized)) {
-        return {
-            intent: "clarification",
-            confidence: 1,
-            entities: { symbols: [], sector: null, wants_table: false, timeframe: "unspecified", requested_date: null, scan_direction: null },
-            tools: [],
             session_update: { current_symbol: null, last_symbols: sessionState.last_symbols, summary: message }
         };
     }
@@ -419,11 +418,12 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
             }
         };
     }
-    const symbols = extractExplicitSymbols(message);
+    const symbols = broadScan ? [] : extractExplicitSymbols(message);
     const temporal = extractTemporalContext(message);
     const marketWideRequest = isMarketWideRequest(message);
     const riskFollowUp = /(يخسر|خسار|يهبط|ينزل).{0,30}(تاني|اكتر|أكتر|اكثر|أكثر|%|في الميه|فى الميه)|(?:ممكن|هل).{0,20}(يخسر|يهبط|ينزل)/i.test(normalized);
-    const hasPreviousReference = /(?:^|[^\u0621-\u064A])(ده|دا|دي|هذا|السهم ده|السهم دا|السهم دي|هاته|هاتها|اخباره|أخباره|خبره|الاتنين|السهمين|عليه|فيه|ليه|عليها|فيها|ليها|عنه|عنها|به|بها|معاه|معاها|هو|هي)(?:$|[^\u0621-\u064A])/i.test(normalized);
+    const explicitContextComparison = /(قارن|مقارنه|مقارنة).{0,20}(ده|دا|دي|هذا).{0,20}(مع|بـ|ب)/i.test(normalized);
+    const hasPreviousReference = /(?:^|[^\u0621-\u064A])(ده|دا|دي|هذا|السهم ده|السهم دا|السهم دي|هاته|هاتها|اخباره|أخباره|خبره|الاتنين|السهمين|عليه|فيه|ليه|عليها|فيها|ليها|عنه|عنها|به|بها|معاه|معاها|هو|هي)(?:$|[^\u0621-\u064A])/i.test(normalized) && !broadScan && (explicitSymbols.length === 0 || explicitContextComparison);
     if (hasGroupReference && sessionState.last_symbols.length > 0) {
         sessionState.last_symbols.forEach(sym => {
             if (!symbols.includes(sym)) symbols.push(sym);
@@ -435,6 +435,10 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
         symbols.push(sessionState.current_symbol);
     }
     if (riskFollowUp && symbols.length === 0 && sessionState.current_symbol) {
+        symbols.push(sessionState.current_symbol);
+    }
+    const fiveSessionForecast = /(توقعات|توقع|متوقع|تقعات|وقعات).{0,25}(?:5|خمس|الخمسه|الخمسة).{0,15}(جلسات|جلسه|جلسة)|(?:5|خمس|الخمسه|الخمسة).{0,15}(جلسات|جلسه|جلسة).{0,25}(توقعات|توقع|متوقع|تقعات|وقعات)/i.test(normalized);
+    if (fiveSessionForecast && symbols.length === 0 && sessionState.current_symbol) {
         symbols.push(sessionState.current_symbol);
     }
     if (/(كسر|يكسر).{0,12}الدعم|الدعم.{0,12}(اتكسر|انكسر)/i.test(normalized) && symbols.length === 0 && sessionState.current_symbol) symbols.push(sessionState.current_symbol);
@@ -459,11 +463,21 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
     const isClearStockRequest = symbols.length > 0;
     if (!sector && !isGreeting && !beginnerPortfolioRequest && !isHistorical && !requestedDate && !isClearMarketRequest && !isClearStockRequest) return null;
 
+    if (oldestRecommendationRequest) {
+        return {
+            intent: "historical_recall",
+            confidence: 1,
+            entities: { symbols: [], sector: null, wants_table: true, timeframe: "historical", requested_date: null, scan_direction: null, recommendation_order: "oldest" },
+            tools: ["get_recommendations"],
+            session_update: { current_symbol: null, last_symbols: sessionState.last_symbols, summary: message }
+        };
+    }
+
     const enforced = enforceIntentFromMessage(message, symbols.length ? "stock_analysis" : "market_summary", symbols);
     const sectorFollowUp = Boolean(sectorReference && symbols.length === 0);
     const effectiveSector = explicitSector || knownSectorFollowUp || sectorFollowUp ? sector : null;
     return {
-        intent: isGreeting || beginnerPortfolioRequest ? "general_chat" : marketNewsRequest ? "market_summary" : requestedDate && symbols.length ? "stock_analysis" : isHistorical ? "historical_recall" : explicitSector || knownSectorFollowUp || sectorFollowUp ? "sector_analysis" : enforced.intent,
+        intent: isGreeting || beginnerPortfolioRequest ? "general_chat" : marketNewsRequest ? "market_summary" : requestedDate && symbols.length ? "stock_analysis" : isHistorical ? "historical_recall" : explicitSector || knownSectorFollowUp || sectorFollowUp ? "sector_analysis" : enforced.intent === "accumulation_distribution" && symbols.length === 0 ? "market_summary" : enforced.intent,
         confidence: 1,
         entities: {
             symbols,
@@ -525,6 +539,9 @@ export function enforceIntentFromMessage(message: string, plannerIntent: string,
         direction = (accIdx !== -1 && accIdx < distIdx) ? "accumulation" : "distribution";
     }
     if (marketFairValueScan) return { intent: "market_summary", tools: ["get_fair_value_scan"], replaceTools: true, ...getFairValueFilters(message) };
+    if (/(توقعات|توقع|متوقع|تقعات|وقعات).{0,35}(?:5|خمس|الخمسه|الخمسة|15|خمستاشر|خمسة عشر).{0,15}(جلسات|جلسه|جلسة|يوم)|(?:5|خمس|الخمسه|الخمسة|15|خمستاشر|خمسة عشر).{0,15}(جلسات|جلسه|جلسة|يوم).{0,35}(توقعات|توقع|متوقع|تقعات|وقعات)/i.test(normalized) || /(متوقع|توقع|توقعات|سعر).{0,25}(اخر|آخر|نهايه|نهاية).{0,15}(السنه|السنة|العام)/i.test(normalized)) {
+        return { intent: "stock_analysis", tools: ["get_stock", "get_stock_levels", "get_price_history"], replaceTools: true };
+    }
     if (isDailyPriceLimitQuestion(message)) return { intent: "levels_analysis", tools: ["get_price_history", "get_stock_levels"], replaceTools: true };
     if (/(?:أ|ا)عل[ىي].{0,15}(?:سعر|قم[هة])/i.test(normalized) && hasSymbol) return { intent: "stock_analysis", tools: ["get_price_history"], replaceTools: true };
     const hasRecommendationKw = /(?:توصيات|توصيه|توصية|إشارة|إشارات|اشارة|اشارات|توصي)/i.test(normalized);
@@ -734,6 +751,7 @@ export async function* runPipelineStream(
     }
 
     const explicitSymbols = extractExplicitSymbols(userMessage);
+    const broadScanRequest = explicitSymbols.length === 0 && /(?:الاسهم|اسهم|هات|ابعت|اعرض).{0,40}(?:تجميع|تصريف)|(?:تجميع|تصريف).{0,40}(?:الاسهم|اسهم)/i.test(normalizeArabicIntent(userMessage));
     let mergedSymbols = explicitSymbols.length > 0
         ? explicitSymbols
         : Array.from(new Set([
@@ -761,7 +779,7 @@ export async function* runPipelineStream(
         mergedSymbols.push(sessionState.current_symbol);
     }
     const compoundRequest = splitChatCommands(userMessage).length > 1;
-    if (isMarketWideRequest(userMessage) && !compoundRequest) mergedSymbols = [];
+    if ((isMarketWideRequest(userMessage) || broadScanRequest) && !compoundRequest) mergedSymbols = [];
     if (plannerResult.entities.sector && extractExplicitSymbols(userMessage).length === 0) mergedSymbols = [];
     const fairValueScanRequest = isFairValueScanRequest(userMessage);
     const enforced: ReturnType<typeof enforceIntentFromMessage> = compoundRequest
@@ -908,7 +926,7 @@ export async function* runPipelineStream(
         ? "عذراً، لم أجد أي أسهم تطابق الشروط التي حددتها حالياً في قاعدة البيانات. يمكنك محاولة تخفيف الشروط (مثل تقليل درجة التجميع المطلوبة أو نسبة الحجم) للحصول على نتائج."
         : buildDeterministicResponse(userMessage, plan, tools.results);
 
-    const deterministicResponse = deterministicLiquidityResponse || (plan.guidance_intent || (isAnalyticalQuery && !emptyScanResult && !isMarketWideScan) ? null : deterministicDomainResponse);
+    const deterministicResponse = deterministicLiquidityResponse || (plan.guidance_intent ? null : deterministicDomainResponse);
     if (deterministicResponse) {
         const response = deterministicResponse;
         const deterministicSessionUpdate = clearsStockContext(plan)
@@ -1367,24 +1385,26 @@ export async function runPipeline(
         : [];
     const isAnalyticalQueryRegex = /(سبب|ليه|لماذا|ازاي|إزاي|تفسير|سر|ينزل|يهبط|يطلع|صعود|هبوط|فرص|أحسن|احسن|افضل|أفضل|توقعات|متوقع|مقارن|قارن|حالة|حالتها|رايك|رأيك|توجيه|تجميع|تصريف|تحليل|شراء|بيع|مناسب|مكمل|مستمر|جلسه|جلسة|غدا|غداً|اشترى|اشتري|اشتريت|خسران|نازل|عادله|عادلة|تقييم|قيمته|تسوى|تساوي|أهداف|اهداف|احتفاظ|خروج|دخول|بيجمع|ينطلق|مؤشر|مؤشرات|اخبار|أخبار|إيه|ايه|هل|فين|مين|مسح|شروط|\?|؟)/i;
     const isAnalyticalQuery = isAnalyticalQueryRegex.test(userMessage) || userMessage.trim().split(/\s+/).length > 4;
-    // Check if scan filters resulted in 0 stocks to prevent LLM hallucinations
-    let emptyScanResult = false;
-    tools.results.forEach(res => {
-        if (res.tool === "get_accumulation_stocks" || res.tool === "get_distribution_stocks") {
-            if (Array.isArray(res.data?.stocks) && res.data.stocks.length === 0) {
-                emptyScanResult = true;
-            }
-        }
-    });
-
     const hasScanTool = tools.results.some(res => res.tool === "get_accumulation_stocks" || res.tool === "get_distribution_stocks");
     const isMarketWideScan = hasScanTool && mergedSymbols.length === 0;
+
+    // Check if scan filters resulted in 0 stocks on a market-wide scan to prevent LLM hallucinations
+    let emptyScanResult = false;
+    if (isMarketWideScan) {
+        tools.results.forEach(res => {
+            if (res.tool === "get_accumulation_stocks" || res.tool === "get_distribution_stocks") {
+                if (Array.isArray(res.data?.stocks) && res.data.stocks.length === 0) {
+                    emptyScanResult = true;
+                }
+            }
+        });
+    }
 
     const deterministicDomainResponse = emptyScanResult 
         ? "عذراً، لم أجد أي أسهم تطابق الشروط التي حددتها حالياً في قاعدة البيانات. يمكنك محاولة تخفيف الشروط (مثل تقليل درجة التجميع المطلوبة أو نسبة الحجم) للحصول على نتائج."
         : buildDeterministicResponse(userMessage, plan, tools.results);
 
-    const generatedResponse = deterministicLiquidityResponse || (plan.guidance_intent || (isAnalyticalQuery && !emptyScanResult && !isMarketWideScan) ? null : deterministicDomainResponse) || await generateV2Response(
+    const generatedResponse = deterministicLiquidityResponse || (plan.guidance_intent ? null : deterministicDomainResponse) || await generateV2Response(
         userMessage, plan, vision, tools.results,
         scopedMemory,
         memory?.recent_messages || [],

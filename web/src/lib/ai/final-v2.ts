@@ -871,7 +871,7 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
     const fastAdvisor = buildFastConversationalAdvisorResponse(userMessage, plan, toolResults, sessionState);
     if (fastAdvisor) return fastAdvisor;
     const scan = toolResults.find(result => result.tool === "get_accumulation_stocks" || result.tool === "get_distribution_stocks");
-    if (scan && scan.data?.stocks && !plan.tools.includes("get_fair_value_scan")) {
+    if (scan && scan.data?.stocks && !plan.tools.includes("get_fair_value_scan") && plan.entities.symbols.length === 0) {
         const stocks = scan.data.stocks;
         const direction = scan.data.direction === "distribution" ? "تصريف" : "تجميع";
         const oppositeDirection = scan.data.direction === "distribution" ? "تجميع" : "تصريف";
@@ -881,12 +881,12 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
         const consecutiveField = scan.data.direction === "distribution" ? "consecutive_dist_days" : "consecutive_acc_days";
 
         if (stocks.length === 0) {
-            if (plan.entities?.symbols?.length) {
-                return null;
+            if (!plan.entities?.symbols?.length) {
+                return `عذراً، لم أجد أي أسهم تطابق الشروط التي حددتها حالياً في قاعدة البيانات.`;
             }
-            return `عذراً، لم أجد أي أسهم تطابق الشروط التي حددتها حالياً في قاعدة البيانات.`;
         }
 
+        if (stocks.length > 0) {
         const countWord = stocks.length === 1 ? "سهم واحد" : stocks.length === 2 ? "سهمين" : `${stocks.length} أسهم`;
         const lines = [
             `تم العثور على ${countWord} يطابق الشروط المحددة:`
@@ -911,11 +911,12 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
         });
 
         lines.push("");
-        lines.push(`الخلاصة: وفقاً للشروط التي حددتها، ${stocks.length === 1 ? `سهم ${stocks[0].symbol} هو السهم الوحيد المطابق حالياً.` : `هذه هي الأسهم المطابقة حالياً في قاعدة البيانات.`}`);
+        lines.push(`الخلاصة: وفقاً للشروط التي حددتها، ${stocks.length === 1 ? `نعم، توجد إشارة ${actionAr} على سهم ${stocks[0].symbol} في مسح ${scan.data_time}.` : `هذه هي الأسهم المطابقة حالياً في قاعدة البيانات.`}`);
         lines.push("");
         lines.push("حدد من هذه القائمة السهم الأنسب لحالتك، واتخذ قرار الشراء أو الانتظار وفقاً لتأكيد الإشارة على الرسم البياني.");
 
         return lines.join("\n");
+        }
     }
     if (plan.intent === "clarification" && !userMessage.trim() && plan.service_degraded_message) {
         return "تعذر قراءة الصورة المرفقة بوضوح هذه المرة، لذلك لم أستخرج منها أسهماً أو أرقاماً حتى لا أخمّن. أرسل نسخة أوضح أو اكتب اسم السهم وما تريد تحليله، وسأعتمد على السؤال النصي مباشرة.";
@@ -933,7 +934,31 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
     if (isEarningsDataRequest(userMessage) && plan.entities.symbols.length > 0) {
         return `لا تتوفر لدي حالياً بيانات أرباح موثقة للفترة المطلوبة للسهم ${plan.entities.symbols.join("، ")}. لذلك لن أستبدل سؤال الأرباح بالسعر أو RSI. يمكنني تحليل السعر فنياً، أو عرض الأرباح عند إضافة مصدر قوائم مالية مؤرخ للنظام.`;
     }
-    const priceHistory = toolResults.find(result => result.tool === "get_price_history");
+    const priceHistories = toolResults.filter(result => result.tool === "get_price_history" && result.data?.symbol);
+    const forecastRequest = /(توقعات|توقع|متوقع|تقعات|وقعات).{0,35}(?:5|خمس|الخمسه|الخمسة|15|خمستاشر|خمسة عشر).{0,15}(جلسات|جلسه|جلسة|يوم)|(?:5|خمس|الخمسه|الخمسة|15|خمستاشر|خمسة عشر).{0,15}(جلسات|جلسه|جلسة|يوم).{0,35}(توقعات|توقع|متوقع|تقعات|وقعات)/i.test(userMessage);
+    const yearEndForecast = /(متوقع|توقع|توقعات|سعر).{0,25}(اخر|آخر|نهايه|نهاية).{0,15}(السنه|السنة|العام)/i.test(userMessage);
+    if ((forecastRequest || yearEndForecast) && priceHistories.length > 0) {
+        const historyField = forecastRequest && /15|خمستاشر|خمسة عشر/i.test(userMessage) ? "recent_15_sessions" : "recent_5_sessions";
+        const lines = priceHistories.flatMap(history => {
+            const data = history.data;
+            const recent = Array.isArray(data[historyField]) ? data[historyField] : [];
+            const closes = recent.map((row: any) => Number(row.close)).filter(Number.isFinite);
+            const latestClose = closes[0] ?? Number(data.latest?.close);
+            const oldestClose = closes[closes.length - 1];
+            const periodChange = closes.length >= 2 && oldestClose !== 0 ? ((latestClose - oldestClose) / oldestClose) * 100 : null;
+            const level = levelResults.find(result => String(result.data?.symbol || result.symbols[0]).toUpperCase() === String(data.symbol).toUpperCase())?.data || {};
+            const stock = stockResults.find(result => String(result.data?.symbol).toUpperCase() === String(data.symbol).toUpperCase())?.data || {};
+            const momentum = periodChange == null ? "الاتجاه غير محسوم لعدم اكتمال البيانات" : periodChange > 2 ? "الاتجاه صاعد" : periodChange < -2 ? "الاتجاه هابط" : "الاتجاه عرضي";
+            return [
+                `${data.symbol}: ${momentum}${periodChange == null ? "" : `؛ التغير خلال آخر ${closes.length} جلسات ${periodChange >= 0 ? "+" : ""}${periodChange.toFixed(2)}%`}، وآخر إغلاق ${Number(latestClose).toFixed(2)} جنيه بتاريخ ${history.data_time}.`,
+                stock.rsi_14 != null || stock.vol_ratio != null ? `- الزخم: RSI ${stock.rsi_14 ?? "غير متاح"}، والحجم ${stock.vol_ratio ?? "غير متاح"} من المتوسط.` : null,
+                level.support != null && level.resistance != null ? `- النطاق الفني: دعم ${Number(level.support).toFixed(2)} ومقاومة ${Number(level.resistance).toFixed(2)} جنيه.` : null
+            ].filter(Boolean) as string[];
+        });
+        lines.push(`لا يمكن تحديد سعر مؤكد ${yearEndForecast ? "حتى نهاية السنة" : "للفترة المطلوبة"}؛ هذه قراءة اتجاهية مبنية على آخر بيانات وليست توصية شراء أو بيع.`);
+        return lines.join("\n");
+    }
+    const priceHistory = priceHistories[0];
     if (priceHistory?.data?.symbol) {
         const data = priceHistory.data;
         if (isDailyPriceLimitQuestion(userMessage)) {
@@ -1173,9 +1198,8 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
         return [...lines, "هذه مستويات نطاقية حسابية وليست ضماناً لحركة السعر أو توصية بيع وشراء."].join("\n");
     }
 
-    const decision = /(أبيع|ابيع|بيع|أشتري|اشتري|شراء|احتفظ|أحتفظ|اخرج|أخرج)/i.test(userMessage);
+    const decision = /(أبيع|ابيع|ابيعه|أبيعه|بيع|أشتري|اشتري|شراء|احتفظ|أحتفظ|اخرج|أخرج)/i.test(userMessage);
     const isOwnedStockAdviceQuery = /(اشتريت.*نزل|نازل بيا|خسران|اشتريت.*سهم|اشتريت اليوم|اشتريت.*ونزل)/i.test(userMessage);
-    if (isOwnedStockAdviceQuery) return null;
     const entryTiming = /(ينصح|داخل|دخول|ادخل|أدخل|بكره|بكرة|يصحح|تصحيح|مستهدف|هدف|اخر الاسبوع|آخر الأسبوع|المحفظه|المحفظة|مليون)/i.test(userMessage);
     const stockData = toolResults.filter(result => result.tool === "get_stock" && result.data?.symbol);
     const riskQuestion = /(يخسر|خسار|يهبط|ينزل).{0,30}(تاني|اكتر|أكتر|اكثر|أكثر|%|في الميه|فى الميه)|(?:ممكن|هل).{0,20}(يخسر|يهبط|ينزل)/i.test(userMessage);

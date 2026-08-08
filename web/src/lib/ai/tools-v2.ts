@@ -58,7 +58,14 @@ export async function executeStructuredTools(
             const previous = prices[1] || null;
             const upperLimit = previous?.close != null ? Number(previous.close) * 1.2 : null;
             const lowerLimit = previous?.close != null ? Number(previous.close) * 0.8 : null;
-            results.push({ tool: "get_price_history", source: "stock_prices", data_time: latest.date, symbols: [symbol], data_type: "historical", data: { symbol, latest, previous_close: previous?.close ?? null, highest_250_sessions: { price: highest.high, date: highest.date }, upper_limit_20pct: upperLimit, lower_limit_20pct: lowerLimit } });
+            const recentFive = prices.slice(0, 5).map((row: any) => ({
+                date: row.date,
+                close: Number(row.close),
+                high: Number(row.high),
+                low: Number(row.low)
+            }));
+            const recentFifteen = prices.slice(0, 15).map((row: any) => ({ date: row.date, close: Number(row.close), high: Number(row.high), low: Number(row.low) }));
+            results.push({ tool: "get_price_history", source: "stock_prices", data_time: latest.date, symbols: [symbol], data_type: "historical", data: { symbol, latest, previous_close: previous?.close ?? null, recent_5_sessions: recentFive, recent_15_sessions: recentFifteen, highest_250_sessions: { price: highest.high, date: highest.date }, upper_limit_20pct: upperLimit, lower_limit_20pct: lowerLimit } });
         }
     }
 

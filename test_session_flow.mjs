@@ -18,26 +18,25 @@ async function runTest() {
     const token = v.data.session.access_token;
     console.log("Auth token obtained successfully.");
 
-    const messagesToTest = [
-        /*
-        "انا شاري سهم راية ب 8.14 وهو قعد ينزل ابيعه بكام؟\nو اية الاسهم اللى عليها تجميع كبير الفترة الحالية وفرصتهم فالصعود عالية خلال فترة قريبه",
-        "الاسكندرية والمطاحن والشمس - اشتري مين بكره؟",
-        "Bioc مشترية عند 383",
-        "مستهدفاته ايه",
-        "اعمل مسح فني لسهم CPME واشرح المؤشرات الفنية الحالية فقط بدون توصية شراء أو بيع.\nما هو اتجاه سهم CPME الحالي؟\nهل سهم CPME في مرحلة تجميع أم تصريف؟ ولماذا؟\nاعرض قيم RSI وMACD والمتوسطات المتحركة لسهم CPME.\nما هي مستويات الدعم والمقاومة الحالية لسهم CPME؟",
-        "هل سهم elsh الآن في مرحلة تجميع أم تصريف؟ اذكر الأسباب.",
-        */
-        "هات الاسهم اللى عليها تجميع وتحت القيمه العادله\nوشوف elsh اشتريه بكره ولا اى",
-        "فى توصيه على الاسهم دى عندك ؟"
+    // Latest Supabase questions grouped by their original conversation context.
+    const scenarios = [
+        ["توقعاتك ليه في ال5 جلسات القادمة جلاسكو", "ايوه تقعاته ايه ال5 جلسات الجاية"],
+        ["سهم جلاسكو وقعات", "ايوه تقعاته ايه ال5 جلسات الجاية", "توقعاتك ليه في ال5 جلسات القادمة جلاسكو", "تحليل السيولة لـ BIOC"],
+        ["elka متوقع يكون سعره كام اخر السمة"],
+        ["ما رأيك في محفظتي", "نصائح بخصوص جميع اسهمي ... وهل تنصح بسهم النيل للادوية ؟"],
+        ["تحليل السيولة لـ FERC"],
+        ["اى رائيك فى سهم المطاحن و الاسكندريه"],
+        ["انا شاري سهم راية ب 8.14 وهو قعد ينزل ابيعه بكام ؟"]
     ];
 
-    let sessionId = null;
-
-    for (let i = 0; i < messagesToTest.length; i++) {
+    for (let scenarioIndex = 0; scenarioIndex < scenarios.length; scenarioIndex++) {
+      let sessionId = null;
+      for (let i = 0; i < scenarios[scenarioIndex].length; i++) {
+        const message = scenarios[scenarioIndex][i];
         console.log(`\n----------------------------------------`);
-        console.log(`TURN ${i + 1}: ${messagesToTest[i].substring(0, 50)}...`);
+        console.log(`SCENARIO ${scenarioIndex + 1}, TURN ${i + 1}: ${message.substring(0, 50)}...`);
         const payload = {
-            message: messagesToTest[i],
+            message,
             stream: true
         };
         if (sessionId) payload.session_id = sessionId;
@@ -69,6 +68,7 @@ async function runTest() {
         }
         console.log(`Reply:\n${fullText.trim()}`);
         await new Promise(r => setTimeout(r, 1000));
+      }
     }
 }
 

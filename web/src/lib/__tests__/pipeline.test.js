@@ -299,6 +299,64 @@ describe("Deterministic response fallback", () => {
         expect(response).not.toContain("لم أجد أي أسهم تطابق");
     });
 
+    it("routes a five-session forecast to structured stock history", () => {
+        const plan = buildDeterministicPlannerResult("توقعاتك ليه في ال5 جلسات القادمة جلاسكو", { current_symbol: null, last_symbols: [], summary: null });
+        expect(plan).toMatchObject({ intent: "stock_analysis", tools: ["get_stock", "get_stock_levels", "get_price_history"], entities: { symbols: ["BIOC"] } });
+    });
+
+    it("resolves a five-session forecast follow-up from session context", () => {
+        const plan = buildDeterministicPlannerResult("ايوه تقعاته ايه ال5 جلسات الجاية", { current_symbol: "BIOC", last_symbols: ["BIOC"], summary: "تحليل جلاسكو" });
+        expect(plan).toMatchObject({ intent: "stock_analysis", tools: ["get_stock", "get_stock_levels", "get_price_history"], entities: { symbols: ["BIOC"] } });
+    });
+
+    it("routes fifteen-session and year-end forecasts to structured price history", () => {
+        const fifteen = buildDeterministicPlannerResult("توقعاتك ليه في ال15 يوم القادمة الشمس والمطاحن", { current_symbol: null, last_symbols: [], summary: null });
+        expect(fifteen).toMatchObject({ intent: "stock_analysis", tools: ["get_stock", "get_stock_levels", "get_price_history"] });
+        expect(fifteen.entities.symbols).toEqual(expect.arrayContaining(["ELSH", "AFMC"]));
+        const yearEnd = buildDeterministicPlannerResult("elka متوقع يكون سعره كام اخر السنة", { current_symbol: null, last_symbols: [], summary: null });
+        expect(yearEnd).toMatchObject({ intent: "stock_analysis", tools: ["get_stock", "get_stock_levels", "get_price_history"], entities: { symbols: ["ELKA"] } });
+    });
+
+    it("does not inherit a prior symbol for a broad accumulation scan", () => {
+        const plan = buildDeterministicPlannerResult("ابعتلى الاسهم اللى ينطبق عليها الشروط دى درجة التجميع أعلى من 75", { current_symbol: "ELSH", last_symbols: ["ELSH"], summary: "تحليل ELSH" });
+        expect(plan.entities.symbols).toEqual([]);
+        expect(plan.tools).toEqual(["get_accumulation_stocks"]);
+    });
+
+    it("summarizes five-session expectations without inventing a future price", () => {
+        const response = buildDeterministicResponse("توقعاتك ليه في ال5 جلسات القادمة جلاسكو", { ...basePlan, entities: { ...basePlan.entities, symbols: ["BIOC"] }, tools: ["get_stock", "get_stock_levels", "get_price_history"] }, [
+            { tool: "get_stock", source: "database", data_time: "2026-08-06", symbols: ["BIOC"], data_type: "live", data: { symbol: "BIOC", price: 383, rsi_14: "60", vol_ratio: "1.20x" } },
+            { tool: "get_stock_levels", source: "stock_prices", data_time: "2026-08-06", symbols: ["BIOC"], data_type: "live", data: { symbol: "BIOC", support: 350, resistance: 410 } },
+            { tool: "get_price_history", source: "stock_prices", data_time: "2026-08-06", symbols: ["BIOC"], data_type: "historical", data: { symbol: "BIOC", latest: { close: 383 }, recent_5_sessions: [{ close: 383 }, { close: 378 }, { close: 374 }, { close: 370 }, { close: 365 }] } }
+        ]);
+        expect(response).toContain("BIOC");
+        expect(response).toContain("آخر 5 جلسات");
+        expect(response).toContain("دعم 350.00");
+        expect(response).toContain("لا يمكن تحديد سعر مؤكد");
+    });
+
+    it("answers an owned-stock sell question deterministically", () => {
+        const response = buildDeterministicResponse("انا شاري سهم راية ب 8.14 وهو قعد ينزل ابيعه بكام ؟", { ...basePlan, entities: { ...basePlan.entities, symbols: ["RAYA"] }, tools: ["get_stock", "get_stock_levels"] }, [
+            { tool: "get_stock", source: "database", data_time: "2026-08-06", symbols: ["RAYA"], data_type: "live", data: { symbol: "RAYA", price: 7.42, change_pct: "-1.07%", rsi_14: "34.01", macd_signal: "0.0179", vol_ratio: "0.41x" } },
+            { tool: "get_stock_levels", source: "stock_prices", data_time: "2026-08-06", symbols: ["RAYA"], data_type: "live", data: { symbol: "RAYA", support: 7, resistance: 9, lookback_sessions: 60 } }
+        ]);
+        expect(response).toContain("لا أستطيع اتخاذ قرار البيع");
+        expect(response).toContain("الدعم الحسابي (لسهم RAYA) 7.00");
+    });
+
+    it("answers two Arabic stock names with compact ordered facts", () => {
+        const response = buildDeterministicResponse("اى رائيك فى سهم المطاحن و الاسكندريه", { ...basePlan, entities: { ...basePlan.entities, symbols: ["AFMC", "ALCN"] }, tools: ["get_stock", "get_stock_levels"] }, [
+            { tool: "get_stock", source: "database", data_time: "2026-08-06", symbols: ["AFMC"], data_type: "live", data: { symbol: "AFMC", name: "Alexandria Flour Mills", price: 224, change_pct: "-3.44%", rsi_14: "76.66", macd_signal: "25.8315", vol_ratio: "0.80x" } },
+            { tool: "get_stock", source: "database", data_time: "2026-08-06", symbols: ["ALCN"], data_type: "live", data: { symbol: "ALCN", name: "Alexandria Containers", price: 30.7, change_pct: "-1.54%", rsi_14: "64.97", macd_signal: "0.2835", vol_ratio: "1.05x" } },
+            { tool: "get_stock_levels", source: "stock_prices", data_time: "2026-08-06", symbols: ["AFMC"], data_type: "live", data: { symbol: "AFMC", support: 66, resistance: 250, lookback_sessions: 60 } },
+            { tool: "get_stock_levels", source: "stock_prices", data_time: "2026-08-06", symbols: ["ALCN"], data_type: "live", data: { symbol: "ALCN", support: 25.51, resistance: 33.2, lookback_sessions: 60 } }
+        ]);
+        expect(response).toContain("AFMC");
+        expect(response).toContain("ALCN");
+        expect(response).not.toContain("عذراً، واجهنا صعوبة");
+        expect(response).not.toContain("المستويات الفنية لـ");
+    });
+
     it("answers greetings without inheriting stock context", () => {
         const response = buildDeterministicResponse("ازيك النهارده؟", { ...basePlan, intent: "general_chat", entities: { ...basePlan.entities, symbols: [] } }, []);
         expect(response).toContain("أهلاً");
