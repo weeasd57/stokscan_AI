@@ -722,6 +722,26 @@ export function buildFastConversationalAdvisorResponse(
         return sections.join("\n");
     }
 
+    if (!hasSpecificSymbols && guidanceIntent === "product_explainer") {
+        const mentionsThndr = /(ثاندر|ثندر|thndr)/i.test(normMsg);
+        const mentionsFund = /(صندوق|صناديق|دخل ثابت|عائد يومي|شهاده|وديعه|حساب توفير|سوق المال)/i.test(normMsg);
+        if (mentionsThndr || mentionsFund) {
+            return [
+                "أنا مساعد متخصص في تحليل أسعار ومؤشرات البورصة المصرية فقط.",
+                "لا أملك بيانات أو وصولاً لمنتجات التطبيقات المالية مثل صناديق ثاندر أو غيره من صناديق الاستثمار أو أدوات الدخل الثابت، لذلك لا أستطيع تقييمها أو مقارنتها أو إعطاء توصيات بشأنها.",
+                "لو عندك سهم أو قطاع معين في البورصة المصرية، أقدر أحلله لك بناءً على البيانات المتاحة."
+            ].join("\n");
+        }
+    }
+
+    if (!hasSpecificSymbols && guidanceIntent === "allocation" && /(ثاندر|ثندر|thndr|صندوق|صناديق|دخل ثابت|عائد يومي|شهاده|وديعه|حساب توفير|سوق المال)/i.test(normMsg)) {
+        return [
+            "أنا مساعد متخصص في تحليل أسعار ومؤشرات البورصة المصرية فقط.",
+            "لا أملك بيانات أو وصولاً لمنتجات التطبيقات المالية مثل صناديق ثاندر أو غيره من صناديق الاستثمار أو أدوات الدخل الثابت، لذلك لا أستطيع تقييمها أو مقارنتها أو إعطاء توصيات بشأنها.",
+            "لو عندك سهم أو قطاع معين في البورصة المصرية، أقدر أحلله لك بناءً على البيانات المتاحة."
+        ].join("\n");
+    }
+
     const allocationBetweenNamedStocks = guidanceIntent === "allocation"
         && plan.entities.symbols.length >= 2
         && /(احط|اوزع|قسم|استثمر).{0,30}(مين|فيهم|بينهم|الاتنين|السهمين)/i.test(normMsg);
@@ -749,8 +769,8 @@ export function buildFastConversationalAdvisorResponse(
     // 1. Allocation & Product Distribution Queries (e.g. "لو هوزع المبلغ ده، تنصحني بأي نسبة بين الأسهم والصناديق؟")
     const isAllocationRatioQuery = !hasSpecificSymbols && (
         /(توزيع|نسبة|نسبه|اوزع|أوزع|اوزعها|قسم|تقسيم).{0,35}(أسهم|اسهم).{0,35}(صناديق|صندوق|دخل ثابت|ادخار)/i.test(normMsg)
-        || /(توزيع|نسبة|نسبه).{0,30}(بين|مابين).{0,30}(أسهم|اسهم|صناديق)/i.test(normMsg)
-        || (plan.guidance_intent === "allocation" && /(نسبة|نسبه|صناديق)/i.test(normMsg))
+        || /(توزيع|نسبة|نسبه).{0,30}(بين|مابين).{0,30}(أسهم|اسهم|صناديق|صندوق)/i.test(normMsg)
+        || (plan.guidance_intent === "allocation" && /(نسبة|نسبه|صناديق|صندوق)/i.test(normMsg))
     );
 
     if (isAllocationRatioQuery) {
