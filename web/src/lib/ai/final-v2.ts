@@ -947,7 +947,7 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
             const lowerDistance = Number.isFinite(close) && Number.isFinite(lower) ? ((close - lower) / close) * 100 : null;
             return `${data.symbol}: آخر إغلاق ${close.toFixed(2)} جنيه بتاريخ ${priceHistory.data_time}. الحد السعري الحسابي التقريبي وفق ±20% من إغلاق الجلسة السابقة: صعود ${upper.toFixed(2)} جنيه وهبوط ${lower.toFixed(2)} جنيه. السهم بعيد عن حد الصعود بنحو ${upperDistance?.toFixed(1)}% وعن حد الهبوط بنحو ${lowerDistance?.toFixed(1)}%. تحقّق من قواعد وحدود الجلسة الفعلية لدى البورصة/الوسيط لأن النسبة قد تختلف حسب حالة الورقة.`;
         }
-        if (/(اعلى|أعلى).{0,15}(سعر|قمه|قمة)/i.test(userMessage)) {
+        if (/(?:أ|ا)عل[ىي].{0,15}(?:سعر|قم[هة])/i.test(userMessage)) {
             return `${data.symbol}: أعلى سعر مسجل في آخر ${250} جلسة متاحة هو ${Number(data.highest_250_sessions.price).toFixed(2)} جنيه بتاريخ ${data.highest_250_sessions.date}. الفترة محددة بآخر 250 جلسة وليست أعلى سعر تاريخي منذ الإدراج.`;
         }
     }
@@ -990,7 +990,7 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
                 return `${index + 1}. ${stock.symbol}: السعر ${Number(stock.close).toFixed(2)} جنيه، القيمة الوسطية ${Number(stock.midpoint).toFixed(2)} جنيه، ${relativeWord} منها بـ ${Math.abs(Number(stock.premium_pct)).toFixed(1)}%${distribution}${accumulation}${volume}${scanDate}.`;
             }),
             "ابدأ بالمقارنة بين قوة التجميع والسيولة وقرب السعر من الدعم، واتخذ قرار الشراء أو الانتظار وفقاً لتأكيد الإشارة على الرسم البياني.",
-            "تنبيه: المقصود هنا قيمة وسطية فنية وليست قيمة عادلة مالية؛ القيمة الجوهرية تحتاج أرباحاً وتدفقات نقدية ومكررات قطاع موثقة."
+            "تنبيه تقييم فني: المقصود هنا قيمة وسطية فنية وليست قيمة عادلة مالية؛ القيمة الجوهرية تحتاج أرباحاً وتدفقات نقدية ومكررات قطاع موثقة."
         ].join("\n");
     }
     if (isFairValueScanRequest(userMessage)
