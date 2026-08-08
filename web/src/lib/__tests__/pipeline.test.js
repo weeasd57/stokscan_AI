@@ -551,6 +551,49 @@ describe("Deterministic response fallback", () => {
         expect(response).not.toContain("ملخص السوق");
     });
 
+    it("resolves alsh to ELSH in compound forecast and scan questions", () => {
+        expect(extractExplicitSymbols("alsh")).toEqual(["ELSH"]);
+        const plan = buildDeterministicPlannerResult("توقعاتك ليه في ال5 جلسات القادمة alsh", { current_symbol: null, last_symbols: [], summary: null });
+        expect(plan.entities.symbols).toEqual(["ELSH"]);
+        expect(plan.tools).toEqual(["get_stock", "get_stock_levels", "get_price_history"]);
+    });
+
+    it("gives accumulation verdicts for all requested symbols in a multi-symbol comparison", () => {
+        const response = buildDeterministicResponse("RAYA و COMI أيهما عليه تجميع أكبر؟", {
+            ...basePlan,
+            intent: "accumulation_distribution",
+            entities: { ...basePlan.entities, symbols: ["RAYA", "COMI"], scan_direction: "accumulation" }
+        }, [{
+            tool: "get_accumulation_stocks", source: "stock_scans_summary", data_time: "2026-07-30", symbols: ["RAYA", "COMI"], data_type: "live",
+            data: {
+                direction: "accumulation",
+                stocks: [
+                    { symbol: "RAYA", signal: "accumulation", acc_score: 85, dist_score: 5, vol_ratio: 2.1, consecutive_acc_days: 4, wyckoff_phase: "strong_accumulation" },
+                    { symbol: "COMI", signal: "accumulation", acc_score: 60, dist_score: 20, vol_ratio: 1.3, consecutive_acc_days: 2, wyckoff_phase: "accumulation" }
+                ],
+                scan_rows: [
+                    { symbol: "RAYA", signal: "accumulation", acc_score: 85, dist_score: 5, vol_ratio: 2.1, consecutive_acc_days: 4, wyckoff_phase: "strong_accumulation" },
+                    { symbol: "COMI", signal: "accumulation", acc_score: 60, dist_score: 20, vol_ratio: 1.3, consecutive_acc_days: 2, wyckoff_phase: "accumulation" }
+                ]
+            }
+        }]);
+        expect(response).toContain("RAYA");
+        expect(response).toContain("COMI");
+        expect(response).toContain("85/100");
+        expect(response).toContain("60/100");
+    });
+
+    it("strips environment_details from compound and streamed responses", () => {
+        const { sanitizeReply } = require("../ai/sanitizer");
+        const leaked = "رد طبيعي\n<environment_details>\nCurrent time: 2026-08-08T21:59:15+03:00\nWorking directory: C:\\Users\\MR__CODER__\\Desktop\\stokscan_AI\nWorkspace root folder: C:\\Users\\MR__CODER__\\Desktop\\stokscan_AI\n</environment_details>";
+        const cleaned = sanitizeReply(leaked);
+        expect(cleaned).toContain("رد طبيعي");
+        expect(cleaned).not.toContain("environment_details");
+        expect(cleaned).not.toContain("Current time");
+        expect(cleaned).not.toContain("Working directory");
+        expect(cleaned).not.toContain("Workspace root folder");
+    });
+
     it("does not infer accumulation from technical indicators without a scan row", () => {
         const response = buildDeterministicResponse("ABCD عليه تجميع؟", {
             ...basePlan,

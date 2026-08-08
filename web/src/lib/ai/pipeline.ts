@@ -5,6 +5,7 @@ import { runPlanner, getSyncStockMappings, getStocksList, loadValidSymbols } fro
 import { executeStructuredTools, StructuredToolOutput } from "./tools-v2";
 import { buildDeterministicResponse, generateV2Response, generateV2Stream } from "./final-v2";
 import { validateResponse } from "./validator";
+import { sanitizeReply } from "./sanitizer";
 import { loadSessionState, loadSessionSummary, updateSessionSummary, updateSessionState } from "./session";
 import { buildExcelTables, ExcelTable } from "./excel-tables";
 import { AI_CONFIG } from "./config";
@@ -105,7 +106,7 @@ function mergeVisionSymbols(planSymbols: string[], vision: VisionContext | null)
 export function extractExplicitSymbols(message: string): string[] {
     // These are product/platform labels frequently used in Arabic investor questions,
     // not EGX ticker symbols. Treating them as stocks creates empty comparisons.
-    const excluded = new Set(["EGX", "NEWS", "TODAY", "LAST", "WEEK", "FROM", "BETWEEN", "RSI", "MACD", "VWAP", "CLOUD", "THNDR"]);
+    const excluded = new Set(["EGX", "NEWS", "TODAY", "LAST", "WEEK", "FROM", "BETWEEN", "RSI", "MACD", "VWAP", "CLOUD", "THNDR", "ALSH"]);
     const explicit = message.match(/(?:^|[^A-Za-z0-9])([A-Z][A-Z0-9]{1,9})(?=$|[^A-Za-z0-9])/g)?.map(match => match.replace(/^[^A-Za-z0-9]+/, "")) || [];
     const lowercaseTickers = message.match(/\b[a-z][a-z0-9]{2,5}\b/g) || [];
     
@@ -1075,10 +1076,10 @@ export async function* runPipelineStream(
         attempts++;
     }
 
-    let fullResponse = finalReply;
+    let fullResponse = sanitizeReply(finalReply);
 
     // Now stream the final, verified response to the client
-    const responseLines = finalReply.split("\n");
+    const responseLines = fullResponse.split("\n");
     for (let i = 0; i < responseLines.length; i++) {
         const line = responseLines[i];
         const token = i === responseLines.length - 1 ? line : `${line}\n`;

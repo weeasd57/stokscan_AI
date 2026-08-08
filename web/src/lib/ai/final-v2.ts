@@ -1048,7 +1048,15 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
                 : `الأخبار: لا توجد أخبار مسجلة حالياً للأسهم ${compoundNews.symbols.join("، ") || "المطلوبة"}.`);
         }
         const scan = toolResults.find(result => result.tool === "get_accumulation_stocks" || result.tool === "get_distribution_stocks");
-        if (scan?.data?.stocks?.length) parts.push(`التجميع/التصريف: ${scan.data.stocks.slice(0, 8).map((stock: any) => stock.symbol).join("، ")}.`);
+        if (scan?.data?.stocks?.length) {
+            const requestedSet = new Set((plan.entities.symbols || []).map(s => s.toUpperCase()));
+            const relevantStocks = requestedSet.size > 0
+                ? scan.data.stocks.filter((stock: any) => requestedSet.has(String(stock.symbol || "").toUpperCase()))
+                : scan.data.stocks;
+            if (relevantStocks.length > 0) {
+                parts.push(`التجميع/التصريف: ${relevantStocks.slice(0, 8).map((stock: any) => stock.symbol).join("، ")}.`);
+            }
+        }
         
         const fairValueScan = toolResults.find(result => result.tool === "get_fair_value_scan");
         if (fairValueScan) {
@@ -1352,34 +1360,50 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
 
         if (plan.entities.symbols.length > 0) {
             const requestedSymbols = plan.entities.symbols.map(symbol => symbol.toUpperCase());
-            const row = scanRows.find(item => requestedSymbols.includes(String(item.symbol || "").toUpperCase())) || stocks[0];
-            const symbol = row?.symbol || plan.entities.symbols[0];
-            if (row) {
-                const score = Number(row[scoreField] || 0);
-                const oppositeScore = Number(row[oppositeScoreField] || 0);
-                const matchesDirection = row.signal === direction || score >= 50;
-                const oppositeDirectionAr = direction === "distribution" ? "التجميع" : "التصريف";
-                const verdict = matchesDirection
-                    ? `نعم، توجد إشارة ${directionAr} مسجلة على ${symbol} في مسح ${scanResult.data_time}.`
-                    : row.signal === (direction === "distribution" ? "accumulation" : "distribution") || oppositeScore >= 50
-                        ? `لا، أحدث مسح لا يسجل ${directionAr} على ${symbol}؛ الإشارة الأقرب هي ${oppositeDirectionAr}.`
-                        : `لا توجد إشارة ${directionAr} مؤكدة على ${symbol} في أحدث مسح.`;
-                const evidence = [
-                    `الإشارة المسجلة: ${row.signal || "محايدة"}`,
-                    `درجة ${directionAr}: ${row[scoreField] ?? "غير متاحة"}/100`,
-                    `درجة ${oppositeDirectionAr}: ${row[oppositeScoreField] ?? "غير متاحة"}/100`,
-                    row.vol_ratio != null ? `نسبة الحجم: ${row.vol_ratio}x` : null,
-                    row[consecutiveField] != null ? `أيام ${directionAr}: ${row[consecutiveField]}` : null,
-                    row.wyckoff_phase ? `مرحلة Wyckoff: ${row.wyckoff_phase}` : null
-                ].filter(Boolean);
-                return [describeDatedFallback(plan.entities.requested_date, scanResult.data_time), verdict, `الدليل: ${evidence.join("، ")}.`, "هذه قراءة لمسح فني مسجل وليست توصية شراء أو بيع."].filter(Boolean).join("\n");
+            const rows = scanRows.filter(item => requestedSymbols.includes(String(item.symbol || "").toUpperCase()));
+            const matchedStocks = stocks.filter(item => requestedSymbols.includes(String(item.symbol || "").toUpperCase()));
+
+            if (rows.length > 0 || matchedStocks.length > 0) {
+                const symbolSet = rows.length > 0 ? rows : matchedStocks;
+                const verdicts = symbolSet.map((row: any) => {
+                    const score = Number(row[scoreField] || 0);
+                    const oppositeScore = Number(row[oppositeScoreField] || 0);
+                    const matchesDirection = row.signal === direction || score >= 50;
+                    const oppositeDirectionAr = direction === "distribution" ? "التجميع" : "التصريف";
+                    const sym = String(row.symbol || requestedSymbols[symbolSet.indexOf(row)] || "السهم").toUpperCase();
+                    const evidence = [
+                        `الإشارة المسجلة: ${row.signal || "محايدة"}`,
+                        `درجة ${directionAr}: ${row[scoreField] ?? "غير متاحة"}/100`,
+                        `درجة ${oppositeDirectionAr}: ${row[oppositeScoreField] ?? "غير متاحة"}/100`,
+                        row.vol_ratio != null ? `نسبة الحجم: ${row.vol_ratio}x` : null,
+                        row[consecutiveField] != null ? `أيام ${directionAr}: ${row[consecutiveField]}` : null,
+                        row.wyckoff_phase ? `مرحلة Wyckoff: ${row.wyckoff_phase}` : null
+                    ].filter(Boolean);
+                    const verdict = matchesDirection
+                        ? `نعم، توجد إشارة ${directionAr} مسجلة على ${sym} في مسح ${scanResult.data_time}.`
+                        : row.signal === (direction === "distribution" ? "accumulation" : "distribution") || oppositeScore >= 50
+                            ? `لا، أحدث مسح لا يسجل ${directionAr} على ${sym}؛ الإشارة الأقرب هي ${oppositeDirectionAr}.`
+                            : `لا توجد إشارة ${directionAr} مؤكدة على ${sym} في أحدث مسح.`;
+                    return [verdict, `الدليل: ${evidence.join("، ")}.`].filter(Boolean).join("\n");
+                });
+                return [describeDatedFallback(plan.entities.requested_date, scanResult.data_time), ...verdicts, "هذه قراءة لمسح فني مسجل وليست توصية شراء أو بيع."].filter(Boolean).join("\n");
             }
 
             const technicalRow = Array.isArray(scanResult.data?.technical_rows) ? scanResult.data.technical_rows[0] : null;
             const technicalDetails = technicalRow
                 ? ` المتاح فنياً: نسبة الحجم ${technicalRow.vol_ratio ?? "غير متاحة"}x، RSI ${technicalRow.rsi_14 ?? "غير متاح"}، MACD ${technicalRow.macd_signal ?? "غير متاح"}.`
                 : "";
-            return `لا توجد بيانات مسح ${directionAr} كافية للسهم ${symbol} بتاريخ ${scanResult.data_time}.${technicalDetails} مؤشرات الحجم وRSI وMACD تصف السيولة والزخم، لكنها لا تثبت ${directionAr} وحدها.`;
+            const symbol = requestedSymbols[0] || "السهم";
+            if (technicalDetails) {
+                return `لا توجد بيانات مسح ${directionAr} كافية للسهم ${symbol} بتاريخ ${scanResult.data_time}.${technicalDetails} مؤشرات الحجم وRSI وMACD تصف السيولة والزخم، لكنها لا تثبت ${directionAr} وحدها.`;
+            }
+            if (plan.entities.requested_date) {
+                return `لا توجد بيانات مسح ${directionAr} مسجلة بتاريخ ${plan.entities.requested_date}. لم أستخدم بيانات من تاريخ آخر حتى لا أخلط بين التواريخ.`;
+            }
+            return [
+                `لا توجد إشارات ${directionAr} مطابقة لمعايير المسح في أحدث بيانات متاحة.`,
+                "لم أستخدم RSI أو MACD وحدهما لإثبات الإشارة."
+            ].join("\n");
         }
 
         if (stocks.length > 0) {
