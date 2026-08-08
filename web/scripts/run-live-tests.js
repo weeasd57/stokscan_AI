@@ -30,7 +30,7 @@ if (!process.env.NEXT_PUBLIC_SUPABASE_URL) process.env.NEXT_PUBLIC_SUPABASE_URL 
 if (!process.env.SUPABASE_SERVICE_ROLE_KEY) process.env.SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_KEY;
 const command = process.execPath;
 const jestBin = require.resolve("jest/bin/jest");
-const result = spawnSync(command, [jestBin, "--config", "jest.live.config.js", "--runInBand", "--forceExit"], {
+const result = spawnSync(command, [jestBin, "--config", "jest.live.config.js", "--runInBand", "--forceExit", ...process.argv.slice(2)], {
     cwd: path.join(__dirname, ".."),
     env: process.env,
     stdio: "inherit",

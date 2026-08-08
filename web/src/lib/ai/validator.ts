@@ -3,6 +3,7 @@ export interface ValidationResult {
     suspiciousSymbols: string[];
     suspiciousNumbers: string[];
     hasRepetitions: boolean;
+    deterministicErrors?: string[];
 }
 
 // Common technical terms that should not be flagged as stock symbols
@@ -36,12 +37,109 @@ export function extractNumbers(text: string): number[] {
 }
 
 /**
+ * Validates logical correctness of financial metrics mentioned in assistant reply.
+ */
+export function validateDeterministicRules(
+    replyText: string,
+    toolResults: any[]
+): string[] {
+    const errors: string[] = [];
+    const sentences = replyText.split(/[.\n؟?!؛]/).map(s => s.trim()).filter(Boolean);
+    
+    // Build facts dictionary
+    const factsBySymbol: Record<string, any> = {};
+    toolResults.forEach(r => {
+        const processSymbolData = (sym: string, data: any) => {
+            const s = sym.toUpperCase();
+            if (!factsBySymbol[s]) factsBySymbol[s] = {};
+            if (data.price != null) factsBySymbol[s].price = Number(data.price);
+            if (data.close != null) factsBySymbol[s].price = Number(data.close);
+            if (data.rsi_14 != null) factsBySymbol[s].rsi = Number(data.rsi_14);
+            if (data.rsi != null) factsBySymbol[s].rsi = Number(data.rsi);
+            if (data.vol_ratio != null) factsBySymbol[s].vol_ratio = Number(data.vol_ratio);
+            if (data.volRatio != null) factsBySymbol[s].vol_ratio = Number(data.volRatio);
+            if (data.support != null) factsBySymbol[s].support = Number(data.support);
+            if (data.resistance != null) factsBySymbol[s].resistance = Number(data.resistance);
+            if (data.highest_250_sessions?.price != null) {
+                factsBySymbol[s].highest_price = Number(data.highest_250_sessions.price);
+            }
+        };
+        
+        if (r.data?.symbol) {
+            processSymbolData(r.data.symbol, r.data);
+        }
+        if (Array.isArray(r.data?.stocks)) {
+            r.data.stocks.forEach((s: any) => {
+                if (s.symbol) processSymbolData(s.symbol, s);
+            });
+        }
+    });
+
+    let activeSymbol: string | null = null;
+
+    for (const sentence of sentences) {
+        const symbols = extractSymbols(sentence);
+        if (symbols.length > 0) {
+            activeSymbol = symbols[0];
+        }
+        
+        if (!activeSymbol || !factsBySymbol[activeSymbol]) continue;
+        
+        const facts = factsBySymbol[activeSymbol];
+        const numbers = extractNumbers(sentence);
+        
+        // 1. RSI Check
+        if (/(?:rsi|قوة نسبية|قوه نسبيه)/i.test(sentence) && facts.rsi != null) {
+            const rsiNum = facts.rsi;
+            const hasCorrectRsi = numbers.some(n => Math.abs(n - rsiNum) <= 0.05 || (rsiNum > 0 && Math.abs(n - rsiNum) / rsiNum <= 0.01));
+            const nonLevelNumbers = numbers.filter(n => n !== 30 && n !== 70 && n !== 14 && n !== 80 && n !== 50);
+            if (nonLevelNumbers.length > 0 && !hasCorrectRsi) {
+                errors.push(`تضارب في قيمة RSI لسهم ${activeSymbol}: القيمة الفعلية هي ${rsiNum} ولكن الرد يحتوي على قيم مختلفة.`);
+            }
+        }
+        
+        // 2. Support Check
+        if (/(?:دعم|مستوى الدعم|الدعم)/i.test(sentence) && facts.support != null) {
+            const supportNum = facts.support;
+            const hasCorrectSupport = numbers.some(n => Math.abs(n - supportNum) <= 0.05 || (supportNum > 0 && Math.abs(n - supportNum) / supportNum <= 0.01));
+            const nonGenericNumbers = numbers.filter(n => n !== 1 && n !== 2 && n !== 3);
+            if (nonGenericNumbers.length > 0 && !hasCorrectSupport) {
+                errors.push(`تضارب في قيمة الدعم لسهم ${activeSymbol}: القيمة الفعلية هي ${supportNum} ولكن الرد يحتوي على قيم مختلفة.`);
+            }
+        }
+        
+        // 3. Resistance Check
+        if (/(?:مقاومة|مقاومه|مستوى المقاومة|المقاومة)/i.test(sentence) && facts.resistance != null) {
+            const resistanceNum = facts.resistance;
+            const hasCorrectResistance = numbers.some(n => Math.abs(n - resistanceNum) <= 0.05 || (resistanceNum > 0 && Math.abs(n - resistanceNum) / resistanceNum <= 0.01));
+            const nonGenericNumbers = numbers.filter(n => n !== 1 && n !== 2 && n !== 3);
+            if (nonGenericNumbers.length > 0 && !hasCorrectResistance) {
+                errors.push(`تضارب في قيمة المقاومة لسهم ${activeSymbol}: القيمة الفعلية هي ${resistanceNum} ولكن الرد يحتوي على قيم مختلفة.`);
+            }
+        }
+
+        // 4. Price Check
+        if (/(?:سعر|إغلاق|اغلاق|السعر)/i.test(sentence) && facts.price != null && !/(?:أعلى|اعلى|أقصى|اقصى|أدنى|ادنى)/i.test(sentence)) {
+            const priceNum = facts.price;
+            const hasCorrectPrice = numbers.some(n => Math.abs(n - priceNum) <= 0.05 || (priceNum > 0 && Math.abs(n - priceNum) / priceNum <= 0.01));
+            const nonGenericNumbers = numbers.filter(n => n !== 1 && n !== 2 && n !== 3);
+            if (nonGenericNumbers.length > 0 && !hasCorrectPrice) {
+                errors.push(`تضارب في سعر سهم ${activeSymbol}: السعر الفعلي هو ${priceNum} ولكن الرد يحتوي على قيم مختلفة.`);
+            }
+        }
+    }
+    
+    return errors;
+}
+
+/**
  * Validates the generated assistant response against the raw context data.
  */
 export function validateResponse(
     replyText: string,
     liveDataString: string,
-    validSymbols: string[]
+    validSymbols: string[],
+    toolResults: any[] = []
 ): ValidationResult {
     const replySymbols = extractSymbols(replyText);
     const replyNumbers = extractNumbers(replyText);
@@ -96,12 +194,14 @@ export function validateResponse(
     }
 
     const hasRepetitions = hasExcessiveRepetitions(replyText);
+    const deterministicErrors = validateDeterministicRules(replyText, toolResults);
 
     return {
-        isValid: suspiciousSymbols.length === 0 && suspiciousNumbers.length === 0 && !hasRepetitions,
+        isValid: suspiciousSymbols.length === 0 && suspiciousNumbers.length === 0 && !hasRepetitions && deterministicErrors.length === 0,
         suspiciousSymbols,
         suspiciousNumbers,
-        hasRepetitions
+        hasRepetitions,
+        deterministicErrors
     };
 }
 

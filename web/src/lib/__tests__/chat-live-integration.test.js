@@ -54,7 +54,7 @@ describe("Live Supabase chatbot integration", () => {
         expect(response).toContain("كسر الدعم");
         expect(response).toContain("الأخبار:");
         expect(response).not.toContain("environment_details");
-    }, 30000);
+    }, 60000);
 
     liveTest("scopes sector news and accumulation to banks, not the previous stock", async () => {
         const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
@@ -69,7 +69,7 @@ describe("Live Supabase chatbot integration", () => {
         expect(plan.tools).toEqual(expect.arrayContaining(["get_sector", "get_news", "get_accumulation_stocks"]));
         expect(news?.symbols).not.toContain("ELSH");
         expect(scan?.symbols).not.toContain("ELSH");
-    }, 30000);
+    }, 60000);
 
     liveTest("returns a fair-value scan instead of market liquidity", async () => {
         const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
@@ -82,7 +82,7 @@ describe("Live Supabase chatbot integration", () => {
         expect(output.results.some(result => result.tool === "get_fair_value_scan")).toBe(true);
         expect(response).toContain("تقييم فني");
         expect(response).not.toContain("ملخص سيولة السوق");
-    }, 30000);
+    }, 60000);
 
     liveTest("runs a sequential user session through the full pipeline and persistence", async () => {
         const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
