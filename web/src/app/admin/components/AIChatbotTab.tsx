@@ -208,168 +208,15 @@ export default function AIChatbotTab() {
                 <div>
                     <h2 className="text-2xl font-black uppercase tracking-tight text-black dark:text-white flex items-center gap-3">
                         <Sparkles className="w-8 h-8 text-indigo-500" />
-                        AI Chatbot Control
+                        AI Chatbot Monitor
                     </h2>
-                    <p className="text-zinc-500 font-medium mt-1">Configure AgentRouter rules and monitor user interactions.</p>
+                    <p className="text-zinc-500 font-medium mt-1">Monitor user conversations with the AI assistant.</p>
                 </div>
-                {viewMode === "ai_config" && (
-                    <button
-                        onClick={handleSave}
-                        disabled={saving}
-                        className="flex items-center gap-2 bg-indigo-500 hover:bg-indigo-600 text-white px-6 py-3 font-bold uppercase tracking-widest text-sm transition-all disabled:opacity-50 shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_rgba(255,255,255,1)] hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-[2px_2px_0px_rgba(0,0,0,1)] dark:hover:shadow-[2px_2px_0px_rgba(255,255,255,1)]"
-                    >
-                        {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                        Save Config
-                    </button>
-                )}
             </div>
 
-            {/* View Mode Toggle Tabs */}
-            <div className="flex items-center gap-4 border-b-2 border-black dark:border-white pb-4">
-                <button
-                    onClick={() => setViewMode("support_chats")}
-                    className={`flex items-center gap-2 px-6 py-3 font-black uppercase text-sm tracking-wider transition-all border-2 border-black dark:border-white ${
-                        viewMode === "support_chats"
-                            ? "bg-indigo-500 text-white shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_rgba(255,255,255,1)]"
-                            : "bg-white dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800"
-                    }`}
-                >
-                    <MessageSquare className="w-4 h-4" />
-                    Human Support Chats
-                </button>
-                <button
-                    onClick={() => setViewMode("ai_config")}
-                    className={`flex items-center gap-2 px-6 py-3 font-black uppercase text-sm tracking-wider transition-all border-2 border-black dark:border-white ${
-                        viewMode === "ai_config"
-                            ? "bg-indigo-500 text-white shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_rgba(255,255,255,1)]"
-                            : "bg-white dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800"
-                    }`}
-                >
-                    <Settings2 className="w-4 h-4" />
-                    AI Config & Logs
-                </button>
-            </div>
-
-            {/* Tab 1: Human Support Chats */}
-            {viewMode === "support_chats" && (
-                <div className="animate-in fade-in duration-300">
-                    <SupportTab />
-                </div>
-            )}
-
-            {/* Tab 2: AI Config & Logs */}
-            {viewMode === "ai_config" && (
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                    {/* Config Column */}
-                    <div className="lg:col-span-1 space-y-6">
-                        <div className="bg-white dark:bg-zinc-900 border-4 border-black dark:border-white p-6 shadow-[8px_8px_0px_rgba(0,0,0,1)] dark:shadow-[8px_8px_0px_rgba(255,255,255,1)]">
-                            <h3 className="text-lg font-bold uppercase flex items-center gap-2 mb-6 border-b-2 border-zinc-200 dark:border-zinc-800 pb-4">
-                                <KeyRound className="w-5 h-5 text-indigo-500" />
-                                Provider Config
-                            </h3>
-
-                            <div className="space-y-4">
-                                <div>
-                                    <label className="text-xs font-bold uppercase tracking-wider text-zinc-500 mb-2 flex items-center gap-2">
-                                        <LinkIcon className="w-4 h-4" /> Base URL
-                                    </label>
-                                    <input
-                                        type="text"
-                                        value={settings.api_url}
-                                        onChange={(e) => setSettings({ ...settings, api_url: e.target.value })}
-                                        className="w-full bg-zinc-100 dark:bg-zinc-950 text-black dark:text-white border-2 border-black dark:border-zinc-700 px-4 py-3 font-mono text-sm focus:border-indigo-500 focus:outline-none transition-colors"
-                                        placeholder="https://integrate.api.nvidia.com/v1"
-                                    />
-                                </div>
-
-                                <div>
-                                    <div className="flex items-center justify-between mb-2">
-                                        <label className="text-xs font-bold uppercase tracking-wider text-zinc-500 flex items-center gap-2">
-                                            <KeyRound className="w-4 h-4" /> API Key
-                                        </label>
-                                        <button
-                                            type="button"
-                                            onClick={() => setShowApiKey(!showApiKey)}
-                                            className="text-xs text-indigo-500 hover:text-indigo-600 font-bold flex items-center gap-1 transition-colors"
-                                        >
-                                            {showApiKey ? (
-                                                <>
-                                                    <EyeOff className="w-3.5 h-3.5" /> إخفاء
-                                                </>
-                                            ) : (
-                                                <>
-                                                    <Eye className="w-3.5 h-3.5" /> إظهار المفتاح
-                                                </>
-                                            )}
-                                        </button>
-                                    </div>
-                                    <input
-                                        type={showApiKey ? "text" : "password"}
-                                        value={settings.api_key}
-                                        onChange={(e) => setSettings({ ...settings, api_key: e.target.value })}
-                                        className="w-full bg-zinc-100 dark:bg-zinc-950 text-black dark:text-white border-2 border-black dark:border-zinc-700 px-4 py-3 font-mono text-sm focus:border-indigo-500 focus:outline-none transition-colors"
-                                        placeholder="nvapi-..."
-                                    />
-                                </div>
-
-                                <div>
-                                    <label className="text-xs font-bold uppercase tracking-wider text-zinc-500 mb-2 flex items-center gap-2">
-                                        <Sparkles className="w-4 h-4" /> AI Model
-                                    </label>
-                                    <select
-                                        value={settings.model}
-                                        onChange={(e) => setSettings({ ...settings, model: e.target.value })}
-                                        className="w-full bg-zinc-100 dark:bg-zinc-950 text-black dark:text-white border-2 border-black dark:border-zinc-700 px-4 py-3 font-mono text-sm focus:border-indigo-500 focus:outline-none transition-colors appearance-none cursor-pointer"
-                                    >
-                                        <optgroup label="NVIDIA NIM (Verified Fast Endpoints)">
-                                            <option value="meta/llama-3.1-8b-instruct">NVIDIA: Llama 3.1 8B (⚡ Ultra-Fast 1-2s Response - Default)</option>
-                                            <option value="meta/llama-3.2-11b-vision-instruct">NVIDIA: Llama 3.2 11B Vision (📷 Multimodal Image/Portfolio Analysis)</option>
-                                            <option value="deepseek-ai/deepseek-v4-flash">NVIDIA: DeepSeek V4 Flash (🧠 Financial Reasoning AI)</option>
-                                            <option value="deepseek-ai/deepseek-v4-pro">NVIDIA: DeepSeek V4 Pro (🔥 1M Context MoE Model)</option>
-                                        </optgroup>
-
-
-
-                                        <optgroup label="OpenRouter (Free Endpoints)">
-                                            <option value="google/gemini-2.0-flash-exp:free">OpenRouter: Gemini 2.0 Flash (Free)</option>
-                                            <option value="meta-llama/llama-3.3-70b-instruct:free">OpenRouter: Llama 3.3 70B (Free)</option>
-                                            <option value="deepseek/deepseek-r1:free">OpenRouter: DeepSeek R1 (Free)</option>
-                                        </optgroup>
-                                        <optgroup label="Agent Router Models">
-                                            <option value="claude-opus-4-6">Claude Opus 4-6</option>
-                                            <option value="glm-5.2">GLM-5.2</option>
-                                            <option value="gpt-5.5">GPT-5.5</option>
-                                        </optgroup>
-                                        {!["meta/llama-3.1-8b-instruct", "meta/llama-3.1-70b-instruct", "nvidia/llama-3.1-nemotron-70b-instruct", "meta/llama-3.3-70b-instruct", "z-ai/glm-5.2", "meta/llama-3.2-11b-vision-instruct", "nvidia/nemotron-4-340b-instruct", "google/gemini-2.0-flash-exp:free", "meta-llama/llama-3.3-70b-instruct:free", "deepseek/deepseek-r1:free", "claude-opus-4-6", "glm-5.2", "gpt-5.5", "deepseek-ai/deepseek-v4-pro", "deepseek-ai/deepseek-v4-flash", "moonshotai/kimi-k2.6", "openai/gpt-oss-120b"].includes(settings.model) && settings.model && (
-
-                                            <optgroup label="Other">
-                                                <option value={settings.model}>{settings.model}</option>
-                                            </optgroup>
-                                        )}
-                                    </select>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div className="bg-white dark:bg-zinc-900 border-4 border-black dark:border-white p-6 shadow-[8px_8px_0px_rgba(0,0,0,1)] dark:shadow-[8px_8px_0px_rgba(255,255,255,1)]">
-                            <h3 className="text-lg font-bold uppercase flex items-center gap-2 mb-6 border-b-2 border-zinc-200 dark:border-zinc-800 pb-4">
-                                <MessageSquare className="w-5 h-5 text-indigo-500" />
-                                System Rules (Prompt)
-                            </h3>
-
-                            <div>
-                                <textarea
-                                    value={settings.system_prompt}
-                                    onChange={(e) => setSettings({ ...settings, system_prompt: e.target.value })}
-                                    className="w-full h-64 bg-zinc-100 dark:bg-zinc-950 text-black dark:text-white border-2 border-black dark:border-zinc-700 px-4 py-3 font-mono text-sm focus:border-indigo-500 focus:outline-none transition-colors resize-none"
-                                    placeholder="You are a helpful AI assistant for the users of this platform..."
-                                />
-                            </div>
-                        </div>
-                    </div>
-
+            <div className="w-full">
                     {/* User-grouped Logs Column */}
-                    <div className="lg:col-span-2">
+                    <div className="w-full">
                         <div className="bg-white dark:bg-zinc-900 border-4 border-black dark:border-white h-full min-h-[600px] max-h-[850px] shadow-[8px_8px_0px_rgba(0,0,0,1)] dark:shadow-[8px_8px_0px_rgba(255,255,255,1)] flex flex-col overflow-hidden">
                             <div className="p-4 md:p-6 border-b-2 border-zinc-200 dark:border-zinc-800 flex items-center justify-between bg-zinc-50 dark:bg-zinc-900/50">
                                 <div className="flex items-center gap-3">
@@ -569,7 +416,6 @@ export default function AIChatbotTab() {
                         </div>
                     </div>
                 </div>
-            )}
-        </div>
+            </div>
     );
 }

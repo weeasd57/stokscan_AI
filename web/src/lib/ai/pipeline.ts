@@ -1031,7 +1031,7 @@ export async function* runPipelineStream(
         }
 
         // If invalid, log warning and set correction prompt
-        console.warn(`[VALIDATOR] Attempt ${attempts + 1} failed validation! Suspicious Symbols: ${validation.suspiciousSymbols.join(", ")}, Suspicious Numbers: ${validation.suspiciousNumbers.join(", ")}`);
+        console.warn(`[VALIDATOR] Attempt ${attempts + 1} failed validation! Suspicious Symbols: ${validation.suspiciousSymbols.join(", ")}, Suspicious Numbers: ${validation.suspiciousNumbers.join(", ")}, Has Repetitions: ${validation.hasRepetitions}`);
         
         yield { type: "status", data: { status: "generating", message: `كشف أخطاء في الرد (محاولة ${attempts + 1})، جاري إعادة الصياغة تلقائياً...` } };
         
@@ -1041,6 +1041,9 @@ export async function* runPipelineStream(
         }
         if (validation.suspiciousNumbers.length > 0) {
             correctionPrompt += `- لقد قمت باختلاق أو استخدام أرقام/نسب/أسعار غير موجودة بالبيانات المرفقة: (${validation.suspiciousNumbers.join(", ")}). التزم حرفياً بالأرقام والأسعار والنسب المعطاة فقط، وإذا لم يتوفر الرقم اكتب 'غير متوفر' ولا تخترع أي رقم.\n`;
+        }
+        if (validation.hasRepetitions) {
+            correctionPrompt += `- لقد قمت بتكرار نفس العبارات أو الجمل بشكل متكرر غير طبيعي. أعد صياغة الرد بلغة عربية سلسلة ومتنوعة وبدون تكرار أي عبارة أو سطر.\n`;
         }
         correctionPrompt += "أعد صياغة الرد بالكامل مع الالتزام التام ببيانات الجدول والبيانات الحقيقية المعطاة فقط وبدون أي أرقام أو رموز خارجية.";
 

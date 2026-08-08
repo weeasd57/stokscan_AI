@@ -2,6 +2,7 @@ export interface ValidationResult {
     isValid: boolean;
     suspiciousSymbols: string[];
     suspiciousNumbers: string[];
+    hasRepetitions: boolean;
 }
 
 // Common technical terms that should not be flagged as stock symbols
@@ -94,9 +95,29 @@ export function validateResponse(
         }
     }
 
+    const hasRepetitions = hasExcessiveRepetitions(replyText);
+
     return {
-        isValid: suspiciousSymbols.length === 0 && suspiciousNumbers.length === 0,
+        isValid: suspiciousSymbols.length === 0 && suspiciousNumbers.length === 0 && !hasRepetitions,
         suspiciousSymbols,
-        suspiciousNumbers
+        suspiciousNumbers,
+        hasRepetitions
     };
+}
+
+/**
+ * Detects if there are lines or phrases repeated too many times.
+ */
+export function hasExcessiveRepetitions(text: string): boolean {
+    const lines = text.split("\n").map(l => l.trim()).filter(l => l.length > 10);
+    const counts = new Map<string, number>();
+    for (const line of lines) {
+        // Strip out non-alphabetic/numeric helper chars to normalize comparisons
+        const normalized = line.replace(/[^\w\s\u0621-\u064a]/g, "").replace(/\s+/g, " ");
+        counts.set(normalized, (counts.get(normalized) || 0) + 1);
+        if ((counts.get(normalized) || 0) > 2) {
+            return true; // A line repeated 3 or more times is excessive!
+        }
+    }
+    return false;
 }
