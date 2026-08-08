@@ -1,9 +1,10 @@
 import { IntentPlan, VisionContext, SessionState, SessionSummary, PlannerResult } from "./types";
 import { analyzeImage } from "./vision";
 import { retrieveRelevantMemory, MemoryResult } from "./memory";
-import { runPlanner, getSyncStockMappings, getStocksList } from "./planner";
+import { runPlanner, getSyncStockMappings, getStocksList, loadValidSymbols } from "./planner";
 import { executeStructuredTools, StructuredToolOutput } from "./tools-v2";
 import { buildDeterministicResponse, generateV2Response, generateV2Stream } from "./final-v2";
+import { validateResponse } from "./validator";
 import { loadSessionState, loadSessionSummary, updateSessionSummary, updateSessionState } from "./session";
 import { buildExcelTables, ExcelTable } from "./excel-tables";
 import { AI_CONFIG } from "./config";
@@ -925,18 +926,23 @@ export async function* runPipelineStream(
         ? memory?.relevant_snapshots || []
         : [];
     ensureBudget(5000);
-    const stream = generateV2Stream(
-        userMessage, plan, vision, tools.results,
-        scopedMemory,
-        memory?.recent_messages || [],
-        memory?.resolved_references || { symbol: null, message_id: null, confidence: 0 },
-        apiKeys,
-        requestedModel,
-        sessionState
-    );
 
-    let fullResponse = "";
-    let pendingModelText = "";
+    const validSymbols = await loadValidSymbols();
+    
+    // We construct the liveDataString to pass to the validator
+    let liveDataString = "";
+    if (Array.isArray(tools.results)) {
+        tools.results.forEach(r => {
+            if (r.data_type !== "historical") {
+                liveDataString += `\nالأداة: ${r.tool} | البيانات: ${JSON.stringify(r.data)}`;
+            }
+        });
+    }
+
+    let attempts = 0;
+    const maxAttempts = 3;
+    let correctionPrompt: string | undefined = undefined;
+    let finalReply = "";
 
     // ⛔ Phrases that should stop further streaming output (usually disclaimers at the end)
     const STREAM_STOP_PHRASES = [
@@ -957,42 +963,98 @@ export async function* runPipelineStream(
         "بناء على البيانات",
     ];
 
-    let streamStopped = false;
+    while (attempts < maxAttempts) {
+        let currentResponse = "";
+        let pendingModelText = "";
+        let streamStopped = false;
 
-    for await (const chunk of stream) {
-        if (streamStopped) break;
-        pendingModelText += chunk;
-        const lines = pendingModelText.split("\n");
-        pendingModelText = lines.pop() || "";
-        for (const line of lines) {
+        const stream = generateV2Stream(
+            userMessage, plan, vision, tools.results,
+            scopedMemory,
+            memory?.recent_messages || [],
+            memory?.resolved_references || { symbol: null, message_id: null, confidence: 0 },
+            apiKeys,
+            requestedModel,
+            sessionState,
+            correctionPrompt
+        );
+
+        for await (const chunk of stream) {
             if (streamStopped) break;
-            if (isMarkdownTableLine(line)) continue;
+            pendingModelText += chunk;
+            const lines = pendingModelText.split("\n");
+            pendingModelText = lines.pop() || "";
+            for (const line of lines) {
+                if (streamStopped) break;
+                if (isMarkdownTableLine(line)) continue;
 
-            // Stop if matching stop phrases
-            if (STREAM_STOP_PHRASES.some(phrase => line.includes(phrase))) {
-                streamStopped = true;
-                break;
+                // Stop if matching stop phrases
+                if (STREAM_STOP_PHRASES.some(phrase => line.includes(phrase))) {
+                    streamStopped = true;
+                    break;
+                }
+
+                // Skip if matching skip phrases
+                if (STREAM_SKIP_PHRASES.some(phrase => line.includes(phrase))) {
+                    continue;
+                }
+
+                let cleanLine = line.replace(/^(?:من خلال التحليل الفني|من خلال تحليل البيانات|من خلال البيانات|بناءً على التحليل الفني|بناءً على البيانات|بناء على البيانات|يظهر أن|يظهر ان)[،.\s]*/gi, "");
+
+                currentResponse += `${cleanLine}\n`;
             }
-
-            // Skip if matching skip phrases
-            if (STREAM_SKIP_PHRASES.some(phrase => line.includes(phrase))) {
-                continue;
-            }
-
-            let cleanLine = line.replace(/^(?:من خلال التحليل الفني|من خلال تحليل البيانات|من خلال البيانات|بناءً على التحليل الفني|بناءً على البيانات|بناء على البيانات|يظهر أن|يظهر ان)[،.\s]*/gi, "");
-
-            fullResponse += `${cleanLine}\n`;
-            yield { type: "token", data: `${cleanLine}\n` };
         }
+
+        if (!streamStopped && pendingModelText && !isMarkdownTableLine(pendingModelText)) {
+            const shouldStop = STREAM_STOP_PHRASES.some(phrase => pendingModelText.includes(phrase));
+            const shouldSkip = STREAM_SKIP_PHRASES.some(phrase => pendingModelText.includes(phrase));
+            if (!shouldStop && !shouldSkip) {
+                const cleanText = pendingModelText.replace(/^(?:من خلال التحليل الفني|من خلال تحليل البيانات|من خلال البيانات|بناءً على التحليل الفني|بناءً على البيانات|بناء على البيانات|يظهر أن|يظهر ان)[،.\s]*/gi, "");
+                currentResponse += cleanText;
+            }
+        }
+
+        currentResponse = currentResponse.trim();
+
+        // Run validation
+        const validation = validateResponse(currentResponse, liveDataString, validSymbols);
+        if (validation.isValid) {
+            finalReply = currentResponse;
+            break;
+        }
+
+        // If it is the last attempt and still invalid, fall back to safe response
+        if (attempts === maxAttempts - 1) {
+            console.warn(`[VALIDATOR] Attempt ${attempts + 1} failed validation! Reached max retries. Using safe fallback.`);
+            finalReply = buildSafeFallbackResponse(tools.results, plannerResult);
+            break;
+        }
+
+        // If invalid, log warning and set correction prompt
+        console.warn(`[VALIDATOR] Attempt ${attempts + 1} failed validation! Suspicious Symbols: ${validation.suspiciousSymbols.join(", ")}, Suspicious Numbers: ${validation.suspiciousNumbers.join(", ")}`);
+        
+        yield { type: "status", data: { status: "generating", message: `كشف أخطاء في الرد (محاولة ${attempts + 1})، جاري إعادة الصياغة تلقائياً...` } };
+        
+        correctionPrompt = "تنبيه هام ومؤكد للالتزام بالبيانات:\n";
+        if (validation.suspiciousSymbols.length > 0) {
+            correctionPrompt += `- لقد استخدمت رموز أسهم غير حقيقية أو غير موجودة في البيانات المتاحة: (${validation.suspiciousSymbols.join(", ")}). يمنع تماماً اختراع أي رمز سهم.\n`;
+        }
+        if (validation.suspiciousNumbers.length > 0) {
+            correctionPrompt += `- لقد قمت باختلاق أو استخدام أرقام/نسب/أسعار غير موجودة بالبيانات المرفقة: (${validation.suspiciousNumbers.join(", ")}). التزم حرفياً بالأرقام والأسعار والنسب المعطاة فقط، وإذا لم يتوفر الرقم اكتب 'غير متوفر' ولا تخترع أي رقم.\n`;
+        }
+        correctionPrompt += "أعد صياغة الرد بالكامل مع الالتزام التام ببيانات الجدول والبيانات الحقيقية المعطاة فقط وبدون أي أرقام أو رموز خارجية.";
+
+        attempts++;
     }
-    if (!streamStopped && pendingModelText && !isMarkdownTableLine(pendingModelText)) {
-        const shouldStop = STREAM_STOP_PHRASES.some(phrase => pendingModelText.includes(phrase));
-        const shouldSkip = STREAM_SKIP_PHRASES.some(phrase => pendingModelText.includes(phrase));
-        if (!shouldStop && !shouldSkip) {
-            const cleanText = pendingModelText.replace(/^(?:من خلال التحليل الفني|من خلال تحليل البيانات|من خلال البيانات|بناءً على التحليل الفني|بناءً على البيانات|بناء على البيانات|يظهر أن|يظهر ان)[،.\s]*/gi, "");
-            fullResponse += cleanText;
-            yield { type: "token", data: cleanText };
-        }
+
+    let fullResponse = finalReply;
+
+    // Now stream the final, verified response to the client
+    const responseLines = finalReply.split("\n");
+    for (let i = 0; i < responseLines.length; i++) {
+        const line = responseLines[i];
+        const token = i === responseLines.length - 1 ? line : `${line}\n`;
+        yield { type: "token", data: token };
     }
 
     // ===== Update Session =====
@@ -1044,6 +1106,49 @@ export async function* runPipelineStream(
             tables: []
         } };
     }
+}
+
+import { ToolResult } from "./types";
+
+function buildSafeFallbackResponse(toolsResults: ToolResult[], plannerResult: any): string {
+    const symbol = (plannerResult.entities?.symbols && plannerResult.entities.symbols[0]) || "السهم";
+    const lines = [
+        `عذراً، واجهنا صعوبة في صياغة التحليل النصي الخالي من الأخطاء التعبيرية للسهم ${symbol}. لتفادي أي معلومات غير دقيقة، إليك البيانات الخام المؤكدة والمباشرة من قاعدة البيانات:`,
+        ""
+    ];
+
+    if (Array.isArray(toolsResults)) {
+        toolsResults.forEach(r => {
+            if (r.tool === "get_stock" && r.data?.symbol) {
+                const d = r.data;
+                lines.push(`📊 **بيانات التداول اللحظية لـ ${d.symbol}:**`);
+                lines.push(`  • السعر الحالي: ${d.price} جنيه`);
+                lines.push(`  • نسبة التغير: ${d.change_pct}`);
+                if (d.rsi_14 !== undefined && d.rsi_14 !== null) lines.push(`  • مؤشر RSI: ${d.rsi_14}`);
+                if (d.macd_signal !== undefined && d.macd_signal !== null) lines.push(`  • مؤشر MACD: ${d.macd_signal}`);
+                if (d.vol_ratio !== undefined && d.vol_ratio !== null) lines.push(`  • نسبة الحجم: ${d.vol_ratio}`);
+                lines.push("");
+            }
+            if (r.tool === "get_stock_levels" && r.data?.symbol) {
+                const d = r.data;
+                lines.push(`📍 **المستويات الفنية لـ ${d.symbol}:**`);
+                lines.push(`  • الدعم الحسابي: ${d.support} جنيه`);
+                lines.push(`  • المقاومة الحسابية: ${d.resistance} جنيه`);
+                if (d.trading_zone) lines.push(`  • المنطقة السعرية الحالية: ${d.trading_zone}`);
+                lines.push("");
+            }
+            if (r.tool === "get_recommendations" && Array.isArray(r.data)) {
+                lines.push(`📈 **الصفقات والتوصيات النشطة:**`);
+                r.data.slice(0, 5).forEach((rec: any) => {
+                    lines.push(`  • ${rec.symbol}: دخول ${rec.entry_price}، هدف ${rec.target_price}، وقف ${rec.stop_loss} (العائد الحالي: ${rec.return_pct}%)`);
+                });
+                lines.push("");
+            }
+        });
+    }
+
+    lines.push("⚠️ الرأي مبني على السعر والزخم والحجم والمستويات الفنية المتاحة، وليس توصية شراء أو بيع.");
+    return lines.join("\n").trim();
 }
 
 function isMarkdownTableLine(line: string): boolean {

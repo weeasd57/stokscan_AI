@@ -370,22 +370,12 @@ const ARABIC_STOCK_MAPPINGS: Record<string, string | string[]> = {
     "الشمس": "ELSH",
     "العربية للادوية": "ADCI",
     "مستشفى النزهة": "NINH", "مستشفي النزهة": "NINH",
-    "أصول للوساطة": "EBSC", "أصول": "EBSC",
+    "أصول للوساطة": "EBSC", "اصول للوساطة": "EBSC", "أصول": "EBSC", "اصول": "EBSC",
     "النزهة الدولي": "NINH", "النزهه الدولي": "NINH",
     "النزهة": "NINH", "النزهه": "NINH",
     "ابوقير": "ABUK",
     "أبوقير": "ABUK",
     "شمس": "ELSH",
-    "الاسكندرية للمطاحن": "AFMC",
-    "الاسكندريه للمطاحن": "AFMC",
-    "مطاحن الاسكندرية": "AFMC",
-    "مطاحن الاسكندريه": "AFMC",
-    "الاسكندرية مطاحن": "AFMC",
-    "الاسكندريه مطاحن": "AFMC",
-    "المطاحن": "AFMC",
-    "مطاحن": "AFMC",
-    "الاسكندرية": "ALCN",
-    "الاسكندريه": "ALCN",
 };
 import { SessionState, PlannerResult, VisionContext } from "./types";
 import { AI_CONFIG } from "./config";
@@ -488,7 +478,7 @@ export function getSyncStockMappings(): Record<string, string | string[]> {
 
 let cachedValidSymbols: string[] = [];
 let lastSymbolsCacheTime = 0;
-async function loadValidSymbols(): Promise<string[]> {
+export async function loadValidSymbols(): Promise<string[]> {
     const now = Date.now();
     if (cachedValidSymbols.length === 0 || (now - lastSymbolsCacheTime > CACHE_TTL)) {
         try {

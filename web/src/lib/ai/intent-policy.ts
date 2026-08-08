@@ -119,12 +119,17 @@ export function extractInvestorPreferences(message: string): ExtractedInvestorPr
     } else if (/(?:مليون)/i.test(value)) {
         budget = 1000000;
     } else {
-        const numMatch = value.match(/(?:معايا|ميزانيتي|مبلغي|سيولة|سيولتي|عندي|بامكانية)\s*(\d+[\d,._]*)\s*(الف|ألف|k|kilo|جنيه)?/i)
-            || value.match(/(\d+[\d,._]*)\s*(الف|ألف|k|kilo|جنيه)/i);
+        const numMatch = value.match(/(?:معايا|ميزانيتي|مبلغي|سيولة|سيولتي|عندي|بامكانية)\s*(\d+[\d,._]*)\s*(الف|ألف|الاف|آلاف|k|kilo|مليون|ملايين|جنيه)?/i)
+            || value.match(/(\d+[\d,._]*)\s*(الف|ألف|الاف|آلاف|k|kilo|مليون|ملايين|جنيه)/i);
         if (numMatch) {
             let rawNum = parseFloat(numMatch[1].replace(/[,_]/g, ""));
             if (!isNaN(rawNum)) {
-                if (/(الف|ألف|k|kilo)/i.test(numMatch[2] || "")) rawNum *= 1000;
+                const unit = (numMatch[2] || "").toLowerCase();
+                if (/(الف|ألف|الاف|آلاف|k|kilo)/i.test(unit)) {
+                    rawNum *= 1000;
+                } else if (/(مليون|ملايين)/i.test(unit)) {
+                    rawNum *= 1000000;
+                }
                 if (rawNum > 0) {
                     budget = rawNum;
                 }

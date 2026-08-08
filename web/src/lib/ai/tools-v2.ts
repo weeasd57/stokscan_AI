@@ -967,7 +967,52 @@ export async function executeStructuredTools(
             const rows = (prices || []).filter((row: any) => Number.isFinite(Number(row.close)));
             if (!rows.length) return { tool: "get_stock_levels", source: "empty", data_time: requestedDate || now.slice(0, 10), symbols: [requested], data_type: requestedDate ? "historical" : "live", data: { symbol: requested } } as ToolResult;
             const latest = rows[0];
-            return { tool: "get_stock_levels", source: "stock_prices", data_time: latest.date, symbols: [requested], data_type: requestedDate ? "historical" : "live", data: { symbol: requested, close: Number(latest.close), support: Math.min(...rows.map((row: any) => Number(row.low ?? row.close))), resistance: Math.max(...rows.map((row: any) => Number(row.high ?? row.close))), lookback_sessions: rows.length } } as ToolResult;
+            const close = Number(latest.close);
+            const support = Math.min(...rows.map((row: any) => Number(row.low ?? row.close)));
+            const resistance = Math.max(...rows.map((row: any) => Number(row.high ?? row.close)));
+            
+            const price_vs_support = close >= support ? "فوق الدعم" : "تحت الدعم (كسر الدعم)";
+            const price_vs_resistance = close >= resistance ? "فوق المقاومة (اختراق المقاومة)" : "تحت المقاومة";
+            const distance_from_support_pct = support > 0 ? Number((((close - support) / support) * 100).toFixed(2)) : 0;
+            const distance_from_resistance_pct = resistance > 0 ? Number((((resistance - close) / resistance) * 100).toFixed(2)) : 0;
+            const range = resistance - support;
+            const position_pct = range > 0 ? Number((((close - support) / range) * 100).toFixed(2)) : 50;
+            
+            let trading_zone = "منطقة حيادية للمراقبة (بين الدعم والمقاومة)";
+            if (close < support) {
+                trading_zone = "تحت مستوى الدعم (تم كسر الدعم فنيّاً)";
+            } else if (distance_from_support_pct <= 2.5) {
+                trading_zone = "عند منطقة الدعم تماماً";
+            } else if (position_pct <= 25) {
+                trading_zone = "فوق مستوى الدعم وقريب منه (منطقة دعم تجميعية)";
+            } else if (close > resistance) {
+                trading_zone = "فوق مستوى المقاومة (تم اختراق المقاومة صعوداً)";
+            } else if (distance_from_resistance_pct <= 2.5) {
+                trading_zone = "عند منطقة المقاومة تماماً";
+            } else if (position_pct >= 75) {
+                trading_zone = "تحت مستوى المقاومة وقريب منها (منطقة مقاومة وجني أرباح مضاربية)";
+            }
+
+            return {
+                tool: "get_stock_levels",
+                source: "stock_prices",
+                data_time: latest.date,
+                symbols: [requested],
+                data_type: requestedDate ? "historical" : "live",
+                data: {
+                    symbol: requested,
+                    close,
+                    support,
+                    resistance,
+                    lookback_sessions: rows.length,
+                    price_vs_support,
+                    price_vs_resistance,
+                    distance_from_support_pct,
+                    distance_from_resistance_pct,
+                    position_pct,
+                    trading_zone
+                }
+            } as ToolResult;
         }));
         results.push(...levelResults);
     }

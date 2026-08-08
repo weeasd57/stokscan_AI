@@ -13,7 +13,8 @@ export function buildV2FinalMessages(
     relevantFacts: FactSnapshot[],
     recentHistory: Array<{ role: string; content: string }>,
     resolvedReference: { symbol: string | null; message_id: string | null; confidence: number },
-    sessionState?: SessionState | null
+    sessionState?: SessionState | null,
+    correctionPrompt?: string
 ): { role: string; content: any }[] {
     const sections: string[] = [];
     const guidanceIntent = plan.guidance_intent;
@@ -213,9 +214,9 @@ export function buildV2FinalMessages(
     sections.push("  • لا تشرح المفاهيم العامة للمؤشرات الفنية (مثل شرح ما هو RSI أو ما هو MACD) بل طبّق الأرقام مباشرة لوصف حالة السهم الحالية، إلا إذا طلب المستخدم تعريفها صراحة.");
     sections.push("  • نسبة الحجم (Volume Ratio / vol_ratio): إذا كانت أقل من 1.0x (مثل 0.53x) فهذا يعني أن 'التداول والسيولة ضعيفة/أقل من المتوسط'، ويُمنع تماماً وصفها بأنها قوية. لا تعتبر السيولة قوية إلا إذا كانت نسبة الحجم أكبر من 1.5x.");
     sections.push("  • مؤشر MACD: القيمة الرقمية المجردة القريبة من الص الصفر (مثل 0.0089) لا تعني 'إشارات صاعدة' بمفردها؛ صف حركة السهم بناءً على تقاطعه مع خط الإشارة أو اتجاه الـ Histogram إن وجد في البيانات، وإلا اعتبره محايداً.");
-    sections.push("  • عندما يسأل المستخدم 'في أي منطقة' أو 'منطقة إيه حالياً' لسهم معين:");
-    sections.push("    1. قارن السعر الحالي بمستويات الدعم والمقاومة بدقة وحدد موقعه بينهما.");
-    sections.push("    2. صنّف المنطقة فنيّاً وبوضوح إلى واحدة من هذه المناطق فقط: (منطقة دعم / منطقة شراء تميل للإيجابية / منطقة حيادية للمراقبة / منطقة مقاومة / منطقة جني أرباح وتخفيف مضاربي) مع ذكر السبب الفني المباشر باختصار.");
+    sections.push("  • عندما يسأل المستخدم 'في أي منطقة' أو 'منطقة إيه حالياً' أو عن موقع السعر مقارنة بالدعم والمقاومة لأسهم معينة:");
+    sections.push("    1. استخدم قيم الحقول المحسوبة الجاهزة في === LIVE DATA === (مثل: price_vs_support, distance_from_support_pct, trading_zone, position_pct) لوصف موقع السعر بدقة.");
+    sections.push("    2. يمنع تماماً مقارنة الأرقام يدوياً من قبلك لتفادي أخطاء الحساب اللغوي؛ اعتمد 100% على الحقل trading_zone و price_vs_support المكتوب في البيانات لتصنيف النطاق الفني.");
     sections.push("- عندما يسأل المستخدم عن وجود توصيات أو إشارات (أو عند العثور على توصيات في البيانات):");
     sections.push("  • إذا توفرت توصيات أو إشارات في بيانات الأدوات (المسترجعة من get_recommendations أو get_signals): قم بعرض تفاصيل كل توصية بوضوح (سعر الدخول، الهدف، وقف الخسارة، ونسبة العائد المتوقعة أو الفعلية والتقييم الفعلي لأدائها).");
     sections.push("  • إذا لم تكن هناك توصيات مسجلة للأسهم المطلوبة في البيانات: ابدأ الرد بإجابة حوارية مباشرة موضحاً أنه لا توجد حالياً توصيات جديدة مسجلة على هذه الأسهم بصفحة التوصيات بالنظام، ثم قدم له قراءة فنية لمستويات الدعم والمقاومة للاسترشاد بها.");
@@ -247,6 +248,10 @@ export function buildV2FinalMessages(
     sections.push("  • إذا لم تكن هناك توصيات مسجلة للأسهم المطلوبة في البيانات: ابدأ الرد بإجابة حوارية مباشرة موضحاً أنه لا توجد حالياً توصيات جديدة مسجلة على هذه الأسهم بصفحة التوصيات بالنظام، ثم قدم له قراءة فنية لمستويات الدعم والمقاومة للاسترشاد بها.");
 
     sections.push("=== USER REQUEST ===\n" + (userMessage || "(بدون رسالة)"));
+
+    if (correctionPrompt) {
+        sections.push("⚠️ SYSTEM CORRECTION ALERT:\n" + correctionPrompt);
+    }
 
     let contextText = sections.join("\n\n");
     if (contextText.length > MAX_CONTEXT_CHARS) {
@@ -474,7 +479,8 @@ export async function generateV2Response(
     resolvedReference: { symbol: string | null; message_id: string | null; confidence: number },
     apiKeys: string[],
     requestedModel?: string,
-    sessionState?: SessionState | null
+    sessionState?: SessionState | null,
+    correctionPrompt?: string
 ): Promise<string> {
     if (visionContext && visionContext.symbols.length === 0 && toolResults.length === 0) {
         return buildVisionUncertaintyResponse(visionContext);
@@ -495,7 +501,8 @@ export async function generateV2Response(
 
     const messages = buildV2FinalMessages(
         userMessage, plan, visionContext, toolResults,
-        relevantFacts, recentHistory, resolvedReference, sessionState
+        relevantFacts, recentHistory, resolvedReference, sessionState,
+        correctionPrompt
     );
 
     const allowedModels = new Set([...(AI_CONFIG.models.response.allowedUserModels || []), AI_CONFIG.models.response.default, ...AI_CONFIG.models.response.fallbacks, ...AI_CONFIG.models.response.agentRouter]);
@@ -522,7 +529,8 @@ export async function* generateV2Stream(
     resolvedReference: { symbol: string | null; message_id: string | null; confidence: number },
     apiKeys: string[],
     requestedModel?: string,
-    sessionState?: SessionState | null
+    sessionState?: SessionState | null,
+    correctionPrompt?: string
 ): AsyncGenerator<string, void, unknown> {
     const forcedDeterministic = plan.service_degraded_message || plan.tools.includes("get_fair_value_scan")
         ? buildDeterministicResponse(userMessage, plan, toolResults, sessionState)
@@ -558,7 +566,8 @@ export async function* generateV2Stream(
 
     const messages = buildV2FinalMessages(
         userMessage, plan, visionContext, toolResults,
-        relevantFacts, recentHistory, resolvedReference, sessionState
+        relevantFacts, recentHistory, resolvedReference, sessionState,
+        correctionPrompt
     );
 
 
@@ -1409,7 +1418,9 @@ function buildStockOpinion(result: ToolResult, levelResults: ToolResult[]): stri
     const notes: string[] = [];
     if (Number.isFinite(rsi)) notes.push(rsi >= 70 ? "الزخم مرتفع والسهم في منطقة تشبع شرائي تستدعي الحذر من مطاردة السعر" : rsi <= 30 ? "الزخم ضعيف والسهم قريب من تشبع بيعي، لكن ذلك لا يؤكد الارتداد" : rsi >= 55 ? "الزخم إيجابي بدرجة متوسطة" : rsi <= 45 ? "الزخم ضعيف إلى محايد" : "الزخم متوازن");
     if (Number.isFinite(volume)) notes.push(volume >= 1.5 ? "الحجم أعلى من المتوسط ويدعم أهمية الحركة الحالية" : volume < 0.7 ? "الحجم أقل من المتوسط، لذلك الحركة الحالية تأكيدها ضعيف" : "الحجم قريب من المعتاد");
-    if ([price, support, resistance].every(Number.isFinite) && resistance > support) {
+    if (levels.trading_zone) {
+        notes.push(levels.trading_zone);
+    } else if ([price, support, resistance].every(Number.isFinite) && resistance > support) {
         const position = (price - support) / (resistance - support);
         const region = position >= 0.8
             ? "منطقة مقاومة وجني أرباح محتمل"
