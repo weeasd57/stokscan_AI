@@ -52,8 +52,14 @@ async def chat(request: ChatRequest):
         if not user_message:
             raise HTTPException(status_code=400, detail="Empty message")
         
-        # LAYER 1: Parse Intent
-        intent = parse_user_intent(user_message)
+        # Extract conversation history (previous messages)
+        conversation_history = [
+            {"role": msg.role, "content": msg.content}
+            for msg in request.messages[:-1]  # All except last (current) message
+        ]
+        
+        # LAYER 1: Parse Intent (with conversation context)
+        intent = parse_user_intent(user_message, conversation_history)
         
         # LAYER 2: Execute Tools based on intent
         tool_results = execute_tools_for_intent(intent)
@@ -565,9 +571,7 @@ def format_stock_item(index: int, stock: Dict) -> List[str]:
 
 
 def format_stock_comparison(tool_results: List[Dict]) -> str:
-    """Format comparison between multiple stocks."""
-    lines = ["📊 **مقارنة الأسهم**", ""]
-    
+    """Format comparison between multiple stocks with clear ranking."""
     stocks_data = []
     for tr in tool_results:
         if not tr["result"].get("error") and tr["result"].get("data"):
@@ -576,14 +580,59 @@ def format_stock_comparison(tool_results: List[Dict]) -> str:
     if not stocks_data:
         return "لا توجد بيانات متاحة للمقارنة."
     
-    # Sort by score
+    # Sort by score (highest first)
     stocks_data.sort(key=lambda x: x.get("score", 0), reverse=True)
     
+    lines = [
+        "📊 **مقارنة الأسهم**",
+        f"(تم تحليل {len(stocks_data)} سهم وترتيبهم حسب قوة الفرصة)",
+        ""
+    ]
+    
+    # Show ranked comparison
     for idx, stock in enumerate(stocks_data, 1):
-        lines.extend(format_stock_item(idx, stock))
+        medal = "🥇" if idx == 1 else "🥈" if idx == 2 else "🥉" if idx == 3 else f"{idx}."
+        lines.extend(format_stock_item_comparison(medal, stock))
         lines.append("")
     
+    # Add recommendation
+    if len(stocks_data) >= 1:
+        best = stocks_data[0]
+        lines.append(f"💡 **التوصية الفنية:**")
+        lines.append(f"   {best['symbol']} هو الأفضل بين المجموعة (نقاط: {best['score']})")
+        
+        # Explain why
+        if best.get("reasons"):
+            lines.append(f"   الأسباب: {' | '.join(best['reasons'][:2])}")
+    
+    lines.append("")
+    lines.append("ℹ️ *الترتيب بناءً على التحليل الفني فقط - ليس توصية استثمارية*")
+    
     return "\n".join(lines)
+
+
+def format_stock_item_comparison(prefix: str, stock: Dict) -> List[str]:
+    """Format single stock for comparison view."""
+    symbol = stock.get("symbol", "UNKNOWN")
+    score = stock.get("score", 0)
+    recommendation = stock.get("recommendation", "")
+    raw = stock.get("raw_data", {})
+    
+    lines = [f"{prefix} **{symbol}** — {recommendation} ({score} نقاط)"]
+    
+    # Key metrics only
+    if raw.get("price"):
+        lines.append(f"      💰 السعر: {raw['price']:.2f} جنيه")
+    if raw.get("rsi") is not None:
+        rsi_status = "⚠️ مرتفع" if raw["rsi"] > 70 else "✅ صحي" if raw["rsi"] > 30 else "⚠️ منخفض"
+        lines.append(f"      📊 RSI: {raw['rsi']:.1f} ({rsi_status})")
+    if raw.get("volume_ratio"):
+        vol_status = "🔥 قوي" if raw["volume_ratio"] > 1.5 else "⚠️ ضعيف" if raw["volume_ratio"] < 0.8 else "محايد"
+        lines.append(f"      📈 الحجم: {raw['volume_ratio']:.2f}x ({vol_status})")
+    if raw.get("accumulation_score"):
+        lines.append(f"      ✅ التجميع: {raw['accumulation_score']:.1f}/100")
+    
+    return lines
 
 
 def format_below_midpoint_results(tool_result: Dict) -> str:

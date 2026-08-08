@@ -12,7 +12,7 @@ from api.stock_ai import _init_supabase, supabase
 from api.opportunity_analyzer import OpportunityAnalyzer
 
 
-def parse_user_intent(user_query: str) -> Dict:
+def parse_user_intent(user_query: str, conversation_history: list = None) -> Dict:
     """
     Parse user intent WITHOUT analyzing the stock.
     Returns structured intent only.
@@ -69,6 +69,37 @@ def parse_user_intent(user_query: str) -> Dict:
             "intent": "portfolio_analysis",
             "query": user_query
         }
+    
+    # 1.5. Check for "buy which one" - needs context from previous screening
+    buy_which_keywords = ["اشتري مين", "اشترى مين", "buy which", "which one", "أيهم", "ايهم", "مين أحسن", "مين الافضل"]
+    if any(word in query_lower for word in buy_which_keywords):
+        # Try to extract tickers from conversation history
+        context_tickers = []
+        if conversation_history:
+            # Look for tickers in last 2 messages
+            for msg in conversation_history[-2:]:
+                content = msg.get("content", "") if isinstance(msg, dict) else str(msg)
+                found_tickers = re.findall(r'\b[A-Z]{2,6}\b', content.upper())
+                context_tickers.extend([t for t in found_tickers if t not in ["EGX", "USD", "RSI", "MACD", "EGP"]])
+        
+        # Remove duplicates, keep order
+        seen = set()
+        context_tickers = [x for x in context_tickers if not (x in seen or seen.add(x))]
+        
+        if len(context_tickers) >= 2:
+            return {
+                "intent": "comparison",
+                "tickers": context_tickers[:6],  # Max 6 stocks
+                "required_data": ["price", "rsi", "macd", "volume_ratio", "accumulation_score"],
+                "context_aware": True
+            }
+        else:
+            # Fallback to screening if no context
+            return {
+                "intent": "screening",
+                "criteria": "weekly_opportunity",
+                "required_data": ["all"]
+            }
     
     # 2. Check for sell/exit decision (expanded patterns)
     sell_keywords = ["بيع", "ابيع", "ينزل", "sell", "exit", "خروج", "اخرج", "عندي", "شاري", "اطلع"]
