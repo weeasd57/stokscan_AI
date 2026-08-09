@@ -78,18 +78,32 @@ function buildSectorTable(tool: ToolResult): ExcelTable | null {
     };
 }
 
-function buildSectorLiquidityTable(tool: ToolResult): ExcelTable | null {
-    const sectors = Array.isArray(tool.data?.sectors) ? tool.data.sectors : [];
-    if (sectors.length === 0) return null;
-    return {
-        id: tool.tool,
-        title: "سيولة القطاعات",
-        headers: ["القطاع", "قيمة التداول التقديرية", "عدد الأسهم", "متوسط نسبة الحجم"],
-        rows: sectors.map((sector: any) => [cell(sector.sector), metric(sector.traded_value), cell(sector.stock_count), metric(sector.average_volume_ratio)]),
-        source: tool.source,
-        data_time: tool.data_time
-    };
-}
+ function buildSectorLiquidityTable(tool: ToolResult): ExcelTable | null {
+     const sectors = Array.isArray(tool.data?.sectors) ? tool.data.sectors : [];
+     if (sectors.length === 0) return null;
+     const sectorNameAr = (value: unknown): string => ({
+         "Finance": "البنوك والخدمات المالية",
+         "Process Industries": "الصناعات التحويلية",
+         "Distribution Services": "خدمات التوزيع واللوجستيات",
+         "Consumer Non-Durables": "الأغذية والسلع الاستهلاكية",
+         "Industrial Services": "الخدمات الصناعية",
+         "Producer Manufacturing": "التصنيع والإنتاج",
+         "Non-Energy Minerals": "مواد البناء والتعدين",
+         "Consumer Durables": "العقارات والسلع المعمرة",
+         "Technology Services": "التكنولوجيا والاتصالات",
+         "Transportation": "النقل والشحن",
+         "Utilities": "المرافق العامة",
+         "Energy Minerals": "البترول والطاقة"
+     }[String(value)] || String(value));
+     return {
+         id: tool.tool,
+         title: "سيولة القطاعات",
+         headers: ["القطاع", "قيمة التداول التقديرية", "عدد الأسهم", "متوسط نسبة الحجم"],
+         rows: sectors.map((sector: any) => [sectorNameAr(sector.sector), metric(sector.traded_value), cell(sector.stock_count), metric(sector.average_volume_ratio)]),
+         source: tool.source,
+         data_time: tool.data_time
+     };
+ }
 
 function buildSectorListTable(tool: ToolResult): ExcelTable | null {
     const sectors = Array.isArray(tool.data?.sectors) ? tool.data.sectors : [];

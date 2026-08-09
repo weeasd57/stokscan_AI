@@ -1086,7 +1086,7 @@ export async function* runPipelineStream(
         // If it is the last attempt and still invalid, fall back to safe response
         if (attempts === maxAttempts - 1) {
             console.warn(`[VALIDATOR] Attempt ${attempts + 1} failed validation! Reached max retries. Using safe fallback.`);
-            finalReply = buildSafeFallbackResponse(tools.results, plannerResult);
+            finalReply = buildSafeFallbackResponse(tools.results, plan);
             break;
         }
 
@@ -1180,12 +1180,21 @@ export async function* runPipelineStream(
 
 import { ToolResult } from "./types";
 
-function buildSafeFallbackResponse(toolsResults: ToolResult[], plannerResult: any): string {
-    const symbol = (plannerResult.entities?.symbols && plannerResult.entities.symbols[0]) || "السهم";
-    const lines = [
-        `عذراً، واجهنا صعوبة في صياغة التحليل النصي الخالي من الأخطاء التعبيرية للسهم ${symbol}. لتفادي أي معلومات غير دقيقة، إليك البيانات الخام المؤكدة والمباشرة من قاعدة البيانات:`,
-        ""
-    ];
+ function buildSafeFallbackResponse(toolsResults: ToolResult[], plan: IntentPlan): string {
+     const sectorLiquidity = toolsResults.find(result => result.tool === "get_sector_liquidity");
+     if (sectorLiquidity) {
+         return buildDeterministicResponse("سيولة القطاعات", plan, toolsResults)
+             || "تعذر صياغة ملخص سيولة القطاعات، لكن البيانات الموثقة متاحة في الجدول.";
+     }
+     const isSectorScoped = plan.tools.includes("get_sector_liquidity") || plan.tools.includes("get_sector_list") || plan.intent === "sector_analysis";
+     const stockResult = toolsResults.find(result => result.tool === "get_stock" && result.data?.symbol);
+     const symbol = isSectorScoped ? null : (stockResult?.data?.symbol || plan.entities.symbols?.[0] || null);
+     const lines = [
+         symbol
+             ? `تعذر صياغة التحليل النصي للسهم ${symbol} دون أخطاء، لذلك أعرض البيانات المؤكدة فقط:`
+             : "تعذر صياغة التحليل النصي دون أخطاء، لذلك أعرض البيانات المؤكدة فقط:",
+         ""
+     ];
 
     if (Array.isArray(toolsResults)) {
         toolsResults.forEach(r => {
@@ -1471,8 +1480,8 @@ export async function runPipeline(
 
     const finalSymbols = Array.from(allSymbols).filter(Boolean);
     const sessionUpdate = {
-        current_symbol: finalSymbols[0] || sessionState.current_symbol,
-        last_symbols: Array.from(new Set([...finalSymbols, ...(sessionState.last_symbols || [])])).slice(0, 15),
+        current_symbol: clearsStockContext(plan) ? null : (finalSymbols[0] || sessionState.current_symbol),
+        last_symbols: clearsStockContext(plan) ? finalSymbols : Array.from(new Set([...finalSymbols, ...(sessionState.last_symbols || [])])).slice(0, 15),
         summary: userMessage || (hasImages ? "تحليل صورة" : null)
     };
 

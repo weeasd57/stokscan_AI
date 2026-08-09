@@ -1330,6 +1330,8 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
             "Utilities": "المرافق العامة",
             "Energy Minerals": "البترول والطاقة"
         }[String(value)] || String(value));
+        const activeSectors = sectors.filter((sector: any) => Number(sector.average_volume_ratio) >= 1);
+        const strongestActive = [...activeSectors].sort((left: any, right: any) => Number(right.average_volume_ratio) - Number(left.average_volume_ratio))[0];
         if (sectorLiquidity.data?.requested_sector) {
             return [
                 `سيولة قطاع ${sectorNameAr(top.sector)} بلغت نحو ${formatMillions(top.traded_value)} بتاريخ ${sectorLiquidity.data_time}، محسوبة من ${top.stock_count} سهم متاح البيانات.`,
@@ -1342,8 +1344,9 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
             describeDatedFallback(plan.entities.requested_date, sectorLiquidity.data_time),
             `السيولة الأوضح بتاريخ ${sectorLiquidity.data_time} كانت في قطاع ${sectorNameAr(top.sector)}: نحو ${formatMillions(top.traded_value)} عبر ${top.stock_count} سهم متاح البيانات.`,
             ...sectors.slice(1, 5).map((sector: any, index: number) => `${index + 2}. ${sectorNameAr(sector.sector)}: ${formatMillions(sector.traded_value)} عبر ${sector.stock_count} سهم.`),
+            strongestActive ? `للمراقبة مع السيولة النشطة، يبرز قطاع ${sectorNameAr(strongestActive.sector)} بمتوسط حجم ${Number(strongestActive.average_volume_ratio).toFixed(2)}x؛ أما Finance فهو الأكبر بالقيمة فقط، لكن متوسط الحجم فيه ${Number(top.average_volume_ratio).toFixed(2)}x.` : null,
             sectorLiquidity.data?.excluded_sectors?.length ? `تم استبعاد: ${sectorLiquidity.data.excluded_sectors.join(" و")} من المقارنة.` : null,
-            "الترتيب مبني على السعر × حجم التداول في الجلسة، وليس RSI أو درجة التجميع، ولا يمثل توصية شراء أو بيع."
+            "لا أستطيع اختيار سهم بعينه من ترتيب القطاعات وحده؛ راجع أسهم القطاع المرشح على حدة قبل أي دخول."
         ].filter(Boolean).join("\n");
     }
 

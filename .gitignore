@@ -67,3 +67,5 @@ web/public/favicon_io/*.png
 threshold_calibration_*.csv
 web/scratch/
 EGX_news_dataset.json
+web/planner_compare_report.json
+web/planner_compare_report.md

@@ -122,6 +122,33 @@ describe("Live Supabase chatbot integration", () => {
         }
     }, 60000);
 
+    liveTest("does not carry a previous stock into a later market-wide liquidity question", async () => {
+        const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+        const email = `live-context-${Date.now()}@example.invalid`;
+        const { data: authData, error: authError } = await supabase.auth.admin.createUser({ email, password: crypto.randomUUID(), email_confirm: true });
+        if (authError || !authData.user) throw new Error(authError?.message || "Unable to create evaluation user");
+        const sessionId = crypto.randomUUID();
+        let state = { current_symbol: null, last_symbols: [], summary: null };
+        try {
+            const session = await supabase.from("ai_chat_sessions").insert({ id: sessionId, user_id: authData.user.id, title: "live context evaluation" });
+            if (session.error) throw new Error(session.error.message);
+            const first = await runPipeline("توقعاتك ليه في ال5 جلسات القادمة جلاسكو", [], state, null, [], supabase, [], authData.user.id, sessionId, `live-context-first-${Date.now()}`);
+            state = { ...state, ...first.session_update };
+            const second = await runPipeline("معايا سيولة ادخل في اي دلوقتي غير قطاع الادوية والمخابز علشان فيهم وطلعو الحمدالله خلاص", [], state, null, [], supabase, [], authData.user.id, sessionId, `live-context-second-${Date.now()}`);
+
+            console.log(`[LIVE CONTEXT RESPONSE]\n${second.response}`);
+            expect(second.plan.entities.symbols).toEqual([]);
+            expect(second.plan.entities.sector).toBeNull();
+            expect(second.plan.tools).toEqual(["get_sector_liquidity"]);
+            expect(second.response).not.toContain("BIOC");
+            expect(second.response).not.toContain("واجهنا صعوبة");
+            expect(second.response).toContain("تم استبعاد: أدوية ومخابز ومطاحن");
+        } finally {
+            await supabase.from("ai_chat_sessions").delete().eq("id", sessionId);
+            await supabase.auth.admin.deleteUser(authData.user.id);
+        }
+    }, 120000);
+
     liveTest("runs a sequential user session through the full pipeline and persistence", async () => {
         const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
         const email = `live-eval-${Date.now()}@example.invalid`;

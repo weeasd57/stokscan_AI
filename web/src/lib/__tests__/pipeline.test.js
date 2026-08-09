@@ -686,7 +686,7 @@ describe("Deterministic response fallback", () => {
             data: { metric: "estimated_traded_value", sectors: [{ sector: "قطاع ألف", traded_value: 250000000, stock_count: 8 }, { sector: "قطاع باء", traded_value: 100000000, stock_count: 5 }] }
         }]);
         expect(response).toContain("قطاع ألف");
-        expect(response).toContain("السعر × حجم التداول");
+        expect(response).toContain("لا أستطيع اختيار سهم بعينه من ترتيب القطاعات وحده");
         expect(response).not.toContain("أسهم التجميع");
     });
 
