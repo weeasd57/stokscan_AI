@@ -101,4 +101,31 @@ describe("fair-value scan filters", () => {
         expect(scan.data.stocks.map(stock => stock.symbol)).toEqual(["FRESH"]);
         expect(scan.data.stocks[0]).toMatchObject({ acc_score: 82, scan_date: today });
     });
+
+    it("excludes requested sectors from the liquidity ranking", async () => {
+        const today = new Date().toISOString().slice(0, 10);
+        const supabase = createSupabase({
+            stock_fundamentals: [
+                { symbol: "BANK", exchange: "EGX", data: { sector: "Finance", industry: "Banks" } },
+                { symbol: "PHAR", exchange: "EGX", data: { sector: "Health Technology", industry: "Pharmaceuticals" } },
+                { symbol: "FOOD", exchange: "EGX", data: { sector: "Consumer Non-Durables", industry: "Food" } }
+            ],
+            stock_technical_indicators: [
+                { symbol: "BANK", exchange: "EGX", close: 10, volume: 100, vol_sma20: 100, date: today },
+                { symbol: "PHAR", exchange: "EGX", close: 30, volume: 1000, vol_sma20: 100, date: today },
+                { symbol: "FOOD", exchange: "EGX", close: 20, volume: 200, vol_sma20: 100, date: today }
+            ]
+        });
+        const plan = {
+            intent: "market_summary", confidence: 1,
+            entities: { symbols: [], sector: null, timeframe: "current", reference: null, excluded_sectors: ["أدوية"] },
+            needs_vision_context: false, needs_history: false, needs_live_data: true, needs_historical_data: false,
+            tools: ["get_sector_liquidity"], clarification_needed: false, resolved_from: { symbol: null, message_id: null }
+        };
+
+        const output = await executeStructuredTools(supabase, plan, []);
+        const scan = output.results.find(result => result.tool === "get_sector_liquidity");
+        expect(scan.data.sectors.map(sector => sector.sector)).toEqual(["Consumer Non-Durables", "Finance"]);
+        expect(scan.data.excluded_sectors).toEqual(["أدوية"]);
+    });
 });

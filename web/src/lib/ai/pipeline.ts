@@ -432,6 +432,9 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
     } else if (hasPreviousReference && sessionState.current_symbol && !symbols.includes(sessionState.current_symbol)) {
         symbols.unshift(sessionState.current_symbol);
     }
+    if (marketWideRequest && extractExplicitSymbols(message).length === 0) {
+        symbols.length = 0;
+    }
     if (temporal.date && symbols.length === 0 && sessionState.current_symbol && !marketWideRequest) {
         symbols.push(sessionState.current_symbol);
     }
@@ -503,7 +506,39 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
 
 export function isMarketWideRequest(message: string): boolean {
     const normalized = message.replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").toLowerCase();
-    return isFairValueScanRequest(message) || /(اخبار\s+(السوق|البورصه)|(?:السيول|السيوله)\s+(فين|في\s+السوق|ل?يوم|لبوم|بتاريخ|يوم)|(?:اكبر|اعلى|اقوى)\s+قطاع.{0,20}(سيول|تداول)|حاله\s+السوق|السوق\s+عمل|اداء\s+(?:المؤشر|الموشر)|(?:المؤشر|الموشر)\s+(?:النهارده|اليوم)|حاله\s+البورصه|(?:اقوى|اعلى)\s+الاسهم|(?:كل|جميع).{0,12}(?:اسهم|الاسهم).{0,12}(?:المؤشر|الموشر|موشر).{0,8}30|^(?:و?ال)?(?:تجميع|تصريف)(?:\s+(?:فين|ايه|الاسهم|الأسهم|النهارده|اليوم))?[؟?\s]*$)/i.test(normalized.trim());
+    const marketTerms = [
+        /اخبار\s+(السوق|البورصه)/i,
+        /(?:السيول|السيوله)\s+(فين|في\s+السوق|ل?يوم|لبوم|بتاريخ|يوم)/i,
+        /(?:اكبر|اعلى|اقوى)\s+قطاع.{0,20}(سيول|تداول)/i,
+        /حاله\s+(السوق|البورصه)/i,
+        /السوق\s+عمل/i,
+        /اداء\s+(?:المؤشر|الموشر)/i,
+        /(?:المؤشر|الموشر)\s+(?:النهارده|اليوم)/i,
+        /(?:اقوى|اعلى)\s+الاسهم/i,
+        /(?:السهم|القطاع|الاسهم|القطاعات).{0,45}(?:متوقع|توقع|يرتفع|هيطلع|هيرتفع).{0,35}(?:الاسبوع|اسبوع|الايام الجايه|الفتره الجايه)/i,
+        /(?:متوقع|توقع|يرتفع|هيطلع|هيرتفع).{0,45}(?:السهم|القطاع|الاسهم|القطاعات).{0,35}(?:الاسبوع|اسبوع|الايام الجايه|الفتره الجايه)/i,
+        /(?:مين|ايه|اية).{0,25}(?:متوقع|توقع).{0,25}(?:يرتفع|هيطلع|يصعد).{0,25}(?:الاسبوع|اسبوع)/i,
+        /افضل\s+الفرص\s+المتاحه/i,
+        /(?:كل|جميع).{0,12}(?:اسهم|الاسهم).{0,12}(?:المؤشر|الموشر|موشر).{0,8}30/i,
+        /^\s*(?:و?ال)?(?:تجميع|تصريف)(?:\s+(?:فين|ايه|الاسهم|الأسهم|النهارده|اليوم))?[؟?\s]*$/i
+    ];
+    return isFairValueScanRequest(message) || marketTerms.some(pattern => pattern.test(normalized.trim()));
+}
+
+export function extractExcludedSectors(message: string): string[] {
+    const normalized = normalizeArabicIntent(message);
+    const exclusionPart = normalized.match(/(?:غير|ماعدا|ما عدا|باستثناء|بعيد عن)\s+(.+)$/i)?.[1] || "";
+    if (!exclusionPart) return [];
+    const sectors: Array<[RegExp, string]> = [
+        [/(?:ال)?ادويه|(?:ال)?دواء|pharma/i, "أدوية"],
+        [/(?:ال)?مخابز|(?:ال)?مطاحن|bakery|milling/i, "مخابز ومطاحن"],
+        [/(?:ال)?بنوك/i, "بنوك"],
+        [/(?:ال)?عقارات/i, "عقارات"],
+        [/(?:ال)?اغذيه/i, "أغذية"],
+        [/(?:ال)?اتصالات/i, "اتصالات"],
+        [/(?:ال)?تكنولوجيا/i, "تكنولوجيا"]
+    ];
+    return sectors.filter(([pattern]) => pattern.test(exclusionPart)).map(([, sector]) => sector);
 }
 
 
@@ -524,6 +559,7 @@ export function enforceIntentFromMessage(message: string, plannerIntent: string,
     }
     const normalized = message.toLowerCase().replace(/[أإآ]/g, "ا").replace(/ة/g, "ه");
     const hasSymbol = symbols.length > 0 || /\b[A-Z]{2,6}\b/.test(message);
+    const excludedSectors = extractExcludedSectors(message);
     const marketFairValueScan = isFairValueScanRequest(message);
     const hasDist = /تصريف|distribution/i.test(normalized);
     const hasAcc = /تجميع|accumulation/i.test(normalized);
@@ -540,6 +576,9 @@ export function enforceIntentFromMessage(message: string, plannerIntent: string,
         direction = (accIdx !== -1 && accIdx < distIdx) ? "accumulation" : "distribution";
     }
     if (marketFairValueScan) return { intent: "market_summary", tools: ["get_fair_value_scan"], replaceTools: true, ...getFairValueFilters(message) };
+    if (excludedSectors.length > 0 && /(سيول|ادخل|دخول|استثمر|فرص)/i.test(normalized)) {
+        return { intent: "market_summary", tools: ["get_sector_liquidity"], replaceTools: true };
+    }
     if (/(توقعات|توقع|متوقع|تقعات|وقعات).{0,35}(?:5|خمس|الخمسه|الخمسة|15|خمستاشر|خمسة عشر).{0,15}(جلسات|جلسه|جلسة|يوم)|(?:5|خمس|الخمسه|الخمسة|15|خمستاشر|خمسة عشر).{0,15}(جلسات|جلسه|جلسة|يوم).{0,35}(توقعات|توقع|متوقع|تقعات|وقعات)/i.test(normalized) || /(متوقع|توقع|توقعات|سعر).{0,25}(اخر|آخر|نهايه|نهاية).{0,15}(السنه|السنة|العام)/i.test(normalized)) {
         return { intent: "stock_analysis", tools: ["get_stock", "get_stock_levels", "get_price_history"], replaceTools: true };
     }
@@ -822,6 +861,7 @@ export async function* runPipelineStream(
             ,require_distribution: Boolean(enforced.require_distribution || plannerResult.entities.require_distribution)
             ,require_accumulation: Boolean(enforced.require_accumulation || plannerResult.entities.require_accumulation)
             ,recommendation_order: enforced.recommendation_order || plannerResult.entities.recommendation_order || null
+            ,excluded_sectors: extractExcludedSectors(userMessage)
             ,requested_date: requestedRange ? null : extractTemporalContext(userMessage).date
             ,requested_start_date: requestedRange?.start || null
             ,requested_end_date: requestedRange?.end || null
@@ -1310,6 +1350,7 @@ export async function runPipeline(
             ,require_distribution: Boolean(enforced.require_distribution || plannerResult.entities.require_distribution)
             ,require_accumulation: Boolean(enforced.require_accumulation || plannerResult.entities.require_accumulation)
             ,recommendation_order: enforced.recommendation_order || plannerResult.entities.recommendation_order || null
+            ,excluded_sectors: extractExcludedSectors(userMessage)
             ,requested_date: requestedRange ? null : extractTemporalContext(userMessage).date
             ,requested_start_date: requestedRange?.start || null
             ,requested_end_date: requestedRange?.end || null

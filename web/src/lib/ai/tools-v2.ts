@@ -31,6 +31,17 @@ export async function executeStructuredTools(
     const requestedDate = plan.entities.requested_date || null;
     const requestedStartDate = plan.entities.requested_start_date || null;
     const requestedEndDate = plan.entities.requested_end_date || null;
+    const excludedSectors = (plan.entities.excluded_sectors || []).map(normalizeArabic);
+
+    const isExcludedSector = (value: unknown): boolean => {
+        if (!excludedSectors.length) return false;
+        const normalized = normalizeArabic(String(value || ""));
+        return excludedSectors.some(excluded => {
+            if (excluded.includes("ادويه")) return /(pharma|pharmaceutical|health technology|health services|ادويه|دواء)/i.test(normalized);
+            if (excluded.includes("مخابز") || excluded.includes("مطاحن")) return /(milling|mills|flour|bakery|bakeries|مطاحن|مخابز|دقيق)/i.test(normalized);
+            return normalized.includes(excluded.replace(/^ال/, ""));
+        });
+    };
 
     const dataDateQuality = (date: unknown, maxAgeDays: number, requested: string | null = null) => {
         const value = String(date || "").slice(0, 10);
@@ -966,6 +977,87 @@ export async function executeStructuredTools(
         }
     }
 
+    // ===== SECTOR LIQUIDITY SCAN =====
+    if (plan.tools.includes("get_sector_liquidity")) {
+        try {
+            const [{ data: fundamentalsRows }, { data: technicalRows }] = await Promise.all([
+                supabase.from("stock_fundamentals").select("symbol, data").eq("exchange", "EGX").limit(1000),
+                (() => {
+                    let query = supabase
+                        .from("stock_technical_indicators")
+                        .select("symbol, close, volume, vol_sma20, date")
+                        .eq("exchange", "EGX")
+                        .order("date", { ascending: false })
+                        .limit(2000);
+                    if (requestedDate) query = query.eq("date", requestedDate);
+                    return query;
+                })()
+            ]);
+
+            const parseFundamentalData = (value: unknown): Record<string, any> => {
+                if (value && typeof value === "object") return value as Record<string, any>;
+                if (typeof value === "string") {
+                    try { return JSON.parse(value); } catch { return {}; }
+                }
+                return {};
+            };
+            const sectorTerms: Record<string, string[]> = {
+                "بنوك": ["bank", "banking"],
+                "ادويه": ["pharma", "pharmaceutical", "drug", "health technology", "health services"],
+                "عقارات": ["real estate", "realestate", "homebuilding", "housing"],
+                "اغذيه": ["food", "beverage", "consumer non-durables"],
+                "بترول": ["oil", "gas", "petroleum", "energy"],
+                "اتصالات": ["telecom", "telecommunications", "communications", "technology services"]
+            };
+            const requestedSector = plan.entities.sector ? normalizeArabic(plan.entities.sector).replace(/^ال/, "") : "";
+            const requestedTerms = requestedSector ? (sectorTerms[requestedSector] || [requestedSector]) : [];
+            const fundamentalsBySymbol = new Map<string, Record<string, any>>();
+            (fundamentalsRows || []).forEach((row: any) => fundamentalsBySymbol.set(String(row.symbol).toUpperCase(), parseFundamentalData(row.data)));
+            const dataDate = requestedDate || (technicalRows || [])[0]?.date || now.slice(0, 10);
+            const aggregates = new Map<string, { traded_value: number; stock_count: number; volume_ratio_sum: number; volume_ratio_count: number }>();
+
+            (technicalRows || []).filter((row: any) => row.date === dataDate).forEach((row: any) => {
+                const fundamental = fundamentalsBySymbol.get(String(row.symbol).toUpperCase()) || {};
+                const sector = String(fundamental.sector || fundamental.Sector || fundamental.industry || fundamental.Industry || "غير مصنف");
+                const classification = normalizeArabic(`${sector} ${fundamental.industry || fundamental.Industry || ""}`);
+                if (isExcludedSector(classification)) return;
+                if (requestedTerms.length && !requestedTerms.some(term => classification.includes(normalizeArabic(term)))) return;
+                const close = Number(row.close);
+                const volume = Number(row.volume);
+                if (!Number.isFinite(close) || !Number.isFinite(volume)) return;
+                const aggregate = aggregates.get(sector) || { traded_value: 0, stock_count: 0, volume_ratio_sum: 0, volume_ratio_count: 0 };
+                aggregate.traded_value += close * volume;
+                aggregate.stock_count += 1;
+                const volumeAverage = Number(row.vol_sma20);
+                if (volumeAverage > 0) {
+                    aggregate.volume_ratio_sum += volume / volumeAverage;
+                    aggregate.volume_ratio_count += 1;
+                }
+                aggregates.set(sector, aggregate);
+            });
+
+            const sectors = Array.from(aggregates.entries())
+                .map(([sector, aggregate]) => ({
+                    sector,
+                    traded_value: aggregate.traded_value,
+                    stock_count: aggregate.stock_count,
+                    average_volume_ratio: aggregate.volume_ratio_count ? aggregate.volume_ratio_sum / aggregate.volume_ratio_count : null
+                }))
+                .sort((left, right) => right.traded_value - left.traded_value);
+            results.push({
+                tool: "get_sector_liquidity",
+                source: "stock_fundamentals+stock_technical_indicators",
+                data_time: dataDate,
+                symbols: [],
+                data_type: requestedDate ? "historical" : "live",
+                data: { sectors, requested_sector: plan.entities.sector || null, excluded_sectors: plan.entities.excluded_sectors || [] }
+            });
+        } catch (e) {
+            console.warn("Error fetching sector liquidity:", e);
+            results.push({ tool: "get_sector_liquidity", source: "error", data_time: now, symbols: [], data_type: requestedDate ? "historical" : "live", data: { sectors: [] }, error: "sector_liquidity_failed" });
+        }
+    }
+
     // ===== STOCK LEVELS =====
     if ((plan.tools.includes("get_stock_levels") || plan.tools.includes("get_stock")) && symbols.length > 0) {
         const levelResults = await Promise.all(symbols.map(async symbol => {
@@ -1079,7 +1171,7 @@ export async function executeStructuredTools(
                         : (SECTOR_TERMS[cleanedTargetSector] || [targetSector.toLowerCase(), normalizedTargetSector, cleanedTargetSector])
                             .some((term) => classification.includes(term.toLowerCase()));
 
-                    return matchesRequestedSector
+                    return matchesRequestedSector && !isExcludedSector(`${sector} ${industry} ${name}`)
                         ? [{ symbol: row.symbol, name, sector: sector || industry }]
                         : [];
                 }).slice(0, 100);

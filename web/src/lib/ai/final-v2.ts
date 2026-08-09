@@ -487,6 +487,10 @@ export async function generateV2Response(
     }
     const fastAdvisor = buildFastConversationalAdvisorResponse(userMessage, plan, toolResults, sessionState);
     if (fastAdvisor) return fastAdvisor;
+    const structuredMarketResponse = plan.tools.includes("get_sector_liquidity")
+        ? buildDeterministicResponse(userMessage, plan, toolResults, sessionState)
+        : null;
+    if (structuredMarketResponse) return structuredMarketResponse;
 
     const isAnalyticalQuery = /(سبب|ليه|لماذا|ازاي|إزاي|تفسير|سر|ينزل|يهبط|يطلع|صعود|هبوط|فرص|أحسن|احسن|افضل|أفضل|توقعات|متوقع|مقارن|قارن|حالة|حالتها|رايك|رأيك|توجيه|تجميع|تصريف|تحليل|شراء|بيع|مناسب|اشتريت|خسران|نازل)/i.test(userMessage);
     const needsGuidanceResponse = plan.guidance_intent;
@@ -532,7 +536,7 @@ export async function* generateV2Stream(
     sessionState?: SessionState | null,
     correctionPrompt?: string
 ): AsyncGenerator<string, void, unknown> {
-    const forcedDeterministic = plan.service_degraded_message || plan.tools.includes("get_fair_value_scan")
+    const forcedDeterministic = plan.service_degraded_message || plan.tools.includes("get_fair_value_scan") || plan.tools.includes("get_sector_liquidity")
         ? buildDeterministicResponse(userMessage, plan, toolResults, sessionState)
         : null;
     if (forcedDeterministic) {
@@ -1327,18 +1331,18 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
         const formatMillions = (value: number) => `${(Number(value) / 1_000_000).toFixed(2)} مليون جنيه`;
         if (sectorLiquidity.data?.requested_sector) {
             return [
-                `سيولة قطاع ${top.sector} بتاريخ ${sectorLiquidity.data_time}:`,
-                `قيمة التداول التقديرية ${formatMillions(top.traded_value)} عبر ${top.stock_count} سهم متاح البيانات.`,
+                `سيولة قطاع ${top.sector} بلغت نحو ${formatMillions(top.traded_value)} بتاريخ ${sectorLiquidity.data_time}، محسوبة من ${top.stock_count} سهم متاح البيانات.`,
                 top.average_volume_ratio != null ? `متوسط نسبة الحجم لأسهم القطاع: ${Number(top.average_volume_ratio).toFixed(2)}x.` : null,
-                "المقياس المستخدم هو مجموع السعر × حجم التداول لأسهم القطاع فقط."
+                sectorLiquidity.data?.excluded_sectors?.length ? `تم استبعاد: ${sectorLiquidity.data.excluded_sectors.join(" و")} من المقارنة.` : null,
+                "الحساب تقديري على أساس السعر × حجم التداول، وليس توصية شراء أو بيع."
             ].filter(Boolean).join("\n");
         }
         return [
             describeDatedFallback(plan.entities.requested_date, sectorLiquidity.data_time),
-            `أكبر قطاع من حيث قيمة التداول التقديرية بتاريخ ${sectorLiquidity.data_time} هو ${top.sector}.`,
-            `قيمة التداول التقديرية: ${formatMillions(top.traded_value)} عبر ${top.stock_count} سهم متاح البيانات.`,
+            `السيولة الأوضح بتاريخ ${sectorLiquidity.data_time} كانت في قطاع ${top.sector}: نحو ${formatMillions(top.traded_value)} عبر ${top.stock_count} سهم متاح البيانات.`,
             ...sectors.slice(1, 5).map((sector: any, index: number) => `${index + 2}. ${sector.sector}: ${formatMillions(sector.traded_value)} عبر ${sector.stock_count} سهم.`),
-            "المقياس المستخدم هو مجموع السعر × حجم التداول لأسهم القطاع في الجلسة، وليس RSI أو درجة التجميع."
+            sectorLiquidity.data?.excluded_sectors?.length ? `تم استبعاد: ${sectorLiquidity.data.excluded_sectors.join(" و")} من المقارنة.` : null,
+            "الترتيب مبني على السعر × حجم التداول في الجلسة، وليس RSI أو درجة التجميع، ولا يمثل توصية شراء أو بيع."
         ].filter(Boolean).join("\n");
     }
 

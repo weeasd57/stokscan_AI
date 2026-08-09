@@ -441,6 +441,17 @@ describe("Deterministic response fallback", () => {
         expect(buildDeterministicPlannerResult("ات الأسهم اللي بتتداول فوق القيمة العادلة", { current_symbol: "ELKA", last_symbols: ["ELKA"], summary: "market" })?.tools).toEqual(["get_fair_value_scan"]);
     });
 
+    it("treats broad weekly forecast questions as market-wide", () => {
+        const message = "إيه السهم أو القطاع المتوقع يرتفع الأسبوع ده؟";
+        expect(isMarketWideRequest(message)).toBe(true);
+        const plan = buildDeterministicPlannerResult(message, {
+            current_symbol: "ELKA",
+            last_symbols: ["ELKA"],
+            summary: "تحليل ELKA"
+        });
+        expect(plan.entities.symbols).toEqual([]);
+    });
+
     it("preserves below-value and distribution filters instead of reversing them", () => {
         const message = "هات الأسهم اللي تحت القيمة العادلة وفيها تصريف";
         expect(isFairValueScanRequest(message)).toBe(true);
