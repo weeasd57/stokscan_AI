@@ -270,6 +270,8 @@ describe("Deterministic response fallback", () => {
         expect(response).toContain("CAED");
         expect(response).toContain("125.11");
         expect(response).not.toContain("لم أتمكن");
+        expect(response).not.toContain("ملخص أحدث البيانات المتاحة");
+        expect(response).not.toContain("رأيي الفني:");
     });
 
     it("classifies a stock location without article boilerplate", () => {
@@ -412,8 +414,8 @@ describe("Deterministic response fallback", () => {
             { tool: "get_stock", source: "database", data_time: "2026-07-30", symbols: ["ABCD"], data_type: "live", data: { symbol: "ABCD", price: 10, change_pct: "+1%", rsi_14: 50, macd_signal: 0, vol_ratio: "1x" } },
             { tool: "get_stock_levels", source: "stock_prices", data_time: "2026-07-30", symbols: ["ABCD"], data_type: "live", data: { symbol: "ABCD", support: 8, resistance: 12, lookback_sessions: 60 } }
         ]);
-        expect(response).toContain("الدعم الحسابي: 8.00");
-        expect(response).toContain("المقاومة الحسابية: 12.00");
+        expect(response).toContain("الدعم 8.00");
+        expect(response).toContain("المقاومة 12.00");
     });
 
     it("shows a bounded technical valuation without calling it intrinsic fair value", () => {
@@ -560,6 +562,8 @@ describe("Deterministic response fallback", () => {
         expect(response).toContain("نعم، توجد إشارة التجميع");
         expect(response).toContain("72/100");
         expect(response).not.toContain("ملخص السوق");
+        expect(response).not.toContain("تم العثور على");
+        expect(response).not.toContain("✅");
     });
 
     it("resolves alsh to ELSH in compound forecast and scan questions", () => {

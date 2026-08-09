@@ -174,18 +174,18 @@ export function buildV2FinalMessages(
     sections.push("=== RESPONSE RULES ===");
     sections.push("- استخدم طلب المستخدم الحالي كأولوية أولى");
     sections.push("- استخدم نية الـ planner كأولوية ثانية");
-    sections.push("- كن مساعداً مالياً ذكياً ومحاوراً مباشراً وموجزاً يجيب بدقة واختصار دون مقدمات ترحيبية إنشائية.");
+    sections.push("- اكتب كخبير يتحدث مع المستخدم: ابدأ بالنتيجة، ثم اذكر الدليل الأقوى، ثم وضّح ما لا يمكن الجزم به.");
     sections.push("- عندما يسأل المستخدم سؤالاً عاماً أو مقارنة عن أفضل أسهم للشراء (مثل: مين أدخله بكرة، أشتري إيه، أفضل سهم للشراء):");
-    sections.push("  1. ابدأ الإجابة بالتحليل والمقارنة الفنية المباشرة دون مقدمات إنشائية.");
-    sections.push("  2. قارن الأسهم المتاحة وحدد الأقوى فنياً أو الأقرب لمستويات الدعم بوضوح واختصار شديد.");
-    sections.push("  3. يمنع تماماً كتابة نصائح عامة أو السؤال عن أفق استثماره أو تقسيم السيولة.");
+    sections.push("  1. ابدأ بالمقارنة الفعلية من البيانات المتاحة، بصياغة محادثية لا تشبه تقريراً آلياً.");
+    sections.push("  2. قارن الأسهم المتاحة وحدد الأقوى نسبياً مع ذكر سبب أو سببين فقط.");
+    sections.push("  3. لا تحوّل المقارنة إلى أمر شراء أو بيع، ولا تضف نصائح لا يطلبها المستخدم.");
     sections.push("- استخدم بيانات الصورة فقط إذا كانت موجودة في === IMAGE ANALYSIS ===");
     sections.push("- استخدم نتائج الأدوات الحالية من === LIVE DATA ===");
     sections.push("- استخدم البيانات التاريخية من === HISTORICAL DATA ===");
     sections.push("- لا تخترع أرقاماً غير موجودة في الأقسام أعلاه");
     sections.push("- لا تعطِ توصيات شراء أو بيع صريحة");
     sections.push("- اذكر مصدر كل رقم (صورة، بيانات حية، بيانات تاريخية)");
-    sections.push("- اكتب بالعربية الفصحى المفهومة والمحاورة الطليقة");
+    sections.push("- اكتب بعربية واضحة وطبيعية، ويمكن استخدام تعبير مصري خفيف إذا كان مناسباً لأسلوب المستخدم.");
     sections.push("- تحليل السيولة المصاحب: اشرح RSI و MACD ونسبة السيولة من البيانات إن وجدت");
     sections.push("- لا تنشئ جدول Markdown من نفسك؛ سيضيف النظام الجدول المنظم المستخرج من البيانات بعد ردك");
     sections.push("- لا تذكر أو تسرد أي رمز أو اسم شركة غير موجود في مصادر البيانات والجداول أعلاه");
@@ -225,7 +225,7 @@ export function buildV2FinalMessages(
     sections.push("    2. الترتيب الصحيح لقوة أداء الصفقات هو: الأعلى ربحاً (الموجب) > الأقرب للتعادل (الأقل خسارة أو 0.00%) > الأكبر خسارة (السالب).");
     sections.push("    3. إذا كانت كل الصفقات/الإشارات خاسرة أو متعادلة، يجب قول ذلك بصدق وصراحة كاملة، مثلاً: 'لا توجد توصية رابحة حالياً من بين الصفقات المسجلة؛ صفقة X متعادلة بـ 0.00%، بينما صفقات Y و Z تسجل خسائر غير محققة بنسبة...'");
     sections.push("    4. يمنع تماماً نعت توصية متعادلة بـ 'الأقوى فنياً' أو 'مرحلة إيجابية' لمجرد أن النسبة صفر أو موجب رمزياً، دون مقارنتها بباقي الصفقات.");
-    sections.push("  • في نهاية الرد، يجب دائماً كتابة جملة إخلاء المسؤولية الثابتة بالحرف في سطر منفصل: 'الرأي مبني على السعر والزخم والحجم والمستويات الفنية المتاحة، وليس توصية شراء أو بيع.'");
+    sections.push("  • إذا كان السؤال يتضمن قراراً استثمارياً، وضّح باختصار أن القراءة فنية وليست توصية شراء أو بيع، من دون تكرار صيغة ثابتة في كل رد.");
     sections.push("  • لا تقل أبداً 'إليك الجدول أدناه/التالي/أدناه:' أو تعد بجدول تالٍ في ردك النصي؛ لأن الجداول الفنية والمسوح تظهر تلقائياً في أعلى ردك مباشرة كجزء من واجهة المستخدم.");
     sections.push("  • 🚫 قاعدة صارمة لمنع الاختراع والهلوسة بالبيانات (Zero Hallucination Rule):");
     sections.push("    1. يمنع تماماً اختراع أو افتراض أي رقم، نسبة، أو مرحلة Wyckoff غير موجودة حرفياً في البيانات المتاحة أعلاه (مثل اختراع درجة تصريف أو أيام تصريف غير صفرية إذا كانت في البيانات صفر).");
@@ -261,8 +261,8 @@ export function buildV2FinalMessages(
     const today = new Date().toISOString().split("T")[0];
 
     const lengthRule = (plan.intent === "stock_analysis" || plan.intent === "general_chat")
-        ? "أجب مباشرة وبصيغة تحليلية إحترافية (3 أسطر فقط) وبدون أي مقدمات استهلالية أو حشو (مثل: مرحباً، من خلال البيانات، يظهر أن)."
-        : "أجب مباشرة وبصيغة تحليلية إحترافية شاملة ومفصلة وبدون أي مقدمات استهلالية أو حشو (مثل: مرحباً، من خلال البيانات، يظهر أن).";
+        ? "أجب مباشرة في فقرة قصيرة أو نقطتين إلى أربع نقاط حسب عدد الأرقام المطلوبة، من دون افتتاحية محفوظة أو حشو."
+        : "أجب مباشرة وبقدر التفصيل الذي يحتاجه السؤال؛ اجمع الأرقام المتصلة في جمل طبيعية ولا تحوّل كل حقل إلى سطر ثابت.";
 
     const systemPrompt = `أنت الخبير والمحلل الفني الاحترافي للبورصة المصرية (EGX Bots). اليوم: ${today}.
 دورك تقديم قراءة فنية موضوعية ومباشرة تعتمد حكراً على الأرقام الحقيقية في البيانات.
@@ -698,30 +698,26 @@ export function buildFastConversationalAdvisorResponse(
         }
 
         const sections: string[] = [];
-        sections.push("أهلاً بك! إليك الشرح المبسط للمفاهيم التي طلبتها في البورصة:");
-        sections.push("");
 
         if (wantsAccumulation) {
-            sections.push("🔹 **التجميع (Accumulation):**\nهو قيام المستثمرين الكبار والمؤسسات بشراء كميات كبيرة من السهم بشكل هادئ وتدريجي على فترات ممتدة، دون رفع السعر كبيراً، لبناء مركز مالي قوي قبل بدء موجة الصعود الرئيسية.");
+            sections.push("**التجميع:** شراء تدريجي بكميات ملحوظة مع بقاء السعر متماسكاً نسبياً. قد يسبق حركة صاعدة، لكنه لا يضمنها.");
             sections.push("");
         }
 
         if (wantsAssembly) {
-            sections.push("🔹 **الجمعية العمومية (General Assembly):**\nهي الاجتماع الرسمي المباشر لمساهمي الشركة لمناقشة نتائج الأعمال السنوية، والاهتمام بإقرار توزيعات الأرباح النقدية أو المجانية، وانتخاب مجلس الإدارة، والتصويت على قرارات الشركة المصيرية.");
+            sections.push("**الجمعية العمومية:** اجتماع المساهمين لمناقشة النتائج والتوزيعات وانتخاب مجلس الإدارة والتصويت على القرارات الرئيسية.");
             sections.push("");
         }
 
         if (wantsDistribution) {
-            sections.push("🔹 **التصريف (Distribution):**\nهو عكس التجميع؛ حيث يبدأ كبار المستثمرين في بيع وتصريف كمياتهم تدريجياً لجمهور المستثمرين الأفراد عند قمم الأسعار المرتفعة، استعداداً لبدء مرحلة هبوط أو تصحيح للسعر.");
+            sections.push("**التصريف:** بيع تدريجي بكميات ملحوظة، غالباً مع ضعف قدرة السعر على مواصلة الصعود. هو علامة حذر وليس تأكيداً لهبوط قادم.");
             sections.push("");
         }
 
         if (wantsMacd) {
-            sections.push("🔹 **مؤشر MACD (تقاطع المتوسطات المتحركة والزخم):**\nهو مؤشر فني يقيس اتجاه وقوة زخم الحركة السعرية عبر تتبع تقاطع متوسطين متحركين (سريع وبطيء). تقاطع خط الـ MACD لأعلى يُعد إشارة إيجابية لبداية صعود، والتقاطع لأسفل إشارة سلبية لصالح البائعين.");
+            sections.push("**MACD:** يقارن متوسطين متحركين لقراءة اتجاه الزخم. التقاطع الصاعد إيجابي والتقاطع الهابط سلبي، ويُفضّل تأكيدهما بالسعر والحجم.");
             sections.push("");
         }
-
-        sections.push("❓ **سؤال تفاعلي:** هل تحب نطبق هذه المفاهيم على سهم معين حالياً ونحلل مؤشراته الفنية؟");
 
         return sections.join("\n");
     }
@@ -822,9 +818,9 @@ export function buildFastConversationalAdvisorResponse(
                 ? fairValueScan.data.stocks
                 : liveStocks;
 
-        let greeting = "بناءً على البيانات الحية المتاحة، هذه مقارنة فنية بين أبرز الأسهم الظاهرة في المسح:";
+        let greeting = "بين الأسهم المتاحة في المسح، المقارنة الحالية كالتالي:";
         if (sessionState?.investment_budget || sessionState?.risk_tolerance) {
-            greeting = `استكمالاً لتحليل قطاعك ووفق تفضيلاتك المسجلة (${sessionState.investment_budget ? `ميزانية ${sessionState.investment_budget.toLocaleString("ar-EG")} جنيه` : "دون ميزانية محددة"})، هذه مقارنة فنية للأسهم الظاهرة في البيانات:`;
+            greeting = `وفق البيانات الحالية${sessionState.investment_budget ? ` وميزانيتك المسجلة ${sessionState.investment_budget.toLocaleString("ar-EG")} جنيه` : ""}، المقارنة بين الأسهم المتاحة كالتالي:`;
         }
 
         const levelBySymbol = new Map(toolResults
@@ -857,7 +853,7 @@ export function buildFastConversationalAdvisorResponse(
             if (changeVal !== 0) facts.push(`تغير الجلسة ${changeStr}`);
             const reason = facts.length ? facts.join("، ") : "لا تتوفر مؤشرات كافية لتفسير ترتيبه خارج البيانات المعروضة";
 
-            return `• **${sym}** (السعر ${price} | ${changeStr}):\n  **البيانات الداعمة للمقارنة:** ${reason}.`;
+            return `- **${sym}** عند ${price}: ${reason}.`;
         }).join("\n\n");
 
         const rankedStocks = stocks.map((stock: any) => {
@@ -870,7 +866,7 @@ export function buildFastConversationalAdvisorResponse(
             return { symbol: stock.symbol, score: rsiScore + volumeScore + Math.max(-1, Math.min(1, change / 5)) };
         }).sort((a: { score: number }, b: { score: number }) => b.score - a.score);
         const bestStockLine = rankedStocks[0]?.symbol
-            ? `**الأفضل فنياً بين المتاح حالياً: ${rankedStocks[0].symbol}**؛ لأنه حقق أفضل توازن نسبي بين الزخم والسيولة مقارنة بباقي الأسهم المعروضة.`
+            ? `الأقوى نسبياً الآن هو **${rankedStocks[0].symbol}**؛ توازنه بين الزخم والحجم أفضل من بقية النتائج المتاحة.`
             : null;
 
         return [
@@ -880,11 +876,7 @@ export function buildFastConversationalAdvisorResponse(
             bestStockLine ? "" : "",
             topStocksList || "• الأسهم الموضحة بالجدول أعلاه تعكس أحدث حركة للسيولة والزخم السعري للقطاع.",
             "",
-            "📌 **التوصية:**",
-            "1. حدد السهم الأفضل بناءً على أقوى مؤشرات السهم في الجدول (acc_score مرتفع + حجم مرتفع + RSI مناسب).",
-            "2. إذا لم يتوفر للسهم المختار إشارة MACD أو دعم واضح، فانتظر حتى يتوفر تأكيد فني إضافي.",
-            "",
-            "يمكنك الآن مقارنة الدعم والمقاومة الفعليين للأسهم التي اجتازت هذه التصفية."
+            "الترتيب نسبي داخل النتائج المتاحة فقط. غياب دعم واضح أو حجم مؤكد يجعل الانتظار أكثر تحفظاً من مطاردة الحركة."
         ].join("\n");
     }
 
@@ -906,15 +898,13 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
 
         if (stocks.length === 0) {
             if (!plan.entities?.symbols?.length) {
-                return `عذراً، لم أجد أي أسهم تطابق الشروط التي حددتها حالياً في قاعدة البيانات.`;
+                return "لا توجد أسهم مطابقة للشروط في أحدث مسح متاح.";
             }
         }
 
         if (stocks.length > 0) {
-        const countWord = stocks.length === 1 ? "سهم واحد" : stocks.length === 2 ? "سهمين" : `${stocks.length} أسهم`;
-        const lines = [
-            `تم العثور على ${countWord} يطابق الشروط المحددة:`
-        ];
+        const countWord = stocks.length === 1 ? "سهم واحد" : stocks.length === 2 ? "سهمان" : `${stocks.length} أسهم`;
+        const lines = [`المسح الحالي يعرض ${countWord} بإشارة ${actionAr}:`];
 
         stocks.slice(0, 15).forEach((stock: any) => {
             const score = stock[scoreField];
@@ -924,20 +914,17 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
             const wyckoff = stock.wyckoff_phase;
             const rsi = stock.rsi_14;
 
-            lines.push("");
-            lines.push(`📌 **${stock.symbol} (${stock.name || stock.symbol})**`);
-            lines.push(`✅ درجة ${actionAr}: ${score}/100`);
-            lines.push(`✅ نسبة الحجم: ${vol}x`);
-            lines.push(`✅ لا يوجد ${oppositeDirection} (درجة ${oppositeDirection === "تصريف" ? "التصريف" : "التجميع"}: ${oppScore})`);
-            lines.push(`✅ ${actionAr} مستمر: ${consecutiveDays} أيام متتالية`);
-            if (rsi) lines.push(`• RSI: ${rsi}`);
-            if (wyckoff) lines.push(`• مرحلة Wyckoff: ${wyckoff}`);
+            const details = [
+                `درجة ${actionAr} ${score}/100 مقابل ${oppositeDirection} ${oppScore}/100`,
+                vol != null ? `الحجم ${vol}x من المتوسط` : null,
+                consecutiveDays != null ? `الإشارة مستمرة ${consecutiveDays} أيام` : null,
+                rsi != null ? `RSI ${rsi}` : null,
+                wyckoff ? `مرحلة Wyckoff: ${wyckoff}` : null
+            ].filter(Boolean);
+            lines.push(`- **${stock.symbol}**${stock.name && stock.name !== stock.symbol ? ` (${stock.name})` : ""}: ${details.join("، ")}.`);
         });
 
-        lines.push("");
-        lines.push(`الخلاصة: وفقاً للشروط التي حددتها، ${stocks.length === 1 ? `نعم، توجد إشارة ${actionAr} على سهم ${stocks[0].symbol} في مسح ${scan.data_time}.` : `هذه هي الأسهم المطابقة حالياً في قاعدة البيانات.`}`);
-        lines.push("");
-        lines.push("حدد من هذه القائمة السهم الأنسب لحالتك، واتخذ قرار الشراء أو الانتظار وفقاً لتأكيد الإشارة على الرسم البياني.");
+        lines.push(`البيانات بتاريخ ${scan.data_time}. الإشارة تصف المسح الفني ولا تكفي وحدها لاتخاذ قرار شراء أو بيع.`);
 
         return lines.join("\n");
         }
@@ -1329,9 +1316,23 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
             : `لا توجد بيانات حجم وسعر مكتملة تكفي لمقارنة سيولة القطاعات بتاريخ ${sectorLiquidity.data_time}.`;
         const top = sectors[0];
         const formatMillions = (value: number) => `${(Number(value) / 1_000_000).toFixed(2)} مليون جنيه`;
+        const sectorNameAr = (value: unknown): string => ({
+            "Finance": "البنوك والخدمات المالية",
+            "Process Industries": "الصناعات التحويلية",
+            "Distribution Services": "خدمات التوزيع واللوجستيات",
+            "Consumer Non-Durables": "الأغذية والسلع الاستهلاكية",
+            "Industrial Services": "الخدمات الصناعية",
+            "Producer Manufacturing": "التصنيع والإنتاج",
+            "Non-Energy Minerals": "مواد البناء والتعدين",
+            "Consumer Durables": "العقارات والسلع المعمرة",
+            "Technology Services": "التكنولوجيا والاتصالات",
+            "Transportation": "النقل والشحن",
+            "Utilities": "المرافق العامة",
+            "Energy Minerals": "البترول والطاقة"
+        }[String(value)] || String(value));
         if (sectorLiquidity.data?.requested_sector) {
             return [
-                `سيولة قطاع ${top.sector} بلغت نحو ${formatMillions(top.traded_value)} بتاريخ ${sectorLiquidity.data_time}، محسوبة من ${top.stock_count} سهم متاح البيانات.`,
+                `سيولة قطاع ${sectorNameAr(top.sector)} بلغت نحو ${formatMillions(top.traded_value)} بتاريخ ${sectorLiquidity.data_time}، محسوبة من ${top.stock_count} سهم متاح البيانات.`,
                 top.average_volume_ratio != null ? `متوسط نسبة الحجم لأسهم القطاع: ${Number(top.average_volume_ratio).toFixed(2)}x.` : null,
                 sectorLiquidity.data?.excluded_sectors?.length ? `تم استبعاد: ${sectorLiquidity.data.excluded_sectors.join(" و")} من المقارنة.` : null,
                 "الحساب تقديري على أساس السعر × حجم التداول، وليس توصية شراء أو بيع."
@@ -1339,8 +1340,8 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
         }
         return [
             describeDatedFallback(plan.entities.requested_date, sectorLiquidity.data_time),
-            `السيولة الأوضح بتاريخ ${sectorLiquidity.data_time} كانت في قطاع ${top.sector}: نحو ${formatMillions(top.traded_value)} عبر ${top.stock_count} سهم متاح البيانات.`,
-            ...sectors.slice(1, 5).map((sector: any, index: number) => `${index + 2}. ${sector.sector}: ${formatMillions(sector.traded_value)} عبر ${sector.stock_count} سهم.`),
+            `السيولة الأوضح بتاريخ ${sectorLiquidity.data_time} كانت في قطاع ${sectorNameAr(top.sector)}: نحو ${formatMillions(top.traded_value)} عبر ${top.stock_count} سهم متاح البيانات.`,
+            ...sectors.slice(1, 5).map((sector: any, index: number) => `${index + 2}. ${sectorNameAr(sector.sector)}: ${formatMillions(sector.traded_value)} عبر ${sector.stock_count} سهم.`),
             sectorLiquidity.data?.excluded_sectors?.length ? `تم استبعاد: ${sectorLiquidity.data.excluded_sectors.join(" و")} من المقارنة.` : null,
             "الترتيب مبني على السعر × حجم التداول في الجلسة، وليس RSI أو درجة التجميع، ولا يمثل توصية شراء أو بيع."
         ].filter(Boolean).join("\n");
@@ -1453,14 +1454,20 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
     if (stocks.length > 0) {
         const lines = stocks.slice(0, 10).map(result => {
             const data = result.data;
-            return `- ${data.symbol} (${data.name}): السعر ${data.price} جنيه، التغير ${data.change_pct}، RSI ${data.rsi_14}، MACD ${data.macd_signal}، حجم التداول ${data.vol_ratio} من متوسط 20 جلسة.`;
+            const facts = [
+                data.price != null ? `السعر ${data.price} جنيه` : null,
+                data.change_pct != null ? `تغير الجلسة ${data.change_pct}` : null,
+                data.rsi_14 != null ? `RSI ${data.rsi_14}` : null,
+                data.vol_ratio != null ? `الحجم ${data.vol_ratio} من متوسط 20 جلسة` : null
+            ].filter(Boolean);
+            return `- **${data.symbol}**${data.name && data.name !== data.symbol ? ` (${data.name})` : ""}: ${facts.join("، ")}.`;
         });
         const levelLines = levelResults.length > 5 ? [] : levelResults
             .map(lvl => {
                 const lvlData = lvl?.data;
                 const lvlSymbol = lvlData?.symbol || lvl?.symbols?.[0];
                 if (lvlData?.support != null && lvlData?.resistance != null) {
-                    return `الدعم الحسابي: ${Number(lvlData.support).toFixed(2)} جنيه، المقاومة الحسابية: ${Number(lvlData.resistance).toFixed(2)} جنيه (لسهم ${lvlSymbol})، من آخر ${lvlData.lookback_sessions} جلسة حتى ${lvl.data_time}.`;
+                    return `${lvlSymbol}: الدعم ${Number(lvlData.support).toFixed(2)} والمقاومة ${Number(lvlData.resistance).toFixed(2)} جنيه${lvlData.lookback_sessions ? `، محسوبان من آخر ${lvlData.lookback_sessions} جلسة` : ""}.`;
                 }
                 return null;
             })
@@ -1472,7 +1479,7 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
 
         const omitted = stocks.length > 10 ? `تم عرض ملخص أول 10 أسهم فقط؛ الجدول المنظم يحتوي على جميع الأسهم المتاحة (${stocks.length}).` : null;
         const opinionLines = stocks.length <= 3 ? stocks.map(result => buildStockOpinion(result, levelResults)) : [];
-        return [describeDatedFallback(plan.entities.requested_date, stocks[0]?.data_time), "ملخص أحدث البيانات المتاحة:", ...lines, omitted, ...levelLines, levelFallback, ...opinionLines, ...(fairValueRequest ? buildTechnicalValuationLines(stocks, levelResults) : []), "الرأي مبني على السعر والزخم والحجم والمستويات المتاحة، وليس توصية شراء أو بيع. لو ذكرت هدفك ومدة الاستثمار وسعر دخولك أقدر أربط التحليل بوضعك بشكل أوضح."].filter(Boolean).join("\n");
+        return [describeDatedFallback(plan.entities.requested_date, stocks[0]?.data_time), ...lines, ...levelLines, levelFallback, ...opinionLines, ...(fairValueRequest ? buildTechnicalValuationLines(stocks, levelResults) : []), omitted, "هذه قراءة فنية للبيانات المتاحة، وليست توصية شراء أو بيع."].filter(Boolean).join("\n");
     }
 
     return null;
@@ -1501,7 +1508,7 @@ function buildStockOpinion(result: ToolResult, levelResults: ToolResult[]): stri
                 : "منطقة حيادية للمراقبة";
         notes.push(region);
     }
-    return `${symbol} - رأيي الفني: ${notes.join("؛ ") || "البيانات الحالية لا تكفي لرأي فني موثوق"}.`;
+    return `${symbol}: ${notes.join("؛ ") || "البيانات الحالية لا تكفي لقراءة فنية موثوقة"}.`;
 }
 
 function buildTechnicalValuationLines(stockResults: ToolResult[], levelResults: ToolResult[]): string[] {

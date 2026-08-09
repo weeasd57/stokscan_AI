@@ -84,6 +84,44 @@ describe("Live Supabase chatbot integration", () => {
         expect(response).not.toContain("ملخص سيولة السوق");
     }, 60000);
 
+    liveTest("answers a live sector-entry question while excluding prior winners", async () => {
+        const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+        const message = "معايا سيولة ادخل في اي دلوقتي غير قطاع الادوية والمخابز علشان فيهم وطلعو الحمدالله خلاص";
+        const email = `live-sector-${Date.now()}@example.invalid`;
+        const { data: authData, error: authError } = await supabase.auth.admin.createUser({ email, password: crypto.randomUUID(), email_confirm: true });
+        if (authError || !authData.user) throw new Error(authError?.message || "Unable to create evaluation user");
+        const sessionId = crypto.randomUUID();
+        try {
+            const session = await supabase.from("ai_chat_sessions").insert({ id: sessionId, user_id: authData.user.id, title: "live sector evaluation" });
+            if (session.error) throw new Error(session.error.message);
+            const result = await runPipeline(
+                message,
+                [],
+                { current_symbol: "COMI", last_symbols: ["COMI"], summary: "تحليل COMI" },
+                null,
+                [],
+                supabase,
+                [],
+                authData.user.id,
+                sessionId,
+                `live-sector-${Date.now()}`
+            );
+            const { plan, response } = result;
+            const output = result.tools;
+
+            console.log(`[LIVE SECTOR RESPONSE]\n${response}`);
+            expect(plan.tools).toEqual(["get_sector_liquidity"]);
+            expect(plan.entities.sector).toBeNull();
+            expect(plan.entities.excluded_sectors).toEqual(expect.arrayContaining(["أدوية", "مخابز ومطاحن"]));
+            expect(output.results.find(result => result.tool === "get_sector_liquidity")?.data?.sectors?.length).toBeGreaterThan(0);
+            expect(response).toContain("تم استبعاد: أدوية ومخابز ومطاحن");
+            expect(response).not.toMatch(/Health Technology|Pharmaceutical|Milling|Bakery/i);
+        } finally {
+            await supabase.from("ai_chat_sessions").delete().eq("id", sessionId);
+            await supabase.auth.admin.deleteUser(authData.user.id);
+        }
+    }, 60000);
+
     liveTest("runs a sequential user session through the full pipeline and persistence", async () => {
         const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
         const email = `live-eval-${Date.now()}@example.invalid`;

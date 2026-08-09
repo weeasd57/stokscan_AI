@@ -847,13 +847,14 @@ export async function* runPipelineStream(
     if (mergedSymbols.length > 0 && guidanceIntent !== "product_comparison") {
         guidanceIntent = null;
     }
+    const excludedSectors = extractExcludedSectors(userMessage);
     const plan: IntentPlan = {
         intent: mapIntent(effectiveIntent),
         confidence: plannerResult.confidence || 0.8,
         guidance_intent: guidanceIntent,
         entities: {
             symbols: mergedSymbols,
-            sector: enforced.sector || plannerResult.entities.sector || null,
+            sector: excludedSectors.length > 0 && plannedTools.includes("get_sector_liquidity") ? null : enforced.sector || plannerResult.entities.sector || null,
             timeframe: extractTemporalContext(userMessage).timeframe,
             reference: memory?.resolved_references?.symbol ? "last_image" : null
             ,scan_direction: enforced.scan_direction || plannerResult.entities.scan_direction || null
@@ -861,7 +862,7 @@ export async function* runPipelineStream(
             ,require_distribution: Boolean(enforced.require_distribution || plannerResult.entities.require_distribution)
             ,require_accumulation: Boolean(enforced.require_accumulation || plannerResult.entities.require_accumulation)
             ,recommendation_order: enforced.recommendation_order || plannerResult.entities.recommendation_order || null
-            ,excluded_sectors: extractExcludedSectors(userMessage)
+            ,excluded_sectors: excludedSectors
             ,requested_date: requestedRange ? null : extractTemporalContext(userMessage).date
             ,requested_start_date: requestedRange?.start || null
             ,requested_end_date: requestedRange?.end || null
@@ -1336,13 +1337,14 @@ export async function runPipeline(
     if (mergedSymbols.length > 0 && guidanceIntent !== "product_comparison") {
         guidanceIntent = null;
     }
+    const excludedSectors = extractExcludedSectors(userMessage);
     const plan: IntentPlan = {
         intent: mapIntent(effectiveIntent),
         confidence: plannerResult.confidence || 0.8,
         guidance_intent: guidanceIntent,
         entities: {
             symbols: mergedSymbols,
-            sector: enforced.sector || plannerResult.entities.sector || null,
+            sector: excludedSectors.length > 0 && plannedTools.includes("get_sector_liquidity") ? null : enforced.sector || plannerResult.entities.sector || null,
             timeframe: extractTemporalContext(userMessage).timeframe,
             reference: memory?.resolved_references?.symbol ? "last_image" : null
             ,scan_direction: enforced.scan_direction || plannerResult.entities.scan_direction || null
@@ -1350,7 +1352,7 @@ export async function runPipeline(
             ,require_distribution: Boolean(enforced.require_distribution || plannerResult.entities.require_distribution)
             ,require_accumulation: Boolean(enforced.require_accumulation || plannerResult.entities.require_accumulation)
             ,recommendation_order: enforced.recommendation_order || plannerResult.entities.recommendation_order || null
-            ,excluded_sectors: extractExcludedSectors(userMessage)
+            ,excluded_sectors: excludedSectors
             ,requested_date: requestedRange ? null : extractTemporalContext(userMessage).date
             ,requested_start_date: requestedRange?.start || null
             ,requested_end_date: requestedRange?.end || null
