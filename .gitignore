@@ -57,6 +57,7 @@ p.png
 .vercel
 .agent/
 .kiro/
+.qoder/
 web/public/*.png
 web/public/favicon_io/*.png
 

@@ -585,12 +585,19 @@ export function buildDeterministicNewsResponse(
     const seenTitles = new Set();
     const uniqueItems = [];
     for (const item of items) {
-        if (!item?.title && !item?.headline) continue;
-        const rawTitle = String(item.title || item.headline);
-        const normalizedTitle = rawTitle.toLowerCase().trim().replace(/\s+/g, ' ');
-        if (!seenTitles.has(normalizedTitle)) {
-            seenTitles.add(normalizedTitle);
-            uniqueItems.push(item);
+        const itemHeadlines = Array.isArray(item?.headlines) ? item.headlines : [];
+        const dateStr = item.date || item.published_at || "";
+        for (const hl of itemHeadlines) {
+            if (!hl) continue;
+            const normalizedTitle = hl.toLowerCase().trim().replace(/\s+/g, ' ');
+            if (!seenTitles.has(normalizedTitle)) {
+                seenTitles.add(normalizedTitle);
+                uniqueItems.push({
+                    symbol: item.symbol,
+                    title: hl.trim(),
+                    date: dateStr
+                });
+            }
         }
     }
 
@@ -603,10 +610,9 @@ export function buildDeterministicNewsResponse(
     const lines = [`أهم الأخبار الفعلية المتاحة خلال الفترة${rangeLabel}:`];
     
     headlines.forEach((item: any) => {
-        const title = (item.title || item.headline || "").trim();
-        const dateStr = item.published_at || item.date || "";
-        const formattedDate = dateStr ? ` (\
-${String(dateStr).slice(0, 10)})` : "";
+        const title = item.title;
+        const dateStr = item.date || "";
+        const formattedDate = dateStr ? ` (${String(dateStr).slice(0, 10)})` : "";
         const symbolPrefix = item.symbol ? `**${item.symbol}**: ` : "";
         lines.push(`- ${symbolPrefix}${title}${formattedDate}`);
     });

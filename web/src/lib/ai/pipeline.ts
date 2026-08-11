@@ -551,7 +551,7 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
         };
     }
 
-    const enforced = enforceIntentFromMessage(message, symbols.length ? "stock_analysis" : "market_summary", symbols);
+    const enforced = enforceIntentFromMessage(message, symbols.length ? "stock_analysis" : "market_summary", symbols, sessionState);
     const sectorFollowUp = Boolean(sectorReference && symbols.length === 0);
     const comparesSectors = enforced.tools.includes("get_sector_liquidity") && enforced.sector === null;
     const effectiveSector = comparesSectors ? null : explicitSector || knownSectorFollowUp || sectorFollowUp ? sector : null;
@@ -610,7 +610,7 @@ export function extractExcludedSectors(message: string): string[] {
 
 
 
-export function enforceIntentFromMessage(message: string, plannerIntent: string, symbols: string[]): {
+export function enforceIntentFromMessage(message: string, plannerIntent: string, symbols: string[], sessionState?: SessionState): {
     intent: string;
     tools: string[];
     replaceTools?: boolean;
@@ -697,7 +697,13 @@ export function enforceIntentFromMessage(message: string, plannerIntent: string,
     if (/(حاله|حالة).{0,12}(السوق|البورصه|البورصة)|(?:السوق|البورصه|البورصة).{0,12}(النهارده|اليوم|عامل|حاله|حالة)/i.test(normalized)) return { intent: "market_summary", tools: ["get_market"], replaceTools: true };
     if (/(اداء|أداء|رايك|رأيك).{0,15}(المؤشر|موشر|egx30)|(?:المؤشر|موشر).{0,15}(النهارده|اليوم|عامل)/i.test(normalized)) return { intent: "market_summary", tools: ["get_market"], replaceTools: true };
     if (/(سيول|تداول|liquidity)/i.test(normalized) && hasSymbol) return { intent: "stock_analysis", tools: ["get_stock"], replaceTools: true };
-    if (/(سيول|تداول|liquidity)/i.test(normalized) && !hasSymbol) return { intent: "market_summary", tools: ["get_market", "get_accumulation_stocks"], replaceTools: true };
+    if (/(سيول|تداول|liquidity)/i.test(normalized) && !hasSymbol) {
+        const referencedSector = extractSectorFromMessage(message) || sessionState?.current_sector || extractSectorFromMessage(sessionState?.summary || "");
+        if (referencedSector) {
+            return { intent: "sector_analysis", tools: ["get_sector_liquidity"], replaceTools: true, sector: referencedSector };
+        }
+        return { intent: "market_summary", tools: ["get_market", "get_accumulation_stocks"], replaceTools: true };
+    }
     const isSectorComparison = !marketFairValueScan && (
         /(?:أيهما|ايهما|مقارنة|مقارنه|مفاضلة).{0,30}(?:قطاع|القطاعات)/i.test(normalized) ||
         /(?:قطاع|القطاعات).{0,25}(?:احسن|افضل|أفضل|أحسن|مقارنة|مقارنه|مفاضلة).{0,25}(?:من|بين|ولا|أم|ام).{0,25}(?:قطاع|القطاعات|ادويه|أدوية|بنوك|عقارات|اتصالات|أغذية|اغذية|دواء)/i.test(normalized) ||
@@ -922,7 +928,7 @@ export async function* runPipelineStream(
           }
         : fairValueScanRequest
             ? { intent: "market_summary", tools: ["get_fair_value_scan"], replaceTools: true }
-            : enforceIntentFromMessage(userMessage, plannerResult.intent, mergedSymbols);
+            : enforceIntentFromMessage(userMessage, plannerResult.intent, mergedSymbols, sessionState);
     const marketScopedTools = new Set(["get_market", "get_sector_liquidity", "get_sector_list", "get_fair_value_scan"]);
     if (explicitSymbols.length === 0 && enforced.tools.some(tool => marketScopedTools.has(tool))) mergedSymbols = [];
     const datedDomainRequest = Boolean(extractRequestedDate(userMessage) || extractRequestedDateRange(userMessage)) && ["stock_analysis", "stock_news", "comparison", "sector_analysis", "accumulation_distribution"].includes(enforced.intent);
@@ -1466,7 +1472,7 @@ export async function runPipeline(
             require_distribution: plannerResult.entities.require_distribution,
             require_accumulation: plannerResult.entities.require_accumulation
           }
-        : enforceIntentFromMessage(userMessage, plannerResult.intent, mergedSymbols);
+        : enforceIntentFromMessage(userMessage, plannerResult.intent, mergedSymbols, sessionState);
     const marketScopedTools = new Set(["get_market", "get_sector_liquidity", "get_sector_list", "get_fair_value_scan"]);
     if (explicitSymbols.length === 0 && enforced.tools.some(tool => marketScopedTools.has(tool))) mergedSymbols = [];
     const datedDomainRequest = Boolean(extractRequestedDate(userMessage) || extractRequestedDateRange(userMessage)) && ["stock_analysis", "stock_news", "comparison", "sector_analysis", "accumulation_distribution"].includes(enforced.intent);

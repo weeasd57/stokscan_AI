@@ -216,6 +216,9 @@ export function sanitizeReply(reply: string, liveDataString?: string): string {
         cleanReply = kept.slice(start).join("\n").trim();
     }
 
+    // 1c. Fix mid-sentence English verbs leaking into Arabic prose (e.g. "تُ traded").
+    cleanReply = cleanReply.replace(/تُ\s+traded/gi, "تُتداول");
+
     // Check if we have liveDataString with stock data for programmatic table
     let hasProgrammaticTable = false;
     let programmaticTableText = "";
