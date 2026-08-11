@@ -38,6 +38,7 @@ from api.train_exchange_model import add_massive_features, add_market_context
 from api.council import TheCouncil
 from api.council_validator import CouncilValidator, load_council_validator_from_path
 from api.market_status_gate import should_reject_new_buys
+from api.model_utils import safe_model_path
 
 router = APIRouter(prefix="/scan/fast", tags=["scan-fast"])
 
@@ -149,7 +150,11 @@ def _load_model(model_name: str):
     Uses the same loading logic as stock_ai.py to ensure PCA support.
     """
     models_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "models"))
-    model_path = model_name if os.path.isabs(model_name) else os.path.join(models_dir, model_name)
+    # Security: reject traversal/absolute paths before opening + pickle.load
+    try:
+        model_path = safe_model_path(model_name, models_dir)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     cached = _get_model_cached(model_path)
     if cached:
@@ -875,8 +880,9 @@ def fast_scan(
     if validator_model and validator_model.lower() not in ["none", "null", ""]:
         try:
             models_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "models"))
-            safe_name = os.path.basename(str(validator_model))
-            v_path = safe_name if os.path.isabs(str(validator_model)) else os.path.join(models_dir, safe_name)
+            # Security: resolve validator name inside models_dir only
+            v_path = safe_model_path(str(validator_model), models_dir)
+            safe_name = os.path.basename(v_path)
             validator = load_council_validator_from_path(v_path)
             if validator is not None:
                 print(f"DEBUG SCAN: Loaded validator: {safe_name}")

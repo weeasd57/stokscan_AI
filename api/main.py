@@ -3057,6 +3057,8 @@ def strategy_tester_endpoint(req: StrategyTesterRequest):
 
     from api.backtest_config import BacktestConfig, get_simulation_function
 
+    from api.model_utils import safe_model_path
+
     
 
     # Log current configuration
@@ -3127,7 +3129,25 @@ def strategy_tester_endpoint(req: StrategyTesterRequest):
 
         try:
 
-            model_path = os.path.join(models_dir, model_name)
+            # Security: resolve model name inside models_dir only (no traversal)
+
+            try:
+
+                model_path = safe_model_path(model_name, models_dir)
+
+            except ValueError:
+
+                model_results[bot_id] = {
+
+                    "error": "Invalid model name",
+
+                    "trades": [],
+
+                    "stats": {},
+
+                }
+
+                continue
 
             model_obj = load_model(model_path)
 
@@ -6613,7 +6633,13 @@ def get_backtest_trades(id: str):
 
     if id.startswith("local-"):
 
-        filename = id[6:]
+        # Security: strip path components to prevent traversal via backtest id
+
+        filename = os.path.basename(id[6:].strip())
+
+        if not filename or not filename.lower().endswith(".json"):
+
+            return []
 
         local_dir = os.path.join(
 
@@ -6761,7 +6787,13 @@ def delete_backtest(id: str):
 
     if id.startswith("local-"):
 
-        filename = id[6:]
+        # Security: strip path components to prevent traversal via backtest id
+
+        filename = os.path.basename(id[6:].strip())
+
+        if not filename or not filename.lower().endswith(".json"):
+
+            raise HTTPException(status_code=400, detail="Invalid local backtest id")
 
         local_dir = os.path.join(
 
@@ -6829,7 +6861,13 @@ def update_backtest(id: str, req: BacktestUpdate):
 
     if id.startswith("local-"):
 
-        filename = id[6:]
+        # Security: strip path components to prevent traversal via backtest id
+
+        filename = os.path.basename(id[6:].strip())
+
+        if not filename or not filename.lower().endswith(".json"):
+
+            raise HTTPException(status_code=400, detail="Invalid local backtest id")
 
         local_dir = os.path.join(
 

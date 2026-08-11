@@ -819,97 +819,6 @@ Analyze the user request and return a JSON object. You MUST dynamically choose t
         userContent = userPromptText;
     }
 
-    const officialKey = process.env.DEEPSEEK_OFFICIAL_API_KEY || null;
-    if (officialKey && !hasImages) {
-        try {
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), AI_CONFIG.limits.plannerTimeoutMs || 8000);
-            const res = await fetch(AI_CONFIG.api.deepseekOfficialBaseUrl || "https://api.deepseek.com/chat/completions", {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    "Authorization": `Bearer ${officialKey}`
-                },
-                signal: controller.signal,
-                body: JSON.stringify({
-                    model: "deepseek-chat",
-                    messages: [
-                        { role: "system", content: plannerSystemPrompt },
-                        { role: "user", content: userPromptText }
-                    ],
-                    response_format: { type: "json_object" },
-                    max_tokens: AI_CONFIG.limits.plannerMaxTokens || 320,
-                    temperature: 0.05
-                })
-            });
-            clearTimeout(timeoutId);
-            if (res.ok) {
-                const json = await res.json();
-                const rawContent = json.choices?.[0]?.message?.content?.trim() || "";
-                let parsed: any = null;
-                try { parsed = JSON.parse(rawContent); } catch {
-                    const match = rawContent.match(/\{[\s\S]*\}/);
-                    if (match) try { parsed = JSON.parse(match[0]); } catch {}
-                }
-                if (parsed && parsed.intent) {
-                    const validSymbols = await loadValidSymbols();
-                    const { stockMappings } = await getStocksList();
-                    const extracted = extractSymbolsFromText(message || "", validSymbols, stockMappings);
-                    const tools = Array.isArray(parsed.tools) ? parsed.tools : ["get_stock"];
-
-                    const normMsg = (message || "").toLowerCase();
-                    const hasRecommendationKeywords = /(?:في|فى|فيه|عندك|هل\s+يوجد|موجود)?\s*(?:توصيات|توصيه|توصية|إشارة|إشارات|اشارة|اشارات|اشارات\s+النظام|إشارات\s+النظام|سجل\s+التوصيات|اقدم\s+توصيه|أقدم\s+توصية)/i.test(message || "");
-
-                    // إذا سأل عن سهم بعبارة معلوماتية → اضمن get_stock + get_news
-                    const hasStockInfoKeywords = /خبرني|حدثني|حلل|معلومات|تحليل|سعر|عامل|بكم|وضع|ايه رأيك|ايه رأي|عمل ايه|معاه ايه|ايه اللي|رسم|شارت|chart/.test(normMsg);
-                    if (extracted.length > 0 && hasStockInfoKeywords) {
-                        if (!tools.includes("get_stock")) tools.unshift("get_stock");
-                        if (!tools.includes("get_news")) tools.push("get_news");
-                    }
-
-                    if (hasRecommendationKeywords && !hasImages) {
-                        if (!tools.includes("get_recommendations")) tools.push("get_recommendations");
-                        if (!tools.includes("get_signals")) tools.push("get_signals");
-                    }
-
-                    // Clean Intent Resolution: If intent is general market scan or tools include accumulation/market without explicit tickers, do not attach old symbols
-                    const isTermsQuestion = isTermsDefinitionRequest(message) && extracted.length === 0;
-                    const isMarketScan = (isTermsQuestion || parsed.intent === "accumulation" || parsed.intent === "market_summary" || parsed.intent === "sector_analysis" || tools.includes("get_accumulation_stocks") || tools.includes("get_market")) && parsed.intent !== "comparison";
-                    const rawSymbols = (isMarketScan || isTermsQuestion) && extracted.length === 0 ? [] : (Array.isArray(parsed.entities?.symbols) ? parsed.entities.symbols : []);
-                    const normalizedSymbols = rawSymbols.map((s: string) => correctStockSymbol(s, validSymbols)).filter((s: string) => validSymbols.includes(s));
-                    const isComparisonQuery = /قارن|مقارنة|مفاضلة|بين|الاتنين|السهمين/i.test(message) || extracted.length >= 2;
-                    const finalSymbols = (extracted.length > 0 && !isComparisonQuery)
-                        ? [extracted[0]]
-                        : (((isMarketScan || isTermsQuestion) && extracted.length === 0 ? [] : Array.from(new Set([...extracted, ...normalizedSymbols])))
-                            .filter((s: string) => /^[A-Z]{2,6}$/.test(s) && !/^\d+$/.test(s)));
-
-                    const isHistoricalRecallQuery = /التحليل (اللي فات|السابق)|الرقم اللي (قولته|ذكرته) قبل كده|السعر اللي قولته|كان (RSI|macd|السعر) كام|من شوية|قبل كده/i.test(message);
-                    let finalIntent = isTermsQuestion ? "general_chat" : (parsed.intent || "stock_analysis");
-                    if (hasRecommendationKeywords) {
-                        finalIntent = "recommendations";
-                    } else if (isTermsQuestion) {
-                        finalIntent = "general_chat";
-                    } else if (isHistoricalRecallQuery) {
-                        finalIntent = "historical_recall";
-                    }
-
-                    const finalTools = isTermsQuestion ? [] : tools;
-
-                    return {
-                        intent: finalIntent,
-                        confidence: parsed.confidence || 0.95,
-                        guidance_intent: isTermsQuestion ? "terms_explainer" : (parsed.guidance_intent || null),
-                        entities: { symbols: finalSymbols, sector: parsed.entities?.sector || null, wants_table: parsed.entities?.wants_table ?? (finalSymbols.length > 0), timeframe: parsed.entities?.timeframe || "1d" },
-                        tools: finalTools,
-                        session_update: { current_symbol: finalSymbols[0] || null, last_symbols: finalSymbols, summary: parsed.session_update?.summary || "" }
-                    };
-                }
-            }
-        } catch (err) {
-            console.warn("DeepSeek Official Planner fetch failed, falling back to NVIDIA keys:", err);
-        }
-    }
-
     let keyIndex = 0;
     // Planner output is a tiny JSON object. Bound provider retries so an
     // outage cannot consume the whole chat request before we fail clearly.
@@ -936,6 +845,9 @@ Analyze the user request and return a JSON object. You MUST dynamically choose t
                 };
                 if (!hasImages) {
                     reqBody.response_format = { type: "json_object" };
+                    // Reasoning models dump deliberation into content; cap effort so
+                    // the JSON planner output stays clean and within the token budget.
+                    reqBody.reasoning_effort = "none";
                 }
 
                 const res = await fetch("https://integrate.api.nvidia.com/v1/chat/completions", {

@@ -286,7 +286,7 @@ describe("Deterministic response fallback", () => {
 
     it("routes a broad accumulation request to the accumulation scan", () => {
         const plan = buildDeterministicPlannerResult("اية الاسهم اللى عليها تجميع كبير الفترة الحالية وفرصتهم فالصعود عالية خلال فترة قريبه", { current_symbol: null, last_symbols: [], summary: null });
-        expect(plan).toMatchObject({ intent: "market_summary", tools: ["get_accumulation_stocks"], entities: { scan_direction: "accumulation" } });
+        expect(plan).toMatchObject({ intent: "accumulation_distribution", tools: ["get_accumulation_stocks"], entities: { scan_direction: "accumulation" } });
         expect(plan.entities.min_acc_score).toBeUndefined();
     });
 
@@ -496,8 +496,8 @@ describe("Deterministic response fallback", () => {
             needs_vision_context: false, needs_history: false, needs_live_data: true, needs_historical_data: false,
             tools: ["get_price_history"], clarification_needed: false, resolved_from: { symbol: null, message_id: null }
         }, [{ tool: "get_price_history", source: "stock_prices", data_time: "2026-08-04", symbols: ["KWIN"], data_type: "historical", data: { symbol: "KWIN", latest: { close: 87.2 }, previous_close: null, upper_limit_20pct: null, lower_limit_20pct: null } }]);
-        expect(missingPrevious).toContain("لا يتوفر إغلاق سابق موثق");
-        expect(missingPrevious).not.toContain("0.00 جنيه");
+        expect(missingPrevious).toContain("لا تحتوي بيانات الأسعار المتاحة على الحد السعري الفعلي");
+        expect(missingPrevious).not.toContain("20%");
     });
 
     it("uses levels to frame a sell decision without deciding for the user", () => {
@@ -715,7 +715,7 @@ describe("Deterministic response fallback", () => {
         const plan = buildDeterministicPlannerResult("هات قايمه بالقطاعات كلها", { current_symbol: null, last_symbols: [], summary: null });
         expect(plan.tools).toEqual(["get_sector_list"]);
         const response = buildDeterministicResponse("هات قايمه بالقطاعات كلها", { ...basePlan, intent: "sector_analysis" }, [{ tool: "get_sector_list", source: "stock_fundamentals", data_time: "2026-08-01", symbols: [], data_type: "live", data: { sectors: [{ sector: "Finance", stock_count: 12 }, { sector: "Healthcare", stock_count: 8 }] } }]);
-        expect(response).toContain("Finance (12 سهم)");
+        expect(response).toContain("بنوك وخدمات مالية (12 سهم)");
         expect(response).toContain("Healthcare (8 سهم)");
     });
 

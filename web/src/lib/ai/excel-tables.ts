@@ -93,7 +93,15 @@ function buildSectorTable(tool: ToolResult): ExcelTable | null {
          "Technology Services": "التكنولوجيا والاتصالات",
          "Transportation": "النقل والشحن",
          "Utilities": "المرافق العامة",
-         "Energy Minerals": "البترول والطاقة"
+          "Energy Minerals": "البترول والطاقة",
+          "Health Technology": "التكنولوجيا الصحية والأدوية",
+          "Health Services": "الخدمات الصحية",
+          "Commercial Services": "الخدمات التجارية",
+          "Consumer Services": "خدمات المستهلكين",
+          "Retail Trade": "تجارة التجزئة",
+          "Electronic Technology": "الإلكترونيات والتقنية",
+          "Communications": "الاتصالات والإعلام",
+          "Miscellaneous": "متنوع"
      }[String(value)] || String(value));
      return {
          id: tool.tool,

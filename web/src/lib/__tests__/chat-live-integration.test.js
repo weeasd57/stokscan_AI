@@ -84,6 +84,120 @@ describe("Live Supabase chatbot integration", () => {
         expect(response).not.toContain("ملخص سيولة السوق");
     }, 60000);
 
+    liveTest("answers the exact weekly forecast question naturally", async () => {
+        const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+        const { data: authData, error: authError } = await supabase.auth.admin.createUser({
+            email: `weekly-eval-${Date.now()}@example.invalid`,
+            password: crypto.randomUUID(),
+            email_confirm: true
+        });
+        if (authError || !authData.user) throw new Error(authError?.message || "Unable to create weekly evaluation user");
+        const sessionId = crypto.randomUUID();
+        try {
+            const session = await supabase.from("ai_chat_sessions").insert({ id: sessionId, user_id: authData.user.id, title: "weekly forecast evaluation" });
+            if (session.error) throw new Error(session.error.message);
+            const result = await runPipeline(
+                "متوقع يرتفع الأسبوع ده",
+                [],
+                { current_symbol: "BIOC", last_symbols: ["BIOC"], summary: "تحليل BIOC" },
+                null,
+                [],
+                supabase,
+                [],
+                authData.user.id,
+                sessionId,
+                `weekly-${Date.now()}`
+            );
+
+            console.log(`[LIVE WEEKLY RESPONSE]\n${result.response}`);
+            expect(result.plan.entities.symbols).toEqual([]);
+            expect(result.plan.tools).toEqual(["get_fair_value_scan"]);
+            expect(result.response).toMatch(/الأسبوع|فنياً|فني|زخم|حجم|قيمة وسطية/);
+            expect(result.response).not.toMatch(/مضمون|أكيد يرتفع|environment_details|Working directory|Workspace root/i);
+        } finally {
+            await supabase.from("ai_chat_sessions").delete().eq("id", sessionId);
+            await supabase.auth.admin.deleteUser(authData.user.id);
+        }
+    }, 120000);
+
+    liveTest("covers the requested investor questions with natural, scoped answers", async () => {
+        const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+        const { data: authData, error: authError } = await supabase.auth.admin.createUser({
+            email: `requested-eval-${Date.now()}@example.invalid`,
+            password: crypto.randomUUID(),
+            email_confirm: true
+        });
+        if (authError || !authData.user) throw new Error(authError?.message || "Unable to create requested-question evaluation user");
+        const sessionId = crypto.randomUUID();
+        let state = { current_symbol: "BIOC", last_symbols: ["BIOC"], summary: "تحليل BIOC" };
+        const questions = [
+            {
+                message: "معايا سيولة ادخل في اي دلوقتي غير قطاع الادوية والمخابز علشان فيهم وطلعو الحمدالله خلاص",
+                tools: ["get_sector_liquidity"],
+                response: /سيولة|قطاع|استبعاد/,
+                clearStock: true
+            },
+            {
+                message: "هات القطاعات كلها",
+                tools: ["get_sector_list"],
+                response: /قطاع|قطاعات/,
+                clearStock: true
+            },
+            {
+                message: "اى احسن واحد فيهم احط فيه الايام دى",
+                tools: null,
+                response: /قطاع|بيانات|سيولة|مراقب|لا أستطيع|انتظار/,
+                clearStock: true
+            },
+            {
+                message: "ممكن أسهم بعد اذنكم متوافقة مع الشريعة استثمار كامل مش مضاربة",
+                tools: null,
+                response: /شريع|استثمار|بيانات|معلومة|لا أستطيع|مخاطر/,
+                clearStock: false
+            },
+            {
+                message: "اشتري اسهم اي الطالعه دلوقتي",
+                tools: null,
+                response: /أسهم|ارتفاع|جلسة|بيانات|لا توجد|مراقبة|توصية/,
+                clearStock: true
+            },
+            {
+                message: "المتوقع يرتفع الأسبوع ده",
+                tools: ["get_fair_value_scan"],
+                response: /أسبوع|الأسبوع|فني|زخم|حجم|قيمة وسطية|مراقبة/,
+                clearStock: true
+            }
+        ];
+
+        try {
+            const session = await supabase.from("ai_chat_sessions").insert({ id: sessionId, user_id: authData.user.id, title: "requested questions evaluation" });
+            if (session.error) throw new Error(session.error.message);
+            for (const item of questions) {
+                const result = await runPipeline(
+                    item.message,
+                    [],
+                    state,
+                    null,
+                    [],
+                    supabase,
+                    [],
+                    authData.user.id,
+                    sessionId,
+                    `requested-${Date.now()}`
+                );
+                console.log(`[REQUESTED QUESTION] ${item.message}\n${result.response}`);
+                if (item.tools) expect(result.plan.tools).toEqual(item.tools);
+                expect(result.response).toMatch(item.response);
+                expect(result.response).not.toMatch(/environment_details|Current time:|Working directory:|Workspace root folder:/i);
+                if (item.clearStock) expect(result.plan.entities.symbols).toEqual([]);
+                state = { ...state, ...result.session_update };
+            }
+        } finally {
+            await supabase.from("ai_chat_sessions").delete().eq("id", sessionId);
+            await supabase.auth.admin.deleteUser(authData.user.id);
+        }
+    }, 300000);
+
     liveTest("answers a live sector-entry question while excluding prior winners", async () => {
         const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
         const message = "معايا سيولة ادخل في اي دلوقتي غير قطاع الادوية والمخابز علشان فيهم وطلعو الحمدالله خلاص";
@@ -204,7 +318,7 @@ describe("Live Supabase chatbot integration", () => {
         let state = { current_symbol: null, last_symbols: [], summary: null };
         const history = [];
         const turns = [
-            ["حلل لي سهم KWIN", /رأيي الفني/],
+            ["حلل لي سهم KWIN", /قراءة فنية|رأيي الفني/],
             ["طيب ده قريب من الحد اليومي؟", /حد السعري|حد الصعود/],
             ["طيب ارجعلي لـ KWIN تاني، إيه أعلى سعر وصله؟", /أعلى سعر مسجل/],
             ["ولي رأيك في أداء المؤشر النهارده", /ملخص سيولة السوق|EGX30/],

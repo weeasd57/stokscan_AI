@@ -12,8 +12,46 @@ Usage:
     )
 """
 
+import os
+
 import pandas as pd
 import numpy as np
+
+
+# ---------------------------------------------------------------------------
+# Path safety
+# ---------------------------------------------------------------------------
+
+def safe_model_path(model_name: str, models_dir: str, allowed_ext=(".pkl",)) -> str:
+    """
+    Resolve a user-supplied model name to a path strictly inside models_dir.
+
+    Prevents path traversal (e.g. "../../secret.pkl" or absolute paths) before
+    the file is opened/deserialized. Raises ValueError for invalid names.
+
+    Rules:
+      - Directory components are stripped (basename only).
+      - Names containing an extension must end with one of allowed_ext.
+      - Extension-less names (e.g. "THE_COUNCIL") are allowed for conventions.
+      - The resolved path must stay within models_dir (realpath containment).
+    """
+    if not isinstance(model_name, str) or not model_name.strip():
+        raise ValueError("Invalid model name")
+
+    name = os.path.basename(model_name.strip())
+    if not name or name.startswith("."):
+        raise ValueError("Invalid model name")
+
+    if "." in name and not any(name.lower().endswith(ext) for ext in allowed_ext):
+        raise ValueError(
+            f"Model files must have one of these extensions: {', '.join(allowed_ext)}"
+        )
+
+    base = os.path.realpath(models_dir)
+    path = os.path.realpath(os.path.join(base, name))
+    if path == base or not path.startswith(base + os.sep):
+        raise ValueError("Invalid model path")
+    return path
 
 
 # ---------------------------------------------------------------------------

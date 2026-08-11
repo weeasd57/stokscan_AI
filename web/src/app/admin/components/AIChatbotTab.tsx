@@ -16,7 +16,7 @@ export default function AIChatbotTab() {
     const [settings, setSettings] = useState({
         api_url: "https://integrate.api.nvidia.com/v1",
         api_key: "",
-        model: "meta/llama-3.1-8b-instruct",
+        model: "nvidia/nemotron-3.5-lightning-30b-a3b",
         system_prompt: ""
     });
 
@@ -50,7 +50,7 @@ export default function AIChatbotTab() {
                     setSettings({
                         api_url: data.api_url || "https://integrate.api.nvidia.com/v1",
                         api_key: data.api_key || "",
-                        model: data.model || "meta/llama-3.1-8b-instruct",
+                        model: data.model || "nvidia/nemotron-3.5-lightning-30b-a3b",
                         system_prompt: data.system_prompt || ""
                     });
                 }

@@ -36,8 +36,8 @@ type ChatAction = {
 };
 
 export const AVAILABLE_AI_MODELS = [
-    { id: "deepseek-ai/deepseek-v4-flash", name: "DeepSeek V4 Flash", badgeAr: "تفكير عالي 🧠", badgeEn: "Reasoning 🧠", descAr: "نموذج الاستدلال الفني والمالي والتفكير المعمق", descEn: "Specialized in deep reasoning and financial logic" },
-    { id: "deepseek-ai/deepseek-v4-pro", name: "DeepSeek V4 Pro", badgeAr: "العملاق 🔥", badgeEn: "Ultra MoE 🔥", descAr: "نموذج ديب سيك V4 الأحدث بسياق 1M وسرعة تحليل", descEn: "Latest DeepSeek V4 Pro model with 1M context" },
+    { id: "nvidia/nemotron-3.5-lightning-30b-a3b", name: "Nemotron 3.5 Lightning", badgeAr: "الأسرع ⚡", badgeEn: "Fastest ⚡", descAr: "أحدث نماذج NVIDIA — ردود سريعة مع استدلال عميق", descEn: "Latest NVIDIA model — fast replies with deep reasoning" },
+    { id: "meta/muse-glimmer-30b", name: "Muse Glimmer 30B", badgeAr: "الأدق ✨", badgeEn: "Most Accurate ✨", descAr: "نموذج استدلال متقدم لتحليل فني أعمق وردود طبيعية", descEn: "Advanced reasoning model for deeper analysis and natural replies" },
 ];
 
 interface ChatContextType {
@@ -110,7 +110,7 @@ function saveStoredMessagesSync(sessionId: string, msgs: ChatMessage[]) {
 
 function stripMarkdownTables(text: string): string {
     return text
-        .replace(/(?:^|\n)###?[^\n]*\n\|[^\n]+\|\n\|[\s:\-|]+\|(?:\n\|[^\n]+\|)*/g, "")
+        .replace(/(?:^|\u000A)###?[^\u000A]*\u000A\|[^\u000A]+\|\u000A\|[\s:\-|]+\|(?:\u000A\|[^\u000A]+\|)*/g, "")
         .replace(/\n{3,}/g, "\n\n")
         .trim();
 }
@@ -126,7 +126,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     const [remainingQuota, setRemainingQuota] = useState<number>(15);
-    const [selectedModel, setSelectedModelState] = useState<string>("deepseek-ai/deepseek-v4-flash");
+    const [selectedModel, setSelectedModelState] = useState<string>("nvidia/nemotron-3.5-lightning-30b-a3b");
     const [sessions, setSessionsState] = useState<ChatSession[]>([]);
     const [activeSessionId, setActiveSessionIdState] = useState<string | null>(null);
     const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(false);
@@ -539,6 +539,15 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
             if (response.status === 504 || response.status === 502) {
                 assistantMsg.content = "استغرقت الاستجابة وقتاً أطول من المعتاد بسبب الضغط على الموديل. يرجى إعادة المحاولة أو اختيار موديل أسرع مثل Llama 3.1 8B ⚡";
+                assistantMsg.isStreaming = false;
+                assistantMsg.statusText = undefined;
+                updateAssistantMsgInState(assistantMsg);
+                flushStoredMessages(currentSessionId);
+                return;
+            }
+
+            if (response.status === 401) {
+                assistantMsg.content = "تحتاج إلى تسجيل الدخول لاستخدام المساعد الذكي. سجّل دخولك من زر الحساب أعلى الصفحة ثم أعد إرسال سؤالك.";
                 assistantMsg.isStreaming = false;
                 assistantMsg.statusText = undefined;
                 updateAssistantMsgInState(assistantMsg);

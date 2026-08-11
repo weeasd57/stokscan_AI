@@ -7,12 +7,10 @@ describe("chat security guards", () => {
 
     it("allows only configured response models", () => {
         const allowed = new Set([
-            "deepseek-ai/deepseek-v4-flash",
-            "meta/llama-3.1-70b-instruct",
-            "meta/llama-3.1-8b-instruct",
-            "gpt-5.6-sol",
+            "nvidia/nemotron-3.5-lightning-30b-a3b",
+            "meta/muse-glimmer-30b",
         ]);
         expect(allowed.has("evil/provider-model")).toBe(false);
-        expect(allowed.has("deepseek-ai/deepseek-v4-flash")).toBe(true);
+        expect(allowed.has("nvidia/nemotron-3.5-lightning-30b-a3b")).toBe(true);
     });
 });

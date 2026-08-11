@@ -27,6 +27,7 @@ from sklearn.metrics import precision_score
 from supabase import create_client, Client
 from supabase.lib.client_options import ClientOptions
 from api.train_exchange_model import add_massive_features, add_market_context, QuantitativeModelPipeline
+from api.model_utils import safe_model_path
 
 # Conditional import for LGBM to avoid failure if not installed (though it should be)
 try:
@@ -3225,11 +3226,20 @@ def train_and_predict(
     # Path for pre-trained model. Prefer explicit model_name if provided,
     # otherwise fall back to model_{exchange}.pkl convention.
     api_dir = os.path.dirname(os.path.abspath(__file__))
+    models_dir = os.path.join(api_dir, "models")
     if model_name:
-        model_path = os.path.join(api_dir, "models", model_name)
+        # Security: keep user-supplied names inside models_dir (no traversal)
+        try:
+            model_path = safe_model_path(model_name, models_dir)
+        except ValueError:
+            print(f"WARNING: rejected unsafe model name: {model_name!r}")
+            model_path = None
     else:
         model_filename = f"model_{exchange}.pkl" if exchange else None
-        model_path = os.path.join(api_dir, "models", model_filename) if model_filename else None
+        try:
+            model_path = safe_model_path(model_filename, models_dir) if model_filename else None
+        except ValueError:
+            model_path = None
     
     loaded_model = None
     predictors = RF_PREDICTORS

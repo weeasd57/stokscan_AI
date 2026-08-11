@@ -67,8 +67,6 @@ export async function executeStructuredTools(
             const latest = prices[0];
             const highest = prices.reduce((best: any, row: any) => Number(row.high) > Number(best.high) ? row : best, prices[0]);
             const previous = prices[1] || null;
-            const upperLimit = previous?.close != null ? Number(previous.close) * 1.2 : null;
-            const lowerLimit = previous?.close != null ? Number(previous.close) * 0.8 : null;
             const recentFive = prices.slice(0, 5).map((row: any) => ({
                 date: row.date,
                 close: Number(row.close),
@@ -76,7 +74,7 @@ export async function executeStructuredTools(
                 low: Number(row.low)
             }));
             const recentFifteen = prices.slice(0, 15).map((row: any) => ({ date: row.date, close: Number(row.close), high: Number(row.high), low: Number(row.low) }));
-            results.push({ tool: "get_price_history", source: "stock_prices", data_time: latest.date, symbols: [symbol], data_type: "historical", data: { symbol, latest, previous_close: previous?.close ?? null, recent_5_sessions: recentFive, recent_15_sessions: recentFifteen, highest_250_sessions: { price: highest.high, date: highest.date }, upper_limit_20pct: upperLimit, lower_limit_20pct: lowerLimit } });
+            results.push({ tool: "get_price_history", source: "stock_prices", data_time: latest.date, symbols: [symbol], data_type: "historical", data: { symbol, latest, previous_close: previous?.close ?? null, recent_5_sessions: recentFive, recent_15_sessions: recentFifteen, highest_250_sessions: { price: highest.high, date: highest.date } } });
         }
     }
 
@@ -175,8 +173,10 @@ export async function executeStructuredTools(
                 const scanAgeDays = scanDate ? Math.floor((Date.parse(`${dataDate}T23:59:59Z`) - Date.parse(`${scanDate}T23:59:59Z`)) / 86400000) : Number.POSITIVE_INFINITY;
                 const isDistribution = distribution?.signal === "distribution" || Number(distribution?.dist_score || 0) >= 50;
                 const isAccumulation = distribution?.signal === "accumulation" || distribution?.signal === "strong_accumulation" || Number(distribution?.acc_score || 0) >= 50;
-                if (requireDistribution && (!isDistribution || scanAgeDays > 60)) return null;
-                if (requireAccumulation && (!isAccumulation || scanAgeDays > 60)) return null;
+                // A fair-value scan explicitly requesting accumulation/distribution needs a
+                // current technical signal; a stale signal must not qualify the stock.
+                if (requireDistribution && (!isDistribution || scanAgeDays > 3)) return null;
+                if (requireAccumulation && (!isAccumulation || scanAgeDays > 3)) return null;
                 return {
                     symbol, close, support, resistance, midpoint,
                     premium_pct: midpoint > 0 ? ((close / midpoint) - 1) * 100 : null,
@@ -822,19 +822,9 @@ export async function executeStructuredTools(
                 if (symbols.length > 0) query = query.or(symbols.map(s => `symbol.ilike.${s}`).join(","));
                 return query.order("created_at", { ascending: oldestRequest }).range(from, to);
             };
-            let recsData: any[] = [];
-            if (oldestRequest) {
-                for (let from = 0; ; from += 1000) {
-                    const { data: page, error } = await fetchRecommendationPage(from, from + 999);
-                    if (error) throw error;
-                    recsData.push(...(page || []));
-                    if (!page || page.length < 1000) break;
-                }
-            } else {
-                const { data, error } = await fetchRecommendationPage(0, AI_CONFIG.tools.recommendationsLimit - 1);
-                if (error) throw error;
-                recsData = data || [];
-            }
+            const { data, error } = await fetchRecommendationPage(0, AI_CONFIG.tools.recommendationsLimit - 1);
+            if (error) throw error;
+            const recsData: any[] = data || [];
 
             const scopedRecs = symbols.length > 0
                 ? (recsData || []).filter((row: any) => symbols.includes(String(row.symbol || "").toUpperCase()))

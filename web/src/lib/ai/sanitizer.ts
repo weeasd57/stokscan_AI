@@ -189,6 +189,33 @@ export function sanitizeReply(reply: string, liveDataString?: string): string {
             .replace(/\\n/g, "\n");
     }
 
+    // 1b. Scrub leaked English chain-of-thought: some upstream providers merge
+    // reasoning into content. Keep Arabic-dominant lines and short structural
+    // headings (### SYMBOL, **label**, TICKER:) only; drop English thinking
+    // sentences even when they quote the Arabic question or are short.
+    if (/[\u0600-\u06FF]/.test(cleanReply)) {
+        const countAr = (s: string) => (s.match(/[\u0600-\u06FF]/g) || []).length;
+        const countEn = (s: string) => (s.match(/[A-Za-z]/g) || []).length;
+        const isStructural = (t: string) => /^(#{1,6}\s|\*\*\S{1,12}\*\*|[•\-]\s*[A-Z]{2,6}\b|[A-Z]{2,6}\s*[:：])/.test(t);
+        const kept = cleanReply
+            .split("\n")
+            .filter(line => {
+                const t = line.trim();
+                const ar = countAr(t), en = countEn(t);
+                if (ar > 0 && ar >= en) return true;                 // Arabic-dominant line
+                if (ar === 0 && en === 0) return t.length <= 40;     // numbers/symbols only
+                return t.length <= 40 && isStructural(t);            // short ASCII headings
+            });
+        // Drop any remaining English preamble before the first Arabic/heading line.
+        let start = 0;
+        while (start < kept.length) {
+            const t = kept[start].trim();
+            if (countAr(t) > 0 || isStructural(t)) break;
+            start++;
+        }
+        cleanReply = kept.slice(start).join("\n").trim();
+    }
+
     // Check if we have liveDataString with stock data for programmatic table
     let hasProgrammaticTable = false;
     let programmaticTableText = "";
@@ -362,6 +389,40 @@ export function sanitizeReply(reply: string, liveDataString?: string): string {
       .replace(/^\*\*النهاية\*\*.*$/gm, "")
       .replace(/\n{3,}/g, "\n\n")
       .trim();
+
+    // 🧠 Reasoning models (nemotron-lightning, muse-glimmer, ...) sometimes merge their
+    // rule-deliberation into content, quoting our Arabic system-prompt rules verbatim.
+    // Drop any line carrying a system-prompt fingerprint, an English/Arabic meta prefix,
+    // or a raw snake_case data key regurgitated from the tool payload.
+    const PROMPT_FINGERPRINTS = [
+        "ابدأ بالنتيجة، ثم اذكر الدليل الأقوى",
+        "اكتب كخبير يتحدث مع المستخدم",
+        "لا تعطِ توصيات شراء أو بيع صريحة",
+        "لا تنشئ جدول Markdown من نفسك",
+        "لا تذكر أو تسرد أي رمز أو اسم شركة غير موجود",
+        "لا تعيد سرد قوائم الأسهم في النص",
+        "أجب مباشرة في فقرة قصيرة أو نقطتين",
+        "اذكر الجانب الفني لكل سهم وموقعه الموضوعي",
+        "لا تحوّل المقارنة إلى أمر شراء أو بيع",
+        "افتتاحية محفوظة أو حشو"
+    ];
+    const META_DELIBERATION_LINE = /^\s*(?:[-*•]\s*)?(?:Rules? say|Check rules?|rule \d|Actually(?: rule)?|Keep it to|I'll (?:output|keep|say|refer)|Let me |I need to |حسب القاعدة|القواعد? تقول)/i;
+    const RAW_DATA_KEY_LINE = /^\s*(?:[-*•]\s*)?[a-z][a-z_]{4,}:\s/;
+    // A quoted instruction fragment followed by first-person English commentary
+    // ("\"...\" - I'll implicitly reference live data...") is always deliberation.
+    const QUOTE_THEN_ENGLISH_META = /\u0022[^\u0022]{5,}\u0022\s*[-\u2013\u2014:]?\s*(?:I'?ll|I will|I'?d|I should|I can|user |keep |mention |maybe|since |but |yes,? |no,? )/i;
+    // English meta/imperative openers never start a user-facing Arabic answer line.
+    const ENGLISH_META_START = /^\s*(?:[-*•]\s*)?(?:Must|Need(?: to)?|Should|Remember|Also,? |Note:|Okay,? |So,? |Now,? |Then,? )/i;
+    cleanReply = cleanReply.split("\n").filter(line => {
+        const t = line.trim();
+        if (!t) return true;
+        if (PROMPT_FINGERPRINTS.some(fp => t.includes(fp))) return false;
+        if (META_DELIBERATION_LINE.test(t)) return false;
+        if (RAW_DATA_KEY_LINE.test(t)) return false;
+        if (QUOTE_THEN_ENGLISH_META.test(t)) return false;
+        if (ENGLISH_META_START.test(t)) return false;
+        return true;
+    }).join("\n").replace(/\n{3,}/g, "\n\n").trim();
 
     // 🚨 Remove garbled non-table lines that look like "BIOC  محايد  SIDEWAYS  محايد ⚪  STOCK  تجميع |"
     // These are malformed table rows without proper markdown table pipes

@@ -274,7 +274,7 @@ export function buildV2FinalMessages(
    - RSI أكبر من أو يساوي 70: منطقة تشبع شرائي (Overbought) وتخفيف/جني أرباح، وتعتبر مرتفعة المخاطر للشراء.
    - RSI بين 50 و 68: منطقة زخم صاعد إيجابي وآمن (Bullish Momentum)، وتعتبر الأفضل فنيّاً إذا رافقها حجم تداول جيد فوق المتوسط.
    - RSI بين 40 و 49: منطقة حيادية استقرار.
-   - نسبة الحجم (Volume Ratio): أكبر من 1.0x تعني تداولاً جثيثاً فوق المتوسط، وأقل من 1.0x تعني تداولاً أقل من المتوسط.
+   - نسبة الحجم (Volume Ratio): أكبر من 1.0x تعني تداولاً كثيفاً فوق المتوسط، وأقل من 1.0x تعني تداولاً أقل من المتوسط.
 4. سلامة اللغة والموضوعية:
    - اكتب بلغة عربية فصحى سليمة 100% وبدون أخطاء إملائية أو ركيكة (يمنع استخدام عبارات مثل "يوصي بنا" أو "أن نستثمر").
    - اذكر الجانب الفني لكل سهم وموقعه الموضوعي باختصار شديد. في حالة الاستعلام عن وجود توصيات أو صفقات بالاسم، اعرض تفاصيل التوصية المتوفرة (سعر الدخول، الهدف، وقف الخسارة، ونسبة العائد الفعلي)؛ خلاف ذلك اذكر الجانب الفني دون تقديم أوامر شراء صريحة.`;
@@ -302,19 +302,42 @@ export function buildV2FinalMessages(
     return messages;
 }
 
+// 🔑 Smart multi-key handling: rotate the starting key per request to spread
+// rate limits across keys, and put a key in cooldown when it gets a 429.
+const nvidiaKeyCooldownUntil = new Map<string, number>();
+let nvidiaKeyCursor = 0;
+function orderNvidiaKeys(keys: string[]): string[] {
+    if (keys.length <= 1) return keys;
+    const pivot = nvidiaKeyCursor++ % keys.length;
+    const rotated = [...keys.slice(pivot), ...keys.slice(0, pivot)];
+    const now = Date.now();
+    return [...rotated].sort((a, b) => ((nvidiaKeyCooldownUntil.get(a) || 0) <= now ? 0 : 1) - ((nvidiaKeyCooldownUntil.get(b) || 0) <= now ? 0 : 1));
+}
+function setKeyCooldown(key: string, seconds: number) {
+    nvidiaKeyCooldownUntil.set(key, Date.now() + Math.min(Math.max(seconds, 10), 120) * 1000);
+}
+
 async function callNvidiaApi(
     modelName: string,
     messages: { role: string; content: any }[],
     apiKeys: string[],
-    stream: boolean = false
-): Promise<{ response: string | null; streamGen?: AsyncGenerator<string> }> {
+    stream: boolean = false,
+    maxTokens?: number,
+    timeoutMs: number = 25000,
+    reasoningEffort?: string
+): Promise<{ response: string | null; streamGen?: AsyncGenerator<string>; aborted?: boolean }> {
+    const orderedKeys = orderNvidiaKeys(apiKeys);
     let keyIndex = 0;
-    while (keyIndex < apiKeys.length) {
-        const key = apiKeys[keyIndex];
+    while (keyIndex < orderedKeys.length) {
+        const key = orderedKeys[keyIndex];
+        const keyCooldown = nvidiaKeyCooldownUntil.get(key) || 0;
+        if (keyCooldown > Date.now() && orderedKeys.some(k => (nvidiaKeyCooldownUntil.get(k) || 0) <= Date.now())) {
+            keyIndex++; // another key is available — don't burn a rate-limited one
+            continue;
+        }
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
         try {
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 20000);
-
             const res = await fetch("https://integrate.api.nvidia.com/v1/chat/completions", {
                 method: "POST",
                 headers: {
@@ -326,21 +349,38 @@ async function callNvidiaApi(
                     model: modelName,
                     messages,
                     temperature: 0.15,
-                    max_tokens: AI_CONFIG.limits.responseMaxTokens,
-                    stream
+                    max_tokens: maxTokens || AI_CONFIG.limits.responseMaxTokens,
+                    stream,
+                    // Reasoning models merge deliberation into content unless effort is capped.
+                    ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {})
                 })
             });
             clearTimeout(timeoutId);
 
+            if (!res.ok && res.status === 429) {
+                const errData: any = await res.json().catch(() => null);
+                const retryAfter = Number(errData?.retry_after_seconds || errData?.error?.retry_after_seconds) || 30;
+                setKeyCooldown(key, retryAfter + 5);
+                console.warn(`[Responder] NVIDIA HTTP 429 (key ${keyIndex + 1}/${orderedKeys.length}) — key cooldown ${Math.min(retryAfter + 5, 120)}s`);
+                keyIndex++;
+                continue;
+            }
             if (res.ok) {
+                if (stream) return { response: null, streamGen: parseSseStream(res) };
                 const data = await res.json();
                 const reply = data.choices?.[0]?.message?.content?.trim();
                 if (reply) return { response: reply };
                 keyIndex++;
             } else {
+                console.warn(`[Responder] NVIDIA HTTP ${res.status} (key ${keyIndex + 1}/${orderedKeys.length})`);
                 keyIndex++;
             }
         } catch (err: any) {
+            clearTimeout(timeoutId);
+            console.warn(`[Responder] NVIDIA error: ${err?.message || err}`);
+            // Timeout = endpoint congestion (same backend for all keys) — stop burning keys
+            // and let the caller fall through to the next model immediately.
+            if (controller.signal.aborted) return { response: null, aborted: true };
             keyIndex++;
         }
     }
@@ -377,49 +417,85 @@ async function callAgentRouterApi(
     }
 }
 
-async function callDeepseekOfficialApi(
-    messages: { role: string; content: any }[],
-    stream: boolean = false
-): Promise<{ response: string | null; streamGen?: AsyncGenerator<string> }> {
-    const key = process.env.DEEPSEEK_OFFICIAL_API_KEY;
-    if (!key) return { response: null };
-    try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 12000);
-        const res = await fetch("https://api.deepseek.com/chat/completions", {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                "Authorization": `Bearer ${key}`
-            },
-            signal: controller.signal,
-            body: JSON.stringify({
-                model: "deepseek-chat",
-                messages,
-                temperature: 0.15,
-                max_tokens: AI_CONFIG.limits.responseMaxTokens,
-                stream
-            })
-        });
-        clearTimeout(timeoutId);
-        if (!res.ok) return { response: null };
-        if (stream) {
-            return { response: null, streamGen: parseSseStream(res) };
-        } else {
-            const data = await res.json();
-            const reply = data.choices?.[0]?.message?.content || null;
-            return { response: reply };
-        }
-    } catch {
-        return { response: null };
+const NVIDIA_RESPONDER_MODELS = [
+    "nvidia/nemotron-3.5-lightning-30b-a3b",
+    "meta/muse-glimmer-30b"
+];
+
+// Reasoning models spend part of max_tokens on reasoning_content — a small
+// budget yields empty content. Give them a bigger budget and longer timeout;
+// nemotron-lightning additionally gets reasoning_effort capped so it stops
+// dumping deliberation into content.
+const NVIDIA_MODEL_TUNING: Record<string, { maxTokens: number; timeoutMs: number; reasoningEffort?: string }> = {
+    "nvidia/nemotron-3.5-lightning-30b-a3b": { maxTokens: 2500, timeoutMs: 40000, reasoningEffort: "none" },
+    "meta/muse-glimmer-30b": { maxTokens: 2500, timeoutMs: 45000 }
+};
+
+// 🧊 Congestion cooldown: a timeout means the shared NIM backend is congested,
+// so skip the whole chain briefly instead of re-hitting it.
+let nvidiaCooldownUntil = 0;
+
+// Shortest remaining cooldown (ms) until at least one provider slot opens up.
+// Lets the pipeline wait out brief rate-limit windows before a degraded-fallback
+// retry, and fail fast during long storms.
+export function getResponderCooldownMs(): number {
+    const now = Date.now();
+    const remaining: number[] = [];
+    for (const until of nvidiaKeyCooldownUntil.values()) {
+        if (until > now) remaining.push(until - now);
     }
+    if (nvidiaCooldownUntil > now) remaining.push(nvidiaCooldownUntil - now);
+    return remaining.length ? Math.min(...remaining) : 0;
+}
+
+async function callResponderLlm(
+    messages: { role: string; content: any }[],
+    apiKeys: string[],
+    stream: boolean = false,
+    requestedModel?: string
+): Promise<{ response: string | null; streamGen?: AsyncGenerator<string>; provider: "nvidia" | "none" }> {
+    const nvidiaKeys = Array.from(new Set([
+        ...apiKeys,
+        process.env.NVIDIA_API_KEY,
+        process.env.NVIDIA_SECONDARY_API_KEY,
+        process.env.NVIDIA_NIM_API_KEY
+    ].filter((k): k is string => Boolean(k))));
+
+    // 1) النموذج المختار من الواجهة له الأولوية
+    if (requestedModel) {
+        const tuning = NVIDIA_MODEL_TUNING[requestedModel];
+        const n = await callNvidiaApi(requestedModel, messages, nvidiaKeys, stream, tuning?.maxTokens, tuning?.timeoutMs, tuning?.reasoningEffort);
+        if (n.response || n.streamGen) return { ...n, provider: "nvidia" };
+        console.warn(`[Responder] Requested model ${requestedModel} unavailable — using auto chain`);
+    }
+
+    // 2) السلسلة التلقائية على NVIDIA NIM
+    if (Date.now() < nvidiaCooldownUntil) {
+        console.warn("[Responder] NVIDIA NIM in congestion cooldown — skipping to deterministic fallback");
+    } else {
+    for (const model of NVIDIA_RESPONDER_MODELS) {
+        if (nvidiaKeys.length === 0) break;
+        const tuning = NVIDIA_MODEL_TUNING[model];
+        const nvidia = await callNvidiaApi(model, messages, nvidiaKeys, stream, tuning?.maxTokens, tuning?.timeoutMs, tuning?.reasoningEffort);
+        if (nvidia.response || nvidia.streamGen) return { ...nvidia, provider: "nvidia" };
+        if (nvidia.aborted) {
+            nvidiaCooldownUntil = Date.now() + 60_000;
+            console.warn(`[Responder] NVIDIA NIM congested (timeout on ${model}) — skipping remaining NVIDIA models`);
+            break;
+        }
+        console.warn(`[Responder] NVIDIA model ${model} unavailable — trying next model`);
+    }
+    }
+    console.warn("[Responder] All LLM providers failed — deterministic fallback will be used");
+    return { response: null, provider: "none" };
 }
 
 async function* parseSseStream(res: Response): AsyncGenerator<string, void, unknown> {
-    if (!res.body) return;
+    if (!res.body) throw new Error("stream ended before provider completion marker");
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
+    let providerDone = false;
     try {
         while (true) {
             const { done, value } = await reader.read();
@@ -431,15 +507,21 @@ async function* parseSseStream(res: Response): AsyncGenerator<string, void, unkn
                 const trimmed = line.trim();
                 if (trimmed.startsWith("data: ")) {
                     const dataStr = trimmed.slice(6);
-                    if (dataStr === "[DONE]") return;
+                    if (dataStr === "[DONE]") {
+                        providerDone = true;
+                        break;
+                    }
                     try {
                         const parsed = JSON.parse(dataStr);
+                        if (parsed.choices?.[0]?.finish_reason) providerDone = true;
                         const token = parsed.choices?.[0]?.delta?.content || "";
                         if (token) yield token;
                     } catch {}
                 }
             }
+            if (providerDone) break;
         }
+        if (!providerDone) throw new Error("stream ended before provider completion marker");
     } finally {
         reader.releaseLock();
     }
@@ -469,6 +551,14 @@ function removeModelTables(text: string): string {
     return output.join("\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 
+export interface ResponderMeta {
+    source?: "llm" | "deterministic";
+    // True when the deterministic reply is a degraded fallback after ALL LLM
+    // providers failed (vs. an intentional template answer) — the pipeline may
+    // grant one extra attempt once rate-limit cooldowns expire.
+    degraded?: boolean;
+}
+
 export async function generateV2Response(
     userMessage: string,
     plan: IntentPlan,
@@ -480,23 +570,29 @@ export async function generateV2Response(
     apiKeys: string[],
     requestedModel?: string,
     sessionState?: SessionState | null,
-    correctionPrompt?: string
+    correctionPrompt?: string,
+    meta?: ResponderMeta
 ): Promise<string> {
     if (visionContext && visionContext.symbols.length === 0 && toolResults.length === 0) {
+        if (meta) meta.source = "deterministic";
         return buildVisionUncertaintyResponse(visionContext);
     }
     const fastAdvisor = buildFastConversationalAdvisorResponse(userMessage, plan, toolResults, sessionState);
-    if (fastAdvisor) return fastAdvisor;
-    const structuredMarketResponse = plan.tools.includes("get_sector_liquidity")
-        ? buildDeterministicResponse(userMessage, plan, toolResults, sessionState)
-        : null;
-    if (structuredMarketResponse) return structuredMarketResponse;
-
+    if (fastAdvisor) {
+        if (meta) meta.source = "deterministic";
+        return fastAdvisor;
+    }
     const isAnalyticalQuery = /(سبب|ليه|لماذا|ازاي|إزاي|تفسير|سر|ينزل|يهبط|يطلع|صعود|هبوط|فرص|أحسن|احسن|افضل|أفضل|توقعات|متوقع|مقارن|قارن|حالة|حالتها|رايك|رأيك|توجيه|تجميع|تصريف|تحليل|شراء|بيع|مناسب|اشتريت|خسران|نازل)/i.test(userMessage);
     const needsGuidanceResponse = plan.guidance_intent;
-    const deterministic = !needsGuidanceResponse && !isAnalyticalQuery ? buildDeterministicResponse(userMessage, plan, toolResults, sessionState) : null;
-    if (deterministic) return deterministic;
+    const deterministic = toolResults.length === 0 && !needsGuidanceResponse && !isAnalyticalQuery
+        ? buildDeterministicResponse(userMessage, plan, toolResults, sessionState)
+        : null;
+    if (deterministic) {
+        if (meta) meta.source = "deterministic";
+        return deterministic;
+    }
     if (shouldReturnNoData(plan, visionContext, toolResults, relevantFacts)) {
+        if (meta) meta.source = "deterministic";
         const requestedDate = plan.entities.requested_date;
         return requestedDate
             ? `لا توجد بيانات موثقة لهذا الطلب بتاريخ ${requestedDate}. لم أستخدم تاريخاً آخر حتى لا أخلط بين البيانات.`
@@ -509,18 +605,16 @@ export async function generateV2Response(
         correctionPrompt
     );
 
-    const allowedModels = new Set([...(AI_CONFIG.models.response.allowedUserModels || []), AI_CONFIG.models.response.default, ...AI_CONFIG.models.response.fallbacks, ...AI_CONFIG.models.response.agentRouter]);
-    const safeRequestedModel = requestedModel && allowedModels.has(requestedModel) ? requestedModel : undefined;
-    const textModels = safeRequestedModel ? [safeRequestedModel, ...AI_CONFIG.models.response.fallbacks] : [AI_CONFIG.models.response.default, ...AI_CONFIG.models.response.fallbacks];
-    for (const m of textModels) {
-        const result = m === "gpt-5.6-sol"
-            ? await callAgentRouterApi(m, messages)
-            : await callNvidiaApi(m, messages, apiKeys);
-        if (result?.response) {
-            return sanitizeReply(removeModelTables(result.response));
-        }
+    const result = await callResponderLlm(messages, apiKeys, false, requestedModel);
+    if (result.response) {
+        if (meta) meta.source = "llm";
+        return sanitizeReply(removeModelTables(result.response));
     }
-    return buildDeterministicResponse(userMessage, plan, toolResults, sessionState) || "عذراً، لم أتمكن من إنشاء الرد.";
+    if (meta) {
+        meta.source = "deterministic";
+        meta.degraded = true;
+    }
+    return sanitizeReply(buildDeterministicResponse(userMessage, plan, toolResults, sessionState) || "عذراً، لم أتمكن من إنشاء الرد.");
 }
 
 export async function* generateV2Stream(
@@ -534,37 +628,45 @@ export async function* generateV2Stream(
     apiKeys: string[],
     requestedModel?: string,
     sessionState?: SessionState | null,
-    correctionPrompt?: string
+    correctionPrompt?: string,
+    meta?: ResponderMeta
 ): AsyncGenerator<string, void, unknown> {
-    const forcedDeterministic = plan.service_degraded_message || plan.tools.includes("get_fair_value_scan") || plan.tools.includes("get_sector_liquidity")
+    const forcedDeterministic = plan.service_degraded_message
         ? buildDeterministicResponse(userMessage, plan, toolResults, sessionState)
         : null;
     if (forcedDeterministic) {
-        yield forcedDeterministic;
+        if (meta) meta.source = "deterministic";
+        yield sanitizeReply(forcedDeterministic);
         return;
     }
     if (visionContext && visionContext.symbols.length === 0 && toolResults.length === 0) {
-        yield buildVisionUncertaintyResponse(visionContext);
+        if (meta) meta.source = "deterministic";
+        yield sanitizeReply(buildVisionUncertaintyResponse(visionContext));
         return;
     }
     const fastAdvisor = buildFastConversationalAdvisorResponse(userMessage, plan, toolResults, sessionState);
     if (fastAdvisor) {
-        yield fastAdvisor;
+        if (meta) meta.source = "deterministic";
+        yield sanitizeReply(fastAdvisor);
         return;
     }
 
     const isAnalyticalQueryRegex = /(سبب|ليه|لماذا|ازاي|إزاي|تفسير|سر|ينزل|يهبط|يطلع|صعود|هبوط|فرص|أحسن|احسن|افضل|أفضل|توقعات|متوقع|مقارن|قارن|حالة|حالتها|رايك|رأيك|توجيه|تجميع|تصريف|تحليل|شراء|بيع|مناسب|مكمل|مستمر|جلسه|جلسة|غدا|غداً|اشترى|اشتري|اشتريت|خسران|نازل|عادله|عادلة|تقييم|قيمته|تسوى|تساوي|أهداف|اهداف|احتفاظ|خروج|دخول|بيجمع|ينطلق|مؤشر|مؤشرات|اخبار|أخبار|إيه|ايه|هل|فين|مين|مسح|شروط|\?|؟)/i;
     const isAnalyticalQuery = isAnalyticalQueryRegex.test(userMessage) || userMessage.trim().split(/\s+/).length > 4;
     const needsGuidanceResponse = plan.guidance_intent;
-    const deterministic = !needsGuidanceResponse && !isAnalyticalQuery ? buildDeterministicResponse(userMessage, plan, toolResults, sessionState) : null;
+    const deterministic = toolResults.length === 0 && !needsGuidanceResponse && !isAnalyticalQuery
+        ? buildDeterministicResponse(userMessage, plan, toolResults, sessionState)
+        : null;
     if (deterministic) {
-        yield deterministic;
+        if (meta) meta.source = "deterministic";
+        yield sanitizeReply(deterministic);
         return;
     }
     if (shouldReturnNoData(plan, visionContext, toolResults, relevantFacts)) {
-        yield plan.entities.requested_date
+        if (meta) meta.source = "deterministic";
+        yield sanitizeReply(plan.entities.requested_date
             ? `لا توجد بيانات موثقة لهذا الطلب بتاريخ ${plan.entities.requested_date}. لم أستخدم تاريخاً آخر حتى لا أخلط بين البيانات.`
-            : "لا توجد بيانات حية أو تاريخية كافية لهذا الطلب حالياً. لم أستخدم معلومات عامة حتى لا أضيف أرقاماً أو أسماء غير مؤكدة.";
+            : "لا توجد بيانات حية أو تاريخية كافية لهذا الطلب حالياً. لم أستخدم معلومات عامة حتى لا أضيف أرقاماً أو أسماء غير مؤكدة.");
         return;
     }
 
@@ -575,92 +677,29 @@ export async function* generateV2Stream(
     );
 
 
-    const allowedModels = new Set([...(AI_CONFIG.models.response.allowedUserModels || []), AI_CONFIG.models.response.default, ...AI_CONFIG.models.response.fallbacks, ...AI_CONFIG.models.response.agentRouter]);
-    const safeRequestedModel = requestedModel && allowedModels.has(requestedModel) ? requestedModel : undefined;
-    const textModels = safeRequestedModel ? [safeRequestedModel, ...AI_CONFIG.models.response.fallbacks] : [AI_CONFIG.models.response.default, ...AI_CONFIG.models.response.fallbacks];
-
-    if (textModels[0] === "gpt-5.6-sol") {
-        const result = await callAgentRouterApi(textModels[0], messages, false);
-        if (result.response) {
-            yield sanitizeReply(removeModelTables(result.response));
-            return;
-        }
-        yield "عذراً، نموذج AgentRouter غير متاح حالياً. تحقق من مفتاح AGENTROUTER_API_KEY.";
-        return;
-    }
-
-    for (const model of textModels) {
-        let keyIndex = 0;
-        while (keyIndex < apiKeys.length) {
-            const key = apiKeys[keyIndex];
-            try {
-                const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), AI_CONFIG.limits.responseTimeoutMs);
-
-                const res = await fetch("https://integrate.api.nvidia.com/v1/chat/completions", {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json",
-                        "Authorization": `Bearer ${key}`
-                    },
-                    signal: controller.signal,
-                    body: JSON.stringify({
-                        model,
-                        messages,
-                        temperature: 0.15,
-                        max_tokens: AI_CONFIG.limits.responseMaxTokens,
-                        stream: true
-                    })
-                });
-                clearTimeout(timeoutId);
-
-                if (res.ok && res.body) {
-                    const reader = res.body.getReader();
-                    const decoder = new TextDecoder();
-                    let buffer = "";
-                    let providerDone = false;
-
-                    while (true) {
-                        const { done, value } = await reader.read();
-                        if (done) break;
-
-                        buffer += decoder.decode(value, { stream: true });
-                        const lines = buffer.split("\n");
-                        buffer = lines.pop() || "";
-
-                        for (const line of lines) {
-                            const trimmed = line.trim();
-                            if (trimmed.startsWith("data: ")) {
-                                const dataStr = trimmed.slice(6);
-                                if (dataStr === "[DONE]") {
-                                    providerDone = true;
-                                    continue;
-                                }
-                                try {
-                                    const parsed = JSON.parse(dataStr);
-                                    if (parsed.choices?.[0]?.finish_reason) providerDone = true;
-                                    const token = parsed.choices?.[0]?.delta?.content || "";
-                                    if (token) yield token;
-                                } catch {}
-                            }
-                        }
-                    }
-                    if (providerDone) return;
-                    throw new Error("LLM stream ended before provider completion marker");
-                } else {
-                    if (res.status === 401 || res.status === 403 || res.status === 429) {
-                        keyIndex++;
-                        continue;
-                    }
-                    break;
-                }
-            } catch {
-                keyIndex++;
+    const result = await callResponderLlm(messages, apiKeys, true, requestedModel);
+    if (result.streamGen) {
+        try {
+            let completeResponse = "";
+            for await (const token of result.streamGen) completeResponse += token;
+            const safeResponse = sanitizeReply(removeModelTables(completeResponse));
+            if (safeResponse) {
+                if (meta) meta.source = "llm";
+                yield safeResponse;
+                return;
             }
+        } catch (streamErr: any) {
+            console.warn(`[Responder] Stream consumption failed: ${streamErr?.message || streamErr}`);
+            // The deterministic response below uses the already-fetched tool data.
         }
     }
 
-    yield "عذراً، يبدو أن هناك ضغطاً على السيرفرات حالياً أو أن نماذج الذكاء الاصطناعي لم تستجب للطلب. يرجى إعادة إرسال رسالتك من جديد.";
+    if (meta) {
+        meta.source = "deterministic";
+        meta.degraded = true;
+    }
+    yield sanitizeReply(buildDeterministicResponse(userMessage, plan, toolResults, sessionState)
+        || "عذراً، يبدو أن هناك ضغطاً على خدمة الذكاء الاصطناعي حالياً. يرجى إعادة إرسال رسالتك من جديد.");
 }
 
 function buildVisionUncertaintyResponse(vision: VisionContext): string {
@@ -680,6 +719,14 @@ export function buildFastConversationalAdvisorResponse(
     const guidanceIntent = plan.guidance_intent;
 
     const hasSpecificSymbols = Boolean(plan.entities?.symbols?.length);
+
+    if (/شريع|sharia/i.test(normMsg)) {
+        return [
+            "لا أستطيع تسمية أسهم متوافقة مع الشريعة اعتماداً على البيانات الحالية، لأن قاعدة البيانات لا تحتوي تصنيفاً شرعياً موثقاً أو نسب الديون والإيرادات غير المباحة اللازمة للفحص.",
+            "للاستثمار طويل الأجل، استخدم قائمة حديثة من هيئة رقابة شرعية أو صندوق شرعي مرخص، ثم أرسل لي رموز الأسهم الموجودة فيها لأقارنها فنياً ومالياً من البيانات المتاحة.",
+            "التوافق الشرعي يتغير مع القوائم المالية، لذلك لا يصح افتراضه من اسم الشركة أو قطاعها فقط."
+        ].join("\n");
+    }
 
     // 0. Terms Explanation Query
     const isSpecificLiquidityQuery = /(سيوله|سيولة).{0,30}(ازاي|إزاي|كيف|طريقة|طريقه|علامات|بعد|دخل|عرف)/i.test(normMsg) || /(ازاي|إزاي|كيف|طريقة|طريقه|علامات).{0,30}(سيوله|سيولة|دخلت)/i.test(normMsg);
@@ -974,6 +1021,8 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
         const data = priceHistory.data;
         if (isDailyPriceLimitQuestion(userMessage)) {
             const close = data.latest?.close == null ? NaN : Number(data.latest.close);
+            if (!Number.isFinite(close)) return `${data.symbol}: \u0644\u0627 \u064a\u062a\u0648\u0641\u0631 \u0622\u062e\u0631 \u0625\u063a\u0644\u0627\u0642 \u0645\u0648\u062b\u0651\u0642 \u0644\u0644\u0633\u0647\u0645\u060c \u0644\u0630\u0644\u0643 \u0644\u0627 \u064a\u0645\u0643\u0646 \u062a\u0642\u064a\u064a\u0645 \u0642\u0631\u0628\u0647 \u0645\u0646 \u0627\u0644\u062d\u062f \u0627\u0644\u0633\u0639\u0631\u064a \u0627\u0644\u064a\u0648\u0645\u064a.`;
+            return `${data.symbol}: \u0622\u062e\u0631 \u0625\u063a\u0644\u0627\u0642 \u0645\u062a\u0627\u062d ${close.toFixed(2)} \u062c\u0646\u064a\u0647 \u0628\u062a\u0627\u0631\u064a\u062e ${priceHistory.data_time}. \u0644\u0627 \u062a\u062d\u062a\u0648\u064a \u0628\u064a\u0627\u0646\u0627\u062a \u0627\u0644\u0623\u0633\u0639\u0627\u0631 \u0627\u0644\u0645\u062a\u0627\u062d\u0629 \u0639\u0644\u0649 \u0627\u0644\u062d\u062f \u0627\u0644\u0633\u0639\u0631\u064a \u0627\u0644\u0641\u0639\u0644\u064a \u0644\u0644\u062c\u0644\u0633\u0629 \u0623\u0648 \u0642\u0648\u0627\u0639\u062f\u0647 \u0627\u0644\u062e\u0627\u0635\u0629 \u0628\u0627\u0644\u0633\u0647\u0645\u060c \u0644\u0630\u0644\u0643 \u0644\u0627 \u064a\u0645\u0643\u0646\u0646\u064a \u062d\u0633\u0627\u0628 \u0627\u0644\u0645\u0633\u0627\u0641\u0629 \u0625\u0644\u064a\u0647 \u0628\u0623\u0645\u0627\u0646 \u0623\u0648 \u0627\u0641\u062a\u0631\u0627\u0636 \u0646\u0633\u0628\u0629 \u062b\u0627\u0628\u062a\u0629. \u0631\u0627\u062c\u0639 \u0627\u0644\u062d\u062f \u0627\u0644\u0638\u0627\u0647\u0631 \u0644\u062f\u0649 \u0627\u0644\u0628\u0648\u0631\u0635\u0629 \u0623\u0648 \u0627\u0644\u0648\u0633\u064a\u0637 \u0644\u0647\u0630\u0647 \u0627\u0644\u062c\u0644\u0633\u0629.`;
             const upper = data.upper_limit_20pct == null ? NaN : Number(data.upper_limit_20pct);
             const lower = data.lower_limit_20pct == null ? NaN : Number(data.lower_limit_20pct);
             if (![close, upper, lower].every(Number.isFinite)) {
@@ -1013,6 +1062,18 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
                 "1. اكتب: 'هات الأسهم اللي عليها تجميع' لعرض كافة الأسهم ذات التجميع الشرائي النشط.",
                 "2. اكتب: 'أرخص الأسهم تحت القيمة الوسطية' لعرض الأسهم المتداولة بأكبر خصم فني عن متوسطها السعري."
             ].join("\n\n");
+        }
+        const weeklyForecast = /(?:متوقع|توقع|يرتفع|هيطلع|هيرتفع|يصعد).{0,45}(?:الأسبوع|الاسبوع|اسبوع|الأيام الجاية|الايام الجايه|الفترة الجاية|الفتره الجايه)/i.test(userMessage);
+        if (weeklyForecast && !requiresDistribution && !requiresAccumulation) {
+            const ranked = stocks
+                .filter((stock: any) => Number(stock.vol_ratio || 0) >= 1)
+                .sort((left: any, right: any) => Number(right.vol_ratio || 0) - Number(left.vol_ratio || 0))
+                .slice(0, 5);
+            return [
+                `لا يمكن ضمان سهم سيرتفع خلال أسبوع، لكن أقوى المرشحين فنياً في أحدث البيانات هم الأسهم المتداولة فوق متوسط نطاق 60 جلسة مع حجم تداول مؤكد:`,
+                ...ranked.map((stock: any, index: number) => `${index + 1}. ${stock.symbol}: السعر ${Number(stock.close).toFixed(2)} جنيه، أعلى من القيمة الوسطية بـ ${Math.abs(Number(stock.premium_pct)).toFixed(1)}%، والحجم ${Number(stock.vol_ratio).toFixed(2)}x من المتوسط.`),
+                "هذه قائمة مراقبة وليست توقعاً مؤكداً؛ راجع الدعم والمقاومة والزخم قبل أي دخول."
+            ].join("\n");
         }
         return [
             `فهمت طلبك: هذه فقط الأسهم التي حققت الشرطين معاً، التداول ${relation} القيمة الوسطية الفنية لنطاق 60 جلسة${signalSuffix}، وفق أحدث تداول متاح:`,
@@ -1329,6 +1390,14 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
             "Transportation": "النقل والشحن",
             "Utilities": "المرافق العامة",
             "Energy Minerals": "البترول والطاقة"
+            ,"Health Technology": "التكنولوجيا الصحية والأدوية"
+            ,"Health Services": "الخدمات الصحية"
+            ,"Commercial Services": "الخدمات التجارية"
+            ,"Consumer Services": "خدمات المستهلكين"
+            ,"Retail Trade": "تجارة التجزئة"
+            ,"Electronic Technology": "الإلكترونيات والتقنية"
+            ,"Communications": "الاتصالات والإعلام"
+            ,"Miscellaneous": "متنوع"
         }[String(value)] || String(value));
         const activeSectors = sectors.filter((sector: any) => Number(sector.average_volume_ratio) >= 1);
         const strongestActive = [...activeSectors].sort((left: any, right: any) => Number(right.average_volume_ratio) - Number(left.average_volume_ratio))[0];
@@ -1344,7 +1413,7 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
             describeDatedFallback(plan.entities.requested_date, sectorLiquidity.data_time),
             `السيولة الأوضح بتاريخ ${sectorLiquidity.data_time} كانت في قطاع ${sectorNameAr(top.sector)}: نحو ${formatMillions(top.traded_value)} عبر ${top.stock_count} سهم متاح البيانات.`,
             ...sectors.slice(1, 5).map((sector: any, index: number) => `${index + 2}. ${sectorNameAr(sector.sector)}: ${formatMillions(sector.traded_value)} عبر ${sector.stock_count} سهم.`),
-            strongestActive ? `للمراقبة مع السيولة النشطة، يبرز قطاع ${sectorNameAr(strongestActive.sector)} بمتوسط حجم ${Number(strongestActive.average_volume_ratio).toFixed(2)}x؛ أما Finance فهو الأكبر بالقيمة فقط، لكن متوسط الحجم فيه ${Number(top.average_volume_ratio).toFixed(2)}x.` : null,
+            strongestActive ? `للمراقبة مع السيولة النشطة، يبرز قطاع ${sectorNameAr(strongestActive.sector)} بمتوسط حجم ${Number(strongestActive.average_volume_ratio).toFixed(2)}x؛ أما ${sectorNameAr(top.sector)} فهو الأكبر بالقيمة، ومتوسط الحجم فيه ${Number(top.average_volume_ratio).toFixed(2)}x.` : null,
             sectorLiquidity.data?.excluded_sectors?.length ? `تم استبعاد: ${sectorLiquidity.data.excluded_sectors.join(" و")} من المقارنة.` : null,
             "لا أستطيع اختيار سهم بعينه من ترتيب القطاعات وحده؛ راجع أسهم القطاع المرشح على حدة قبل أي دخول."
         ].filter(Boolean).join("\n");
@@ -1354,7 +1423,13 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
     if (sectorList) {
         const sectors = Array.isArray(sectorList.data?.sectors) ? sectorList.data.sectors : [];
         if (sectors.length === 0) return "لا توجد أسماء قطاعات مسجلة حالياً في بيانات الشركات.";
-        return [`القطاعات المسجلة في بيانات البورصة المصرية (${sectors.length} قطاع):`, ...sectors.map((item: any, index: number) => `${index + 1}. ${item.sector} (${item.stock_count} سهم)`) ].join("\n");
+        const sectorNames: Record<string, string> = {
+            Miscellaneous: "متنوع",
+            Finance: "بنوك وخدمات مالية",
+            Communications: "اتصالات وإعلام",
+            "Electronic Technology": "إلكترونيات وتكنولوجيا"
+        };
+        return [`القطاعات المسجلة في بيانات البورصة المصرية (${sectors.length} قطاع):`, ...sectors.map((item: any, index: number) => `${index + 1}. ${sectorNames[item.sector] || item.sector} (${item.stock_count} سهم)`) ].join("\n");
     }
 
     const sector = toolResults.find(result => result.tool === "get_sector");

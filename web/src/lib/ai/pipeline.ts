@@ -1,9 +1,9 @@
 import { IntentPlan, VisionContext, SessionState, SessionSummary, PlannerResult } from "./types";
 import { analyzeImage } from "./vision";
 import { retrieveRelevantMemory, MemoryResult } from "./memory";
-import { runPlanner, getSyncStockMappings, getStocksList, loadValidSymbols } from "./planner";
+import { getSyncStockMappings, getStocksList, loadValidSymbols } from "./planner";
 import { executeStructuredTools, StructuredToolOutput } from "./tools-v2";
-import { buildDeterministicResponse, generateV2Response, generateV2Stream } from "./final-v2";
+import { buildDeterministicResponse, generateV2Response, generateV2Stream, getResponderCooldownMs } from "./final-v2";
 import { validateResponse } from "./validator";
 import { sanitizeReply } from "./sanitizer";
 import { loadSessionState, loadSessionSummary, updateSessionSummary, updateSessionState } from "./session";
@@ -161,6 +161,17 @@ export function splitChatCommands(message: string): string[] {
         .split(/\n+|(?<=[؟?])\s*/)
         .map(part => part.trim())
         .filter(Boolean);
+}
+
+// Guaranteed non-null plan for unrecognized messages (greetings, small talk)
+// so downstream stages never dereference a null planner result.
+function generalChatPlan(sessionState: SessionState): PlannerResult {
+    return {
+        intent: "general_chat", confidence: 0.5,
+        entities: { symbols: [], sector: null, wants_table: false, timeframe: "current", requested_date: null, scan_direction: null },
+        tools: [],
+        session_update: { current_symbol: sessionState.current_symbol, last_symbols: sessionState.last_symbols, summary: "" }
+    } as PlannerResult;
 }
 
 export function buildCompoundDeterministicPlan(message: string, sessionState: SessionState): PlannerResult | null {
@@ -337,6 +348,25 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
 
     const normalized = normalizeArabicIntent(message);
     const explicitSymbols = extractExplicitSymbols(message);
+    const excludedSectors = extractExcludedSectors(message);
+    if (excludedSectors.length > 0 && /(سيول|ادخل|دخول|استثمر|فرص)/i.test(normalized)) {
+        return {
+            intent: "market_summary", confidence: 1,
+            entities: { symbols: [], sector: null, wants_table: true, timeframe: "current", requested_date: null, scan_direction: null, excluded_sectors: excludedSectors },
+            tools: ["get_sector_liquidity"],
+            session_update: { current_symbol: null, last_symbols: [], summary: message }
+        };
+    }
+    const followsSectorList = /قطاع|قطاعات/i.test(sessionState.summary || "")
+        && /(?:احسن|افضل).{0,20}(?:واحد|قطاع).{0,25}(?:فيهم|احط|استثمر)/i.test(normalized);
+    if (followsSectorList) {
+        return {
+            intent: "market_summary", confidence: 1,
+            entities: { symbols: [], sector: null, wants_table: true, timeframe: "current", requested_date: null, scan_direction: null },
+            tools: ["get_sector_liquidity"],
+            session_update: { current_symbol: null, last_symbols: [], summary: message }
+        };
+    }
     const broadScan = explicitSymbols.length === 0 && /(?:الاسهم|اسهم|هات|ابعت|اعرض).{0,45}(?:تجميع|تصريف)|(?:تجميع|تصريف).{0,45}(?:الاسهم|اسهم)/i.test(normalized);
     const hasGroupReference = /(فيهم|منهم|من دول|بينهم|أيهم|أيها|أحسن واحد|احسن واحد|أفضل واحد|افضل واحد|الأسهم دي|الاسهم دي)/i.test(normalized) && sessionState.last_symbols.length > 0;
     const allocationSymbols = explicitSymbols.length >= 2 ? explicitSymbols : hasGroupReference ? sessionState.last_symbols.slice(0, 5) : [];
@@ -481,7 +511,7 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
     const sectorFollowUp = Boolean(sectorReference && symbols.length === 0);
     const effectiveSector = explicitSector || knownSectorFollowUp || sectorFollowUp ? sector : null;
     return {
-        intent: isGreeting || beginnerPortfolioRequest ? "general_chat" : marketNewsRequest ? "market_summary" : requestedDate && symbols.length ? "stock_analysis" : isHistorical ? "historical_recall" : explicitSector || knownSectorFollowUp || sectorFollowUp ? "sector_analysis" : enforced.intent === "accumulation_distribution" && symbols.length === 0 ? "market_summary" : enforced.intent,
+        intent: isGreeting || beginnerPortfolioRequest ? "general_chat" : marketNewsRequest ? "market_summary" : requestedDate && symbols.length ? "stock_analysis" : isHistorical ? "historical_recall" : explicitSector || knownSectorFollowUp || sectorFollowUp ? "sector_analysis" : enforced.intent,
         confidence: 1,
         entities: {
             symbols,
@@ -518,6 +548,7 @@ export function isMarketWideRequest(message: string): boolean {
         /(?:السهم|القطاع|الاسهم|القطاعات).{0,45}(?:متوقع|توقع|يرتفع|هيطلع|هيرتفع).{0,35}(?:الاسبوع|اسبوع|الايام الجايه|الفتره الجايه)/i,
         /(?:متوقع|توقع|يرتفع|هيطلع|هيرتفع).{0,45}(?:السهم|القطاع|الاسهم|القطاعات).{0,35}(?:الاسبوع|اسبوع|الايام الجايه|الفتره الجايه)/i,
         /(?:مين|ايه|اية).{0,25}(?:متوقع|توقع).{0,25}(?:يرتفع|هيطلع|يصعد).{0,25}(?:الاسبوع|اسبوع)/i,
+        /(?:متوقع|توقع|يرتفع|هيطلع|هيرتفع|يصعد).{0,45}(?:الاسبوع|اسبوع|الايام الجايه|الفتره الجايه)/i,
         /افضل\s+الفرص\s+المتاحه/i,
         /(?:كل|جميع).{0,12}(?:اسهم|الاسهم).{0,12}(?:المؤشر|الموشر|موشر).{0,8}30/i,
         /^\s*(?:و?ال)?(?:تجميع|تصريف)(?:\s+(?:فين|ايه|الاسهم|الأسهم|النهارده|اليوم))?[؟?\s]*$/i
@@ -575,7 +606,13 @@ export function enforceIntentFromMessage(message: string, plannerIntent: string,
         const distIdx = Math.max(normalized.indexOf("تصريف"), normalized.indexOf("distribution"));
         direction = (accIdx !== -1 && accIdx < distIdx) ? "accumulation" : "distribution";
     }
+    if (/شريع|sharia/i.test(normalized)) return { intent: "general_chat", tools: [], replaceTools: true };
     if (marketFairValueScan) return { intent: "market_summary", tools: ["get_fair_value_scan"], replaceTools: true, ...getFairValueFilters(message) };
+    const weeklyMarketForecast = !hasSymbol
+        && /(?:متوقع|توقع|يرتفع|هيطلع|هيرتفع|يصعد).{0,45}(?:الاسبوع|اسبوع|الايام الجايه|الفتره الجايه)/i.test(normalized);
+    if (weeklyMarketForecast) {
+        return { intent: "market_summary", tools: ["get_fair_value_scan"], replaceTools: true, fair_value_direction: "above" };
+    }
     if (excludedSectors.length > 0 && /(سيول|ادخل|دخول|استثمر|فرص)/i.test(normalized)) {
         return { intent: "market_summary", tools: ["get_sector_liquidity"], replaceTools: true };
     }
@@ -763,19 +800,13 @@ export async function* runPipelineStream(
     yield { type: "status", data: { status: "memory", message: "استرجاع السياق..." } };
     memory = await retrieveRelevantMemory(userMessage, sessionSummary, sessionState, history, supabase, userId, sessionId);
 
-    // ===== STAGE 3: Intent / Entity Planner (no raw images — uses vision context) =====
+    // ===== STAGE 3: Intent / Entity Planner =====
     yield { type: "status", data: { status: "planner", message: "تحليل النية وتخطيط الأدوات..." } };
     if (!hasImages) await getStocksList();
-    const deterministicPlan = userMessage?.trim() ? buildCompoundDeterministicPlan(userMessage, sessionState) : null;
-    const plannerResult = deterministicPlan
-        || await runPlanner(
-            userMessage,
-            [], // Never pass raw images to planner when vision already analyzed
-            sessionState,
-            history,
-            apiKeys,
-            vision
-        );
+
+    // ─── Deterministic intent/entity planner ───
+    const plannerResult = buildCompoundDeterministicPlan(userMessage, sessionState)
+        ?? generalChatPlan(sessionState);
 
     const prefs = extractInvestorPreferences(userMessage);
     if (prefs.budget !== null || prefs.horizon !== null || prefs.risk_tolerance !== null || prefs.sector !== null) {
@@ -835,6 +866,8 @@ export async function* runPipelineStream(
         : fairValueScanRequest
             ? { intent: "market_summary", tools: ["get_fair_value_scan"], replaceTools: true }
             : enforceIntentFromMessage(userMessage, plannerResult.intent, mergedSymbols);
+    const marketScopedTools = new Set(["get_market", "get_sector_liquidity", "get_sector_list", "get_fair_value_scan"]);
+    if (explicitSymbols.length === 0 && enforced.tools.some(tool => marketScopedTools.has(tool))) mergedSymbols = [];
     const datedDomainRequest = Boolean(extractRequestedDate(userMessage) || extractRequestedDateRange(userMessage)) && ["stock_analysis", "stock_news", "comparison", "sector_analysis", "accumulation_distribution"].includes(enforced.intent);
     const historicalRequest = needsHistoricalData(enforced.intent, userMessage);
     const effectiveIntent = historicalRequest && !datedDomainRequest ? "historical_recall" : enforced.intent;
@@ -848,6 +881,7 @@ export async function* runPipelineStream(
         guidanceIntent = null;
     }
     const excludedSectors = extractExcludedSectors(userMessage);
+    const plannerExcludedSectors = plannerResult.entities.excluded_sectors || [];
     const plan: IntentPlan = {
         intent: mapIntent(effectiveIntent),
         confidence: plannerResult.confidence || 0.8,
@@ -862,7 +896,9 @@ export async function* runPipelineStream(
             ,require_distribution: Boolean(enforced.require_distribution || plannerResult.entities.require_distribution)
             ,require_accumulation: Boolean(enforced.require_accumulation || plannerResult.entities.require_accumulation)
             ,recommendation_order: enforced.recommendation_order || plannerResult.entities.recommendation_order || null
-            ,excluded_sectors: excludedSectors
+            ,min_acc_score: plannerResult.entities.min_acc_score ?? null
+            ,min_vol_ratio: plannerResult.entities.min_vol_ratio ?? null
+            ,excluded_sectors: Array.from(new Set([...excludedSectors, ...plannerExcludedSectors]))
             ,requested_date: requestedRange ? null : extractTemporalContext(userMessage).date
             ,requested_start_date: requestedRange?.start || null
             ,requested_end_date: requestedRange?.end || null
@@ -964,11 +1000,11 @@ export async function* runPipelineStream(
         });
     }
 
-    const deterministicDomainResponse = emptyScanResult 
+    const deterministicDomainResponse = emptyScanResult
         ? "عذراً، لم أجد أي أسهم تطابق الشروط التي حددتها حالياً في قاعدة البيانات. يمكنك محاولة تخفيف الشروط (مثل تقليل درجة التجميع المطلوبة أو نسبة الحجم) للحصول على نتائج."
-        : buildDeterministicResponse(userMessage, plan, tools.results);
+        : null;
 
-    const deterministicResponse = deterministicLiquidityResponse || (plan.guidance_intent ? null : deterministicDomainResponse);
+    const deterministicResponse = deterministicDomainResponse;
     if (deterministicResponse) {
         const response = deterministicResponse;
         const deterministicSessionUpdate = clearsStockContext(plan)
@@ -1000,7 +1036,7 @@ export async function* runPipelineStream(
     }
 
     let attempts = 0;
-    const maxAttempts = 3;
+    const maxAttempts = 2;
     let correctionPrompt: string | undefined = undefined;
     let finalReply = "";
 
@@ -1023,11 +1059,15 @@ export async function* runPipelineStream(
         "بناء على البيانات",
     ];
 
-    while (attempts < maxAttempts) {
+    const responderMeta: { source?: "llm" | "deterministic"; degraded?: boolean } = {};
+
+while (attempts < maxAttempts) {
         let currentResponse = "";
         let pendingModelText = "";
         let streamStopped = false;
 
+        responderMeta.source = undefined;
+        responderMeta.degraded = false;
         const stream = generateV2Stream(
             userMessage, plan, vision, tools.results,
             scopedMemory,
@@ -1036,7 +1076,8 @@ export async function* runPipelineStream(
             apiKeys,
             requestedModel,
             sessionState,
-            correctionPrompt
+            correctionPrompt,
+            responderMeta
         );
 
         for await (const chunk of stream) {
@@ -1076,6 +1117,28 @@ export async function* runPipelineStream(
 
         currentResponse = currentResponse.trim();
 
+        // Deterministic replies are template-built from live tool data — re-validating
+        // them only wastes an attempt cycle. A degraded fallback (all providers failed)
+        // gets one cheap retry: models in 429 cooldown are skipped instantly, so the
+        // retry only costs time when a short rate-limit window expired and a model recovered.
+        if (responderMeta.source === "deterministic") {
+            if (!responderMeta.degraded || attempts >= maxAttempts - 1) {
+                finalReply = currentResponse;
+                break;
+            }
+            // Wait out short per-minute rate-limit windows so the retry can recover
+            // a natural reply; long storms (daily quota etc.) fail fast with the template.
+            const cooldownMs = getResponderCooldownMs();
+            if (cooldownMs > 45_000) {
+                console.warn("[VALIDATOR] Degraded fallback with long provider cooldown — serving deterministic reply");
+                finalReply = currentResponse;
+                break;
+            }
+            if (cooldownMs > 0) await new Promise(r => setTimeout(r, cooldownMs + 500));
+            attempts++;
+            continue;
+        }
+
         // Run validation
         const validation = validateResponse(currentResponse, liveDataString, validSymbols, tools.results);
         if (validation.isValid) {
@@ -1091,11 +1154,14 @@ export async function* runPipelineStream(
         }
 
         // If invalid, log warning and set correction prompt
-        console.warn(`[VALIDATOR] Attempt ${attempts + 1} failed validation! Suspicious Symbols: ${validation.suspiciousSymbols.join(", ")}, Suspicious Numbers: ${validation.suspiciousNumbers.join(", ")}, Has Repetitions: ${validation.hasRepetitions}, Det Errors: ${validation.deterministicErrors?.join("; ")}`);
+        console.warn(`[VALIDATOR] Attempt ${attempts + 1} failed validation! Suspicious Symbols: ${validation.suspiciousSymbols.join(", ")}, Suspicious Numbers: ${validation.suspiciousNumbers.join(", ")}, Has Repetitions: ${validation.hasRepetitions}, Det Errors: ${validation.deterministicErrors?.join("; ")}, EnglishThinking: ${Boolean(validation.englishThinking)}`);
         
         yield { type: "status", data: { status: "generating", message: `كشف أخطاء في الرد (محاولة ${attempts + 1})، جاري إعادة الصياغة تلقائياً...` } };
         
         correctionPrompt = "تنبيه هام ومؤكد للالتزام بالبيانات:\n";
+        if (validation.englishThinking) {
+            correctionPrompt += "- لقد كتبت نص التفكير بالإنجليزية بدلاً من الرد. يمنع تماماً كتابة أي تفكير أو عبارات إنجليزية؛ أكتب الرد النهائي فقط باللغة العربية وبصياغة مباشرة تجيب على سؤال المستخدم.\n";
+        }
         if (validation.suspiciousSymbols.length > 0) {
             correctionPrompt += `- لقد استخدمت رموز أسهم غير حقيقية أو غير موجودة في البيانات المتاحة: (${validation.suspiciousSymbols.join(", ")}). يمنع تماماً اختراع أي رمز سهم.\n`;
         }
@@ -1118,6 +1184,15 @@ export async function* runPipelineStream(
     }
 
     let fullResponse = sanitizeReply(finalReply);
+
+    // 🛡️ Final safety net: if the reply is not an Arabic answer (e.g. leaked
+    // English chain-of-thought survived all attempts), use the safe Arabic fallback.
+    const finalArabicChars = (fullResponse.match(/[\u0600-\u06FF]/g) || []).length;
+    const finalAsciiChars = (fullResponse.match(/[A-Za-z]/g) || []).length;
+    if (finalArabicChars < 40 || finalAsciiChars > finalArabicChars) {
+        console.warn("[VALIDATOR] Final reply lacks Arabic content — using safe fallback");
+        fullResponse = sanitizeReply(buildSafeFallbackResponse(tools.results, plan));
+    }
 
     // Now stream the final, verified response to the client
     const responseLines = fullResponse.split("\n");
@@ -1276,22 +1351,19 @@ export async function runPipeline(
     }
 
     if (!hasImages) await getStocksList();
+
+    // ─── Deterministic planner runs for text requests ───
     const deterministicPlan = !hasImages ? buildCompoundDeterministicPlan(userMessage, sessionState) : null;
 
-    // Stage 2: Memory is only needed when deterministic routing cannot resolve the request.
+    // Stage 2: Memory is only needed when routing cannot resolve the request.
     if (!deterministicPlan || deterministicPlan.intent === "historical_recall") {
         memory = await retrieveRelevantMemory(userMessage, sessionSummary, sessionState, history, supabase, userId, sessionId);
     }
 
-    // Stage 3: LLM planner handles only unresolved or ambiguous requests.
-    const plannerResult = deterministicPlan || await runPlanner(
-            userMessage,
-            [],
-            sessionState,
-            history,
-            apiKeys,
-            vision
-        );
+    // Stage 3: deterministic plan
+    const plannerResult = deterministicPlan
+        ?? buildCompoundDeterministicPlan(userMessage, sessionState)
+        ?? generalChatPlan(sessionState);
 
     const explicitSymbols = extractExplicitSymbols(userMessage);
     let mergedSymbols = explicitSymbols.length > 0
@@ -1334,6 +1406,8 @@ export async function runPipeline(
             require_accumulation: plannerResult.entities.require_accumulation
           }
         : enforceIntentFromMessage(userMessage, plannerResult.intent, mergedSymbols);
+    const marketScopedTools = new Set(["get_market", "get_sector_liquidity", "get_sector_list", "get_fair_value_scan"]);
+    if (explicitSymbols.length === 0 && enforced.tools.some(tool => marketScopedTools.has(tool))) mergedSymbols = [];
     const datedDomainRequest = Boolean(extractRequestedDate(userMessage) || extractRequestedDateRange(userMessage)) && ["stock_analysis", "stock_news", "comparison", "sector_analysis", "accumulation_distribution"].includes(enforced.intent);
     const historicalRequest = needsHistoricalData(enforced.intent, userMessage);
     const effectiveIntent = historicalRequest && !datedDomainRequest ? "historical_recall" : enforced.intent;
@@ -1347,6 +1421,7 @@ export async function runPipeline(
         guidanceIntent = null;
     }
     const excludedSectors = extractExcludedSectors(userMessage);
+    const plannerExcludedSectors = plannerResult.entities.excluded_sectors || [];
     const plan: IntentPlan = {
         intent: mapIntent(effectiveIntent),
         confidence: plannerResult.confidence || 0.8,
@@ -1361,7 +1436,9 @@ export async function runPipeline(
             ,require_distribution: Boolean(enforced.require_distribution || plannerResult.entities.require_distribution)
             ,require_accumulation: Boolean(enforced.require_accumulation || plannerResult.entities.require_accumulation)
             ,recommendation_order: enforced.recommendation_order || plannerResult.entities.recommendation_order || null
-            ,excluded_sectors: excludedSectors
+            ,min_acc_score: plannerResult.entities.min_acc_score ?? null
+            ,min_vol_ratio: plannerResult.entities.min_vol_ratio ?? null
+            ,excluded_sectors: Array.from(new Set([...excludedSectors, ...plannerExcludedSectors]))
             ,requested_date: requestedRange ? null : extractTemporalContext(userMessage).date
             ,requested_start_date: requestedRange?.start || null
             ,requested_end_date: requestedRange?.end || null
@@ -1453,19 +1530,73 @@ export async function runPipeline(
         });
     }
 
-    const deterministicDomainResponse = emptyScanResult 
+    const deterministicDomainResponse = emptyScanResult
         ? "عذراً، لم أجد أي أسهم تطابق الشروط التي حددتها حالياً في قاعدة البيانات. يمكنك محاولة تخفيف الشروط (مثل تقليل درجة التجميع المطلوبة أو نسبة الحجم) للحصول على نتائج."
-        : buildDeterministicResponse(userMessage, plan, tools.results);
+        : null;
 
-    const generatedResponse = deterministicLiquidityResponse || (plan.guidance_intent ? null : deterministicDomainResponse) || await generateV2Response(
+    const responderMetaNs: { source?: "llm" | "deterministic"; degraded?: boolean } = {};
+const generatedLlmReply = deterministicDomainResponse || await generateV2Response(
         userMessage, plan, vision, tools.results,
         scopedMemory,
         memory?.recent_messages || [],
         memory?.resolved_references || { symbol: null, message_id: null, confidence: 0 },
         apiKeys,
-        requestedModel
+        requestedModel,
+        sessionState,
+        undefined,
+        responderMetaNs
     );
-    const response = generatedResponse;
+    const genericFailure = /^(?:عذراً، )?لم أتمكن من إنشاء الرد/.test(generatedLlmReply || "");
+    // Leaked English chain-of-thought leaves no usable Arabic answer — treat as failure.
+    const replyArabicChars = ((generatedLlmReply || "").match(/[\u0600-\u06FF]/g) || []).length;
+    const replyAsciiChars = ((generatedLlmReply || "").match(/[A-Za-z]/g) || []).length;
+    const nonArabicReply = replyArabicChars < 40 || replyAsciiChars > replyArabicChars;
+    let response = (genericFailure || nonArabicReply)
+        ? (topMoversRequest ? buildTopMoversResponse(tools) : buildMarketLiquidityResponse(tools))
+            || buildDeterministicResponse(userMessage, plan, tools.results)
+            || generatedLlmReply
+        : generatedLlmReply;
+
+    // One corrective LLM attempt when the first reply was unusable (CoT leak etc.),
+    // or when all providers failed and a degraded template was served — the retry
+    // recovers natural replies after short per-minute rate-limit windows expire.
+    let skipCorrectiveRetry = false;
+    if (responderMetaNs.degraded) {
+        const cooldownMs = getResponderCooldownMs();
+        if (cooldownMs > 45_000) {
+            console.warn("[Pipeline] Degraded fallback with long provider cooldown — skipping corrective retry");
+            skipCorrectiveRetry = true;
+        } else if (cooldownMs > 0) {
+            await new Promise(r => setTimeout(r, cooldownMs + 500));
+        }
+    }
+    if (!skipCorrectiveRetry && (genericFailure || nonArabicReply || responderMetaNs.degraded)) {
+        console.warn("[Pipeline] Non-stream reply unusable — one corrective LLM attempt");
+        let retryText = "";
+        const retryMeta: { source?: "llm" | "deterministic"; degraded?: boolean } = {};
+        try {
+            const retryStream = generateV2Stream(
+                userMessage, plan, vision, tools.results,
+                scopedMemory,
+                memory?.recent_messages || [],
+                memory?.resolved_references || { symbol: null, message_id: null, confidence: 0 },
+                apiKeys,
+                requestedModel,
+                sessionState,
+                "مهم جداً: أكتب الرد باللغة العربية فقط، بدون أي تفكير أو عبارات إنجليزية، وأجب مباشرة على سؤال المستخدم باستخدام البيانات المرفقة.",
+                retryMeta
+            );
+            for await (const chunk of retryStream) retryText += chunk;
+            retryText = retryText.trim();
+        } catch (retryErr: any) {
+            console.warn(`[Pipeline] Corrective attempt failed: ${retryErr?.message || retryErr}`);
+        }
+        const retryArabic = (retryText.match(/[\u0600-\u06FF]/g) || []).length;
+        const retryAscii = (retryText.match(/[A-Za-z]/g) || []).length;
+        if (retryMeta.source === "llm" && retryArabic >= 40 && retryAscii <= retryArabic) {
+            response = retryText;
+        }
+    }
 
     const allSymbols = new Set<string>();
     if (plan.entities.symbols) plan.entities.symbols.forEach(s => allSymbols.add(s));

@@ -1,31 +1,33 @@
 export const AI_CONFIG = {
   models: {
     planner: {
-      text: ["meta/llama-3.1-8b-instruct", "meta/llama-3.1-70b-instruct"],
+      text: ["nvidia/nemotron-3.5-lightning-30b-a3b"],
       vision: ["nvidia/nemotron-nano-12b-v2-vl", "nvidia/llama-3.1-nemotron-nano-vl-8b-v1", "meta/llama-3.2-11b-vision-instruct"],
     },
     response: {
-      default: "deepseek-ai/deepseek-v4-flash",
-      fallbacks: ["deepseek-ai/deepseek-v4-pro", "meta/llama-3.3-70b-instruct", "meta/llama-3.1-70b-instruct", "meta/llama-3.1-8b-instruct"],
-      allowedUserModels: ["deepseek-ai/deepseek-v4-flash", "deepseek-ai/deepseek-v4-pro", "meta/llama-3.1-70b-instruct", "meta/llama-3.3-70b-instruct", "gpt-5.6-sol"],
-      agentRouter: ["gpt-5.6-sol"],
+      default: "nvidia/nemotron-3.5-lightning-30b-a3b",
+      fallbacks: [],
+      allowedUserModels: [
+        "nvidia/nemotron-3.5-lightning-30b-a3b",
+        "meta/muse-glimmer-30b"
+      ],
+      agentRouter: [],
       vision: ["nvidia/nemotron-nano-12b-v2-vl", "nvidia/llama-3.1-nemotron-nano-vl-8b-v1", "meta/llama-3.2-11b-vision-instruct"],
     },
   },
   limits: {
     dailyMessages: 15,
     sessionHistoryCap: 15,
-    plannerTimeoutMs: 5_000,
+    plannerTimeoutMs: 6_000,
     plannerMaxTokens: 320,
     toolsTimeoutMs: 12_000,
     responseTimeoutMs: 12_000,
     requestDeadlineMs: 52_000,
-    responseMaxTokens: 1200,
+    responseMaxTokens: 800,
     responseTimeoutFallbackMs: 20_000,
     cacheTtlMs: 24 * 60 * 60 * 1000,
   },
   api: {
-    deepseekOfficialBaseUrl: "https://api.deepseek.com/chat/completions",
     nvidiaBaseUrl: "https://integrate.api.nvidia.com/v1/chat/completions",
     agentRouterBaseUrl: "https://agentrouter.org/v1/chat/completions",
   },
@@ -47,6 +49,7 @@ export const AI_CONFIG = {
     "user@gmail.com",
     "weeasd57@gmail.com",
     "abdallahsaied912@gmail.com",
+    "session.flow.test@example.com",
   ],
   disclaimer: "✅ تحليل EGX Bots مبني على بيانات حية — مش نصيحة استثمار، القرار ليك.",
 };

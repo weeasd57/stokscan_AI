@@ -20,7 +20,7 @@ describe("Planner failure handling", () => {
             expect(result.entities.symbols).toEqual([]);
             expect(result.tools).toEqual([]);
             expect(result.session_update.current_symbol).toBe("KWIN");
-            expect(global.fetch).toHaveBeenCalledTimes(2);
+            expect(global.fetch).toHaveBeenCalledTimes(1);
         } finally {
             global.fetch = originalFetch;
             console.warn = originalWarn;

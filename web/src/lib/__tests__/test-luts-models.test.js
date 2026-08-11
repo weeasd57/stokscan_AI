@@ -7,9 +7,8 @@ describe("Test 3 UI Models with 'سهم لوتس' Query", () => {
     const apiKeys = ["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"];
 
     const modelsToTest = [
-        "deepseek-ai/deepseek-v4-flash",
-        "deepseek-ai/deepseek-v4-pro",
-        "meta/llama-3.1-70b-instruct"
+        "nvidia/nemotron-3.5-lightning-30b-a3b",
+        "meta/muse-glimmer-30b",
     ];
 
     test.each(modelsToTest)("Generates response using model %s", async (modelName) => {
