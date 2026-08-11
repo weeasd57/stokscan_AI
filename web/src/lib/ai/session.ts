@@ -100,6 +100,7 @@ export async function updateSessionState(
             ? Array.from(new Set([...update.last_symbols, ...(current.last_symbols || [])])).slice(0, 15) 
             : current.last_symbols,
         summary: update.summary !== undefined ? update.summary : current.summary,
+        current_sector: update.current_sector !== undefined ? update.current_sector : current.current_sector,
         investment_budget: update.investment_budget !== undefined ? update.investment_budget : current.investment_budget,
         investment_horizon: update.investment_horizon !== undefined ? update.investment_horizon : current.investment_horizon,
         risk_tolerance: update.risk_tolerance !== undefined ? update.risk_tolerance : current.risk_tolerance,

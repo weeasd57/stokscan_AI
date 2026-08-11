@@ -1,5 +1,6 @@
 import { IntentPlan, ToolResult } from "./types";
 import { AI_CONFIG } from "./config";
+import { classificationMatchesSector } from "./sector-taxonomy";
 
 function normalizeArabic(str: string): string {
     return str
@@ -35,12 +36,7 @@ export async function executeStructuredTools(
 
     const isExcludedSector = (value: unknown): boolean => {
         if (!excludedSectors.length) return false;
-        const normalized = normalizeArabic(String(value || ""));
-        return excludedSectors.some(excluded => {
-            if (excluded.includes("ادويه")) return /(pharma|pharmaceutical|health technology|health services|ادويه|دواء)/i.test(normalized);
-            if (excluded.includes("مخابز") || excluded.includes("مطاحن")) return /(milling|mills|flour|bakery|bakeries|مطاحن|مخابز|دقيق)/i.test(normalized);
-            return normalized.includes(excluded.replace(/^ال/, ""));
-        });
+        return (plan.entities.excluded_sectors || []).some(excluded => classificationMatchesSector(value, excluded));
     };
 
     const dataDateQuality = (date: unknown, maxAgeDays: number, requested: string | null = null) => {
@@ -94,6 +90,7 @@ export async function executeStructuredTools(
             "اغذيه": ["food", "beverage", "consumer non-durables", "agriculture"],
             "بترول": ["oil", "gas", "petroleum", "energy minerals", "energy"],
             "بناء": ["building", "non-energy minerals", "construction", "materials"],
+            "مواد بناء وتعدين": ["non-energy minerals", "building", "construction", "materials", "cement", "steel", "mining"],
             "سياحه": ["tourism", "travel", "consumer services", "hotel"],
             "اتصالات": ["telecom", "telecommunications", "communications", "technology services"]
         };
@@ -122,7 +119,12 @@ export async function executeStructuredTools(
             if (requestedDate) techQuery = techQuery.eq("date", requestedDate);
             const { data: techRows } = await techQuery;
             const dataDate = requestedDate || techRows?.[0]?.date || now.slice(0, 10);
-            const latestRows = (techRows || []).filter((row: any) => row.date === dataDate && Number.isFinite(Number(row.close)));
+            const requestedSymbols = new Set(symbols.map(symbol => symbol.toUpperCase()));
+            const latestRows = (techRows || []).filter((row: any) =>
+                row.date === dataDate
+                && Number.isFinite(Number(row.close))
+                && (!requestedSymbols.size || requestedSymbols.has(String(row.symbol || "").toUpperCase()))
+            );
             const quality = dataDateQuality(dataDate, requestedDate ? 3650 : 3, requestedDate);
             if (!quality.ok) {
                 results.push({ tool: "get_fair_value_scan", source: "validation", data_time: dataDate, symbols: [], data_type: requestedDate ? "historical" : "live", data: { stocks: [], validation: quality } });
@@ -150,6 +152,20 @@ export async function executeStructuredTools(
                     if (symbol && !distributionBySymbol.has(symbol)) distributionBySymbol.set(symbol, row);
                 });
             }
+            const excludedSectorsList = plan.entities.excluded_sectors || [];
+            const fundamentalsMap = new Map<string, string>();
+            if (excludedSectorsList.length > 0) {
+                const { data: fundRows } = await supabase.from("stock_fundamentals")
+                    .select("symbol, data")
+                    .eq("exchange", AI_CONFIG.tools.defaultExchange)
+                    .limit(1000);
+                (fundRows || []).forEach((row: any) => {
+                    const raw = typeof row.data === "string" ? (() => { try { return JSON.parse(row.data); } catch { return {}; } })() : row.data || {};
+                    const classification = `${raw.sector || raw.Sector || ""} ${raw.industry || raw.Industry || ""} ${raw.sector_ar || raw.SectorAr || ""} ${raw.name || ""}`.toLowerCase();
+                    fundamentalsMap.set(String(row.symbol).toUpperCase(), classification);
+                });
+            }
+
             const pricesBySymbol = new Map<string, any[]>();
             (priceRows || []).forEach((price: any) => {
                 const key = String(price.symbol || "").toUpperCase();
@@ -158,7 +174,13 @@ export async function executeStructuredTools(
                 pricesBySymbol.set(key, rows);
             });
             const candidates = latestRows.map((row: any) => {
-                const prices = pricesBySymbol.get(String(row.symbol).toUpperCase()) || [];
+                const symbol = String(row.symbol).toUpperCase();
+                if (excludedSectorsList.length > 0) {
+                    const classification = fundamentalsMap.get(symbol);
+                    if (!classification) return null;
+                    if (isExcludedSector(classification)) return null;
+                }
+                const prices = pricesBySymbol.get(symbol) || [];
                 if (!prices.length) return null;
                 const support = Math.min(...prices.map((price: any) => Number(price.low ?? price.close)));
                 const resistance = Math.max(...prices.map((price: any) => Number(price.high ?? price.close)));
@@ -167,7 +189,6 @@ export async function executeStructuredTools(
                 if (![support, resistance, midpoint, close].every(Number.isFinite)) return null;
                 if (fairValueDirection === "above" && close <= midpoint) return null;
                 if (fairValueDirection === "below" && close >= midpoint) return null;
-                const symbol = String(row.symbol).toUpperCase();
                 const distribution = distributionBySymbol.get(symbol);
                 const scanDate = String(distribution?.scan_date || "").slice(0, 10);
                 const scanAgeDays = scanDate ? Math.floor((Date.parse(`${dataDate}T23:59:59Z`) - Date.parse(`${scanDate}T23:59:59Z`)) / 86400000) : Number.POSITIVE_INFINITY;
@@ -175,8 +196,8 @@ export async function executeStructuredTools(
                 const isAccumulation = distribution?.signal === "accumulation" || distribution?.signal === "strong_accumulation" || Number(distribution?.acc_score || 0) >= 50;
                 // A fair-value scan explicitly requesting accumulation/distribution needs a
                 // current technical signal; a stale signal must not qualify the stock.
-                if (requireDistribution && (!isDistribution || scanAgeDays > 3)) return null;
-                if (requireAccumulation && (!isAccumulation || scanAgeDays > 3)) return null;
+                if (requireDistribution && (!isDistribution || scanAgeDays > 30)) return null;
+                if (requireAccumulation && (!isAccumulation || scanAgeDays > 30)) return null;
                 return {
                     symbol, close, support, resistance, midpoint,
                     premium_pct: midpoint > 0 ? ((close / midpoint) - 1) * 100 : null,
@@ -197,7 +218,7 @@ export async function executeStructuredTools(
                 .slice(0, 30);
             const relation = fairValueDirection === "above" ? "above" : "below";
             const source = requireDistribution || requireAccumulation ? "stock_prices+stock_scans_summary" : "stock_prices";
-            results.push({ tool: "get_fair_value_scan", source, data_time: dataDate, symbols: stocks.map((stock: any) => stock.symbol), data_type: requestedDate ? "historical" : "live", data: { metric: `price_${relation}_60_session_midpoint`, direction: fairValueDirection, require_distribution: requireDistribution, require_accumulation: requireAccumulation, stocks } });
+            results.push({ tool: "get_fair_value_scan", source, data_time: dataDate, symbols: stocks.map((stock: any) => stock.symbol), data_type: requestedDate ? "historical" : "live", data: { metric: `price_${relation}_60_session_midpoint`, direction: fairValueDirection, require_distribution: requireDistribution, require_accumulation: requireAccumulation, excluded_sectors: excludedSectorsList, stocks } });
             textParts.push(`[مسح التقييم الفني السوقي بتاريخ ${dataDate}]: ${stocks.length} سهم ${fairValueDirection === "above" ? "فوق" : "تحت"} القيمة الوسطية لنطاق 60 جلسة${requireDistribution ? " مع إشارة تصريف" : requireAccumulation ? " مع إشارة تجميع" : ""}.`);
         } catch (e) {
             console.warn("Error computing fair-value scan:", e);
@@ -336,8 +357,28 @@ export async function executeStructuredTools(
             if (summaryScans && summaryScans.length > 0) {
                 const maxDate = requestedDate || summaryScans[0].scan_date;
                 const todayScans = summaryScans.filter((r: any) => r.scan_date === maxDate);
+                const scanQuality = requestedDate
+                    ? { ok: true, reason: null }
+                    : dataDateQuality(maxDate, 7);
 
-                if (todayScans.length > 0) {
+                if (todayScans.length > 0 && !scanQuality.ok) {
+                    hasSummaryData = true;
+                    results.push({
+                        tool: scanTool,
+                        source: "validation",
+                        data_time: maxDate,
+                        symbols,
+                        data_type: "live",
+                        data: {
+                            stocks: [],
+                            scan_rows: [],
+                            date: maxDate,
+                            direction,
+                            validation: scanQuality,
+                            message: "Latest scan data is stale."
+                        }
+                    });
+                } else if (todayScans.length > 0) {
                     hasSummaryData = true;
                     const symbolsList = Array.from(new Set(todayScans.map((r: any) => r.symbol)));
                     const { data: stocksData } = await supabase
@@ -1033,6 +1074,10 @@ export async function executeStructuredTools(
                     stock_count: aggregate.stock_count,
                     average_volume_ratio: aggregate.volume_ratio_count ? aggregate.volume_ratio_sum / aggregate.volume_ratio_count : null
                 }))
+                .filter(sector => {
+                    const requestedSectors = plan.entities.requested_sectors || [];
+                    return requestedSectors.length === 0 || requestedSectors.some(requested => classificationMatchesSector(sector.sector, requested));
+                })
                 .sort((left, right) => right.traded_value - left.traded_value);
             results.push({
                 tool: "get_sector_liquidity",
@@ -1040,7 +1085,7 @@ export async function executeStructuredTools(
                 data_time: dataDate,
                 symbols: [],
                 data_type: requestedDate ? "historical" : "live",
-                data: { sectors, requested_sector: plan.entities.sector || null, excluded_sectors: plan.entities.excluded_sectors || [] }
+                data: { sectors, requested_sector: plan.entities.sector || null, requested_sectors: plan.entities.requested_sectors || [], excluded_sectors: plan.entities.excluded_sectors || [] }
             });
         } catch (e) {
             console.warn("Error fetching sector liquidity:", e);
@@ -1108,12 +1153,9 @@ export async function executeStructuredTools(
         results.push(...levelResults);
     }
 
-    if (plan.tools.includes("get_sector") || plan.intent === "sector_analysis") {
+    if (plan.tools.includes("get_sector")) {
         try {
-            let targetSector = plan.entities.sector || "";
-            if (!targetSector) {
-                targetSector = "بنوك";
-            }
+            const targetSector = plan.entities.sector || "";
 
             if (targetSector) {
                 const { data: fundamentalsRows } = await supabase

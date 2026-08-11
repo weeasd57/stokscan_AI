@@ -77,6 +77,7 @@ export interface IntentPlan {
         min_consecutive_acc_days?: number | null;
         recommendation_order?: "oldest" | "newest" | null;
         excluded_sectors?: string[];
+        requested_sectors?: string[];
         requested_date?: string | null;
         requested_start_date?: string | null;
         requested_end_date?: string | null;
@@ -138,6 +139,7 @@ export interface PlannerResult {
         min_consecutive_acc_days?: number | null;
         recommendation_order?: "oldest" | "newest" | null;
         excluded_sectors?: string[];
+        requested_sectors?: string[];
     };
     tools: string[];
     image_summary?: string | null;

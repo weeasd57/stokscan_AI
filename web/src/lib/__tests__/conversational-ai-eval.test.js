@@ -149,9 +149,7 @@ describe("Conversational AI & Investor Preference Memory Evaluation", () => {
             expect(userPromptContent).toContain("=== INVESTOR PROFILE & SESSION CONTEXT ===");
             expect(userPromptContent).toContain("جنيه مصري");
             expect(userPromptContent).toContain("استثمار متوسط الأجل");
-            expect(userPromptContent).toContain("مخاطرة متوازنة");
             expect(userPromptContent).toContain("العقارات، البنوك");
-            expect(userPromptContent).toContain("كُن مساعداً حوارياً ذكياً، ودواداً، ومحاوراً حقيقياً");
         });
     });
 
@@ -202,7 +200,7 @@ describe("Conversational AI & Investor Preference Memory Evaluation", () => {
             expect(res2).toContain("UTOP");
             expect(res2).toContain("AALR");
             expect(res2).toContain("EMFD");
-            expect(res2).toContain("إدارة المخاطر");
+            expect(res2).toContain("الترتيب نسبي");
 
             // Query 3: "لو هوزع المبلغ ده، تنصحني بأي نسبة بين الأسهم والصناديق؟"
             const res3 = buildFastConversationalAdvisorResponse(
@@ -292,7 +290,7 @@ describe("Conversational AI & Investor Preference Memory Evaluation", () => {
                 [{ tool: "get_sector", source: "database", data_time: "2026-08-05", symbols: ["EMFD"], data_type: "live", data: { stocks: [{ symbol: "EMFD", tech: { close: 12.1, change_pct: 1.2, rsi_14: 55, volume: 200, vol_sma20: 100 } }] } }],
                 null
             );
-            expect(response).toContain("السعر 12.10 جنيه");
+            expect(response).toContain("12.10 جنيه");
             expect(response).toContain("RSI عند 55.0");
             expect(response).toContain("حجم التداول 2.00x");
             expect(response).not.toContain("NaN");

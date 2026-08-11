@@ -2,7 +2,7 @@ const { validateVisionOutput } = require("../ai/vision");
 const { buildV2FinalMessages, buildDeterministicResponse } = require("../ai/final-v2");
 const { retrieveRelevantMemory } = require("../ai/memory");
 const { buildExcelTables, tablesToMarkdown } = require("../ai/excel-tables");
-const { enforceIntentFromMessage, buildMarketLiquidityResponse, buildTopMoversResponse, needsLiveDataForTools, needsHistoricalData, extractSectorFromMessage, extractExplicitSymbols, buildDeterministicPlannerResult, extractRequestedDate, extractRequestedDateRange, extractTemporalContext, isMarketWideRequest, isFairValueScanRequest, getFairValueFilters, isEarningsDataRequest, isUsageLimitQuestion, extractSingleStockFromRecentHistory, isEgxWeekend, describeDatedFallback, getInvestorGuidanceIntent, isBeginnerPortfolioQuestion, isNonEquityProductComparison, sanitizePlannerTools } = require("../ai/pipeline");
+const { enforceIntentFromMessage, buildMarketLiquidityResponse, buildTopMoversResponse, needsLiveDataForTools, needsHistoricalData, extractSectorFromMessage, extractExcludedSectors, extractExplicitSymbols, buildDeterministicPlannerResult, extractRequestedDate, extractRequestedDateRange, extractTemporalContext, isMarketWideRequest, isFairValueScanRequest, getFairValueFilters, isEarningsDataRequest, isUsageLimitQuestion, extractSingleStockFromRecentHistory, isEgxWeekend, describeDatedFallback, getInvestorGuidanceIntent, isBeginnerPortfolioQuestion, isNonEquityProductComparison, sanitizePlannerTools, scopeImplicitSingleStockRequest } = require("../ai/pipeline");
 const { sanitizeReply } = require("../ai/sanitizer");
 const { sanitizeUiLabel } = require("../ai/sanitizer");
 const { parseToolsOutput } = require("../ai/table-builder");
@@ -467,6 +467,31 @@ describe("Deterministic response fallback", () => {
             entities: { symbols: [], fair_value_direction: "below", require_distribution: true },
             tools: ["get_fair_value_scan"]
         });
+    });
+
+    it.each([
+        ["عايز اشتري في سهم بعيد عن قطاع الادويه والبنوك ويكون في تجميع وتحت القيمه العادله", ["أدوية", "بنوك"], "below", true, false],
+        ["هات سهم خارج العقارات أو الاتصالات وفيه تصريف وفوق القيمة الفنية", ["عقارات", "اتصالات"], "above", false, true],
+        ["ابعد قطاع السياحة و النقل و الشحن، وعايز تجميع أقل من التقييم العادل", ["سياحة وخدمات استهلاكية", "نقل وشحن"], "below", true, false]
+    ])("keeps dynamic fair-value constraints for: %s", (message, sectors, valueDirection, accumulation, distribution) => {
+        expect(isFairValueScanRequest(message)).toBe(true);
+        expect(extractExcludedSectors(message)).toEqual(sectors);
+        const plan = buildDeterministicPlannerResult(message, { current_symbol: "COMI", last_symbols: ["COMI"], summary: "تحليل COMI" });
+        expect(plan).toMatchObject({
+            tools: ["get_fair_value_scan"],
+            entities: {
+                excluded_sectors: sectors,
+                fair_value_direction: valueDirection,
+                require_accumulation: accumulation,
+                require_distribution: distribution
+            }
+        });
+    });
+
+    it("keeps an explicit stock as the scope of a fair-value scan", () => {
+        const plan = buildDeterministicPlannerResult("هل COMI عليه تجميع وتحت القيمة العادلة؟", { current_symbol: null, last_symbols: [], summary: null });
+        expect(plan.tools).toEqual(["get_fair_value_scan"]);
+        expect(plan.entities.symbols).toEqual(["COMI"]);
     });
 
     it("does not substitute price data for an unavailable earnings request", () => {
@@ -1252,6 +1277,140 @@ describe("Structured table sanitization", () => {
         expect(oldestPlan.tools).toEqual(["get_recommendations"]);
         expect(oldestPlan.entities.symbols).toEqual([]);
         expect(oldestPlan.entities.recommendation_order).toBe("oldest");
+    });
+
+    it("scopes a singular owned-stock follow-up to the current stock", () => {
+        expect(scopeImplicitSingleStockRequest(
+            "شريت انهارده ونزل هل في امل انو يطلع حد يفيدني",
+            [],
+            ["BIOC", "ETEL"],
+            "BIOC",
+            "ETEL"
+        )).toEqual(["BIOC"]);
+        expect(scopeImplicitSingleStockRequest("حللهم", [], ["BIOC", "ETEL"], "BIOC", null)).toEqual(["BIOC", "ETEL"]);
+    });
+
+    it("routes a sector comparison to market-wide sector liquidity only", () => {
+        const message = "إيه رأيك في قطاع العقارات هل أحسن من الأدوية أو الاتصالات";
+        const enforced = enforceIntentFromMessage(message, "sector_analysis", []);
+        expect(enforced).toEqual({ intent: "sector_analysis", tools: ["get_sector_liquidity"], replaceTools: true, sector: null, requested_sectors: ["أدوية", "عقارات", "اتصالات"] });
+        const plan = buildDeterministicPlannerResult(message, { current_symbol: "BIOC", last_symbols: ["BIOC", "ETEL"], summary: "BIOC" });
+        expect(plan.tools).toEqual(["get_sector_liquidity"]);
+        expect(plan.entities.symbols).toEqual([]);
+        expect(plan.entities.sector).toBeNull();
+        expect(plan.entities.requested_sectors).toEqual(["أدوية", "عقارات", "اتصالات"]);
+    });
+
+    it("does not inherit the previous stock for a sector-liquidity question", () => {
+        const message = "السيوله فى انهو قطاع";
+        expect(isMarketWideRequest(message)).toBe(true);
+        const enforced = enforceIntentFromMessage(message, "stock_analysis", ["ATQA"]);
+        expect(enforced).toEqual({ intent: "market_summary", tools: ["get_sector_liquidity"], replaceTools: true });
+        const plan = buildDeterministicPlannerResult(message, { current_symbol: "ATQA", last_symbols: ["ATQA"], summary: "حلل عتاقه" });
+        expect(plan).toMatchObject({ intent: "market_summary", tools: ["get_sector_liquidity"], entities: { symbols: [], sector: null } });
+    });
+
+    it("summarizes only the sectors explicitly requested for comparison", () => {
+        const plan = {
+            intent: "sector_analysis", confidence: 1,
+            entities: { symbols: [], sector: null, timeframe: "current", reference: null, requested_sectors: ["عقارات", "أدوية", "اتصالات"] },
+            needs_live_data: true, needs_historical_data: false, needs_vision_context: false, needs_history: false,
+            tools: ["get_sector_liquidity"], clarification_needed: false, resolved_from: { symbol: null, message_id: null }
+        };
+        const response = buildDeterministicResponse("هل العقارات أحسن من الأدوية أو الاتصالات؟", plan, [{
+            tool: "get_sector_liquidity", source: "database", data_time: "2026-08-11", symbols: [], data_type: "live",
+            data: {
+                requested_sectors: ["عقارات", "أدوية", "اتصالات"],
+                sectors: [
+                    { sector: "Health Technology", traded_value: 3000000000, stock_count: 11, average_volume_ratio: 1.74 },
+                    { sector: "Consumer Durables", traded_value: 400000000, stock_count: 7, average_volume_ratio: 0.69 },
+                    { sector: "Communications", traded_value: 300000000, stock_count: 2, average_volume_ratio: 1.32 }
+                ]
+            }
+        }]);
+        expect(response).toContain("مقارنة السيولة بين عقارات وأدوية واتصالات");
+        expect(response).toContain("الأفضل هنا يعني الأقوى سيولة");
+        expect(response).not.toContain("البنوك والخدمات المالية");
+    });
+
+    it("routes construction liquidity and refuses unsupported causal claims", () => {
+        const plan = buildDeterministicPlannerResult("هى ليه السيوله عاليه فى قطاع الانشاءات", { current_symbol: null, last_symbols: [], summary: null });
+        expect(plan).toMatchObject({ intent: "sector_analysis", tools: ["get_sector_liquidity"], entities: { sector: "مواد بناء وتعدين" } });
+        const response = buildDeterministicResponse("هى ليه السيوله عاليه فى قطاع الانشاءات", plan, [{
+            tool: "get_sector_liquidity", source: "database", data_time: "2026-08-11", symbols: [], data_type: "live",
+            data: { sectors: [{ sector: "Non-Energy Minerals", traded_value: 3000000000, stock_count: 10, average_volume_ratio: 4.72 }], requested_sector: "مواد بناء وتعدين" }
+        }]);
+        expect(response).toContain("لا يثبت سبب الارتفاع وحده");
+        expect(response).not.toContain("نتائج أعمال قوية");
+        expect(response).not.toContain("عقود حكومية");
+    });
+
+    it("finishes a multi-stock analysis instead of repeating a fallback", () => {
+        const plan = {
+            intent: "stock_analysis", confidence: 1,
+            entities: { symbols: ["ALCN", "ABUK", "ATQA"], sector: null, timeframe: "current", reference: null },
+            needs_vision_context: false, needs_history: false, needs_live_data: true, needs_historical_data: false,
+            tools: ["get_stock", "get_stock_levels"], clarification_needed: false, resolved_from: { symbol: null, message_id: null }
+        };
+        const results = ["ALCN", "ABUK", "ATQA"].map((symbol, index) => ({
+            tool: "get_stock", source: "database", data_time: "2026-08-11", symbols: [symbol], data_type: "live",
+            data: { symbol, price: [31.1, 74.6, 10.97][index], change_pct: ["+1.30%", "+1.29%", "+2.52%"][index], rsi_14: [65.24, 57.25, 79.2][index], macd_signal: [0.37, -0.05, 0.13][index], vol_ratio: [0.71, 0.65, 4.22][index] }
+        }));
+        const response = buildDeterministicResponse("حلل ابو قير وعتاقه والاسكندريه", plan, results);
+        expect(response).toContain("ملخص فني مختصر");
+        expect(response).toContain("ALCN:");
+        expect(response).toContain("ABUK:");
+        expect(response).toContain("ATQA:");
+        expect(response.split("\n").length).toBeLessThanOrEqual(6);
+    });
+
+    it("does not repeat an incomplete stock fallback after continue", () => {
+        const plan = buildDeterministicPlannerResult("كمل", { current_symbol: "ALCN", last_symbols: ["ALCN", "ABUK", "ATQA"], summary: "تحليل عدة أسهم" });
+        expect(plan.intent).toBe("general_chat");
+        expect(buildDeterministicResponse("كمل", plan, [])).toContain("التحليل السابق مكتمل");
+    });
+
+    it("keeps the last sector for liquidity and news follow-ups", () => {
+        const state = { current_symbol: null, last_symbols: [], current_sector: "أدوية", summary: "هات سيولة قطاع الأدوية" };
+        const why = buildDeterministicPlannerResult("ليه السيولة عالية؟", state);
+        expect(why).toMatchObject({ intent: "sector_analysis", tools: ["get_sector_liquidity"], entities: { sector: "أدوية" } });
+
+        const news = buildDeterministicPlannerResult("هات قائمة بالأخبار المتعلقة بالقطاع", state);
+        expect(news).toMatchObject({ intent: "sector_analysis", tools: ["get_news"], entities: { sector: "أدوية" } });
+        expect(news.entities.symbols).toEqual([]);
+    });
+
+    it("does not treat a stock or market mover list as sector news", () => {
+        const plan = buildDeterministicPlannerResult("هات قائمة بالأخبار المتعلقة بالقطاع", {
+            current_symbol: "ATQA", last_symbols: ["ATQA"], current_sector: null, summary: "أقوى الأسهم النهارده"
+        });
+        expect(plan).toBeNull();
+    });
+
+    it("sanitizes an environment block even when it is the whole response", () => {
+        const { sanitizeReply } = require("../ai/sanitizer");
+        const cleaned = sanitizeReply("<environment_details>\nCurrent time: secret\nWorking directory: secret\nWorkspace root folder: secret\n</environment_details>");
+        expect(cleaned).not.toMatch(/environment_details|Current time:|Working directory:|Workspace root folder:/i);
+    });
+
+    it("rejects stale accumulation scans as a current verdict", () => {
+        const plan = {
+            intent: "accumulation_distribution", confidence: 1,
+            entities: { symbols: ["CPME"], sector: null, timeframe: "current", reference: null, scan_direction: "accumulation" },
+            needs_vision_context: false, needs_history: false, needs_live_data: true, needs_historical_data: false,
+            tools: ["get_accumulation_stocks"], clarification_needed: false, resolved_from: { symbol: null, message_id: null }
+        };
+        const response = buildDeterministicResponse(
+            "هل سهم CPME في مرحلة تجميع أم تصريف؟",
+            plan,
+            [{
+                tool: "get_accumulation_stocks", source: "validation", data_time: "2026-07-27", symbols: ["CPME"], data_type: "live",
+                data: { direction: "accumulation", stocks: [], scan_rows: [], validation: { ok: false, reason: "stale", ageDays: 15 } }
+            }]
+        );
+        expect(response).toContain("قديم ولا يصلح لوصف الحالة الحالية");
+        expect(response).toContain("2026-07-27");
+        expect(response).not.toContain("توجد إشارة التجميع");
     });
 
     it("asks for the strength criterion and treats Thndr as a platform", () => {

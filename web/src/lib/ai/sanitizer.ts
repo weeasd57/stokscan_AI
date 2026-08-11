@@ -196,7 +196,7 @@ export function sanitizeReply(reply: string, liveDataString?: string): string {
     if (/[\u0600-\u06FF]/.test(cleanReply)) {
         const countAr = (s: string) => (s.match(/[\u0600-\u06FF]/g) || []).length;
         const countEn = (s: string) => (s.match(/[A-Za-z]/g) || []).length;
-        const isStructural = (t: string) => /^(#{1,6}\s|\*\*\S{1,12}\*\*|[•\-]\s*[A-Z]{2,6}\b|[A-Z]{2,6}\s*[:：])/.test(t);
+        const isStructural = (t: string) => /^(#{1,6}\s|\*\*\S{1,12}\*\*|[•\-]\s*[A-Z]{2,6}\b|[A-Z]{2,6}\s*[:：]|\|)/.test(t);
         const kept = cleanReply
             .split("\n")
             .filter(line => {
@@ -495,8 +495,7 @@ export function sanitizeReply(reply: string, liveDataString?: string): string {
     return cleanReply;
   } catch (sanitizeError) {
     console.warn("[sanitizer] sanitizeReply error:", sanitizeError);
-    // Return original reply with disclaimer as fallback
-    const safeReply = typeof reply === "string" ? reply : "تحليل فني.";
+    const safeReply = typeof reply === "string" ? stripEnvironmentLeak(reply) : "تحليل فني.";
     return safeReply + `\n\n${AI_CONFIG.disclaimer}`;
   }
 }

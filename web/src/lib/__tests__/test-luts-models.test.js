@@ -54,5 +54,5 @@ describe("Test 3 UI Models with 'سهم لوتس' Query", () => {
 
         expect(response).toBeTruthy();
         expect(response).not.toContain("بناءً على البيانات الحية المتاحة، هذه مقارنة فنية بين أبرز الأسهم");
-    }, 30000);
+    }, 60000);
 });

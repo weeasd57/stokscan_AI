@@ -762,7 +762,7 @@ export function buildFastConversationalAdvisorResponse(
         }
 
         if (wantsMacd) {
-            sections.push("**MACD:** يقارن متوسطين متحركين لقراءة اتجاه الزخم. التقاطع الصاعد إيجابي والتقاطع الهابط سلبي، ويُفضّل تأكيدهما بالسعر والحجم.");
+            sections.push("**مؤشر MACD:** يقارن متوسطين متحركين لقراءة اتجاه الزخم. التقاطع الصاعد إيجابي والتقاطع الهابط سلبي، ويُفضّل تأكيدهما بالسعر والحجم.");
             sections.push("");
         }
 
@@ -865,6 +865,16 @@ export function buildFastConversationalAdvisorResponse(
                 ? fairValueScan.data.stocks
                 : liveStocks;
 
+        if (!stocks || stocks.length === 0) {
+            const reqDist = fairValueScan?.data?.require_distribution;
+            const reqAcc = fairValueScan?.data?.require_accumulation;
+            const dir = fairValueScan?.data?.direction;
+            const signalStr = reqDist ? "إشارة تصريف" : reqAcc ? "إشارة تجميع" : "";
+            const valueStr = dir === "below" ? "تحت القيمة الفنية الوسطية" : dir === "above" ? "فوق القيمة الفنية الوسطية" : "";
+            const details = [signalStr, valueStr].filter(Boolean).join(" و");
+            return `لا توجد أسهم مطابقة في أحدث مسح متاح حالياً${details ? ` تجمع بين (${details})` : ""}. يمكنك تجربة تعديل معايير البحث أو اختيار قطاع آخر.`;
+        }
+
         let greeting = "بين الأسهم المتاحة في المسح، المقارنة الحالية كالتالي:";
         if (sessionState?.investment_budget || sessionState?.risk_tolerance) {
             greeting = `وفق البيانات الحالية${sessionState.investment_budget ? ` وميزانيتك المسجلة ${sessionState.investment_budget.toLocaleString("ar-EG")} جنيه` : ""}، المقارنة بين الأسهم المتاحة كالتالي:`;
@@ -934,6 +944,11 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
     const fastAdvisor = buildFastConversationalAdvisorResponse(userMessage, plan, toolResults, sessionState);
     if (fastAdvisor) return fastAdvisor;
     const scan = toolResults.find(result => result.tool === "get_accumulation_stocks" || result.tool === "get_distribution_stocks");
+    if (scan?.source === "validation" || scan?.data?.validation?.ok === false) {
+        const direction = scan.data?.direction === "distribution" ? "التصريف" : "التجميع";
+        const symbols = plan.entities.symbols.length ? ` للسهم ${plan.entities.symbols.join(" و")}` : "";
+        return `أحدث سجل متاح لمسح ${direction}${symbols} بتاريخ ${scan.data_time}، لكنه قديم ولا يصلح لوصف الحالة الحالية. لم أخلط هذه الإشارة مع مؤشرات التداول الأحدث؛ يلزم تحديث المسح قبل الحكم على وجود ${direction} الآن.`;
+    }
     if (scan && scan.data?.stocks && !plan.tools.includes("get_fair_value_scan") && plan.entities.symbols.length === 0) {
         const stocks = scan.data.stocks;
         const direction = scan.data.direction === "distribution" ? "تصريف" : "تجميع";
@@ -986,11 +1001,25 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
     const levelResults = toolResults.filter(result => result.tool === "get_stock_levels");
     const stockResults = toolResults.filter(result => result.tool === "get_stock" && result.data?.symbol);
     const compoundNews = toolResults.find(result => result.tool === "get_news");
+    const asksForNews = /(?:اخبار|أخبار|خبر(?!ة)|عناوين|news)/i.test(userMessage);
+    if (asksForNews && !compoundNews) {
+        return "لا توجد نتيجة أخبار موثقة لهذا الطلب في البيانات الحالية، لذلك لن أفترض أن السيولة ارتفعت بسبب أرباح أو عقود أو خبر معين. أستطيع عرض الأخبار فقط عند توفر سجلات أخبار مرتبطة بالقطاع أو الأسهم المطلوبة.";
+    }
     if (isUsageLimitQuestion(userMessage)) {
         return "لا أستطيع تأكيد عدد الرسائل المتبقية من سياق السهم السابق. راجع عداد الاستخدام الظاهر في المحادثة، ولن أستخدم بيانات سهم للإجابة عن سؤال الحساب.";
     }
     if (isEarningsDataRequest(userMessage) && plan.entities.symbols.length > 0) {
         return `لا تتوفر لدي حالياً بيانات أرباح موثقة للفترة المطلوبة للسهم ${plan.entities.symbols.join("، ")}. لذلك لن أستبدل سؤال الأرباح بالسعر أو RSI. يمكنني تحليل السعر فنياً، أو عرض الأرباح عند إضافة مصدر قوائم مالية مؤرخ للنظام.`;
+    }
+    if (stockResults.length >= 2 && /(?:حلل|تحليل|بيانات|مؤشرات|مسح)/i.test(userMessage)) {
+        const lines = stockResults.map(result => {
+            const data = result.data;
+            const level = levelResults.find(item => String(item.data?.symbol || item.symbols?.[0] || "").toUpperCase() === String(data.symbol).toUpperCase())?.data;
+            const rsi = Number(data.rsi_14);
+            const momentum = Number.isFinite(rsi) ? rsi >= 70 ? "تشبع شرائي" : rsi >= 50 ? "زخم إيجابي" : rsi <= 30 ? "تشبع بيعي" : "زخم محايد" : "الزخم غير متاح";
+            return `${data.symbol}: ${data.change_pct ?? "التغير غير متاح"}، RSI ${data.rsi_14 ?? "غير متاح"} (${momentum})، حجم ${data.vol_ratio ?? "غير متاح"}، MACD ${data.macd_signal ?? "غير متاح"}${level?.support != null && level?.resistance != null ? `، دعم ${Number(level.support).toFixed(2)} ومقاومة ${Number(level.resistance).toFixed(2)}` : ""}.`;
+        });
+        return ["ملخص فني مختصر للبيانات الحالية:", ...lines, "الأرقام وصفية وليست توصية شراء أو بيع."].join("\n");
     }
     const priceHistories = toolResults.filter(result => result.tool === "get_price_history" && result.data?.symbol);
     const forecastRequest = /(توقعات|توقع|متوقع|تقعات|وقعات).{0,35}(?:5|خمس|الخمسه|الخمسة|15|خمستاشر|خمسة عشر).{0,15}(جلسات|جلسه|جلسة|يوم)|(?:5|خمس|الخمسه|الخمسة|15|خمستاشر|خمسة عشر).{0,15}(جلسات|جلسه|جلسة|يوم).{0,35}(توقعات|توقع|متوقع|تقعات|وقعات)/i.test(userMessage);
@@ -1158,6 +1187,9 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
         if (parts.length) return Array.from(new Set(parts)).join("\n");
     }
     if (plan.intent === "general_chat" && toolResults.length === 0) {
+        if (/^\s*(?:كمل|كمّل|تابع)\s*[!؟?.]*$/i.test(userMessage)) {
+            return "التحليل السابق مكتمل في الملخص والجدول. لن أكرر بيانات سهم واحد أو أضيف تفاصيل غير موثقة؛ اذكر اسم السهم أو المؤشر المطلوب إذا أردت نقطة محددة.";
+        }
         if (/^\s*(?:جدع|عاش|تمام|تسلم|شكرا|شكراً|حلو|ممتاز|برافو)\s*[!؟?.]*$/i.test(userMessage)) {
             return "تسلم. المهم أن يظل التحليل مرتبطاً بالبيانات والمخاطر، وليس مجرد اختيار نسبة أو سهم بلا مبرر. لو عندك سهم معين، قارن بين المؤشرات واختر الأقوى.";
         }
@@ -1401,12 +1433,28 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
         }[String(value)] || String(value));
         const activeSectors = sectors.filter((sector: any) => Number(sector.average_volume_ratio) >= 1);
         const strongestActive = [...activeSectors].sort((left: any, right: any) => Number(right.average_volume_ratio) - Number(left.average_volume_ratio))[0];
+        const requestedSectors = Array.isArray(sectorLiquidity.data?.requested_sectors) ? sectorLiquidity.data.requested_sectors : [];
+        if (/(?:ليه|لماذا|سبب|ايه اللي|إيه اللي).{0,30}(?:السيول|السيوله|سيوله).{0,30}(?:عالي|عاليه|مرتفع|زادت)|(?:السيول|السيوله|سيوله).{0,30}(?:ليه|لماذا|سبب)/i.test(userMessage)) {
+            return [
+                `قطاع ${sectorNameAr(top.sector)} سجل متوسط حجم ${top.average_volume_ratio == null ? "غير متاح" : `${Number(top.average_volume_ratio).toFixed(2)}x`} وقيمة تداول تقديرية ${formatMillions(top.traded_value)} بتاريخ ${sectorLiquidity.data_time}.`,
+                "هذا يثبت أن أحجام التداول أعلى من متوسطها، لكنه لا يثبت سبب الارتفاع وحده.",
+                "تحديد السبب يحتاج أخباراً أو إفصاحات موثقة مرتبطة بأسهم القطاع؛ لا يجوز افتراض نتائج أعمال أو عقود من بيانات الحجم فقط."
+            ].join("\n");
+        }
         if (sectorLiquidity.data?.requested_sector) {
             return [
                 `سيولة قطاع ${sectorNameAr(top.sector)} بلغت نحو ${formatMillions(top.traded_value)} بتاريخ ${sectorLiquidity.data_time}، محسوبة من ${top.stock_count} سهم متاح البيانات.`,
                 top.average_volume_ratio != null ? `متوسط نسبة الحجم لأسهم القطاع: ${Number(top.average_volume_ratio).toFixed(2)}x.` : null,
                 sectorLiquidity.data?.excluded_sectors?.length ? `تم استبعاد: ${sectorLiquidity.data.excluded_sectors.join(" و")} من المقارنة.` : null,
                 "الحساب تقديري على أساس السعر × حجم التداول، وليس توصية شراء أو بيع."
+            ].filter(Boolean).join("\n");
+        }
+        if (requestedSectors.length > 1) {
+            return [
+                `مقارنة السيولة بين ${requestedSectors.join(" و")} بتاريخ ${sectorLiquidity.data_time}:`,
+                ...sectors.map((sector: any, index: number) => `${index + 1}. ${sectorNameAr(sector.sector)}: ${formatMillions(sector.traded_value)}، متوسط الحجم ${sector.average_volume_ratio == null ? "غير متاح" : `${Number(sector.average_volume_ratio).toFixed(2)}x`}، عبر ${sector.stock_count} سهم.`),
+                sectors.length < requestedSectors.length ? "بعض القطاعات المطلوبة لم تتوفر لها بيانات تصنيف وحجم مكتملة في الجلسة الحالية." : null,
+                "الأفضل هنا يعني الأقوى سيولة في الجلسة فقط، وليس الأفضل استثمارياً أو الأقل مخاطرة."
             ].filter(Boolean).join("\n");
         }
         return [

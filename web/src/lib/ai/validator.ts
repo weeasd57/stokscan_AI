@@ -15,8 +15,11 @@ const TECHNICAL_EXCLUSIONS = new Set([
 
 // Numbers that are universally allowed (dates, standard parameters, index markers, etc.)
 const ALLOWED_GENERIC_NUMBERS = new Set([
-    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
-    14, 20, 25, 30, 40, 45, 49, 50, 55, 60, 65, 68, 70, 75, 80, 100, 150, 250, 320, 500, 1000, 1500,
+    // Days of month & months (1-31)
+    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31,
+    // Commonly used indicators/levels
+    40, 45, 49, 50, 55, 60, 65, 68, 70, 75, 80, 100, 150, 250, 320, 500, 1000, 1500,
+    // Years
     2024, 2025, 2026, 2027
 ]);
 

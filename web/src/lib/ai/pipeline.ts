@@ -10,6 +10,7 @@ import { loadSessionState, loadSessionSummary, updateSessionSummary, updateSessi
 import { buildExcelTables, ExcelTable } from "./excel-tables";
 import { AI_CONFIG } from "./config";
 import { normalizeArabicIntent, extractInvestorPreferences, getFairValueFilters, isFairValueScanRequest, getInvestorGuidanceIntent as classifyInvestorGuidance, isDailyPriceLimitQuestion, isEarningsDataRequest, isTermsDefinitionRequest, isUsageLimitQuestion, isBestBuyStockQuestion } from "./intent-policy";
+import { extractExcludedSectorNames, extractMentionedSectorNames } from "./sector-taxonomy";
 export { normalizeArabicIntent, extractInvestorPreferences, getFairValueFilters, isFairValueScanRequest, isDailyPriceLimitQuestion, isEarningsDataRequest, isTermsDefinitionRequest, isUsageLimitQuestion, isBestBuyStockQuestion } from "./intent-policy";
 
 export interface PipelineResult {
@@ -22,6 +23,7 @@ export interface PipelineResult {
         current_symbol: string | null;
         last_symbols: string[];
         summary: string | null;
+        current_sector?: string | null;
     };
     vision_error: string | null;
     tables: ExcelTable[];
@@ -31,6 +33,21 @@ export function sanitizePlannerTools(message: string, tools: string[]): string[]
     const explicitlyRequestsRecommendations = /توصيات|توصيه|توصية|اشارات النظام|إشارات النظام|سجل التوصيات|اقدم توصيه|أقدم توصية/i.test(message);
     if (explicitlyRequestsRecommendations) return tools;
     return tools.filter(tool => tool !== "get_recommendations" && tool !== "get_signals");
+}
+
+export function scopeImplicitSingleStockRequest(
+    message: string,
+    explicitSymbols: string[],
+    plannedSymbols: string[],
+    currentSymbol: string | null,
+    resolvedSymbol: string | null
+): string[] {
+    if (explicitSymbols.length > 0) return explicitSymbols;
+    const normalized = normalizeArabicIntent(message);
+    const singularOwnedPosition = /(?:شريت|اشتريت|شاري|داخل).{0,35}(?:انهارده|اليوم|السهم|ونزل|نازل)|(?:السهم|هو|انه).{0,25}(?:نزل|نازل).{0,25}(?:يطلع|امل|اعمل)/i.test(normalized);
+    if (!singularOwnedPosition) return plannedSymbols;
+    const symbol = currentSymbol || resolvedSymbol || plannedSymbols[0] || null;
+    return symbol ? [symbol] : [];
 }
 
 function clearsStockContext(plan: IntentPlan): boolean {
@@ -316,6 +333,14 @@ export function extractRequestedDateRange(message: string, referenceDate: Date =
 }
 
 export function buildDeterministicPlannerResult(message: string, sessionState: SessionState): PlannerResult | null {
+    if (/^\s*(?:كمل|كمّل|تابع)\s*[!؟?.]*$/i.test(message)) {
+        return {
+            intent: "general_chat", confidence: 1,
+            entities: { symbols: [], sector: null, wants_table: false, timeframe: "current", requested_date: null, scan_direction: null },
+            tools: [],
+            session_update: { current_symbol: sessionState.current_symbol, last_symbols: sessionState.last_symbols, summary: message }
+        };
+    }
     if (/^\s*(?:جدع|عاش|تمام|تسلم|شكرا|شكراً|حلو|ممتاز|برافو)\s*[!؟?.]*$/i.test(message)) {
         return {
             intent: "general_chat", confidence: 1,
@@ -334,21 +359,40 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
             session_update: { current_symbol: sessionState.current_symbol, last_symbols: sessionState.last_symbols, summary: message }
         };
     }
+    const normalized = normalizeArabicIntent(message);
+    const explicitSymbols = extractExplicitSymbols(message);
+    const excludedSectors = extractExcludedSectors(message);
+    const referencedSector = extractSectorFromMessage(message) || sessionState.current_sector || extractSectorFromMessage(sessionState.summary || "");
+    const sectorNewsFollowUp = /(?:اخبار|أخبار|خبر(?!ه)|عناوين).{0,35}(?:القطاع|قطاع|متعلقه|متعلقة)|(?:القطاع|قطاع).{0,35}(?:اخبار|أخبار|خبر|عناوين)/i.test(normalized);
+    if (sectorNewsFollowUp && referencedSector) {
+        return {
+            intent: "sector_analysis", confidence: 1,
+            entities: { symbols: [], sector: referencedSector, wants_table: true, timeframe: "current", requested_date: null, scan_direction: null },
+            tools: ["get_news"],
+            session_update: { current_symbol: null, last_symbols: [], summary: message }
+        };
+    }
+    const sectorLiquidityReasonFollowUp = /^(?:ه[ىي]\s+)?(?:ليه|لماذا|ايه السبب|إيه السبب)\s+(?:السيول|السيوله|سيوله)\s+(?:عاليه|عالية|مرتفعه|مرتفعة)[؟?\s]*$/i.test(normalized);
+    if (sectorLiquidityReasonFollowUp && referencedSector) {
+        return {
+            intent: "sector_analysis", confidence: 1,
+            entities: { symbols: [], sector: referencedSector, wants_table: true, timeframe: "current", requested_date: null, scan_direction: null },
+            tools: ["get_sector_liquidity"],
+            session_update: { current_symbol: null, last_symbols: [], summary: message }
+        };
+    }
     if (isFairValueScanRequest(message)) {
         const filters = getFairValueFilters(message);
         const fvTools: string[] = ["get_fair_value_scan"];
         return {
             intent: "market_summary",
             confidence: 1,
-            entities: { symbols: [], sector: null, wants_table: true, timeframe: "current", requested_date: null, scan_direction: null, ...filters },
+            entities: { symbols: explicitSymbols, sector: null, wants_table: true, timeframe: "current", requested_date: null, scan_direction: null, excluded_sectors: excludedSectors, ...filters },
             tools: fvTools,
-            session_update: { current_symbol: null, last_symbols: sessionState.last_symbols, summary: message }
+            session_update: { current_symbol: explicitSymbols[0] || null, last_symbols: explicitSymbols.length ? explicitSymbols : sessionState.last_symbols, summary: message }
         };
     }
 
-    const normalized = normalizeArabicIntent(message);
-    const explicitSymbols = extractExplicitSymbols(message);
-    const excludedSectors = extractExcludedSectors(message);
     if (excludedSectors.length > 0 && /(سيول|ادخل|دخول|استثمر|فرص)/i.test(normalized)) {
         return {
             intent: "market_summary", confidence: 1,
@@ -509,7 +553,8 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
 
     const enforced = enforceIntentFromMessage(message, symbols.length ? "stock_analysis" : "market_summary", symbols);
     const sectorFollowUp = Boolean(sectorReference && symbols.length === 0);
-    const effectiveSector = explicitSector || knownSectorFollowUp || sectorFollowUp ? sector : null;
+    const comparesSectors = enforced.tools.includes("get_sector_liquidity") && enforced.sector === null;
+    const effectiveSector = comparesSectors ? null : explicitSector || knownSectorFollowUp || sectorFollowUp ? sector : null;
     return {
         intent: isGreeting || beginnerPortfolioRequest ? "general_chat" : marketNewsRequest ? "market_summary" : requestedDate && symbols.length ? "stock_analysis" : isHistorical ? "historical_recall" : explicitSector || knownSectorFollowUp || sectorFollowUp ? "sector_analysis" : enforced.intent,
         confidence: 1,
@@ -524,6 +569,7 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
             require_distribution: Boolean(enforced.require_distribution),
             require_accumulation: Boolean(enforced.require_accumulation),
             recommendation_order: enforced.recommendation_order || null,
+            requested_sectors: enforced.requested_sectors || [],
         },
         tools: isGreeting || beginnerPortfolioRequest || (isHistorical && !requestedDate && !marketNewsRequest && !oldestRecommendationRequest) ? [] : marketNewsRequest ? ["get_news"] : knownSectorFollowUp || sectorFollowUp ? ["get_sector"] : enforced.replaceTools ? enforced.tools : explicitSector ? ["get_sector"] : symbols.length ? ["get_stock"] : [],
         session_update: {
@@ -551,25 +597,15 @@ export function isMarketWideRequest(message: string): boolean {
         /(?:متوقع|توقع|يرتفع|هيطلع|هيرتفع|يصعد).{0,45}(?:الاسبوع|اسبوع|الايام الجايه|الفتره الجايه)/i,
         /افضل\s+الفرص\s+المتاحه/i,
         /(?:كل|جميع).{0,12}(?:اسهم|الاسهم).{0,12}(?:المؤشر|الموشر|موشر).{0,8}30/i,
+        /(?:السيول|السيوله|سيوله).{0,30}(?:انهو|انهي|اي|أى|أي|فين|فين|قطاع|القطاعات)/i,
+        /(?:انهو|انهي|اي|أى|أي|فين).{0,20}(?:قطاع|القطاعات).{0,20}(?:السيول|السيوله|سيوله)/i,
         /^\s*(?:و?ال)?(?:تجميع|تصريف)(?:\s+(?:فين|ايه|الاسهم|الأسهم|النهارده|اليوم))?[؟?\s]*$/i
     ];
     return isFairValueScanRequest(message) || marketTerms.some(pattern => pattern.test(normalized.trim()));
 }
 
 export function extractExcludedSectors(message: string): string[] {
-    const normalized = normalizeArabicIntent(message);
-    const exclusionPart = normalized.match(/(?:غير|ماعدا|ما عدا|باستثناء|بعيد عن)\s+(.+)$/i)?.[1] || "";
-    if (!exclusionPart) return [];
-    const sectors: Array<[RegExp, string]> = [
-        [/(?:ال)?ادويه|(?:ال)?دواء|pharma/i, "أدوية"],
-        [/(?:ال)?مخابز|(?:ال)?مطاحن|bakery|milling/i, "مخابز ومطاحن"],
-        [/(?:ال)?بنوك/i, "بنوك"],
-        [/(?:ال)?عقارات/i, "عقارات"],
-        [/(?:ال)?اغذيه/i, "أغذية"],
-        [/(?:ال)?اتصالات/i, "اتصالات"],
-        [/(?:ال)?تكنولوجيا/i, "تكنولوجيا"]
-    ];
-    return sectors.filter(([pattern]) => pattern.test(exclusionPart)).map(([, sector]) => sector);
+    return extractExcludedSectorNames(message);
 }
 
 
@@ -578,7 +614,8 @@ export function enforceIntentFromMessage(message: string, plannerIntent: string,
     intent: string;
     tools: string[];
     replaceTools?: boolean;
-    sector?: string;
+    sector?: string | null;
+    requested_sectors?: string[];
     scan_direction?: "accumulation" | "distribution";
     fair_value_direction?: "above" | "below";
     require_distribution?: boolean;
@@ -589,13 +626,16 @@ export function enforceIntentFromMessage(message: string, plannerIntent: string,
         return { intent: "general_chat", tools: [], replaceTools: true };
     }
     const normalized = message.toLowerCase().replace(/[أإآ]/g, "ا").replace(/ة/g, "ه");
-    const hasSymbol = symbols.length > 0 || /\b[A-Z]{2,6}\b/.test(message);
+    const hasExplicitSymbol = /\b[A-Z]{2,6}\b/.test(message);
+    const hasSymbol = symbols.length > 0 || hasExplicitSymbol;
     const excludedSectors = extractExcludedSectors(message);
+    const mentionedSectors = extractMentionedSectorNames(message);
     const marketFairValueScan = isFairValueScanRequest(message);
     const hasDist = /تصريف|distribution/i.test(normalized);
     const hasAcc = /تجميع|accumulation/i.test(normalized);
     const noDist = /(?:لا|بدون|مفيش|صفر|0|zero).{0,15}(?:يوجد)?.{0,15}(?:تصريف|distribution)/i.test(normalized) || /(?:تصريف|distribution)\s*(?:=|يساوي)\s*0/.test(normalized);
     const noAcc = /(?:لا|بدون|مفيش|صفر|0|zero).{0,15}(?:يوجد)?.{0,15}(?:تجميع|accumulation)/i.test(normalized) || /(?:تجميع|accumulation)\s*(?:=|يساوي)\s*0/.test(normalized);
+    const asksSectorLiquidity = /(?:السيول|السيوله|سيوله).{0,30}(?:انهو|انهي|اي\s+قطاع|أي\s+قطاع|قطاع|القطاعات)|(?:انهو|انهي|اي|أى|أي|فين).{0,20}(?:قطاع|القطاعات).{0,20}(?:السيول|السيوله|سيوله)/i.test(normalized);
     let direction: "accumulation" | "distribution" | null = null;
     if (hasAcc && noDist) direction = "accumulation";
     else if (hasDist && noAcc) direction = "distribution";
@@ -607,7 +647,8 @@ export function enforceIntentFromMessage(message: string, plannerIntent: string,
         direction = (accIdx !== -1 && accIdx < distIdx) ? "accumulation" : "distribution";
     }
     if (/شريع|sharia/i.test(normalized)) return { intent: "general_chat", tools: [], replaceTools: true };
-    if (marketFairValueScan) return { intent: "market_summary", tools: ["get_fair_value_scan"], replaceTools: true, ...getFairValueFilters(message) };
+    if (asksSectorLiquidity && mentionedSectors.length === 0) return { intent: "market_summary", tools: ["get_sector_liquidity"], replaceTools: true };
+    if (marketFairValueScan && !hasExplicitSymbol) return { intent: "market_summary", tools: ["get_fair_value_scan"], replaceTools: true, ...getFairValueFilters(message) };
     const weeklyMarketForecast = !hasSymbol
         && /(?:متوقع|توقع|يرتفع|هيطلع|هيرتفع|يصعد).{0,45}(?:الاسبوع|اسبوع|الايام الجايه|الفتره الجايه)/i.test(normalized);
     if (weeklyMarketForecast) {
@@ -647,7 +688,7 @@ export function enforceIntentFromMessage(message: string, plannerIntent: string,
     if (/(ابيع|بيع|احتفظ|اخرج|اشتري|شراء)/i.test(normalized) && hasSymbol) return { intent: "stock_analysis", tools: ["get_stock", "get_stock_levels"], replaceTools: true };
     if (/(ينصح|داخل|دخول|مستهدف|يصحح|تصحيح|بكره|بكرة|اخر الاسبوع|المحفظه|مليون)/i.test(normalized) && hasSymbol) return { intent: "stock_analysis", tools: ["get_stock", "get_stock_levels"], replaceTools: true };
     if (symbols.length >= 2 && hasSymbol && !/(اخبار|خبر|قارن|مقارن|قطاع|تجميع|تصريف)/i.test(normalized)) return { intent: "stock_analysis", tools: ["get_stock", "get_stock_levels"], replaceTools: true };
-    if (/(اكبر|اعلى|اقوى)\s+قطاع.{0,25}(سيول|تداول)|(?:(?:ال)?سيول(?:ه)?).{0,25}(قطاع|القطاعات)|قطاع.{0,25}(?:(?:ال)?سيول(?:ه)?|تداول)/i.test(normalized)) {
+    if (/(اكبر|اعلى|اقوى)\s+قطاع.{0,25}(سيول|تداول)|(?:(?:ال)?سيول(?:ه)?).{0,30}(قطاع|القطاعات)|قطاع.{0,30}(?:(?:ال)?سيول(?:ه)?|تداول)/i.test(normalized)) {
         const sector = extractSectorFromMessage(normalized);
         return sector ? { intent: "sector_analysis", tools: ["get_sector_liquidity"], replaceTools: true, sector } : { intent: "market_summary", tools: ["get_sector_liquidity"], replaceTools: true };
     }
@@ -657,6 +698,14 @@ export function enforceIntentFromMessage(message: string, plannerIntent: string,
     if (/(اداء|أداء|رايك|رأيك).{0,15}(المؤشر|موشر|egx30)|(?:المؤشر|موشر).{0,15}(النهارده|اليوم|عامل)/i.test(normalized)) return { intent: "market_summary", tools: ["get_market"], replaceTools: true };
     if (/(سيول|تداول|liquidity)/i.test(normalized) && hasSymbol) return { intent: "stock_analysis", tools: ["get_stock"], replaceTools: true };
     if (/(سيول|تداول|liquidity)/i.test(normalized) && !hasSymbol) return { intent: "market_summary", tools: ["get_market", "get_accumulation_stocks"], replaceTools: true };
+    const isSectorComparison = !marketFairValueScan && (
+        /(?:أيهما|ايهما|مقارنة|مقارنه|مفاضلة).{0,30}(?:قطاع|القطاعات)/i.test(normalized) ||
+        /(?:قطاع|القطاعات).{0,25}(?:احسن|افضل|أفضل|أحسن|مقارنة|مقارنه|مفاضلة).{0,25}(?:من|بين|ولا|أم|ام).{0,25}(?:قطاع|القطاعات|ادويه|أدوية|بنوك|عقارات|اتصالات|أغذية|اغذية|دواء)/i.test(normalized) ||
+        /(?:رايك|رأيك|ايه رايك|إيه رأيك).{0,25}(?:في|فى).{0,25}(?:قطاع|القطاعات).{0,35}(?:احسن|افضل|أفضل|أحسن|ولا|أم|ام).{0,35}(?:من|بين|قطاع|الادويه|الأدوية|الاتصالات|البنوك)/i.test(normalized)
+    );
+    if (isSectorComparison) {
+        return { intent: "sector_analysis", tools: ["get_sector_liquidity"], replaceTools: true, sector: null, requested_sectors: mentionedSectors };
+    }
     const sector = extractSectorFromMessage(normalized);
     if (sector && /(اخبار|خبر|news)/i.test(normalized)) return { intent: "sector_analysis", tools: ["get_sector", "get_news"], replaceTools: true, sector };
     if (sector && !hasSymbol) return { intent: "sector_analysis", tools: ["get_sector"], replaceTools: true, sector };
@@ -672,6 +721,7 @@ export function extractSectorFromMessage(message: string): string | null {
     if (/(الادويه|ادويه|دواء|pharma|pharmaceutical)/i.test(normalized)) return "أدوية";
     if (/(الاغذيه|اغذيه|غذائي|food|beverage)/i.test(normalized)) return "أغذية";
     if (/(البترول|بترول|الطاقه|طاقه|oil|gas|energy)/i.test(normalized)) return "بترول";
+    if (/(الانشاءات|انشاءات|مواد البناء|مواد بنا|تعدين|اسمنت|حديد|صلب|non-energy minerals|construction materials)/i.test(normalized)) return "مواد بناء وتعدين";
     if (/(finance|financial|مالي|تمويل|استثمار)/i.test(normalized)) return "Finance";
     return null;
 }
@@ -828,6 +878,7 @@ export async function* runPipelineStream(
         : Array.from(new Set([
             ...mergeVisionSymbols(plannerResult.entities.symbols || [], vision)
         ]));
+    mergedSymbols = scopeImplicitSingleStockRequest(userMessage, explicitSymbols, mergedSymbols, sessionState.current_symbol, memory?.resolved_references?.symbol || null);
     const riskFollowUp = /(يخسر|خسار|يهبط|ينزل).{0,30}(تاني|اكتر|أكتر|اكثر|أكثر|%|في الميه|فى الميه)|(?:ممكن|هل).{0,20}(يخسر|يهبط|ينزل)/i.test(userMessage);
     if (riskFollowUp && mergedSymbols.length === 0) {
         const recentSymbol = extractSingleStockFromRecentHistory(history);
@@ -882,13 +933,14 @@ export async function* runPipelineStream(
     }
     const excludedSectors = extractExcludedSectors(userMessage);
     const plannerExcludedSectors = plannerResult.entities.excluded_sectors || [];
+    const comparesSectors = plannedTools.includes("get_sector_liquidity") && enforced.sector === null;
     const plan: IntentPlan = {
         intent: mapIntent(effectiveIntent),
         confidence: plannerResult.confidence || 0.8,
         guidance_intent: guidanceIntent,
         entities: {
             symbols: mergedSymbols,
-            sector: excludedSectors.length > 0 && plannedTools.includes("get_sector_liquidity") ? null : enforced.sector || plannerResult.entities.sector || null,
+            sector: comparesSectors || (excludedSectors.length > 0 && plannedTools.includes("get_sector_liquidity")) ? null : enforced.sector || plannerResult.entities.sector || null,
             timeframe: extractTemporalContext(userMessage).timeframe,
             reference: memory?.resolved_references?.symbol ? "last_image" : null
             ,scan_direction: enforced.scan_direction || plannerResult.entities.scan_direction || null
@@ -899,6 +951,7 @@ export async function* runPipelineStream(
             ,min_acc_score: plannerResult.entities.min_acc_score ?? null
             ,min_vol_ratio: plannerResult.entities.min_vol_ratio ?? null
             ,excluded_sectors: Array.from(new Set([...excludedSectors, ...plannerExcludedSectors]))
+            ,requested_sectors: enforced.requested_sectors || plannerResult.entities.requested_sectors || []
             ,requested_date: requestedRange ? null : extractTemporalContext(userMessage).date
             ,requested_start_date: requestedRange?.start || null
             ,requested_end_date: requestedRange?.end || null
@@ -1008,8 +1061,8 @@ export async function* runPipelineStream(
     if (deterministicResponse) {
         const response = deterministicResponse;
         const deterministicSessionUpdate = clearsStockContext(plan)
-            ? { current_symbol: null, last_symbols: plan.entities.symbols || [], summary: userMessage }
-            : { current_symbol: plan.entities.symbols[0] || sessionState.current_symbol, last_symbols: Array.from(new Set([...(plan.entities.symbols || []), ...(sessionState.last_symbols || [])])).slice(0, 15), summary: userMessage };
+            ? { current_symbol: null, last_symbols: plan.entities.symbols || [], summary: userMessage, current_sector: plan.entities.sector || sessionState.current_sector || null }
+            : { current_symbol: plan.entities.symbols[0] || sessionState.current_symbol, last_symbols: Array.from(new Set([...(plan.entities.symbols || []), ...(sessionState.last_symbols || [])])).slice(0, 15), summary: userMessage, current_sector: plan.entities.sector || sessionState.current_sector || null };
         yield { type: "token", data: response };
         await persistPipelineSession(sessionState, sessionSummary, plan, vision, memory, sessionId, userId, supabase, hasImages);
         yield { type: "done", data: { response, session_update: deterministicSessionUpdate, tables } };
@@ -1219,7 +1272,8 @@ while (attempts < maxAttempts) {
     const sessionUpdate = {
         current_symbol: clearsStockContext(plan) ? null : (finalSymbols[0] || sessionState.current_symbol),
         last_symbols: Array.from(new Set([...finalSymbols, ...(sessionState.last_symbols || [])])).slice(0, 15),
-        summary: userMessage || (hasImages ? "تحليل صورة" : null)
+        summary: userMessage || (hasImages ? "تحليل صورة" : null),
+        current_sector: plan.entities.sector || sessionState.current_sector || null
     };
 
     await updateSessionState(supabase, sessionId, userId, sessionUpdate);
@@ -1371,6 +1425,7 @@ export async function runPipeline(
         : Array.from(new Set([
             ...mergeVisionSymbols(plannerResult.entities.symbols || [], vision)
         ]));
+    mergedSymbols = scopeImplicitSingleStockRequest(userMessage, explicitSymbols, mergedSymbols, sessionState.current_symbol, memory?.resolved_references?.symbol || null);
     const riskFollowUp = /(يخسر|خسار|يهبط|ينزل).{0,30}(تاني|اكتر|أكتر|اكثر|أكثر|%|في الميه|فى الميه)|(?:ممكن|هل).{0,20}(يخسر|يهبط|ينزل)/i.test(userMessage);
     if (riskFollowUp && mergedSymbols.length === 0) {
         const recentSymbol = extractSingleStockFromRecentHistory(history);
@@ -1422,13 +1477,14 @@ export async function runPipeline(
     }
     const excludedSectors = extractExcludedSectors(userMessage);
     const plannerExcludedSectors = plannerResult.entities.excluded_sectors || [];
+    const comparesSectors = plannedTools.includes("get_sector_liquidity") && enforced.sector === null;
     const plan: IntentPlan = {
         intent: mapIntent(effectiveIntent),
         confidence: plannerResult.confidence || 0.8,
         guidance_intent: guidanceIntent,
         entities: {
             symbols: mergedSymbols,
-            sector: excludedSectors.length > 0 && plannedTools.includes("get_sector_liquidity") ? null : enforced.sector || plannerResult.entities.sector || null,
+            sector: comparesSectors || (excludedSectors.length > 0 && plannedTools.includes("get_sector_liquidity")) ? null : enforced.sector || plannerResult.entities.sector || null,
             timeframe: extractTemporalContext(userMessage).timeframe,
             reference: memory?.resolved_references?.symbol ? "last_image" : null
             ,scan_direction: enforced.scan_direction || plannerResult.entities.scan_direction || null
@@ -1439,6 +1495,7 @@ export async function runPipeline(
             ,min_acc_score: plannerResult.entities.min_acc_score ?? null
             ,min_vol_ratio: plannerResult.entities.min_vol_ratio ?? null
             ,excluded_sectors: Array.from(new Set([...excludedSectors, ...plannerExcludedSectors]))
+            ,requested_sectors: enforced.requested_sectors || plannerResult.entities.requested_sectors || []
             ,requested_date: requestedRange ? null : extractTemporalContext(userMessage).date
             ,requested_start_date: requestedRange?.start || null
             ,requested_end_date: requestedRange?.end || null
@@ -1613,7 +1670,8 @@ const generatedLlmReply = deterministicDomainResponse || await generateV2Respons
     const sessionUpdate = {
         current_symbol: clearsStockContext(plan) ? null : (finalSymbols[0] || sessionState.current_symbol),
         last_symbols: clearsStockContext(plan) ? finalSymbols : Array.from(new Set([...finalSymbols, ...(sessionState.last_symbols || [])])).slice(0, 15),
-        summary: userMessage || (hasImages ? "تحليل صورة" : null)
+        summary: userMessage || (hasImages ? "تحليل صورة" : null),
+        current_sector: plan.entities.sector || sessionState.current_sector || null
     };
 
     await updateSessionState(supabase, sessionId, userId, sessionUpdate);
@@ -1658,7 +1716,8 @@ async function persistPipelineSession(
     const sessionUpdate = {
         current_symbol: clearsStockContext(plan) ? null : (symbols[0] || sessionState.current_symbol),
         last_symbols: Array.from(new Set([...symbols, ...(sessionState.last_symbols || [])])).slice(0, 15),
-        summary: hasImages ? "تحليل صورة" : sessionState.summary
+        summary: hasImages ? "تحليل صورة" : sessionState.summary,
+        current_sector: plan.entities.sector || sessionState.current_sector || null
     };
     await updateSessionState(supabase, sessionId, userId, sessionUpdate);
     await updateSessionSummary(supabase, sessionId, userId, {
