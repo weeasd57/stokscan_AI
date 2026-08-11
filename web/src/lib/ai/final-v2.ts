@@ -559,6 +559,61 @@ export interface ResponderMeta {
     degraded?: boolean;
 }
 
+
+export function buildDeterministicNewsResponse(
+    userMessage: string,
+    plan: IntentPlan,
+    toolResults: ToolResult[]
+): string | null {
+    const normMsg = userMessage.toLowerCase().replace(/[أإآ]/g, "ا").replace(/ة/g, "ه");
+    const asksForNews = /(?:اخبار|أخبار|خبر(?!ه)|عناوين|news)/i.test(normMsg);
+    if (!asksForNews) return null;
+
+    const newsResult = toolResults.find(r => r.tool === "get_news");
+    if (!newsResult) return null;
+
+    const items = Array.isArray(newsResult.data) ? newsResult.data : [];
+    const rangeLabel = plan.entities.requested_start_date && plan.entities.requested_end_date
+        ? ` من ${plan.entities.requested_start_date} إلى ${plan.entities.requested_end_date}`
+        : " الحالية";
+
+    if (items.length === 0) {
+        return `لا توجد أخبار أو بيانات معنويات مسجلة خلال الفترة${rangeLabel}${plan.entities.symbols?.length ? ` للأسهم ${plan.entities.symbols.join("، ")}` : ""}.`;
+    }
+
+    // Deduplicate by title (case-insensitive and trimmed)
+    const seenTitles = new Set();
+    const uniqueItems = [];
+    for (const item of items) {
+        if (!item?.title && !item?.headline) continue;
+        const rawTitle = String(item.title || item.headline);
+        const normalizedTitle = rawTitle.toLowerCase().trim().replace(/\s+/g, ' ');
+        if (!seenTitles.has(normalizedTitle)) {
+            seenTitles.add(normalizedTitle);
+            uniqueItems.push(item);
+        }
+    }
+
+    if (uniqueItems.length === 0) {
+        return `لا توجد أخبار أو بيانات معنويات مسجلة خلال الفترة${rangeLabel}.`;
+    }
+
+    // Filter and limit to 5 headlines
+    const headlines = uniqueItems.slice(0, 5);
+    const lines = [`أهم الأخبار الفعلية المتاحة خلال الفترة${rangeLabel}:`];
+    
+    headlines.forEach((item: any) => {
+        const title = (item.title || item.headline || "").trim();
+        const dateStr = item.published_at || item.date || "";
+        const formattedDate = dateStr ? ` (\
+${String(dateStr).slice(0, 10)})` : "";
+        const symbolPrefix = item.symbol ? `**${item.symbol}**: ` : "";
+        lines.push(`- ${symbolPrefix}${title}${formattedDate}`);
+    });
+
+    return lines.join("\n");
+}
+
 export async function generateV2Response(
     userMessage: string,
     plan: IntentPlan,
@@ -576,6 +631,11 @@ export async function generateV2Response(
     if (visionContext && visionContext.symbols.length === 0 && toolResults.length === 0) {
         if (meta) meta.source = "deterministic";
         return buildVisionUncertaintyResponse(visionContext);
+    }
+    const newsResponse = buildDeterministicNewsResponse(userMessage, plan, toolResults);
+    if (newsResponse) {
+        if (meta) meta.source = "deterministic";
+        return newsResponse;
     }
     const fastAdvisor = buildFastConversationalAdvisorResponse(userMessage, plan, toolResults, sessionState);
     if (fastAdvisor) {
@@ -642,6 +702,12 @@ export async function* generateV2Stream(
     if (visionContext && visionContext.symbols.length === 0 && toolResults.length === 0) {
         if (meta) meta.source = "deterministic";
         yield sanitizeReply(buildVisionUncertaintyResponse(visionContext));
+        return;
+    }
+    const newsResponse = buildDeterministicNewsResponse(userMessage, plan, toolResults);
+    if (newsResponse) {
+        if (meta) meta.source = "deterministic";
+        yield sanitizeReply(newsResponse);
         return;
     }
     const fastAdvisor = buildFastConversationalAdvisorResponse(userMessage, plan, toolResults, sessionState);

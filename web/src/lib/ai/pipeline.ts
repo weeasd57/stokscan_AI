@@ -718,10 +718,16 @@ export function extractSectorFromMessage(message: string): string | null {
     if (/(استصلاح|اراضي استصلاح|استصلاح اراضي|اراضى|زراعه|زراعي|زراعيه|agri|agriculture|reclamation)/i.test(normalized)) return "استصلاح أراضي";
     if (/(البنوك|بنوك|banking sector|banks)/i.test(normalized)) return "بنوك";
     if (/(العقارات|عقارات|عقاري|real estate)/i.test(normalized)) return "عقارات";
-    if (/(الادويه|ادويه|دواء|pharma|pharmaceutical)/i.test(normalized)) return "أدوية";
-    if (/(الاغذيه|اغذيه|غذائي|food|beverage)/i.test(normalized)) return "أغذية";
+    if (/(الادويه|ادويه|دواء|صيدلان|صيدله|pharma|pharmaceutical|health technology|التكنولوجيا الصحيه|التكنولوجيا الصحية)/i.test(normalized)) return "أدوية";
+    if (/(خدمات صحيه|الخدمات الصحيه|مستشفى|مستشفيات|health services|healthcare)/i.test(normalized)) return "خدمات صحية";
+    if (/(الاغذيه|اغذيه|غذائي|مواد غذائيه|مواد استهلاكيه|consumer non-durables|food|beverage)/i.test(normalized)) return "أغذية";
     if (/(البترول|بترول|الطاقه|طاقه|oil|gas|energy)/i.test(normalized)) return "بترول";
     if (/(الانشاءات|انشاءات|مواد البناء|مواد بنا|تعدين|اسمنت|حديد|صلب|non-energy minerals|construction materials)/i.test(normalized)) return "مواد بناء وتعدين";
+    if (/(اتصالات|الاتصالات|تكنولوجيا المعلومات|technology information|telecom|telecommunication)/i.test(normalized)) return "اتصالات وتكنولوجيا";
+    if (/(نقل|الشحن|شحن|transport|logistics|transportation)/i.test(normalized)) return "نقل وشحن";
+    if (/(تجزئه|تجزئة|بيع بالتجزئه|retail trade|retail)/i.test(normalized)) return "تجارة تجزئة";
+    if (/(خدمات تجاريه|خدمات تجارية|commercial services)/i.test(normalized)) return "خدمات تجارية";
+    if (/(سياحه|السياحه|فنادق|الفنادق|tourism|hotels|travel)/i.test(normalized)) return "سياحة وخدمات استهلاكية";
     if (/(finance|financial|مالي|تمويل|استثمار)/i.test(normalized)) return "Finance";
     return null;
 }

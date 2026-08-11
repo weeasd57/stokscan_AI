@@ -2,7 +2,7 @@ import { SessionState, SessionSummary, VisionContext } from "./types";
 
 export async function loadSessionState(supabase: any, sessionId: string, userId: string): Promise<SessionState> {
     if (!sessionId) {
-        return { current_symbol: null, last_symbols: [], summary: null };
+        return { current_symbol: null, last_symbols: [], summary: null, current_sector: null };
     }
 
     try {
@@ -31,11 +31,12 @@ export async function loadSessionState(supabase: any, sessionId: string, userId:
         return {
             current_symbol: null,
             last_symbols: [],
-            summary: sessionData?.title || null
+            summary: sessionData?.title || null,
+            current_sector: null
         };
     } catch (e) {
         console.warn("Failed to load session state from Supabase:", e);
-        return { current_symbol: null, last_symbols: [], summary: null };
+        return { current_symbol: null, last_symbols: [], summary: null, current_sector: null };
     }
 }
 
