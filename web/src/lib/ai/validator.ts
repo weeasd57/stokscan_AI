@@ -80,9 +80,11 @@ export function buildFactsBySymbol(toolResults: any[]): Record<string, any> {
  */
 export function validateDeterministicRules(
     replyText: string,
-    toolResults: any[]
+    toolResults: any[],
+    userMessage?: string
 ): string[] {
     const errors: string[] = [];
+    const userNumbers = userMessage ? extractNumbers(userMessage) : [];
     const sentences = replyText.split(/[.\n؟?!؛]/).map(s => s.trim()).filter(Boolean);
 
     const factsBySymbol = buildFactsBySymbol(toolResults);
@@ -122,7 +124,7 @@ export function validateDeterministicRules(
             }
             return false;
         };
-        const isExemptNumber = (n: number): boolean => percentNumbers.has(n) || isDerivedValue(n);
+        const isExemptNumber = (n: number): boolean => percentNumbers.has(n) || isDerivedValue(n) || userNumbers.includes(n);
 
         // Sentences that PROPOSE targets/levels (مستهدف، حد أمان، حوالي، ≈، قبيل...)
         // carry analyst suggestions, not factual claims — skip strict fact matching for them.
@@ -206,11 +208,18 @@ export function validateResponse(
     const factsBySymbol = buildFactsBySymbol(toolResults);
     const userNumbers = userMessage ? extractNumbers(userMessage) : [];
 
+    // Extract all percent numbers from the entire replyText to exempt them from being flagged as suspicious
+    const percentNumbers = new Set((replyText.match(/\d+(?:\.\d+)?\s*(?:%|٪)/g) || [])
+        .map(m => Number(m.replace(/[\s%٪]/g, ""))));
+
     for (const num of replyNumbers) {
         if (ALLOWED_GENERIC_NUMBERS.has(num)) {
             continue;
         }
         if (userNumbers.includes(num)) {
+            continue;
+        }
+        if (percentNumbers.has(num)) {
             continue;
         }
 
@@ -255,7 +264,7 @@ export function validateResponse(
     }
 
     const hasRepetitions = hasExcessiveRepetitions(replyText);
-    const deterministicErrors = validateDeterministicRules(replyText, toolResults);
+    const deterministicErrors = validateDeterministicRules(replyText, toolResults, userMessage);
 
     // 🧠 English chain-of-thought leak guard: some free-tier upstream providers
     // merge their reasoning into content. A user-facing reply must be an
