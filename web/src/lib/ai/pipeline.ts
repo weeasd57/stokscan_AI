@@ -1205,7 +1205,7 @@ while (attempts < maxAttempts) {
         }
 
         // Run validation
-        const validation = validateResponse(currentResponse, liveDataString, validSymbols, tools.results);
+        const validation = validateResponse(currentResponse, liveDataString, validSymbols, tools.results, userMessage);
         if (validation.isValid) {
             finalReply = currentResponse;
             break;

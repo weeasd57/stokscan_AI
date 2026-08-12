@@ -180,7 +180,8 @@ export function validateResponse(
     replyText: string,
     liveDataString: string,
     validSymbols: string[],
-    toolResults: any[] = []
+    toolResults: any[] = [],
+    userMessage?: string
 ): ValidationResult {
     const replySymbols = extractSymbols(replyText);
     const replyNumbers = extractNumbers(replyText);
@@ -203,9 +204,13 @@ export function validateResponse(
     //    - exist in the source data (with fuzzy/rounding tolerance)
     const suspiciousNumbers: string[] = [];
     const factsBySymbol = buildFactsBySymbol(toolResults);
+    const userNumbers = userMessage ? extractNumbers(userMessage) : [];
 
     for (const num of replyNumbers) {
         if (ALLOWED_GENERIC_NUMBERS.has(num)) {
+            continue;
+        }
+        if (userNumbers.includes(num)) {
             continue;
         }
 
