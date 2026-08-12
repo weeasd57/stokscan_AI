@@ -126,7 +126,7 @@ export function validateDeterministicRules(
         };
         const isExemptNumber = (n: number): boolean => percentNumbers.has(n) || isDerivedValue(n) || userNumbers.includes(n);
 
-        const isSuggestionSentence = /(مستهدف|هدف|عادل|العادل|افتتاح|الفتح|سابق|السابق|شراء|دخول|خروج|أولى|اولى|ثانية|ثانيه|أول|اول|ثاني|ثانية|قادمة|قادم|أقرب|اقرب|حد بيع|حد شراء|حد أمان|حد امان|تقريباً|تقريبا|≈|حوالي|حوالى|قبيل|بسعر|بحد|كسعر|كدعم|كمقاومة|التالي|التالية|المقبل|المقبلة|الثاني|الثانية|ثاني|ثانية)/i.test(sentence);
+        const isSuggestionSentence = /(مستهدف|هدف|حد بيع|حد شراء|حد أمان|حد امان|تقريباً|تقريبا|≈|حوالي|حوالى|قبيل|بسعر|بحد|كسعر|كدعم|كمقاومة|التالي|التالية|المقبل|المقبلة|الثاني|الثانية|ثاني|ثانية)/i.test(sentence);
         if (isSuggestionSentence) continue;
 
         // 1. RSI Check
@@ -145,7 +145,10 @@ export function validateDeterministicRules(
             const hasCorrectSupport = numbers.some(n => Math.abs(n - supportNum) <= 0.05 || (supportNum > 0 && Math.abs(n - supportNum) / supportNum <= 0.02));
             const nonGenericNumbers = numbers.filter(n => n !== 1 && n !== 2 && n !== 3 && !isExemptNumber(n));
             if (nonGenericNumbers.length > 0 && !hasCorrectSupport) {
-                errors.push(`تضارب في قيمة الدعم لسهم ${activeSymbol}: القيمة الفعلية هي ${supportNum} ولكن الرد يحتوي على قيم مختلفة.`);
+                const isPlausibleSupport = facts.price != null ? numbers.some(n => n <= facts.price * 1.05) : true;
+                if (!isPlausibleSupport) {
+                    errors.push(`تضارب في قيمة الدعم لسهم ${activeSymbol}: القيمة الفعلية هي ${supportNum} ولكن الرد يحتوي على قيم مختلفة.`);
+                }
             }
         }
         
@@ -155,7 +158,10 @@ export function validateDeterministicRules(
             const hasCorrectResistance = numbers.some(n => Math.abs(n - resistanceNum) <= 0.05 || (resistanceNum > 0 && Math.abs(n - resistanceNum) / resistanceNum <= 0.02));
             const nonGenericNumbers = numbers.filter(n => n !== 1 && n !== 2 && n !== 3 && !isExemptNumber(n));
             if (nonGenericNumbers.length > 0 && !hasCorrectResistance) {
-                errors.push(`تضارب في قيمة المقاومة لسهم ${activeSymbol}: القيمة الفعلية هي ${resistanceNum} ولكن الرد يحتوي على قيم مختلفة.`);
+                const isPlausibleResistance = facts.price != null ? numbers.some(n => n >= facts.price * 0.95) : true;
+                if (!isPlausibleResistance) {
+                    errors.push(`تضارب في قيمة المقاومة لسهم ${activeSymbol}: القيمة الفعلية هي ${resistanceNum} ولكن الرد يحتوي على قيم مختلفة.`);
+                }
             }
         }
 
@@ -165,7 +171,10 @@ export function validateDeterministicRules(
             const hasCorrectPrice = numbers.some(n => Math.abs(n - priceNum) <= 0.05 || (priceNum > 0 && Math.abs(n - priceNum) / priceNum <= 0.02));
             const nonGenericNumbers = numbers.filter(n => n !== 1 && n !== 2 && n !== 3 && !isExemptNumber(n));
             if (nonGenericNumbers.length > 0 && !hasCorrectPrice) {
-                errors.push(`تضارب في سعر سهم ${activeSymbol}: السعر الفعلي هو ${priceNum} ولكن الرد يحتوي على قيم مختلفة.`);
+                const isStrictPriceStatement = /(?:السعر الحالي|سعر اليوم|إغلاق اليوم|اغلاق اليوم|سعر الإغلاق|سعر الاغلاق)/i.test(sentence);
+                if (isStrictPriceStatement) {
+                    errors.push(`تضارب في سعر سهم ${activeSymbol}: السعر الفعلي هو ${priceNum} ولكن الرد يحتوي على قيم مختلفة.`);
+                }
             }
         }
     }
