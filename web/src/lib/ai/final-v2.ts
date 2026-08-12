@@ -418,7 +418,7 @@ async function callDeepSeekApi(
         if (res.ok) {
             if (stream) return { response: null, streamGen: parseSseStream(res) };
             const data = await res.json();
-            const reply = (data.choices?.[0]?.message?.content || data.choices?.[0]?.message?.reasoning_content || "").trim();
+            const reply = data.choices?.[0]?.message?.content?.trim();
             if (reply) return { response: reply };
         } else {
             console.warn(`[Responder] DeepSeek HTTP ${res.status}`);
@@ -525,7 +525,7 @@ async function* parseSseStream(res: Response): AsyncGenerator<string, void, unkn
                     try {
                         const parsed = JSON.parse(dataStr);
                         if (parsed.choices?.[0]?.finish_reason) providerDone = true;
-                        const token = parsed.choices?.[0]?.delta?.content || parsed.choices?.[0]?.delta?.reasoning_content || "";
+                        const token = parsed.choices?.[0]?.delta?.content || "";
                         if (token) yield token;
                     } catch {}
                 }
