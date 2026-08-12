@@ -1020,10 +1020,13 @@ Analyze the user request and return a JSON object. You MUST dynamically choose t
     const fallbackSymbols = (hasImages || isMarketSlang) ? [] : (session.last_symbols?.length ? session.last_symbols : (session.current_symbol ? [correctStockSymbol(session.current_symbol, validSymbols)] : []));
 
     if (isBestBuy) {
-        // If asking for a general recommendation without explicitly naming a stock in the new prompt,
-        // do not inherit previous session symbol (e.g. SVCE) so tool calls get general market recommendations.
-        const isExplicitStockPrompt = extractSymbolsFromText(message, validSymbols).length > 0;
-        const targetSymbols = isExplicitStockPrompt ? fallbackSymbols : [];
+        // If asking for a general recommendation without explicitly naming a stock or group pronoun (فيهم/منهم),
+        // do not inherit single context symbol (e.g. SVCE) so tool calls get general market recommendations.
+        const hasGroupRef = /فيهم|منهم|بينهم|عنهم|معاهم|فيهم كلهم|منهم كلهم/i.test(message);
+        const explicitSymbols = extractSymbolsFromText(message, validSymbols);
+        const targetSymbols = explicitSymbols.length > 0 
+            ? explicitSymbols 
+            : (hasGroupRef ? (session.last_symbols || []) : []);
         return {
             intent: targetSymbols.length > 0 ? "stock_analysis" : "market_summary",
             confidence: 0.8,

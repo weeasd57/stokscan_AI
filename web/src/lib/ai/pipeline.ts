@@ -506,7 +506,7 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
     } else if (hasPreviousReference && sessionState.current_symbol && !symbols.includes(sessionState.current_symbol)) {
         symbols.unshift(sessionState.current_symbol);
     }
-    if (marketWideRequest && extractExplicitSymbols(message).length === 0) {
+    if ((marketWideRequest || (isBestBuyStockQuestion(message) && !hasGroupReference)) && extractExplicitSymbols(message).length === 0) {
         symbols.length = 0;
     }
     if (temporal.date && symbols.length === 0 && sessionState.current_symbol && !marketWideRequest) {
@@ -537,7 +537,7 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
     const oldestRecommendationRequest = /(اقدم|أقدم).{0,15}(توصيه|توصية|اشاره|إشارة)/i.test(message);
     const marketNewsRequest = /اخبار\s+(?:السوق|البورصه)/i.test(message);
     const requestedDate = temporal.date;
-    const isClearMarketRequest = marketWideRequest || oldestRecommendationRequest || /(?:(?:أ|ا)عل[ىي]|(?:أ|ا)قو[ىي]|سيول|السيول|السيوله|تجميع|تصريف|القطاعات|قطاعات|حالة السوق|حاله البورصه|حالة البورصة|اداء المؤشر|أداء المؤشر|المؤشر النهارده|السوق عمل|دولار|usd)/i.test(normalized);
+    const isClearMarketRequest = marketWideRequest || isBestBuyStockQuestion(message) || oldestRecommendationRequest || /(?:(?:أ|ا)عل[ىي]|(?:أ|ا)قو[ىي]|أحسن|احسن|أفضل|افضل|سيول|السيول|السيوله|تجميع|تصريف|القطاعات|قطاعات|حالة السوق|حاله البورصه|حالة البورصة|اداء المؤشر|أداء المؤشر|المؤشر النهارده|السوق عمل|دولار|usd)/i.test(normalized);
     const isClearStockRequest = symbols.length > 0;
     if (!sector && !isGreeting && !beginnerPortfolioRequest && !isHistorical && !requestedDate && !isClearMarketRequest && !isClearStockRequest) return null;
 
@@ -899,7 +899,7 @@ export async function* runPipelineStream(
     if (mergedSymbols.length === 0 && memory?.resolved_references?.symbol) {
         mergedSymbols.push(memory.resolved_references.symbol);
     }
-    if (mergedSymbols.length === 0 && sessionState.current_symbol && /(أبيع|ابيع|بيع|أحتفظ|احتفظ|أخرج|اخرج|بكام|بكم|السعر)/i.test(userMessage)) {
+    if (mergedSymbols.length === 0 && sessionState.current_symbol && /(أبيع|ابيع|بيع|أحتفظ|احتفظ|أخرج|اخرج|بكام|بكم|السعر)/i.test(userMessage) && !isBestBuyStockQuestion(userMessage)) {
         mergedSymbols.push(sessionState.current_symbol);
     }
     if (mergedSymbols.length === 0 && sessionState.current_symbol && /(اخباره|أخباره|هات\s+اخبار|هات\s+أخبار|خبره)/i.test(userMessage)) mergedSymbols.push(sessionState.current_symbol);
@@ -909,11 +909,11 @@ export async function* runPipelineStream(
     if (mergedSymbols.length === 0 && sessionState.current_symbol && (
         /(عليه|عليها|فيه|فيها|ليه|ليها|له|لها|عنه|عنها|به|بها|معاه|معاها|هو|هي|ده|دي|هذا|هذه|تجميع|تصريف|تحليل|مؤشر|مؤشرات|دعم|مقاومة|مقاومه)/i.test(userMessage) ||
         userMessage.trim().split(/\s+/).length <= 3
-    ) && !isMarketWideRequest(userMessage)) {
+    ) && !isMarketWideRequest(userMessage) && !isBestBuyStockQuestion(userMessage)) {
         mergedSymbols.push(sessionState.current_symbol);
     }
     const compoundRequest = splitChatCommands(userMessage).length > 1;
-    if ((isMarketWideRequest(userMessage) || broadScanRequest) && !compoundRequest) mergedSymbols = [];
+    if ((isMarketWideRequest(userMessage) || broadScanRequest || isBestBuyStockQuestion(userMessage)) && !compoundRequest && extractExplicitSymbols(userMessage).length === 0) mergedSymbols = [];
     if (plannerResult.entities.sector && extractExplicitSymbols(userMessage).length === 0) mergedSymbols = [];
     const fairValueScanRequest = isFairValueScanRequest(userMessage);
     const enforced: ReturnType<typeof enforceIntentFromMessage> = compoundRequest
@@ -1446,7 +1446,7 @@ export async function runPipeline(
     if (mergedSymbols.length === 0 && memory?.resolved_references?.symbol) {
         mergedSymbols.push(memory.resolved_references.symbol);
     }
-    if (mergedSymbols.length === 0 && sessionState.current_symbol && /(أبيع|ابيع|بيع|أحتفظ|احتفظ|أخرج|اخرج|بكام|بكم|السعر)/i.test(userMessage)) {
+    if (mergedSymbols.length === 0 && sessionState.current_symbol && /(أبيع|ابيع|بيع|أحتفظ|احتفظ|أخرج|اخرج|بكام|بكم|السعر)/i.test(userMessage) && !isBestBuyStockQuestion(userMessage)) {
         mergedSymbols.push(sessionState.current_symbol);
     }
     if (mergedSymbols.length === 0 && sessionState.current_symbol && /(اخباره|أخباره|هات\s+اخبار|هات\s+أخبار|خبره)/i.test(userMessage)) mergedSymbols.push(sessionState.current_symbol);
@@ -1456,11 +1456,11 @@ export async function runPipeline(
     if (mergedSymbols.length === 0 && sessionState.current_symbol && (
         /(عليه|عليها|فيه|فيها|ليه|ليها|له|لها|عنه|عنها|به|بها|معاه|معاها|هو|هي|ده|دي|هذا|هذه|تجميع|تصريف|تحليل|مؤشر|مؤشرات|دعم|مقاومة|مقاومه)/i.test(userMessage) ||
         userMessage.trim().split(/\s+/).length <= 3
-    ) && !isMarketWideRequest(userMessage)) {
+    ) && !isMarketWideRequest(userMessage) && !isBestBuyStockQuestion(userMessage)) {
         mergedSymbols.push(sessionState.current_symbol);
     }
     const compoundRequest = splitChatCommands(userMessage).length > 1;
-    if (isMarketWideRequest(userMessage) && !compoundRequest) mergedSymbols = [];
+    if ((isMarketWideRequest(userMessage) || isBestBuyStockQuestion(userMessage)) && !compoundRequest && extractExplicitSymbols(userMessage).length === 0) mergedSymbols = [];
     if (plannerResult.entities.sector && extractExplicitSymbols(userMessage).length === 0) mergedSymbols = [];
     const enforced: ReturnType<typeof enforceIntentFromMessage> = compoundRequest
         ? { 
