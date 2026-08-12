@@ -10,5 +10,5 @@ export function selectOptimalModel(intent: string, symbolCount: number, requeste
     if (requestedModel && allowed.has(requestedModel)) {
         return requestedModel;
     }
-    return AI_CONFIG.models.response.default; // Nemotron 3.5 Lightning is the default responder
+    return AI_CONFIG.models.response.default; // DeepSeek Flash is the default responder
 }

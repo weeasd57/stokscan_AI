@@ -36,8 +36,8 @@ type ChatAction = {
 };
 
 export const AVAILABLE_AI_MODELS = [
-    { id: "nvidia/nemotron-3.5-lightning-30b-a3b", name: "Nemotron 3.5 Lightning", badgeAr: "الأسرع ⚡", badgeEn: "Fastest ⚡", descAr: "أحدث نماذج NVIDIA — ردود سريعة مع استدلال عميق", descEn: "Latest NVIDIA model — fast replies with deep reasoning" },
-    { id: "meta/muse-glimmer-30b", name: "Muse Glimmer 30B", badgeAr: "الأدق ✨", badgeEn: "Most Accurate ✨", descAr: "نموذج استدلال متقدم لتحليل فني أعمق وردود طبيعية", descEn: "Advanced reasoning model for deeper analysis and natural replies" },
+    { id: "deepseek-chat", name: "DeepSeek Flash", badgeAr: "الأسرع ⚡", badgeEn: "Fastest ⚡", descAr: "أسرع نموذج ديب سيك — استجابة فورية لتحليلات البورصة", descEn: "Fastest DeepSeek model — instant response for stock analysis" },
+    { id: "deepseek-reasoner", name: "DeepSeek Pro", badgeAr: "الأعمق 🧠", badgeEn: "Reasoner 🧠", descAr: "النموذج الاستدلالي المتقدم لقرارات التداول والتحليلات العميقة", descEn: "Advanced reasoning model for deep analysis and trade decisions" },
 ];
 
 interface ChatContextType {
@@ -126,7 +126,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     const [remainingQuota, setRemainingQuota] = useState<number>(15);
-    const [selectedModel, setSelectedModelState] = useState<string>("nvidia/nemotron-3.5-lightning-30b-a3b");
+    const [selectedModel, setSelectedModelState] = useState<string>("deepseek-chat");
     const [sessions, setSessionsState] = useState<ChatSession[]>([]);
     const [activeSessionId, setActiveSessionIdState] = useState<string | null>(null);
     const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(false);
