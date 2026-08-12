@@ -210,54 +210,60 @@ export function validateResponse(
     const percentNumbers = new Set((replyText.match(/\d+(?:\.\d+)?\s*(?:%|٪)/g) || [])
         .map(m => Number(m.replace(/[\s%٪]/g, ""))));
 
-    for (const num of replyNumbers) {
-        if (ALLOWED_GENERIC_NUMBERS.has(num)) {
-            continue;
-        }
-        if (userNumbers.includes(num)) {
-            continue;
-        }
-        if (percentNumbers.has(num)) {
-            continue;
-        }
+    // Only perform strict number-source validation if source data/tool results exist.
+    // General chat/guidance queries without tool calls have no source data to match against.
+    const hasSourceData = (toolResults && toolResults.length > 0) || sourceNumbers.length > 0;
 
-        // Fuzzy match: check if the number is close to any number in the source data
-        let isMatched = false;
-        for (const srcNum of sourceNumbers) {
-            // Absolute difference tolerance (e.g., 0.05) or relative tolerance (e.g., 1%)
-            const absDiff = Math.abs(num - srcNum);
-            const relDiff = srcNum > 0 ? absDiff / srcNum : absDiff;
-            
-            if (absDiff <= 0.05 || relDiff <= 0.01) {
-                isMatched = true;
-                break;
+    if (hasSourceData) {
+        for (const num of replyNumbers) {
+            if (ALLOWED_GENERIC_NUMBERS.has(num)) {
+                continue;
             }
-        }
-
-        if (!isMatched) {
-            // Check if it's part of dates in the source text (sometimes dates are formatted differently)
-            const numStr = String(num);
-            if (liveDataString.includes(numStr)) {
-                isMatched = true;
+            if (userNumbers.includes(num)) {
+                continue;
             }
-        }
-
-        if (!isMatched) {
-            // A proposed level inside a symbol's known support..resistance band is a
-            // plausible analyst suggestion (target/stop), not fabricated data.
-            for (const sym of Object.keys(factsBySymbol)) {
-                const f = factsBySymbol[sym];
-                const levels = [f.price, f.support, f.resistance]
-                    .filter((v: any) => typeof v === "number" && Number.isFinite(v));
-                if (levels.length === 0) continue;
-                const lo = Math.min(...levels);
-                const hi = Math.max(...levels);
-                if (num >= lo && num <= hi) { isMatched = true; break; }
+            if (percentNumbers.has(num)) {
+                continue;
             }
-        }
 
-        if (!isMatched) {
-            suspiciousNumbers.push(String(num));
+            // Fuzzy match: check if the number is close to any number in the source data
+            let isMatched = false;
+            for (const srcNum of sourceNumbers) {
+                // Absolute difference tolerance (e.g., 0.05) or relative tolerance (e.g., 1%)
+                const absDiff = Math.abs(num - srcNum);
+                const relDiff = srcNum > 0 ? absDiff / srcNum : absDiff;
+                
+                if (absDiff <= 0.05 || relDiff <= 0.01) {
+                    isMatched = true;
+                    break;
+                }
+            }
+
+            if (!isMatched) {
+                // Check if it's part of dates in the source text (sometimes dates are formatted differently)
+                const numStr = String(num);
+                if (liveDataString.includes(numStr)) {
+                    isMatched = true;
+                }
+            }
+
+            if (!isMatched) {
+                // A proposed level inside a symbol's known support..resistance band is a
+                // plausible analyst suggestion (target/stop), not fabricated data.
+                for (const sym of Object.keys(factsBySymbol)) {
+                    const f = factsBySymbol[sym];
+                    const levels = [f.price, f.support, f.resistance]
+                        .filter((v: any) => typeof v === "number" && Number.isFinite(v));
+                    if (levels.length === 0) continue;
+                    const lo = Math.min(...levels);
+                    const hi = Math.max(...levels);
+                    if (num >= lo && num <= hi) { isMatched = true; break; }
+                }
+            }
+
+            if (!isMatched) {
+                suspiciousNumbers.push(String(num));
+            }
         }
     }
 
