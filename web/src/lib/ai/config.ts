@@ -1,18 +1,18 @@
 export const AI_CONFIG = {
   models: {
     planner: {
-      text: ["nvidia/nemotron-3.5-lightning-30b-a3b"],
-      vision: ["nvidia/nemotron-nano-12b-v2-vl", "nvidia/llama-3.1-nemotron-nano-vl-8b-v1", "meta/llama-3.2-11b-vision-instruct"],
+      text: ["deepseek-chat"],
+      vision: ["nvidia/llama-3.1-nemotron-nano-vl-8b-v1", "meta/llama-3.2-11b-vision-instruct"],
     },
     response: {
-      default: "nvidia/nemotron-3.5-lightning-30b-a3b",
+      default: "deepseek-chat",
       fallbacks: [],
       allowedUserModels: [
-        "nvidia/nemotron-3.5-lightning-30b-a3b",
-        "meta/muse-glimmer-30b"
+        "deepseek-chat",
+        "deepseek-reasoner"
       ],
       agentRouter: [],
-      vision: ["nvidia/nemotron-nano-12b-v2-vl", "nvidia/llama-3.1-nemotron-nano-vl-8b-v1", "meta/llama-3.2-11b-vision-instruct"],
+      vision: ["nvidia/llama-3.1-nemotron-nano-vl-8b-v1", "meta/llama-3.2-11b-vision-instruct"],
     },
   },
   limits: {

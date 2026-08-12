@@ -826,12 +826,14 @@ Analyze the user request and return a JSON object. You MUST dynamically choose t
     const maxPlannerAttempts = 2;
     const maxKeysPerModel = 1;
     for (const modelName of plannerModels) {
-        while (keyIndex < Math.min(apiKeys.length, maxKeysPerModel) && plannerAttempts < maxPlannerAttempts) {
-            const key = apiKeys[keyIndex];
+        const isDeepSeek = !hasImages;
+        const maxKeys = isDeepSeek ? 1 : Math.min(apiKeys.length, maxKeysPerModel);
+        while (keyIndex < maxKeys && plannerAttempts < maxPlannerAttempts) {
+            const key = isDeepSeek ? "" : apiKeys[keyIndex];
             try {
                 plannerAttempts += 1;
                 const controller = new AbortController();
-                const timeoutMs = hasImages ? 3500 : 2500;
+                const timeoutMs = isDeepSeek ? 4000 : (hasImages ? 3500 : 2500);
                 const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
                 const reqBody: any = {
@@ -845,16 +847,20 @@ Analyze the user request and return a JSON object. You MUST dynamically choose t
                 };
                 if (!hasImages) {
                     reqBody.response_format = { type: "json_object" };
-                    // Reasoning models dump deliberation into content; cap effort so
-                    // the JSON planner output stays clean and within the token budget.
-                    reqBody.reasoning_effort = "none";
                 }
 
-                const res = await fetch("https://integrate.api.nvidia.com/v1/chat/completions", {
+                const targetUrl = isDeepSeek 
+                    ? "https://api.deepseek.com/chat/completions" 
+                    : "https://integrate.api.nvidia.com/v1/chat/completions";
+                const authKey = isDeepSeek 
+                    ? (process.env.DEEPSEEK_API_KEY || "deepseek-no-key") 
+                    : key;
+
+                const res = await fetch(targetUrl, {
                     method: "POST",
                     headers: {
                         "Content-Type": "application/json",
-                        "Authorization": `Bearer ${key}`
+                        "Authorization": `Bearer ${authKey}`
                     },
                     signal: controller.signal,
                     body: JSON.stringify(reqBody)

@@ -280,6 +280,7 @@ export async function POST(req: NextRequest) {
             process.env.NVIDIA_API_KEY,
             process.env.NVIDIA_SECONDARY_API_KEY,
             process.env.NVIDIA_NIM_API_KEY,
+            process.env.DEEPSEEK_API_KEY,
             dbApiKey
         ].filter((k): k is string => Boolean(k))));
 

@@ -387,48 +387,56 @@ async function callNvidiaApi(
     return { response: null };
 }
 
-async function callAgentRouterApi(
+async function callDeepSeekApi(
     modelName: string,
     messages: { role: string; content: any }[],
-    stream = false
-): Promise<{ response: string | null }> {
-    const key = process.env.AGENT_ROUTER_API_KEY || process.env.AGENTROUTER_API_KEY;
-    if (!key) return { response: null };
+    apiKey: string,
+    stream: boolean = false
+): Promise<{ response: string | null; streamGen?: AsyncGenerator<string> }> {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 7000);
+    const timeoutMs = modelName === "deepseek-reasoner" ? 45000 : 15000;
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
     try {
-        const res = await fetch(AI_CONFIG.api.agentRouterBaseUrl, {
+        const res = await fetch("https://api.deepseek.com/chat/completions", {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
-                Authorization: `Bearer ${key}`,
-                "x-api-key": key
+                "Authorization": `Bearer ${apiKey}`
             },
             signal: controller.signal,
-            body: JSON.stringify({ model: modelName, messages, temperature: 0.15, max_tokens: AI_CONFIG.limits.responseMaxTokens, stream })
+            body: JSON.stringify({
+                model: modelName,
+                messages,
+                temperature: modelName === "deepseek-reasoner" ? undefined : 0.15,
+                max_tokens: AI_CONFIG.limits.responseMaxTokens,
+                stream
+            })
         });
-        if (!res.ok) return { response: null };
-        const data = await res.json();
-        return { response: data.choices?.[0]?.message?.content?.trim() || null };
-    } catch {
-        return { response: null };
-    } finally {
         clearTimeout(timeoutId);
+
+        if (res.ok) {
+            if (stream) return { response: null, streamGen: parseSseStream(res) };
+            const data = await res.json();
+            const reply = data.choices?.[0]?.message?.content?.trim();
+            if (reply) return { response: reply };
+        } else {
+            console.warn(`[Responder] DeepSeek HTTP ${res.status}`);
+        }
+    } catch (err: any) {
+        clearTimeout(timeoutId);
+        console.warn(`[Responder] DeepSeek error: ${err?.message || err}`);
     }
+    return { response: null };
 }
 
-const NVIDIA_RESPONDER_MODELS = [
-    "nvidia/nemotron-3.5-lightning-30b-a3b",
-    "meta/muse-glimmer-30b"
+const DEEPSEEK_RESPONDER_MODELS = [
+    "deepseek-chat",
+    "deepseek-reasoner"
 ];
 
-// Reasoning models spend part of max_tokens on reasoning_content — a small
-// budget yields empty content. Give them a bigger budget and longer timeout;
-// nemotron-lightning additionally gets reasoning_effort capped so it stops
-// dumping deliberation into content.
 const NVIDIA_MODEL_TUNING: Record<string, { maxTokens: number; timeoutMs: number; reasoningEffort?: string }> = {
-    "nvidia/nemotron-3.5-lightning-30b-a3b": { maxTokens: 2500, timeoutMs: 12000, reasoningEffort: "none" },
-    "meta/muse-glimmer-30b": { maxTokens: 2500, timeoutMs: 12000 }
+    "nvidia/llama-3.1-nemotron-nano-vl-8b-v1": { maxTokens: 2500, timeoutMs: 20000 },
+    "meta/llama-3.2-11b-vision-instruct": { maxTokens: 2500, timeoutMs: 25000 }
 };
 
 // 🧊 Congestion cooldown: a timeout means the shared NIM backend is congested,
@@ -453,39 +461,38 @@ async function callResponderLlm(
     apiKeys: string[],
     stream: boolean = false,
     requestedModel?: string
-): Promise<{ response: string | null; streamGen?: AsyncGenerator<string>; provider: "nvidia" | "none" }> {
-    const nvidiaKeys = Array.from(new Set([
-        ...apiKeys,
-        process.env.NVIDIA_API_KEY,
-        process.env.NVIDIA_SECONDARY_API_KEY,
-        process.env.NVIDIA_NIM_API_KEY
-    ].filter((k): k is string => Boolean(k))));
+): Promise<{ response: string | null; streamGen?: AsyncGenerator<string>; provider: "deepseek" | "nvidia" | "none" }> {
+    
+    const visionModels = new Set(AI_CONFIG.models.response.vision);
+    const isVisionModel = requestedModel && visionModels.has(requestedModel);
+    const hasImages = messages.some(m => Array.isArray(m.content) && m.content.some((c: any) => c.type === 'image_url'));
 
-    // 1) النموذج المختار من الواجهة له الأولوية
-    if (requestedModel) {
-        const tuning = NVIDIA_MODEL_TUNING[requestedModel];
-        const n = await callNvidiaApi(requestedModel, messages, nvidiaKeys, stream, tuning?.maxTokens, tuning?.timeoutMs, tuning?.reasoningEffort);
+    if (isVisionModel || (hasImages && !requestedModel)) {
+        // vision request - route to NVIDIA Llama vision models
+        const targetModel = requestedModel || AI_CONFIG.models.response.vision[0];
+        const nvidiaKeys = Array.from(new Set([
+            ...apiKeys,
+            process.env.NVIDIA_API_KEY,
+            process.env.NVIDIA_SECONDARY_API_KEY,
+            process.env.NVIDIA_NIM_API_KEY
+        ].filter((k): k is string => Boolean(k))));
+
+        const tuning = NVIDIA_MODEL_TUNING[targetModel];
+        const n = await callNvidiaApi(targetModel, messages, nvidiaKeys, stream, tuning?.maxTokens, tuning?.timeoutMs, tuning?.reasoningEffort);
         if (n.response || n.streamGen) return { ...n, provider: "nvidia" };
-        console.warn(`[Responder] Requested model ${requestedModel} unavailable — using auto chain`);
+    } else {
+        // text request - route to DeepSeek (chat/reasoner)
+        const targetModel = requestedModel === "deepseek-reasoner" ? "deepseek-reasoner" : "deepseek-chat";
+        const deepseekKey = process.env.DEEPSEEK_API_KEY;
+        if (!deepseekKey) {
+            console.warn("[Responder] DEEPSEEK_API_KEY is not set in environment!");
+            return { response: null, provider: "none" };
+        }
+
+        const ds = await callDeepSeekApi(targetModel, messages, deepseekKey, stream);
+        if (ds.response || ds.streamGen) return { ...ds, provider: "deepseek" };
     }
 
-    // 2) السلسلة التلقائية على NVIDIA NIM
-    if (Date.now() < nvidiaCooldownUntil) {
-        console.warn("[Responder] NVIDIA NIM in congestion cooldown — skipping to deterministic fallback");
-    } else {
-    for (const model of NVIDIA_RESPONDER_MODELS) {
-        if (nvidiaKeys.length === 0) break;
-        const tuning = NVIDIA_MODEL_TUNING[model];
-        const nvidia = await callNvidiaApi(model, messages, nvidiaKeys, stream, tuning?.maxTokens, tuning?.timeoutMs, tuning?.reasoningEffort);
-        if (nvidia.response || nvidia.streamGen) return { ...nvidia, provider: "nvidia" };
-        if (nvidia.aborted) {
-            nvidiaCooldownUntil = Date.now() + 60_000;
-            console.warn(`[Responder] NVIDIA NIM congested (timeout on ${model}) — skipping remaining NVIDIA models`);
-            break;
-        }
-        console.warn(`[Responder] NVIDIA model ${model} unavailable — trying next model`);
-    }
-    }
     console.warn("[Responder] All LLM providers failed — deterministic fallback will be used");
     return { response: null, provider: "none" };
 }
