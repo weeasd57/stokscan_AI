@@ -852,6 +852,13 @@ Analyze the user request and return a JSON object. You MUST dynamically choose t
                 const targetUrl = isDeepSeek 
                     ? "https://api.deepseek.com/chat/completions" 
                     : "https://integrate.api.nvidia.com/v1/chat/completions";
+
+                const isPlaceholder = !process.env.DEEPSEEK_API_KEY || process.env.DEEPSEEK_API_KEY === "your_deepseek_api_key_here";
+                if (isDeepSeek && isPlaceholder && process.env.NODE_ENV !== "test") {
+                    console.warn("[Planner] DEEPSEEK_API_KEY is not configured or is the default placeholder!");
+                    throw new Error("DEEPSEEK_API_KEY not configured");
+                }
+
                 const authKey = isDeepSeek 
                     ? (process.env.DEEPSEEK_API_KEY || "deepseek-no-key") 
                     : key;

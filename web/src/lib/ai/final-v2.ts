@@ -484,12 +484,15 @@ async function callResponderLlm(
         // text request - route to DeepSeek (chat/reasoner)
         const targetModel = requestedModel === "deepseek-reasoner" ? "deepseek-reasoner" : "deepseek-chat";
         const deepseekKey = process.env.DEEPSEEK_API_KEY;
-        if (!deepseekKey) {
-            console.warn("[Responder] DEEPSEEK_API_KEY is not set in environment!");
+        const isPlaceholder = !deepseekKey || deepseekKey === "your_deepseek_api_key_here";
+        if (isPlaceholder && process.env.NODE_ENV !== "test") {
+            console.warn("[Responder] DEEPSEEK_API_KEY is not configured or is the default placeholder!");
             return { response: null, provider: "none" };
         }
 
-        const ds = await callDeepSeekApi(targetModel, messages, deepseekKey, stream);
+        const effectiveKey = deepseekKey || "deepseek-no-key";
+
+        const ds = await callDeepSeekApi(targetModel, messages, effectiveKey, stream);
         if (ds.response || ds.streamGen) return { ...ds, provider: "deepseek" };
     }
 
