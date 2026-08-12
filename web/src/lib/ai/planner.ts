@@ -1020,13 +1020,17 @@ Analyze the user request and return a JSON object. You MUST dynamically choose t
     const fallbackSymbols = (hasImages || isMarketSlang) ? [] : (session.last_symbols?.length ? session.last_symbols : (session.current_symbol ? [correctStockSymbol(session.current_symbol, validSymbols)] : []));
 
     if (isBestBuy) {
+        // If asking for a general recommendation without explicitly naming a stock in the new prompt,
+        // do not inherit previous session symbol (e.g. SVCE) so tool calls get general market recommendations.
+        const isExplicitStockPrompt = extractSymbolsFromText(message, validSymbols).length > 0;
+        const targetSymbols = isExplicitStockPrompt ? fallbackSymbols : [];
         return {
-            intent: fallbackSymbols.length > 0 ? "stock_analysis" : "market_summary",
+            intent: targetSymbols.length > 0 ? "stock_analysis" : "market_summary",
             confidence: 0.8,
-            entities: { symbols: fallbackSymbols, sector: null, wants_table: true },
-            tools: fallbackSymbols.length > 0 ? ["get_stock", "get_stock_levels"] : ["get_recommendations", "get_fair_value_scan"],
+            entities: { symbols: targetSymbols, sector: null, wants_table: true },
+            tools: targetSymbols.length > 0 ? ["get_stock", "get_stock_levels"] : ["get_recommendations", "get_fair_value_scan"],
             session_update: {
-                current_symbol: fallbackSymbols[0] || session.current_symbol,
+                current_symbol: targetSymbols[0] || session.current_symbol,
                 last_symbols: session.last_symbols ? session.last_symbols.map((s: string) => correctStockSymbol(s, validSymbols)) : [],
                 summary: message
             }
