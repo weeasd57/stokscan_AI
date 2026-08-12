@@ -397,6 +397,7 @@ async function callDeepSeekApi(
     const timeoutMs = modelName === "deepseek-reasoner" ? 45000 : 15000;
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
     try {
+        const maxTokens = modelName === "deepseek-reasoner" ? 4000 : AI_CONFIG.limits.responseMaxTokens;
         const res = await fetch("https://api.deepseek.com/chat/completions", {
             method: "POST",
             headers: {
@@ -408,7 +409,7 @@ async function callDeepSeekApi(
                 model: modelName,
                 messages,
                 temperature: modelName === "deepseek-reasoner" ? undefined : 0.15,
-                max_tokens: AI_CONFIG.limits.responseMaxTokens,
+                max_tokens: maxTokens,
                 stream
             })
         });
@@ -417,7 +418,7 @@ async function callDeepSeekApi(
         if (res.ok) {
             if (stream) return { response: null, streamGen: parseSseStream(res) };
             const data = await res.json();
-            const reply = data.choices?.[0]?.message?.content?.trim();
+            const reply = (data.choices?.[0]?.message?.content || data.choices?.[0]?.message?.reasoning_content || "").trim();
             if (reply) return { response: reply };
         } else {
             console.warn(`[Responder] DeepSeek HTTP ${res.status}`);
@@ -524,7 +525,7 @@ async function* parseSseStream(res: Response): AsyncGenerator<string, void, unkn
                     try {
                         const parsed = JSON.parse(dataStr);
                         if (parsed.choices?.[0]?.finish_reason) providerDone = true;
-                        const token = parsed.choices?.[0]?.delta?.content || "";
+                        const token = parsed.choices?.[0]?.delta?.content || parsed.choices?.[0]?.delta?.reasoning_content || "";
                         if (token) yield token;
                     } catch {}
                 }
