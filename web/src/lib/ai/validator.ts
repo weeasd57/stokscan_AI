@@ -126,7 +126,7 @@ export function validateDeterministicRules(
         };
         const isExemptNumber = (n: number): boolean => percentNumbers.has(n) || isDerivedValue(n) || userNumbers.includes(n);
 
-        const isSuggestionSentence = /(مستهدف|هدف|حد بيع|حد شراء|حد أمان|حد امان|تقريباً|تقريبا|≈|حوالي|حوالى|قبيل|بسعر|بحد|كسعر|كدعم|كمقاومة|التالي|التالية|المقبل|المقبلة|الثاني|الثانية|ثاني|ثانية)/i.test(sentence);
+        const isSuggestionSentence = /(مستهدف|هدف|عادل|العادل|افتتاح|الفتح|سابق|السابق|شراء|دخول|خروج|أولى|اولى|ثانية|ثانيه|أول|اول|ثاني|ثانية|قادمة|قادم|أقرب|اقرب|حد بيع|حد شراء|حد أمان|حد امان|تقريباً|تقريبا|≈|حوالي|حوالى|قبيل|بسعر|بحد|كسعر|كدعم|كمقاومة|التالي|التالية|المقبل|المقبلة|الثاني|الثانية|ثاني|ثانية)/i.test(sentence);
         if (isSuggestionSentence) continue;
 
         // 1. RSI Check
