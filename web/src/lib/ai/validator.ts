@@ -10,7 +10,7 @@ export interface ValidationResult {
 // Common technical terms that should not be flagged as stock symbols
 const TECHNICAL_EXCLUSIONS = new Set([
     "RSI", "MACD", "OBV", "ADX", "EMA", "SMA", "EGX", "EGX30", "EGX70", "EGX100", 
-    "BUY", "SELL", "HOLD", "USD", "EGP", "API", "AI", "Wyckoff", "Volume"
+    "BUY", "SELL", "HOLD", "USD", "EGP", "API", "AI", "Wyckoff", "Volume", "EPS"
 ]);
 
 // Numbers that are universally allowed (dates, standard parameters, index markers, etc.)
@@ -126,9 +126,7 @@ export function validateDeterministicRules(
         };
         const isExemptNumber = (n: number): boolean => percentNumbers.has(n) || isDerivedValue(n) || userNumbers.includes(n);
 
-        // Sentences that PROPOSE targets/levels (مستهدف، حد أمان، حوالي، ≈، قبيل...)
-        // carry analyst suggestions, not factual claims — skip strict fact matching for them.
-        const isSuggestionSentence = /(مستهدف|هدف بيع|هدف شراء|حد بيع|حد شراء|حد أمان|حد امان|تقريباً|تقريبا|≈|حوالي|حوالى|قبيل)/i.test(sentence);
+        const isSuggestionSentence = /(مستهدف|هدف|حد بيع|حد شراء|حد أمان|حد امان|تقريباً|تقريبا|≈|حوالي|حوالى|قبيل|بسعر|بحد|كسعر|كدعم|كمقاومة|التالي|التالية|المقبل|المقبلة|الثاني|الثانية|ثاني|ثانية)/i.test(sentence);
         if (isSuggestionSentence) continue;
 
         // 1. RSI Check
