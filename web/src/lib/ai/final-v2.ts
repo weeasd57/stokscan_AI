@@ -427,8 +427,8 @@ const NVIDIA_RESPONDER_MODELS = [
 // nemotron-lightning additionally gets reasoning_effort capped so it stops
 // dumping deliberation into content.
 const NVIDIA_MODEL_TUNING: Record<string, { maxTokens: number; timeoutMs: number; reasoningEffort?: string }> = {
-    "nvidia/nemotron-3.5-lightning-30b-a3b": { maxTokens: 2500, timeoutMs: 40000, reasoningEffort: "none" },
-    "meta/muse-glimmer-30b": { maxTokens: 2500, timeoutMs: 45000 }
+    "nvidia/nemotron-3.5-lightning-30b-a3b": { maxTokens: 2500, timeoutMs: 12000, reasoningEffort: "none" },
+    "meta/muse-glimmer-30b": { maxTokens: 2500, timeoutMs: 12000 }
 };
 
 // 🧊 Congestion cooldown: a timeout means the shared NIM backend is congested,
