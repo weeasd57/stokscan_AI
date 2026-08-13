@@ -898,7 +898,7 @@ export async function executeStructuredTools(
     if (plan.tools.includes("search_web")) {
         try {
             let webQuery = userMessage
-                .replace(/(?:ابحث|دور|فتش|بحث)\s*(?:في|فى|على)\s*(?:النت|الانترنت|الإنترنت|جوجل|المواقع|الويب)/gi, "")
+                .replace(/(?:ابحث|دور|فتش|بحث|شوف|بص|سيرش|شيك|تشيك)\s*(?:في|فى|على|عن)\s*(?:النت|الانترنت|الإنترنت|جوجل|المواقع|الويب)/gi, "")
                 .replace(/(?:من|عبر|على)\s+(?:النت|الانترنت|الإنترنت)/gi, "")
                 .trim();
             

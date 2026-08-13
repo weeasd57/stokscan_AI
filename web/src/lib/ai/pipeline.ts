@@ -648,7 +648,7 @@ export function enforceIntentFromMessage(message: string, plannerIntent: string,
     }
     if (/شريع|sharia/i.test(normalized)) return { intent: "general_chat", tools: [], replaceTools: true };
     // Explicit request to search the internet (information not in the database)
-    if (/(?:ابحث|دور|فتش|بحث)\s*(?:في|فى|على)\s*(?:النت|الانترنت|الإنترنت|جوجل|المواقع|الويب)|(?:من|عبر)\s+(?:النت|الانترنت|الإنترنت)/i.test(normalized)) {
+    if (/(?:ابحث|دور|فتش|بحث|شوف|بص|سيرش|شيك|تشيك)\s*(?:في|فى|على|عن)\s*(?:النت|الانترنت|الإنترنت|جوجل|المواقع|الويب)|(?:من|عبر)\s+(?:النت|الانترنت|الإنترنت)/i.test(normalized)) {
         return { intent: "general_chat", tools: ["search_web"], replaceTools: true };
     }
     if (asksSectorLiquidity && mentionedSectors.length === 0) return { intent: "market_summary", tools: ["get_sector_liquidity"], replaceTools: true };
