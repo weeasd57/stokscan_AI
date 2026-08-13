@@ -455,8 +455,18 @@ const DEEPSEEK_RESPONDER_MODELS = [
 
 const NVIDIA_MODEL_TUNING: Record<string, { maxTokens: number; timeoutMs: number; reasoningEffort?: string }> = {
     "nvidia/llama-3.1-nemotron-nano-vl-8b-v1": { maxTokens: 2500, timeoutMs: 20000 },
-    "meta/llama-3.2-11b-vision-instruct": { maxTokens: 2500, timeoutMs: 25000 }
+    "meta/llama-3.2-11b-vision-instruct": { maxTokens: 2500, timeoutMs: 25000 },
+    "nvidia/nemotron-3.5-lightning-30b-a3b": { maxTokens: 2500, timeoutMs: 15000 },
+    "meta/muse-glimmer-30b": { maxTokens: 2500, timeoutMs: 20000 }
 };
+
+// Text fallback chain used when DEEPSEEK_API_KEY is not configured (e.g. the
+// production environment) so the responder never silently degrades to
+// deterministic-only replies.
+const NVIDIA_TEXT_FALLBACK_MODELS = [
+    "nvidia/nemotron-3.5-lightning-30b-a3b",
+    "meta/muse-glimmer-30b"
+];
 
 // 🧊 Congestion cooldown: a timeout means the shared NIM backend is congested,
 // so skip the whole chain briefly instead of re-hitting it.
@@ -501,13 +511,24 @@ async function callResponderLlm(
         // text request - route to DeepSeek (chat/reasoner)
         const targetModel = requestedModel === "deepseek-reasoner" ? "deepseek-reasoner" : "deepseek-chat";
         const deepseekKey = getDeepSeekApiKey();
-        if (!deepseekKey) {
-            console.warn("[Responder] DeepSeek credentials are not configured");
-            return { response: null, provider: "none" };
+        if (deepseekKey) {
+            const ds = await callDeepSeekApi(targetModel, messages, deepseekKey, stream);
+            if (ds.response || ds.streamGen) return { ...ds, provider: "deepseek" };
+        } else {
+            // No DeepSeek credentials (production): fall back to the legacy
+            // NVIDIA text chain instead of returning nothing.
+            console.warn("[Responder] DeepSeek credentials are not configured — falling back to NVIDIA text models");
+            const nvidiaKeys = Array.from(new Set([
+                ...apiKeys,
+                ...getNvidiaApiKeys(),
+            ]));
+            for (const model of NVIDIA_TEXT_FALLBACK_MODELS) {
+                const tuning = NVIDIA_MODEL_TUNING[model];
+                const n = await callNvidiaApi(model, messages, nvidiaKeys, stream, tuning?.maxTokens, tuning?.timeoutMs);
+                if (n.response || n.streamGen) return { ...n, provider: "nvidia" };
+                if (n.aborted) break;
+            }
         }
-
-        const ds = await callDeepSeekApi(targetModel, messages, deepseekKey, stream);
-        if (ds.response || ds.streamGen) return { ...ds, provider: "deepseek" };
     }
 
     console.warn("[Responder] All LLM providers failed — deterministic fallback will be used");

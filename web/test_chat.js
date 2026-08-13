@@ -1,13 +1,12 @@
-﻿const http = require('http');
+const http = require('http');
 
 const data = JSON.stringify({
-  messages: [
-    { role: 'user', content: 'حلل ABUK هات أخباره لو كسر الدعم أعمل إيه؟' }
-  ]
+  message: 'حلل ABUK هات أخباره لو كسر الدعم أعمل إيه؟',
+  history: []
 });
 
 const options = {
-  hostname: 'localhost',
+  hostname: '127.0.0.1',
   port: 3000,
   path: '/api/ai-chat',
   method: 'POST',

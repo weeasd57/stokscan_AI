@@ -14,7 +14,7 @@ const UNLIMITED_CHAT_EMAILS = new Set([
 ]);
 
 export function getDeepSeekApiKey(): string | null {
-    const key = process.env.DEEPSEEK_API_KEY?.trim();
+    const key = (process.env.DEEPSEEK_API_KEY || process.env.DEEPSEEK_OFFICIAL_API_KEY)?.trim();
     if (!key || PLACEHOLDER_VALUES.has(key.toLowerCase())) return null;
     return key;
 }
