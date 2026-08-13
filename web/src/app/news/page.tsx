@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { useLanguage } from "@/contexts/LanguageContext";
 import StockLogo from "@/components/StockLogo";
+import NewsStats from "@/components/NewsStats";
 
 interface NewsItem {
     id: number;
@@ -200,6 +201,9 @@ export default function NewsPage() {
                         : "Real-time AI analysis of EGX stock news to detect market sentiment, prioritize opportunities, and gate risky recommendations."}
                 </p>
             </div>
+
+            {/* News stats & charts dashboard */}
+            <NewsStats isAr={isAr} />
 
             {/* Controls Row (Search, Date Filter, Filters, Sort) */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 mb-8">
