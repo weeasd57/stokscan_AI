@@ -63,13 +63,36 @@ export async function executeStructuredTools(
             const latest = prices[0];
             const highest = prices.reduce((best: any, row: any) => Number(row.high) > Number(best.high) ? row : best, prices[0]);
             const previous = prices[1] || null;
-            const recentFive = prices.slice(0, 5).map((row: any) => ({
-                date: row.date,
-                close: Number(row.close),
-                high: Number(row.high),
-                low: Number(row.low)
-            }));
-            const recentFifteen = prices.slice(0, 15).map((row: any) => ({ date: row.date, close: Number(row.close), high: Number(row.high), low: Number(row.low) }));
+            const recentFive = prices.slice(0, 5).map((row: any, idx: number) => {
+                const prev = prices[idx + 1];
+                const changePct = prev && prev.close ? (((Number(row.close) - Number(prev.close)) / Number(prev.close)) * 100).toFixed(2) + "%" : "N/A";
+                return {
+                    date: row.date,
+                    close: Number(row.close),
+                    change_pct: changePct,
+                    high: Number(row.high),
+                    low: Number(row.low)
+                };
+            });
+            const recentFifteen = prices.slice(0, 15).map((row: any, idx: number) => {
+                const prev = prices[idx + 1];
+                const changePct = prev && prev.close ? (((Number(row.close) - Number(prev.close)) / Number(prev.close)) * 100).toFixed(2) + "%" : "N/A";
+                return {
+                    date: row.date,
+                    close: Number(row.close),
+                    change_pct: changePct,
+                    high: Number(row.high),
+                    low: Number(row.low)
+                };
+            });
+
+            textParts.push(`\n [التاريخ السعري والتغير اليومي لسهم ${symbol} (آخر 5 جلسات)]:\n`);
+            textParts.push(`| التاريخ | سعر الإغلاق | نسبة التغير اليومي | أعلى سعر | أدنى سعر |`);
+            textParts.push(`| :--- | :--- | :--- | :--- | :--- |`);
+            recentFive.forEach((s: any) => {
+                textParts.push(`| ${s.date} | ${s.close} ج.م | ${s.change_pct} | ${s.high} | ${s.low} |`);
+            });
+
             results.push({ tool: "get_price_history", source: "stock_prices", data_time: latest.date, symbols: [symbol], data_type: "historical", data: { symbol, latest, previous_close: previous?.close ?? null, recent_5_sessions: recentFive, recent_15_sessions: recentFifteen, highest_250_sessions: { price: highest.high, date: highest.date } } });
         }
     }

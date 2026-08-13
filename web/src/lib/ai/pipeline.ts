@@ -657,7 +657,7 @@ export function enforceIntentFromMessage(message: string, plannerIntent: string,
     if (excludedSectors.length > 0 && /(سيول|ادخل|دخول|استثمر|فرص)/i.test(normalized)) {
         return { intent: "market_summary", tools: ["get_sector_liquidity"], replaceTools: true };
     }
-    if (/(توقعات|توقع|متوقع|تقعات|وقعات).{0,35}(?:5|خمس|الخمسه|الخمسة|15|خمستاشر|خمسة عشر).{0,15}(جلسات|جلسه|جلسة|يوم)|(?:5|خمس|الخمسه|الخمسة|15|خمستاشر|خمسة عشر).{0,15}(جلسات|جلسه|جلسة|يوم).{0,35}(توقعات|توقع|متوقع|تقعات|وقعات)/i.test(normalized) || /(متوقع|توقع|توقعات|سعر).{0,25}(اخر|آخر|نهايه|نهاية).{0,15}(السنه|السنة|العام)/i.test(normalized)) {
+    if (/(توقعات|توقع|متوقع|تقعات|وقعات).{0,35}(?:5|خمس|الخمسه|الخمسة|15|خمستاشر|خمسة عشر).{0,15}(جلسات|جلسه|جلسة|يوم)|(?:5|خمس|الخمسه|الخمسة|15|خمستاشر|خمسة عشر).{0,15}(جلسات|جلسه|جلسة|يوم).{0,35}(توقعات|توقع|متوقع|تقعات|وقعات)/i.test(normalized) || /(متوقع|توقع|توقعات|سعر).{0,25}(اخر|آخر|نهايه|نهاية).{0,15}(السنه|السنة|العام)/i.test(normalized) || /(?:اخر|آخر)\s*(?:اسبوع|أسبوع|ايام|أيام|جلسات|5|خمس)|يوم\s*بـ?\s*يوم|التغير\s*اليومي|تغير\s*يومي|سعر\s*كل\s*يوم|أداء\s*يومي/i.test(normalized)) {
         return { intent: "stock_analysis", tools: ["get_stock", "get_stock_levels", "get_price_history"], replaceTools: true };
     }
     if (isDailyPriceLimitQuestion(message)) return { intent: "levels_analysis", tools: ["get_price_history", "get_stock_levels"], replaceTools: true };
