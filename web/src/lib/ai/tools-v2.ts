@@ -1470,6 +1470,39 @@ export async function executeStructuredTools(
         }
     }
 
+    // Symbol-level database failure fallback: if a symbol has no data in the database,
+    // trigger a web search fallback dynamically so we always have recent/live context.
+    const untrackedSymbols = symbols.filter(symbol => {
+        const symbolResults = results.filter(res => res.symbols && res.symbols.map(s => s.toUpperCase()).includes(symbol.toUpperCase()));
+        return symbolResults.length === 0 || symbolResults.every(res => res.source === "empty" || res.source === "error");
+    });
+
+    if (untrackedSymbols.length > 0 && !plan.tools.includes("search_web")) {
+        try {
+            // Resolve company names if possible, otherwise use the tickers
+            const { data: nameRows } = await supabase.from("stocks").select("symbol, name").in("symbol", untrackedSymbols);
+            const nameMap = new Map((nameRows || []).map((r: any) => [String(r.symbol).toUpperCase(), r.name]));
+            const names = untrackedSymbols.map(s => nameMap.get(String(s).toUpperCase()) || s);
+            
+            const webQuery = `أخبار سهم ${names.join(" ")} البورصة المصرية`;
+            const webResults = await searchWeb(webQuery, 6);
+            
+            results.push({ 
+                tool: "search_web", 
+                source: "web", 
+                data_time: now, 
+                symbols: untrackedSymbols, 
+                data_type: "live", 
+                data: { query: webQuery, results: webResults } 
+            });
+            if (webResults.length > 0) {
+                textParts.push(`\n [نتائج بحث الإنترنت البديلة للرموز غير المدرجة "${webQuery}"]: ${webResults.length} نتيجة موثقة بمصادرها.`);
+            }
+        } catch (e) {
+            console.warn("Error running automatic fallback web search:", e);
+        }
+    }
+
     return { results, formattedText: textParts.join("\n") };
 }
 
