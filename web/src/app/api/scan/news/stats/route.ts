@@ -74,6 +74,10 @@ function getNormalizedSector(sectorStr: string): SectorInfo {
   return { ar: "أخرى", en: "Other" };
 }
 
+let symbolToSectorCache: Record<string, SectorInfo> | null = null;
+let lastCacheTime = 0;
+const CACHE_TTL = 30 * 60 * 1000; // 30 minutes
+
 export async function GET(req: Request) {
   try {
     const url = new URL(req.url);
@@ -83,21 +87,29 @@ export async function GET(req: Request) {
 
     const supabase = getSupabaseClient();
 
-    // 1. Fetch fundamentals to build symbol -> sector mapping
-    const { data: fundRows } = await supabase
-      .from("stock_fundamentals")
-      .select("symbol, data");
-
+    // 1. Fetch fundamentals to build symbol -> sector mapping (with server-side cache)
+    const nowTime = Date.now();
     const symbolToSector: Record<string, SectorInfo> = {};
-    if (fundRows) {
-      for (const row of fundRows) {
-        if (!row.symbol) continue;
-        let sectorStr = "Other";
-        try {
-          const parsed = typeof row.data === "string" ? JSON.parse(row.data) : row.data || {};
-          sectorStr = parsed.sector || parsed.Sector || parsed.sector_ar || parsed.SectorAr || parsed.industry || parsed.Industry || "Other";
-        } catch {}
-        symbolToSector[row.symbol.toUpperCase()] = getNormalizedSector(sectorStr);
+
+    if (symbolToSectorCache && (nowTime - lastCacheTime < CACHE_TTL)) {
+      Object.assign(symbolToSector, symbolToSectorCache);
+    } else {
+      const { data: fundRows } = await supabase
+        .from("stock_fundamentals")
+        .select("symbol, data");
+
+      if (fundRows) {
+        for (const row of fundRows) {
+          if (!row.symbol) continue;
+          let sectorStr = "Other";
+          try {
+            const parsed = typeof row.data === "string" ? JSON.parse(row.data) : row.data || {};
+            sectorStr = parsed.sector || parsed.Sector || parsed.sector_ar || parsed.SectorAr || parsed.industry || parsed.Industry || "Other";
+          } catch {}
+          symbolToSector[row.symbol.toUpperCase()] = getNormalizedSector(sectorStr);
+        }
+        symbolToSectorCache = { ...symbolToSector };
+        lastCacheTime = nowTime;
       }
     }
 

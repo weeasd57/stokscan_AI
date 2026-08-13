@@ -1160,7 +1160,10 @@ while (attempts < maxAttempts) {
             pendingModelText = lines.pop() || "";
             for (const line of lines) {
                 if (streamStopped) break;
-                if (isMarkdownTableLine(line)) continue;
+                // Deterministic replies are template-built from tool data; their
+                // markdown tables are the actual answer (e.g. day-by-day changes)
+                // and must not be stripped like LLM-generated tables.
+                if (isMarkdownTableLine(line) && responderMeta.source !== "deterministic") continue;
 
                 // Stop if matching stop phrases
                 if (STREAM_STOP_PHRASES.some(phrase => line.includes(phrase))) {
@@ -1179,7 +1182,7 @@ while (attempts < maxAttempts) {
             }
         }
 
-        if (!streamStopped && pendingModelText && !isMarkdownTableLine(pendingModelText)) {
+        if (!streamStopped && pendingModelText && (!isMarkdownTableLine(pendingModelText) || responderMeta.source === "deterministic")) {
             const shouldStop = STREAM_STOP_PHRASES.some(phrase => pendingModelText.includes(phrase));
             const shouldSkip = STREAM_SKIP_PHRASES.some(phrase => pendingModelText.includes(phrase));
             if (!shouldStop && !shouldSkip) {
