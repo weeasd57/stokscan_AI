@@ -203,7 +203,7 @@ export default function NewsPage() {
             </div>
 
             {/* News stats & charts dashboard */}
-            <NewsStats isAr={isAr} />
+            <NewsStats isAr={isAr} search={debouncedSearch} dateFilter={dateFilter} />
 
             {/* Controls Row (Search, Date Filter, Filters, Sort) */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 mb-8">

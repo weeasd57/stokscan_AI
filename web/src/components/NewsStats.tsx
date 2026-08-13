@@ -9,7 +9,6 @@ import {
     YAxis,
     CartesianGrid,
     Tooltip,
-    Legend,
     PieChart,
     Pie,
     Cell,
@@ -42,16 +41,40 @@ interface StatsData {
 
 interface NewsStatsProps {
     isAr: boolean;
+    search: string;
+    dateFilter: string;
 }
 
-export default function NewsStats({ isAr }: NewsStatsProps) {
+export default function NewsStats({ isAr, search, dateFilter }: NewsStatsProps) {
     const [stats, setStats] = useState<StatsData | null>(null);
     const [loading, setLoading] = useState(true);
+    const [isDark, setIsDark] = useState(false);
 
+    // Watch for theme / dark mode changes
+    useEffect(() => {
+        const checkDark = () => {
+            setIsDark(document.documentElement.classList.contains("dark"));
+        };
+        checkDark();
+        const observer = new MutationObserver(checkDark);
+        observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
+        return () => observer.disconnect();
+    }, []);
+
+    // Fetch filtered stats
     useEffect(() => {
         const fetchStats = async () => {
+            setLoading(true);
             try {
-                const res = await fetch("/api/scan/news/stats");
+                let url = "/api/scan/news/stats";
+                const params = new URLSearchParams();
+                if (search.trim()) params.append("search", search);
+                if (dateFilter) params.append("date", dateFilter);
+                
+                const queryStr = params.toString();
+                if (queryStr) url += `?${queryStr}`;
+
+                const res = await fetch(url);
                 if (res.ok) {
                     const data = await res.json();
                     setStats(data);
@@ -64,24 +87,34 @@ export default function NewsStats({ isAr }: NewsStatsProps) {
         };
 
         fetchStats();
-    }, []);
+    }, [search, dateFilter]);
 
     if (loading) {
         return (
             <div className="p-8 border-4 border-black dark:border-white bg-white dark:bg-zinc-900 shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] dark:shadow-[6px_6px_0px_0px_rgba(255,255,255,0.45)] mb-8 flex justify-center items-center gap-2">
                 <Loader2 className="w-6 h-6 animate-spin text-yellow-500" />
                 <span className="text-xs font-black uppercase tracking-wider text-black dark:text-white">
-                    {isAr ? "جاري تحميل إحصائيات الأخبار والقطاعات..." : "Loading news & sector statistics..."}
+                    {isAr ? "جاري تحميل وتصفية الإحصائيات..." : "Loading & filtering statistics..."}
                 </span>
             </div>
         );
     }
 
     if (!stats || stats.summary.total === 0) {
-        return null;
+        return (
+            <div className="p-6 border-4 border-dashed border-black/20 dark:border-white/20 bg-zinc-50 dark:bg-zinc-900/20 text-center mb-8">
+                <span className="text-xs font-bold text-zinc-500 dark:text-zinc-400">
+                    {isAr ? "لا توجد إحصائيات كافية للفلاتر المحددة." : "No statistics available for the selected filters."}
+                </span>
+            </div>
+        );
     }
 
-    // Colors for pie chart
+    // Dynamic Colors based on Dark Mode
+    const textColor = isDark ? "#ffffff" : "#000000";
+    const gridColor = isDark ? "rgba(255, 255, 255, 0.12)" : "rgba(0, 0, 0, 0.1)";
+    const chartStroke = isDark ? "#ffffff" : "#000000";
+
     const sentimentColors = {
         positive: "#00FF66", // Green
         negative: "#FF3366", // Red
@@ -94,7 +127,6 @@ export default function NewsStats({ isAr }: NewsStatsProps) {
         { name: isAr ? "سلبي" : "Negative", value: stats.summary.negative, color: sentimentColors.negative }
     ];
 
-    // Format sector data for Bar Chart
     const sectorChartData = stats.sectors.map(s => ({
         name: isAr ? s.nameAr : s.nameEn,
         sentiment: s.averageSentiment,
@@ -136,19 +168,19 @@ export default function NewsStats({ isAr }: NewsStatsProps) {
                                         <Cell 
                                             key={`cell-${index}`} 
                                             fill={entry.color} 
-                                            stroke="#000" 
+                                            stroke={isDark ? "#18181b" : "#000000"} 
                                             strokeWidth={3} 
                                         />
                                     ))}
                                 </Pie>
                                 <Tooltip
                                     contentStyle={{
-                                        background: "white",
-                                        border: "3px solid black",
+                                        background: isDark ? "#18181b" : "#ffffff",
+                                        border: `3px solid ${textColor}`,
                                         borderRadius: "0px",
                                         fontFamily: "monospace",
                                         fontWeight: "bold",
-                                        color: "black"
+                                        color: textColor
                                     }}
                                 />
                             </PieChart>
@@ -159,7 +191,7 @@ export default function NewsStats({ isAr }: NewsStatsProps) {
                         {pieData.map((d, i) => (
                             <div key={i} className="flex items-center gap-1.5 text-xs font-black text-black dark:text-white">
                                 <span 
-                                    className="w-3.5 h-3.5 border-2 border-black inline-block shadow-[1px_1px_0px_rgba(0,0,0,1)]" 
+                                    className="w-3.5 h-3.5 border-2 border-black dark:border-white inline-block shadow-[1px_1px_0px_rgba(0,0,0,1)]" 
                                     style={{ backgroundColor: d.color }} 
                                 />
                                 <span>{d.name}: {d.value}</span>
@@ -177,36 +209,36 @@ export default function NewsStats({ isAr }: NewsStatsProps) {
                     <div className="h-56">
                         <ResponsiveContainer width="100%" height="100%">
                             <LineChart data={stats.timeline} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                                <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.1)" />
+                                <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
                                 <XAxis 
                                     dataKey="date" 
-                                    stroke="#000"
-                                    tick={{ fontSize: 9, fontWeight: "bold" }} 
+                                    stroke={chartStroke}
+                                    tick={{ fill: textColor, fontSize: 9, fontWeight: "bold" }} 
                                 />
                                 <YAxis 
-                                    stroke="#000" 
+                                    stroke={chartStroke} 
                                     domain={[-1, 1]}
-                                    tick={{ fontSize: 9, fontWeight: "bold" }} 
+                                    tick={{ fill: textColor, fontSize: 9, fontWeight: "bold" }} 
                                 />
                                 <Tooltip
                                     contentStyle={{
-                                        background: "white",
-                                        border: "3px solid black",
+                                        background: isDark ? "#18181b" : "#ffffff",
+                                        border: `3px solid ${textColor}`,
                                         borderRadius: "0px",
                                         fontFamily: "monospace",
                                         fontWeight: "bold",
-                                        color: "black"
+                                        color: textColor
                                     }}
                                 />
-                                <ReferenceLine y={0} stroke="#000" strokeWidth={2} strokeDasharray="3 3" />
+                                <ReferenceLine y={0} stroke={chartStroke} strokeWidth={2} strokeDasharray="3 3" />
                                 <Line 
                                     type="monotone" 
                                     dataKey="averageSentiment" 
                                     name={isAr ? "متوسط مشاعر السوق" : "Avg Sentiment"} 
                                     stroke="#00FF66" 
                                     strokeWidth={4}
-                                    dot={{ stroke: '#000', strokeWidth: 2, r: 4, fill: '#fff' }}
-                                    activeDot={{ stroke: '#000', strokeWidth: 3, r: 6, fill: '#00FF66' }}
+                                    dot={{ stroke: chartStroke, strokeWidth: 2, r: 4, fill: '#fff' }}
+                                    activeDot={{ stroke: chartStroke, strokeWidth: 3, r: 6, fill: '#00FF66' }}
                                 />
                             </LineChart>
                         </ResponsiveContainer>
@@ -224,35 +256,35 @@ export default function NewsStats({ isAr }: NewsStatsProps) {
                 <div className="h-64">
                     <ResponsiveContainer width="100%" height="100%">
                         <BarChart data={sectorChartData} margin={{ top: 10, right: 10, left: -20, bottom: 20 }}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.1)" />
+                            <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
                             <XAxis 
                                 dataKey="name" 
-                                stroke="#000"
-                                tick={{ fontSize: 9, fontWeight: "bold" }}
+                                stroke={chartStroke}
+                                tick={{ fill: textColor, fontSize: 9, fontWeight: "bold" }}
                                 interval={0}
                                 angle={-15}
                                 textAnchor="end"
                             />
                             <YAxis 
-                                stroke="#000" 
+                                stroke={chartStroke} 
                                 domain={[-1, 1]}
-                                tick={{ fontSize: 9, fontWeight: "bold" }} 
+                                tick={{ fill: textColor, fontSize: 9, fontWeight: "bold" }} 
                             />
                             <Tooltip
                                 contentStyle={{
-                                    background: "white",
-                                    border: "3px solid black",
+                                    background: isDark ? "#18181b" : "#ffffff",
+                                    border: `3px solid ${textColor}`,
                                     borderRadius: "0px",
                                     fontFamily: "monospace",
                                     fontWeight: "bold",
-                                    color: "black"
+                                    color: textColor
                                 }}
                             />
-                            <ReferenceLine y={0} stroke="#000" strokeWidth={2} strokeDasharray="3 3" />
+                            <ReferenceLine y={0} stroke={chartStroke} strokeWidth={2} strokeDasharray="3 3" />
                             <Bar 
                                 dataKey="sentiment" 
                                 name={isAr ? "مشاعر القطاع" : "Sector Sentiment"}
-                                stroke="#000"
+                                stroke={chartStroke}
                                 strokeWidth={3}
                             >
                                 {sectorChartData.map((entry, index) => {

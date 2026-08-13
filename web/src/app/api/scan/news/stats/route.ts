@@ -60,8 +60,12 @@ function getNormalizedSector(sectorStr: string): SectorInfo {
   return { ar: "أخرى", en: "Other" };
 }
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
+    const url = new URL(req.url);
+    const search = url.searchParams.get("search") || "";
+    const dateFilter = url.searchParams.get("date") || "";
+
     const supabase = getSupabaseClient();
 
     // 1. Fetch fundamentals to build symbol -> sector mapping
@@ -82,13 +86,21 @@ export async function GET() {
       }
     }
 
-    // 2. Fetch stock news sentiments from last 30 days or latest 500 rows
-    const { data: newsRows, error: newsError } = await supabase
+    // 2. Fetch stock news sentiments with filters applied
+    let query = supabase
       .from("stock_news_sentiment")
       .select("symbol, sentiment_score, news_count, date")
       .gt("news_count", 0)
-      .order("date", { ascending: false })
-      .limit(600);
+      .order("date", { ascending: false });
+
+    if (search.trim()) {
+      query = query.ilike("symbol", `%${search}%`);
+    }
+    if (dateFilter) {
+      query = query.eq("date", dateFilter);
+    }
+
+    const { data: newsRows, error: newsError } = await query.limit(600);
 
     if (newsError) {
       console.error("Error fetching news sentiments for stats:", newsError);
