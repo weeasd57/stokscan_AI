@@ -33,11 +33,22 @@ export function extractSymbols(text: string): string[] {
 
 /**
  * Extracts all numeric values (integers and decimals) from a text block.
+ * Supports both the ASCII decimal point and the Arabic decimal separator (٫)
+ * so values like "67.88" or "325٫5" are captured as a single number.
  */
 export function extractNumbers(text: string): number[] {
     // Regex matching numbers possibly followed by % or x, but capturing only the numeric part
-    const matches = text.match(/\b\d+(?:\.\d+)?\b/g) || [];
-    return Array.from(new Set(matches.map(Number))).filter(num => !isNaN(num));
+    const matches = text.match(/\b\d+(?:[.٫]\d+)?\b/g) || [];
+    return Array.from(new Set(matches.map(m => Number(m.replace("٫", "."))))).filter(num => !isNaN(num));
+}
+
+/**
+ * Splits a reply into sentence-level fragments without breaking decimal
+ * numbers: a "." only acts as a separator when it is NOT between two digits
+ * (e.g. "RSI 67.88" stays intact instead of splitting into "67" and "88").
+ */
+function splitSentences(text: string): string[] {
+    return text.split(/(?<!\d)\.(?!\d)|[\n؟?!؛]/).map(s => s.trim()).filter(Boolean);
 }
 
 /**
@@ -85,7 +96,7 @@ export function validateDeterministicRules(
 ): string[] {
     const errors: string[] = [];
     const userNumbers = userMessage ? extractNumbers(userMessage) : [];
-    const sentences = replyText.split(/[.\n؟?!؛]/).map(s => s.trim()).filter(Boolean);
+    const sentences = splitSentences(replyText);
 
     const factsBySymbol = buildFactsBySymbol(toolResults);
 
@@ -103,8 +114,8 @@ export function validateDeterministicRules(
         const numbers = extractNumbers(sentence);
 
         // Percent numbers (e.g. "0.60%") are changes/ratios, not price levels.
-        const percentNumbers = new Set((sentence.match(/\d+(?:\.\d+)?\s*(?:%|٪)/g) || [])
-            .map(m => Number(m.replace(/[\s%٪]/g, ""))));
+        const percentNumbers = new Set((sentence.match(/\d+(?:[.٫]\d+)?\s*(?:%|٪)/g) || [])
+            .map(m => Number(m.replace(/[\s%٪]/g, "").replace("٫", "."))));
 
         // Derived values the model legitimately computes from facts
         // (distance to support/resistance, gap percentages between levels).
@@ -126,14 +137,22 @@ export function validateDeterministicRules(
         };
         const isExemptNumber = (n: number): boolean => percentNumbers.has(n) || isDerivedValue(n) || userNumbers.includes(n);
 
+        // A number equal to the known RSI (or its rounded form) appearing in a
+        // support/resistance sentence is an RSI claim, not a conflicting level.
+        const isRsiValue = (n: number): boolean =>
+            typeof facts.rsi === "number" && n <= 100 && (Math.abs(n - facts.rsi) <= 0.51 || (facts.rsi > 0 && Math.abs(n - facts.rsi) / facts.rsi <= 0.01));
+
         const isSuggestionSentence = /(مستهدف|هدف|حد بيع|حد شراء|حد أمان|حد امان|تقريباً|تقريبا|≈|حوالي|حوالى|قبيل|بسعر|بحد|كسعر|كدعم|كمقاومة|التالي|التالية|المقبل|المقبلة|الثاني|الثانية|ثاني|ثانية)/i.test(sentence);
         if (isSuggestionSentence) continue;
 
         // 1. RSI Check
         if (/(?:rsi|قوة نسبية|قوه نسبيه)/i.test(sentence) && facts.rsi != null) {
             const rsiNum = facts.rsi;
-            const hasCorrectRsi = numbers.some(n => Math.abs(n - rsiNum) <= 0.05 || (rsiNum > 0 && Math.abs(n - rsiNum) / rsiNum <= 0.01));
-            const nonLevelNumbers = numbers.filter(n => n !== 30 && n !== 70 && n !== 14 && n !== 80 && n !== 50 && !percentNumbers.has(n));
+            // Tolerance covers rounding to a whole number (e.g. 68 vs 67.88)
+            const hasCorrectRsi = numbers.some(n => Math.abs(n - rsiNum) <= 0.51 || (rsiNum > 0 && Math.abs(n - rsiNum) / rsiNum <= 0.01));
+            // RSI is bounded 0..100: larger numbers in the sentence (prices,
+            // targets) cannot be RSI claims and must not trigger this check.
+            const nonLevelNumbers = numbers.filter(n => n <= 100 && n !== 30 && n !== 70 && n !== 14 && n !== 80 && n !== 50 && !percentNumbers.has(n));
             if (nonLevelNumbers.length > 0 && !hasCorrectRsi) {
                 errors.push(`تضارب في قيمة RSI لسهم ${activeSymbol}: القيمة الفعلية هي ${rsiNum} ولكن الرد يحتوي على قيم مختلفة.`);
             }
@@ -143,7 +162,7 @@ export function validateDeterministicRules(
         if (/(?:دعم|مستوى الدعم|الدعم)/i.test(sentence) && facts.support != null) {
             const supportNum = facts.support;
             const hasCorrectSupport = numbers.some(n => Math.abs(n - supportNum) <= 0.05 || (supportNum > 0 && Math.abs(n - supportNum) / supportNum <= 0.02));
-            const nonGenericNumbers = numbers.filter(n => n !== 1 && n !== 2 && n !== 3 && !isExemptNumber(n));
+            const nonGenericNumbers = numbers.filter(n => n !== 1 && n !== 2 && n !== 3 && !isExemptNumber(n) && !isRsiValue(n));
             if (nonGenericNumbers.length > 0 && !hasCorrectSupport) {
                 const isPlausibleSupport = facts.price != null ? numbers.some(n => n <= facts.price * 1.05) : true;
                 if (!isPlausibleSupport) {
@@ -156,7 +175,7 @@ export function validateDeterministicRules(
         if (/(?:مقاومة|مقاومه|مستوى المقاومة|المقاومة)/i.test(sentence) && facts.resistance != null) {
             const resistanceNum = facts.resistance;
             const hasCorrectResistance = numbers.some(n => Math.abs(n - resistanceNum) <= 0.05 || (resistanceNum > 0 && Math.abs(n - resistanceNum) / resistanceNum <= 0.02));
-            const nonGenericNumbers = numbers.filter(n => n !== 1 && n !== 2 && n !== 3 && !isExemptNumber(n));
+            const nonGenericNumbers = numbers.filter(n => n !== 1 && n !== 2 && n !== 3 && !isExemptNumber(n) && !isRsiValue(n));
             if (nonGenericNumbers.length > 0 && !hasCorrectResistance) {
                 const isPlausibleResistance = facts.price != null ? numbers.some(n => n >= facts.price * 0.95) : true;
                 if (!isPlausibleResistance) {

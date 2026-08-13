@@ -383,7 +383,8 @@ export function FormattedChatMessage({
     tables = [],
     showShareButton = false,
     onShare,
-    sharing = false
+    sharing = false,
+    latencyMs
 }: FormattedChatMessageProps) {
     content = stripEnvironmentLeak(sanitizeUiLabel(content));
     suggestedButtons = suggestedButtons?.map(button => stripEnvironmentLeak(sanitizeUiLabel(button))).filter(Boolean);

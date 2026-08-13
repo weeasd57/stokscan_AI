@@ -117,6 +117,29 @@ function sanitizeUserMessage(text: string): string {
     return stripEnvironmentMetadata(text).replace(/\s{2,}/g, " ").trim();
 }
 
+// The latency_ms column ships with migration 20260813_ai_chat_messages_latency_ms.
+// Until that migration is applied to the live DB, any insert/select mentioning the
+// column fails with a PostgREST schema error — retry without the column so chat
+// logging and the admin history keep working either way.
+function isMissingColumnError(error: any): boolean {
+    const text = `${error?.code || ""} ${error?.message || ""} ${error?.details || ""}`;
+    return /42703|PGRST204|does not exist/i.test(text);
+}
+
+async function insertChatMessages(supabase: any, rows: any[]): Promise<void> {
+    const { error } = await supabase.from("ai_chat_messages").insert(rows);
+    if (!error) return;
+    if (isMissingColumnError(error)) {
+        const { error: retryError } = await supabase.from("ai_chat_messages").insert(
+            rows.map((row) => { const { latency_ms, ...rest } = row; return rest; })
+        );
+        if (retryError) console.error("Failed to log chat messages to DB:", retryError);
+        else console.warn("[ai-chat] latency_ms column not applied yet — messages logged without latency (run supabase/migrations/20260813_ai_chat_messages_latency_ms.sql)");
+    } else {
+        console.error("Failed to log chat messages to DB:", error);
+    }
+}
+
 function generateSuggestedButtons(plannerResult: any, sessionState: any): string[] {
     if (plannerResult?.intent === "general_chat" || plannerResult?.intent === "sector_analysis" || plannerResult?.intent === "market_summary") {
         return [
@@ -409,6 +432,7 @@ export async function POST(req: NextRequest) {
                                     break;
                                 case "done":
                                     responseLatencyMs = responseStartTime ? Date.now() - responseStartTime : Math.max(0, Date.now() - totalRequestStartTime - plannerLatencyMs - toolsLatencyMs);
+                                    const streamingTotalLatencyMs = Date.now() - totalRequestStartTime;
                                     if (tokenBuffer.length > 0) {
                                         const safeBuffer = stripEnvironmentMetadata(tokenBuffer);
                                         if (safeBuffer && !filterOutputBlocks(safeBuffer) && !containsEnvironmentMetadata(safeBuffer)) sendEvent({ type: "token", content: safeBuffer });
@@ -423,7 +447,7 @@ export async function POST(req: NextRequest) {
                                     // Save messages to DB
                                     try {
                                         if (activeSessionId) {
-                                            await supabase.from("ai_chat_messages").insert([
+                                            await insertChatMessages(supabase, [
                                                 {
                                                     session_id: activeSessionId,
                                                     user_id: userId,
@@ -438,7 +462,7 @@ export async function POST(req: NextRequest) {
                                                     user_id: userId,
                                                     role: "assistant",
                                                     content: replyText,
-                                                    latency_ms: totalLatencyMs,
+                                                    latency_ms: streamingTotalLatencyMs,
                                                     created_at: new Date().toISOString()
                                                 }
                                             ]);
@@ -461,7 +485,7 @@ export async function POST(req: NextRequest) {
                                         toolsLatencyMs,
                                         responseLatencyMs,
                                         correlationId,
-                                        totalLatencyMs,
+                                        totalLatencyMs: streamingTotalLatencyMs,
                                         dataSizeChars: liveDataString ? liveDataString.length : 0,
                                         error: null
                                     });
@@ -473,7 +497,8 @@ export async function POST(req: NextRequest) {
                                         remaining_quota: isUnlimited ? 999 : Math.max(0, AI_CONFIG.limits.dailyMessages - newCount),
                                         suggested_buttons: suggestedButtons,
                                         session_state: sessionUpdate,
-                                        tables: event.data.tables || []
+                                        tables: event.data.tables || [],
+                                        latency_ms: streamingTotalLatencyMs
                                     });
 
                                     controller.enqueue(encoder.encode("data: [DONE]\n\n"));
@@ -565,11 +590,12 @@ export async function POST(req: NextRequest) {
 
         // Update Limits
         const newCount = limitData?.chat_count || 0;
+        const totalLatencyMs = Date.now() - totalRequestStartTime;
 
         // Save messages to DB
         try {
             if (activeSessionId) {
-                await supabase.from("ai_chat_messages").insert([
+                await insertChatMessages(supabase, [
                     {
                         session_id: activeSessionId,
                         user_id: userId,
@@ -584,6 +610,7 @@ export async function POST(req: NextRequest) {
                         user_id: userId,
                         role: "assistant",
                         content: replyText,
+                        latency_ms: totalLatencyMs,
                         created_at: new Date().toISOString()
                     }
                 ]);
@@ -593,7 +620,6 @@ export async function POST(req: NextRequest) {
         }
 
         const suggestedButtons = sanitizeSuggestedButtons(generateSuggestedButtons(pipelineResult.plan, sessionState));
-        const totalLatencyMs = Date.now() - totalRequestStartTime;
 
         await logAiInteraction(supabase, {
             sessionId: activeSessionId,
@@ -618,7 +644,7 @@ export async function POST(req: NextRequest) {
             remaining_quota: isUnlimited ? 999 : Math.max(0, AI_CONFIG.limits.dailyMessages - newCount),
             suggested_buttons: suggestedButtons,
             session_state: pipelineResult.session_update,
-            latency_ms: Date.now() - totalRequestStartTime
+            latency_ms: totalLatencyMs
         });
 
     } catch (error: any) {
@@ -666,18 +692,28 @@ export async function GET(req: NextRequest) {
         }
 
         if (sessionId) {
-            const { data: messages } = await supabase
+            let { data: messages, error: historyError } = await supabase
                 .from("ai_chat_messages")
-                .select("role, content, image_url, created_at")
+                .select("role, content, image_url, created_at, latency_ms")
                 .eq("session_id", sessionId)
                 .eq("user_id", userId)
                 .order("created_at", { ascending: true });
+            if (historyError && isMissingColumnError(historyError)) {
+                const fallback = await supabase
+                    .from("ai_chat_messages")
+                    .select("role, content, image_url, created_at")
+                    .eq("session_id", sessionId)
+                    .eq("user_id", userId)
+                    .order("created_at", { ascending: true });
+                messages = fallback.data;
+            }
 
             const formattedHistory = (messages || []).map((m: any) => ({
                 role: m.role,
                 content: stripEnvironmentMetadata(String(m.content || "")),
                 timestamp: new Date(m.created_at).getTime(),
-                imageUrl: m.image_url || undefined
+                imageUrl: m.image_url || undefined,
+                latencyMs: typeof m.latency_ms === "number" && m.latency_ms > 0 ? m.latency_ms : undefined
             }));
 
             return NextResponse.json({ history: formattedHistory });

@@ -81,11 +81,23 @@ export async function GET(_req: NextRequest) {
 
         // 4. Fetch structured messages from ai_chat_messages (Pair user + assistant messages)
         try {
-            const { data: chatMsgs } = await supabase
+            let { data: chatMsgs, error: chatMsgsError } = await supabase
                 .from("ai_chat_messages")
                 .select("id, session_id, user_id, role, content, latency_ms, created_at")
                 .order("created_at", { ascending: true })
                 .limit(3000);
+
+            // latency_ms ships with migration 20260813; until applied the select above
+            // fails with a schema error — retry without the column so ALL users still show.
+            if (chatMsgsError) {
+                const fallback = await supabase
+                    .from("ai_chat_messages")
+                    .select("id, session_id, user_id, role, content, created_at")
+                    .order("created_at", { ascending: true })
+                    .limit(3000);
+                if (fallback.data) chatMsgs = fallback.data;
+                else console.warn("Error fetching ai_chat_messages:", chatMsgsError);
+            }
 
             if (chatMsgs && chatMsgs.length > 0) {
                 chatMsgs.sort((a: any, b: any) => {
