@@ -907,21 +907,48 @@ export async function executeStructuredTools(
                 webQuery = "";
             }
 
-            // Fallback: extract search query from previous user turn
+            // Fallback: extract search query from previous user turn (excluding search trigger commands)
             if (!webQuery && Array.isArray(history) && history.length > 0) {
-                const lastUserMsg = [...history].reverse().find(m => m.role === "user")?.content || "";
-                if (lastUserMsg) {
-                    const cleanedPrev = lastUserMsg
+                const searchKeywordsRegex = /(?:ابحث|دور|فتش|بحث|شوف|بص|سيرش|شيك|تشيك)\s*(?:في|فى|على|عن)\s*(?:النت|الانترنت|الإنترنت|جوجل|المواقع|الويب)/i;
+                const lastActualUserMsg = [...history]
+                    .reverse()
+                    .find(m => m.role === "user" && !searchKeywordsRegex.test(m.content))
+                    ?.content || "";
+
+                if (lastActualUserMsg) {
+                    const cleanedPrev = lastActualUserMsg
                         .replace(/(?:عندك|هل|ايه|إيه|أخبار|اخبار|عن|سهم|شركة|شركه|تحليل|في|فيها|ليه|لماذا|ازاي|إزاي|مقارنة|قارن|قريب|سعر|سعرها|\?|؟)/gi, "")
+                        .replace(/(?:ده|دى|هذا|هذه|السهم)/gi, "")
                         .trim();
+                    
                     if (cleanedPrev) {
-                        webQuery = `أخبار ${cleanedPrev} البورصة المصرية`;
+                        let targetSubject = cleanedPrev;
+                        if (symbols.length > 0) {
+                            const { data: nameRows } = await supabase.from("stocks").select("symbol, name").in("symbol", symbols);
+                            if (nameRows && nameRows.length > 0) {
+                                const names = nameRows.map((r: any) => r.name || r.symbol);
+                                targetSubject = `${cleanedPrev} ${names.join(" ")}`;
+                            } else {
+                                targetSubject = `${cleanedPrev} ${symbols.join(" ")}`;
+                            }
+                        }
+                        webQuery = `${targetSubject} البورصة المصرية`;
                     }
                 }
             }
 
             if (!webQuery) {
-                webQuery = symbols.length > 0 ? symbols.join(" ") : "البورصة المصرية";
+                if (symbols.length > 0) {
+                    const { data: nameRows } = await supabase.from("stocks").select("symbol, name").in("symbol", symbols);
+                    if (nameRows && nameRows.length > 0) {
+                        const names = nameRows.map((r: any) => r.name || r.symbol);
+                        webQuery = `أخبار سهم ${names.join(" ")} البورصة المصرية`;
+                    } else {
+                        webQuery = `أخبار سهم ${symbols.join(" ")} البورصة المصرية`;
+                    }
+                } else {
+                    webQuery = "البورصة المصرية";
+                }
             }
 
             const webResults = await searchWeb(webQuery, 6);
