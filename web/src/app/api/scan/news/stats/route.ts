@@ -44,7 +44,21 @@ const SECTOR_MAP: Record<string, SectorInfo> = {
   "energy": { ar: "طاقة وبترول", en: "Energy & Oil" },
   "oil": { ar: "طاقة وبترول", en: "Energy & Oil" },
   "gas": { ar: "طاقة وبترول", en: "Energy & Oil" },
-  "petroleum": { ar: "طاقة وبترول", en: "Energy & Oil" }
+  "petroleum": { ar: "طاقة وبترول", en: "Energy & Oil" },
+  "process industries": { ar: "صناعات تحويلية", en: "Process Industries" },
+  "transportation": { ar: "خدمات النقل والشحن", en: "Transportation" },
+  "consumer durables": { ar: "سلع استهلاكية معمرة", en: "Consumer Durables" },
+  "distribution services": { ar: "خدمات لوجستية وتوزيع", en: "Distribution & Logistics" },
+  "consumer services": { ar: "خدمات المستهلكين", en: "Consumer Services" },
+  "non-energy minerals": { ar: "معادن وتعدين", en: "Non-Energy Minerals" },
+  "retail trade": { ar: "تجارة التجزئة", en: "Retail Trade" },
+  "industrial services": { ar: "خدمات صناعية ومقاولات", en: "Industrial Services" },
+  "producer manufacturing": { ar: "التصنيع والإنتاج", en: "Producer Manufacturing" },
+  "utilities": { ar: "المرافق والخدمات العامة", en: "Utilities" },
+  "commercial services": { ar: "خدمات تجارية وأعمال", en: "Commercial Services" },
+  "miscellaneous": { ar: "متنوع", en: "Miscellaneous" },
+  "health services": { ar: "رعاية صحية ومستشفيات", en: "Health Services" },
+  "technology services": { ar: "خدمات تكنولوجية وبرمجيات", en: "Technology Services" }
 };
 
 function getNormalizedSector(sectorStr: string): SectorInfo {
