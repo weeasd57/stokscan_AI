@@ -627,6 +627,79 @@ export function buildDeterministicNewsResponse(
     return lines.join("\n");
 }
 
+// Day-by-day change requests ("جيب نسبة تغيره آخر أسبوع يوم بيوم", "آخر 11 يوم")
+// reach the LLM with the daily history inside === HISTORICAL DATA ===, but the
+// model often ignores it or paraphrases it instead of the requested table.
+// Render the table deterministically from get_price_history results before any
+// LLM call.
+export function buildDailyChangeHistoryResponse(
+    userMessage: string,
+    plan: IntentPlan,
+    toolResults: ToolResult[]
+): string | null {
+    const normMsg = userMessage.replace(/[أإآ]/g, "ا").replace(/ة/g, "ه");
+    // Future-forecast phrasing keeps its dedicated deterministic handling.
+    if (/(?:توقع|متوقع|توقعات)/i.test(normMsg)) return null;
+    const dayByDayMarker = /يوم\s*بـ?\s*يوم|التغير\s*اليومي|تغير\s*يومي|سعر\s*كل\s*يوم|اداء\s*يومي|تغيره?\s*(?:يوميا|يوم بيوم)/i.test(normMsg);
+    const weekMarker = /(?:اخر|آخر)\s*(?:اسبوع|أسبوع|اسبوعين|أسبوعين|ايام|أيام|جلسات)|يوميا/i.test(normMsg);
+    const changeMention = /تغير|نسبه|نسبة|اداء|أداء/i.test(normMsg);
+    if (!dayByDayMarker && !(weekMarker && changeMention)) return null;
+
+    const priceHistories = toolResults.filter(r => r.tool === "get_price_history" && r.data?.symbol && Array.isArray(r.data.recent_5_sessions));
+    if (priceHistories.length === 0) return null;
+
+    // Explicit session count ("آخر 11 يوم", "اخر 5 جلسات") clamped to the data
+    // the tool provides (recent_15_sessions); default = last trading week.
+    const countMatch = normMsg.match(/(?:اخر|آخر)\s*(\d{1,2})\s*(?:يوم|ايام|جلسه|جلسة)/i);
+    const wantsFifteen = /اسبوعين|أسبوعين|خمستاشر|خمسة عشر/i.test(normMsg);
+    const requestedCount = countMatch ? Math.min(Math.max(parseInt(countMatch[1], 10), 1), 15) : wantsFifteen ? 15 : 5;
+    const fmt = (v: unknown) => Number.isFinite(Number(v)) ? Number(v).toFixed(2) : "غير متاح";
+
+    const blocks: string[] = [];
+    for (const history of priceHistories) {
+        const data = history.data;
+        const pool = requestedCount > 5 && Array.isArray(data.recent_15_sessions)
+            ? data.recent_15_sessions
+            : data.recent_5_sessions;
+        const rows = (Array.isArray(pool) ? pool : []).filter((s: any) => s && s.date).slice(0, requestedCount);
+        if (!rows.length) continue;
+        const periodLabel = requestedCount === 5 && !countMatch
+            ? "آخر أسبوع تداول (آخر 5 جلسات)"
+            : `آخر ${rows.length} جلسة متاحة`;
+        const lines: string[] = [
+            `التغير اليومي لسهم ${data.symbol} خلال ${periodLabel} يوم بيوم من بيانات الأسعار المسجلة:`,
+            "",
+            "| التاريخ | سعر الإغلاق | نسبة التغير اليومي | أعلى سعر | أدنى سعر |",
+            "| :--- | :--- | :--- | :--- | :--- |"
+        ];
+        rows.forEach((s: any) => {
+            lines.push(`| ${String(s.date).slice(0, 10)} | ${fmt(s.close)} جنيه | ${s.change_pct ?? "N/A"} | ${fmt(s.high)} | ${fmt(s.low)} |`);
+        });
+        const latestClose = Number(rows[0].close);
+        const parsedChanges = rows
+            .map((s: any) => Number(String(s.change_pct ?? "").replace("%", "")))
+            .filter(Number.isFinite);
+        // Compound every known daily change so the period total also covers the
+        // oldest row (whose own change is relative to the session before the table).
+        const periodChange = (parsedChanges as number[]).length
+            ? ((parsedChanges as number[]).reduce((acc: number, v: number) => acc * (1 + v / 100), 1) - 1) * 100
+            : null;
+        const upDays = parsedChanges.filter((v: number) => v > 0).length;
+        const downDays = parsedChanges.filter((v: number) => v < 0).length;
+        const trend = periodChange == null
+            ? "الاتجاه غير محسوم لعدم اكتمال البيانات"
+            : periodChange > 2 ? "الاتجاه العام صاعد"
+            : periodChange < -2 ? "الاتجاه العام هابط"
+            : "الحركة عرضية في مجملها";
+        const summaryParts = [`${trend}${periodChange != null ? `؛ محصلة الفترة ${periodChange >= 0 ? "+" : ""}${periodChange.toFixed(2)}%` : ""}`];
+        if (parsedChanges.length) summaryParts.push(`جلسات الصعود ${upDays} والهبوط ${downDays}`);
+        lines.push("");
+        lines.push(`ملخص الفترة: ${summaryParts.join("، ")}، وآخر إغلاق ${fmt(latestClose)} جنيه بتاريخ ${String(rows[0].date).slice(0, 10)}. الأرقام من بيانات الأسعار التاريخية وليست توصية شراء أو بيع.`);
+        blocks.push(lines.join("\n"));
+    }
+    return blocks.length ? blocks.join("\n\n") : null;
+}
+
 export async function generateV2Response(
     userMessage: string,
     plan: IntentPlan,
@@ -654,6 +727,11 @@ export async function generateV2Response(
     if (fastAdvisor) {
         if (meta) meta.source = "deterministic";
         return fastAdvisor;
+    }
+    const dailyHistory = buildDailyChangeHistoryResponse(userMessage, plan, toolResults);
+    if (dailyHistory) {
+        if (meta) meta.source = "deterministic";
+        return sanitizeReply(dailyHistory);
     }
     const isAnalyticalQuery = /(سبب|ليه|لماذا|ازاي|إزاي|تفسير|سر|ينزل|يهبط|يطلع|صعود|هبوط|فرص|أحسن|احسن|افضل|أفضل|توقعات|متوقع|مقارن|قارن|حالة|حالتها|رايك|رأيك|توجيه|تجميع|تصريف|تحليل|شراء|بيع|مناسب|اشتريت|خسران|نازل)/i.test(userMessage);
     const needsGuidanceResponse = plan.guidance_intent;
@@ -727,6 +805,12 @@ export async function* generateV2Stream(
     if (fastAdvisor) {
         if (meta) meta.source = "deterministic";
         yield sanitizeReply(fastAdvisor);
+        return;
+    }
+    const dailyHistory = buildDailyChangeHistoryResponse(userMessage, plan, toolResults);
+    if (dailyHistory) {
+        if (meta) meta.source = "deterministic";
+        yield sanitizeReply(dailyHistory);
         return;
     }
 

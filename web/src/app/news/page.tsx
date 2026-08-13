@@ -189,6 +189,35 @@ export default function NewsPage() {
 
     const totalPages = Math.ceil(totalCount / limit) || 1;
 
+    const getSectorDisplayName = (sec: string) => {
+        const SECTOR_TRANSLATIONS: Record<string, string> = {
+            "Banks": "بنوك",
+            "Financial Services": "خدمات مالية",
+            "Real Estate": "عقارات وتطوير",
+            "Healthcare & Pharma": "أدوية ورعاية صحية",
+            "Food & Beverages": "أغذية ومشروبات",
+            "Basic Materials": "مواد أساسية ومقاولات",
+            "Telecom & Tech": "اتصالات وتكنولوجيا",
+            "Tourism & Leisure": "سياحة وترفيه",
+            "Energy & Oil": "طاقة وبترول",
+            "Process Industries": "صناعات تحويلية",
+            "Transportation": "خدمات النقل والشحن",
+            "Consumer Durables": "سلع استهلاكية معمرة",
+            "Distribution & Logistics": "خدمات لوجستية وتوزيع",
+            "Consumer Services": "خدمات المستهلكين",
+            "Non-Energy Minerals": "معادن وتعدين",
+            "Retail Trade": "تجارة التجزئة",
+            "Industrial Services": "خدمات صناعية ومقاولات",
+            "Producer Manufacturing": "التصنيع والإنتاج",
+            "Utilities": "المرافق والخدمات العامة",
+            "Commercial Services": "خدمات تجارية وأعمال",
+            "Miscellaneous": "متنوع",
+            "Health Services": "رعاية صحية ومستشفيات",
+            "Technology Services": "خدمات تكنولوجية وبرمجيات"
+        };
+        return isAr ? (SECTOR_TRANSLATIONS[sec] || sec) : sec;
+    };
+
     return (
         <div className="w-full" dir={isAr ? "rtl" : "ltr"}>
             {/* Header section */}
@@ -229,7 +258,7 @@ export default function NewsPage() {
                         {isAr ? "القطاع المختار فنيّاً:" : "Selected Sector Filter:"}
                     </span>
                     <span className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-black bg-[#FFE600] text-black border-2 border-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
-                        {selectedSector}
+                        {getSectorDisplayName(selectedSector)}
                         <button 
                             onClick={() => setSelectedSector("")} 
                             className="w-4 h-4 rounded-full bg-black text-white hover:bg-[#FF3366] hover:text-white flex items-center justify-center text-[10px] font-black transition-colors"
