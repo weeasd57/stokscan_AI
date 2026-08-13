@@ -215,6 +215,12 @@ export default function NewsStats({
                                             fill={entry.color} 
                                             stroke={isDark ? "#18181b" : "#000000"} 
                                             strokeWidth={3} 
+                                            className="cursor-pointer"
+                                            onClick={() => {
+                                                const val = entry.name === "Positive" || entry.name === "إيجابي" ? "positive" :
+                                                            entry.name === "Negative" || entry.name === "سلبي" ? "negative" : "neutral";
+                                                onSentimentSelect(val);
+                                            }}
                                         />
                                     ))}
                                 </Pie>
@@ -375,7 +381,17 @@ export default function NewsStats({
                                         : entry.sentiment < -0.15 
                                             ? sentimentColors.negative 
                                             : sentimentColors.neutral;
-                                    return <Cell key={`cell-${index}`} fill={color} />;
+                                    return (
+                                        <Cell 
+                                            key={`cell-${index}`} 
+                                            fill={color} 
+                                            className="cursor-pointer"
+                                            onClick={() => {
+                                                onSectorSelect(entry.rawName);
+                                                setActiveSectorName(entry.rawName);
+                                            }}
+                                        />
+                                    );
                                 })}
                             </Bar>
                         </BarChart>
