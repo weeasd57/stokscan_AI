@@ -150,7 +150,14 @@ export async function GET(req: Request) {
     let negativeCount = 0;
     let neutralCount = 0;
 
-    const sectorAgg: Record<string, { ar: string; en: string; totalScore: number; count: number; newsCount: number }> = {};
+    const sectorAgg: Record<string, {
+      ar: string;
+      en: string;
+      totalScore: number;
+      count: number;
+      newsCount: number;
+      stocks: Record<string, { totalScore: number; count: number; newsCount: number }>;
+    }> = {};
     const dateAgg: Record<string, { totalScore: number; count: number; newsCount: number }> = {};
 
     for (const row of newsRows || []) {
@@ -177,12 +184,24 @@ export async function GET(req: Request) {
           en: sector.en,
           totalScore: 0,
           count: 0,
-          newsCount: 0
+          newsCount: 0,
+          stocks: {}
         };
       }
       sectorAgg[sectorKey].totalScore += score;
       sectorAgg[sectorKey].count += 1;
       sectorAgg[sectorKey].newsCount += count;
+
+      if (!sectorAgg[sectorKey].stocks[symbol]) {
+        sectorAgg[sectorKey].stocks[symbol] = {
+          totalScore: 0,
+          count: 0,
+          newsCount: 0
+        };
+      }
+      sectorAgg[sectorKey].stocks[symbol].totalScore += score;
+      sectorAgg[sectorKey].stocks[symbol].count += 1;
+      sectorAgg[sectorKey].stocks[symbol].newsCount += count;
 
       // Timeline/Date Aggregation
       if (date) {
@@ -205,7 +224,12 @@ export async function GET(req: Request) {
       nameEn: s.en,
       averageSentiment: s.count > 0 ? Number((s.totalScore / s.count).toFixed(2)) : 0,
       newsCount: s.newsCount,
-      stocksCount: s.count
+      stocksCount: s.count,
+      stocks: Object.entries(s.stocks).map(([sym, st]) => ({
+        symbol: sym,
+        averageSentiment: st.count > 0 ? Number((st.totalScore / st.count).toFixed(2)) : 0,
+        newsCount: st.newsCount
+      })).sort((a, b) => b.averageSentiment - a.averageSentiment)
     })).sort((a, b) => b.averageSentiment - a.averageSentiment);
 
     // 5. Format Timeline stats

@@ -47,6 +47,7 @@ export default function NewsPage() {
     const [sentiment, setSentiment] = useState<string>("all"); // "all", "positive", "negative", "neutral"
     const [sortBy, setSortBy] = useState<string>("newest"); // "newest", "oldest", "highest_sent", "lowest_sent"
     const [dateFilter, setDateFilter] = useState("");
+    const [selectedSector, setSelectedSector] = useState<string>("");
     const [page, setPage] = useState(1);
     const limit = 10;
 
@@ -65,6 +66,9 @@ export default function NewsPage() {
             }
             if (dateFilter) {
                 url += `&date=${dateFilter}`;
+            }
+            if (selectedSector) {
+                url += `&sector=${encodeURIComponent(selectedSector)}`;
             }
             
             const res = await fetch(url);
@@ -88,7 +92,7 @@ export default function NewsPage() {
         } finally {
             setLoading(false);
         }
-    }, [page, debouncedSearch, sentiment, dateFilter, sortBy]);
+    }, [page, debouncedSearch, sentiment, dateFilter, sortBy, selectedSector]);
 
     // Handle search input debounce/delay
     useEffect(() => {
@@ -203,7 +207,38 @@ export default function NewsPage() {
             </div>
 
             {/* News stats & charts dashboard */}
-            <NewsStats isAr={isAr} search={debouncedSearch} dateFilter={dateFilter} />
+            <NewsStats 
+                isAr={isAr} 
+                search={debouncedSearch} 
+                dateFilter={dateFilter} 
+                selectedSector={selectedSector}
+                onSectorSelect={(sector) => {
+                    setSelectedSector(sector);
+                    setPage(1);
+                }}
+                onSentimentSelect={(sent) => {
+                    setSentiment(sent);
+                    setPage(1);
+                }}
+            />
+
+            {/* Selected Sector Filter Badge */}
+            {selectedSector && (
+                <div className="mb-6 flex items-center gap-2">
+                    <span className="text-xs font-black uppercase text-zinc-500 dark:text-zinc-400">
+                        {isAr ? "القطاع المختار فنيّاً:" : "Selected Sector Filter:"}
+                    </span>
+                    <span className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-black bg-[#FFE600] text-black border-2 border-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
+                        {selectedSector}
+                        <button 
+                            onClick={() => setSelectedSector("")} 
+                            className="w-4 h-4 rounded-full bg-black text-white hover:bg-[#FF3366] hover:text-white flex items-center justify-center text-[10px] font-black transition-colors"
+                        >
+                            ×
+                        </button>
+                    </span>
+                </div>
+            )}
 
             {/* Controls Row (Search, Date Filter, Filters, Sort) */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 mb-8">
