@@ -409,6 +409,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     }, [setSessions]);
 
     useEffect(() => {
+        if (!user) return;
         fetchSessions();
     }, [user, fetchSessions]);
 
