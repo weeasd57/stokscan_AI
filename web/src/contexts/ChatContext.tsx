@@ -125,7 +125,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     const [isOpen, setIsOpen] = useState(false);
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [isLoading, setIsLoading] = useState(false);
-    const [remainingQuota, setRemainingQuota] = useState<number>(15);
+    const [remainingQuota, setRemainingQuota] = useState<number>(50);
     const [selectedModel, setSelectedModelState] = useState<string>("deepseek-chat");
     const [sessions, setSessionsState] = useState<ChatSession[]>([]);
     const [activeSessionId, setActiveSessionIdState] = useState<string | null>(null);
@@ -485,7 +485,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
         try {
             if (remainingQuota <= 0) {
-                assistantMsg.content = "وصلت للحد الأقصى اليومي (15 رسالة يومياً). يرجى العودة غداً أو تواصل مع الدعم الفني!";
+                assistantMsg.content = "وصلت للحد الأقصى اليومي (50 رسالة يومياً). يرجى العودة غداً أو تواصل مع الدعم الفني!";
                 assistantMsg.isStreaming = false;
                 assistantMsg.statusText = undefined;
                 updateAssistantMsgInState(assistantMsg);
@@ -520,11 +520,11 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
             if (response.status === 429) {
                 setRemainingQuota(0);
-                let detail = "وصلت للحد الأقصى اليومي (15 رسالة يومياً). يرجى العودة غداً أو تواصل مع الدعم الفني!";
+                let detail = "وصلت للحد الأقصى اليومي (50 رسالة يومياً). يرجى العودة غداً أو تواصل مع الدعم الفني!";
                 try {
                     const data = await response.json();
                     if (data.detail && typeof data.detail === "string" && data.detail.includes("Daily limit")) {
-                        detail = "وصلت للحد الأقصى اليومي (15 رسالة يومياً). يرجى العودة غداً أو تواصل مع الدعم الفني!";
+                        detail = "وصلت للحد الأقصى اليومي (50 رسالة يومياً). يرجى العودة غداً أو تواصل مع الدعم الفني!";
                     } else if (data.detail) {
                         detail = data.detail;
                     }

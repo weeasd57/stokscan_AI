@@ -532,7 +532,7 @@ class ChatbotTools:
 # Tool registry for function calling
 def get_tool_definitions() -> List[Dict]:
     """
-    Returns OpenAI/Gemini compatible function definitions for the chatbot.
+    Returns provider-compatible function definitions for the chatbot.
     """
     return [
         {

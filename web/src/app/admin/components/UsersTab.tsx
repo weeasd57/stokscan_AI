@@ -40,8 +40,6 @@ interface UserRow {
     notification_channel: string | null;
     default_target_pct: number | string | null;
     default_stop_pct: number | string | null;
-    gemini_api_key: string | null;
-    openrouter_api_key: string | null;
     custom_ai_rules: string | null;
     created_at: string;
     updated_at: string | null;
@@ -101,8 +99,6 @@ export default function UsersTab() {
         notification_channel: string | null;
         default_target_pct: string;
         default_stop_pct: string;
-        gemini_api_key: string;
-        openrouter_api_key: string;
         custom_ai_rules: string;
     }>({
         display_name: "",
@@ -111,8 +107,6 @@ export default function UsersTab() {
         notification_channel: "",
         default_target_pct: "",
         default_stop_pct: "",
-        gemini_api_key: "",
-        openrouter_api_key: "",
         custom_ai_rules: "",
     });
 
@@ -183,8 +177,6 @@ export default function UsersTab() {
             notification_channel: user.notification_channel || "",
             default_target_pct: user.default_target_pct !== null && user.default_target_pct !== undefined ? String(user.default_target_pct) : "10.00",
             default_stop_pct: user.default_stop_pct !== null && user.default_stop_pct !== undefined ? String(user.default_stop_pct) : "3.50",
-            gemini_api_key: user.gemini_api_key || "",
-            openrouter_api_key: user.openrouter_api_key || "",
             custom_ai_rules: user.custom_ai_rules || "",
         });
     };
@@ -196,8 +188,6 @@ export default function UsersTab() {
                 ...editForm,
                 default_target_pct: editForm.default_target_pct ? parseFloat(editForm.default_target_pct) : 10.00,
                 default_stop_pct: editForm.default_stop_pct ? parseFloat(editForm.default_stop_pct) : 3.50,
-                gemini_api_key: editForm.gemini_api_key || null,
-                openrouter_api_key: editForm.openrouter_api_key || null,
                 custom_ai_rules: editForm.custom_ai_rules || null,
                 telegram_chat_id: editForm.telegram_chat_id || null,
                 notification_channel: editForm.notification_channel || null,
@@ -659,26 +649,6 @@ export default function UsersTab() {
                                             className="w-full h-9 px-3 border-4 border-black dark:border-white bg-zinc-50 dark:bg-zinc-900 font-bold text-xs font-mono"
                                         />
                                     </div>
-                                </div>
-                                <div>
-                                    <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1 block">Gemini API Key</label>
-                                    <input
-                                        type="password"
-                                        value={editForm.gemini_api_key}
-                                        onChange={(e) => setEditForm(f => ({ ...f, gemini_api_key: e.target.value }))}
-                                        className="w-full h-9 px-3 border-4 border-black dark:border-white bg-zinc-50 dark:bg-zinc-900 font-bold text-xs"
-                                        placeholder="••••••••"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1 block">OpenRouter API Key</label>
-                                    <input
-                                        type="password"
-                                        value={editForm.openrouter_api_key}
-                                        onChange={(e) => setEditForm(f => ({ ...f, openrouter_api_key: e.target.value }))}
-                                        className="w-full h-9 px-3 border-4 border-black dark:border-white bg-zinc-50 dark:bg-zinc-900 font-bold text-xs"
-                                        placeholder="••••••••"
-                                    />
                                 </div>
                             </div>
                             <div>

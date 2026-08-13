@@ -10,6 +10,8 @@ venv/
 .env
 .env.local
 .env.*.local
+.env.*
+!.env.example
 
 # Next.js
 .next/
@@ -61,7 +63,7 @@ p.png
 web/public/*.png
 web/public/favicon_io/*.png
 
-# Gemini files
+# Local tool state (never commit)
 .gemini/
 
 # Temp and Datasets

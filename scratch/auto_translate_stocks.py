@@ -7,7 +7,7 @@ load_dotenv("web/.env.local")
 
 SUPABASE_URL = os.getenv("NEXT_PUBLIC_SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
-DEEPSEEK_KEY = os.getenv("DEEPSEEK_OFFICIAL_API_KEY")
+DEEPSEEK_KEY = os.getenv("DEEPSEEK_API_KEY")
 
 def fetch_null_name_ar():
     url = f"{SUPABASE_URL}/rest/v1/stock_fundamentals?select=symbol,name&name_ar=is.null"
@@ -37,14 +37,14 @@ def translate_batch(stocks):
     prompt += "\n\n" + "\n".join(lines)
     
     req = urllib.request.Request(
-        "https://openrouter.ai/api/v1/chat/completions",
+        "https://api.deepseek.com/chat/completions",
         headers={
             "Content-Type": "application/json",
-            "Authorization": f"Bearer {os.getenv('AGENT_ROUTER_API_KEY')}"
+            "Authorization": f"Bearer {DEEPSEEK_KEY}"
         },
         method="POST",
         data=json.dumps({
-            "model": "deepseek/deepseek-chat",
+            "model": "deepseek-chat",
             "messages": [
                 {"role": "system", "content": "You output strict raw JSON without backticks or markdown."},
                 {"role": "user", "content": prompt}

@@ -341,7 +341,7 @@ export default function ChatWidget() {
                     <div className="flex items-center gap-2">
                         {user && (
                             <div className="text-[10px] font-black px-2.5 py-1.5 bg-white text-black border-2 border-black uppercase shadow-[2px_2px_0_0_#000]">
-                                {remainingQuota >= 99 ? "Unlimited ♾️" : `${remainingQuota}/15 Left`}
+                                {remainingQuota >= 99 ? "Unlimited ♾️" : `${remainingQuota}/50 Left`}
                             </div>
                         )}
                         <button

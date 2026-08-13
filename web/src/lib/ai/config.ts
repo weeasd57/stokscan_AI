@@ -11,12 +11,11 @@ export const AI_CONFIG = {
         "deepseek-chat",
         "deepseek-reasoner"
       ],
-      agentRouter: [],
       vision: ["nvidia/llama-3.1-nemotron-nano-vl-8b-v1", "meta/llama-3.2-11b-vision-instruct"],
     },
   },
   limits: {
-    dailyMessages: 15,
+    dailyMessages: 50,
     sessionHistoryCap: 15,
     plannerTimeoutMs: 6_000,
     plannerMaxTokens: 320,
@@ -28,8 +27,8 @@ export const AI_CONFIG = {
     cacheTtlMs: 24 * 60 * 60 * 1000,
   },
   api: {
+    deepseekBaseUrl: "https://api.deepseek.com/chat/completions",
     nvidiaBaseUrl: "https://integrate.api.nvidia.com/v1/chat/completions",
-    agentRouterBaseUrl: "https://agentrouter.org/v1/chat/completions",
   },
   tools: {
     defaultCountry: "Egypt",
@@ -44,12 +43,5 @@ export const AI_CONFIG = {
     newsHeadlinesMaxPerDay: 8,
     newsDaysDisplay: 3,
   },
-  unlimitedEmails: [
-    "weeessd57@gmail.com",
-    "user@gmail.com",
-    "weeasd57@gmail.com",
-    "abdallahsaied912@gmail.com",
-    "session.flow.test@example.com",
-  ],
   disclaimer: "✅ تحليل EGX Bots مبني على بيانات حية — مش نصيحة استثمار، القرار ليك.",
 };

@@ -12,7 +12,7 @@ export async function GET(_req: NextRequest) {
         const supabase = getSupabaseClient();
         const { data, error } = await supabase
             .from("ai_chatbot_settings")
-            .select("*")
+            .select("id, system_prompt, updated_at")
             .eq("id", 1)
             .single();
 
@@ -20,9 +20,11 @@ export async function GET(_req: NextRequest) {
             return NextResponse.json({ detail: error.message }, { status: 500 });
         }
 
-        const safe = { ...(data || {}) } as any;
-        delete safe.api_key;
-        return NextResponse.json(safe);
+        return NextResponse.json({
+            ...(data || {}),
+            api_url: "https://api.deepseek.com",
+            model: "deepseek-chat",
+        });
     } catch (e) {
         return NextResponse.json({ detail: "Internal error" }, { status: 500 });
     }
@@ -36,25 +38,24 @@ export async function POST(req: NextRequest) {
         const body = await req.json();
 
         // Safely extract fields
-        const updateData: any = { updated_at: new Date().toISOString() };
-        if (body.api_url !== undefined) updateData.api_url = body.api_url;
-        if (body.api_key !== undefined) updateData.api_key = body.api_key;
-        if (body.model !== undefined) updateData.model = body.model;
+        const updateData: any = {
+            api_url: "https://api.deepseek.com",
+            model: "deepseek-chat",
+            updated_at: new Date().toISOString(),
+        };
         if (body.system_prompt !== undefined) updateData.system_prompt = body.system_prompt;
 
         const { data, error } = await supabase
             .from("ai_chatbot_settings")
             .upsert({ id: 1, ...updateData })
-            .select()
+            .select("id, api_url, model, system_prompt, updated_at")
             .single();
 
         if (error) {
             return NextResponse.json({ detail: error.message }, { status: 500 });
         }
 
-        const safe = { ...data } as any;
-        delete safe.api_key;
-        return NextResponse.json(safe);
+        return NextResponse.json(data);
     } catch (e) {
         return NextResponse.json({ detail: "Internal error" }, { status: 500 });
     }

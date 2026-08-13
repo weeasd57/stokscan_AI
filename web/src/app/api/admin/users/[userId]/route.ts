@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseClient } from "@/lib/supabase/route-data";
+import { requireAdmin } from "@/lib/admin-auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -9,13 +10,15 @@ export async function GET(
   context: { params: Promise<{ userId: string }> }
 ) {
   try {
+    const auth = await requireAdmin(_req);
+    if (auth instanceof Response) return auth;
     const { userId } = await context.params;
     const supabase = getSupabaseClient();
 
     // Query profile
     const { data: profile, error: profileErr } = await supabase
       .from("profiles")
-      .select("*")
+      .select("id, username, display_name, avatar_url, language, telegram_chat_id, whatsapp_number, notification_channel, default_target_pct, default_stop_pct, custom_ai_rules, created_at, updated_at")
       .eq("id", userId)
       .single();
 
@@ -46,13 +49,15 @@ export async function PATCH(
   context: { params: Promise<{ userId: string }> }
 ) {
   try {
+    const auth = await requireAdmin(req);
+    if (auth instanceof Response) return auth;
     const { userId } = await context.params;
     const body = await req.json();
     // Only allow safe fields to be updated
     const allowedFields = [
       "display_name", "language", "telegram_chat_id", "whatsapp_number", 
       "notification_channel", "default_target_pct", "default_stop_pct",
-      "gemini_api_key", "openrouter_api_key", "custom_ai_rules"
+      "custom_ai_rules"
     ];
     const safeBody: Record<string, unknown> = {};
     for (const field of allowedFields) {
@@ -65,7 +70,7 @@ export async function PATCH(
       .from("profiles")
       .update(safeBody)
       .eq("id", userId)
-      .select()
+      .select("id, username, display_name, avatar_url, language, telegram_chat_id, whatsapp_number, notification_channel, default_target_pct, default_stop_pct, custom_ai_rules, created_at, updated_at")
       .single();
     if (error) return NextResponse.json({ detail: error.message }, { status: 400 });
     return NextResponse.json(data);
@@ -79,6 +84,8 @@ export async function DELETE(
   context: { params: Promise<{ userId: string }> }
 ) {
   try {
+    const auth = await requireAdmin(_req);
+    if (auth instanceof Response) return auth;
     const { userId } = await context.params;
     const supabase = getSupabaseClient();
     const { error } = await supabase.from("profiles").delete().eq("id", userId);

@@ -4835,7 +4835,7 @@ def list_users(page: int = 0, page_size: int = 50, search: str = ""):
 
     try:
         query = stock_ai.supabase.table("profiles").select(
-            "id, username, display_name, avatar_url, language, telegram_chat_id, notification_channel, default_target_pct, default_stop_pct, gemini_api_key, openrouter_api_key, custom_ai_rules, created_at, updated_at",
+            "id, username, display_name, avatar_url, language, telegram_chat_id, notification_channel, default_target_pct, default_stop_pct, custom_ai_rules, created_at, updated_at",
             count="exact"
         )
 
@@ -4892,7 +4892,9 @@ def get_user_detail(user_id: str):
         raise HTTPException(status_code=503, detail="Supabase not initialized")
 
     try:
-        profile_res = stock_ai.supabase.table("profiles").select("*").eq("id", user_id).maybe_single().execute()
+        profile_res = stock_ai.supabase.table("profiles").select(
+            "id, username, display_name, avatar_url, language, telegram_chat_id, whatsapp_number, notification_channel, default_target_pct, default_stop_pct, custom_ai_rules, created_at, updated_at"
+        ).eq("id", user_id).maybe_single().execute()
         if not (profile_res and profile_res.data):
             raise HTTPException(status_code=404, detail="User not found")
         profile = profile_res.data
@@ -4929,8 +4931,6 @@ class UserUpdateRequest(BaseModel):
     notification_channel: Optional[str] = None
     default_target_pct: Optional[float] = None
     default_stop_pct: Optional[float] = None
-    gemini_api_key: Optional[str] = None
-    openrouter_api_key: Optional[str] = None
     custom_ai_rules: Optional[str] = None
 
 
@@ -4954,10 +4954,6 @@ def update_user(user_id: str, body: UserUpdateRequest):
         updates["default_target_pct"] = body.default_target_pct
     if body.default_stop_pct is not None:
         updates["default_stop_pct"] = body.default_stop_pct
-    if body.gemini_api_key is not None:
-        updates["gemini_api_key"] = body.gemini_api_key
-    if body.openrouter_api_key is not None:
-        updates["openrouter_api_key"] = body.openrouter_api_key
     if body.custom_ai_rules is not None:
         updates["custom_ai_rules"] = body.custom_ai_rules
 

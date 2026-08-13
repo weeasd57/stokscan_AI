@@ -8,19 +8,8 @@ sys.stdout.reconfigure(encoding='utf-8')
 load_dotenv()
 load_dotenv("web/.env.local")
 
-# Get API key from env or DB settings
+# Get an NVIDIA vision key from the environment only
 api_key = os.getenv("NVIDIA_API_KEY") or os.getenv("NVIDIA_SECONDARY_API_KEY")
-
-if not api_key:
-    # Try fetching from DB settings
-    sys.path.append(os.path.abspath("scratch"))
-    try:
-        from check_settings import get_settings
-        settings = get_settings()
-        if settings:
-            api_key = settings[0].get("api_key")
-    except Exception as e:
-        print("Error getting DB key:", e)
 
 if not api_key:
     print("❌ No NVIDIA API key found.")
@@ -30,7 +19,9 @@ print("NVIDIA API key found:", bool(api_key))
 
 import base64
 
-REAL_IMAGE_PATH = r"C:\Users\MR__CODER__\.gemini\antigravity\brain\d86860c0-464a-43c2-b9a7-81fa66370ce2\media__1784634516280.png"
+REAL_IMAGE_PATH = os.getenv("TEST_IMAGE_PATH", "")
+if not REAL_IMAGE_PATH:
+    raise SystemExit("TEST_IMAGE_PATH is required")
 
 with open(REAL_IMAGE_PATH, "rb") as f:
     img_data = f.read()

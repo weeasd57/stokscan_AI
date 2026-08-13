@@ -20,7 +20,8 @@ describe("Planner failure handling", () => {
             expect(result.entities.symbols).toEqual([]);
             expect(result.tools).toEqual([]);
             expect(result.session_update.current_symbol).toBe("KWIN");
-            expect(global.fetch).toHaveBeenCalledTimes(1);
+            // No provider request is allowed when the server-side DeepSeek key is absent.
+            expect(global.fetch).toHaveBeenCalledTimes(0);
         } finally {
             global.fetch = originalFetch;
             console.warn = originalWarn;

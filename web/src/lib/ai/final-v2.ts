@@ -1,5 +1,6 @@
 import { IntentPlan, VisionContext, ToolResult, FactSnapshot, SessionState } from "./types";
 import { AI_CONFIG } from "./config";
+import { getDeepSeekApiKey, getNvidiaApiKeys } from "./server-secrets";
 import { describeDatedFallback, getFairValueFilters, getInvestorGuidanceIntent, isBestBuyStockQuestion, isDailyPriceLimitQuestion, isEarningsDataRequest, isFairValueScanRequest, isTermsDefinitionRequest, isUsageLimitQuestion } from "./intent-policy";
 import { sanitizeReply } from "./sanitizer";
 
@@ -338,7 +339,7 @@ async function callNvidiaApi(
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
         try {
-            const res = await fetch("https://integrate.api.nvidia.com/v1/chat/completions", {
+            const res = await fetch(AI_CONFIG.api.nvidiaBaseUrl, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
@@ -398,7 +399,7 @@ async function callDeepSeekApi(
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
     try {
         const maxTokens = modelName === "deepseek-reasoner" ? 4000 : AI_CONFIG.limits.responseMaxTokens;
-        const res = await fetch("https://api.deepseek.com/chat/completions", {
+        const res = await fetch(AI_CONFIG.api.deepseekBaseUrl, {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
@@ -473,10 +474,8 @@ async function callResponderLlm(
         const targetModel = requestedModel || AI_CONFIG.models.response.vision[0];
         const nvidiaKeys = Array.from(new Set([
             ...apiKeys,
-            process.env.NVIDIA_API_KEY,
-            process.env.NVIDIA_SECONDARY_API_KEY,
-            process.env.NVIDIA_NIM_API_KEY
-        ].filter((k): k is string => Boolean(k))));
+            ...getNvidiaApiKeys(),
+        ]));
 
         const tuning = NVIDIA_MODEL_TUNING[targetModel];
         const n = await callNvidiaApi(targetModel, messages, nvidiaKeys, stream, tuning?.maxTokens, tuning?.timeoutMs, tuning?.reasoningEffort);
@@ -484,16 +483,13 @@ async function callResponderLlm(
     } else {
         // text request - route to DeepSeek (chat/reasoner)
         const targetModel = requestedModel === "deepseek-reasoner" ? "deepseek-reasoner" : "deepseek-chat";
-        const deepseekKey = process.env.DEEPSEEK_API_KEY;
-        const isPlaceholder = !deepseekKey || deepseekKey === "your_deepseek_api_key_here";
-        if (isPlaceholder && process.env.NODE_ENV !== "test") {
-            console.warn("[Responder] DEEPSEEK_API_KEY is not configured or is the default placeholder!");
+        const deepseekKey = getDeepSeekApiKey();
+        if (!deepseekKey) {
+            console.warn("[Responder] DeepSeek credentials are not configured");
             return { response: null, provider: "none" };
         }
 
-        const effectiveKey = deepseekKey || "deepseek-no-key";
-
-        const ds = await callDeepSeekApi(targetModel, messages, effectiveKey, stream);
+        const ds = await callDeepSeekApi(targetModel, messages, deepseekKey, stream);
         if (ds.response || ds.streamGen) return { ...ds, provider: "deepseek" };
     }
 

@@ -3,14 +3,9 @@ import sys, os, time, base64, requests, json
 sys.stdout.reconfigure(encoding='utf-8')
 
 # 1. Base64 encode the test portfolio image
-img_path = r"C:\Users\MR__CODER__\.gemini\antigravity\brain\d9374818-9613-45ee-888b-8469feaa873d\.user_uploaded\media__1785274816394.png"
-if not os.path.exists(img_path):
-    # Fallback to any user uploaded image
-    up_dir = r"C:\Users\MR__CODER__\.gemini\antigravity\brain\d9374818-9613-45ee-888b-8469feaa873d\.user_uploaded"
-    for f in os.listdir(up_dir):
-        if f.endswith(('.png', '.jpg')):
-            img_path = os.path.join(up_dir, f)
-            break
+img_path = os.getenv("TEST_IMAGE_PATH", "")
+if not img_path:
+    raise SystemExit("TEST_IMAGE_PATH is required")
 
 print(f"📷 Using test image: {os.path.basename(img_path)}")
 
@@ -19,7 +14,9 @@ with open(img_path, "rb") as f:
 
 image_url_data = f"data:image/png;base64,{img_b64}"
 
-nv_key = "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"
+nv_key = os.getenv("NVIDIA_API_KEY") or os.getenv("NVIDIA_SECONDARY_API_KEY")
+if not nv_key:
+    raise SystemExit("NVIDIA_API_KEY or NVIDIA_SECONDARY_API_KEY is required")
 nv_url = "https://integrate.api.nvidia.com/v1/chat/completions"
 headers = {
     "Authorization": f"Bearer {nv_key}",
@@ -39,9 +36,8 @@ Respond with a JSON object:
 }"""
 
 models_to_test = [
-    "moonshotai/kimi-k2.6",
-    "meta/llama-3.2-90b-vision-instruct",
-    "meta/llama-3.2-11b-vision-instruct"
+    "nvidia/nemotron-nano-12b-v2-vl",
+    "nvidia/llama-3.1-nemotron-nano-vl-8b-v1"
 ]
 
 results = []

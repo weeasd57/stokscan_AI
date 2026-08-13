@@ -17,8 +17,6 @@ type ProfileRow = {
   notification_channel: "telegram" | null;
   default_target_pct: number | string | null;
   default_stop_pct: number | string | null;
-  gemini_api_key: string | null;
-  openrouter_api_key: string | null;
   custom_ai_rules: string | null;
 };
 
@@ -45,8 +43,6 @@ export default function ProfilePage() {
   const [defaultTelegramChatId, setDefaultTelegramChatId] = useState("");
   const [defaultTargetPct, setDefaultTargetPct] = useState("10.00");
   const [defaultStopPct, setDefaultStopPct] = useState("3.50");
-  const [geminiApiKey, setGeminiApiKey] = useState("");
-  const [openrouterApiKey, setOpenrouterApiKey] = useState("");
   const [customAiRules, setCustomAiRules] = useState("");
   const [savingDefaults, setSavingDefaults] = useState(false);
   const [editingSymbolId, setEditingSymbolId] = useState<string | null>(null);
@@ -128,7 +124,7 @@ export default function ProfilePage() {
 
     const { data: profileRow } = await supabase
       .from("profiles")
-      .select("username, display_name, telegram_chat_id, notification_channel, default_target_pct, default_stop_pct, gemini_api_key, openrouter_api_key, custom_ai_rules")
+      .select("username, display_name, telegram_chat_id, notification_channel, default_target_pct, default_stop_pct, custom_ai_rules")
       .eq("id", user.id)
       .maybeSingle();
 
@@ -136,8 +132,6 @@ export default function ProfilePage() {
       setProfile(profileRow as ProfileRow);
       setDefaultTargetPct(String((profileRow as any).default_target_pct ?? "10.00"));
       setDefaultStopPct(String((profileRow as any).default_stop_pct ?? "3.50"));
-      setGeminiApiKey((profileRow as any).gemini_api_key || "");
-      setOpenrouterApiKey((profileRow as any).openrouter_api_key || "");
       setCustomAiRules((profileRow as any).custom_ai_rules || "");
     }
   }, [supabase, user]);
@@ -169,8 +163,6 @@ export default function ProfilePage() {
           notification_channel: notificationChannel,
           default_target_pct: defaultTargetPct ? parseFloat(defaultTargetPct) : 10.00,
           default_stop_pct: defaultStopPct ? parseFloat(defaultStopPct) : 3.50,
-          gemini_api_key: geminiApiKey.trim() || null,
-          openrouter_api_key: openrouterApiKey.trim() || null,
           custom_ai_rules: customAiRules.trim() || null,
         })
         .eq("id", user.id);

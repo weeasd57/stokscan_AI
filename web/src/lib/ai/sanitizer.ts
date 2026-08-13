@@ -393,7 +393,7 @@ export function sanitizeReply(reply: string, liveDataString?: string): string {
       .replace(/\n{3,}/g, "\n\n")
       .trim();
 
-    // 🧠 Reasoning models (nemotron-lightning, muse-glimmer, ...) sometimes merge their
+    // Reasoning models sometimes merge their
     // rule-deliberation into content, quoting our Arabic system-prompt rules verbatim.
     // Drop any line carrying a system-prompt fingerprint, an English/Arabic meta prefix,
     // or a raw snake_case data key regurgitated from the tool payload.

@@ -382,6 +382,7 @@ const ARABIC_STOCK_MAPPINGS: Record<string, string | string[]> = {
 };
 import { SessionState, PlannerResult, VisionContext } from "./types";
 import { AI_CONFIG } from "./config";
+import { getDeepSeekApiKey } from "./server-secrets";
 import { isBestBuyStockQuestion, isTermsDefinitionRequest } from "./intent-policy";
 import { createHash } from "crypto";
 import { getSupabaseClient } from "@/lib/supabase/route-data";
@@ -849,18 +850,18 @@ Analyze the user request and return a JSON object. You MUST dynamically choose t
                     reqBody.response_format = { type: "json_object" };
                 }
 
-                const targetUrl = isDeepSeek 
-                    ? "https://api.deepseek.com/chat/completions" 
-                    : "https://integrate.api.nvidia.com/v1/chat/completions";
+                const targetUrl = isDeepSeek
+                    ? AI_CONFIG.api.deepseekBaseUrl
+                    : AI_CONFIG.api.nvidiaBaseUrl;
 
-                const isPlaceholder = !process.env.DEEPSEEK_API_KEY || process.env.DEEPSEEK_API_KEY === "your_deepseek_api_key_here";
-                if (isDeepSeek && isPlaceholder && process.env.NODE_ENV !== "test") {
-                    console.warn("[Planner] DEEPSEEK_API_KEY is not configured or is the default placeholder!");
+                const deepseekKey = isDeepSeek ? getDeepSeekApiKey() : null;
+                if (isDeepSeek && !deepseekKey) {
+                    console.warn("[Planner] DeepSeek credentials are not configured");
                     throw new Error("DEEPSEEK_API_KEY not configured");
                 }
 
                 const authKey = isDeepSeek 
-                    ? (process.env.DEEPSEEK_API_KEY || "deepseek-no-key") 
+                    ? deepseekKey
                     : key;
 
                 const res = await fetch(targetUrl, {

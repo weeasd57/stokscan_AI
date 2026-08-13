@@ -5,7 +5,6 @@ import { getSupabaseClient } from "@/lib/supabase/route-data";
 import { loadSessionState, loadSessionSummary, updateSessionState, updateSessionSummary } from "@/lib/ai/session";
 import { runPlanner } from "@/lib/ai/planner";
 import { executeTools } from "@/lib/ai/tools";
-import { generateFinalResponse, generateFinalStream } from "@/lib/ai/final";
 import { selectOptimalModel } from "@/lib/ai/router";
 import { AI_CONFIG } from "@/lib/ai/config";
 import { logAiInteraction } from "@/lib/ai/logger";
@@ -15,6 +14,7 @@ import { analyzeImage } from "@/lib/ai/vision";
 import { retrieveRelevantMemory } from "@/lib/ai/memory";
 import { executeStructuredTools } from "@/lib/ai/tools-v2";
 import { generateV2Response, generateV2Stream } from "@/lib/ai/final-v2";
+import { getDeepSeekApiKey, getNvidiaApiKeys, isUnlimitedChatUser } from "@/lib/ai/server-secrets";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -216,6 +216,7 @@ export async function POST(req: NextRequest) {
         }
         
         const userId = user.id;
+        const isUnlimited = isUnlimitedChatUser(user);
         const body = await req.json();
         const rawMessage = typeof body.message === "string" ? body.message : "";
         const message = sanitizeUserMessage(rawMessage);
@@ -243,15 +244,11 @@ export async function POST(req: NextRequest) {
 
         if (message && typeof message === "string" && !filterInput(message)) {
             return NextResponse.json({
-                reply: "معذرة، لا يمكنني الاستجابة لهذه الرسالة بناءً على إرشادات الأمان والحماية الخاصة بالمنصة.",
-                remaining_quota: 4
+                reply: "معذرة، لا يمكنني الاستجابة لهذه الرسالة بناءً على إرشادات الأمان والحماية الخاصة بالمنصة."
             });
         }
 
 
-
-        const userEmail = user.email || "";
-        const isUnlimited = AI_CONFIG.unlimitedEmails.includes(userEmail) || AI_CONFIG.unlimitedEmails.includes(userEmail.toLowerCase());
 
         if (clientMessageId) {
             const { data: existing } = await supabase.from("ai_chat_idempotency").select("status,response,updated_at,created_at").eq("user_id", userId).eq("client_message_id", clientMessageId).maybeSingle();
@@ -273,18 +270,9 @@ export async function POST(req: NextRequest) {
             limitData = { chat_count: Number(quota.chat_count || 0) };
         }
 
-        const { data: dbSettings } = await supabase.from("ai_chatbot_settings").select("api_key").eq("id", 1).maybeSingle();
-        const dbApiKey = dbSettings?.api_key || null;
+        const keysToTry = getNvidiaApiKeys();
 
-        const keysToTry = Array.from(new Set([
-            process.env.NVIDIA_API_KEY,
-            process.env.NVIDIA_SECONDARY_API_KEY,
-            process.env.NVIDIA_NIM_API_KEY,
-            process.env.DEEPSEEK_API_KEY,
-            dbApiKey
-        ].filter((k): k is string => Boolean(k))));
-
-        if (keysToTry.length === 0) {
+        if (!getDeepSeekApiKey() && keysToTry.length === 0) {
             return NextResponse.json({ detail: "AI service not configured" }, { status: 500 });
         }
 
@@ -500,8 +488,9 @@ export async function POST(req: NextRequest) {
                         if (err.code !== 'ERR_INVALID_STATE') {
                             console.error("Streaming error:", err);
                         }
-                        let friendlyDetail = err.message || "Streaming failed";
-                        if (/PIPELINE_DEADLINE_EXCEEDED|DEADLINE|Timeout|AbortError/i.test(friendlyDetail)) {
+                        const internalDetail = String(err?.message || "Streaming failed");
+                        let friendlyDetail = "تعذر إكمال التحليل حاليًا. يرجى إعادة المحاولة.";
+                        if (/PIPELINE_DEADLINE_EXCEEDED|DEADLINE|Timeout|AbortError/i.test(internalDetail)) {
                             friendlyDetail = "استغرق التحليل وقتًا أطول من المتوقع نظرًا لضغط السيرفرات حالياً. يرجى إعادة إرسال السؤال أو تجربة إرساله بدون صورة للحصول على رد فوري.";
                         }
                         sendEvent({ type: "error", detail: friendlyDetail });
@@ -633,7 +622,7 @@ export async function POST(req: NextRequest) {
 
     } catch (error: any) {
         console.error("Critical Chat API Error:", error);
-        return NextResponse.json({ detail: stripEnvironmentMetadata(error.message || "Failed to process chat request.") }, { status: 500 });
+        return NextResponse.json({ detail: "Failed to process chat request." }, { status: 500 });
     }
 }
 
@@ -659,9 +648,8 @@ export async function GET(req: NextRequest) {
                 .eq("user_id", userId)
                 .order("updated_at", { ascending: false });
 
-            const userEmail = user.email || "";
-            const isUnlimited = AI_CONFIG.unlimitedEmails.includes(userEmail) || AI_CONFIG.unlimitedEmails.includes(userEmail.toLowerCase());
             const today = new Date().toISOString().split("T")[0];
+            const isUnlimited = isUnlimitedChatUser(user);
 
             const { data: limitData } = await supabase
                 .from("ai_chatbot_limits")

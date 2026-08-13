@@ -1,24 +1,14 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { Loader2, Save, Sparkles, MessageSquare, KeyRound, Link as LinkIcon, Settings2, User, RefreshCw, Eye, EyeOff, Search, Clock, ChevronRight, Trash2 } from "lucide-react";
+import { Loader2, Sparkles, MessageSquare, Link as LinkIcon, User, RefreshCw, Search, Clock, ChevronRight, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import SupportTab from "./SupportTab";
 import { FormattedChatMessage } from "@/components/chat/FormattedChatMessage";
 
 export default function AIChatbotTab() {
-    const [loading, setLoading] = useState(true);
-    const [saving, setSaving] = useState(false);
     const [logsLoading, setLogsLoading] = useState(true);
     const [isDeleting, setIsDeleting] = useState(false);
-    const [showApiKey, setShowApiKey] = useState(false);
-    
-    const [settings, setSettings] = useState({
-        api_url: "https://integrate.api.nvidia.com/v1",
-        api_key: "",
-        model: "nvidia/nemotron-3.5-lightning-30b-a3b",
-        system_prompt: ""
-    });
 
     const [logs, setLogs] = useState<any[]>([]);
     const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
@@ -34,33 +24,8 @@ export default function AIChatbotTab() {
     }, []);
 
     useEffect(() => {
-        fetchSettings();
         fetchLogs();
     }, []);
-
-    const fetchSettings = async () => {
-        try {
-            const adminKey = process.env.NEXT_PUBLIC_ADMIN_KEY || localStorage.getItem("adminKey") || "";
-            const res = await fetch("/api/admin/ai-chatbot/settings", {
-                headers: { "x-admin-key": adminKey }
-            });
-            if (res.ok) {
-                const data = await res.json();
-                if (data.api_url) {
-                    setSettings({
-                        api_url: data.api_url || "https://integrate.api.nvidia.com/v1",
-                        api_key: data.api_key || "",
-                        model: data.model || "nvidia/nemotron-3.5-lightning-30b-a3b",
-                        system_prompt: data.system_prompt || ""
-                    });
-                }
-            }
-        } catch (error) {
-            console.error("Error fetching settings:", error);
-        } finally {
-            setLoading(false);
-        }
-    };
 
     const fetchLogs = async () => {
         setLogsLoading(true);
@@ -77,30 +42,6 @@ export default function AIChatbotTab() {
         }
     };
 
-    const handleSave = async () => {
-        setSaving(true);
-        try {
-            const adminKey = process.env.NEXT_PUBLIC_ADMIN_KEY || localStorage.getItem("adminKey") || "";
-            const res = await fetch("/api/admin/ai-chatbot/settings", {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    "x-admin-key": adminKey
-                },
-                body: JSON.stringify(settings)
-            });
-            
-            if (res.ok) {
-                toast.success("AI settings saved successfully!");
-            } else {
-                toast.error("Failed to save AI settings");
-            }
-        } catch (e) {
-            toast.error("An error occurred");
-        } finally {
-            setSaving(false);
-        }
-    };
 
     const handleDeleteUserChats = async (userId: string, userName: string) => {
         if (!window.confirm(`هل أنت تأكد من مسح جميع محادثات المستخدم (${userName}) نهائياً؟ لا يمكن التراجع عن هذا الإجراء.`)) {
@@ -192,14 +133,6 @@ export default function AIChatbotTab() {
             }
         }
     }, [selectedGroup, logs]);
-
-    if (loading) {
-        return (
-            <div className="flex items-center justify-center h-64">
-                <Loader2 className="w-8 h-8 animate-spin text-zinc-500" />
-            </div>
-        );
-    }
 
     return (
         <div className="max-w-[1920px] mx-auto px-4 md:px-8 py-8 space-y-8 animate-in fade-in duration-500">

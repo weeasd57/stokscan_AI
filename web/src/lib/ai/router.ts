@@ -4,7 +4,6 @@ export function selectOptimalModel(intent: string, symbolCount: number, requeste
     const allowed = new Set([
         AI_CONFIG.models.response.default,
         ...AI_CONFIG.models.response.fallbacks,
-        ...AI_CONFIG.models.response.agentRouter,
         ...AI_CONFIG.models.response.allowedUserModels
     ]);
     if (requestedModel && allowed.has(requestedModel)) {

@@ -23,10 +23,9 @@ load_dotenv()
 load_dotenv("web/.env.local")
 
 # Paths and Keys
-IMAGE_PATH = r"C:\Users\MR__CODER__\.gemini\antigravity\brain\bbec9b75-fffd-4d44-a777-f9cc48030d72\media__1784644717221.jpg"
+IMAGE_PATH = os.getenv("TEST_IMAGE_PATH", "")
 SUPABASE_URL = os.getenv("NEXT_PUBLIC_SUPABASE_URL", "https://gfcmaxbtscmizsakarvc.supabase.co")
 SUPABASE_ANON_KEY = os.getenv("NEXT_PUBLIC_SUPABASE_ANON_KEY", "")
-SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
 
 # Concise list of popular EGX symbols to avoid overwhelming the model
 POPULAR_EGX_SYMBOLS = {
@@ -34,25 +33,6 @@ POPULAR_EGX_SYMBOLS = {
     "MILS", "CPCI", "TYCN", "UTOP", "HBCO", "AFMC", "CIB", "ETEL", "ORWE", "PHDC", 
     "HRHO", "EAST", "AUTO", "EKHO", "JUFO", "MNHD", "AMER"
 }
-
-def get_db_api_key():
-    """Retrieve the primary API key from supabase settings"""
-    if not SUPABASE_SERVICE_ROLE_KEY:
-        return None
-    url = f"{SUPABASE_URL}/rest/v1/ai_chatbot_settings?select=api_key&id=eq.1"
-    headers = {
-        "apikey": SUPABASE_SERVICE_ROLE_KEY,
-        "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}"
-    }
-    req = urllib.request.Request(url, headers=headers)
-    try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-            if data and len(data) > 0:
-                return data[0].get("api_key")
-    except Exception as e:
-        print("⚠️ Could not load primary API key from DB:", e)
-    return None
 
 def get_stock_prices_context():
     """Retrieve stock fundamentals from Supabase to provide market context"""
@@ -143,11 +123,11 @@ def main():
         print(f"❌ Image not found at: {IMAGE_PATH}")
         return
 
-    api_key = get_db_api_key() or os.getenv("NVIDIA_SECONDARY_API_KEY") or os.getenv("NVIDIA_API_KEY")
+    api_key = os.getenv("NVIDIA_API_KEY") or os.getenv("NVIDIA_SECONDARY_API_KEY")
     if not api_key:
         print("❌ NVIDIA_API_KEY or NVIDIA_SECONDARY_API_KEY is required")
         return
-    print(f"🔑 Using API Key: {api_key[:10]}...")
+    print("🔑 NVIDIA API key is configured")
 
     print("🖼️ Reading and encoding image to base64...")
     with open(IMAGE_PATH, "rb") as f:
