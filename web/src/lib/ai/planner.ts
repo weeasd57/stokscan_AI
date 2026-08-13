@@ -692,6 +692,7 @@ EXAMPLE: If you see 4 stocks in the image, you MUST extract all 4 symbols, and l
 - "get_market": Fetches overall market summary, EGX30/EGX70 index data, and top gainers/losers. Use when the user asks about the overall market, index, or general liquidity (e.g. 'حالة السوق', 'ايه اللي طلع', 'السوق').
 - "get_accumulation_stocks": Fetches a list of stocks currently in Wyckoff accumulation/distribution phases. Use when the user asks about 'تجميع', 'تصريف', 'سيولة مؤسسية', or 'accumulation'.
 - "get_comparison": Fetches data to compare two or more stocks. Use when the user explicitly asks to compare stocks (e.g., 'مقارنة بين', 'أيهما أفضل').
+- "search_web": Searches the internet for information that is NOT available in the database (general knowledge, companies/events outside the market data, recent happenings, or when the user explicitly asks to search the internet e.g. 'ابحث في النت', 'دور على الإنترنت'). Use only when the requested information cannot come from stock/market/news database tools.
 
 **YOUR TASK:**
 Analyze the user request and return a JSON object. You MUST dynamically choose the correct "tools" array based on the AVAILABLE TOOLS above. Combine multiple tools if necessary (e.g., ["get_stock", "get_news"] if the user asks for analysis and news).

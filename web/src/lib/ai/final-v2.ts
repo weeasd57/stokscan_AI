@@ -627,6 +627,37 @@ export function buildDeterministicNewsResponse(
     return lines.join("\n");
 }
 
+// Web-search results (explicit request or news missing from the database) are
+// rendered deterministically so every item keeps its real source URL instead of
+// letting the LLM paraphrase or invent citations.
+export function buildWebSearchResponse(
+    userMessage: string,
+    plan: IntentPlan,
+    toolResults: ToolResult[]
+): string | null {
+    const webResults = toolResults.filter(r => r.tool === "search_web" && Array.isArray(r.data?.results) && r.data.results.length > 0);
+    if (webResults.length === 0) return null;
+    const isNewsFallback = webResults.some(r => r.data?.fallback_for === "get_news");
+    const lines: string[] = [
+        isNewsFallback
+            ? "لم أجد أخباراً مسجلة عن هذا الطلب في قاعدة البيانات، فبحثت على الإنترنت. أبرز النتائج الموثقة بمصادرها:"
+            : "بحثت على الإنترنت عن طلبك، وهذه أبرز النتائج الموثقة بمصادرها:"
+    ];
+    webResults.forEach(result => {
+        const items = result.data.results.slice(0, 5);
+        items.forEach((item: any, idx: number) => {
+            lines.push("");
+            lines.push(`${idx + 1}. ${item.title}`);
+            if (item.snippet) lines.push(item.snippet);
+            lines.push(`المصدر: ${item.domain}`);
+            lines.push(item.url);
+        });
+    });
+    lines.push("");
+    lines.push("تنويه: هذه النتائج من مواقع خارجية على الإنترنت وقد تتغير بمرور الوقت؛ راجع المصدر الأصلي للتفاصيل. المعلومات المعروضة ليست توصية شراء أو بيع.");
+    return lines.join("\n");
+}
+
 // Day-by-day change requests ("جيب نسبة تغيره آخر أسبوع يوم بيوم", "آخر 11 يوم")
 // reach the LLM with the daily history inside === HISTORICAL DATA ===, but the
 // model often ignores it or paraphrases it instead of the requested table.
@@ -718,6 +749,11 @@ export async function generateV2Response(
         if (meta) meta.source = "deterministic";
         return buildVisionUncertaintyResponse(visionContext);
     }
+    const webSearchResponse = buildWebSearchResponse(userMessage, plan, toolResults);
+    if (webSearchResponse) {
+        if (meta) meta.source = "deterministic";
+        return sanitizeReply(webSearchResponse);
+    }
     const newsResponse = buildDeterministicNewsResponse(userMessage, plan, toolResults);
     if (newsResponse) {
         if (meta) meta.source = "deterministic";
@@ -793,6 +829,12 @@ export async function* generateV2Stream(
     if (visionContext && visionContext.symbols.length === 0 && toolResults.length === 0) {
         if (meta) meta.source = "deterministic";
         yield sanitizeReply(buildVisionUncertaintyResponse(visionContext));
+        return;
+    }
+    const webSearchResponse = buildWebSearchResponse(userMessage, plan, toolResults);
+    if (webSearchResponse) {
+        if (meta) meta.source = "deterministic";
+        yield sanitizeReply(webSearchResponse);
         return;
     }
     const newsResponse = buildDeterministicNewsResponse(userMessage, plan, toolResults);

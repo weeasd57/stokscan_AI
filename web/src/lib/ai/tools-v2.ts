@@ -1,6 +1,7 @@
 import { IntentPlan, ToolResult } from "./types";
 import { AI_CONFIG } from "./config";
 import { classificationMatchesSector } from "./sector-taxonomy";
+import { searchWeb } from "./web-search";
 
 function normalizeArabic(str: string): string {
     return str
@@ -22,7 +23,8 @@ export async function executeStructuredTools(
     apiKeys: string[],
     userId: string = "",
     sessionId: string = "",
-    userMessage: string = ""
+    userMessage: string = "",
+    history: Array<{ role: string; content: string }> = []
 ): Promise<StructuredToolOutput> {
     const results: ToolResult[] = [];
     const textParts: string[] = [];
@@ -870,8 +872,65 @@ export async function executeStructuredTools(
                 data_type: requestedDate || requestedStartDate ? "historical" : "live",
                 data: [...articleRows, ...(newsData || [])]
             });
+
+            // The requested news is not in the database: fall back to a keyless
+            // web search so the user still gets sourced results instead of a
+            // plain "no news" answer (only for undated, current-news requests).
+            const combinedNews = [...articleRows, ...(newsData || [])];
+            const hasNewsContent = combinedNews.some((item: any) => (Array.isArray(item?.headlines) && item.headlines.length > 0) || Number(item?.news_count) > 0);
+            if (!hasNewsContent && !requestedDate && !requestedStartDate && symbols.length > 0) {
+                const { data: nameRows } = await supabase.from("stocks").select("symbol, name");
+                const nameMap = new Map((nameRows || []).map((r: any) => [String(r.symbol).toUpperCase(), r.name]));
+                const names = symbols.map(s => nameMap.get(String(s).toUpperCase()) || s);
+                const webQuery = `أخبار ${names.join(" ")} البورصة المصرية`;
+                const webResults = await searchWeb(webQuery, 5);
+                if (webResults.length > 0) {
+                    textParts.push(`\n [بحث على الإنترنت بعد غياب الأخبار في قاعدة البيانات]: ${webResults.length} نتيجة للطلب "${webQuery}".`);
+                    results.push({ tool: "search_web", source: "web", data_time: now, symbols, data_type: "live", data: { query: webQuery, fallback_for: "get_news", results: webResults } });
+                }
+            }
         } catch (e) {
             console.warn("Error fetching news:", e);
+        }
+    }
+
+    // ===== WEB SEARCH (explicit request / information missing from database) =====
+    if (plan.tools.includes("search_web")) {
+        try {
+            let webQuery = userMessage
+                .replace(/(?:ابحث|دور|فتش|بحث)\s*(?:في|فى|على)\s*(?:النت|الانترنت|الإنترنت|جوجل|المواقع|الويب)/gi, "")
+                .replace(/(?:من|عبر|على)\s+(?:النت|الانترنت|الإنترنت)/gi, "")
+                .trim();
+            
+            // Clean up referential pronouns
+            if (webQuery === "عنها" || webQuery === "عنه" || webQuery === "عنهم" || webQuery === "عليها" || webQuery === "عليه") {
+                webQuery = "";
+            }
+
+            // Fallback: extract search query from previous user turn
+            if (!webQuery && Array.isArray(history) && history.length > 0) {
+                const lastUserMsg = [...history].reverse().find(m => m.role === "user")?.content || "";
+                if (lastUserMsg) {
+                    const cleanedPrev = lastUserMsg
+                        .replace(/(?:عندك|هل|ايه|إيه|أخبار|اخبار|عن|سهم|شركة|شركه|تحليل|في|فيها|ليه|لماذا|ازاي|إزاي|مقارنة|قارن|قريب|سعر|سعرها|\?|؟)/gi, "")
+                        .trim();
+                    if (cleanedPrev) {
+                        webQuery = `أخبار ${cleanedPrev} البورصة المصرية`;
+                    }
+                }
+            }
+
+            if (!webQuery) {
+                webQuery = symbols.length > 0 ? symbols.join(" ") : "البورصة المصرية";
+            }
+
+            const webResults = await searchWeb(webQuery, 6);
+            results.push({ tool: "search_web", source: "web", data_time: now, symbols, data_type: "live", data: { query: webQuery, results: webResults } });
+            if (webResults.length > 0) {
+                textParts.push(`\n [نتائج بحث الإنترنت للطلب "${webQuery}"]: ${webResults.length} نتيجة موثقة بمصادرها.`);
+            }
+        } catch (e) {
+            console.warn("Error running web search:", e);
         }
     }
 

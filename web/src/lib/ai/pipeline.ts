@@ -647,6 +647,10 @@ export function enforceIntentFromMessage(message: string, plannerIntent: string,
         direction = (accIdx !== -1 && accIdx < distIdx) ? "accumulation" : "distribution";
     }
     if (/شريع|sharia/i.test(normalized)) return { intent: "general_chat", tools: [], replaceTools: true };
+    // Explicit request to search the internet (information not in the database)
+    if (/(?:ابحث|دور|فتش|بحث)\s*(?:في|فى|على)\s*(?:النت|الانترنت|الإنترنت|جوجل|المواقع|الويب)|(?:من|عبر)\s+(?:النت|الانترنت|الإنترنت)/i.test(normalized)) {
+        return { intent: "general_chat", tools: ["search_web"], replaceTools: true };
+    }
     if (asksSectorLiquidity && mentionedSectors.length === 0) return { intent: "market_summary", tools: ["get_sector_liquidity"], replaceTools: true };
     if (marketFairValueScan && !hasExplicitSymbol) return { intent: "market_summary", tools: ["get_fair_value_scan"], replaceTools: true, ...getFairValueFilters(message) };
     const weeklyMarketForecast = !hasSymbol
@@ -742,7 +746,7 @@ export function needsLiveDataForTools(tools: string[]): boolean {
     const liveTools = new Set([
         "get_stock", "get_market", "get_indices", "get_news",
         "get_recommendations", "get_signals", "get_sector",
-        "get_accumulation_stocks", "get_distribution_stocks", "get_sector_liquidity", "get_sector_list", "get_stock_levels", "get_comparison", "get_fair_value_scan", "get_price_history"
+        "get_accumulation_stocks", "get_distribution_stocks", "get_sector_liquidity", "get_sector_list", "get_stock_levels", "get_comparison", "get_fair_value_scan", "get_price_history", "search_web"
     ]);
     return tools.some(tool => liveTools.has(tool));
 }
@@ -996,7 +1000,7 @@ export async function* runPipelineStream(
     }
     ensureBudget(8000);
     const tools = await Promise.race([
-        executeStructuredTools(supabase, plan, apiKeys, userId, sessionId, userMessage),
+        executeStructuredTools(supabase, plan, apiKeys, userId, sessionId, userMessage, history),
         new Promise<never>((_, reject) => setTimeout(() => reject(new Error("TOOLS_TIMEOUT")), AI_CONFIG.limits.toolsTimeoutMs)),
     ]);
     // Apply custom user filters if present in message (e.g. "أعلى من 75", "يومين")
@@ -1544,7 +1548,7 @@ export async function runPipeline(
     };
 
     // Stage 4: Tools
-    const tools = await executeStructuredTools(supabase, plan, apiKeys, userId, sessionId, userMessage);
+    const tools = await executeStructuredTools(supabase, plan, apiKeys, userId, sessionId, userMessage, history);
     
     // Apply custom user filters if present in message (e.g. "أعلى من 75", "يومين")
     if (userMessage) {
