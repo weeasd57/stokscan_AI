@@ -325,11 +325,18 @@ export default function AIChatbotTab() {
                                                                     <Sparkles className="w-3.5 h-3.5" />
                                                                 </div>
                                                                 <div className="bg-indigo-50/70 dark:bg-indigo-950/30 border border-indigo-100 dark:border-indigo-900/40 text-black dark:text-zinc-100 p-3 rounded-2xl rounded-tl-none text-xs max-w-[85%] leading-relaxed">
-                                                                    <span className="text-[10px] font-bold text-indigo-500 block mb-1 flex items-center gap-1">
-                                                                        <Sparkles className="w-3 h-3" /> EGX Bots AI:
+                                                                    <span className="text-[10px] font-bold text-indigo-500 block mb-1 flex items-center justify-between gap-1 w-full">
+                                                                        <span className="flex items-center gap-1">
+                                                                            <Sparkles className="w-3 h-3 text-indigo-500" /> EGX Bots AI:
+                                                                        </span>
+                                                                        {log.latency_ms && log.latency_ms > 0 && (
+                                                                            <span className="text-[10px] font-mono font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md border border-emerald-500/20 flex items-center gap-1">
+                                                                                <Clock className="w-3 h-3 text-emerald-500" /> {(log.latency_ms / 1000).toFixed(2)}s ({log.latency_ms} ms)
+                                                                            </span>
+                                                                        )}
                                                                     </span>
                                                                     <div className="text-black dark:text-zinc-100">
-                                                                        <FormattedChatMessage content={log.reply} role="assistant" showSuggestedButtons={false} />
+                                                                        <FormattedChatMessage content={log.reply} role="assistant" showSuggestedButtons={false} latencyMs={log.latency_ms} />
                                                                     </div>
                                                                 </div>
                                                             </div>

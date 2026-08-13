@@ -83,7 +83,7 @@ export async function GET(_req: NextRequest) {
         try {
             const { data: chatMsgs } = await supabase
                 .from("ai_chat_messages")
-                .select("id, session_id, user_id, role, content, created_at")
+                .select("id, session_id, user_id, role, content, latency_ms, created_at")
                 .order("created_at", { ascending: true })
                 .limit(3000);
 
@@ -106,6 +106,15 @@ export async function GET(_req: NextRequest) {
                             : null;
                         const replyContent = assistantMsg ? assistantMsg.content : "";
 
+                        let latencyMs = assistantMsg?.latency_ms || null;
+                        if (!latencyMs && assistantMsg && msg) {
+                            const userTime = new Date(msg.created_at).getTime();
+                            const assistantTime = new Date(assistantMsg.created_at).getTime();
+                            if (assistantTime >= userTime && assistantTime - userTime < 300000) {
+                                latencyMs = assistantTime - userTime;
+                            }
+                        }
+
                         const key = `msg_${msg.id}`;
                         const userName = getUserLabel(msg.user_id);
 
@@ -118,6 +127,7 @@ export async function GET(_req: NextRequest) {
                             telegram_chat_id: null,
                             message: cleanMessage,
                             reply: cleanReply,
+                            latency_ms: latencyMs,
                             created_at: msg.created_at,
                         });
                     }

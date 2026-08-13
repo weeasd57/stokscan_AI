@@ -459,6 +459,7 @@ export default function ChatWidget() {
                                              showShareButton={isChatAdmin && msg.role === "assistant" && idx === messages.length - 1}
                                              onShare={() => shareAnswer(idx)}
                                              sharing={sharingMessageId === (msg.id || String(idx))}
+                                             latencyMs={msg.latencyMs}
                                          />
 
                                     </div>

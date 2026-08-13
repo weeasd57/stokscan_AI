@@ -2,7 +2,7 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import { parseMarkdownTable, exportTableToExcel } from "@/lib/excelExport";
-import { FileSpreadsheet, Download, Check, Sparkles, Copy, Share2 } from "lucide-react";
+import { FileSpreadsheet, Download, Check, Sparkles, Copy, Share2, Clock, Zap } from "lucide-react";
 import StockCard, { StockData } from "./StockCard";
 import type { ChatTable } from "@/contexts/ChatContext";
 import { sanitizeUiLabel, stripEnvironmentLeak } from "@/lib/ai/sanitizer";
@@ -18,6 +18,7 @@ interface FormattedChatMessageProps {
     showShareButton?: boolean;
     onShare?: () => void;
     sharing?: boolean;
+    latencyMs?: number;
 }
 
 interface RawPipeStock {
@@ -685,6 +686,16 @@ export function FormattedChatMessage({
                         {copiedText ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
                         <span className="font-sans">{copiedText ? "Copied!" : "Copy"}</span>
                     </button>
+
+                    {typeof latencyMs === "number" && latencyMs > 0 && (
+                        <span
+                            className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-emerald-500/10 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 font-mono font-bold text-xs shadow-xs"
+                            title={`زمن الرد الإجمالي: ${latencyMs} ملي ثانية (${(latencyMs / 1000).toFixed(2)} ثانية)`}
+                        >
+                            <Zap className="w-3.5 h-3.5 text-emerald-500" />
+                            <span>{(latencyMs / 1000).toFixed(2)}s</span>
+                        </span>
+                    )}
 
                     {showShareButton && onShare && (
                         <button

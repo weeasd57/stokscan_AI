@@ -438,6 +438,7 @@ export async function POST(req: NextRequest) {
                                                     user_id: userId,
                                                     role: "assistant",
                                                     content: replyText,
+                                                    latency_ms: totalLatencyMs,
                                                     created_at: new Date().toISOString()
                                                 }
                                             ]);
@@ -448,7 +449,6 @@ export async function POST(req: NextRequest) {
 
                                     const suggestedButtons = sanitizeSuggestedButtons(generateSuggestedButtons(plannerResult || {}, sessionState));
                                     const optimalModel = selectOptimalModel(plannerResult?.intent || "general_chat", plannerResult?.entities?.symbols?.length || 0, userRequestedModel);
-                                    const totalLatencyMs = Date.now() - totalRequestStartTime;
 
                                     await logAiInteraction(supabase, {
                                         sessionId: activeSessionId,
@@ -617,7 +617,8 @@ export async function POST(req: NextRequest) {
             session_id: activeSessionId,
             remaining_quota: isUnlimited ? 999 : Math.max(0, AI_CONFIG.limits.dailyMessages - newCount),
             suggested_buttons: suggestedButtons,
-            session_state: pipelineResult.session_update
+            session_state: pipelineResult.session_update,
+            latency_ms: Date.now() - totalRequestStartTime
         });
 
     } catch (error: any) {

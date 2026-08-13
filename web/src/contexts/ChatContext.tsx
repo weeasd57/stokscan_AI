@@ -18,6 +18,7 @@ export type ChatMessage = {
     isStreaming?: boolean;
     statusText?: string;
     tables?: ChatTable[];
+    latencyMs?: number;
 };
 
 export type ChatTable = {
@@ -580,6 +581,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
                 assistantMsg.content = stripMarkdownTables(sanitizeReply(data.reply || "معذرة، لم أتمكن من معالجة هذا الطلب."));
                 assistantMsg.tables = Array.isArray(data.tables) ? data.tables : undefined;
                 assistantMsg.suggestedButtons = Array.isArray(data.suggested_buttons) ? data.suggested_buttons.map((button: unknown) => sanitizeUiLabel(String(button))).filter(Boolean) : undefined;
+                assistantMsg.latencyMs = data.latency_ms || (Date.now() - newUserMsg.timestamp);
                 assistantMsg.isStreaming = false;
                 assistantMsg.statusText = undefined;
                 updateAssistantMsgInState(assistantMsg);
@@ -667,6 +669,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
                                 if (parsed.remaining_quota !== undefined) {
                                     setRemainingQuota(parsed.remaining_quota);
                                 }
+                                assistantMsg.latencyMs = parsed.latency_ms || (Date.now() - newUserMsg.timestamp);
                                 assistantMsg.isStreaming = false;
                                 updateAssistantMsgInState(assistantMsg);
                             } else {
