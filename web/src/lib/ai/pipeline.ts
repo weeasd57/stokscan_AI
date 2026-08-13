@@ -996,7 +996,13 @@ export async function* runPipelineStream(
 
     // ===== STAGE 4: Tools and Data Fetching =====
     if (plan.needs_live_data || plan.needs_historical_data) {
-        yield { type: "status", data: { status: "tools", message: "جلب بيانات السوق..." } };
+        yield {
+            type: "status",
+            data: {
+                status: "tools",
+                message: plan.tools.includes("search_web") ? "البحث على الإنترنت في مصادر فعلية..." : "جلب بيانات السوق..."
+            }
+        };
     }
     ensureBudget(8000);
     const tools = await Promise.race([

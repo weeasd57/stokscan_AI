@@ -84,6 +84,7 @@ export async function GET(req: Request) {
     const search = url.searchParams.get("search") || "";
     const dateFilter = url.searchParams.get("date") || "";
     const period = url.searchParams.get("period") || "15d";
+    const requestedSector = url.searchParams.get("sector") || "";
 
     const supabase = getSupabaseClient();
 
@@ -253,6 +254,43 @@ export async function GET(req: Request) {
     })).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
        .slice(sliceCount);
 
+    // 5b. Per-stock daily sentiment timeline for the requested sector so the
+    // frontend can draw each sector stock's trend over the SAME period.
+    let sectorTimeline: { symbols: string[]; rows: Record<string, number | string | null>[] } | null = null;
+    if (requestedSector) {
+      const sectorEntry = Object.values(sectorAgg).find(s => s.en === requestedSector || s.ar === requestedSector);
+      if (sectorEntry) {
+        const topSymbols = Object.entries(sectorEntry.stocks)
+          .sort((a, b) => b[1].newsCount - a[1].newsCount)
+          .slice(0, 8)
+          .map(([sym]) => sym);
+        const topSet = new Set(topSymbols);
+        const byDate: Record<string, Record<string, { total: number; count: number }>> = {};
+        for (const row of newsRows || []) {
+          const symbol = (row.symbol || "").toUpperCase();
+          if (!topSet.has(symbol)) continue;
+          const date = row.date;
+          if (!date) continue;
+          if (!byDate[date]) byDate[date] = {};
+          if (!byDate[date][symbol]) byDate[date][symbol] = { total: 0, count: 0 };
+          byDate[date][symbol].total += toNumber(row.sentiment_score);
+          byDate[date][symbol].count += 1;
+        }
+        const rows = Object.entries(byDate)
+          .sort((a, b) => new Date(a[0]).getTime() - new Date(b[0]).getTime())
+          .slice(sliceCount)
+          .map(([date, stocks]) => {
+            const rowOut: Record<string, number | string | null> = { date };
+            for (const sym of topSymbols) {
+              const cell = stocks[sym];
+              rowOut[sym] = cell && cell.count > 0 ? Number((cell.total / cell.count).toFixed(2)) : null;
+            }
+            return rowOut;
+          });
+        sectorTimeline = { symbols: topSymbols, rows };
+      }
+    }
+
     const totalRecords = positiveCount + negativeCount + neutralCount;
 
     return NextResponse.json({
@@ -263,7 +301,8 @@ export async function GET(req: Request) {
         total: totalRecords
       },
       sectors: sectorStats,
-      timeline: timelineStats
+      timeline: timelineStats,
+      sectorTimeline
     });
 
   } catch (error: any) {

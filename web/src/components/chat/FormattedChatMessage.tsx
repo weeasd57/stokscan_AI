@@ -511,47 +511,70 @@ export function FormattedChatMessage({
             }
 
             const parseTextSpans = (textStr: string) => {
-                const boldParts = textStr.split(/(\*\*.*?\*\*)/g);
-                return boldParts.map((part, bIdx) => {
-                    const isBold = part.startsWith("**") && part.endsWith("**");
-                    const cleanPart = isBold ? part.substring(2, part.length - 2) : part;
-
-                    const subParts = cleanPart.split(/(\d+(?:[,.]\d+)*|\b[A-Z0-9_]{2,10}\b|\$\d+(?:[,.]\d+)*)/g);
-                    const renderedSubParts = subParts.map((sub, sIdx) => {
-                        const upper = sub.toUpperCase();
-                        const isStockSymbol = KNOWN_STOCK_SYMBOLS.has(upper) || /^EGX:\w+/i.test(sub);
-                        const isNumericCurrency = /^(\d+(?:[,.]\d+)*|\$\d+(?:[,.]\d+)*|EGP)$/.test(sub);
-
-                        if (isStockSymbol) {
-                            return (
-                                <span 
-                                    key={sIdx} 
-                                    dir="ltr" 
-                                    className="inline-block px-1.5 py-0.5 font-mono font-bold text-amber-700 dark:text-amber-300 bg-amber-500/10 dark:bg-zinc-800/80 border border-amber-500/20 dark:border-zinc-700 rounded text-[11px] sm:text-xs mx-0.5"
-                                    style={{ unicodeBidi: "isolate" }}
+                const linkParts = textStr.split(/(https?:\/\/[^\s<>]+)/g);
+                return linkParts.map((linkPart, linkIdx) => {
+                    const rawUrl = /^https?:\/\//i.test(linkPart) ? linkPart : null;
+                    if (rawUrl) {
+                        const trailingPunctuation = rawUrl.match(/[)،.!?؟:;]+$/)?.[0] || "";
+                        const href = trailingPunctuation ? rawUrl.slice(0, -trailingPunctuation.length) : rawUrl;
+                        return (
+                            <React.Fragment key={`link-${linkIdx}`}>
+                                <a
+                                    href={href}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    dir="ltr"
+                                    className="inline break-all font-medium text-blue-700 underline decoration-blue-400 underline-offset-2 hover:text-blue-500 dark:text-sky-400 dark:hover:text-sky-300"
                                 >
-                                    {sub}
-                                </span>
-                            );
-                        } else if (isNumericCurrency) {
-                            return (
-                                <span 
-                                    key={sIdx} 
-                                    dir="ltr" 
-                                    className="inline-block px-1 py-0.5 font-mono font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-500/10 dark:bg-zinc-800/80 rounded text-[11px] sm:text-xs mx-0.5"
-                                    style={{ unicodeBidi: "isolate" }}
-                                >
-                                    {sub}
-                                </span>
-                            );
-                        }
-                        return sub;
-                    });
-
-                    if (isBold) {
-                        return <strong key={bIdx} className="font-extrabold text-zinc-950 dark:text-white">{renderedSubParts}</strong>;
+                                    {href}
+                                </a>
+                                {trailingPunctuation}
+                            </React.Fragment>
+                        );
                     }
-                    return <React.Fragment key={bIdx}>{renderedSubParts}</React.Fragment>;
+
+                    const boldParts = linkPart.split(/(\*\*.*?\*\*)/g);
+                    return boldParts.map((part, bIdx) => {
+                        const isBold = part.startsWith("**") && part.endsWith("**");
+                        const cleanPart = isBold ? part.substring(2, part.length - 2) : part;
+
+                        const subParts = cleanPart.split(/(\d+(?:[,.]\d+)*|\b[A-Z0-9_]{2,10}\b|\$\d+(?:[,.]\d+)*)/g);
+                        const renderedSubParts = subParts.map((sub, sIdx) => {
+                            const upper = sub.toUpperCase();
+                            const isStockSymbol = KNOWN_STOCK_SYMBOLS.has(upper) || /^EGX:\w+/i.test(sub);
+                            const isNumericCurrency = /^(\d+(?:[,.]\d+)*|\$\d+(?:[,.]\d+)*|EGP)$/.test(sub);
+
+                            if (isStockSymbol) {
+                                return (
+                                    <span 
+                                        key={sIdx} 
+                                        dir="ltr" 
+                                        className="inline-block px-1.5 py-0.5 font-mono font-bold text-amber-700 dark:text-amber-300 bg-amber-500/10 dark:bg-zinc-800/80 border border-amber-500/20 dark:border-zinc-700 rounded text-[11px] sm:text-xs mx-0.5"
+                                        style={{ unicodeBidi: "isolate" }}
+                                    >
+                                        {sub}
+                                    </span>
+                                );
+                            } else if (isNumericCurrency) {
+                                return (
+                                    <span 
+                                        key={sIdx} 
+                                        dir="ltr" 
+                                        className="inline-block px-1 py-0.5 font-mono font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-500/10 dark:bg-zinc-800/80 rounded text-[11px] sm:text-xs mx-0.5"
+                                        style={{ unicodeBidi: "isolate" }}
+                                    >
+                                        {sub}
+                                    </span>
+                                );
+                            }
+                            return sub;
+                        });
+
+                        if (isBold) {
+                            return <strong key={`${linkIdx}-${bIdx}`} className="font-extrabold text-zinc-950 dark:text-white">{renderedSubParts}</strong>;
+                        }
+                        return <React.Fragment key={`${linkIdx}-${bIdx}`}>{renderedSubParts}</React.Fragment>;
+                    });
                 });
             };
 

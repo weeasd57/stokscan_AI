@@ -17,6 +17,7 @@ export async function GET(req: Request) {
     const sentiment = url.searchParams.get("sentiment") || "all";
     const dateFilter = url.searchParams.get("date") || "";
     const sector = url.searchParams.get("sector") || "";
+    const period = url.searchParams.get("period") || "";
  
     const supabase = getSupabaseClient();
     // stock_news_sentiment columns: id, symbol, exchange, date, sentiment_score,
@@ -145,6 +146,21 @@ export async function GET(req: Request) {
       query = query.lt("sentiment_score", -0.1);
     } else if (sentiment === "neutral") {
       query = query.gte("sentiment_score", -0.1).lte("sentiment_score", 0.1);
+    }
+
+    // Filter by period range (shared with the charts' period buttons); an
+    // explicit exact date always wins over the period range.
+    if (!dateFilter && period) {
+      const d = new Date();
+      if (period === "1m") {
+        d.setMonth(d.getMonth() - 1);
+      } else if (period === "3m") {
+        d.setMonth(d.getMonth() - 3);
+      } else {
+        // 15 sessions: 30 calendar days guarantees ~15 active trading days
+        d.setDate(d.getDate() - 30);
+      }
+      query = query.gte("date", d.toISOString().split("T")[0]);
     }
 
     // Filter by date (column is 'date', not 'published_at')

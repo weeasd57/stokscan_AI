@@ -48,6 +48,7 @@ export default function NewsPage() {
     const [sortBy, setSortBy] = useState<string>("newest"); // "newest", "oldest", "highest_sent", "lowest_sent"
     const [dateFilter, setDateFilter] = useState("");
     const [selectedSector, setSelectedSector] = useState<string>("");
+    const [period, setPeriod] = useState<string>("15d"); // shared with the stats charts
     const [page, setPage] = useState(1);
     const limit = 10;
 
@@ -66,6 +67,9 @@ export default function NewsPage() {
             }
             if (dateFilter) {
                 url += `&date=${dateFilter}`;
+            }
+            if (!dateFilter && period) {
+                url += `&period=${period}`;
             }
             if (selectedSector) {
                 url += `&sector=${encodeURIComponent(selectedSector)}`;
@@ -92,7 +96,7 @@ export default function NewsPage() {
         } finally {
             setLoading(false);
         }
-    }, [page, debouncedSearch, sentiment, dateFilter, sortBy, selectedSector]);
+    }, [page, debouncedSearch, sentiment, dateFilter, sortBy, selectedSector, period]);
 
     // Handle search input debounce/delay
     useEffect(() => {
@@ -103,10 +107,10 @@ export default function NewsPage() {
         return () => clearTimeout(delayDebounce);
     }, [search]);
 
-    // Reset pagination when date filter changes
+    // Reset pagination when date filter or shared period changes
     useEffect(() => {
         setPage(1);
-    }, [dateFilter]);
+    }, [dateFilter, period]);
 
     // Trigger fetch when fetchNews callback changes
     useEffect(() => {
@@ -241,6 +245,14 @@ export default function NewsPage() {
                 search={debouncedSearch} 
                 dateFilter={dateFilter} 
                 selectedSector={selectedSector}
+                period={period}
+                onPeriodChange={(p) => {
+                    // The chart period is global: it also drives the news list
+                    // filters below, so clear any exact-date override.
+                    setPeriod(p);
+                    setDateFilter("");
+                    setPage(1);
+                }}
                 onSectorSelect={(sector) => {
                     setSelectedSector(sector);
                     setPage(1);

@@ -172,6 +172,21 @@ export function buildV2FinalMessages(
         }
     }
 
+    const webSearchResults = toolResults.filter(result =>
+        result.tool === "search_web" && Array.isArray(result.data?.results) && result.data.results.length > 0
+    );
+    if (webSearchResults.length > 0) {
+        sections.push("=== VERIFIED WEB SEARCH RESULTS ===");
+        sections.push("هذه نتائج بحث حي جلبها النظام الآن. استخدمها فقط للإجابة عن الطلب الحالي، ولا تعتبر مقتطفات البحث حقيقة مؤكدة إذا لم تدعمها بوضوح. أشر إلى المصادر داخل النص بصيغة [1] و[2] فقط.");
+        let sourceNumber = 0;
+        for (const result of webSearchResults) {
+            for (const item of result.data.results.slice(0, 8)) {
+                sourceNumber += 1;
+                sections.push(`[${sourceNumber}] ${item.title}\nالموقع: ${item.domain}\nالرابط: ${item.url}\nالمقتطف: ${item.snippet || "لا يوجد مقتطف"}`);
+            }
+        }
+    }
+
     sections.push("=== RESPONSE RULES ===");
     sections.push("- استخدم طلب المستخدم الحالي كأولوية أولى");
     sections.push("- استخدم نية الـ planner كأولوية ثانية");
@@ -182,6 +197,8 @@ export function buildV2FinalMessages(
     sections.push("  3. لا تحوّل المقارنة إلى أمر شراء أو بيع، ولا تضف نصائح لا يطلبها المستخدم.");
     sections.push("- استخدم بيانات الصورة فقط إذا كانت موجودة في === IMAGE ANALYSIS ===");
     sections.push("- استخدم نتائج الأدوات الحالية من === LIVE DATA ===");
+    sections.push("- إذا وُجد قسم === VERIFIED WEB SEARCH RESULTS ===، لخّص المعلومات الواردة فيه بأسلوب محادثة طبيعي، واربط كل معلومة خارجية بالمصدر المناسب [رقم].");
+    sections.push("- لا تقل إنك بحثت أو تنسب معلومة لمصدر لم يظهر حرفياً في نتائج البحث الموثقة.");
     sections.push("- استخدم البيانات التاريخية من === HISTORICAL DATA ===");
     sections.push("- لا تخترع أرقاماً غير موجودة في الأقسام أعلاه");
     sections.push("- لا تعطِ توصيات شراء أو بيع صريحة");
@@ -635,27 +652,39 @@ export function buildWebSearchResponse(
     plan: IntentPlan,
     toolResults: ToolResult[]
 ): string | null {
-    const webResults = toolResults.filter(r => r.tool === "search_web" && Array.isArray(r.data?.results) && r.data.results.length > 0);
-    if (webResults.length === 0) return null;
-    const isNewsFallback = webResults.some(r => r.data?.fallback_for === "get_news");
-    const lines: string[] = [
-        isNewsFallback
-            ? "لم أجد أخباراً مسجلة عن هذا الطلب في قاعدة البيانات، فبحثت على الإنترنت. أبرز النتائج الموثقة بمصادرها:"
-            : "بحثت على الإنترنت عن طلبك، وهذه أبرز النتائج الموثقة بمصادرها:"
-    ];
-    webResults.forEach(result => {
-        const items = result.data.results.slice(0, 5);
-        items.forEach((item: any, idx: number) => {
-            lines.push("");
-            lines.push(`${idx + 1}. ${item.title}`);
-            if (item.snippet) lines.push(item.snippet);
-            lines.push(`المصدر: ${item.domain}`);
+    const allWeb = toolResults.filter(r => r.tool === "search_web");
+    const webResults = allWeb.filter(r => Array.isArray(r.data?.results) && r.data.results.length > 0);
+    if (webResults.length === 0) {
+        // Explicit internet request but zero usable results: never let the LLM
+        // fabricate an "I searched" reply - answer deterministically instead.
+        const explicitSearch = /(?:ابحث|دور|فتش|بحث|شوف|بص|سيرش|شيك|تشيك)\s*(?:في|فى|على|عن)\s*(?:النت|الانترنت|الإنترنت|جوجل|المواقع|الويب)|(?:من|عبر)\s+(?:النت|الانترنت|الإنترنت)/i.test(userMessage);
+        const fallbackOnly = allWeb.length > 0 && allWeb.every(r => r.data?.fallback_for === "get_news");
+        if (explicitSearch && !fallbackOnly) {
+            return "بحثت على الإنترنت عن طلبك لكن لم أجد نتائج موثقة يمكن عرضها حالياً. جرّب إعادة صياغة السؤال بكلمات مختلفة أو أكثر تحديداً.";
+        }
+        return null;
+    }
+    // Let DeepSeek synthesize the verified results. Raw result rendering made
+    // explicit web searches look like a search dump rather than a conversation.
+    return null;
+}
+
+function appendVerifiedWebSources(response: string, toolResults: ToolResult[]): string {
+    const webResults = toolResults.filter(result =>
+        result.tool === "search_web" && Array.isArray(result.data?.results) && result.data.results.length > 0
+    );
+    if (webResults.length === 0 || /المصادر المستخدمة|مصادر البحث/i.test(response)) return response;
+    const lines = ["", "**مصادر البحث المستخدمة:**"];
+    let index = 0;
+    for (const result of webResults) {
+        for (const item of result.data.results.slice(0, 8)) {
+            index += 1;
+            lines.push(`[${index}] ${item.title} (${item.domain})`);
             lines.push(item.url);
-        });
-    });
-    lines.push("");
-    lines.push("تنويه: هذه النتائج من مواقع خارجية على الإنترنت وقد تتغير بمرور الوقت؛ راجع المصدر الأصلي للتفاصيل. المعلومات المعروضة ليست توصية شراء أو بيع.");
-    return lines.join("\n");
+        }
+    }
+    lines.push("هذه روابط جلبها النظام أثناء الإجابة وقد تتغير محتوياتها لاحقاً.");
+    return `${response.trim()}\n${lines.join("\n")}`;
 }
 
 // Day-by-day change requests ("جيب نسبة تغيره آخر أسبوع يوم بيوم", "آخر 11 يوم")
@@ -795,7 +824,7 @@ export async function generateV2Response(
     const result = await callResponderLlm(messages, apiKeys, false, requestedModel);
     if (result.response) {
         if (meta) meta.source = "llm";
-        return sanitizeReply(removeModelTables(result.response));
+        return sanitizeReply(appendVerifiedWebSources(removeModelTables(result.response), toolResults));
     }
     if (meta) {
         meta.source = "deterministic";
@@ -887,7 +916,7 @@ export async function* generateV2Stream(
         try {
             let completeResponse = "";
             for await (const token of result.streamGen) completeResponse += token;
-            const safeResponse = sanitizeReply(removeModelTables(completeResponse));
+            const safeResponse = sanitizeReply(appendVerifiedWebSources(removeModelTables(completeResponse), toolResults));
             if (safeResponse) {
                 if (meta) meta.source = "llm";
                 yield safeResponse;

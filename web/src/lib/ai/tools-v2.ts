@@ -907,6 +907,18 @@ export async function executeStructuredTools(
                 webQuery = "";
             }
 
+            // Normalize colloquial time words and localize market-scoped
+            // queries to the Egyptian market so the search engine does not
+            // default to Gulf markets (Saudi etc.).
+            webQuery = webQuery
+                .replace(/(?:الجاى|الجاي|الجايه|الجاية|اللي جاي|اللي جاية)/g, "القادم")
+                .trim();
+            const isEgyptianMarketQuery = symbols.length > 0
+                || /(?:سهم|اسهم|أسهم|بورص[ةه]|تداول|مساهم|شركة|شركه|ارباح|أرباح|توزيعات|egx)/i.test(webQuery);
+            if (webQuery && isEgyptianMarketQuery && !/البورص[ةه]|مصر|egx/i.test(webQuery)) {
+                webQuery = `${webQuery} البورصة المصرية`;
+            }
+
             // Fallback: extract search query from previous user turn (excluding search trigger commands)
             if (!webQuery && Array.isArray(history) && history.length > 0) {
                 const searchKeywordsRegex = /(?:ابحث|دور|فتش|بحث|شوف|بص|سيرش|شيك|تشيك)\s*(?:في|فى|على|عن)\s*(?:النت|الانترنت|الإنترنت|جوجل|المواقع|الويب)/i;

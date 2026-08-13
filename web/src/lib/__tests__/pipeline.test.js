@@ -1,5 +1,5 @@
 const { validateVisionOutput } = require("../ai/vision");
-const { buildV2FinalMessages, buildDeterministicResponse } = require("../ai/final-v2");
+const { buildV2FinalMessages, buildDeterministicResponse, buildWebSearchResponse } = require("../ai/final-v2");
 const { retrieveRelevantMemory } = require("../ai/memory");
 const { buildExcelTables, tablesToMarkdown } = require("../ai/excel-tables");
 const { enforceIntentFromMessage, buildMarketLiquidityResponse, buildTopMoversResponse, needsLiveDataForTools, needsHistoricalData, extractSectorFromMessage, extractExcludedSectors, extractExplicitSymbols, buildDeterministicPlannerResult, extractRequestedDate, extractRequestedDateRange, extractTemporalContext, isMarketWideRequest, isFairValueScanRequest, getFairValueFilters, isEarningsDataRequest, isUsageLimitQuestion, extractSingleStockFromRecentHistory, isEgxWeekend, describeDatedFallback, getInvestorGuidanceIntent, isBeginnerPortfolioQuestion, isNonEquityProductComparison, sanitizePlannerTools, scopeImplicitSingleStockRequest } = require("../ai/pipeline");
@@ -83,6 +83,50 @@ describe("Image failure response safety", () => {
         expect(response).toContain("تعذر قراءة الصورة");
         expect(response).not.toContain("USER REQUEST");
         expect(response).not.toContain("image.png");
+    });
+});
+
+describe("Live web search response", () => {
+    const plan = {
+        intent: "general_chat",
+        confidence: 1,
+        entities: { symbols: [], sector: null, timeframe: "current", reference: null },
+        needs_vision_context: false,
+        needs_history: false,
+        needs_live_data: true,
+        needs_historical_data: false,
+        tools: ["search_web"],
+        clarification_needed: false,
+        resolved_from: { symbol: null, message_id: null }
+    };
+
+    it("passes real search results to DeepSeek instead of returning a raw result dump", () => {
+        const results = [{
+            tool: "search_web",
+            source: "web",
+            data_time: "2026-08-13T10:00:00Z",
+            symbols: [],
+            data_type: "live",
+            data: { results: [{ title: "Example result", snippet: "Verified snippet", domain: "example.com", url: "https://example.com/item" }] }
+        }];
+        expect(buildWebSearchResponse("دور في النت عن الموضوع", plan, results)).toBeNull();
+        const messages = buildV2FinalMessages("دور في النت عن الموضوع", plan, null, results, [], [], { symbol: null, message_id: null, confidence: 0 });
+        const context = messages[messages.length - 1].content;
+        expect(context).toContain("=== VERIFIED WEB SEARCH RESULTS ===");
+        expect(context).toContain("https://example.com/item");
+        expect(context).toContain("Verified snippet");
+    });
+
+    it("returns a factual failure message when an explicit search has no results", () => {
+        const results = [{
+            tool: "search_web",
+            source: "web",
+            data_time: "2026-08-13T10:00:00Z",
+            symbols: [],
+            data_type: "live",
+            data: { query: "missing", results: [] }
+        }];
+        expect(buildWebSearchResponse("ابحث في النت عن الموضوع", plan, results)).toContain("لم أجد نتائج موثقة");
     });
 });
 

@@ -14,6 +14,7 @@ import {
     Cell,
     LineChart,
     Line,
+    Legend,
     ReferenceLine
 } from "recharts";
 import { Loader2, TrendingUp, BarChart3, PieChart as PieIcon, LineChart as LineIcon } from "lucide-react";
@@ -49,6 +50,8 @@ interface NewsStatsProps {
     search: string;
     dateFilter: string;
     selectedSector: string;
+    period: string;
+    onPeriodChange: (period: string) => void;
     onSectorSelect: (sector: string) => void;
     onSentimentSelect: (sentiment: string) => void;
 }
@@ -58,19 +61,23 @@ export default function NewsStats({
     search, 
     dateFilter, 
     selectedSector,
+    period,
+    onPeriodChange,
     onSectorSelect, 
     onSentimentSelect 
 }: NewsStatsProps) {
     const [stats, setStats] = useState<StatsData | null>(null);
     const [loading, setLoading] = useState(true);
     const [isDark, setIsDark] = useState(false);
-    const [period, setPeriod] = useState<string>("15d");
     const [activeSectorName, setActiveSectorName] = useState<string>("");
+    const [sectorTimeline, setSectorTimeline] = useState<{ symbols: string[]; rows: Record<string, number | string | null>[] } | null>(null);
+    const [sectorTimelineLoading, setSectorTimelineLoading] = useState(false);
 
-    // Reset active sector details when filters/search changes
+    // Reset active sector details when filters/search changes (NOT the period:
+    // the period is global and must apply to the open sector chart as well).
     useEffect(() => {
         setActiveSectorName("");
-    }, [search, dateFilter, period]);
+    }, [search, dateFilter]);
 
     // Keep activeSectorName in sync if parent clears the filter
     useEffect(() => {
@@ -121,6 +128,39 @@ export default function NewsStats({
         fetchStats();
     }, [search, dateFilter, period]);
 
+    // Fetch the per-stock daily sentiment timeline for the clicked sector over
+    // the same period as the Daily Market Sentiment Trend chart.
+    useEffect(() => {
+        if (!activeSectorName) {
+            setSectorTimeline(null);
+            return;
+        }
+        let cancelled = false;
+        const fetchSectorTimeline = async () => {
+            setSectorTimelineLoading(true);
+            try {
+                const params = new URLSearchParams();
+                if (search.trim()) params.append("search", search);
+                if (dateFilter) params.append("date", dateFilter);
+                if (period) params.append("period", period);
+                params.append("sector", activeSectorName);
+                const res = await fetch(`/api/scan/news/stats?${params.toString()}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    if (!cancelled) setSectorTimeline(data.sectorTimeline || null);
+                }
+            } catch (err) {
+                console.error("Error fetching sector stock timeline:", err);
+            } finally {
+                if (!cancelled) setSectorTimelineLoading(false);
+            }
+        };
+        fetchSectorTimeline();
+        return () => {
+            cancelled = true;
+        };
+    }, [activeSectorName, search, dateFilter, period]);
+
     if (loading) {
         return (
             <div className="p-8 border-4 border-black dark:border-white bg-white dark:bg-zinc-900 shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] dark:shadow-[6px_6px_0px_0px_rgba(255,255,255,0.45)] mb-8 flex justify-center items-center gap-2">
@@ -152,6 +192,9 @@ export default function NewsStats({
         negative: "#FF3366", // Red
         neutral: "#FFE600"    // Yellow
     };
+
+    // Distinct line colors for the per-stock sector trend chart
+    const SECTOR_LINE_COLORS = ["#00FF66", "#FF3366", "#FFE600", "#00CFFF", "#FF9F1C", "#B388FF", "#FF6EC7", "#7CFC00"];
 
     const pieData = [
         { name: isAr ? "إيجابي" : "Positive", value: stats.summary.positive, color: sentimentColors.positive },
@@ -274,7 +317,7 @@ export default function NewsStats({
                             ].map((p) => (
                                 <button
                                     key={p.val}
-                                    onClick={() => setPeriod(p.val)}
+                                    onClick={() => onPeriodChange(p.val)}
                                     className={`px-2 py-0.5 text-[9px] font-black rounded-none border-2 border-black dark:border-white transition-none ${
                                         period === p.val
                                             ? "bg-black text-white dark:bg-white dark:text-black"
@@ -418,6 +461,72 @@ export default function NewsStats({
                         >
                             {isAr ? "إغلاق التفاصيل والفلتر" : "Close Details & Filter"}
                         </button>
+                    </div>
+
+                    {/* Daily sentiment trend of the sector's stocks over the
+                        same period selected on the market trend chart */}
+                    <div className="mb-6">
+                        <h5 className="text-[10px] font-black uppercase tracking-wider text-black dark:text-white mb-2 flex items-center gap-1.5">
+                            <LineIcon className="w-3.5 h-3.5 text-yellow-500" />
+                            {isAr
+                                ? "اتجاه مشاعر أسهم القطاع يوم بيوم (نفس الفترة المختارة أعلاه)"
+                                : "Sector stocks daily sentiment trend (same period as above)"}
+                        </h5>
+                        {sectorTimelineLoading ? (
+                            <div className="h-56 flex items-center justify-center gap-2 border-2 border-dashed border-black/20 dark:border-white/20">
+                                <Loader2 className="w-5 h-5 animate-spin text-yellow-500" />
+                                <span className="text-[10px] font-black uppercase text-zinc-500 dark:text-zinc-400">
+                                    {isAr ? "جاري تحميل اتجاه أسهم القطاع..." : "Loading sector stock trend..."}
+                                </span>
+                            </div>
+                        ) : sectorTimeline && sectorTimeline.rows.length > 0 ? (
+                            <div className="h-64">
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <LineChart data={sectorTimeline.rows} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                                        <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
+                                        <XAxis
+                                            dataKey="date"
+                                            stroke={chartStroke}
+                                            tick={{ fill: textColor, fontSize: 9, fontWeight: "bold" }}
+                                        />
+                                        <YAxis
+                                            stroke={chartStroke}
+                                            domain={[-1, 1]}
+                                            tick={{ fill: textColor, fontSize: 9, fontWeight: "bold" }}
+                                        />
+                                        <Tooltip
+                                            contentStyle={{
+                                                background: isDark ? "#18181b" : "#ffffff",
+                                                border: `3px solid ${textColor}`,
+                                                borderRadius: "0px",
+                                                fontFamily: "monospace",
+                                                fontWeight: "bold",
+                                                color: textColor
+                                            }}
+                                        />
+                                        <Legend wrapperStyle={{ fontSize: "10px", fontWeight: "bold" }} />
+                                        <ReferenceLine y={0} stroke={chartStroke} strokeWidth={2} strokeDasharray="3 3" />
+                                        {sectorTimeline.symbols.map((sym, i) => (
+                                            <Line
+                                                key={sym}
+                                                type="monotone"
+                                                dataKey={sym}
+                                                stroke={SECTOR_LINE_COLORS[i % SECTOR_LINE_COLORS.length]}
+                                                strokeWidth={2.5}
+                                                dot={{ r: 2.5 }}
+                                                connectNulls
+                                            />
+                                        ))}
+                                    </LineChart>
+                                </ResponsiveContainer>
+                            </div>
+                        ) : (
+                            <div className="h-24 flex items-center justify-center border-2 border-dashed border-black/20 dark:border-white/20">
+                                <span className="text-[10px] font-bold text-zinc-500 dark:text-zinc-400">
+                                    {isAr ? "لا توجد بيانات يومية كافية لهذا القطاع في الفترة المحددة." : "Not enough daily data for this sector in the selected period."}
+                                </span>
+                            </div>
+                        )}
                     </div>
 
                     <div className="h-64">
