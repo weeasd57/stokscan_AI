@@ -79,6 +79,7 @@ export async function GET(req: Request) {
     const url = new URL(req.url);
     const search = url.searchParams.get("search") || "";
     const dateFilter = url.searchParams.get("date") || "";
+    const period = url.searchParams.get("period") || "15d";
 
     const supabase = getSupabaseClient();
 
@@ -100,6 +101,27 @@ export async function GET(req: Request) {
       }
     }
 
+    // Determine query date range and limits based on period
+    let startDateStr = "";
+    let limit = 600;
+    if (period === "1m") {
+      const d = new Date();
+      d.setMonth(d.getMonth() - 1);
+      startDateStr = d.toISOString().split("T")[0];
+      limit = 1200;
+    } else if (period === "3m") {
+      const d = new Date();
+      d.setMonth(d.getMonth() - 3);
+      startDateStr = d.toISOString().split("T")[0];
+      limit = 3000;
+    } else {
+      // 15 days or default
+      const d = new Date();
+      d.setDate(d.getDate() - 30); // 30 calendar days to guarantee 15 active sessions
+      startDateStr = d.toISOString().split("T")[0];
+      limit = 600;
+    }
+
     // 2. Fetch stock news sentiments with filters applied
     let query = supabase
       .from("stock_news_sentiment")
@@ -112,9 +134,11 @@ export async function GET(req: Request) {
     }
     if (dateFilter) {
       query = query.eq("date", dateFilter);
+    } else if (startDateStr) {
+      query = query.gte("date", startDateStr);
     }
 
-    const { data: newsRows, error: newsError } = await query.limit(600);
+    const { data: newsRows, error: newsError } = await query.limit(limit);
 
     if (newsError) {
       console.error("Error fetching news sentiments for stats:", newsError);
@@ -185,12 +209,13 @@ export async function GET(req: Request) {
     })).sort((a, b) => b.averageSentiment - a.averageSentiment);
 
     // 5. Format Timeline stats
+    const sliceCount = period === "3m" ? -90 : period === "1m" ? -30 : -15;
     const timelineStats = Object.entries(dateAgg).map(([date, d]) => ({
       date,
       averageSentiment: d.count > 0 ? Number((d.totalScore / d.count).toFixed(2)) : 0,
       newsCount: d.newsCount
     })).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
-       .slice(-15); // Show latest 15 active days
+       .slice(sliceCount);
 
     const totalRecords = positiveCount + negativeCount + neutralCount;
 

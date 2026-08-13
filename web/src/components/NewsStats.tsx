@@ -49,6 +49,7 @@ export default function NewsStats({ isAr, search, dateFilter }: NewsStatsProps) 
     const [stats, setStats] = useState<StatsData | null>(null);
     const [loading, setLoading] = useState(true);
     const [isDark, setIsDark] = useState(false);
+    const [period, setPeriod] = useState<string>("15d");
 
     // Watch for theme / dark mode changes
     useEffect(() => {
@@ -70,6 +71,7 @@ export default function NewsStats({ isAr, search, dateFilter }: NewsStatsProps) 
                 const params = new URLSearchParams();
                 if (search.trim()) params.append("search", search);
                 if (dateFilter) params.append("date", dateFilter);
+                if (period) params.append("period", period);
                 
                 const queryStr = params.toString();
                 if (queryStr) url += `?${queryStr}`;
@@ -87,7 +89,7 @@ export default function NewsStats({ isAr, search, dateFilter }: NewsStatsProps) 
         };
 
         fetchStats();
-    }, [search, dateFilter]);
+    }, [search, dateFilter, period]);
 
     if (loading) {
         return (
@@ -201,11 +203,32 @@ export default function NewsStats({ isAr, search, dateFilter }: NewsStatsProps) 
                 </div>
 
                 {/* 2. Sentiment History / Timeline (Line Chart) */}
-                <div className="lg:col-span-8 p-5 border-4 border-black dark:border-white bg-white dark:bg-zinc-900 shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] dark:shadow-[6px_6px_0px_0px_rgba(255,255,255,0.45)]">
-                    <h3 className="text-xs font-black uppercase tracking-wider text-black dark:text-white mb-4 flex items-center gap-1.5 border-b-2 border-black/10 dark:border-white/10 pb-2">
-                        <LineIcon className="w-4 h-4 text-yellow-500" />
-                        {isAr ? "مؤشر نبض السوق اليومي (آخر 15 جلسة)" : "Daily Market Sentiment Trend (Last 15 Sessions)"}
-                    </h3>
+                <div className="lg:col-span-8 p-5 border-4 border-black dark:border-white bg-white dark:bg-zinc-900 shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] dark:shadow-[6px_6px_0px_0px_rgba(255,255,255,0.45)] flex flex-col justify-between">
+                    <div className="flex flex-wrap justify-between items-center gap-2 border-b-2 border-black/10 dark:border-white/10 pb-2 mb-4">
+                        <h3 className="text-xs font-black uppercase tracking-wider text-black dark:text-white flex items-center gap-1.5">
+                            <LineIcon className="w-4 h-4 text-yellow-500" />
+                            {isAr ? "مؤشر نبض السوق اليومي" : "Daily Market Sentiment Trend"}
+                        </h3>
+                        <div className="flex items-center gap-1">
+                            {[
+                                { val: "15d", labelEn: "15 Sessions", labelAr: "15 جلسة" },
+                                { val: "1m", labelEn: "1 Month", labelAr: "شهر" },
+                                { val: "3m", labelEn: "3 Months", labelAr: "3 أشهر" }
+                            ].map((p) => (
+                                <button
+                                    key={p.val}
+                                    onClick={() => setPeriod(p.val)}
+                                    className={`px-2 py-0.5 text-[9px] font-black rounded-none border-2 border-black dark:border-white transition-none ${
+                                        period === p.val
+                                            ? "bg-black text-white dark:bg-white dark:text-black"
+                                            : "bg-white text-black dark:bg-zinc-900 dark:text-white hover:bg-[#FFE600] hover:text-black"
+                                    }`}
+                                >
+                                    {isAr ? p.labelAr : p.labelEn}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
                     <div className="h-56">
                         <ResponsiveContainer width="100%" height="100%">
                             <LineChart data={stats.timeline} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>

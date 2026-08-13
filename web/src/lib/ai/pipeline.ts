@@ -938,6 +938,14 @@ export async function* runPipelineStream(
     const plannedTools = sanitizePlannerTools(userMessage, enforced.replaceTools
         ? enforced.tools
         : Array.from(new Set([...(plannerResult.tools || []), ...enforced.tools])));
+    // Day-by-day change questions need the daily price rows; the compound-command
+    // path above can bypass enforceIntentFromMessage and the planner sometimes
+    // omits get_price_history, so re-add it here.
+    if (!plannedTools.includes("get_price_history")
+        && mergedSymbols.length > 0
+        && /يوم\s*بـ?\s*يوم|التغير\s*اليومي|تغير\s*يومي|سعر\s*كل\s*يوم|أداء\s*يومي|(?:اخر|آخر)\s*(?:اسبوع|أسبوع|ايام|أيام|جلسات).{0,30}(?:تغير|نسب)/i.test(userMessage)) {
+        plannedTools.push("get_price_history");
+    }
     const requestedRange = extractRequestedDateRange(userMessage);
     let guidanceIntent = plannerResult.guidance_intent || getInvestorGuidanceIntent(userMessage, mergedSymbols.length > 0);
     if (mergedSymbols.length > 0 && guidanceIntent !== "product_comparison") {
@@ -1482,6 +1490,14 @@ export async function runPipeline(
     const plannedTools = sanitizePlannerTools(userMessage, enforced.replaceTools
         ? enforced.tools
         : Array.from(new Set([...(plannerResult.tools || []), ...enforced.tools])));
+    // Day-by-day change questions need the daily price rows; the compound-command
+    // path above can bypass enforceIntentFromMessage and the planner sometimes
+    // omits get_price_history, so re-add it here.
+    if (!plannedTools.includes("get_price_history")
+        && mergedSymbols.length > 0
+        && /يوم\s*بـ?\s*يوم|التغير\s*اليومي|تغير\s*يومي|سعر\s*كل\s*يوم|أداء\s*يومي|(?:اخر|آخر)\s*(?:اسبوع|أسبوع|ايام|أيام|جلسات).{0,30}(?:تغير|نسب)/i.test(userMessage)) {
+        plannedTools.push("get_price_history");
+    }
     const requestedRange = extractRequestedDateRange(userMessage);
     let guidanceIntent = plannerResult.guidance_intent || getInvestorGuidanceIntent(userMessage, mergedSymbols.length > 0);
     if (mergedSymbols.length > 0 && guidanceIntent !== "product_comparison") {
