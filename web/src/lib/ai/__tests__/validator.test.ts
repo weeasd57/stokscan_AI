@@ -1,10 +1,7 @@
 import { describe, it, expect } from "@jest/globals";
-import { validateResponse, validateDeterministicRules } from "../validator";
+import { validateResponse, validateDeterministicRules, isVerifiableDerivedMetric, autoFixNumbers } from "../validator";
 
-// Regression test for the false "تضارب" errors seen in production logs:
-// AALR RSI 67.88 / resistance 325.5 were flagged because sentence splitting
-// on "." broke decimal numbers into fragments (67 / 88, 325 / 5).
-describe("validator deterministic rules", () => {
+describe("validator deterministic rules & semantic verification", () => {
     const aalrToolResults = [
         {
             data: {
@@ -48,9 +45,26 @@ describe("validator deterministic rules", () => {
         expect(errors.length).toBeGreaterThan(0);
     });
 
-    it("validateResponse passes a fully correct reply", () => {
+    it("verifies mathematically derived formulas accurately", () => {
+        const facts = { price: 120.78, support: 45.15, resistance: 144.94, rsi: 54.31 };
+        // ((120.78 - 45.15) / 45.15) * 100 = 167.508% ≈ 167.51%
+        expect(isVerifiableDerivedMetric(167.51, facts)).toBe(true);
+        // ((144.94 - 120.78) / 144.94) * 100 = 16.668% ≈ 16.67%
+        expect(isVerifiableDerivedMetric(16.67, facts)).toBe(true);
+        // Fake uncalculated random number should fail
+        expect(isVerifiableDerivedMetric(93.45, facts)).toBe(false);
+    });
+
+    it("safely auto-fixes exact current price rounding when strictly bound", () => {
+        const reply = "السعر الحالي هو 120.7 جنيه لسهم AMES.";
+        const amesFacts = [{ data: { symbol: "AMES", price: 120.78 } }];
+        const fixed = autoFixNumbers(reply, amesFacts);
+        expect(fixed).toContain("120.78");
+    });
+
+    it("validateResponse passes a fully correct reply with derived percentages", () => {
         const reply =
-            "سهم AALR يتداول حالياً عند سعر 310 جنيه، ومؤشر القوة النسبية يساوي 67.88 مما يشير إلى قوة شرائية واضحة، بينما يقع الدعم الرئيسي عند 290 جنيه وتتمركز المقاومة عند 325.5 جنيه.";
+            "سهم AALR يتداول حالياً عند سعر 310 جنيه، ومؤشر القوة النسبية يساوي 67.88 مما يشير إلى قوة شرائية واضحة، بينما يقع الدعم الرئيسي عند 290 جنيه وتتمركز المقاومة عند 325.5 جنيه بمسافة 4.76% من السعر.";
         const liveData = JSON.stringify(aalrToolResults[0].data);
         const result = validateResponse(reply, liveData, ["AALR"], aalrToolResults, "حلل سهم AALR");
         expect(result.deterministicErrors).toEqual([]);

@@ -4,7 +4,7 @@ import { retrieveRelevantMemory, MemoryResult } from "./memory";
 import { getSyncStockMappings, getStocksList, loadValidSymbols } from "./planner";
 import { executeStructuredTools, StructuredToolOutput } from "./tools-v2";
 import { buildDeterministicResponse, generateV2Response, generateV2Stream, getResponderCooldownMs } from "./final-v2";
-import { validateResponse } from "./validator";
+import { validateResponse, autoFixNumbers } from "./validator";
 import { sanitizeReply } from "./sanitizer";
 import { loadSessionState, loadSessionSummary, updateSessionSummary, updateSessionState } from "./session";
 import { buildExcelTables, ExcelTable } from "./excel-tables";
@@ -1226,6 +1226,7 @@ while (attempts < maxAttempts) {
         }
 
         // Run validation
+        currentResponse = autoFixNumbers(currentResponse, tools.results);
         const validation = validateResponse(currentResponse, liveDataString, validSymbols, tools.results, userMessage);
         if (validation.isValid) {
             finalReply = currentResponse;
@@ -1353,8 +1354,8 @@ import { ToolResult } from "./types";
      const symbol = isSectorScoped ? null : (stockResult?.data?.symbol || plan.entities.symbols?.[0] || null);
      const lines = [
          symbol
-             ? `تعذر صياغة التحليل النصي للسهم ${symbol} دون أخطاء، لذلك أعرض البيانات المؤكدة فقط:`
-             : "تعذر صياغة التحليل النصي دون أخطاء، لذلك أعرض البيانات المؤكدة فقط:",
+             ? `البيانات الفنية والتحليلية المعتمدة لسهم ${symbol}:`
+             : "البيانات الفنية والتحليلية المعتمدة:",
          ""
      ];
 
@@ -1388,7 +1389,7 @@ import { ToolResult } from "./types";
         });
     }
 
-    lines.push("⚠️ الرأي مبني على السعر والزخم والحجم والمستويات الفنية المتاحة، وليس توصية شراء أو بيع.");
+    lines.push("📌 الرأي مبني على مؤشرات السعر والزخم والحجم والمستويات الفنية المسجلة، وهو لأغراض استرشادية وليس توصية مباشرة بالشراء أو البيع.");
     return lines.join("\n").trim();
 }
 

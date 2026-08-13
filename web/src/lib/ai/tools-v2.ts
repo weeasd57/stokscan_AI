@@ -898,8 +898,9 @@ export async function executeStructuredTools(
     if (plan.tools.includes("search_web")) {
         try {
             let webQuery = userMessage
-                .replace(/(?:ابحث|دور|فتش|بحث|شوف|بص|سيرش|شيك|تشيك)\s*(?:في|فى|على|عن)\s*(?:النت|الانترنت|الإنترنت|جوجل|المواقع|الويب)/gi, "")
-                .replace(/(?:من|عبر|على)\s+(?:النت|الانترنت|الإنترنت)/gi, "")
+                .replace(/(?:ابحث|دور|فتش|بحث|شوف|بص|سيرش|شيك|تشيك)/gi, "")
+                .replace(/(?:في|فى|على|عن|من|عبر)\s*(?:النت|الانترنت|الإنترنت|جوجل|المواقع|الويب)/gi, "")
+                .replace(/\s+/g, " ")
                 .trim();
             
             // Clean up referential pronouns
@@ -913,9 +914,8 @@ export async function executeStructuredTools(
             webQuery = webQuery
                 .replace(/(?:الجاى|الجاي|الجايه|الجاية|اللي جاي|اللي جاية)/g, "القادم")
                 .trim();
-            const isEgyptianMarketQuery = symbols.length > 0
-                || /(?:سهم|اسهم|أسهم|بورص[ةه]|تداول|مساهم|شركة|شركه|ارباح|أرباح|توزيعات|egx)/i.test(webQuery);
-            if (webQuery && isEgyptianMarketQuery && !/البورص[ةه]|مصر|egx/i.test(webQuery)) {
+            const hasOtherCountry = /(?:سعودي|سعودية|إمارات|امارات|كويت|بحرين|قطر|أمريكا|امريكا|عالمي|عالمية)/i.test(webQuery);
+            if (webQuery && !hasOtherCountry && !/البورص[ةه]|مصر|egx/i.test(webQuery)) {
                 webQuery = `${webQuery} البورصة المصرية`;
             }
 
@@ -930,7 +930,7 @@ export async function executeStructuredTools(
                 if (lastActualUserMsg) {
                     const cleanedPrev = lastActualUserMsg
                         .replace(/(?:عندك|هل|ايه|إيه|أخبار|اخبار|عن|سهم|شركة|شركه|تحليل|في|فيها|ليه|لماذا|ازاي|إزاي|مقارنة|قارن|قريب|سعر|سعرها|\?|؟)/gi, "")
-                        .replace(/(?:ده|دى|هذا|هذه|السهم)/gi, "")
+                        .replace(/(?:الاسبوع\s*ده|الأسبوع\s*ده|الاسبوع\s*الحالي|الاسبوع\s*الجاري|النهارده|اليوم|كلها|كل|جميع|الفتره\s*دي|الفترة\s*دي|ده|دى|هذا|هذه|السهم|الاسهم|للاسهم|للأسهم)/gi, "")
                         .trim();
                     
                     if (cleanedPrev) {
@@ -1248,6 +1248,12 @@ export async function executeStructuredTools(
                 trading_zone = "عند منطقة المقاومة تماماً";
             } else if (position_pct >= 75) {
                 trading_zone = "تحت مستوى المقاومة وقريب منها (منطقة مقاومة وجني أرباح مضاربية)";
+            }
+            if (distance_from_support_pct > 40) {
+                trading_zone += ` (تنبيه: مستوى الدعم ${support} بعيد جداً عن السعر الحالي بمسافة ${distance_from_support_pct}% ولا يُعد مرجعاً عملياً للتداول قصير المدى)`;
+            }
+            if (distance_from_resistance_pct > 40) {
+                trading_zone += ` (تنبيه: مستوى المقاومة ${resistance} بعيد جداً عن السعر الحالي بمسافة ${distance_from_resistance_pct}% ولا يُعد مرجعاً عملياً للتداول قصير المدى)`;
             }
 
             return {
