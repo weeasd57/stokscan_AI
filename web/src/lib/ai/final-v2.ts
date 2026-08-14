@@ -64,8 +64,10 @@ export function buildEvidenceEnginePromptBlock(toolResults: ToolResult[]): strin
 
     lines.push("\nSTRICT BOUNDARIES FOR MODEL:");
     lines.push("1. ⛔ NEVER claim 'فوق خط الإشارة' or 'تحت خط الإشارة' if macd_signal is NOT_PROVIDED or UNKNOWN.");
-    lines.push("2. ⛔ NEVER classify volume as 'سيولة توزيعية' or 'إشارة تصريف' unless distribution_score is explicitly positive in AVAILABLE_EVIDENCE.");
+    lines.push("2a. ⛔ NEVER classify volume as 'سيولة توزيعية' or 'إشارة تصريف' unless distribution_score or wyckoff_phase is explicitly positive in AVAILABLE_EVIDENCE.");
+    lines.push("2b. ⛔ NEVER classify volume as 'سيولة تجميعية' or 'إشارة تجميع' unless accumulation_score or wyckoff_phase is explicitly positive in AVAILABLE_EVIDENCE.");
     lines.push("3. ⛔ Only state facts and conclusions directly supported by the FACTS, DERIVED_FLAGS, and AVAILABLE_EVIDENCE above.");
+
 
     lines.push("=== END STRICT EVIDENCE CONTEXT ===");
     return lines.join("\n");

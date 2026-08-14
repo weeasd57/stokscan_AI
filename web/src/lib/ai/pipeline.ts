@@ -1368,21 +1368,30 @@ import { ToolResult } from "./types";
             if (r.tool === "get_stock" && r.data?.symbol) {
                 const d = r.data;
                 lines.push(`📊 **بيانات التداول اللحظية لـ ${d.symbol}:**`);
-                lines.push(`  • السعر الحالي: ${d.price} جنيه`);
-                lines.push(`  • نسبة التغير: ${d.change_pct}`);
-                if (d.rsi_14 !== undefined && d.rsi_14 !== null) lines.push(`  • مؤشر RSI: ${d.rsi_14}`);
-                if (d.macd_signal !== undefined && d.macd_signal !== null) lines.push(`  • مؤشر MACD: ${d.macd_signal}`);
-                if (d.vol_ratio !== undefined && d.vol_ratio !== null) lines.push(`  • نسبة الحجم: ${d.vol_ratio}`);
+                if (d.price != null && Number.isFinite(Number(d.price))) lines.push(`  • السعر الحالي: ${Number(d.price).toFixed(2)} جنيه`);
+                if (d.change_pct != null) lines.push(`  • نسبة التغير: ${d.change_pct}`);
+                if (d.rsi_14 != null && Number.isFinite(Number(d.rsi_14))) lines.push(`  • مؤشر RSI: ${Number(d.rsi_14).toFixed(2)}`);
+                if (d.macd_signal != null && Number.isFinite(Number(d.macd_signal))) lines.push(`  • مؤشر MACD: ${Number(d.macd_signal).toFixed(4)}`);
+                if (d.vol_ratio != null && Number.isFinite(Number(d.vol_ratio))) lines.push(`  • نسبة الحجم: ${Number(d.vol_ratio).toFixed(2)}x`);
                 lines.push("");
             }
             if (r.tool === "get_stock_levels" && r.data?.symbol) {
                 const d = r.data;
                 lines.push(`📍 **المستويات الفنية لـ ${d.symbol}:**`);
-                lines.push(`  • الدعم الحسابي: ${d.support} جنيه`);
-                lines.push(`  • المقاومة الحسابية: ${d.resistance} جنيه`);
+                if (d.support != null && Number.isFinite(Number(d.support))) {
+                    lines.push(`  • الدعم الحسابي: ${Number(d.support).toFixed(2)} جنيه`);
+                } else {
+                    lines.push(`  • الدعم الحسابي: غير متاح (بيانات تاريخية غير كافية)`);
+                }
+                if (d.resistance != null && Number.isFinite(Number(d.resistance))) {
+                    lines.push(`  • المقاومة الحسابية: ${Number(d.resistance).toFixed(2)} جنيه`);
+                } else {
+                    lines.push(`  • المقاومة الحسابية: غير متاحة (بيانات تاريخية غير كافية)`);
+                }
                 if (d.trading_zone) lines.push(`  • المنطقة السعرية الحالية: ${d.trading_zone}`);
                 lines.push("");
             }
+
             if (r.tool === "get_recommendations" && Array.isArray(r.data)) {
                 lines.push(`📈 **الصفقات والتوصيات النشطة:**`);
                 r.data.slice(0, 5).forEach((rec: any) => {

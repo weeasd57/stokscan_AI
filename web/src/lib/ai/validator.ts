@@ -287,12 +287,38 @@ export function validateDeterministicRules(
             errors.push(`إسناد غير مثبت لخط الإشارة لسهم ${activeSymbol}: macd_signal غير ممررة في البيانات.`);
         }
 
-        // EVIDENCE VERIFIER CHECK 2: Unproven Distribution / Accumulation assertion
+        // EVIDENCE VERIFIER CHECK 2: Unproven Distribution assertion
         const claimsDistribution = /(?:سيول[ةه]\s*توزيعية|إشار[ةه]\s*تصريف|مرحل[ةه]\s*تصريف|سيولة توزيعية)/i.test(sentence);
-        const hasDistEvidence = toolResults.some(r => (r.tool === "get_distribution_stocks" || r.tool === "get_accumulation_stocks") && Array.isArray(r.data?.stocks) && r.data.stocks.some((st: any) => String(st.symbol).toUpperCase() === activeSymbol?.toUpperCase() && Number(st.dist_score) > 0));
+        const hasDistEvidence = toolResults.some(r => {
+            if (!Array.isArray(r.data?.stocks)) return false;
+            return r.data.stocks.some((st: any) => {
+                const symMatch = String(st.symbol).toUpperCase() === activeSymbol?.toUpperCase();
+                const scoreOk = Number(st.dist_score) > 0;
+                const phaseOk = String(st.wyckoff_phase || "").toLowerCase().includes("distribution");
+                const signalOk = String(st.signal || "").toLowerCase().includes("distribution");
+                return symMatch && (scoreOk || phaseOk || signalOk);
+            });
+        });
         if (claimsDistribution && !hasDistEvidence) {
             errors.push(`ادعاء سيولة توزيعية غير مثبت بدليل لسهم ${activeSymbol}: لا تتوفر بيانات مسح Wyckoff/تصريف صريحة.`);
         }
+
+        // EVIDENCE VERIFIER CHECK 3: Unproven Accumulation assertion
+        const claimsAccumulation = /(?:سيول[ةه]\s*تجميعية|إشار[ةه]\s*تجميع|مرحل[ةه]\s*تجميع|سيولة تجميعية)/i.test(sentence);
+        const hasAccEvidence = toolResults.some(r => {
+            if (!Array.isArray(r.data?.stocks)) return false;
+            return r.data.stocks.some((st: any) => {
+                const symMatch = String(st.symbol).toUpperCase() === activeSymbol?.toUpperCase();
+                const scoreOk = Number(st.acc_score) > 0;
+                const phaseOk = String(st.wyckoff_phase || "").toLowerCase().includes("accumulation");
+                const signalOk = String(st.signal || "").toLowerCase().includes("accumulation");
+                return symMatch && (scoreOk || phaseOk || signalOk);
+            });
+        });
+        if (claimsAccumulation && !hasAccEvidence) {
+            errors.push(`ادعاء سيولة تجميعية غير مثبت بدليل لسهم ${activeSymbol}: لا تتوفر بيانات مسح Wyckoff/تجميع صريحة.`);
+        }
+
 
 
         const claims = extractSentenceClaims(sentence, activeSymbol, facts);
