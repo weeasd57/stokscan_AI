@@ -151,7 +151,7 @@ const ARABIC_STOCK_MAPPINGS: Record<string, string | string[]> = {
     "سي اي كابيتال": "CICH", "سي أي كابيتال": "CICH", "سي آي كابيتال": "CICH",
     "كونتكت": "CNFN", "كونتكت المالية": "CNFN", "ثروة كابيتال": "CNFN",
     "كوبـر": "COPR", "كوبر": "COPR", "كوبر للاستثمار": "COPR",
-    "القاهرة للزيوت": "COSG", "زيوت وصابون": "COSG", "قاهرة للزيوت": "COSG",
+    "القاهرة للزيوت": "COSG", "زيوت وصابون": "COSG", "قاهرة للزيوت": "COSG", "COSG": "COSG", "cosg": "COSG", "Cosg": "COSG", "كوزمو": "COSG", "كوزموبوليتان": "COSG", "كوزموس": "COSG", "القاهرة للزيوت والصابون": "COSG",
     "القاهرة للأدوية": "CPCI", "القاهرة للادوية": "CPCI",
     "القناة للتوكيلات": "CSAG", "قناة للتوكيلات": "CSAG", "توكيلات ملاحية": "CSAG",
     "الاستشارات الهندسية": "DAPH", "تنمية واستشارات": "DAPH",
@@ -242,7 +242,7 @@ const ARABIC_STOCK_MAPPINGS: Record<string, string | string[]> = {
     "رمكو": "RTVC", "رمكو للقرى السياحية": "RTVC",
     "روبكس": "RUBX", "روبكس البلاستيك": "RUBX",
     "البركة": "SAUD", "بنك البركة": "SAUD", "بنك البركة مصر": "SAUD",
-    "أسمنت سيناء": "SCEM", "اسمنت سيناء": "SCEM",
+    "أسمنت سيناء": "SCEM", "اسمنت سيناء": "SCEM", "أسمنت سينا": "SCEM", "اسمنت سينا": "SCEM", "سينا للاسمنت": "SCEM", "سيناء للاسمنت": "SCEM", "سينا اسمنت": "SCEM", "سينا ألاسمنت": "SCEM",
     "مطاحن جنوب القاهرة": "SCFM", "جنوب القاهرة للمطاحن": "SCFM",
     "قناة السويس للتكنولوجيا": "SCTS",
     "شرم دريمز": "SDTI", "شرم دريمز للسياحة": "SDTI",
@@ -509,7 +509,7 @@ export async function loadValidSymbols(): Promise<string[]> {
 const STATIC_VALID_SYMBOLS = [
     'AALR', 'ABUK', 'ACAMD', 'ACAP', 'ADCI', 'ADPC', 'AFMC', 'AIH', 'AIIH', 'AJWA', 'ALCN', 'ALUM', 'AMES', 'AMOC',
     'APPC', 'ARAB', 'AREH', 'ARVA', 'ATQA', 'AXPH', 'BIOC', 'BTFH', 'CAED', 'CCAP', 'CIEB', 'CIRA', 'CLHO',
-    'CNFN', 'COMI', 'COPR', 'CPCI', 'CRST', 'DMTY', 'EAST', 'EEII', 'EFID', 'EFIH', 'EGAL', 'EGAS', 'EGBE',
+    'CNFN', 'COMI', 'COPR', 'COSG', 'CPCI', 'CRST', 'DMTY', 'EAST', 'EEII', 'EFID', 'EFIH', 'EGAL', 'EGAS', 'EGBE',
     'EGCH', 'EGREF', 'EGSA', 'EGTS', 'EGX30', 'EGX70', 'EGX100', 'EHDR', 'EITP', 'EKHO', 'ELKA', 'ELSH', 'EMFD', 'EOSB',
     'ESRS', 'ETEL', 'ETRS', 'FAIT', 'FERC', 'FTNS', 'FWRY', 'GBCO', 'GDWA', 'GGCC', 'GGRN', 'GMCI', 'GOUR',
     'GSSC', 'HELI', 'HRHO', 'ICFC', 'IDRE', 'INFI', 'IRON', 'ISMA', 'ISPH', 'JUFO', 'KABO', 'KASABF',
@@ -1019,13 +1019,18 @@ Analyze the user request and return a JSON object. You MUST dynamically choose t
     const isMarketSlang = /مين طلع ومين نزل|ايه اللي طلع وايه اللي نزل|ايه اللى طلع وايه اللى نزل|السوق عمل ايه|حالة السوق|صعود وهبوط|gainers and losers|what went up|whole market|where is liquidity|نجم\s+الاسبوع|نجم\s+الأسبوع|القطاع\s+اللي\s+هيطلع|القطاع\s+اللي\s+يرتفع|السهم\s+اللي\s+هيرتفع|السهم\s+اللي\s+يبقي\s+نجم/i.test(message);
     const sectorFollowUp = /^(?:اى|أي|ايه|ما هو|ما هي|مين)\s+(?:اكبر|أكبر)\s+(?:سهم|شركة)\s+(?:في|فى|بقطاع|من)\s+(.+)$/i.exec(message.trim())
         || /^(?:اكبر|أكبر)\s+(?:سهم|شركة)\s+(?:في|فى|بقطاع|من)\s+(.+)$/i.exec(message.trim());
-    const fallbackSymbols = (hasImages || isMarketSlang) ? [] : (session.last_symbols?.length ? session.last_symbols : (session.current_symbol ? [correctStockSymbol(session.current_symbol, validSymbols)] : []));
+    const explicitSymbols = extractSymbolsFromText(message, validSymbols, stockMappings);
+
+    const fallbackSymbols = (hasImages || isMarketSlang)
+        ? []
+        : (explicitSymbols.length > 0
+            ? explicitSymbols
+            : (session.last_symbols?.length ? session.last_symbols : (session.current_symbol ? [correctStockSymbol(session.current_symbol, validSymbols)] : [])));
 
     if (isBestBuy) {
         // If asking for a general recommendation without explicitly naming a stock or group pronoun (فيهم/منهم),
         // do not inherit single context symbol (e.g. SVCE) so tool calls get general market recommendations.
         const hasGroupRef = /فيهم|منهم|بينهم|عنهم|معاهم|فيهم كلهم|منهم كلهم/i.test(message);
-        const explicitSymbols = extractSymbolsFromText(message, validSymbols);
         const targetSymbols = explicitSymbols.length > 0 
             ? explicitSymbols 
             : (hasGroupRef ? (session.last_symbols || []) : []);
@@ -1037,6 +1042,21 @@ Analyze the user request and return a JSON object. You MUST dynamically choose t
             session_update: {
                 current_symbol: targetSymbols[0] || session.current_symbol,
                 last_symbols: session.last_symbols ? session.last_symbols.map((s: string) => correctStockSymbol(s, validSymbols)) : [],
+                summary: message
+            }
+        };
+    }
+
+    if (fallbackSymbols.length > 0) {
+        console.log(`[Planner Fallback] Extracted symbols deterministically:`, fallbackSymbols);
+        return {
+            intent: "stock_analysis",
+            confidence: 0.85,
+            entities: { symbols: fallbackSymbols, sector: null, wants_table: true },
+            tools: ["get_stock", "get_stock_levels"],
+            session_update: {
+                current_symbol: fallbackSymbols[0],
+                last_symbols: fallbackSymbols.map((s: string) => correctStockSymbol(s, validSymbols)),
                 summary: message
             }
         };

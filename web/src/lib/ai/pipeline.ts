@@ -628,6 +628,10 @@ export function enforceIntentFromMessage(message: string, plannerIntent: string,
     const normalized = message.toLowerCase().replace(/[أإآ]/g, "ا").replace(/ة/g, "ه");
     const hasExplicitSymbol = /\b[A-Z]{2,6}\b/.test(message);
     const hasSymbol = symbols.length > 0 || hasExplicitSymbol;
+    if (message.trim().length <= 2 && !hasSymbol) {
+        return { intent: "general_chat", tools: [], replaceTools: true };
+    }
+
     const excludedSectors = extractExcludedSectors(message);
     const mentionedSectors = extractMentionedSectorNames(message);
     const marketFairValueScan = isFairValueScanRequest(message);
