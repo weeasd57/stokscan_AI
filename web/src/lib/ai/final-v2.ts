@@ -1887,7 +1887,9 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
 
         const omitted = stocks.length > 10 ? `تم عرض ملخص أول 10 أسهم فقط؛ الجدول المنظم يحتوي على جميع الأسهم المتاحة (${stocks.length}).` : null;
         const opinionLines = stocks.length <= 3 ? stocks.map(result => buildStockOpinion(result, levelResults)) : [];
-        return [describeDatedFallback(plan.entities.requested_date, stocks[0]?.data_time), ...lines, ...levelLines, levelFallback, ...opinionLines, ...(fairValueRequest ? buildTechnicalValuationLines(stocks, levelResults) : []), omitted, "هذه قراءة فنية للبيانات المتاحة، وليست توصية شراء أو بيع."].filter(Boolean).join("\n");
+        const modelCrashNotice = "⚠️ **تنبيه:** تعذر على نموذج الذكاء الاصطناعي إتمام صياغة التحليل الفني التفاعلي كاملاً في هذه المحاولة بسبب ضغط مؤقت في الخدمة. يرجى إعادة إرسال السؤال مرة أخرى للحصول على التحليل الفني كاملاً من الذكاء الاصطناعي.";
+        return [modelCrashNotice, "", describeDatedFallback(plan.entities.requested_date, stocks[0]?.data_time), ...lines, ...levelLines, levelFallback, ...opinionLines, ...(fairValueRequest ? buildTechnicalValuationLines(stocks, levelResults) : []), omitted, "هذه أرقام بيانات تداول مباشرة استرشادية من قاعدة البيانات، وليست توصية مباشرة بالشراء أو البيع."].filter(Boolean).join("\n");
+
     }
 
     return null;
