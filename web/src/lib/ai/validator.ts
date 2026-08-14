@@ -301,6 +301,25 @@ export function validateDeterministicRules(
             errors.push(`ادعاء سيولة تجميعية غير مثبت بدليل لسهم ${activeSymbol}: لا تتوفر بيانات مسح Wyckoff/تجميع صريحة.`);
         }
 
+        // EVIDENCE VERIFIER CHECK 4: Phase conflict between claim and actual Wyckoff data
+        const hasPhaseConflict = toolResults.some(r => {
+            if (!Array.isArray(r.data?.stocks)) return false;
+            return r.data.stocks.some((st: any) => {
+                const symMatch = String(st.symbol).toUpperCase() === activeSymbol?.toUpperCase();
+                if (!symMatch) return false;
+                const accScore = Number(st.acc_score || 0);
+                const distScore = Number(st.dist_score || 0);
+                const wyckoffPhase = String(st.wyckoff_phase || "").toLowerCase();
+                const signal = String(st.signal || "").toLowerCase();
+                if (claimsDistribution && accScore > distScore && (wyckoffPhase.includes("accumulation") || signal === "accumulation")) return true;
+                if (claimsAccumulation && distScore > accScore && (wyckoffPhase.includes("distribution") || signal === "distribution")) return true;
+                return false;
+            });
+        });
+        if (hasPhaseConflict) {
+            errors.push(`تعارض في بيانات Wyckoff لسهم ${activeSymbol}: الادعاء يتناقض مع بيانات المسح الفني.`);
+        }
+
 
         const claims = extractSentenceClaims(sentence, activeSymbol, facts);
 

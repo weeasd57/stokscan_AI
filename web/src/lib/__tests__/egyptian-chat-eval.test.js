@@ -1,4 +1,5 @@
-const { buildDeterministicPlannerResult, isFairValueScanRequest } = require("../ai/pipeline");
+const { buildDeterministicPlannerResult } = require("../ai/pipeline");
+const { isFairValueScanRequest } = require("../ai/intent-policy");
 const { buildDeterministicResponse } = require("../ai/final-v2");
 
 const session = { current_symbol: null, last_symbols: [], summary: null };

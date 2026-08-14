@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { Loader2, Sparkles, MessageSquare, Link as LinkIcon, User, RefreshCw, Search, Clock, ChevronRight, Trash2 } from "lucide-react";
+import { Loader2, Sparkles, MessageSquare, Link as LinkIcon, User, RefreshCw, Search, Clock, ChevronRight, Trash2, Maximize, Minimize } from "lucide-react";
 import { toast } from "sonner";
 import SupportTab from "./SupportTab";
 import { FormattedChatMessage } from "@/components/chat/FormattedChatMessage";
@@ -9,6 +9,7 @@ import { FormattedChatMessage } from "@/components/chat/FormattedChatMessage";
 export default function AIChatbotTab() {
     const [logsLoading, setLogsLoading] = useState(true);
     const [isDeleting, setIsDeleting] = useState(false);
+    const [isFullscreen, setIsFullscreen] = useState(false);
 
     const [logs, setLogs] = useState<any[]>([]);
     const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
@@ -150,7 +151,9 @@ export default function AIChatbotTab() {
             <div className="w-full">
                     {/* User-grouped Logs Column */}
                     <div className="w-full">
-                        <div className="bg-white dark:bg-zinc-900 border-4 border-black dark:border-white h-full min-h-[600px] max-h-[850px] shadow-[8px_8px_0px_rgba(0,0,0,1)] dark:shadow-[8px_8px_0px_rgba(255,255,255,1)] flex flex-col overflow-hidden">
+                        <div className={isFullscreen 
+                            ? "fixed inset-0 z-[100] bg-white dark:bg-zinc-900 flex flex-col overflow-hidden m-0 w-full h-full" 
+                            : "bg-white dark:bg-zinc-900 border-4 border-black dark:border-white h-full min-h-[600px] max-h-[850px] shadow-[8px_8px_0px_rgba(0,0,0,1)] dark:shadow-[8px_8px_0px_rgba(255,255,255,1)] flex flex-col overflow-hidden"}>
                             <div className="p-4 md:p-6 border-b-2 border-zinc-200 dark:border-zinc-800 flex items-center justify-between bg-zinc-50 dark:bg-zinc-900/50">
                                 <div className="flex items-center gap-3">
                                     <div className="p-2 rounded-lg bg-indigo-500/10 text-indigo-500">
@@ -165,14 +168,23 @@ export default function AIChatbotTab() {
                                         </p>
                                     </div>
                                 </div>
-                                <button
-                                    onClick={fetchLogs}
-                                    disabled={logsLoading}
-                                    className="p-2 hover:bg-zinc-200 dark:hover:bg-zinc-800 rounded-lg transition-colors text-zinc-500"
-                                    title="Refresh interactions"
-                                >
-                                    <RefreshCw className={`w-5 h-5 ${logsLoading ? "animate-spin" : ""}`} />
-                                </button>
+                                <div className="flex items-center gap-2">
+                                    <button
+                                        onClick={() => setIsFullscreen(!isFullscreen)}
+                                        className="p-2 hover:bg-zinc-200 dark:hover:bg-zinc-800 rounded-lg transition-colors text-zinc-500"
+                                        title={isFullscreen ? "تصغير الواجهة" : "تكبير الواجهة"}
+                                    >
+                                        {isFullscreen ? <Minimize className="w-5 h-5" /> : <Maximize className="w-5 h-5" />}
+                                    </button>
+                                    <button
+                                        onClick={fetchLogs}
+                                        disabled={logsLoading}
+                                        className="p-2 hover:bg-zinc-200 dark:hover:bg-zinc-800 rounded-lg transition-colors text-zinc-500"
+                                        title="Refresh interactions"
+                                    >
+                                        <RefreshCw className={`w-5 h-5 ${logsLoading ? "animate-spin" : ""}`} />
+                                    </button>
+                                </div>
                             </div>
 
                             {logsLoading && logs.length === 0 ? (
@@ -185,8 +197,8 @@ export default function AIChatbotTab() {
                                 </div>
                             ) : (
                                 <div className="grid grid-cols-1 md:grid-cols-3 flex-1 overflow-hidden min-h-[500px]">
-                                    {/* Left Pane: Users List */}
-                                    <div className="md:col-span-1 border-r-2 border-zinc-200 dark:border-zinc-800 flex flex-col bg-zinc-50/50 dark:bg-zinc-950/30 overflow-hidden">
+                                    {/* Right Pane: Users List (Moved via flex order) */}
+                                    <div className="md:col-span-1 border-l-2 border-zinc-200 dark:border-zinc-800 flex flex-col bg-zinc-50/50 dark:bg-zinc-950/30 overflow-hidden order-first md:order-last">
                                         {/* Search Filter */}
                                         <div className="p-3 border-b border-zinc-200 dark:border-zinc-800">
                                             <div className="relative">
@@ -262,8 +274,8 @@ export default function AIChatbotTab() {
                                         </div>
                                     </div>
 
-                                    {/* Right Pane: Selected User Conversation */}
-                                    <div className="md:col-span-2 flex flex-col h-full bg-white dark:bg-zinc-900 overflow-hidden">
+                                    {/* Left Pane: Selected User Conversation (Moved via flex order) */}
+                                    <div className="md:col-span-2 flex flex-col h-full bg-white dark:bg-zinc-900 overflow-hidden order-last md:order-first">
                                         {selectedGroup ? (
                                             <>
                                                 {/* Selected User Header */}

@@ -1382,8 +1382,8 @@ import { ToolResult } from "./types";
             if (r.tool === "get_stock_levels" && r.data?.symbol) {
                 const d = r.data;
                 lines.push(`📍 **المستويات الفنية لـ ${d.symbol}:**`);
-                lines.push(`  • الدعم الحسابي: ${d.support} جنيه`);
-                lines.push(`  • المقاومة الحسابية: ${d.resistance} جنيه`);
+                lines.push(`  • الدعم الحسابي: ${d.support !== undefined && d.support !== null ? d.support + " جنيه" : "غير متاح"}`);
+                lines.push(`  • المقاومة الحسابية: ${d.resistance !== undefined && d.resistance !== null ? d.resistance + " جنيه" : "غير متاح"}`);
                 if (d.trading_zone) lines.push(`  • المنطقة السعرية الحالية: ${d.trading_zone}`);
                 lines.push("");
             }
@@ -1391,6 +1391,15 @@ import { ToolResult } from "./types";
                 lines.push(`📈 **الصفقات والتوصيات النشطة:**`);
                 r.data.slice(0, 5).forEach((rec: any) => {
                     lines.push(`  • ${rec.symbol}: دخول ${rec.entry_price}، هدف ${rec.target_price}، وقف ${rec.stop_loss} (العائد الحالي: ${rec.return_pct}%)`);
+                });
+                lines.push("");
+            }
+            if (r.tool === "search_web" && r.data?.results?.length > 0) {
+                lines.push(`🌐 **معلومات إضافية من الويب:**`);
+                r.data.results.slice(0, 3).forEach((webResult: any) => {
+                    if (webResult.title && webResult.snippet) {
+                        lines.push(`  • **${webResult.title}**: ${webResult.snippet}`);
+                    }
                 });
                 lines.push("");
             }
@@ -1417,7 +1426,8 @@ export async function runPipeline(
     userId: string,
     sessionId: string,
     messageId: string,
-    requestedModel?: string
+    requestedModel?: string,
+    testConfig?: { mockToolsResults?: StructuredToolOutput }
 ): Promise<PipelineResult> {
     const hasImages = images.length > 0;
     let vision: VisionContext | null = null;
@@ -1563,7 +1573,12 @@ export async function runPipeline(
     };
 
     // Stage 4: Tools
-    const tools = await executeStructuredTools(supabase, plan, apiKeys, userId, sessionId, userMessage, history);
+    let tools: StructuredToolOutput;
+    if (testConfig?.mockToolsResults) {
+        tools = testConfig.mockToolsResults;
+    } else {
+        tools = await executeStructuredTools(supabase, plan, apiKeys, userId, sessionId, userMessage, history);
+    }
     
     // Apply custom user filters if present in message (e.g. "أعلى من 75", "يومين")
     if (userMessage) {

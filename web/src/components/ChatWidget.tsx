@@ -43,6 +43,7 @@ export default function ChatWidget() {
     const [modelMenuPos, setModelMenuPos] = useState<{ bottom: number; left: number; width: number } | null>(null);
     const [loadingStep, setLoadingStep] = useState<1 | 2 | 3>(1);
     const [sharingMessageId, setSharingMessageId] = useState<string | null>(null);
+    const [isUserScrolledUp, setIsUserScrolledUp] = useState(false);
     const isChatAdmin = isChatAdminEmail(user?.email);
 
     const shareAnswer = useCallback(async (messageIndex: number) => {
@@ -145,9 +146,17 @@ export default function ChatWidget() {
         };
     }, [modelMenuOpen]);
 
+    const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+        const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
+        const isAtBottom = scrollHeight - scrollTop - clientHeight < 100;
+        setIsUserScrolledUp(!isAtBottom);
+    };
+
     useEffect(() => {
-        bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-    }, [messages, isOpen, isLoading]);
+        if (!isUserScrolledUp) {
+            bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+        }
+    }, [messages, isOpen, isLoading, isUserScrolledUp]);
 
     async function compressAndResizeImage(base64Str: string, maxDim = 1024, quality = 0.8): Promise<string> {
         return new Promise((resolve) => {
@@ -265,6 +274,9 @@ export default function ChatWidget() {
         }
         if ((!input.trim() && imagePreviews.length === 0) || !user) return;
 
+        setIsUserScrolledUp(false);
+        setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
+
         const textToSend = input;
         const currentPreviews = [...imagePreviews];
 
@@ -362,7 +374,7 @@ export default function ChatWidget() {
                 </div>
 
                 {/* Messages Body */}
-                <div className="flex-1 overflow-y-auto overflow-x-hidden p-3 sm:p-5 space-y-4 neobrutal-grid-bg">
+                <div className="flex-1 overflow-y-auto overflow-x-hidden p-3 sm:p-5 space-y-4 neobrutal-grid-bg" onScroll={handleScroll}>
                     {!user ? (
                         <div className="h-full flex flex-col items-center justify-center text-center p-6 space-y-4 my-auto min-h-[300px]">
                             <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-500">
