@@ -10,48 +10,76 @@ const MAX_CONTEXT_CHARS = 30000;
 
 export function buildEvidenceEnginePromptBlock(toolResults: ToolResult[]): string {
     const stockResults = toolResults.filter(r => r.tool === "get_stock" && r.data?.symbol);
-    const levelResults = toolResults.filter(r => r.tool === "get_stock_levels" && r.data?.symbol);
+    const levelResults = toolResults.filter(r => r.tool === "get_stock_levels" && (r.data?.symbol || r.symbols?.[0]));
     const scanResults = toolResults.filter(r => r.tool === "get_accumulation_stocks" || r.tool === "get_distribution_stocks");
     
     if (stockResults.length === 0 && levelResults.length === 0 && scanResults.length === 0) {
         return "";
     }
 
+    const symbolSet = new Set<string>();
+    stockResults.forEach(r => { if (r.data?.symbol) symbolSet.add(String(r.data.symbol).toUpperCase()); });
+    levelResults.forEach(r => {
+        const sym = r.data?.symbol || r.symbols?.[0];
+        if (sym) symbolSet.add(String(sym).toUpperCase());
+    });
+    scanResults.forEach(s => {
+        const stocks = Array.isArray(s.data?.stocks) ? s.data.stocks : Array.isArray(s.data?.scan_rows) ? s.data.scan_rows : [];
+        stocks.forEach((st: any) => {
+            if (st.symbol) symbolSet.add(String(st.symbol).toUpperCase());
+        });
+        if (Array.isArray(s.symbols)) {
+            s.symbols.forEach((sym: string) => symbolSet.add(String(sym).toUpperCase()));
+        }
+    });
+
+    const symbolsToProcess = Array.from(symbolSet);
+    if (symbolsToProcess.length === 0) {
+        return "";
+    }
+
     const lines: string[] = ["=== STRICT EVIDENCE CONTEXT (FACTS, DERIVED & AVAILABLE EVIDENCE) ==="];
 
-    for (const res of stockResults) {
-        const d = res.data;
-        const sym = String(d.symbol).toUpperCase();
-        const lvl = levelResults.find(l => String(l.data?.symbol || l.symbols?.[0] || "").toUpperCase() === sym)?.data;
-        const scan = scanResults.find(s => {
-            const stocks = Array.isArray(s.data?.stocks) ? s.data.stocks : [];
-            return stocks.some((st: any) => String(st.symbol).toUpperCase() === sym);
-        });
-        const scanStock = scan ? (scan.data.stocks as any[]).find((st: any) => String(st.symbol).toUpperCase() === sym) : null;
+    for (const sym of symbolsToProcess) {
+        const stockData = stockResults.find(r => String(r.data?.symbol).toUpperCase() === sym)?.data;
+        const lvlData = levelResults.find(l => String(l.data?.symbol || l.symbols?.[0] || "").toUpperCase() === sym)?.data;
+        
+        let scanStock: any = null;
+        let scanDirection: string | null = null;
+        for (const scan of scanResults) {
+            const stocks = Array.isArray(scan.data?.stocks) ? scan.data.stocks : Array.isArray(scan.data?.scan_rows) ? scan.data.scan_rows : [];
+            const found = stocks.find((st: any) => String(st.symbol).toUpperCase() === sym);
+            if (found) {
+                scanStock = found;
+                scanDirection = scan.data?.direction || (scan.tool === "get_distribution_stocks" ? "distribution" : "accumulation");
+                break;
+            }
+        }
 
         lines.push(`\n📌 STOCK: ${sym}`);
         lines.push(`FACTS:`);
-        lines.push(`  - price: ${d.price ?? d.close ?? "NOT_PROVIDED"}`);
-        lines.push(`  - change_pct: ${d.change_pct ?? "NOT_PROVIDED"}`);
-        lines.push(`  - rsi_14: ${d.rsi_14 ?? "NOT_PROVIDED"}`);
-        lines.push(`  - vol_ratio: ${d.vol_ratio ?? "NOT_PROVIDED"}`);
-        lines.push(`  - macd: ${d.macd ?? "NOT_PROVIDED"}`);
-        lines.push(`  - macd_signal: ${d.macd_signal ?? "NOT_PROVIDED"}`);
-        lines.push(`  - support: ${lvl?.support ?? "NOT_PROVIDED"}`);
-        lines.push(`  - resistance: ${lvl?.resistance ?? "NOT_PROVIDED"}`);
+        lines.push(`  - price: ${stockData?.price ?? stockData?.close ?? scanStock?.price ?? scanStock?.close ?? "NOT_PROVIDED"}`);
+        lines.push(`  - change_pct: ${stockData?.change_pct ?? scanStock?.change_pct ?? "NOT_PROVIDED"}`);
+        lines.push(`  - rsi_14: ${stockData?.rsi_14 ?? scanStock?.rsi_14 ?? "NOT_PROVIDED"}`);
+        lines.push(`  - vol_ratio: ${stockData?.vol_ratio ?? scanStock?.vol_ratio ?? "NOT_PROVIDED"}`);
+        lines.push(`  - macd: ${stockData?.macd ?? scanStock?.macd ?? "NOT_PROVIDED"}`);
+        lines.push(`  - macd_signal: ${stockData?.macd_signal ?? scanStock?.macd_signal ?? "NOT_PROVIDED"}`);
+        lines.push(`  - support: ${lvlData?.support ?? "NOT_PROVIDED"}`);
+        lines.push(`  - resistance: ${lvlData?.resistance ?? "NOT_PROVIDED"}`);
 
         lines.push(`DERIVED_FLAGS:`);
-        const rsiVal = Number(d.rsi_14);
+        const rsiVal = Number(stockData?.rsi_14 ?? scanStock?.rsi_14);
         if (Number.isFinite(rsiVal)) {
             lines.push(`  - rsi_status: ${rsiVal >= 70 ? "OVERBOUGHT (تشبع شرائي)" : rsiVal >= 50 ? "BULLISH_MOMENTUM (زخم صاعد)" : rsiVal <= 30 ? "OVERSOLD (تشبع بيعي)" : "NEUTRAL (محايد)"}`);
         } else {
             lines.push(`  - rsi_status: NOT_PROVIDED`);
         }
-        lines.push(`  - macd_signal_line_status: ${d.macd_signal != null ? `PROVIDED (${d.macd_signal})` : "UNKNOWN (do NOT state above/below signal line!)"}`);
+        const macdSig = stockData?.macd_signal ?? scanStock?.macd_signal;
+        lines.push(`  - macd_signal_line_status: ${macdSig != null ? `PROVIDED (${macdSig})` : "UNKNOWN (do NOT state above/below signal line!)"}`);
 
         lines.push(`AVAILABLE_EVIDENCE:`);
         if (scanStock) {
-            lines.push(`  - wyckoff_phase: ${scanStock.wyckoff_phase ?? scan?.data?.direction ?? "NOT_PROVIDED"}`);
+            lines.push(`  - wyckoff_phase: ${scanStock.wyckoff_phase ?? scanDirection ?? "NOT_PROVIDED"}`);
             lines.push(`  - accumulation_score (acc_score): ${scanStock.acc_score ?? "NOT_PROVIDED"}`);
             lines.push(`  - distribution_score (dist_score): ${scanStock.dist_score ?? "NOT_PROVIDED"}`);
             lines.push(`  - consecutive_days: ${scanStock.consecutive_acc_days ?? scanStock.consecutive_dist_days ?? "NOT_PROVIDED"}`);
@@ -67,7 +95,6 @@ export function buildEvidenceEnginePromptBlock(toolResults: ToolResult[]): strin
     lines.push("2a. ⛔ NEVER classify volume as 'سيولة توزيعية' or 'إشارة تصريف' unless distribution_score or wyckoff_phase is explicitly positive in AVAILABLE_EVIDENCE.");
     lines.push("2b. ⛔ NEVER classify volume as 'سيولة تجميعية' or 'إشارة تجميع' unless accumulation_score or wyckoff_phase is explicitly positive in AVAILABLE_EVIDENCE.");
     lines.push("3. ⛔ Only state facts and conclusions directly supported by the FACTS, DERIVED_FLAGS, and AVAILABLE_EVIDENCE above.");
-
 
     lines.push("=== END STRICT EVIDENCE CONTEXT ===");
     return lines.join("\n");
