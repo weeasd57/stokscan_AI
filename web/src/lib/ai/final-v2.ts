@@ -2,7 +2,7 @@ import { IntentPlan, VisionContext, ToolResult, FactSnapshot, SessionState } fro
 import { AI_CONFIG } from "./config";
 import { getDeepSeekApiKey, getNvidiaApiKeys } from "./server-secrets";
 import { describeDatedFallback, getFairValueFilters, getInvestorGuidanceIntent, isBestBuyStockQuestion, isDailyPriceLimitQuestion, isEarningsDataRequest, isFairValueScanRequest, isTermsDefinitionRequest, isUsageLimitQuestion } from "./intent-policy";
-import { sanitizeReply } from "./sanitizer";
+const MAX_CONTEXT_CHARS = 30000;
 
 export function buildEvidenceEnginePromptBlock(toolResults: ToolResult[]): string {
     const stockResults = toolResults.filter(r => r.tool === "get_stock" && r.data?.symbol);
