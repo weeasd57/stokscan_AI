@@ -50,12 +50,13 @@ export function isTermsDefinitionRequest(message: string): boolean {
 }
 
 export function getInvestorGuidanceIntent(message: string, hasNamedStock = false): InvestorGuidanceIntent | null {
+    if (isBestBuyStockQuestion(message)) return null;
     const normalized = normalizeArabicIntent(message);
     if (isTermsDefinitionRequest(message)) return "terms_explainer";
     const mentionsDefensiveProduct = /(صندوق|صناديق|دخل\s+(?:ال)?ثابت|عائد\s+(?:ال)?يومي|عائد\s+(?:ال)?ثابت|شهاده|وديعه|حساب توفير|سوق المال|money market|cash|cloud|ثاندر|ثندر|thndr)/i.test(normalized);
     const asksComparison = /(مقارن|قارن|compare|افضل.*ولا|ولا.*افضل|فرق.*بين|(?:سيب|اسيب|احط|اختار).{0,50}ولا)/i.test(normalized);
     const asksHowItWorks = /(بيشتغل.*ازاي|ازاي.*بيشتغل|يعني ايه|ايه.*فكره|مخاطر.*ايه|امان.*ولا|مضمون.*ولا)/i.test(normalized);
-    const asksAllocation = /(محفظ|اوزع|وزع|توزيع|تقسيم|قسم|قسمها|اوزعها|أوزعها|نصف\s*مليون|نص\s*مليون|مليون|معايا\s+مبلغ|عندي\s+مبلغ|معايا\s+سيول|عندي\s+سيول|سيولتي|\d+\s*(?:الف|ألف)|راس المال|كل الفلوس|كل المبلغ|المدخرات|مدخراتي|ميزاني|استثمر|فرص الاستثمار|ادخل.*اسهم|اشتري.*اسهم|اشتري.*ايه|فلوسي.*فين|نهايه\s*السنه|نهاية\s*السنة|اخر\s*السنه|آخر\s*السنة)/i.test(normalized) || egyptianMarketTerms.concentrationRisk.test(normalized) || egyptianMarketTerms.leverageRisk.test(normalized);
+    const asksAllocation = /(محفظ|اوزع|وزع|توزيع|تقسيم|قسم|قسمها|اوزعها|أوزعها|نصف\s*مليون|نص\s*مليون|مليون|معايا\s+مبلغ|عندي\s+مبلغ|معايا\s+سيول|عندي\s+سيول|سيولتي|\d+\s*(?:الف|ألف)|راس المال|كل الفلوس|كل المبلغ|المدخرات|مدخراتي|ميزاني|فلوسي.*فين|نهايه\s*السنه|نهاية\s*السنة|اخر\s*السنه|آخر\s*السنة)/i.test(normalized) || egyptianMarketTerms.concentrationRisk.test(normalized) || egyptianMarketTerms.leverageRisk.test(normalized);
     const signalsInexperience = /(معنديش خبر|ما عنديش خبر|بدون خبر|مبتدئ|اول مره|ابني|بناء.*محفظ|ابدا.*استثمر|بدايه.*استثمار|(?:عايز|عاوز|مش فاهم|مش عارف).{0,40}(?:استثمار|الاسهم|اسهم|البورصه))/i.test(normalized);
     const isSingleStockAdviceRequest = (hasNamedStock && /(اشتريت|نزل بي|نزل بيا|خسران|نازل بيا)/i.test(normalized)) || /(اشتريت.*في.*سهم.*و(?:نزل|خسر))/i.test(normalized);
     if (isSingleStockAdviceRequest) return null;
@@ -73,7 +74,8 @@ export function isBestBuyStockQuestion(message: string): boolean {
     if (mentionsDefensiveProduct) return false;
     const isOwnedStockAdviceQuery = /(اشتريت|نزل بي|نزل بيا|خسران|نازل بيا|عمل ايه|اعمل ايه).{0,30}(سهم|لوتس|[a-z0-9]+)/i.test(value) || /(اشتريت.*في.*سهم)/i.test(value);
     if (isOwnedStockAdviceQuery) return false;
-    return /(?:افضل|أفضل|احسن|أحسن|ترشح|رشح|رشحلى|رشحلي|أشتري|اشتري|اشتريه|أشتريه|ادخل|أدخل|ادخله|أدخله|ايه\s+افضل|إيه\s+أفضل|ايه\s+احسن|مين\s+ادخل|مين\s+أدخل|مين\s+اشتري|مين\s+أشتري).{0,35}(?:سهم|أسهم|الأسهم|الاسهم|فرصة|فرصه|فيه|فيها|بكره|بكرة|النهاردة|النهارده|الجلسة|الجلسه|طالعة|طالعه|الاسبوع|الأسبوع|اسبوع|فرص)/i.test(value)
+    return /(?:افضل|أفضل|احسن|أحسن|ترشح|رشح|رشحلى|رشحلي|أشتري|اشتري|اشتريه|أشتريه|ادخل|أدخل|ادخله|أدخله|ايه\s+افضل|إيه\s+أفضل|ايه\s+احسن|مين\s+ادخل|مين\s+أدخل|مين\s+اشتري|مين\s+أشتري).{0,35}(?:سهم|أسهم|الأسهم|الاسهم|فرصة|فرصه|فيه|فيها|بكره|بكرة|النهاردة|النهارده|الجلسة|الجلسه|طالعة|طالعه|الاسبوع|الأسبوع|اسبوع|فرص|ارباح|أرباح)/i.test(value)
+        || /(?:توصيات|توصية|توصيه|ترشيحات|فرص شراء|فرص دخول|اسهم ادخل فيها|اسهم اشتريها|اشتري ايه|ادخل في ايه|ادخل فيها|اسهم ممتازة|اسهم كويسة|تحقق ارباح|تحقق أرباح|توصيات كويسة|توصيات شراء|اسهم للشراء|فرص الشراء)/i.test(value)
         || /(?:مين\s+(?:ادخله|أدخله|ادخل\s+فيه|أدخل\s+فيه|اشتريه|أشتريه)|ادخل\s+في\s+(?:مين|ايه|إيه)|اشتري\s+في\s+(?:مين|ايه|إيه))/i.test(value)
         || /^(?:ايه\s+افضل\s+سهم\s+للشراء|افضل\s+سهم\s+للشراء|أفضل\s+سهم\s+للشراء|اشتري\s+ايه\s+بكره|أشتري\s+إيه\s+بكرة|مين\s+ادخله\s+بكره|مين\s+أدخله\s+بكرة|نجم\s+الاسبوع|نجم\s+الأسبوع|القطاع\s+اللي\s+هيطلع|القطاع\s+اللي\s+يرتفع|السهم\s+اللي\s+هيرتفع|افضل\s+الفرص\s+المتاحة\s+حالياً|أفضل\s+الفرص\s+المتاحة\s+حالياً|رشحلى|رشحلي|رشح)/i.test(value);
 }

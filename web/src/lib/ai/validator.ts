@@ -194,9 +194,10 @@ export function extractSentenceClaims(sentence: string, activeSymbol: string, fa
         const isPercent = percentMatches.has(num);
 
         // A. Price Claims: "السعر 120.78", "إغلاق 120.78", "يتداول عند 120.78"
-        if (/(?:السعر|سعر|إغلاق|اغلاق|يتداول عند|تداول عند|أغلق عند|اغلق عند)/i.test(sentence) 
-            && !/(?:أعلى|اعلى|أقصى|اقصى|أدنى|ادنى|دعم|مقاومة|مقاومه|متوسط)/i.test(sentence) 
-            && !isPercent) {
+        const escapedNum = String(num).replace(".", "\\.");
+        const isPriceSpecific = new RegExp(`(?:السعر|سعر|إغلاق|اغلاق|يتداول عند|تداول عند|أغلق عند|اغلق عند)[^0-9\\n]{0,25}?\\b${escapedNum}\\b`, "i").test(sentence)
+            && !/(?:أعلى|اعلى|أقصى|اقصى|أدنى|ادنى|دعم|مقاومة|مقاومه|متوسط)/i.test(sentence);
+        if (isPriceSpecific && !isPercent) {
             claims.push({ type: "current_price", value: num, symbol: activeSymbol, rawText: String(num), sentence });
             continue;
         }
@@ -342,7 +343,7 @@ export function validateDeterministicRules(
                     if (facts.price != null) {
                         const price = facts.price;
                         const isMatch = Math.abs(claim.value - price) <= 0.05 || (price > 0 && Math.abs(claim.value - price) / price <= 0.02);
-                        if (!isMatch) {
+                        if (!isMatch && !ALLOWED_GENERIC_NUMBERS.has(claim.value)) {
                             errors.push(`تضارب في سعر سهم ${activeSymbol}: السعر الفعلي هو ${price} ولكن الرد يحتوي على ${claim.value}.`);
                         }
                     }
@@ -520,7 +521,9 @@ export function validateResponse(
     const arabicChars = (replyText.match(/[\u0600-\u06FF]/g) || []).length;
     const asciiLetters = (replyText.match(/[A-Za-z]/g) || []).length;
     const hasCotMarkers = /The user is asking|Technical analysis perspective|Historical Data \(Sector|Analysis for|Gainers list matches|Let me (think|analyze|check|look|review)|I need to (check|analyze|look|find|compare)|thinking process|The question (is|asks)/i.test(replyText);
-    const englishThinking = arabicChars < 40 || asciiLetters > arabicChars || (hasCotMarkers && asciiLetters * 2 > arabicChars);
+    
+    // Only flag as English thinking if there's genuinely no Arabic at all, or it's overwhelmingly English with CoT markers
+    const englishThinking = (arabicChars < 10 && asciiLetters > 20) || (asciiLetters > arabicChars * 2) || (hasCotMarkers && asciiLetters > arabicChars);
 
     return {
         isValid: suspiciousSymbols.length === 0 && suspiciousNumbers.length === 0 && !hasRepetitions && deterministicErrors.length === 0 && !englishThinking,

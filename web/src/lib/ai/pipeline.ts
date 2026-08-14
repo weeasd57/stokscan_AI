@@ -30,7 +30,7 @@ export interface PipelineResult {
 }
 
 export function sanitizePlannerTools(message: string, tools: string[]): string[] {
-    const explicitlyRequestsRecommendations = /توصيات|توصيه|توصية|اشارات النظام|إشارات النظام|سجل التوصيات|اقدم توصيه|أقدم توصية/i.test(message);
+    const explicitlyRequestsRecommendations = /توصيات|توصيه|توصية|اشارات النظام|إشارات النظام|سجل التوصيات|اقدم توصيه|أقدم توصية|مناسبة للدخول|للدخول فيها|مرشحة|أسهم مرشحة|اسهم كويسة|فرص دخول|للشراء/i.test(message);
     if (explicitlyRequestsRecommendations) return tools;
     return tools.filter(tool => tool !== "get_recommendations" && tool !== "get_signals");
 }
@@ -50,8 +50,8 @@ export function scopeImplicitSingleStockRequest(
     return symbol ? [symbol] : [];
 }
 
-function clearsStockContext(plan: IntentPlan): boolean {
-    return plan.intent === "sector_analysis" || (plan.intent === "market_summary" && plan.entities.symbols.length === 0) || Boolean(plan.guidance_intent);
+function clearsStockContext(plan: { intent: string; tools?: string[]; entities?: { symbols?: string[] }; guidance_intent?: any }): boolean {
+    return plan.intent === "sector_analysis" || (Array.isArray(plan.tools) && plan.tools.includes("get_recommendations") && (plan.entities?.symbols?.length || 0) === 0) || (plan.intent === "market_summary" && (plan.entities?.symbols?.length || 0) === 0) || Boolean(plan.guidance_intent);
 }
 
 async function saveFactSnapshots(
@@ -124,10 +124,9 @@ export function extractExplicitSymbols(message: string): string[] {
     // These are product/platform labels frequently used in Arabic investor questions,
     // not EGX ticker symbols. Treating them as stocks creates empty comparisons.
     const excluded = new Set(["EGX", "NEWS", "TODAY", "LAST", "WEEK", "FROM", "BETWEEN", "RSI", "MACD", "VWAP", "CLOUD", "THNDR", "ALSH"]);
-    const explicit = message.match(/(?:^|[^A-Za-z0-9])([A-Z][A-Z0-9]{1,9})(?=$|[^A-Za-z0-9])/g)?.map(match => match.replace(/^[^A-Za-z0-9]+/, "")) || [];
-    const lowercaseTickers = message.match(/\b[a-z][a-z0-9]{2,5}\b/g) || [];
+    const latinTokens = message.match(/\b[A-Za-z][A-Za-z0-9]{1,9}\b/g) || [];
     
-    let matchedSymbols = [...explicit, ...lowercaseTickers];
+    let matchedSymbols = [...latinTokens];
 
     // Attempt to match Arabic full names from the mapping
     const stockMappings = getSyncStockMappings();
@@ -438,8 +437,8 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
             }
         };
     }
-    const recommendationRequest = /^\s*(?:هات|اعرض|وريني|عايز|عاوز)?\s*(?:احدث|أحدث|اخر|آخر)?\s*(?:توصيه|توصية|توصيات|اشاره|إشارة|اشارات|إشارات)(?:\s+(?:عندك|النظام|اليوم|النهارده))?\s*[؟?!.]*$/i.test(normalized);
-    if (recommendationRequest) {
+    const recommendationRequest = isBestBuyStockQuestion(message) || /(?:توصيات|توصية|توصيه|ترشح|ترشيحات|فرص شراء|فرص دخول|اسهم ادخل فيها|اسهم اشتريها|اشتري ايه|ادخل في ايه|ادخل فيها|اسهم ممتازة|اسهم كويسة|تحقق ارباح|تحقق أرباح|توصيات كويسة|توصيات شراء|اسهم للشراء|فرص الشراء)/i.test(normalized);
+    if (recommendationRequest && !hasNamedStock) {
         return {
             intent: "market_summary",
             confidence: 1,
@@ -529,7 +528,7 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
     let explicitSector = extractSectorFromMessage(message);
     if (symbols.length > 0 && !/(قطاع|القطاع)/i.test(normalized)) explicitSector = null;
     const sector = knownSectorFollowUp || explicitSector || extractSectorFromMessage(sectorReference || "");
-    const hasExplicitLatinTicker = /(?:^|[^A-Za-z0-9])[A-Z][A-Z0-9]{1,9}(?=$|[^A-Za-z0-9])/.test(message);
+    const hasExplicitLatinTicker = /(?:^|[^A-Za-z0-9])[A-Za-z][A-Za-z0-9]{1,9}(?=$|[^A-Za-z0-9])/.test(message);
     if (sector && !hasExplicitLatinTicker && symbols.length === 0 && /(قطاع|القطاعات|البنوك|الاتصالات|العقارات|الادويه|الاغذيه|البترول|الطاقه)/i.test(normalized)) symbols.length = 0;
     const isGreeting = /^(?:ازيك|إزيك|عامل ايه|عامل إيه|اهلا|أهلا|مرحبا|السلام عليكم)[؟?،,.!\s]*$/i.test(message.trim()) || /(?:انت|إنت|انتا|أنت).{0,12}(مين|موديل|نموذج)|مين انت|مين إنت/i.test(normalized);
     const beginnerPortfolioRequest = /(معنديش|ما عنديش).{0,20}(خبره|خبرة).{0,40}(اسهم|الاسهم)|(?:ابني|اعمل|ابدأ).{0,25}(محفظه|محفظة)|صناديق.{0,20}(دخل ثابت|عائد يومي)|(?:اول|أول)\s+يوم.{0,20}(البورصه|البورصة)|عايز\s+افهم\s+اعمل/i.test(normalized);
@@ -626,7 +625,7 @@ export function enforceIntentFromMessage(message: string, plannerIntent: string,
         return { intent: "general_chat", tools: [], replaceTools: true };
     }
     const normalized = message.toLowerCase().replace(/[أإآ]/g, "ا").replace(/ة/g, "ه");
-    const hasExplicitSymbol = /\b[A-Z]{2,6}\b/.test(message);
+    const hasExplicitSymbol = /\b[A-Za-z]{2,6}\b/.test(message);
     const hasSymbol = symbols.length > 0 || hasExplicitSymbol;
     if (message.trim().length <= 2 && !hasSymbol) {
         return { intent: "general_chat", tools: [], replaceTools: true };
@@ -719,6 +718,13 @@ export function enforceIntentFromMessage(message: string, plannerIntent: string,
     );
     if (isSectorComparison) {
         return { intent: "sector_analysis", tools: ["get_sector_liquidity"], replaceTools: true, sector: null, requested_sectors: mentionedSectors };
+    }
+    const isRecommendationQuery = isBestBuyStockQuestion(message) || /(?:توصيات|توصية|توصيه|ترشح|ترشيحات|فرص شراء|فرص دخول|اسهم ادخل فيها|اسهم اشتريها|اشتري ايه|ادخل في ايه|ادخل فيها|اسهم ممتازة|اسهم كويسة|تحقق ارباح|تحقق أرباح|توصيات كويسة|توصيات شراء|اسهم للشراء|فرص الشراء)/i.test(normalized);
+    if (isRecommendationQuery) {
+        if (hasSymbol) {
+            return { intent: "stock_analysis", tools: ["get_stock", "get_recommendations", "get_stock_levels"], replaceTools: true };
+        }
+        return { intent: "market_summary", tools: ["get_recommendations"], replaceTools: true };
     }
     const sector = extractSectorFromMessage(normalized);
     if (sector && /(اخبار|خبر|news)/i.test(normalized)) return { intent: "sector_analysis", tools: ["get_sector", "get_news"], replaceTools: true, sector };
@@ -898,7 +904,9 @@ export async function* runPipelineStream(
         : Array.from(new Set([
             ...mergeVisionSymbols(plannerResult.entities.symbols || [], vision)
         ]));
-    mergedSymbols = scopeImplicitSingleStockRequest(userMessage, explicitSymbols, mergedSymbols, sessionState.current_symbol, memory?.resolved_references?.symbol || null);
+    mergedSymbols = clearsStockContext(plannerResult) 
+        ? explicitSymbols 
+        : scopeImplicitSingleStockRequest(userMessage, explicitSymbols, mergedSymbols, sessionState.current_symbol, memory?.resolved_references?.symbol || null);
     const riskFollowUp = /(يخسر|خسار|يهبط|ينزل).{0,30}(تاني|اكتر|أكتر|اكثر|أكثر|%|في الميه|فى الميه)|(?:ممكن|هل).{0,20}(يخسر|يهبط|ينزل)/i.test(userMessage);
     if (riskFollowUp && mergedSymbols.length === 0) {
         const recentSymbol = extractSingleStockFromRecentHistory(history);
@@ -1477,7 +1485,9 @@ export async function runPipeline(
         : Array.from(new Set([
             ...mergeVisionSymbols(plannerResult.entities.symbols || [], vision)
         ]));
-    mergedSymbols = scopeImplicitSingleStockRequest(userMessage, explicitSymbols, mergedSymbols, sessionState.current_symbol, memory?.resolved_references?.symbol || null);
+    mergedSymbols = clearsStockContext(plannerResult) 
+        ? explicitSymbols 
+        : scopeImplicitSingleStockRequest(userMessage, explicitSymbols, mergedSymbols, sessionState.current_symbol, memory?.resolved_references?.symbol || null);
     const riskFollowUp = /(يخسر|خسار|يهبط|ينزل).{0,30}(تاني|اكتر|أكتر|اكثر|أكثر|%|في الميه|فى الميه)|(?:ممكن|هل).{0,20}(يخسر|يهبط|ينزل)/i.test(userMessage);
     if (riskFollowUp && mergedSymbols.length === 0) {
         const recentSymbol = extractSingleStockFromRecentHistory(history);
