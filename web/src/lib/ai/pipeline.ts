@@ -11,7 +11,7 @@ import { buildExcelTables, ExcelTable } from "./excel-tables";
 import { AI_CONFIG } from "./config";
 import { normalizeArabicIntent, extractInvestorPreferences, getFairValueFilters, isFairValueScanRequest, getInvestorGuidanceIntent as classifyInvestorGuidance, isDailyPriceLimitQuestion, isEarningsDataRequest, isTermsDefinitionRequest, isUsageLimitQuestion, isBestBuyStockQuestion } from "./intent-policy";
 import { extractExcludedSectorNames, extractMentionedSectorNames } from "./sector-taxonomy";
-export { normalizeArabicIntent, extractInvestorPreferences, getFairValueFilters, isFairValueScanRequest, isDailyPriceLimitQuestion, isEarningsDataRequest, isTermsDefinitionRequest, isUsageLimitQuestion, isBestBuyStockQuestion } from "./intent-policy";
+import { isOtcStock, buildOtcNotice } from "./otc-stocks";
 
 export interface PipelineResult {
     vision: VisionContext | null;
@@ -1356,42 +1356,37 @@ import { ToolResult } from "./types";
      const isSectorScoped = plan.tools.includes("get_sector_liquidity") || plan.tools.includes("get_sector_list") || plan.intent === "sector_analysis";
      const stockResult = toolsResults.find(result => result.tool === "get_stock" && result.data?.symbol);
      const symbol = isSectorScoped ? null : (stockResult?.data?.symbol || plan.entities.symbols?.[0] || null);
+     
+     const otcNotice = symbol && isOtcStock(symbol) ? buildOtcNotice(symbol) : null;
+
      const lines = [
          symbol
              ? `البيانات الفنية والتحليلية المعتمدة لسهم ${symbol}:`
              : "البيانات الفنية والتحليلية المعتمدة:",
-         ""
+         otcNotice ? `\n${otcNotice}\n` : ""
      ];
+
 
     if (Array.isArray(toolsResults)) {
         toolsResults.forEach(r => {
             if (r.tool === "get_stock" && r.data?.symbol) {
                 const d = r.data;
                 lines.push(`📊 **بيانات التداول اللحظية لـ ${d.symbol}:**`);
-                if (d.price != null && Number.isFinite(Number(d.price))) lines.push(`  • السعر الحالي: ${Number(d.price).toFixed(2)} جنيه`);
-                if (d.change_pct != null) lines.push(`  • نسبة التغير: ${d.change_pct}`);
-                if (d.rsi_14 != null && Number.isFinite(Number(d.rsi_14))) lines.push(`  • مؤشر RSI: ${Number(d.rsi_14).toFixed(2)}`);
-                if (d.macd_signal != null && Number.isFinite(Number(d.macd_signal))) lines.push(`  • مؤشر MACD: ${Number(d.macd_signal).toFixed(4)}`);
-                if (d.vol_ratio != null && Number.isFinite(Number(d.vol_ratio))) lines.push(`  • نسبة الحجم: ${Number(d.vol_ratio).toFixed(2)}x`);
+                lines.push(`  • السعر الحالي: ${d.price} جنيه`);
+                lines.push(`  • نسبة التغير: ${d.change_pct}`);
+                if (d.rsi_14 !== undefined && d.rsi_14 !== null) lines.push(`  • مؤشر RSI: ${d.rsi_14}`);
+                if (d.macd_signal !== undefined && d.macd_signal !== null) lines.push(`  • مؤشر MACD: ${d.macd_signal}`);
+                if (d.vol_ratio !== undefined && d.vol_ratio !== null) lines.push(`  • نسبة الحجم: ${d.vol_ratio}`);
                 lines.push("");
             }
             if (r.tool === "get_stock_levels" && r.data?.symbol) {
                 const d = r.data;
                 lines.push(`📍 **المستويات الفنية لـ ${d.symbol}:**`);
-                if (d.support != null && Number.isFinite(Number(d.support))) {
-                    lines.push(`  • الدعم الحسابي: ${Number(d.support).toFixed(2)} جنيه`);
-                } else {
-                    lines.push(`  • الدعم الحسابي: غير متاح (بيانات تاريخية غير كافية)`);
-                }
-                if (d.resistance != null && Number.isFinite(Number(d.resistance))) {
-                    lines.push(`  • المقاومة الحسابية: ${Number(d.resistance).toFixed(2)} جنيه`);
-                } else {
-                    lines.push(`  • المقاومة الحسابية: غير متاحة (بيانات تاريخية غير كافية)`);
-                }
+                lines.push(`  • الدعم الحسابي: ${d.support} جنيه`);
+                lines.push(`  • المقاومة الحسابية: ${d.resistance} جنيه`);
                 if (d.trading_zone) lines.push(`  • المنطقة السعرية الحالية: ${d.trading_zone}`);
                 lines.push("");
             }
-
             if (r.tool === "get_recommendations" && Array.isArray(r.data)) {
                 lines.push(`📈 **الصفقات والتوصيات النشطة:**`);
                 r.data.slice(0, 5).forEach((rec: any) => {

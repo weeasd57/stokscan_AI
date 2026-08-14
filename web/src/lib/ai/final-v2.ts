@@ -3,6 +3,7 @@ import { AI_CONFIG } from "./config";
 import { getDeepSeekApiKey, getNvidiaApiKeys } from "./server-secrets";
 import { describeDatedFallback, getFairValueFilters, getInvestorGuidanceIntent, isBestBuyStockQuestion, isDailyPriceLimitQuestion, isEarningsDataRequest, isFairValueScanRequest, isTermsDefinitionRequest, isUsageLimitQuestion } from "./intent-policy";
 import { sanitizeReply } from "./sanitizer";
+import { isOtcStock, buildOtcNotice } from "./otc-stocks";
 
 const MAX_CONTEXT_CHARS = 30000;
 
@@ -56,6 +57,8 @@ export function buildEvidenceEnginePromptBlock(toolResults: ToolResult[]): strin
             }
         }
 
+        const otc = isOtcStock(sym);
+
         lines.push(`\n📌 STOCK: ${sym}`);
         lines.push(`FACTS:`);
         lines.push(`  - price: ${stockData?.price ?? stockData?.close ?? scanStock?.price ?? scanStock?.close ?? "NOT_PROVIDED"}`);
@@ -68,6 +71,7 @@ export function buildEvidenceEnginePromptBlock(toolResults: ToolResult[]): strin
         lines.push(`  - resistance: ${lvlData?.resistance ?? "NOT_PROVIDED"}`);
 
         lines.push(`DERIVED_FLAGS:`);
+        lines.push(`  - otc_market_status: ${otc ? "OTC_MARKET (سهم خارج المقصورة / سوق الأوامر)" : "MAIN_MARKET"}`);
         const rsiVal = Number(stockData?.rsi_14 ?? scanStock?.rsi_14);
         if (Number.isFinite(rsiVal)) {
             lines.push(`  - rsi_status: ${rsiVal >= 70 ? "OVERBOUGHT (تشبع شرائي)" : rsiVal >= 50 ? "BULLISH_MOMENTUM (زخم صاعد)" : rsiVal <= 30 ? "OVERSOLD (تشبع بيعي)" : "NEUTRAL (محايد)"}`);
@@ -95,6 +99,7 @@ export function buildEvidenceEnginePromptBlock(toolResults: ToolResult[]): strin
     lines.push("2a. ⛔ NEVER classify volume as 'سيولة توزيعية' or 'إشارة تصريف' unless distribution_score or wyckoff_phase is explicitly positive in AVAILABLE_EVIDENCE.");
     lines.push("2b. ⛔ NEVER classify volume as 'سيولة تجميعية' or 'إشارة تجميع' unless accumulation_score or wyckoff_phase is explicitly positive in AVAILABLE_EVIDENCE.");
     lines.push("3. ⛔ Only state facts and conclusions directly supported by the FACTS, DERIVED_FLAGS, and AVAILABLE_EVIDENCE above.");
+    lines.push("4. 💡 If a stock is flagged as OTC_MARKET (سهم خارج المقصورة / سوق الأوامر) and missing live technical data, YOU MUST explicitly state that the stock trades OTC (خارج المقصورة / سوق الأوامر) which explains why daily automated technical data / support-resistance levels are unavailable.");
 
     lines.push("=== END STRICT EVIDENCE CONTEXT ===");
     return lines.join("\n");
