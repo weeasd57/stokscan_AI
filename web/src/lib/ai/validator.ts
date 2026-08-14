@@ -104,8 +104,9 @@ export function buildFactsBySymbol(toolResults: any[]): Record<string, any> {
             if (data.change_pct != null) factsBySymbol[s].change_pct = parseFloat(String(data.change_pct).replace(/[%+]/g, ""));
             if (data.rsi_14 != null) factsBySymbol[s].rsi = Number(data.rsi_14);
             if (data.rsi != null) factsBySymbol[s].rsi = Number(data.rsi);
-            if (data.macd_signal != null) factsBySymbol[s].macd = Number(data.macd_signal);
             if (data.macd != null) factsBySymbol[s].macd = Number(data.macd);
+            if (data.macd_signal != null) factsBySymbol[s].macd_signal = Number(data.macd_signal);
+
             if (data.vol_ratio != null) factsBySymbol[s].vol_ratio = Number(data.vol_ratio);
             if (data.volRatio != null) factsBySymbol[s].vol_ratio = Number(data.volRatio);
             if (data.support != null) factsBySymbol[s].support = Number(data.support);
@@ -280,6 +281,19 @@ export function validateDeterministicRules(
 
         const isSuggestionSentence = /(مستهدف|هدف|حد بيع|حد شراء|حد أمان|حد امان|تقريباً|تقريبا|≈|حوالي|حوالى|قبيل|بسعر|بحد|كسعر|كدعم|كمقاومة|التالي|التالية|المقبل|المقبلة|الثاني|الثانية|ثاني|ثانية)/i.test(sentence);
         if (isSuggestionSentence) continue;
+
+        // EVIDENCE VERIFIER CHECK 1: MACD Signal Line unproven assertion
+        if (/(?:خط الإشارة|خط الاشارة|signal line|فوق خط|تحت خط)/i.test(sentence) && facts.macd_signal == null) {
+            errors.push(`إسناد غير مثبت لخط الإشارة لسهم ${activeSymbol}: macd_signal غير ممررة في البيانات.`);
+        }
+
+        // EVIDENCE VERIFIER CHECK 2: Unproven Distribution / Accumulation assertion
+        const claimsDistribution = /(?:سيول[ةه]\s*توزيعية|إشار[ةه]\s*تصريف|مرحل[ةه]\s*تصريف|سيولة توزيعية)/i.test(sentence);
+        const hasDistEvidence = toolResults.some(r => (r.tool === "get_distribution_stocks" || r.tool === "get_accumulation_stocks") && Array.isArray(r.data?.stocks) && r.data.stocks.some((st: any) => String(st.symbol).toUpperCase() === activeSymbol?.toUpperCase() && Number(st.dist_score) > 0));
+        if (claimsDistribution && !hasDistEvidence) {
+            errors.push(`ادعاء سيولة توزيعية غير مثبت بدليل لسهم ${activeSymbol}: لا تتوفر بيانات مسح Wyckoff/تصريف صريحة.`);
+        }
+
 
         const claims = extractSentenceClaims(sentence, activeSymbol, facts);
 
