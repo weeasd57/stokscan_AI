@@ -1264,7 +1264,7 @@ while (attempts < maxAttempts) {
             validation.deterministicErrors.forEach(err => {
                 correctionPrompt += `  * ${err}\n`;
             });
-            correctionPrompt += `التزم حرفياً بالقيم المعطاة في البيانات فقط!\n`;
+            correctionPrompt += `يمنع تماماً الاستنتاج الضمني (Implicit Inference) لأي زخم أو مرحلة تداول إلا بوجود الدليل الصريح. التزم حرفياً بالقيم المعطاة في البيانات فقط!\n`;
         }
         if (validation.hasRepetitions) {
             correctionPrompt += `- لقد قمت بتكرار نفس العبارات أو الجمل بشكل متكرر غير طبيعي. أعد صياغة الرد بلغة عربية سلسلة ومتنوعة وبدون تكرار أي عبارة أو سطر.\n`;

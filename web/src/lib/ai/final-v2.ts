@@ -96,8 +96,9 @@ export function buildEvidenceEnginePromptBlock(toolResults: ToolResult[]): strin
 
     lines.push("\nSTRICT BOUNDARIES FOR MODEL:");
     lines.push("1. ⛔ NEVER claim 'فوق خط الإشارة' or 'تحت خط الإشارة' if macd_signal is NOT_PROVIDED or UNKNOWN.");
-    lines.push("2a. ⛔ NEVER classify volume as 'سيولة توزيعية' or 'إشارة تصريف' unless distribution_score or wyckoff_phase is explicitly positive in AVAILABLE_EVIDENCE.");
-    lines.push("2b. ⛔ NEVER classify volume as 'سيولة تجميعية' or 'إشارة تجميع' unless accumulation_score or wyckoff_phase is explicitly positive in AVAILABLE_EVIDENCE.");
+    lines.push("2. ⛔ NEVER classify volume as 'سيولة توزيعية' or 'إشارة تصريف' unless distribution_score or wyckoff_phase is explicitly positive in AVAILABLE_EVIDENCE.");
+    lines.push("3. ⛔ NEVER classify volume as 'سيولة تجميعية' or 'إشارة تجميع' unless accumulation_score or wyckoff_phase is explicitly positive in AVAILABLE_EVIDENCE.");
+    lines.push("4. ⛔ NEVER make implicit inferences or suggest directional momentum (e.g., 'ضغط بيعي', 'نشاط شرائي') based purely on volume/RSI if the wyckoff_phase or direction is NOT_PROVIDED.");
     lines.push("3. ⛔ Only state facts and conclusions directly supported by the FACTS, DERIVED_FLAGS, and AVAILABLE_EVIDENCE above.");
     lines.push("4. 💡 If a stock is flagged as OTC_MARKET (سهم خارج المقصورة / سوق الأوامر) and missing live technical data, YOU MUST explicitly state that the stock trades OTC (خارج المقصورة / سوق الأوامر) which explains why daily automated technical data / support-resistance levels are unavailable.");
 

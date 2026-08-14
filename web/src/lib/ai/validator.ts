@@ -288,37 +288,18 @@ export function validateDeterministicRules(
         }
 
         // EVIDENCE VERIFIER CHECK 2: Unproven Distribution assertion
-        const claimsDistribution = /(?:سيول[ةه]\s*توزيعية|إشار[ةه]\s*تصريف|مرحل[ةه]\s*تصريف|سيولة توزيعية)/i.test(sentence);
-        const hasDistEvidence = toolResults.some(r => {
-            if (!Array.isArray(r.data?.stocks)) return false;
-            return r.data.stocks.some((st: any) => {
-                const symMatch = String(st.symbol).toUpperCase() === activeSymbol?.toUpperCase();
-                const scoreOk = Number(st.dist_score) > 0;
-                const phaseOk = String(st.wyckoff_phase || "").toLowerCase().includes("distribution");
-                const signalOk = String(st.signal || "").toLowerCase().includes("distribution");
-                return symMatch && (scoreOk || phaseOk || signalOk);
-            });
-        });
+        const claimsDistribution = /(?:سيول[ةه]\s*توزيعية|إشار[ةه]\s*تصريف|مرحل[ةه]\s*تصريف|سيولة توزيعية|ضغط بيعي)/i.test(sentence);
+        const hasDistEvidence = toolResults.some(r => (r.tool === "get_distribution_stocks" || r.tool === "get_accumulation_stocks") && Array.isArray(r.data?.stocks) && r.data.stocks.some((st: any) => String(st.symbol).toUpperCase() === activeSymbol?.toUpperCase() && (Number(st.dist_score) > 0 || String(st.wyckoff_phase).toLowerCase().includes("dist") || String(st.wyckoff_phase).toLowerCase().includes("mark"))));
         if (claimsDistribution && !hasDistEvidence) {
             errors.push(`ادعاء سيولة توزيعية غير مثبت بدليل لسهم ${activeSymbol}: لا تتوفر بيانات مسح Wyckoff/تصريف صريحة.`);
         }
 
         // EVIDENCE VERIFIER CHECK 3: Unproven Accumulation assertion
-        const claimsAccumulation = /(?:سيول[ةه]\s*تجميعية|إشار[ةه]\s*تجميع|مرحل[ةه]\s*تجميع|سيولة تجميعية)/i.test(sentence);
-        const hasAccEvidence = toolResults.some(r => {
-            if (!Array.isArray(r.data?.stocks)) return false;
-            return r.data.stocks.some((st: any) => {
-                const symMatch = String(st.symbol).toUpperCase() === activeSymbol?.toUpperCase();
-                const scoreOk = Number(st.acc_score) > 0;
-                const phaseOk = String(st.wyckoff_phase || "").toLowerCase().includes("accumulation");
-                const signalOk = String(st.signal || "").toLowerCase().includes("accumulation");
-                return symMatch && (scoreOk || phaseOk || signalOk);
-            });
-        });
+        const claimsAccumulation = /(?:سيول[ةه]\s*تجميعية|إشار[ةه]\s*تجميع|مرحل[ةه]\s*تجميع|سيولة تجميعية|نشاط شرائي)/i.test(sentence);
+        const hasAccEvidence = toolResults.some(r => (r.tool === "get_accumulation_stocks" || r.tool === "get_distribution_stocks") && Array.isArray(r.data?.stocks) && r.data.stocks.some((st: any) => String(st.symbol).toUpperCase() === activeSymbol?.toUpperCase() && (Number(st.acc_score) > 0 || String(st.wyckoff_phase).toLowerCase().includes("acc"))));
         if (claimsAccumulation && !hasAccEvidence) {
             errors.push(`ادعاء سيولة تجميعية غير مثبت بدليل لسهم ${activeSymbol}: لا تتوفر بيانات مسح Wyckoff/تجميع صريحة.`);
         }
-
 
 
         const claims = extractSentenceClaims(sentence, activeSymbol, facts);
@@ -406,6 +387,22 @@ export function autoFixNumbers(replyText: string, toolResults: any[]): string {
                 }
                 return match;
             });
+            
+            // P1: Fix derived percentage from support
+            if (facts.support != null && Number.isFinite(facts.support)) {
+                const support = Number(facts.support);
+                if (support > 0 && price > support) {
+                    const derivedPct = ((price - support) / support * 100);
+                    const strictPctPattern = new RegExp(`((?:ارتفع|صعد|يبتعد|بنسبة|نحو)\\s+(?:حوالي|نحو|بمقدار)?\\s*)([0-9]+(?:\\.[0-9]+)?)(?=\\s*(?:%|بالمائة))`, "gi");
+                    fixed = fixed.replace(strictPctPattern, (match, prefix, valStr) => {
+                        const val = parseFloat(valStr);
+                        if (Math.abs(val - derivedPct) > 0 && Math.abs(val - derivedPct) <= 2.5) {
+                            return `${prefix}${derivedPct.toFixed(2)}`;
+                        }
+                        return match;
+                    });
+                }
+            }
         }
     }
     return fixed;
