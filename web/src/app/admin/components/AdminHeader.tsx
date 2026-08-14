@@ -1,10 +1,10 @@
 "use client";
 
-import { Brain, Database, Bot, LineChart, History, Calendar, Sparkles, Clock, Users, BookOpen, MessageSquare, Send, FlaskConical } from "lucide-react";
+import { Brain, Database, Bot, LineChart, History, Calendar, Sparkles, Clock, Users, BookOpen, MessageSquare, Send } from "lucide-react";
 
 interface AdminHeaderProps {
-    activeMainTab: "data" | "ai" | "backtest" | "bot" | "schedule" | "similarity" | "jobs" | "users" | "articles" | "support" | "evaluation";
-    setActiveMainTab: (tab: "data" | "ai" | "backtest" | "bot" | "schedule" | "similarity" | "jobs" | "users" | "articles" | "support" | "evaluation") => void;
+    activeMainTab: "data" | "ai" | "backtest" | "bot" | "schedule" | "similarity" | "jobs" | "users" | "articles" | "support";
+    setActiveMainTab: (tab: "data" | "ai" | "backtest" | "bot" | "schedule" | "similarity" | "jobs" | "users" | "articles" | "support") => void;
 }
 
 export default function AdminHeader({ activeMainTab, setActiveMainTab }: AdminHeaderProps) {
@@ -19,7 +19,6 @@ export default function AdminHeader({ activeMainTab, setActiveMainTab }: AdminHe
         { id: "users", label: "USERS", icon: Users, color: "blue" },
         { id: "articles", label: "ARTICLES", icon: BookOpen, color: "teal" },
         { id: "support", label: "SUPPORT & AI", icon: MessageSquare, color: "pink" },
-        { id: "evaluation", label: "EVALUATION", icon: FlaskConical, color: "red" },
     ] as const;
 
     const getTabColorClasses = (color: string, isActive: boolean) => {

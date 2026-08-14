@@ -30,7 +30,7 @@ export interface PipelineResult {
 }
 
 export function sanitizePlannerTools(message: string, tools: string[]): string[] {
-    const explicitlyRequestsRecommendations = /توصيات|توصيه|توصية|اشارات النظام|إشارات النظام|سجل التوصيات|اقدم توصيه|أقدم توصية|مناسبة للدخول|للدخول فيها|مرشحة|أسهم مرشحة|اسهم كويسة|فرص دخول|للشراء/i.test(message);
+    const explicitlyRequestsRecommendations = isBestBuyStockQuestion(message) || /(?:توصيات|توصيه|توصية|اشارات|إشارات|سجل التوصيات|اقدم توصيه|أقدم توصية|مناسبة للدخول|للدخول فيها|مرشحة|أسهم مرشحة|اسهم كويسة|فرص دخول|للشراء|ترشح|ترشيحات|اشتريها|اشتري|ادخل فيها|تحقق ارباح|تحقق أرباح|فرص شراء|فرص الاستثمار)/i.test(message);
     if (explicitlyRequestsRecommendations) return tools;
     return tools.filter(tool => tool !== "get_recommendations" && tool !== "get_signals");
 }
@@ -122,8 +122,10 @@ function mergeVisionSymbols(planSymbols: string[], vision: VisionContext | null)
 
 export function extractExplicitSymbols(message: string): string[] {
     // These are product/platform labels frequently used in Arabic investor questions,
-    // not EGX ticker symbols. Treating them as stocks creates empty comparisons.
-    const excluded = new Set(["EGX", "NEWS", "TODAY", "LAST", "WEEK", "FROM", "BETWEEN", "RSI", "MACD", "VWAP", "CLOUD", "THNDR", "ALSH"]);
+    const excluded = new Set([
+        "EGX", "NEWS", "TODAY", "LAST", "WEEK", "FROM", "BETWEEN", "RSI", "MACD", "VWAP", "CLOUD", "THNDR", "ALSH",
+        "OTC", "BUY", "SELL", "HOLD", "USD", "EGP", "EPS", "ROE", "ROA", "ROI", "NAV", "GDP", "CBE", "FRA", "IPO", "API", "AI"
+    ]);
     const latinTokens = message.match(/\b[A-Za-z][A-Za-z0-9]{1,9}\b/g) || [];
     
     let matchedSymbols = [...latinTokens];
@@ -1124,9 +1126,7 @@ export async function* runPipelineStream(
     let liveDataString = "";
     if (Array.isArray(tools.results)) {
         tools.results.forEach(r => {
-            if (r.data_type !== "historical") {
-                liveDataString += `\nالأداة: ${r.tool} | البيانات: ${JSON.stringify(r.data)}`;
-            }
+            liveDataString += `\nالأداة: ${r.tool} | البيانات: ${JSON.stringify(r.data)}`;
         });
     }
 
@@ -1398,7 +1398,8 @@ import { ToolResult } from "./types";
             if (r.tool === "get_recommendations" && Array.isArray(r.data)) {
                 lines.push(`📈 **الصفقات والتوصيات النشطة:**`);
                 r.data.slice(0, 5).forEach((rec: any) => {
-                    lines.push(`  • ${rec.symbol}: دخول ${rec.entry_price}، هدف ${rec.target_price}، وقف ${rec.stop_loss} (العائد الحالي: ${rec.return_pct}%)`);
+                    const returnStr = rec.return_pct != null ? `${Number(rec.return_pct) >= 0 ? "+" : ""}${Number(rec.return_pct).toFixed(2)}%` : "غير متاح";
+                    lines.push(`  • ${rec.symbol}: دخول ${rec.entry_price}، هدف ${rec.target_price}، وقف ${rec.stop_loss} (العائد الحالي: ${returnStr})`);
                 });
                 lines.push("");
             }

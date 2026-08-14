@@ -1006,7 +1006,7 @@ export async function executeStructuredTools(
                     const target = Number(row.target_price);
                     const stop = Number(row.stop_loss);
                     const signal = String(row.signal || "").toUpperCase();
-                    const quality = oldestRequest ? { ok: Boolean(row.created_at), reason: row.created_at ? null : "missing_date" } : dataDateQuality(row.created_at, 30);
+                    const quality = oldestRequest ? { ok: Boolean(row.created_at), reason: row.created_at ? null : "missing_date" } : dataDateQuality(row.created_at, 365);
                     const levelsValid = signal === "BUY"
                         ? Number.isFinite(entry) && Number.isFinite(target) && Number.isFinite(stop) && target > entry
                         : signal === "SELL"

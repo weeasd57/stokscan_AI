@@ -40,10 +40,14 @@ export interface ValidationResult {
     };
 }
 
-// Common technical terms that should not be flagged as stock symbols
+// Common technical and market acronyms that should not be flagged as stock symbols
 const TECHNICAL_EXCLUSIONS = new Set([
     "RSI", "MACD", "OBV", "ADX", "EMA", "SMA", "EGX", "EGX30", "EGX70", "EGX100", 
-    "BUY", "SELL", "HOLD", "USD", "EGP", "API", "AI", "Wyckoff", "Volume", "EPS"
+    "BUY", "SELL", "HOLD", "USD", "EGP", "API", "AI", "Wyckoff", "Volume", "EPS",
+    "OTC", "PE", "PER", "PB", "PBV", "ROE", "ROA", "ROI", "NAV", "GDP", "CBE", "FRA",
+    "IPO", "MFI", "ATR", "VWAP", "STOCH", "BB", "CCI", "SAR", "PGRST", "HTTP", "HTTPS",
+    "URL", "HTML", "PDF", "FAQ", "JSON", "UTC", "GMT", "AM", "PM", "APP", "BOT", "BOTS",
+    "CHAT", "LIVE", "DATA", "FREE", "PRO", "PLUS", "VIP", "MAX", "MIN", "SMA20", "SMA50", "SMA200"
 ]);
 
 // Numbers that represent valid universal time units, day numbers, or standard market parameters
@@ -288,16 +292,16 @@ export function validateDeterministicRules(
             errors.push(`إسناد غير مثبت لخط الإشارة لسهم ${activeSymbol}: macd_signal غير ممررة في البيانات.`);
         }
 
-        // EVIDENCE VERIFIER CHECK 2: Unproven Distribution assertion
-        const claimsDistribution = /(?:سيول[ةه]\s*توزيعية|إشار[ةه]\s*تصريف|مرحل[ةه]\s*تصريف|سيولة توزيعية|ضغط بيعي)/i.test(sentence);
-        const hasDistEvidence = toolResults.some(r => (r.tool === "get_distribution_stocks" || r.tool === "get_accumulation_stocks") && Array.isArray(r.data?.stocks) && r.data.stocks.some((st: any) => String(st.symbol).toUpperCase() === activeSymbol?.toUpperCase() && (Number(st.dist_score) > 0 || String(st.wyckoff_phase).toLowerCase().includes("dist") || String(st.wyckoff_phase).toLowerCase().includes("mark"))));
+        // EVIDENCE VERIFIER CHECK 2: Unproven Wyckoff Distribution assertion
+        const claimsDistribution = /(?:مرحل[ةه]\s*تصريف|إشار[ةه]\s*تصريف|سيول[ةه]\s*توزيعية)/i.test(sentence);
+        const hasDistEvidence = (facts.dist_score != null && Number(facts.dist_score) > 0) || toolResults.some(r => (r.tool === "get_distribution_stocks" || r.tool === "get_accumulation_stocks") && Array.isArray(r.data?.stocks) && r.data.stocks.some((st: any) => String(st.symbol).toUpperCase() === activeSymbol?.toUpperCase() && (Number(st.dist_score) > 0 || String(st.wyckoff_phase).toLowerCase().includes("dist") || String(st.wyckoff_phase).toLowerCase().includes("mark"))));
         if (claimsDistribution && !hasDistEvidence) {
             errors.push(`ادعاء سيولة توزيعية غير مثبت بدليل لسهم ${activeSymbol}: لا تتوفر بيانات مسح Wyckoff/تصريف صريحة.`);
         }
 
-        // EVIDENCE VERIFIER CHECK 3: Unproven Accumulation assertion
-        const claimsAccumulation = /(?:سيول[ةه]\s*تجميعية|إشار[ةه]\s*تجميع|مرحل[ةه]\s*تجميع|سيولة تجميعية|نشاط شرائي)/i.test(sentence);
-        const hasAccEvidence = toolResults.some(r => (r.tool === "get_accumulation_stocks" || r.tool === "get_distribution_stocks") && Array.isArray(r.data?.stocks) && r.data.stocks.some((st: any) => String(st.symbol).toUpperCase() === activeSymbol?.toUpperCase() && (Number(st.acc_score) > 0 || String(st.wyckoff_phase).toLowerCase().includes("acc"))));
+        // EVIDENCE VERIFIER CHECK 3: Unproven Wyckoff Accumulation assertion
+        const claimsAccumulation = /(?:مرحل[ةه]\s*تجميع|إشار[ةه]\s*تجميع|سيول[ةه]\s*تجميعية)/i.test(sentence);
+        const hasAccEvidence = (facts.acc_score != null && Number(facts.acc_score) > 0) || toolResults.some(r => (r.tool === "get_accumulation_stocks" || r.tool === "get_distribution_stocks") && Array.isArray(r.data?.stocks) && r.data.stocks.some((st: any) => String(st.symbol).toUpperCase() === activeSymbol?.toUpperCase() && (Number(st.acc_score) > 0 || String(st.wyckoff_phase).toLowerCase().includes("acc"))));
         if (claimsAccumulation && !hasAccEvidence) {
             errors.push(`ادعاء سيولة تجميعية غير مثبت بدليل لسهم ${activeSymbol}: لا تتوفر بيانات مسح Wyckoff/تجميع صريحة.`);
         }

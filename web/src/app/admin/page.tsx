@@ -24,7 +24,6 @@ import UsersTab from "./components/UsersTab";
 import ArticlesTab from "./components/ArticlesTab";
 import SupportTab from "./components/SupportTab";
 import AIChatbotTab from "./components/AIChatbotTab";
-import { AIEvaluationTab } from "./components/AIEvaluationTab";
 
 const SESSION_KEY = "admin_unlocked_v1";
 
@@ -51,7 +50,7 @@ export default function AdminPage() {
     const [symbolsQuery, setSymbolsQuery] = useState("");
     const [currentPage, setCurrentPage] = useState(1);
     const [pageSize, setPageSize] = useState(100);
-    const [activeMainTab, setActiveMainTab] = useState<"data" | "ai" | "backtest" | "bot" | "schedule" | "similarity" | "jobs" | "users" | "articles" | "support" | "evaluation">("data");
+    const [activeMainTab, setActiveMainTab] = useState<"data" | "ai" | "backtest" | "bot" | "schedule" | "similarity" | "jobs" | "users" | "articles" | "support">("data");
     const [dataSourcesTab, setDataSourcesTab] = useState<"prices" | "funds">("prices");
     const [selectedSymbols, setSelectedSymbols] = useState<Set<string>>(new Set());
     const [processing, setProcessing] = useState(false);
@@ -566,10 +565,6 @@ export default function AdminPage() {
                     <ArticlesTab />
                 ) : activeMainTab === "support" ? (
                     <AIChatbotTab />
-                ) : activeMainTab === "evaluation" ? (
-                    <div className="p-4 md:p-6 w-full max-w-[1400px] mx-auto">
-                        <AIEvaluationTab />
-                    </div>
                 ) : (
                     <div className="flex items-center justify-center h-full text-zinc-500">
                         Select a tab to view content

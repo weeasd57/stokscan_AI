@@ -317,6 +317,9 @@ export function buildV2FinalMessages(
     sections.push("  1. قدّم تحليلاً شاملاً مستنداً إلى البيانات المتاحة (السعر الحالي، القيمة السوقية، ومستويات الدعم والمقاومة الحسابية).");
     sections.push("  2. وضح نطاق الحركة السعرية ومستويات القيمة العادلة الفنية بين الدعم والمقاومة والقيمة السوقية للشركة.");
     sections.push("  3. اجعل الإجابة مفسرة ومباشرة ترضي استفسار العميل.");
+    sections.push("- عندما يسأل المستخدم عن مستويات التصحيح أو الدعم (مثل: 'تصحيح لحد كام', 'الدعم فين', 'ممكن ينزل لكام', 'مستهدفات الهبوط'):");
+    sections.push("  1. أجب بشكل مباشر ومحدد بذكر مستويات الدعم الفنية المحسوبة من البيانات والمتوسطات المتحركة (SMA50, SMA200) كنقاط ارتداد ومستويات متوقعة للتصحيح.");
+    sections.push("  2. اذكر أرقام الدعم بوضوح ووضح المسافة المئوية بينها وبين السعر الحالي دون إعادة سرد نفس الفقرات السابقة.");
     sections.push("- عندما يسأل المستخدم عن قرار البيع أو الشراء أو الاحتفاظ بسهم معين، أو 'اشتري مين بكره' أو 'أفضلهم للشراء' (مقارنة أو سهم مفرد):");
     sections.push("  1. أجب مباشرة وبموجز شديد (3-4 أسطر فقط) محدداً السهم الأفضل فنياً مقارنة بالآخرين بناءً على المؤشرات الفعلية المتوفرة.");
     sections.push("  2. يمنع منعاً باتاً كتابة عناوين أو أقسام فرعية مثل 'إدارة المخاطر' أو 'سيناريو الارتداد' أو نصائح عامة عن السيولة.");
@@ -1217,6 +1220,12 @@ export function buildFastConversationalAdvisorResponse(
     const isSectorBuyQuery = /(أشتري|اشتري|ادخل|ترشح|أفضل|افضل|ايه).{0,25}(?:سهم|أسهم|فرصة|فرصه).{0,20}(?:القطاع|قطاع)/i.test(normMsg)
         || /(طيب|طب)?\s*(أشتري|اشتري|ادخل|أدخل)\s*(إيه|ايه|في\s+إيه|في\s+ايه)\s*من\s*(القطاع|قطاع)/i.test(normMsg);
     if ((isSectorBuyQuery || isBestBuyStockQuestion(userMessage)) && !hasSpecificSymbols) {
+        const recResult = toolResults.find(r => r.tool === "get_recommendations" || r.tool === "get_signals");
+        const recs = Array.isArray(recResult?.data) ? recResult.data : [];
+        if (recs.length > 0) {
+            return null;
+        }
+
         const sectorResult = toolResults.find(r => r.tool === "get_sector");
         const fairValueScan = toolResults.find(r => r.tool === "get_fair_value_scan");
         const liveStocks = toolResults
