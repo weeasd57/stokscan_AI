@@ -423,14 +423,35 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
             session_update: { current_symbol: allocationSymbols[0], last_symbols: allocationSymbols, summary: message }
         };
     }
+    const isAccumulationScan = /(?:تجميع|تجميعي|تجميعيه|accumulation)/i.test(normalized) && /(?:اسهم|الاسهم|قايمه|قائمة|هات|اعرض|فين|منطقة|منطقه|مؤسسي|مؤسسات|فرص|هل فيه|هل في)/i.test(normalized);
+    if (isAccumulationScan && explicitSymbols.length === 0) {
+        return {
+            intent: "accumulation_distribution",
+            confidence: 1,
+            entities: { symbols: [], sector: null, wants_table: true, timeframe: "current", requested_date: null, scan_direction: "accumulation" },
+            tools: ["get_accumulation_stocks"],
+            session_update: { current_symbol: null, last_symbols: sessionState.last_symbols, summary: message }
+        };
+    }
+    const isDistributionScan = /(?:تصريف|تصريفي|تصريفيه|distribution)/i.test(normalized) && /(?:اسهم|الاسهم|قايمه|قائمة|هات|اعرض|فين|منطقة|منطقه|مؤسسي|مؤسسات|فرص|هل فيه|هل في)/i.test(normalized);
+    if (isDistributionScan && explicitSymbols.length === 0) {
+        return {
+            intent: "accumulation_distribution",
+            confidence: 1,
+            entities: { symbols: [], sector: null, wants_table: true, timeframe: "current", requested_date: null, scan_direction: "distribution" },
+            tools: ["get_distribution_stocks"],
+            session_update: { current_symbol: null, last_symbols: sessionState.last_symbols, summary: message }
+        };
+    }
     const hasNamedStock = explicitSymbols.length > 0 || hasGroupReference || Boolean(sessionState.current_symbol);
     const guidance = isFairValueScanRequest(message) ? null : getInvestorGuidanceIntent(message, hasNamedStock);
     if (guidance) {
         const wantsAccumulation = /تجميع|accumulation/i.test(normalized);
         return {
-            intent: "general_chat",
+            intent: wantsAccumulation ? "accumulation_distribution" : "general_chat",
             confidence: 1,
-            entities: { symbols: [], sector: null, wants_table: false, timeframe: "current", requested_date: null, scan_direction: wantsAccumulation ? "accumulation" : null },
+            guidance_intent: wantsAccumulation ? null : guidance,
+            entities: { symbols: [], sector: null, wants_table: wantsAccumulation, timeframe: "current", requested_date: null, scan_direction: wantsAccumulation ? "accumulation" : null },
             tools: wantsAccumulation ? ["get_accumulation_stocks"] : [],
             session_update: {
                 current_symbol: null,
@@ -991,7 +1012,8 @@ export async function* runPipelineStream(
     }
     const requestedRange = extractRequestedDateRange(userMessage);
     let guidanceIntent = plannerResult.guidance_intent || getInvestorGuidanceIntent(userMessage, mergedSymbols.length > 0);
-    if ((mergedSymbols.length > 0 && guidanceIntent !== "product_comparison") || plannedTools.includes("get_price_history")) {
+    const dataScanTools = new Set(["get_price_history", "get_accumulation_stocks", "get_distribution_stocks", "get_fair_value_scan", "get_recommendations", "get_sector_liquidity"]);
+    if ((mergedSymbols.length > 0 && guidanceIntent !== "product_comparison") || plannedTools.some(t => dataScanTools.has(t))) {
         guidanceIntent = null;
     }
     const excludedSectors = extractExcludedSectors(userMessage);
