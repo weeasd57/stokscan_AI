@@ -489,10 +489,16 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
             session_update: { current_symbol: null, last_symbols: sessionState.last_symbols, summary: message }
         };
     }
-    const isYtdMarketRequest = /(?:من\s+(?:اول|أول|بداية|بدايه)\s+السنه|من\s+(?:اول|أول|بداية|بدايه)\s+السنة|من\s+يناير|خلال\s+العام|منذ\s+بداية\s+العام|منذ\s+بدايه\s+العام|ytd|year\s*to\s*date|هذا\s+العام|العام\s+الحالي|السنه\s+(?:دي|ده|دا))/i.test(normalized);
-    const isMtdMarketRequest = /(?:من\s+(?:اول|أول|بداية|بدايه)\s+الشهر|من\s+(?:اول|أول|بداية|بدايه)\s+الشهر|خلال\s+الشهر|منذ\s+بداية\s+الشهر|منذ\s+بدايه\s+الشهر|mtd|month\s*to\s*date|الشهر\s+ده|الشهر\s+دا|الشهر\s+الحالي|هذا\s+الشهر|الشهر\s+دي)/i.test(normalized);
-    const isWtdMarketRequest = /(?:من\s+(?:اول|أول|بداية|بدايه)\s+الاسبوع|من\s+(?:اول|أول|بداية|بدايه)\s+الاسبوع|خلال\s+الاسبوع|منذ\s+بداية\s+الاسبوع|منذ\s+بدايه\s+الاسبوع|wtd|week\s*to\s*date|الاسبوع\s+ده|الاسبوع\s+دا|الاسبوع\s+الحالي|هذا\s+الاسبوع|الاسبوع\s+دي)/i.test(normalized);
-    const isPeriodRankingRequest = isYtdMarketRequest || isMtdMarketRequest || isWtdMarketRequest || /(?:اعلي|أعلى|افضل|أفضل|اقل|أقل|ارخص|أرخص|ادنى|أدنى|بافضل|بأفضل|بافل|بأفل|بأعلى|باعلى|قايمه|قائمة|ترتيب).{0,35}(?:ارباح|أرباح|ارتفاع|صعود|اداء|أداء|عائد|سيول|تداول|حجم).{0,35}(?:اول|أول|بداية|بدايه|خلال|منذ).{0,20}(?:السنه|السنة|الشهر|الاسبوع|يناير|ytd|mtd|wtd)/i.test(normalized);
+    const isYtdMarketRequest = /(?:من\s+(?:اول|أول|بداية|بدايه)\s+السنه|من\s+(?:اول|أول|بداية|بدايه)\s+السنة|من\s+يناير|خلال\s+العام|منذ\s+بداية\s+العام|منذ\s+بدايه\s+العام|ytd|year\s*to\s*date|هذا\s+العام|العام\s+الحالي|السنه\s+(?:دي|ده|دا)|ف[يى]\s+(?:العام|السنه|السنة)|(?:العام|السنه)\s+(?:الماضي|الاخير|الفايت|الفائت))/i.test(normalized);
+    const isMtdMarketRequest = /(?:من\s+(?:اول|أول|بداية|بدايه)\s+الشهر|من\s+(?:اول|أول|بداية|بدايه)\s+الشهر|خلال\s+الشهر|منذ\s+بداية\s+الشهر|منذ\s+بدايه\s+الشهر|mtd|month\s*to\s*date|الشهر\s+ده|الشهر\s+دا|الشهر\s+الحالي|هذا\s+الشهر|الشهر\s+دي|ف[يى]\s+الشهر|الشهر\s+(?:الماضي|الاخير|الفايت|الفائت))/i.test(normalized);
+    const isWtdMarketRequest = /(?:من\s+(?:اول|أول|بداية|بدايه)\s+الاسبوع|من\s+(?:اول|أول|بداية|بدايه)\s+الاسبوع|خلال\s+الاسبوع|منذ\s+بداية\s+الاسبوع|منذ\s+بدايه\s+الاسبوع|wtd|week\s*to\s*date|الاسبوع\s+ده|الاسبوع\s+دا|الاسبوع\s+الحالي|هذا\s+الاسبوع|الاسبوع\s+دي|ف[يى]\s+الاسبوع|الاسبوع\s+(?:الماضي|الاخير|الفايت|الفائت))/i.test(normalized);
+    // A temporal phrase alone ("سهم كورا فى الاسبوع") must not hijack a stock question
+    // into a market ranking — a superlative/list/count hint must also be present.
+    const hasMarketListHint = /(?:اعلي|أعلى|اقوي|اقوى|افضل|أفضل|اقل|أقل|ارخص|أرخص|ادنى|أدنى|ترتيب|مرتب|قايمه|قائمه|قائمة|top)/i.test(normalized)
+        || /(?:^|[\s،,])\d{1,2}\s*(?:سهم|سمهم|أسهم|اسهم)/i.test(normalized);
+    const isPeriodRankingRequest = explicitSymbols.length === 0
+        && hasMarketListHint
+        && (isYtdMarketRequest || isMtdMarketRequest || isWtdMarketRequest || /(?:اعلي|أعلى|افضل|أفضل|اقل|أقل|ارخص|أرخص|ادنى|أدنى|بافضل|بأفضل|بافل|بأفل|بأعلى|باعلى|قايمه|قائمة|ترتيب).{0,35}(?:ارباح|أرباح|ارتفاع|صعود|اداء|أداء|عائد|سيول|تداول|حجم|ربح|أرباح).{0,35}(?:اول|أول|بداية|بدايه|خلال|منذ).{0,20}(?:السنه|السنة|الشهر|الاسبوع|يناير|ytd|mtd|wtd)/i.test(normalized));
     if (isPeriodRankingRequest) {
         return {
             intent: "market_summary",
@@ -768,8 +774,10 @@ export function enforceIntentFromMessage(message: string, plannerIntent: string,
     if (/(ابيع|بيع|احتفظ|اخرج|اشتري|شراء)/i.test(normalized) && hasSymbol) return { intent: "stock_analysis", tools: ["get_stock", "get_stock_levels"], replaceTools: true };
     if (/(ينصح|داخل|دخول|مستهدف|يصحح|تصحيح|بكره|بكرة|اخر الاسبوع|المحفظه|مليون)/i.test(normalized) && hasSymbol) return { intent: "stock_analysis", tools: ["get_stock", "get_stock_levels"], replaceTools: true };
     if (symbols.length >= 2 && hasSymbol && !/(اخبار|خبر|قارن|مقارن|قطاع|تجميع|تصريف)/i.test(normalized)) return { intent: "stock_analysis", tools: ["get_stock", "get_stock_levels"], replaceTools: true };
-    const isPeriodRanking = /(?:من\s+(?:اول|أول|بداية|بدايه)\s+(?:السنه|السنة|الشهر|الاسبوع|اسبوع)|من\s+يناير|خلال\s+(?:العام|الشهر|الاسبوع)|منذ\s+بداية\s+(?:العام|الشهر|الاسبوع)|ytd|mtd|wtd|الشهر\s+ده|الشهر\s+دا|الشهر\s+الحالي|هذا\s+الشهر|الاسبوع\s+ده|الاسبوع\s+دا|الاسبوع\s+الحالي|هذا\s+الاسبوع|هذا\s+العام)/i.test(normalized)
-        || /(?:اعلي|أعلى|افضل|أفضل|اقل|أقل|ارخص|أرخص|ادنى|أدنى|بافضل|بأفضل|بافل|بأفل|بأعلى|باعلى|قايمه|قائمة|ترتيب).{0,35}(?:ارباح|أرباح|ارتفاع|صعود|اداء|أداء|عائد|سيول|تداول|حجم).{0,35}(?:اول|أول|بداية|بدايه|خلال|منذ).{0,20}(?:السنه|السنة|الشهر|الاسبوع|يناير|ytd|mtd|wtd)/i.test(normalized);
+    const marketListHintEnforce = /(?:اعلي|أعلى|اقوي|اقوى|افضل|أفضل|اقل|أقل|ارخص|أرخص|ادنى|أدنى|ترتيب|مرتب|قايمه|قائمه|قائمة|top)/i.test(normalized)
+        || /(?:^|[\s،,])\d{1,2}\s*(?:سهم|سمهم|أسهم|اسهم)/i.test(normalized);
+    const isPeriodRanking = !hasSymbol && marketListHintEnforce && (/(?:من\s+(?:اول|أول|بداية|بدايه)\s+(?:السنه|السنة|الشهر|الاسبوع|اسبوع)|من\s+يناير|خلال\s+(?:العام|الشهر|الاسبوع)|منذ\s+بداية\s+(?:العام|الشهر|الاسبوع)|ytd|mtd|wtd|الشهر\s+ده|الشهر\s+دا|الشهر\s+الحالي|هذا\s+الشهر|الاسبوع\s+ده|الاسبوع\s+دا|الاسبوع\s+الحالي|هذا\s+الاسبوع|هذا\s+العام|ف[يى]\s+(?:الاسبوع|الشهر|العام|السنه)|(?:الاسبوع|الشهر|العام|السنه)\s+(?:الماضي|الاخير|الفايت|الفائت))/i.test(normalized)
+        || /(?:اعلي|أعلى|افضل|أفضل|اقل|أقل|ارخص|أرخص|ادنى|أدنى|بافضل|بأفضل|بافل|بأفل|بأعلى|باعلى|قايمه|قائمة|ترتيب).{0,35}(?:ارباح|أرباح|ارتفاع|صعود|اداء|أداء|عائد|سيول|تداول|حجم|ربح).{0,35}(?:اول|أول|بداية|بدايه|خلال|منذ).{0,20}(?:السنه|السنة|الشهر|الاسبوع|يناير|ytd|mtd|wtd)/i.test(normalized));
     if (isPeriodRanking) {
         return { intent: "market_summary", tools: ["get_price_history"], replaceTools: true };
     }
