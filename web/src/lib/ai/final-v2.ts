@@ -726,6 +726,12 @@ export function buildDeterministicNewsResponse(
     toolResults: ToolResult[]
 ): string | null {
     const normMsg = userMessage.toLowerCase().replace(/[أإآ]/g, "ا").replace(/ة/g, "ه");
+    // Compound requests ("سعر راميدا كام واخبار كومي ايه") must reach the LLM with all
+    // tool data — this news-only template would hide the price half of the question.
+    const compoundSplit = userMessage
+        .split(/\s+و?(?=(?:هات|جيب|اعرض|حلل|شوف|قارن|مين|ايه|إيه|اخبار|أخبار|سعر|ترتيب|قايمه|قائمة)(?:\s|$))/i)
+        .filter(Boolean);
+    if (compoundSplit.length > 1) return null;
     const asksForNews = /(?:اخبار|أخبار|خبر(?!ه)|عناوين|news)/i.test(normMsg);
     if (!asksForNews) return null;
 
