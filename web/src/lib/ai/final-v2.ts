@@ -840,9 +840,10 @@ export function buildYtdMarketRankingResponse(
     const ranking = ytdResult.data.market_period_ranking || ytdResult.data.market_ytd_ranking;
     if (!ranking || ranking.length === 0) return null;
 
-    const isMtd = ytdResult.data.period_type === "MTD" || /(?:شهر|mtd)/i.test(userMessage);
+    const isWtd = ytdResult.data.period_type === "WTD" || /(?:اسبوع|wtd)/i.test(userMessage);
+    const isMtd = !isWtd && (ytdResult.data.period_type === "MTD" || /(?:شهر|mtd)/i.test(userMessage));
     const countMatch = userMessage.match(/(\d{1,2}|٥٠|٢٠|١٥|١٠)/);
-    let requestedLimit = isMtd ? 15 : 50;
+    let requestedLimit = isWtd ? 15 : isMtd ? 15 : 50;
     if (countMatch) {
         const arabicToNum: Record<string, number> = { "٥٠": 50, "٢٠": 20, "١٥": 15, "١٠": 10 };
         const num = arabicToNum[countMatch[1]] || parseInt(countMatch[1], 10);
@@ -851,21 +852,42 @@ export function buildYtdMarketRankingResponse(
 
     const displayedStocks = ranking.slice(0, requestedLimit);
     const endDate = ytdResult.data.end_date || "2026-08-13";
-    const startPeriod = ytdResult.data.start_period || (isMtd ? "بداية الشهر" : "2026-01-04");
-    const periodName = isMtd ? `من بداية الشهر (${startPeriod})` : "من بداية العام 2026 (YTD)";
-    const colName = isMtd ? "نسبة الارتفاع (MTD)" : "نسبة الارتفاع (YTD)";
-    const startPriceCol = isMtd ? "سعر بداية الشهر" : "سعر بداية العام";
+    const startPeriod = ytdResult.data.start_period || (isWtd ? "بداية الأسبوع" : isMtd ? "بداية الشهر" : "2026-01-04");
+    const periodName = isWtd ? `من بداية الأسبوع (${startPeriod})` : isMtd ? `من بداية الشهر (${startPeriod})` : "من بداية العام 2026 (YTD)";
+
+    const wantsLiquidity = ytdResult.data.wants_liquidity || /(?:سيول|تداول|حجم)/i.test(userMessage);
+    const wantsLowest = ytdResult.data.wants_lowest || /(?:اقل|أقل|ارخص|أرخص|ادنى|أدنى)/i.test(userMessage);
+
+    const orderWord = wantsLowest ? "بأقل" : "بأعلى";
+    const metricWord = wantsLiquidity ? "معدل السيولة وتداول الجلسة" : "نسبة الأرباح والعائد";
+
+    const colName = wantsLiquidity ? "قيمة التداول (السيولة)" : (isWtd ? "نسبة الارتفاع (WTD)" : isMtd ? "نسبة الارتفاع (MTD)" : "نسبة الارتفاع (YTD)");
+    const startPriceCol = isWtd ? "سعر بداية الأسبوع" : isMtd ? "سعر بداية الشهر" : "سعر بداية العام";
 
     const lines: string[] = [
-        `إليك قائمة بأعلى ${displayedStocks.length} سهماً من حيث نسبة الأرباح والعائد بالبورصة المصرية ${periodName} حتى جلسة ${endDate}، مرتبة تنازلياً:`,
+        `إليك قائمة ${orderWord} ${displayedStocks.length} سهماً من حيث ${metricWord} بالبورصة المصرية ${periodName} حتى جلسة ${endDate}، مرتبة ${wantsLowest ? "تصاعدياً" : "تنازلياً"}:`,
         "",
         `| # | الرمز | اسم الشركة | السعر الحالي | ${startPriceCol} | ${colName} |`,
         "| :--- | :--- | :--- | :--- | :--- | :--- |"
     ];
 
     displayedStocks.forEach((s: any, idx: number) => {
-        const ret = s.return_pct ?? s.mtd_return_pct ?? s.ytd_return_pct;
-        lines.push(`| ${idx + 1} | **${s.symbol}** | ${s.name} | ${s.current_price} ج.م | ${s.start_price} ج.م | **+${ret}%** |`);
+        let metricVal = "";
+        if (wantsLiquidity) {
+            const liqM = Number(s.liquidity || 0);
+            if (liqM >= 1_000_000) {
+                metricVal = `**${(liqM / 1_000_000).toFixed(2)} مليون ج.م**`;
+            } else if (liqM >= 1_000) {
+                metricVal = `**${(liqM / 1_000).toFixed(2)} ألف ج.م**`;
+            } else {
+                metricVal = `**${liqM.toFixed(2)} ج.م**`;
+            }
+        } else {
+            const ret = s.return_pct ?? s.mtd_return_pct ?? s.ytd_return_pct;
+            const sign = Number(ret) >= 0 ? "+" : "";
+            metricVal = `**${sign}${ret}%**`;
+        }
+        lines.push(`| ${idx + 1} | **${s.symbol}** | ${s.name} | ${s.current_price} ج.م | ${s.start_price} ج.م | ${metricVal} |`);
     });
 
     lines.push("");

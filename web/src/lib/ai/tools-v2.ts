@@ -54,7 +54,8 @@ export async function executeStructuredTools(
             try {
                 const { data: latestDateRow } = await supabase.from("stock_prices").select("date").order("date", { ascending: false }).limit(1);
                 const latestDate = latestDateRow?.[0]?.date || "2026-08-13";
-                const isMtd = /(?:شهر|mtd)/i.test(userMessage) || /(?:شهر|mtd)/i.test(plan.entities?.requested_date || "") || plan.entities?.requested_date === "mtd";
+                const isWtd = /(?:اسبوع|wtd)/i.test(userMessage) || /(?:اسبوع|wtd)/i.test(plan.entities?.requested_date || "") || plan.entities?.requested_date === "wtd";
+                const isMtd = !isWtd && (/(?:شهر|mtd)/i.test(userMessage) || /(?:شهر|mtd)/i.test(plan.entities?.requested_date || "") || plan.entities?.requested_date === "mtd");
                 
                 let startGte = "2026-01-01";
                 let startLte = "2026-01-10";
@@ -63,7 +64,28 @@ export async function executeStructuredTools(
                 let startPeriod = "2026-01-04";
 
                 const currentMonthPrefix = latestDate.slice(0, 7);
-                if (isMtd) {
+                if (isWtd) {
+                    const dateObj = new Date(latestDate);
+                    const day = dateObj.getDay();
+                    const sunday = new Date(dateObj);
+                    sunday.setDate(dateObj.getDate() - day);
+                    const sunStr = sunday.toISOString().split("T")[0];
+
+                    const { data: wRow } = await supabase.from("stock_prices")
+                        .select("date")
+                        .gte("date", sunStr)
+                        .order("date", { ascending: true })
+                        .limit(1);
+                    const wStart = wRow?.[0]?.date || sunStr;
+                    
+                    startGte = wStart;
+                    const lteDate = new Date(wStart);
+                    lteDate.setDate(lteDate.getDate() + 2);
+                    startLte = lteDate.toISOString().split("T")[0];
+                    periodType = "WTD";
+                    periodLabel = `من بداية الأسبوع الحالي (${wStart}) حتى ${latestDate}`;
+                    startPeriod = wStart;
+                } else if (isMtd) {
                     const { data: mRow } = await supabase.from("stock_prices")
                         .select("date")
                         .gte("date", currentMonthPrefix + "-01")
@@ -92,10 +114,14 @@ export async function executeStructuredTools(
                     if (!startMap.has(p.symbol)) startMap.set(p.symbol, Number(p.close));
                 });
 
+                const wantsLiquidity = /(?:سيول|تداول|حجم)/i.test(userMessage);
+                const wantsLowest = /(?:اقل|أقل|ارخص|أرخص|ادنى|أدنى)/i.test(userMessage);
+
                 const rankingList = (endPrices || []).map((p: any) => {
                     const sClose = startMap.get(p.symbol);
                     if (!sClose || sClose <= 0) return null;
                     const retPct = ((Number(p.close) - sClose) / sClose) * 100;
+                    const liquidity = Number(p.close) * Number(p.volume || 0);
                     return {
                         symbol: p.symbol,
                         name: sMap.get(p.symbol) || p.symbol,
@@ -103,32 +129,67 @@ export async function executeStructuredTools(
                         current_price: Number(p.close).toFixed(2),
                         return_pct: Number(retPct.toFixed(2)),
                         ytd_return_pct: Number(retPct.toFixed(2)),
-                        mtd_return_pct: Number(retPct.toFixed(2))
+                        mtd_return_pct: Number(retPct.toFixed(2)),
+                        volume: Number(p.volume || 0),
+                        liquidity: liquidity
                     };
-                }).filter(Boolean).sort((a: any, b: any) => b.return_pct - a.return_pct);
+                }).filter(Boolean);
 
-                const top50 = rankingList.slice(0, 50);
-                if (top50.length > 0) {
-                    textParts.push(`\n [جدول ترتيب أعلى الأسهم ربحية وأداءً بالبورصة المصرية ${periodLabel}]:\n`);
-                    textParts.push(`| # | الرمز | اسم الشركة | السعر الحالي | سعر بداية الفترة | نسبة الارتفاع |`);
+                if (wantsLiquidity) {
+                    if (wantsLowest) {
+                        rankingList.sort((a: any, b: any) => a.liquidity - b.liquidity);
+                    } else {
+                        rankingList.sort((a: any, b: any) => b.liquidity - a.liquidity);
+                    }
+                } else {
+                    if (wantsLowest) {
+                        rankingList.sort((a: any, b: any) => a.return_pct - b.return_pct);
+                    } else {
+                        rankingList.sort((a: any, b: any) => b.return_pct - a.return_pct);
+                    }
+                }
+
+                const rankingToSave = rankingList.slice(0, 100);
+                if (rankingToSave.length > 0) {
+                    const orderLabel = wantsLowest ? "الأقل" : "الأعلى";
+                    const metricLabel = wantsLiquidity ? "سيولة وتداول" : "ربحية وأداءً";
+                    textParts.push(`\n [جدول ترتيب ${orderLabel} الأسهم من حيث ${metricLabel} بالبورصة المصرية ${periodLabel}]:\n`);
+                    const colHeaderName = wantsLiquidity ? "السيولة (قيمة التداول)" : "نسبة التغيير";
+                    textParts.push(`| # | الرمز | اسم الشركة | السعر الحالي | سعر بداية الفترة | ${colHeaderName} |`);
                     textParts.push(`| :--- | :--- | :--- | :--- | :--- | :--- |`);
-                    top50.forEach((s: any, idx: number) => {
-                        textParts.push(`| ${idx + 1} | ${s.symbol} | ${s.name} | ${s.current_price} ج.م | ${s.start_price} ج.م | +${s.return_pct}% |`);
+                    rankingToSave.forEach((s: any, idx: number) => {
+                        let metricVal = "";
+                        if (wantsLiquidity) {
+                            const liqM = Number(s.liquidity || 0);
+                            if (liqM >= 1_000_000) {
+                                metricVal = `${(liqM / 1_000_000).toFixed(2)} مليون ج.م`;
+                            } else if (liqM >= 1_000) {
+                                metricVal = `${(liqM / 1_000).toFixed(2)} ألف ج.م`;
+                            } else {
+                                metricVal = `${liqM.toFixed(2)} ج.م`;
+                            }
+                        } else {
+                            const sign = Number(s.return_pct) >= 0 ? "+" : "";
+                            metricVal = `${sign}${s.return_pct}%`;
+                        }
+                        textParts.push(`| ${idx + 1} | ${s.symbol} | ${s.name} | ${s.current_price} ج.م | ${s.start_price} ج.م | ${metricVal} |`);
                     });
                     results.push({
                         tool: "get_price_history",
                         source: "stock_prices",
                         data_time: latestDate,
-                        symbols: top50.map((s: any) => s.symbol),
+                        symbols: rankingToSave.map((s: any) => s.symbol),
                         data_type: "historical",
                         data: {
-                            market_period_ranking: top50,
-                            market_ytd_ranking: top50,
+                            market_period_ranking: rankingToSave,
+                            market_ytd_ranking: rankingToSave,
                             period_type: periodType,
                             period_label: periodLabel,
                             total_scanned: rankingList.length,
                             start_period: startPeriod,
-                            end_date: latestDate
+                            end_date: latestDate,
+                            wants_liquidity: wantsLiquidity,
+                            wants_lowest: wantsLowest
                         }
                     });
                 }

@@ -1,14 +1,19 @@
 "use client";
 
-import { useMemo, useState, type FormEvent } from "react";
+import { useMemo, useState, Suspense, type FormEvent } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { Eye, EyeOff } from "lucide-react";
 
-export default function LoginPage() {
+function LoginForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const redirectUrl = searchParams.get("redirect") || searchParams.get("next");
+  const defaultTarget = "/scanner/backtests?tab=bots";
+  const targetDestination = redirectUrl || defaultTarget;
+
   const { signIn, signInWithGoogle, user, loading } = useAuth();
   const { t } = useLanguage();
 
@@ -34,7 +39,7 @@ export default function LoginPage() {
       const isAdmin =
         res.user?.app_metadata?.role === "admin" ||
         (res.user?.email && ["weeeessd57@gmail.com", "weeasd57@gmail.com"].includes(res.user.email));
-      router.push(isAdmin ? "/admin" : "/scanner/technical");
+      router.push(isAdmin ? "/admin" : targetDestination);
     } finally {
       setSubmitting(false);
     }
@@ -59,7 +64,7 @@ export default function LoginPage() {
     const isAdmin =
       user.app_metadata?.role === "admin" ||
       (user.email && ["weeeessd57@gmail.com", "weeasd57@gmail.com"].includes(user.email));
-    router.replace(isAdmin ? "/admin" : "/scanner/technical");
+    router.replace(isAdmin ? "/admin" : targetDestination);
     return null;
   }
 
@@ -168,5 +173,17 @@ export default function LoginPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-[75vh] flex items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-amber-500 border-t-transparent" />
+      </div>
+    }>
+      <LoginForm />
+    </Suspense>
   );
 }

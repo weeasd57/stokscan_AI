@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer } from "recharts";
 import {
     Users as UsersIcon,
     Search,
@@ -306,41 +307,61 @@ export default function UsersTab() {
 
                 {/* Growth Chart & Breakdown Section */}
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                    {/* User Growth Chart (30-day Histogram Bar Chart) */}
+                    {/* User Growth Chart (30-day Area Chart) */}
                     <div className="lg:col-span-2 border-4 border-black dark:border-white bg-zinc-50 dark:bg-zinc-900 p-4">
                         <div className="flex items-center justify-between mb-4">
                             <h3 className="font-black text-xs uppercase tracking-widest flex items-center gap-2">
                                 <Activity className="w-4 h-4 text-blue-500" />
-                                USER REGISTRATION TREND (LAST 30 DAYS)
+                                USER REGISTRATION TREND (ALL TIME)
                             </h3>
                             <span className="text-[10px] font-bold font-mono text-zinc-400">DAILY SIGNUPS</span>
                         </div>
                         
                         {statsLoading ? (
-                            <div className="h-32 flex items-center justify-center text-xs font-bold text-zinc-400">Loading chart...</div>
+                            <div className="h-44 flex items-center justify-center text-xs font-bold text-zinc-400">Loading chart...</div>
                         ) : (
-                            <div className="h-36 flex items-end justify-between gap-1 pt-6 pb-2 border-b-2 border-zinc-300 dark:border-zinc-700">
-                                {stats?.signupGrowth?.map((item, idx) => {
-                                    const heightPct = Math.max((item.count / maxGrowthCount) * 100, item.count > 0 ? 15 : 4);
-                                    return (
-                                        <div key={idx} className="flex-1 flex flex-col items-center gap-1 group relative">
-                                            {/* Tooltip */}
-                                            <div className="absolute -top-8 hidden group-hover:flex bg-black text-white text-[9px] font-mono px-1.5 py-0.5 rounded whitespace-nowrap z-10 border border-white">
-                                                {item.date}: {item.count} users
-                                            </div>
-                                            <div 
-                                                style={{ height: `${heightPct}%` }}
-                                                className={`w-full max-w-[12px] border border-black dark:border-white transition-all ${item.count > 0 ? "bg-blue-500 dark:bg-blue-400 group-hover:bg-blue-600" : "bg-zinc-200 dark:bg-zinc-800"}`}
-                                            />
-                                        </div>
-                                    );
-                                })}
+                            <div className="h-44 w-full pt-4">
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <AreaChart data={stats?.signupGrowth || []} margin={{ top: 10, right: 0, left: -20, bottom: 0 }}>
+                                        <defs>
+                                            <linearGradient id="colorCount" x1="0" y1="0" x2="0" y2="1">
+                                                <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/>
+                                                <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
+                                            </linearGradient>
+                                        </defs>
+                                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#52525b" opacity={0.2} />
+                                        <XAxis 
+                                            dataKey="date" 
+                                            axisLine={false} 
+                                            tickLine={false} 
+                                            tick={{ fontSize: 10, fill: '#71717a' }} 
+                                            minTickGap={15}
+                                        />
+                                        <YAxis 
+                                            axisLine={false} 
+                                            tickLine={false} 
+                                            tick={{ fontSize: 10, fill: '#71717a' }} 
+                                            allowDecimals={false}
+                                        />
+                                        <RechartsTooltip 
+                                            contentStyle={{ backgroundColor: '#000', border: '1px solid #fff', borderRadius: '4px', fontSize: '11px', fontWeight: 'bold' }}
+                                            itemStyle={{ color: '#fff' }}
+                                            labelStyle={{ color: '#a1a1aa', marginBottom: '4px' }}
+                                            cursor={{ stroke: '#52525b', strokeWidth: 1, strokeDasharray: '3 3' }}
+                                        />
+                                        <Area 
+                                            type="monotone" 
+                                            dataKey="count" 
+                                            stroke="#3b82f6" 
+                                            strokeWidth={3}
+                                            fillOpacity={1} 
+                                            fill="url(#colorCount)" 
+                                            activeDot={{ r: 5, strokeWidth: 0, fill: '#fff' }}
+                                        />
+                                    </AreaChart>
+                                </ResponsiveContainer>
                             </div>
                         )}
-                        <div className="flex justify-between items-center text-[9px] font-mono text-zinc-400 mt-2">
-                            <span>{stats?.signupGrowth?.[0]?.date || "30d ago"}</span>
-                            <span>Today</span>
-                        </div>
                     </div>
 
                     {/* Distribution Breakdown Cards */}

@@ -5,8 +5,8 @@ import { cookies } from "next/headers";
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get("code");
-  // Default to scanner redirect
-  const next = searchParams.get("next") ?? "/scanner/technical";
+  // Default to recommendations redirect
+  const next = searchParams.get("next") ?? "/scanner/backtests?tab=bots";
 
   if (code) {
     const cookieStore = cookies();
