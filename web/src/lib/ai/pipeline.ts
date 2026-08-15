@@ -412,6 +412,23 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
             session_update: { current_symbol: null, last_symbols: [], summary: message }
         };
     }
+    // Follow-up asking to re-serve the previous scan list ("هات اخر قايمه" after asking
+    // about accumulation): re-run the same scan direction; the tool layer serves the last
+    // recorded (possibly stale) rows when the user explicitly asks for the latest list.
+    const lastListFollowUp = /(?:هات|جيب|اعرض|وريني|ايه|فين)?\s*(?:ال)?(?:اخر|اخيرة).{0,15}(?:قايمه|قائمه|قائمة|مسح|نتايج|نتائج|بيانات|سكان)/i.test(normalized)
+        || /(?:قايمه|قائمه|قائمة)\s*(?:ال)?مسح/i.test(normalized);
+    const priorScanDirection = /(?:تصريف|تصريفي|distribution)/i.test(String(sessionState.summary || "")) ? "distribution"
+        : /(?:تجميع|accumulation)/i.test(String(sessionState.summary || "")) ? "accumulation"
+        : null;
+    if (lastListFollowUp && priorScanDirection && explicitSymbols.length === 0) {
+        return {
+            intent: "accumulation_distribution",
+            confidence: 1,
+            entities: { symbols: [], sector: null, wants_table: true, timeframe: "historical", requested_date: null, scan_direction: priorScanDirection },
+            tools: [priorScanDirection === "distribution" ? "get_distribution_stocks" : "get_accumulation_stocks"],
+            session_update: { current_symbol: null, last_symbols: sessionState.last_symbols, summary: `${message} ${priorScanDirection === "distribution" ? "تصريف" : "تجميع"}` }
+        };
+    }
     const broadScan = explicitSymbols.length === 0 && /(?:الاسهم|اسهم|هات|ابعت|اعرض).{0,45}(?:تجميع|تصريف)|(?:تجميع|تصريف).{0,45}(?:الاسهم|اسهم)/i.test(normalized);
     const hasGroupReference = /(فيهم|منهم|من دول|بينهم|أيهم|أيها|أحسن واحد|احسن واحد|أفضل واحد|افضل واحد|الأسهم دي|الاسهم دي)/i.test(normalized) && sessionState.last_symbols.length > 0;
     const allocationSymbols = explicitSymbols.length >= 2 ? explicitSymbols : hasGroupReference ? sessionState.last_symbols.slice(0, 5) : [];

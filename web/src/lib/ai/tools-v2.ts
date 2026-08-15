@@ -560,21 +560,69 @@ export async function executeStructuredTools(
 
                 if (todayScans.length > 0 && !scanQuality.ok) {
                     hasSummaryData = true;
-                    results.push({
-                        tool: scanTool,
-                        source: "validation",
-                        data_time: maxDate,
-                        symbols,
-                        data_type: "live",
-                        data: {
-                            stocks: [],
-                            scan_rows: [],
-                            date: maxDate,
-                            direction,
-                            validation: scanQuality,
-                            message: "Latest scan data is stale."
+                    // Explicit "last available list" requests ("هات اخر قايمه") serve the
+                    // stale rows with a staleness note instead of an empty validation result.
+                    const wantsLastAvailable = /(?:هات|جيب|اعرض|وريني|ايه|فين)?\s*(?:ال)?(?:اخر|اخيرة|اخرليه).{0,15}(?:قايمه|قائمه|قائمة|مسح|نتايج|نتائج|بيانات|سكان)/i.test(userMessage)
+                        || /(?:قايمه|قائمه|قائمة)\s*(?:ال)?مسح/i.test(userMessage)
+                        || /(?:^|\s)(?:latest|last)\s+(?:scan|list)/i.test(userMessage);
+                    if (wantsLastAvailable) {
+                        const lastSymbols = Array.from(new Set(todayScans.map((r: any) => r.symbol)));
+                        const { data: lastStocksData } = await supabase
+                            .from("stocks")
+                            .select("symbol, name")
+                            .in("symbol", lastSymbols);
+                        const lastStocksMap = new Map<string, string>();
+                        (lastStocksData || []).forEach((s: any) => {
+                            if (s?.symbol) lastStocksMap.set(s.symbol, s.name || s.symbol);
+                        });
+                        const lastRows = todayScans
+                            .filter((r: any) => r.signal === direction || Number(r[scoreField] || 0) >= 50)
+                            .sort((a: any, b: any) => Number(b[scoreField] || 0) - Number(a[scoreField] || 0))
+                            .slice(0, requestedCount || 15)
+                            .map((r: any) => ({ ...r, name: lastStocksMap.get(r.symbol) || r.symbol }));
+                        textParts.push(`\n[آخر قائمة ${directionAr} متاحة — بيانات مسح قديمة بتاريخ ${maxDate} (أقدم من 7 أيام، تعرض كما هي بناءً على طلبك]:\n`);
+                        lastRows.forEach((r: any, idx: number) => {
+                            const changeStr = Number(r.change_pct || 0) >= 0 ? `+${Number(r.change_pct).toFixed(2)}%` : `${Number(r.change_pct).toFixed(2)}%`;
+                            textParts.push(`• ${idx + 1}. سهم ${r.symbol} (${r.name}): درجة ${directionAr} = ${r[scoreField]}/100 | نسبة الحجم = ${r.vol_ratio}x | التغير = ${changeStr} | بتاريخ ${maxDate}`);
+                        });
+                        if (lastRows.length > 0) {
+                            results.push({
+                                tool: scanTool,
+                                source: "stock_scans_summary",
+                                data_time: maxDate,
+                                symbols: lastRows.map((r: any) => r.symbol),
+                                data_type: "historical",
+                                // scan_rows mirrors the direction-filtered rows — including the raw
+                                // mixed-direction rows let the responder answer about the opposite direction.
+                                data: { stocks: lastRows, scan_rows: lastRows, date: maxDate, direction, stale_served: true, message: `Latest available ${direction} scan is from ${maxDate} (older than 7 days) — served on explicit request.` }
+                            });
+                        } else {
+                            results.push({
+                                tool: scanTool,
+                                source: "validation",
+                                data_time: maxDate,
+                                symbols,
+                                data_type: "live",
+                                data: { stocks: [], scan_rows: todayScans, date: maxDate, direction, validation: scanQuality, message: `No ${direction} rows in the latest recorded scan (${maxDate}).` }
+                            });
                         }
-                    });
+                    } else {
+                        results.push({
+                            tool: scanTool,
+                            source: "validation",
+                            data_time: maxDate,
+                            symbols,
+                            data_type: "live",
+                            data: {
+                                stocks: [],
+                                scan_rows: [],
+                                date: maxDate,
+                                direction,
+                                validation: scanQuality,
+                                message: "Latest scan data is stale."
+                            }
+                        });
+                    }
                 } else if (todayScans.length > 0) {
                     hasSummaryData = true;
                     const symbolsList = Array.from(new Set(todayScans.map((r: any) => r.symbol)));
