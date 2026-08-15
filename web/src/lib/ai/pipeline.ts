@@ -199,7 +199,7 @@ export function buildCompoundDeterministicPlan(message: string, sessionState: Se
     const plans = commands.map(command => {
         let plan = buildDeterministicPlannerResult(command, state);
         const sector = extractSectorFromMessage(command) || extractSectorFromMessage(state.summary || "");
-        const normalized = command.toLowerCase().replace(/[أإآ]/g, "ا").replace(/ة/g, "ه");
+        const normalized = command.toLowerCase().replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").replace(/[٠-٩]/g, d => String("٠١٢٣٤٥٦٧٨٩".indexOf(d)));
         if (/(اخبار|اخباره|خبر)/i.test(normalized) && sector && (!plan || !plan.tools.includes("get_news"))) {
             plan = { ...(plan || buildDeterministicPlannerResult(`قطاع ${sector}`, state)!), intent: "sector_analysis", entities: { ...(plan?.entities || {}), symbols: [], sector }, tools: Array.from(new Set([...(plan?.tools || []), "get_sector", "get_news"])) } as PlannerResult;
         }
@@ -633,7 +633,7 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
 }
 
 export function isMarketWideRequest(message: string): boolean {
-    const normalized = message.replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").toLowerCase();
+    const normalized = message.replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").replace(/[٠-٩]/g, d => String("٠١٢٣٤٥٦٧٨٩".indexOf(d))).toLowerCase();
     const marketTerms = [
         /اخبار\s+(السوق|البورصه)/i,
         /(?:السيول|السيوله)\s+(فين|في\s+السوق|ل?يوم|لبوم|بتاريخ|يوم)/i,
@@ -677,7 +677,7 @@ export function enforceIntentFromMessage(message: string, plannerIntent: string,
     if (isTermsDefinitionRequest(message)) {
         return { intent: "general_chat", tools: [], replaceTools: true };
     }
-    const normalized = message.toLowerCase().replace(/[أإآ]/g, "ا").replace(/ة/g, "ه");
+    const normalized = message.toLowerCase().replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").replace(/[٠-٩]/g, d => String("٠١٢٣٤٥٦٧٨٩".indexOf(d)));
     const hasExplicitSymbol = /\b[A-Za-z]{2,6}\b/.test(message);
     const hasSymbol = symbols.length > 0 || hasExplicitSymbol;
     if (message.trim().length <= 2 && !hasSymbol) {
@@ -797,7 +797,7 @@ export function enforceIntentFromMessage(message: string, plannerIntent: string,
 }
 
 export function extractSectorFromMessage(message: string): string | null {
-    const normalized = message.toLowerCase().replace(/[أإآ]/g, "ا").replace(/ة/g, "ه");
+    const normalized = message.toLowerCase().replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").replace(/[٠-٩]/g, d => String("٠١٢٣٤٥٦٧٨٩".indexOf(d)));
     if (/(استصلاح|اراضي استصلاح|استصلاح اراضي|اراضى|زراعه|زراعي|زراعيه|agri|agriculture|reclamation)/i.test(normalized)) return "استصلاح أراضي";
     if (/(البنوك|بنوك|banking sector|banks)/i.test(normalized)) return "بنوك";
     if (/(العقارات|عقارات|عقاري|real estate)/i.test(normalized)) return "عقارات";
@@ -1478,14 +1478,19 @@ import { ToolResult } from "./types";
                 hasContent = true;
                 const d = r.data;
                 const metricName = d.wants_liquidity ? "السيولة" : "العائد";
+                const metricCol = d.wants_liquidity ? "قيمة التداول" : "نسبة التغيير";
                 lines.push(`📊 **ترتيب الأسهم حسب ${metricName} (${d.period_label || d.period_type || "الفترة المحددة"}):**`);
+                // Markdown table rows survive the sanitizer's English-CoT filter; plain
+                // numbered lists with English symbols get dropped line-by-line.
+                lines.push(`| # | الرمز | الشركة | السعر الحالي | سعر بداية الفترة | ${metricCol} |`);
+                lines.push(`| :---: | :--- | :--- | :---: | :---: | :---: |`);
                 d.market_period_ranking.slice(0, 10).forEach((s: any, idx: number) => {
                     const metricVal = d.wants_liquidity
                         ? (Number(s.liquidity || 0) >= 1_000_000
                             ? `${(Number(s.liquidity) / 1_000_000).toFixed(2)} مليون ج.م`
                             : `${Number(s.liquidity || 0).toFixed(2)} ج.م`)
                         : `${Number(s.return_pct) >= 0 ? "+" : ""}${s.return_pct}%`;
-                    lines.push(`  ${idx + 1}. ${s.symbol} (${s.name || s.symbol}): ${metricVal}`);
+                    lines.push(`| ${idx + 1} | ${s.symbol} | ${s.name || s.symbol} | ${s.current_price} ج.م | ${s.start_price} ج.م | ${metricVal} |`);
                 });
                 lines.push("");
             }
@@ -1507,9 +1512,11 @@ import { ToolResult } from "./types";
                 const scanStocks = Array.isArray(d.stocks) ? d.stocks : [];
                 if (scanStocks.length > 0) {
                     lines.push(`📊 **أسهم ${dirAr} (بيانات بتاريخ ${d.date || "غير محدد"}):**`);
+                    lines.push(`| # | الرمز | الشركة | درجة ${dirAr} | نسبة الحجم | التغير |`);
+                    lines.push(`| :---: | :--- | :--- | :---: | :---: | :---: |`);
                     scanStocks.slice(0, 10).forEach((s: any, idx: number) => {
                         const changeStr = Number(s.change_pct || 0) >= 0 ? `+${Number(s.change_pct).toFixed(2)}%` : `${Number(s.change_pct).toFixed(2)}%`;
-                        lines.push(`  ${idx + 1}. ${s.symbol} (${s.name || s.symbol}): درجة ${dirAr} = ${s[scoreField]}/100 | نسبة الحجم = ${s.vol_ratio}x | التغير = ${changeStr}`);
+                        lines.push(`| ${idx + 1} | ${s.symbol} | ${s.name || s.symbol} | ${s[scoreField]}/100 | ${s.vol_ratio}x | ${changeStr} |`);
                     });
                 } else {
                     lines.push(`📊 **مسح ${dirAr}:** لا توجد أسهم تطابق شروط المسح في البيانات المتاحة بتاريخ ${d.date || "غير محدد"}.`);
@@ -1531,9 +1538,11 @@ import { ToolResult } from "./types";
                 const d = r.data;
                 const relAr = d.direction === "above" ? "أعلى من قيمتها العادلة" : "أقل من قيمتها العادلة";
                 lines.push(`⚖️ **أسهم تتداول ${relAr} (الانحراف عن منتصف مدى 60 جلسة):**`);
+                lines.push(`| # | الرمز | السعر | الدعم | المقاومة | الانحراف |`);
+                lines.push(`| :---: | :--- | :---: | :---: | :---: | :---: |`);
                 d.stocks.slice(0, 10).forEach((s: any, idx: number) => {
                     const premium = s.premium_pct != null ? `${Number(s.premium_pct) >= 0 ? "+" : ""}${Number(s.premium_pct).toFixed(2)}%` : "غير متاح";
-                    lines.push(`  ${idx + 1}. ${s.symbol}: السعر ${s.close} ج.م | الدعم ${Number(s.support).toFixed(2)} | المقاومة ${Number(s.resistance).toFixed(2)} | الانحراف ${premium}`);
+                    lines.push(`| ${idx + 1} | ${s.symbol} | ${s.close} ج.م | ${Number(s.support).toFixed(2)} | ${Number(s.resistance).toFixed(2)} | ${premium} |`);
                 });
                 lines.push("");
             }
@@ -1541,8 +1550,10 @@ import { ToolResult } from "./types";
                 hasContent = true;
                 const d = r.data;
                 lines.push(`🏭 **بيانات قطاع ${d.sector}:**`);
-                (d.gainers || []).slice(0, 5).forEach((s: any) => lines.push(`  • ${s.symbol} (${s.name}): +${Number(s.tech?.change_pct || 0).toFixed(2)}%`));
-                (d.losers || []).slice(0, 5).forEach((s: any) => lines.push(`  • ${s.symbol} (${s.name}): ${Number(s.tech?.change_pct || 0).toFixed(2)}%`));
+                lines.push(`| الاتجاه | الرمز | الشركة | التغير |`);
+                lines.push(`| :--- | :--- | :--- | :---: |`);
+                (d.gainers || []).slice(0, 5).forEach((s: any) => lines.push(`| صاعد | ${s.symbol} | ${s.name || s.symbol} | +${Number(s.tech?.change_pct || 0).toFixed(2)}% |`));
+                (d.losers || []).slice(0, 5).forEach((s: any) => lines.push(`| هابط | ${s.symbol} | ${s.name || s.symbol} | ${Number(s.tech?.change_pct || 0).toFixed(2)}% |`));
                 lines.push("");
             }
             if (r.tool === "get_sector_list" && Array.isArray(r.data?.sectors) && r.data.sectors.length > 0) {

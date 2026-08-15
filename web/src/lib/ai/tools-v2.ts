@@ -44,8 +44,10 @@ export async function executeStructuredTools(
     const excludedSectors = (plan.entities.excluded_sectors || []).map(normalizeArabic);
 
     // Explicit count requests ("أقوى 5 أسهم", "أرخص 10 أسهم", "أول 3 أسهم") cap every list,
-    // otherwise rankings fall back to their default depths.
-    const countMatch = userMessage.match(/(?:^|[\s،,])(\d{1,2})\s*(?:سهم|أسهم|اسهم|شرك[هة])(?:[\s،,.]|$)/);
+    // otherwise rankings fall back to their default depths. Arabic-Indic digits (٥٠)
+    // are normalized to ASCII before matching.
+    const countInput = userMessage.replace(/[٠-٩]/g, d => String("٠١٢٣٤٥٦٧٨٩".indexOf(d)));
+    const countMatch = countInput.match(/(?:^|[\s،,])(\d{1,2})\s*(?:سهم|سمهم|أسهم|اسهم|شرك[هة]|سهما|أسهما)(?:[\s،,.]|$)/);
     const requestedCount = countMatch ? Math.min(Math.max(parseInt(countMatch[1], 10), 1), 50) : null;
 
     const isExcludedSector = (value: unknown): boolean => {

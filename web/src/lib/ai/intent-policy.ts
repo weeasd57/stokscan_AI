@@ -1,5 +1,5 @@
 export function normalizeArabicIntent(value: string): string {
-    return value.replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").replace(/ى/g, "ي").toLowerCase();
+    return value.replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").replace(/ى/g, "ي").replace(/[٠-٩]/g, d => String("٠١٢٣٤٥٦٧٨٩".indexOf(d))).toLowerCase();
 }
 
 export function isUsageLimitQuestion(message: string): boolean {
