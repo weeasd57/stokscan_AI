@@ -1016,6 +1016,13 @@ export async function* runPipelineStream(
     ) && !isMarketWideRequest(userMessage) && !isBestBuyStockQuestion(userMessage)) {
         mergedSymbols.push(sessionState.current_symbol);
     }
+    // An explicit company-name phrase that resolves to no known symbol ("حلل دلتا للطباعه")
+    // must not inherit the previous session symbol — the responder would analyze the WRONG stock.
+    const unresolvedNameMatch = userMessage.match(/(?:^|[\s،,])(\S{2,}\s+لل\S{2,})/);
+    const unresolvedStockName = explicitSymbols.length === 0 && unresolvedNameMatch && !vision
+        ? unresolvedNameMatch[1].replace(/[.،,؟?…].*$/, "").trim()
+        : null;
+    if (unresolvedStockName) mergedSymbols = [];
     const compoundRequest = splitChatCommands(userMessage).length > 1;
     if ((isMarketWideRequest(userMessage) || broadScanRequest || isBestBuyStockQuestion(userMessage)) && !compoundRequest && extractExplicitSymbols(userMessage).length === 0) mergedSymbols = [];
     if (plannerResult.entities.sector && extractExplicitSymbols(userMessage).length === 0) mergedSymbols = [];
@@ -1218,6 +1225,16 @@ export async function* runPipelineStream(
         yield { type: "token", data: earningsResponse };
         await persistPipelineSession(sessionState, sessionSummary, plan, vision, memory, sessionId, userId, supabase, hasImages);
         yield { type: "done", data: { response: earningsResponse, session_update: { current_symbol: plan.entities.symbols[0] || sessionState.current_symbol, last_symbols: Array.from(new Set([...(plan.entities.symbols || []), ...(sessionState.last_symbols || [])])).slice(0, 15), summary: userMessage, current_sector: plan.entities.sector || sessionState.current_sector || null }, tables } };
+        return;
+    }
+
+    // Explicit company name that matched no listed stock — say so instead of silently
+    // answering about whatever the session previously discussed.
+    if (tools.results.length === 0 && unresolvedStockName) {
+        const unknownStockResponse = `لم أجد شركة بهذا الاسم («${unresolvedStockName}») في قاعدة بيانات البورصة المصرية المتاحة لي، لذلك لن أحلل سهمًا آخر بدلًا منه. تأكد من كتابة الاسم كما هو معروف في السوق أو اكتب الرمز اللاتيني (مثل AMES أو COMI)، ولو كانت الشركة غير مدرجة في EGX فهي خارج تغطية النظام حاليًا.`;
+        yield { type: "token", data: unknownStockResponse };
+        await persistPipelineSession(sessionState, sessionSummary, plan, vision, memory, sessionId, userId, supabase, hasImages);
+        yield { type: "done", data: { response: unknownStockResponse, session_update: { current_symbol: null, last_symbols: sessionState.last_symbols || [], summary: userMessage, current_sector: plan.entities.sector || sessionState.current_sector || null }, tables } };
         return;
     }
 
@@ -1709,6 +1726,13 @@ export async function runPipeline(
     ) && !isMarketWideRequest(userMessage) && !isBestBuyStockQuestion(userMessage)) {
         mergedSymbols.push(sessionState.current_symbol);
     }
+    // An explicit company-name phrase that resolves to no known symbol ("حلل دلتا للطباعه")
+    // must not inherit the previous session symbol — the responder would analyze the WRONG stock.
+    const unresolvedNameMatch = userMessage.match(/(?:^|[\s،,])(\S{2,}\s+لل\S{2,})/);
+    const unresolvedStockName = explicitSymbols.length === 0 && unresolvedNameMatch && !vision
+        ? unresolvedNameMatch[1].replace(/[.،,؟?…].*$/, "").trim()
+        : null;
+    if (unresolvedStockName) mergedSymbols = [];
     const compoundRequest = splitChatCommands(userMessage).length > 1;
     if ((isMarketWideRequest(userMessage) || isBestBuyStockQuestion(userMessage)) && !compoundRequest && extractExplicitSymbols(userMessage).length === 0) mergedSymbols = [];
     if (plannerResult.entities.sector && extractExplicitSymbols(userMessage).length === 0) mergedSymbols = [];
@@ -1896,6 +1920,29 @@ export async function runPipeline(
             tools,
             response: earningsResponse,
             session_update: earningsSessionUpdate,
+            vision_error: visionError,
+            tables
+        };
+    }
+
+    // Explicit company name that matched no listed stock — say so instead of silently
+    // answering about whatever the session previously discussed.
+    if (tools.results.length === 0 && unresolvedStockName) {
+        const unknownStockResponse = `لم أجد شركة بهذا الاسم («${unresolvedStockName}») في قاعدة بيانات البورصة المصرية المتاحة لي، لذلك لن أحلل سهمًا آخر بدلًا منه. تأكد من كتابة الاسم كما هو معروف في السوق أو اكتب الرمز اللاتيني (مثل AMES أو COMI)، ولو كانت الشركة غير مدرجة في EGX فهي خارج تغطية النظام حاليًا.`;
+        const unknownSessionUpdate = {
+            current_symbol: null,
+            last_symbols: sessionState.last_symbols || [],
+            summary: userMessage,
+            current_sector: plan.entities.sector || sessionState.current_sector || null
+        };
+        await updateSessionState(supabase, sessionId, userId, unknownSessionUpdate);
+        return {
+            vision,
+            memory,
+            plan,
+            tools,
+            response: unknownStockResponse,
+            session_update: unknownSessionUpdate,
             vision_error: visionError,
             tables
         };
