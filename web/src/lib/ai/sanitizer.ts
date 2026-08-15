@@ -201,6 +201,7 @@ export function sanitizeReply(reply: string, liveDataString?: string): string {
             .split("\n")
             .filter(line => {
                 const t = line.trim();
+                if ((t.startsWith("|") && t.endsWith("|")) || /^\|[\s:|-]+\|$/.test(t)) return true; // Markdown table row
                 if (/^https?:\/\//i.test(t)) return true;          // source URLs from web search
                 if (/^المصدر[:：]/.test(t)) return true;           // source attribution lines
                 const ar = countAr(t), en = countEn(t);

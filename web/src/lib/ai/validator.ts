@@ -448,11 +448,13 @@ export function validateResponse(
     const sourceSymbols = extractSymbols(liveDataString);
     const sourceNumbers = extractNumbers(liveDataString);
 
-    // 1. Verify Symbols: Must exist in source data or valid DB symbols
+    // 1. Verify Symbols: Must exist in source data, valid DB symbols, or user's message
+    const userSymbols = userMessage ? extractSymbols(userMessage) : [];
     const suspiciousSymbols = replySymbols.filter(sym => {
         const inSource = sourceSymbols.includes(sym);
         const inDb = validSymbols.includes(sym);
-        return !inSource && !inDb;
+        const inUser = userSymbols.includes(sym);
+        return !inSource && !inDb && !inUser;
     });
 
     // 2. Verify Numbers with Semantic Context

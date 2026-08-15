@@ -348,6 +348,10 @@ export function buildV2FinalMessages(
     sections.push("    2. الترتيب الصحيح لقوة أداء الصفقات هو: الأعلى ربحاً (الموجب) > الأقرب للتعادل (الأقل خسارة أو 0.00%) > الأكبر خسارة (السالب).");
     sections.push("    3. إذا كانت كل الصفقات/الإشارات خاسرة أو متعادلة، يجب قول ذلك بصدق وصراحة كاملة، مثلاً: 'لا توجد توصية رابحة حالياً من بين الصفقات المسجلة؛ صفقة X متعادلة بـ 0.00%، بينما صفقات Y و Z تسجل خسائر غير محققة بنسبة...'");
     sections.push("    4. يمنع تماماً نعت توصية متعادلة بـ 'الأقوى فنياً' أو 'مرحلة إيجابية' لمجرد أن النسبة صفر أو موجب رمزياً، دون مقارنتها بباقي الصفقات.");
+    sections.push("- عندما يسأل المستخدم عن الأسهم المتوافقة مع الشريعة أو توصيات إسلامية/شرعية (مؤشر الشريعة EGX33):");
+    sections.push("  1. وضح أن البورصة المصرية تعتمد رسمياً مؤشر الشريعة (EGX 33 Shariah Index) المعتمد من الرقابة المالية.");
+    sections.push("  2. اربط التوصيات الفنية المتاحة بالبيانات بالشركات المنتمية لمؤشر الشريعة والقطاعات المباحة (مثل: AMOC، MBSC، MCQE، ARCC، SWDY، ETEL، TMGH، ABUK، MFPC، ADIB، ISPH، إلخ).");
+    sections.push("  3. اعرض تفاصيل الصفقات الفنية المتاحة بالبيانات (سعر الدخول، الأهداف، وقف الخسارة) مع توضيح موقفها الفني وقيمتها الاستثمارية.");
     sections.push("  • إذا كان السؤال يتضمن قراراً استثمارياً، وضّح باختصار أن القراءة فنية وليست توصية شراء أو بيع، من دون تكرار صيغة ثابتة في كل رد.");
     sections.push("  • لا تقل أبداً 'إليك الجدول أدناه/التالي/أدناه:' أو تعد بجدول تالٍ في ردك النصي؛ لأن الجداول الفنية والمسوح تظهر تلقائياً في أعلى ردك مباشرة كجزء من واجهة المستخدم.");
     sections.push("  • 🚫 قاعدة صارمة لمنع الاختراع والهلوسة بالبيانات (Zero Hallucination Rule):");
@@ -824,6 +828,46 @@ function appendVerifiedWebSources(response: string, toolResults: ToolResult[]): 
 // model often ignores it or paraphrases it instead of the requested table.
 // Render the table deterministically from get_price_history results before any
 // LLM call.
+
+export function buildYtdMarketRankingResponse(
+    userMessage: string,
+    plan: IntentPlan,
+    toolResults: ToolResult[]
+): string | null {
+    const ytdResult = toolResults.find(r => r.tool === "get_price_history" && Array.isArray(r.data?.market_ytd_ranking));
+    if (!ytdResult) return null;
+
+    const ranking = ytdResult.data.market_ytd_ranking;
+    if (!ranking || ranking.length === 0) return null;
+
+    const countMatch = userMessage.match(/(?:اعلي|أعلى|افضل|أفضل|قايمه|قائمة)\s*(\d{1,2}|٥٠|٢٠|١٠)/);
+    let requestedLimit = 50;
+    if (countMatch) {
+        const arabicToNum: Record<string, number> = { "٥٠": 50, "٢٠": 20, "١٠": 10 };
+        const num = arabicToNum[countMatch[1]] || parseInt(countMatch[1], 10);
+        if (num > 0 && num <= 100) requestedLimit = num;
+    }
+
+    const displayedStocks = ranking.slice(0, requestedLimit);
+    const endDate = ytdResult.data.end_date || "2026-08-13";
+
+    const lines: string[] = [
+        `إليك قائمة بأعلى ${displayedStocks.length} سهماً من حيث نسبة الأرباح والعائد بالبورصة المصرية منذ بداية العام 2026 (YTD) حتى جلسة ${endDate}، مرتبة تنازلياً:`,
+        "",
+        "| # | الرمز | اسم الشركة | السعر الحالي | سعر بداية العام | نسبة الارتفاع (YTD) |",
+        "| :--- | :--- | :--- | :--- | :--- | :--- |"
+    ];
+
+    displayedStocks.forEach((s: any, idx: number) => {
+        lines.push(`| ${idx + 1} | **${s.symbol}** | ${s.name} | ${s.current_price} ج.م | ${s.start_price} ج.م | **+${s.ytd_return_pct}%** |`);
+    });
+
+    lines.push("");
+    lines.push(`📌 الحساب مبني على أسعار الإغلاق المعتمدة بين أول جلسة تداول في يناير 2026 وآخر جلسة مسجلة (${endDate}). هذه قراءة لأداء الأسعار الفعلي وليست توصية شراء أو بيع.`);
+
+    return lines.join("\n");
+}
+
 export function buildDailyChangeHistoryResponse(
     userMessage: string,
     plan: IntentPlan,
@@ -924,6 +968,11 @@ export async function generateV2Response(
     if (fastAdvisor) {
         if (meta) meta.source = "deterministic";
         return fastAdvisor;
+    }
+    const ytdRanking = buildYtdMarketRankingResponse(userMessage, plan, toolResults);
+    if (ytdRanking) {
+        if (meta) meta.source = "deterministic";
+        return sanitizeReply(ytdRanking);
     }
     const dailyHistory = buildDailyChangeHistoryResponse(userMessage, plan, toolResults);
     if (dailyHistory) {
@@ -1085,14 +1134,6 @@ export function buildFastConversationalAdvisorResponse(
     const guidanceIntent = plan.guidance_intent;
 
     const hasSpecificSymbols = Boolean(plan.entities?.symbols?.length);
-
-    if (/شريع|sharia/i.test(normMsg)) {
-        return [
-            "لا أستطيع تسمية أسهم متوافقة مع الشريعة اعتماداً على البيانات الحالية، لأن قاعدة البيانات لا تحتوي تصنيفاً شرعياً موثقاً أو نسب الديون والإيرادات غير المباحة اللازمة للفحص.",
-            "للاستثمار طويل الأجل، استخدم قائمة حديثة من هيئة رقابة شرعية أو صندوق شرعي مرخص، ثم أرسل لي رموز الأسهم الموجودة فيها لأقارنها فنياً ومالياً من البيانات المتاحة.",
-            "التوافق الشرعي يتغير مع القوائم المالية، لذلك لا يصح افتراضه من اسم الشركة أو قطاعها فقط."
-        ].join("\n");
-    }
 
     // 0. Terms Explanation Query
     const isSpecificLiquidityQuery = /(سيوله|سيولة).{0,30}(ازاي|إزاي|كيف|طريقة|طريقه|علامات|بعد|دخل|عرف)/i.test(normMsg) || /(ازاي|إزاي|كيف|طريقة|طريقه|علامات).{0,30}(سيوله|سيولة|دخلت)/i.test(normMsg);

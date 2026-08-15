@@ -423,7 +423,7 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
             session_update: { current_symbol: allocationSymbols[0], last_symbols: allocationSymbols, summary: message }
         };
     }
-    const hasNamedStock = explicitSymbols.length > 0 || hasGroupReference;
+    const hasNamedStock = explicitSymbols.length > 0 || hasGroupReference || Boolean(sessionState.current_symbol);
     const guidance = isFairValueScanRequest(message) ? null : getInvestorGuidanceIntent(message, hasNamedStock);
     if (guidance) {
         const wantsAccumulation = /تجميع|accumulation/i.test(normalized);
@@ -437,6 +437,16 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
                 last_symbols: sessionState.last_symbols,
                 summary: message
             }
+        };
+    }
+    const isYtdMarketRequest = /(?:من\s+(?:اول|أول|بداية|بدايه)\s+السنه|من\s+(?:اول|أول|بداية|بدايه)\s+السنة|من\s+يناير|خلال\s+العام|منذ\s+بداية\s+العام|منذ\s+بدايه\s+العام|ytd|year\s*to\s*date)/i.test(normalized);
+    if (isYtdMarketRequest) {
+        return {
+            intent: "market_summary",
+            confidence: 1,
+            entities: { symbols: [], sector: null, wants_table: true, timeframe: "historical", requested_date: null, scan_direction: null },
+            tools: ["get_price_history"],
+            session_update: { current_symbol: null, last_symbols: sessionState.last_symbols, summary: message }
         };
     }
     const recommendationRequest = isBestBuyStockQuestion(message) || /(?:توصيات|توصية|توصيه|ترشح|ترشيحات|فرص شراء|فرص دخول|اسهم ادخل فيها|اسهم اشتريها|اشتري ايه|ادخل في ايه|ادخل فيها|اسهم ممتازة|اسهم كويسة|تحقق ارباح|تحقق أرباح|توصيات كويسة|توصيات شراء|اسهم للشراء|فرص الشراء)/i.test(normalized);
@@ -521,15 +531,20 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
         symbols.push(sessionState.current_symbol);
     }
     if (/(كسر|يكسر).{0,12}الدعم|الدعم.{0,12}(اتكسر|انكسر)/i.test(normalized) && symbols.length === 0 && sessionState.current_symbol) symbols.push(sessionState.current_symbol);
-    if (/(ابيع|أبيع|بيع|احتفظ|أحتفظ|استنى|أستنى|اخرج|أخرج)/i.test(normalized) && symbols.length === 0 && sessionState.current_symbol) symbols.push(sessionState.current_symbol);
     if ((isDailyPriceLimitQuestion(message) || /(?:أ|ا)عل[ىي].{0,15}(?:سعر|قم[هة])/i.test(normalized)) && symbols.length === 0 && sessionState.current_symbol) symbols.push(sessionState.current_symbol);
+    const isGeneralStockFollowUp = /(?:مناسب|استثمار|استثمر|ادخل|شراء|اشتري|فرصه|فرصة|رايك|رأيك|توقعات|وضعه|اخباره|أخباره|حركته|تحليل|مستهدف|اهداف|أهداف|دعم|مقاومه|مقاومة|شهور|سنه|سنة|شهر|اسبوع|أسبوع)/i.test(normalized);
+    if (isGeneralStockFollowUp && symbols.length === 0 && sessionState.current_symbol && !isMarketWideRequest(message) && !isBestBuyStockQuestion(message)) {
+        symbols.push(sessionState.current_symbol);
+    }
     const sectorReference = /القطاع\s+(?:ده|دا|هذا)/i.test(normalized) ? sessionState.summary : null;
     const knownSectorFollowUp = /^(?:process industries|finance|health technology|health services|consumer services|consumer durables|consumer non-durables|commercial services|communications|distribution services|electronic technology|energy minerals|industrial services|miscellaneous|non-energy minerals|producer manufacturing|retail trade|technology services|transportation|utilities)$/i.test(message.trim())
         ? message.trim()
         : null;
-    let explicitSector = extractSectorFromMessage(message);
+    const mentionedSectorsInPlan = extractMentionedSectorNames(message);
+    const isMultiSectorOrComparison = mentionedSectorsInPlan.length >= 2 || /(?:أيهما|ايهما|مقارنة|مقارنه|مفاضلة|افضل|أفضل|احسن|أحسن|قارن|ترتيب|أقوى|اقوى|اعلى|أعلى).{0,30}(?:قطاع|القطاعات)/i.test(normalized);
+    let explicitSector = isMultiSectorOrComparison ? null : extractSectorFromMessage(message);
     if (symbols.length > 0 && !/(قطاع|القطاع)/i.test(normalized)) explicitSector = null;
-    const sector = knownSectorFollowUp || explicitSector || extractSectorFromMessage(sectorReference || "");
+    const sector = isMultiSectorOrComparison ? null : (knownSectorFollowUp || explicitSector || extractSectorFromMessage(sectorReference || ""));
     const hasExplicitLatinTicker = /(?:^|[^A-Za-z0-9])[A-Za-z][A-Za-z0-9]{1,9}(?=$|[^A-Za-z0-9])/.test(message);
     if (sector && !hasExplicitLatinTicker && symbols.length === 0 && /(قطاع|القطاعات|البنوك|الاتصالات|العقارات|الادويه|الاغذيه|البترول|الطاقه)/i.test(normalized)) symbols.length = 0;
     const isGreeting = /^(?:ازيك|إزيك|عامل ايه|عامل إيه|اهلا|أهلا|مرحبا|السلام عليكم)[؟?،,.!\s]*$/i.test(message.trim()) || /(?:انت|إنت|انتا|أنت).{0,12}(مين|موديل|نموذج)|مين انت|مين إنت/i.test(normalized);
@@ -651,7 +666,10 @@ export function enforceIntentFromMessage(message: string, plannerIntent: string,
         const distIdx = Math.max(normalized.indexOf("تصريف"), normalized.indexOf("distribution"));
         direction = (accIdx !== -1 && accIdx < distIdx) ? "accumulation" : "distribution";
     }
-    if (/شريع|sharia/i.test(normalized)) return { intent: "general_chat", tools: [], replaceTools: true };
+    if (/شريع|sharia/i.test(normalized)) {
+        if (hasSymbol) return { intent: "stock_analysis", tools: ["get_stock", "get_stock_levels"], replaceTools: true };
+        return { intent: "market_summary", tools: ["get_recommendations"], replaceTools: true };
+    }
     // Explicit request to search the internet (information not in the database)
     if (/(?:ابحث|دور|فتش|بحث|شوف|بص|سيرش|شيك|تشيك)\s*(?:في|فى|على|عن)\s*(?:النت|الانترنت|الإنترنت|جوجل|المواقع|الويب)|(?:من|عبر)\s+(?:النت|الانترنت|الإنترنت)/i.test(normalized)) {
         return { intent: "general_chat", tools: ["search_web"], replaceTools: true };
@@ -714,12 +732,17 @@ export function enforceIntentFromMessage(message: string, plannerIntent: string,
         return { intent: "market_summary", tools: ["get_market", "get_accumulation_stocks"], replaceTools: true };
     }
     const isSectorComparison = !marketFairValueScan && (
-        /(?:أيهما|ايهما|مقارنة|مقارنه|مفاضلة).{0,30}(?:قطاع|القطاعات)/i.test(normalized) ||
-        /(?:قطاع|القطاعات).{0,25}(?:احسن|افضل|أفضل|أحسن|مقارنة|مقارنه|مفاضلة).{0,25}(?:من|بين|ولا|أم|ام).{0,25}(?:قطاع|القطاعات|ادويه|أدوية|بنوك|عقارات|اتصالات|أغذية|اغذية|دواء)/i.test(normalized) ||
-        /(?:رايك|رأيك|ايه رايك|إيه رأيك).{0,25}(?:في|فى).{0,25}(?:قطاع|القطاعات).{0,35}(?:احسن|افضل|أفضل|أحسن|ولا|أم|ام).{0,35}(?:من|بين|قطاع|الادويه|الأدوية|الاتصالات|البنوك)/i.test(normalized)
+        mentionedSectors.length >= 2 ||
+        /(?:أيهما|ايهما|مقارنة|مقارنه|مفاضلة|افضل|أفضل|احسن|أحسن|قارن|ترتيب|أقوى|اقوى|اعلى|أعلى).{0,30}(?:قطاع|القطاعات)/i.test(normalized) ||
+        /(?:قطاع|القطاعات).{0,25}(?:احسن|افضل|أفضل|أحسن|مقارنة|مقارنه|مفاضلة|أقوى|اقوى).{0,25}(?:من|بين|ولا|أم|ام).{0,25}(?:قطاع|القطاعات|ادويه|أدوية|بنوك|عقارات|اتصالات|أغذية|اغذية|دواء|بتروكيماويات|طاقه|طاقة)/i.test(normalized) ||
+        /(?:رايك|رأيك|ايه رايك|إيه رأيك).{0,25}(?:في|فى).{0,25}(?:قطاع|القطاعات).{0,35}(?:احسن|افضل|أفضل|أحسن|ولا|أم|ام).{0,35}(?:من|بين|قطاع|الادويه|الأدوية|الاتصالات|البنوك|العقارات|البتروكيماويات)/i.test(normalized)
     );
     if (isSectorComparison) {
         return { intent: "sector_analysis", tools: ["get_sector_liquidity"], replaceTools: true, sector: null, requested_sectors: mentionedSectors };
+    }
+    const isYtdMarket = /(?:من\s+(?:اول|أول|بداية|بدايه)\s+السنه|من\s+(?:اول|أول|بداية|بدايه)\s+السنة|من\s+يناير|خلال\s+العام|منذ\s+بداية\s+العام|منذ\s+بدايه\s+العام|ytd|year\s*to\s*date)/i.test(normalized);
+    if (isYtdMarket) {
+        return { intent: "market_summary", tools: ["get_price_history"], replaceTools: true };
     }
     const isRecommendationQuery = isBestBuyStockQuestion(message) || /(?:توصيات|توصية|توصيه|ترشح|ترشيحات|فرص شراء|فرص دخول|اسهم ادخل فيها|اسهم اشتريها|اشتري ايه|ادخل في ايه|ادخل فيها|اسهم ممتازة|اسهم كويسة|تحقق ارباح|تحقق أرباح|توصيات كويسة|توصيات شراء|اسهم للشراء|فرص الشراء)/i.test(normalized);
     if (isRecommendationQuery) {
@@ -1145,13 +1168,8 @@ export async function* runPipelineStream(
     const STREAM_SKIP_PHRASES = [
         "البيانات الحية المتاحة، هذه مقارنة فنية",
         "الأسهم الموضحة بالجدول أعلاه",
-        "وليست أمراً بالشراء",
         "مرحباً بكم في هذا المقال",
         "مرحبا بكم في هذا المقال",
-        "من خلال تحليل البيانات",
-        "من خلال البيانات",
-        "بناءً على البيانات",
-        "بناء على البيانات",
     ];
 
     const responderMeta: { source?: "llm" | "deterministic"; degraded?: boolean } = {};
@@ -1182,10 +1200,8 @@ while (attempts < maxAttempts) {
             pendingModelText = lines.pop() || "";
             for (const line of lines) {
                 if (streamStopped) break;
-                // Deterministic replies are template-built from tool data; their
-                // markdown tables are the actual answer (e.g. day-by-day changes)
-                // and must not be stripped like LLM-generated tables.
-                if (isMarkdownTableLine(line) && responderMeta.source !== "deterministic") continue;
+                // Deterministic replies or table-requested queries preserve their markdown tables
+                if (isMarkdownTableLine(line) && responderMeta.source !== "deterministic" && !plan.entities.wants_table && !/(جدول|قايمه|قائمة|ترتيب|table|list)/i.test(userMessage)) continue;
 
                 // Stop if matching stop phrases
                 if (STREAM_STOP_PHRASES.some(phrase => line.includes(phrase))) {
@@ -1198,17 +1214,17 @@ while (attempts < maxAttempts) {
                     continue;
                 }
 
-                let cleanLine = line.replace(/^(?:من خلال التحليل الفني|من خلال تحليل البيانات|من خلال البيانات|بناءً على التحليل الفني|بناءً على البيانات|بناء على البيانات|يظهر أن|يظهر ان)[،.\s]*/gi, "");
+                let cleanLine = line.replace(/^(?:من خلال التحليل الفني|من خلال تحليل البيانات|بناءً على البيانات المتاحة|بناء على البيانات المتاحة)[،:\s]+/gi, "");
 
                 currentResponse += `${cleanLine}\n`;
             }
         }
 
-        if (!streamStopped && pendingModelText && (!isMarkdownTableLine(pendingModelText) || responderMeta.source === "deterministic")) {
+        if (!streamStopped && pendingModelText && (!isMarkdownTableLine(pendingModelText) || responderMeta.source === "deterministic" || plan.entities.wants_table || /(جدول|قايمه|قائمة|ترتيب|table|list)/i.test(userMessage))) {
             const shouldStop = STREAM_STOP_PHRASES.some(phrase => pendingModelText.includes(phrase));
             const shouldSkip = STREAM_SKIP_PHRASES.some(phrase => pendingModelText.includes(phrase));
             if (!shouldStop && !shouldSkip) {
-                const cleanText = pendingModelText.replace(/^(?:من خلال التحليل الفني|من خلال تحليل البيانات|من خلال البيانات|بناءً على التحليل الفني|بناءً على البيانات|بناء على البيانات|يظهر أن|يظهر ان)[،.\s]*/gi, "");
+                const cleanText = pendingModelText.replace(/^(?:من خلال التحليل الفني|من خلال تحليل البيانات|بناءً على البيانات المتاحة|بناء على البيانات المتاحة)[،:\s]+/gi, "");
                 currentResponse += cleanText;
             }
         }

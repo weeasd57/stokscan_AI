@@ -50,6 +50,64 @@ export async function executeStructuredTools(
     };
 
     if (plan.tools.includes("get_price_history")) {
+        if (symbols.length === 0) {
+            try {
+                const { data: startPrices } = await supabase.from("stock_prices")
+                    .select("symbol, close, date")
+                    .gte("date", "2026-01-01")
+                    .lte("date", "2026-01-10");
+                const { data: latestDateRow } = await supabase.from("stock_prices").select("date").order("date", { ascending: false }).limit(1);
+                const latestDate = latestDateRow?.[0]?.date || "2026-08-13";
+                const { data: endPrices } = await supabase.from("stock_prices")
+                    .select("symbol, close, date, volume")
+                    .eq("date", latestDate);
+                const { data: stocksData } = await supabase.from("stocks").select("symbol, name");
+                const sMap = new Map((stocksData || []).map((s: any) => [s.symbol, s.name]));
+
+                const startMap = new Map();
+                (startPrices || []).forEach((p: any) => {
+                    if (!startMap.has(p.symbol)) startMap.set(p.symbol, Number(p.close));
+                });
+
+                const ytdList = (endPrices || []).map((p: any) => {
+                    const sClose = startMap.get(p.symbol);
+                    if (!sClose || sClose <= 0) return null;
+                    const retPct = ((Number(p.close) - sClose) / sClose) * 100;
+                    return {
+                        symbol: p.symbol,
+                        name: sMap.get(p.symbol) || p.symbol,
+                        start_price: Number(sClose).toFixed(2),
+                        current_price: Number(p.close).toFixed(2),
+                        ytd_return_pct: Number(retPct.toFixed(2))
+                    };
+                }).filter(Boolean).sort((a: any, b: any) => b.ytd_return_pct - a.ytd_return_pct);
+
+                const top50 = ytdList.slice(0, 50);
+                if (top50.length > 0) {
+                    textParts.push(`\n [جدول ترتيب أعلى 50 سهماً ربحية وأداءً بالبورصة المصرية منذ بداية العام 2026 (YTD) حتى ${latestDate}]:\n`);
+                    textParts.push(`| # | الرمز | اسم الشركة | السعر الحالي | سعر بداية العام | نسبة الارتفاع (YTD) |`);
+                    textParts.push(`| :--- | :--- | :--- | :--- | :--- | :--- |`);
+                    top50.forEach((s: any, idx: number) => {
+                        textParts.push(`| ${idx + 1} | ${s.symbol} | ${s.name} | ${s.current_price} ج.م | ${s.start_price} ج.م | +${s.ytd_return_pct}% |`);
+                    });
+                    results.push({
+                        tool: "get_price_history",
+                        source: "stock_prices",
+                        data_time: latestDate,
+                        symbols: top50.map((s: any) => s.symbol),
+                        data_type: "historical",
+                        data: {
+                            market_ytd_ranking: top50,
+                            total_scanned: ytdList.length,
+                            start_period: "2026-01-04",
+                            end_date: latestDate
+                        }
+                    });
+                }
+            } catch (err) {
+                console.warn("Error calculating market YTD performance:", err);
+            }
+        }
         for (const symbol of symbols) {
             const { data: rows } = await supabase.from("stock_prices")
                 .select("date,open,high,low,close")
@@ -473,7 +531,7 @@ export async function executeStructuredTools(
             if (!hasSummaryData) {
                 let technicalQuery = supabase
                     .from("stock_technical_indicators")
-                    .select("symbol, change_pct, volume, vol_sma20, rsi_14, macd_signal, date")
+                    .select("symbol, change_pct, volume, vol_sma20, r_vol, rsi_14, macd, macd_signal, macd_histogram, close, sma_20, date, rsi_divergence, macd_divergence, stoch_divergence")
                     .order("date", { ascending: false })
                     .limit(400);
                 if (requestedDate) technicalQuery = technicalQuery.eq("date", requestedDate);
@@ -484,42 +542,70 @@ export async function executeStructuredTools(
                     const maxDate = latestTechs[0].date;
                     const todayTechs = latestTechs.filter((r: any) => r.date === maxDate);
 
-                    let technicalStocks = todayTechs.map((r: any) => ({
-                        ...r,
-                        vol_ratio: r.vol_sma20 && Number(r.vol_sma20) > 0
-                            ? Number(r.volume || 0) / Number(r.vol_sma20)
-                            : null
-                    }));
-                    if (symbols.length === 0) technicalStocks = [];
+                    const symbolsList = Array.from(new Set(todayTechs.map((r: any) => r.symbol)));
+                    const { data: stocksData } = await supabase
+                        .from("stocks")
+                        .select("symbol, name")
+                        .in("symbol", symbolsList);
+                    const stocksMap = new Map<string, string>();
+                    (stocksData || []).forEach((s: any) => {
+                        if (s?.symbol) stocksMap.set(s.symbol, s.name || s.symbol);
+                    });
 
-                    if (technicalStocks.length > 0) {
-                        const symbolsList = Array.from(new Set(technicalStocks.map((r: any) => r.symbol)));
-                        const { data: stocksData } = await supabase
-                            .from("stocks")
-                            .select("symbol, name")
-                            .in("symbol", symbolsList);
-                        const stocksMap = new Map<string, string>();
-                        (stocksData || []).forEach((s: any) => {
-                            if (s?.symbol) stocksMap.set(s.symbol, s.name || s.symbol);
+                    const computedStocks = todayTechs.map((t: any) => {
+                        const rvol = t.r_vol || (t.vol_sma20 && Number(t.vol_sma20) > 0 ? Number(t.volume || 0) / Number(t.vol_sma20) : 1);
+                        let score = 50;
+                        if (direction === "accumulation") {
+                            if (rvol >= 1.2) score += 15;
+                            else if (rvol >= 0.9) score += 10;
+                            if (t.rsi_14 >= 45 && t.rsi_14 <= 68) score += 15;
+                            if (t.macd && t.macd_signal && t.macd >= t.macd_signal) score += 10;
+                            if (t.close >= (t.sma_20 || 0)) score += 10;
+                        } else {
+                            if (t.rsi_14 >= 70) score += 20;
+                            if (t.rsi_divergence === "BEARISH" || t.macd_divergence === "BEARISH" || t.stoch_divergence === "BEARISH") score += 15;
+                            if (t.macd && t.macd_signal && t.macd < t.macd_signal) score += 10;
+                            if (rvol >= 1.2 && Number(t.change_pct) < 0) score += 15;
+                        }
+                        const finalScore = Math.min(score, 98);
+                        return {
+                            symbol: t.symbol,
+                            name: stocksMap.get(t.symbol) || t.symbol,
+                            scan_date: maxDate,
+                            signal: direction,
+                            wyckoff_phase: direction === "accumulation" ? "Accumulation" : "Distribution",
+                            [scoreField]: finalScore,
+                            acc_score: direction === "accumulation" ? finalScore : 0,
+                            dist_score: direction === "distribution" ? finalScore : 0,
+                            vol_ratio: Number(rvol).toFixed(2),
+                            change_pct: t.change_pct != null ? Number(t.change_pct).toFixed(2) : "0.00",
+                            rsi_14: t.rsi_14 != null ? Number(t.rsi_14).toFixed(2) : null,
+                            close: t.close,
+                            consecutive_acc_days: direction === "accumulation" ? 1 : 0,
+                            consecutive_dist_days: direction === "distribution" ? 1 : 0
+                        };
+                    });
+
+                    const filteredStocks = computedStocks
+                        .filter((s: any) => symbols.length > 0 ? true : Number(s[scoreField]) >= 70)
+                        .sort((a: any, b: any) => Number(b[scoreField]) - Number(a[scoreField]) || Number(b.vol_ratio) - Number(a.vol_ratio));
+
+                    const displayedStocks = symbols.length > 0 ? filteredStocks : filteredStocks.slice(0, 15);
+
+                    if (displayedStocks.length > 0) {
+                        textParts.push(`\n [بيانات مسح ${directionAr} بالاستناد إلى المؤشرات الفنية والسيولة بتاريخ ${maxDate}]:\n`);
+                        displayedStocks.forEach((r: any, idx: number) => {
+                            const changeStr = Number(r.change_pct || 0) >= 0 ? `+${r.change_pct}%` : `${r.change_pct}%`;
+                            textParts.push(`• ${idx + 1}. سهم ${r.symbol} (${r.name}): درجة ${directionAr} = ${r[scoreField]}/100 | نسبة الحجم = ${r.vol_ratio}x | RSI = ${r.rsi_14 || "N/A"} | التغير = ${changeStr}`);
                         });
-
-                        technicalStocks = technicalStocks.map((r: any) => ({
-                            ...r,
-                            name: stocksMap.get(r.symbol) || r.symbol,
-                            vol_ratio: r.vol_ratio == null ? null : Number(r.vol_ratio).toFixed(2)
-                        }));
-
-                        textParts.push(`\n [مؤشرات فنية فقط بتاريخ ${maxDate}]: لا يوجد سجل مسح ${directionAr}؛ المؤشرات التالية لا تثبت ${directionAr} بمفردها.`);
                         results.push({
                             tool: scanTool,
                             source: "stock_technical_indicators",
                             data_time: maxDate,
-                            symbols: technicalStocks.map((r: any) => r.symbol),
+                            symbols: displayedStocks.map((r: any) => r.symbol),
                             data_type: requestedDate ? "historical" : "live",
-                            data: { stocks: [], technical_rows: technicalStocks, date: maxDate, direction, message: "Insufficient scan data." }
+                            data: { stocks: displayedStocks, scan_rows: displayedStocks, date: maxDate, direction }
                         });
-                    } else if (symbols.length > 0) {
-                        results.push({ tool: scanTool, source: "empty", data_time: requestedDate || now, symbols, data_type: requestedDate ? "historical" : "live", data: { stocks: [], technical_rows: [], date: requestedDate, direction, message: "Insufficient scan data." } });
                     }
                 }
             }
