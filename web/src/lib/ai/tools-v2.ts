@@ -41,7 +41,13 @@ export async function executeStructuredTools(
         return (plan.entities.excluded_sectors || []).some(excluded => classificationMatchesSector(value, excluded));
     };
 
-
+    const dataDateQuality = (date: unknown, maxAgeDays: number, requested: string | null = null) => {
+        const value = String(date || "").slice(0, 10);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return { ok: false, reason: "missing_date" };
+        if (requested && value !== requested) return { ok: false, reason: "date_mismatch" };
+        const ageDays = Math.floor((Date.now() - Date.parse(`${value}T23:59:59Z`)) / 86400000);
+        return { ok: ageDays <= maxAgeDays, reason: ageDays <= maxAgeDays ? null : "stale", ageDays };
+    };
 
     if (plan.tools.includes("get_price_history")) {
         if (symbols.length === 0) {
