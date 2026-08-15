@@ -1,7 +1,7 @@
 import { IntentPlan, VisionContext, SessionState, SessionSummary, PlannerResult } from "./types";
 import { analyzeImage } from "./vision";
 import { retrieveRelevantMemory, MemoryResult } from "./memory";
-import { getSyncStockMappings, getStocksList, loadValidSymbols } from "./planner";
+import { getSyncStockMappings, getStocksList, getSyncValidSymbols, loadValidSymbols } from "./planner";
 import { executeStructuredTools, StructuredToolOutput } from "./tools-v2";
 import { buildDeterministicResponse, generateV2Response, generateV2Stream, getResponderCooldownMs } from "./final-v2";
 import { validateResponse, autoFixNumbers } from "./validator";
@@ -127,8 +127,15 @@ export function extractExplicitSymbols(message: string): string[] {
         "OTC", "BUY", "SELL", "HOLD", "USD", "EGP", "EPS", "ROE", "ROA", "ROI", "NAV", "GDP", "CBE", "FRA", "IPO", "API", "AI"
     ]);
     const latinTokens = message.match(/\b[A-Za-z][A-Za-z0-9]{1,9}\b/g) || [];
-    
-    let matchedSymbols = [...latinTokens];
+
+    // Latin tickers that match no listed stock (e.g. FTNS) must not scope tools —
+    // filter them against the known-symbol universe before anything else.
+    const knownSymbols = getSyncValidSymbols();
+    const validLatin = knownSymbols.length > 0
+        ? latinTokens.filter(token => knownSymbols.includes(token.toUpperCase()))
+        : latinTokens;
+
+    let matchedSymbols = [...validLatin];
 
     // Attempt to match Arabic full names from the mapping
     const stockMappings = getSyncStockMappings();
@@ -1028,6 +1035,10 @@ export async function* runPipelineStream(
         ? unresolvedNameMatch[1].replace(/[.،,؟?…].*$/, "").trim()
         : null;
     if (unresolvedStockName) mergedSymbols = [];
+    // Bare ticker that matches no listed stock ("FTNS") — answer that it is not
+    // covered instead of running empty tools and serving a degraded fallback.
+    const unrecognizedTicker = !vision && explicitSymbols.length === 0
+        && /^[A-Za-z]{2,6}[؟?\s.]*$/.test(userMessage.trim());
     const compoundRequest = splitChatCommands(userMessage).length > 1;
     if ((isMarketWideRequest(userMessage) || broadScanRequest || isBestBuyStockQuestion(userMessage)) && !compoundRequest && extractExplicitSymbols(userMessage).length === 0) mergedSymbols = [];
     if (plannerResult.entities.sector && extractExplicitSymbols(userMessage).length === 0) mergedSymbols = [];
@@ -1240,6 +1251,17 @@ export async function* runPipelineStream(
         yield { type: "token", data: unknownStockResponse };
         await persistPipelineSession(sessionState, sessionSummary, plan, vision, memory, sessionId, userId, supabase, hasImages);
         yield { type: "done", data: { response: unknownStockResponse, session_update: { current_symbol: null, last_symbols: sessionState.last_symbols || [], summary: userMessage, current_sector: plan.entities.sector || sessionState.current_sector || null }, tables } };
+        return;
+    }
+
+    // Bare ticker matching no listed stock — say it is not covered instead of
+    // running empty tools and serving a degraded fallback with junk web snippets.
+    if (unrecognizedTicker) {
+        const ticker = userMessage.trim().replace(/[؟?\s.]+$/, "").toUpperCase();
+        const uncoveredResponse = `الرمز ${ticker} غير موجود في تغطية النظام حالياً (غير مدرج في قاعدة أسهم البورصة المصرية المتاحة لي)، ولن أخمن بياناته. تأكد من كتابة الرمز بشكل صحيح (مثل COMI أو AMES)، أو اكتب اسم الشركة بالعربي وسأحاول التعرف عليه.`;
+        yield { type: "token", data: uncoveredResponse };
+        await persistPipelineSession(sessionState, sessionSummary, plan, vision, memory, sessionId, userId, supabase, hasImages);
+        yield { type: "done", data: { response: uncoveredResponse, session_update: { current_symbol: null, last_symbols: sessionState.last_symbols || [], summary: userMessage, current_sector: sessionState.current_sector || null }, tables } };
         return;
     }
 
@@ -1619,13 +1641,18 @@ import { ToolResult } from "./types";
                 lines.push("");
             }
             if (r.tool === "search_web" && r.data?.results?.length > 0) {
-                hasContent = true;
-                lines.push(`🌐 **معلومات إضافية من الويب:**`);
-                r.data.results.slice(0, 3).forEach((webResult: any) => {
-                    if (webResult.title && webResult.snippet) {
-                        lines.push(`  • **${webResult.title}**: ${webResult.snippet}`);
-                    }
+                // Aggregator snippets like "خبر منشور في: موقع X" carry no content — drop them.
+                const usefulResults = r.data.results.filter((webResult: any) => {
+                    const snippet = String(webResult.snippet || "").trim();
+                    return webResult.title && snippet.length >= 30 && !/^خبر منشور في/.test(snippet);
                 });
+                if (usefulResults.length > 0) {
+                    hasContent = true;
+                    lines.push(`🌐 **معلومات إضافية من الويب:**`);
+                    usefulResults.slice(0, 3).forEach((webResult: any) => {
+                        lines.push(`  • **${webResult.title}**: ${webResult.snippet}`);
+                    });
+                }
                 lines.push("");
             }
         });
@@ -1738,6 +1765,10 @@ export async function runPipeline(
         ? unresolvedNameMatch[1].replace(/[.،,؟?…].*$/, "").trim()
         : null;
     if (unresolvedStockName) mergedSymbols = [];
+    // Bare ticker that matches no listed stock ("FTNS") — answer that it is not
+    // covered instead of running empty tools and serving a degraded fallback.
+    const unrecognizedTicker = !vision && explicitSymbols.length === 0
+        && /^[A-Za-z]{2,6}[؟?\s.]*$/.test(userMessage.trim());
     const compoundRequest = splitChatCommands(userMessage).length > 1;
     if ((isMarketWideRequest(userMessage) || isBestBuyStockQuestion(userMessage)) && !compoundRequest && extractExplicitSymbols(userMessage).length === 0) mergedSymbols = [];
     if (plannerResult.entities.sector && extractExplicitSymbols(userMessage).length === 0) mergedSymbols = [];
@@ -1948,6 +1979,30 @@ export async function runPipeline(
             tools,
             response: unknownStockResponse,
             session_update: unknownSessionUpdate,
+            vision_error: visionError,
+            tables
+        };
+    }
+
+    // Bare ticker matching no listed stock — say it is not covered instead of
+    // running empty tools and serving a degraded fallback with junk web snippets.
+    if (unrecognizedTicker) {
+        const ticker = userMessage.trim().replace(/[؟?\s.]+$/, "").toUpperCase();
+        const uncoveredResponse = `الرمز ${ticker} غير موجود في تغطية النظام حالياً (غير مدرج في قاعدة أسهم البورصة المصرية المتاحة لي)، ولن أخمن بياناته. تأكد من كتابة الرمز بشكل صحيح (مثل COMI أو AMES)، أو اكتب اسم الشركة بالعربي وسأحاول التعرف عليه.`;
+        const uncoveredSessionUpdate = {
+            current_symbol: null,
+            last_symbols: sessionState.last_symbols || [],
+            summary: userMessage,
+            current_sector: sessionState.current_sector || null
+        };
+        await updateSessionState(supabase, sessionId, userId, uncoveredSessionUpdate);
+        return {
+            vision,
+            memory,
+            plan,
+            tools,
+            response: uncoveredResponse,
+            session_update: uncoveredSessionUpdate,
             vision_error: visionError,
             tables
         };

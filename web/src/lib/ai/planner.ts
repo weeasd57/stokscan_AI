@@ -516,6 +516,16 @@ export async function loadValidSymbols(): Promise<string[]> {
     return cachedValidSymbols;
 }
 
+// Synchronous view of the known-symbol universe (DB cache + stocks cache + static
+// fallback). Used to reject Latin tickers that match no listed stock (e.g. FTNS)
+// so they never scope tools or leak into session state.
+export function getSyncValidSymbols(): string[] {
+    if (cachedValidSymbols.length > 0) return cachedValidSymbols;
+    const fromStocks = (cachedStocks || []).map((s: any) => String(s.symbol || "").toUpperCase()).filter(Boolean);
+    if (fromStocks.length > 0) return fromStocks;
+    return STATIC_VALID_SYMBOLS;
+}
+
 const STATIC_VALID_SYMBOLS = [
     'AALR', 'ABUK', 'ACAMD', 'ACAP', 'ADCI', 'ADPC', 'AFMC', 'AIH', 'AIIH', 'AJWA', 'ALCN', 'ALUM', 'AMES', 'AMOC',
     'APPC', 'ARAB', 'AREH', 'ARVA', 'ATQA', 'AXPH', 'BIOC', 'BTFH', 'CAED', 'CCAP', 'CIEB', 'CIRA', 'CLHO',
