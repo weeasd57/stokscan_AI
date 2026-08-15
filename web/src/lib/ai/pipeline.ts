@@ -1183,7 +1183,7 @@ export async function* runPipelineStream(
 
     const deterministicDomainResponse = emptyScanResult
         ? scanStale
-            ? `عذراً، بيانات مسح ${directionAr} الأخيرة في قاعدة البيانات بتاريخ ${scanDate || "غير محدد"} وهي قديمة (أكثر من 7 أيام). يتم تحديث بيانات المسح بشكل دوري — حاول مرة أخرى لاحقاً بعد التحديث.`
+            ? `آخر مسح ${directionAr} مسجل في قاعدة البيانات بتاريخ ${scanDate || "غير محدد"} (أقدم من 7 أيام)، ولم يسجل هذا المسح أي أسهم في منطقة ${directionAr}. يتم تحديث بيانات المسح بشكل دوري.`
             : plan.entities.min_acc_score != null || plan.entities.min_vol_ratio != null || plan.entities.min_consecutive_acc_days != null
                 ? `عذراً، لم أجد أي أسهم تطابق الشروط التي حددتها حالياً. يمكنك محاولة تخفيف الشروط (مثل تقليل درجة ${directionAr} المطلوبة أو نسبة الحجم) للحصول على نتائج.`
                 : `حالياً لا توجد أسهم في منطقة ${directionAr} واضحة بناءً على أحدث بيانات المسح المتاحة (بتاريخ ${scanDate || "اليوم"}). هذا يعني أن السوق قد لا يمر بمرحلة ${directionAr} مؤسسي واضحة في الوقت الحالي.`
@@ -1861,7 +1861,7 @@ export async function runPipeline(
 
     const deterministicDomainResponse = emptyScanResult
         ? scanStale
-            ? `عذراً، بيانات مسح ${directionAr} الأخيرة في قاعدة البيانات بتاريخ ${scanDate || "غير محدد"} وهي قديمة (أكثر من 7 أيام). يتم تحديث بيانات المسح بشكل دوري — حاول مرة أخرى لاحقاً بعد التحديث.`
+            ? `آخر مسح ${directionAr} مسجل في قاعدة البيانات بتاريخ ${scanDate || "غير محدد"} (أقدم من 7 أيام)، ولم يسجل هذا المسح أي أسهم في منطقة ${directionAr}. يتم تحديث بيانات المسح بشكل دوري.`
             : plan.entities.min_acc_score != null || plan.entities.min_vol_ratio != null || plan.entities.min_consecutive_acc_days != null
                 ? `عذراً، لم أجد أي أسهم تطابق الشروط التي حددتها حالياً. يمكنك محاولة تخفيف الشروط (مثل تقليل درجة ${directionAr} المطلوبة أو نسبة الحجم) للحصول على نتائج.`
                 : `حالياً لا توجد أسهم في منطقة ${directionAr} واضحة بناءً على أحدث بيانات المسح المتاحة (بتاريخ ${scanDate || "اليوم"}). هذا يعني أن السوق قد لا يمر بمرحلة ${directionAr} مؤسسي واضحة في الوقت الحالي.`
