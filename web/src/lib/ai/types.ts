@@ -65,6 +65,7 @@ export interface IntentPlan {
     entities: {
         symbols: string[];
         sector: string | null;
+        wants_table?: boolean;
         timeframe: "current" | "historical" | "unspecified";
         reference: "last_image" | "last_stock" | "previous_analysis" | null;
         scan_direction?: "accumulation" | "distribution" | null;

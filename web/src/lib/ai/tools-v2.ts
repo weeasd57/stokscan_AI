@@ -12,6 +12,13 @@ function normalizeArabic(str: string): string {
         .toLowerCase();
 }
 
+// Symbols that are indices, currencies, or non-stock entities — must never appear in stock rankings
+const NON_EQUITY_SYMBOLS = new Set([
+    "USD", "USDEGP", "USDMXN", "USDEUR", "USDGBP",
+    "EGX30", "EGX70", "EGX100", "EGX", "INDEX",
+    "TASI", "DFM", "ADX", "QE", "MSM",
+]);
+
 export interface StructuredToolOutput {
     results: ToolResult[];
     formattedText: string;
@@ -35,6 +42,11 @@ export async function executeStructuredTools(
     const requestedStartDate = plan.entities.requested_start_date || null;
     const requestedEndDate = plan.entities.requested_end_date || null;
     const excludedSectors = (plan.entities.excluded_sectors || []).map(normalizeArabic);
+
+    // Explicit count requests ("أقوى 5 أسهم", "أرخص 10 أسهم", "أول 3 أسهم") cap every list,
+    // otherwise rankings fall back to their default depths.
+    const countMatch = userMessage.match(/(?:^|[\s،,])(\d{1,2})\s*(?:سهم|أسهم|اسهم|شرك[هة])(?:[\s،,.]|$)/);
+    const requestedCount = countMatch ? Math.min(Math.max(parseInt(countMatch[1], 10), 1), 50) : null;
 
     const isExcludedSector = (value: unknown): boolean => {
         if (!excludedSectors.length) return false;
@@ -116,6 +128,9 @@ export async function executeStructuredTools(
 
                 const wantsLiquidity = /(?:سيول|تداول|حجم)/i.test(userMessage);
                 const wantsLowest = /(?:اقل|أقل|ارخص|أرخص|ادنى|أدنى)/i.test(userMessage);
+                const wantsCheapest = /(?:ارخص|أرخص)/i.test(userMessage)
+                    || /(?:اقل|أقل|ادنى|أدنى|اخفض|أخفض).{0,15}(?:سعر|سعرا)/i.test(userMessage)
+                    || /(?:سعر).{0,10}(?:اقل|أقل|ادنى|أدنى|اخفض|أخفض)/i.test(userMessage);
 
                 const rankingList = (endPrices || []).map((p: any) => {
                     const sClose = startMap.get(p.symbol);
@@ -133,9 +148,11 @@ export async function executeStructuredTools(
                         volume: Number(p.volume || 0),
                         liquidity: liquidity
                     };
-                }).filter(Boolean);
+                }).filter(Boolean).filter((r: any) => !NON_EQUITY_SYMBOLS.has(r.symbol));
 
-                if (wantsLiquidity) {
+                if (wantsCheapest) {
+                    rankingList.sort((a: any, b: any) => Number(a.current_price) - Number(b.current_price));
+                } else if (wantsLiquidity) {
                     if (wantsLowest) {
                         rankingList.sort((a: any, b: any) => a.liquidity - b.liquidity);
                     } else {
@@ -149,17 +166,19 @@ export async function executeStructuredTools(
                     }
                 }
 
-                const rankingToSave = rankingList.slice(0, 100);
+                const rankingToSave = rankingList.slice(0, requestedCount || 100);
                 if (rankingToSave.length > 0) {
-                    const orderLabel = wantsLowest ? "الأقل" : "الأعلى";
-                    const metricLabel = wantsLiquidity ? "سيولة وتداول" : "ربحية وأداءً";
+                    const orderLabel = wantsCheapest ? "الأرخص" : wantsLowest ? "الأقل" : "الأعلى";
+                    const metricLabel = wantsCheapest ? "سعر السهم" : wantsLiquidity ? "سيولة وتداول" : "ربحية وأداءً";
                     textParts.push(`\n [جدول ترتيب ${orderLabel} الأسهم من حيث ${metricLabel} بالبورصة المصرية ${periodLabel}]:\n`);
-                    const colHeaderName = wantsLiquidity ? "السيولة (قيمة التداول)" : "نسبة التغيير";
+                    const colHeaderName = wantsCheapest ? "سعر الإغلاق (ج.م)" : wantsLiquidity ? "السيولة (قيمة التداول)" : "نسبة التغيير";
                     textParts.push(`| # | الرمز | اسم الشركة | السعر الحالي | سعر بداية الفترة | ${colHeaderName} |`);
                     textParts.push(`| :--- | :--- | :--- | :--- | :--- | :--- |`);
                     rankingToSave.forEach((s: any, idx: number) => {
                         let metricVal = "";
-                        if (wantsLiquidity) {
+                        if (wantsCheapest) {
+                            metricVal = `${Number(s.current_price).toFixed(2)} ج.م`;
+                        } else if (wantsLiquidity) {
                             const liqM = Number(s.liquidity || 0);
                             if (liqM >= 1_000_000) {
                                 metricVal = `${(liqM / 1_000_000).toFixed(2)} مليون ج.م`;
@@ -518,8 +537,12 @@ export async function executeStructuredTools(
                     .limit(200);
                 if (requestedDate) summaryQuery = summaryQuery.eq("scan_date", requestedDate);
                 const compoundMarketScan = plan.tools.includes("get_stock") && (plan.tools.includes("get_accumulation_stocks") || plan.tools.includes("get_distribution_stocks"));
-                const asksForMarketWideList = /(?:الأسهم|الاسهم|أسهم|اسهم|قائمة|قائمه|شاشه|شاشة)\s+(?:التجميع|التصريف|تجميع|تصريف)/i.test(userMessage) 
-                    || /(?:أقوى|اقوى|أفضل|افضل|أعلى|اعلى|أرخص|ارخص)\s+(?:الأسهم|الاسهم|أسهم|اسهم)/i.test(userMessage);
+                const asksForMarketWideList = /(?:الأسهم|الاسهم|أسهم|اسهم|قائمة|قائمه|شاشه|شاشة)\s+(?:التجميع|التصريف|تجميع|تصريف)/i.test(userMessage)
+                    || /(?:أقوى|اقوى|أفضل|افضل|أعلى|اعلى|أرخص|ارخص)\s+(?:الأسهم|الاسهم|أسهم|اسهم)/i.test(userMessage)
+                    || /(?:بالاسهم|بالأسهم).{0,20}(?:تجميع|تصريف|منطقه|منطقة)/i.test(userMessage)
+                    || /(?:ايه|اي|فين|هل في|هل فيه).{0,12}(?:اسهم|أسهم).{0,15}(?:تجميع|تصريف)/i.test(userMessage)
+                    || /(?:منطقه|منطقة|فرص)\s+(?:تجميع|تصريف)/i.test(userMessage)
+                    || /(?:اسهم|أسهم).{0,10}(?:تجميع|تصريف)/i.test(userMessage);
                 const scopedSymbols = (compoundMarketScan && asksForMarketWideList) ? [] : symbols.length > 0 ? symbols : await resolveSectorSymbols();
                 if (scopedSymbols.length > 0) summaryQuery = summaryQuery.in("symbol", scopedSymbols);
                 const { data: summaryScans } = await summaryQuery;
@@ -572,7 +595,7 @@ export async function executeStructuredTools(
                                 && Number(r.consecutive_acc_days || 0) >= Number(plan.entities.min_consecutive_acc_days);
                         })
                         .sort((a: any, b: any) => Number(b[scoreField] || 0) - Number(a[scoreField] || 0));
-                    const displayedStocks = symbols.length > 0 || plan.entities.sector ? matchingStocks : matchingStocks.slice(0, 15);
+                    const displayedStocks = symbols.length > 0 || plan.entities.sector ? matchingStocks : matchingStocks.slice(0, requestedCount || 15);
                     const stocksWithNames = displayedStocks.map((r: any) => ({
                         ...r,
                         name: stocksMap.get(r.symbol) || r.symbol
@@ -679,7 +702,7 @@ export async function executeStructuredTools(
                         .filter((s: any) => symbols.length > 0 ? true : Number(s[scoreField]) >= 70)
                         .sort((a: any, b: any) => Number(b[scoreField]) - Number(a[scoreField]) || Number(b.vol_ratio) - Number(a.vol_ratio));
 
-                    const displayedStocks = symbols.length > 0 ? filteredStocks : filteredStocks.slice(0, 15);
+                    const displayedStocks = symbols.length > 0 ? filteredStocks : filteredStocks.slice(0, requestedCount || 15);
 
                     if (displayedStocks.length > 0) {
                         textParts.push(`\n [بيانات مسح ${directionAr} بالاستناد إلى المؤشرات الفنية والسيولة بتاريخ ${maxDate}]:\n`);
@@ -916,18 +939,18 @@ export async function executeStructuredTools(
 
             if (latestTechs && latestTechs.length > 0) {
                 const maxTechDate = latestTechs[0].date;
-                const todayTechs = latestTechs.filter((r: any) => r.date === maxTechDate);
+                const todayTechs = latestTechs.filter((r: any) => r.date === maxTechDate && !NON_EQUITY_SYMBOLS.has(r.symbol));
 
                 if (todayTechs.length > 0) {
                     let gainers = todayTechs
                         .filter((r: any) => Number(r.change_pct || 0) > 0)
                         .sort((a: any, b: any) => Number(b.change_pct || 0) - Number(a.change_pct || 0))
-                        .slice(0, 10); // get top 10
+                        .slice(0, requestedCount || 10); // get top N
 
                     let losers = todayTechs
                         .filter((r: any) => Number(r.change_pct || 0) < 0)
                         .sort((a: any, b: any) => Number(a.change_pct || 0) - Number(b.change_pct || 0))
-                        .slice(0, 10); // get top 10
+                        .slice(0, requestedCount || 10); // get top N
 
                     const moverSymbols = Array.from(new Set([...gainers, ...losers].map((r: any) => r.symbol)));
                     if (moverSymbols.length > 0) {

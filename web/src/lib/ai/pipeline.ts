@@ -460,9 +460,21 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
             }
         };
     }
-    const isYtdMarketRequest = /(?:من\s+(?:اول|أول|بداية|بدايه)\s+السنه|من\s+(?:اول|أول|بداية|بدايه)\s+السنة|من\s+يناير|خلال\s+العام|منذ\s+بداية\s+العام|منذ\s+بدايه\s+العام|ytd|year\s*to\s*date)/i.test(normalized);
-    const isMtdMarketRequest = /(?:من\s+(?:اول|أول|بداية|بدايه)\s+الشهر|من\s+(?:اول|أول|بداية|بدايه)\s+الشهر|خلال\s+الشهر|منذ\s+بداية\s+الشهر|منذ\s+بدايه\s+الشهر|mtd|month\s*to\s*date|الشهر\s+ده|الشهر\s+دا|الشهر\s+الحالي)/i.test(normalized);
-    const isWtdMarketRequest = /(?:من\s+(?:اول|أول|بداية|بدايه)\s+الاسبوع|من\s+(?:اول|أول|بداية|بدايه)\s+الاسبوع|خلال\s+الاسبوع|منذ\s+بداية\s+الاسبوع|منذ\s+بدايه\s+الاسبوع|wtd|week\s*to\s*date|الاسبوع\s+ده|الاسبوع\s+دا|الاسبوع\s+الحالي)/i.test(normalized);
+    const isMarketCheapestRequest = explicitSymbols.length === 0
+        && /(?:ارخص|أرخص)\s*(?:\d{1,2})?\s*(?:ال)?(?:اسهم|الاسهم|أسهم|الأسهم|سهم)/i.test(normalized)
+        && !/(?:ارتفاع|صعود|عائد|اداء|أداء|سيول|تداول|خسار|انخفاض|هابط)/i.test(normalized);
+    if (isMarketCheapestRequest) {
+        return {
+            intent: "market_summary",
+            confidence: 1,
+            entities: { symbols: [], sector: null, wants_table: true, timeframe: "current", requested_date: null, scan_direction: null },
+            tools: ["get_price_history"],
+            session_update: { current_symbol: null, last_symbols: sessionState.last_symbols, summary: message }
+        };
+    }
+    const isYtdMarketRequest = /(?:من\s+(?:اول|أول|بداية|بدايه)\s+السنه|من\s+(?:اول|أول|بداية|بدايه)\s+السنة|من\s+يناير|خلال\s+العام|منذ\s+بداية\s+العام|منذ\s+بدايه\s+العام|ytd|year\s*to\s*date|هذا\s+العام|العام\s+الحالي|السنه\s+(?:دي|ده|دا))/i.test(normalized);
+    const isMtdMarketRequest = /(?:من\s+(?:اول|أول|بداية|بدايه)\s+الشهر|من\s+(?:اول|أول|بداية|بدايه)\s+الشهر|خلال\s+الشهر|منذ\s+بداية\s+الشهر|منذ\s+بدايه\s+الشهر|mtd|month\s*to\s*date|الشهر\s+ده|الشهر\s+دا|الشهر\s+الحالي|هذا\s+الشهر|الشهر\s+دي)/i.test(normalized);
+    const isWtdMarketRequest = /(?:من\s+(?:اول|أول|بداية|بدايه)\s+الاسبوع|من\s+(?:اول|أول|بداية|بدايه)\s+الاسبوع|خلال\s+الاسبوع|منذ\s+بداية\s+الاسبوع|منذ\s+بدايه\s+الاسبوع|wtd|week\s*to\s*date|الاسبوع\s+ده|الاسبوع\s+دا|الاسبوع\s+الحالي|هذا\s+الاسبوع|الاسبوع\s+دي)/i.test(normalized);
     const isPeriodRankingRequest = isYtdMarketRequest || isMtdMarketRequest || isWtdMarketRequest || /(?:اعلي|أعلى|افضل|أفضل|اقل|أقل|ارخص|أرخص|ادنى|أدنى|بافضل|بأفضل|بافل|بأفل|بأعلى|باعلى|قايمه|قائمة|ترتيب).{0,35}(?:ارباح|أرباح|ارتفاع|صعود|اداء|أداء|عائد|سيول|تداول|حجم).{0,35}(?:اول|أول|بداية|بدايه|خلال|منذ).{0,20}(?:السنه|السنة|الشهر|الاسبوع|يناير|ytd|mtd|wtd)/i.test(normalized);
     if (isPeriodRankingRequest) {
         return {
@@ -739,7 +751,7 @@ export function enforceIntentFromMessage(message: string, plannerIntent: string,
     if (/(ابيع|بيع|احتفظ|اخرج|اشتري|شراء)/i.test(normalized) && hasSymbol) return { intent: "stock_analysis", tools: ["get_stock", "get_stock_levels"], replaceTools: true };
     if (/(ينصح|داخل|دخول|مستهدف|يصحح|تصحيح|بكره|بكرة|اخر الاسبوع|المحفظه|مليون)/i.test(normalized) && hasSymbol) return { intent: "stock_analysis", tools: ["get_stock", "get_stock_levels"], replaceTools: true };
     if (symbols.length >= 2 && hasSymbol && !/(اخبار|خبر|قارن|مقارن|قطاع|تجميع|تصريف)/i.test(normalized)) return { intent: "stock_analysis", tools: ["get_stock", "get_stock_levels"], replaceTools: true };
-    const isPeriodRanking = /(?:من\s+(?:اول|أول|بداية|بدايه)\s+(?:السنه|السنة|الشهر|الاسبوع|اسبوع)|من\s+يناير|خلال\s+(?:العام|الشهر|الاسبوع)|منذ\s+بداية\s+(?:العام|الشهر|الاسبوع)|ytd|mtd|wtd|الشهر\s+ده|الشهر\s+الحالي|الاسبوع\s+ده|الاسبوع\s+الحالي)/i.test(normalized)
+    const isPeriodRanking = /(?:من\s+(?:اول|أول|بداية|بدايه)\s+(?:السنه|السنة|الشهر|الاسبوع|اسبوع)|من\s+يناير|خلال\s+(?:العام|الشهر|الاسبوع)|منذ\s+بداية\s+(?:العام|الشهر|الاسبوع)|ytd|mtd|wtd|الشهر\s+ده|الشهر\s+دا|الشهر\s+الحالي|هذا\s+الشهر|الاسبوع\s+ده|الاسبوع\s+دا|الاسبوع\s+الحالي|هذا\s+الاسبوع|هذا\s+العام)/i.test(normalized)
         || /(?:اعلي|أعلى|افضل|أفضل|اقل|أقل|ارخص|أرخص|ادنى|أدنى|بافضل|بأفضل|بافل|بأفل|بأعلى|باعلى|قايمه|قائمة|ترتيب).{0,35}(?:ارباح|أرباح|ارتفاع|صعود|اداء|أداء|عائد|سيول|تداول|حجم).{0,35}(?:اول|أول|بداية|بدايه|خلال|منذ).{0,20}(?:السنه|السنة|الشهر|الاسبوع|يناير|ytd|mtd|wtd)/i.test(normalized);
     if (isPeriodRanking) {
         return { intent: "market_summary", tools: ["get_price_history"], replaceTools: true };
@@ -749,6 +761,7 @@ export function enforceIntentFromMessage(message: string, plannerIntent: string,
         return sector ? { intent: "sector_analysis", tools: ["get_sector_liquidity"], replaceTools: true, sector } : { intent: "market_summary", tools: ["get_sector_liquidity"], replaceTools: true };
     }
     if (/(قائمه|قايمه|قائمة|هات|جيب|اعرض).{0,20}(القطاعات|قطاعات)/i.test(normalized)) return { intent: "sector_analysis", tools: ["get_sector_list"], replaceTools: true };
+    if (/(?:ارخص|أرخص)\s*(?:\d{1,2})?\s*(?:ال)?(?:اسهم|الاسهم|أسهم|الأسهم|سهم)/i.test(normalized) && !hasSymbol && !/(?:ارتفاع|صعود|عائد|اداء|أداء|سيول|تداول|خسار|انخفاض|هابط)/i.test(normalized)) return { intent: "market_summary", tools: ["get_price_history"], replaceTools: true };
     if (/(?:(?:أ|ا)عل[ىي]|(?:أ|ا)قو[ىي]).{0,25}(الاسهم|الأسهم|ارتفاع|صعود|اليوم|النهارده|اخر يوم|آخر يوم)/i.test(normalized)) return { intent: "market_summary", tools: ["get_market"], replaceTools: true };
     if (/(حاله|حالة).{0,12}(السوق|البورصه|البورصة)|(?:السوق|البورصه|البورصة).{0,12}(النهارده|اليوم|عامل|حاله|حالة)/i.test(normalized)) return { intent: "market_summary", tools: ["get_market"], replaceTools: true };
     if (/(اداء|أداء|رايك|رأيك).{0,15}(المؤشر|موشر|egx30)|(?:المؤشر|موشر).{0,15}(النهارده|اليوم|عامل)/i.test(normalized)) return { intent: "market_summary", tools: ["get_market"], replaceTools: true };
@@ -1136,18 +1149,27 @@ export async function* runPipelineStream(
 
     // Check if scan filters resulted in 0 stocks on a market-wide scan to prevent LLM hallucinations
     let emptyScanResult = false;
+    let scanStale = false;
+    let scanDate: string | null = null;
+    const directionAr = plan.entities.scan_direction === "distribution" ? "تصريف" : "تجميع";
     if (isMarketWideScan) {
         tools.results.forEach(res => {
             if (res.tool === "get_accumulation_stocks" || res.tool === "get_distribution_stocks") {
                 if (Array.isArray(res.data?.stocks) && res.data.stocks.length === 0) {
                     emptyScanResult = true;
+                    if (res.data?.validation && !res.data.validation.ok) scanStale = true;
+                    if (res.data?.date) scanDate = String(res.data.date);
                 }
             }
         });
     }
 
     const deterministicDomainResponse = emptyScanResult
-        ? "عذراً، لم أجد أي أسهم تطابق الشروط التي حددتها حالياً في قاعدة البيانات. يمكنك محاولة تخفيف الشروط (مثل تقليل درجة التجميع المطلوبة أو نسبة الحجم) للحصول على نتائج."
+        ? scanStale
+            ? `عذراً، بيانات مسح ${directionAr} الأخيرة في قاعدة البيانات بتاريخ ${scanDate || "غير محدد"} وهي قديمة (أكثر من 7 أيام). يتم تحديث بيانات المسح بشكل دوري — حاول مرة أخرى لاحقاً بعد التحديث.`
+            : plan.entities.min_acc_score != null || plan.entities.min_vol_ratio != null || plan.entities.min_consecutive_acc_days != null
+                ? `عذراً، لم أجد أي أسهم تطابق الشروط التي حددتها حالياً. يمكنك محاولة تخفيف الشروط (مثل تقليل درجة ${directionAr} المطلوبة أو نسبة الحجم) للحصول على نتائج.`
+                : `حالياً لا توجد أسهم في منطقة ${directionAr} واضحة بناءً على أحدث بيانات المسح المتاحة (بتاريخ ${scanDate || "اليوم"}). هذا يعني أن السوق قد لا يمر بمرحلة ${directionAr} مؤسسي واضحة في الوقت الحالي.`
         : null;
 
     const deterministicResponse = deterministicDomainResponse;
@@ -1159,6 +1181,18 @@ export async function* runPipelineStream(
         yield { type: "token", data: response };
         await persistPipelineSession(sessionState, sessionSummary, plan, vision, memory, sessionId, userId, supabase, hasImages);
         yield { type: "done", data: { response, session_update: deterministicSessionUpdate, tables } };
+        return;
+    }
+
+    // Earnings data requests have no backing data source (tools: []) — bypass the LLM entirely
+    // with a clear deterministic answer instead of risking a validation failure / empty fallback.
+    if (tools.results.length === 0 && isEarningsDataRequest(userMessage)) {
+        const earningsResponse = plan.entities.symbols.length > 0
+            ? `لا تتوفر لدي حالياً بيانات أرباح موثقة للفترة المطلوبة للسهم ${plan.entities.symbols.join("، ")}. لذلك لن أستبدل سؤال الأرباح بالسعر أو RSI. يمكنني تحليل السعر فنياً، أو عرض الأرباح عند إضافة مصدر قوائم مالية مؤرخ للنظام.`
+            : "لا تتوفر لدي حالياً بيانات أرباح موثقة للشركات في قاعدة البيانات. يمكنني تحليل السعر والسيولة والتجميع والتصريف فنياً، أو عرض الأرباح عند إضافة مصدر قوائم مالية مؤرخ للنظام.";
+        yield { type: "token", data: earningsResponse };
+        await persistPipelineSession(sessionState, sessionSummary, plan, vision, memory, sessionId, userId, supabase, hasImages);
+        yield { type: "done", data: { response: earningsResponse, session_update: { current_symbol: plan.entities.symbols[0] || sessionState.current_symbol, last_symbols: Array.from(new Set([...(plan.entities.symbols || []), ...(sessionState.last_symbols || [])])).slice(0, 15), summary: userMessage, current_sector: plan.entities.sector || sessionState.current_sector || null }, tables } };
         return;
     }
 
@@ -1416,10 +1450,12 @@ import { ToolResult } from "./types";
          otcNotice ? `\n${otcNotice}\n` : ""
      ];
 
+    let hasContent = false;
 
     if (Array.isArray(toolsResults)) {
         toolsResults.forEach(r => {
             if (r.tool === "get_stock" && r.data?.symbol) {
+                hasContent = true;
                 const d = r.data;
                 lines.push(`📊 **بيانات التداول اللحظية لـ ${d.symbol}:**`);
                 lines.push(`  • السعر الحالي: ${d.price} جنيه`);
@@ -1430,6 +1466,7 @@ import { ToolResult } from "./types";
                 lines.push("");
             }
             if (r.tool === "get_stock_levels" && r.data?.symbol) {
+                hasContent = true;
                 const d = r.data;
                 lines.push(`📍 **المستويات الفنية لـ ${d.symbol}:**`);
                 lines.push(`  • الدعم الحسابي: ${d.support !== undefined && d.support !== null ? d.support + " جنيه" : "غير متاح"}`);
@@ -1437,7 +1474,85 @@ import { ToolResult } from "./types";
                 if (d.trading_zone) lines.push(`  • المنطقة السعرية الحالية: ${d.trading_zone}`);
                 lines.push("");
             }
+            if (r.tool === "get_price_history" && Array.isArray(r.data?.market_period_ranking) && r.data.market_period_ranking.length > 0) {
+                hasContent = true;
+                const d = r.data;
+                const metricName = d.wants_liquidity ? "السيولة" : "العائد";
+                lines.push(`📊 **ترتيب الأسهم حسب ${metricName} (${d.period_label || d.period_type || "الفترة المحددة"}):**`);
+                d.market_period_ranking.slice(0, 10).forEach((s: any, idx: number) => {
+                    const metricVal = d.wants_liquidity
+                        ? (Number(s.liquidity || 0) >= 1_000_000
+                            ? `${(Number(s.liquidity) / 1_000_000).toFixed(2)} مليون ج.م`
+                            : `${Number(s.liquidity || 0).toFixed(2)} ج.م`)
+                        : `${Number(s.return_pct) >= 0 ? "+" : ""}${s.return_pct}%`;
+                    lines.push(`  ${idx + 1}. ${s.symbol} (${s.name || s.symbol}): ${metricVal}`);
+                });
+                lines.push("");
+            }
+            if (r.tool === "get_price_history" && r.data?.symbol && r.data?.latest) {
+                hasContent = true;
+                const d = r.data;
+                lines.push(`📈 **آخر جلسة لـ ${d.symbol}:** إغلاق ${d.latest.close} جنيه بتاريخ ${d.latest.date}`);
+                if (d.previous_close != null && Number(d.previous_close) > 0) {
+                    const pct = ((Number(d.latest.close) - Number(d.previous_close)) / Number(d.previous_close)) * 100;
+                    lines.push(`  • التغير عن الإغلاق السابق: ${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%`);
+                }
+                lines.push("");
+            }
+            if ((r.tool === "get_accumulation_stocks" || r.tool === "get_distribution_stocks") && r.data) {
+                hasContent = true;
+                const d = r.data;
+                const dirAr = d.direction === "distribution" ? "التصريف" : "التجميع";
+                const scoreField = d.direction === "distribution" ? "dist_score" : "acc_score";
+                const scanStocks = Array.isArray(d.stocks) ? d.stocks : [];
+                if (scanStocks.length > 0) {
+                    lines.push(`📊 **أسهم ${dirAr} (بيانات بتاريخ ${d.date || "غير محدد"}):**`);
+                    scanStocks.slice(0, 10).forEach((s: any, idx: number) => {
+                        const changeStr = Number(s.change_pct || 0) >= 0 ? `+${Number(s.change_pct).toFixed(2)}%` : `${Number(s.change_pct).toFixed(2)}%`;
+                        lines.push(`  ${idx + 1}. ${s.symbol} (${s.name || s.symbol}): درجة ${dirAr} = ${s[scoreField]}/100 | نسبة الحجم = ${s.vol_ratio}x | التغير = ${changeStr}`);
+                    });
+                } else {
+                    lines.push(`📊 **مسح ${dirAr}:** لا توجد أسهم تطابق شروط المسح في البيانات المتاحة بتاريخ ${d.date || "غير محدد"}.`);
+                }
+                lines.push("");
+            }
+            if (r.tool === "get_news" && Array.isArray(r.data) && r.data.length > 0) {
+                hasContent = true;
+                lines.push(`📰 **الأخبار المتاحة:**`);
+                r.data.slice(0, 5).forEach((item: any) => {
+                    const sentiment = Number(item.sentiment_score || 0) > 0.15 ? "إيجابي" : Number(item.sentiment_score || 0) < -0.15 ? "سلبي" : "محايد";
+                    lines.push(`  • ${item.symbol || "السوق"}: معنويات ${sentiment} | عدد الأخبار: ${item.news_count || 0}`);
+                    (item.headlines || []).slice(0, 3).forEach((hl: string) => lines.push(`    - ${hl}`));
+                });
+                lines.push("");
+            }
+            if (r.tool === "get_fair_value_scan" && Array.isArray(r.data?.stocks) && r.data.stocks.length > 0) {
+                hasContent = true;
+                const d = r.data;
+                const relAr = d.direction === "above" ? "أعلى من قيمتها العادلة" : "أقل من قيمتها العادلة";
+                lines.push(`⚖️ **أسهم تتداول ${relAr} (الانحراف عن منتصف مدى 60 جلسة):**`);
+                d.stocks.slice(0, 10).forEach((s: any, idx: number) => {
+                    const premium = s.premium_pct != null ? `${Number(s.premium_pct) >= 0 ? "+" : ""}${Number(s.premium_pct).toFixed(2)}%` : "غير متاح";
+                    lines.push(`  ${idx + 1}. ${s.symbol}: السعر ${s.close} ج.م | الدعم ${Number(s.support).toFixed(2)} | المقاومة ${Number(s.resistance).toFixed(2)} | الانحراف ${premium}`);
+                });
+                lines.push("");
+            }
+            if (r.tool === "get_sector" && r.data?.sector) {
+                hasContent = true;
+                const d = r.data;
+                lines.push(`🏭 **بيانات قطاع ${d.sector}:**`);
+                (d.gainers || []).slice(0, 5).forEach((s: any) => lines.push(`  • ${s.symbol} (${s.name}): +${Number(s.tech?.change_pct || 0).toFixed(2)}%`));
+                (d.losers || []).slice(0, 5).forEach((s: any) => lines.push(`  • ${s.symbol} (${s.name}): ${Number(s.tech?.change_pct || 0).toFixed(2)}%`));
+                lines.push("");
+            }
+            if (r.tool === "get_sector_list" && Array.isArray(r.data?.sectors) && r.data.sectors.length > 0) {
+                hasContent = true;
+                lines.push(`🏭 **القطاعات المتاحة في السوق:**`);
+                r.data.sectors.slice(0, 12).forEach((s: any) => lines.push(`  • ${s.sector}: ${s.stock_count} سهم`));
+                lines.push("");
+            }
             if (r.tool === "get_recommendations" && Array.isArray(r.data)) {
+                hasContent = true;
                 lines.push(`📈 **الصفقات والتوصيات النشطة:**`);
                 r.data.slice(0, 5).forEach((rec: any) => {
                     const returnStr = rec.return_pct != null ? `${Number(rec.return_pct) >= 0 ? "+" : ""}${Number(rec.return_pct).toFixed(2)}%` : "غير متاح";
@@ -1446,6 +1561,7 @@ import { ToolResult } from "./types";
                 lines.push("");
             }
             if (r.tool === "search_web" && r.data?.results?.length > 0) {
+                hasContent = true;
                 lines.push(`🌐 **معلومات إضافية من الويب:**`);
                 r.data.results.slice(0, 3).forEach((webResult: any) => {
                     if (webResult.title && webResult.snippet) {
@@ -1455,6 +1571,11 @@ import { ToolResult } from "./types";
                 lines.push("");
             }
         });
+    }
+
+    // No tool produced usable content — say so clearly instead of an empty header + disclaimer.
+    if (!hasContent) {
+        return "عذراً، لم تتوفر بيانات موثقة لهذا الطلب من قاعدة البيانات حالياً، لذلك لن أخمن إجابة غير مدعومة بالبيانات. جرّب إعادة صياغة السؤال (مثلاً: سعر سهم معين، أسهم التجميع اليوم، ترتيب الأسهم بالسيولة، أداء القطاعات) وسأعرض النتائج الموثقة المتاحة.";
     }
 
     lines.push("📌 الرأي مبني على مؤشرات السعر والزخم والحجم والمستويات الفنية المسجلة، وهو لأغراض استرشادية وليس توصية مباشرة بالشراء أو البيع.");
@@ -1695,19 +1816,54 @@ export async function runPipeline(
 
     // Check if scan filters resulted in 0 stocks on a market-wide scan to prevent LLM hallucinations
     let emptyScanResult = false;
+    let scanStale = false;
+    let scanDate: string | null = null;
+    const directionAr = plan.entities.scan_direction === "distribution" ? "تصريف" : "تجميع";
     if (isMarketWideScan) {
         tools.results.forEach(res => {
             if (res.tool === "get_accumulation_stocks" || res.tool === "get_distribution_stocks") {
                 if (Array.isArray(res.data?.stocks) && res.data.stocks.length === 0) {
                     emptyScanResult = true;
+                    if (res.data?.validation && !res.data.validation.ok) scanStale = true;
+                    if (res.data?.date) scanDate = String(res.data.date);
                 }
             }
         });
     }
 
     const deterministicDomainResponse = emptyScanResult
-        ? "عذراً، لم أجد أي أسهم تطابق الشروط التي حددتها حالياً في قاعدة البيانات. يمكنك محاولة تخفيف الشروط (مثل تقليل درجة التجميع المطلوبة أو نسبة الحجم) للحصول على نتائج."
+        ? scanStale
+            ? `عذراً، بيانات مسح ${directionAr} الأخيرة في قاعدة البيانات بتاريخ ${scanDate || "غير محدد"} وهي قديمة (أكثر من 7 أيام). يتم تحديث بيانات المسح بشكل دوري — حاول مرة أخرى لاحقاً بعد التحديث.`
+            : plan.entities.min_acc_score != null || plan.entities.min_vol_ratio != null || plan.entities.min_consecutive_acc_days != null
+                ? `عذراً، لم أجد أي أسهم تطابق الشروط التي حددتها حالياً. يمكنك محاولة تخفيف الشروط (مثل تقليل درجة ${directionAr} المطلوبة أو نسبة الحجم) للحصول على نتائج.`
+                : `حالياً لا توجد أسهم في منطقة ${directionAr} واضحة بناءً على أحدث بيانات المسح المتاحة (بتاريخ ${scanDate || "اليوم"}). هذا يعني أن السوق قد لا يمر بمرحلة ${directionAr} مؤسسي واضحة في الوقت الحالي.`
         : null;
+
+    // Earnings data requests have no backing data source (tools: []) — bypass the LLM entirely
+    // with a clear deterministic answer instead of risking a validation failure / empty fallback.
+    if (tools.results.length === 0 && isEarningsDataRequest(userMessage)) {
+        const earningsResponse = plan.entities.symbols.length > 0
+            ? `لا تتوفر لدي حالياً بيانات أرباح موثقة للفترة المطلوبة للسهم ${plan.entities.symbols.join("، ")}. لذلك لن أستبدل سؤال الأرباح بالسعر أو RSI. يمكنني تحليل السعر فنياً، أو عرض الأرباح عند إضافة مصدر قوائم مالية مؤرخ للنظام.`
+            : "لا تتوفر لدي حالياً بيانات أرباح موثقة للشركات في قاعدة البيانات. يمكنني تحليل السعر والسيولة والتجميع والتصريف فنياً، أو عرض الأرباح عند إضافة مصدر قوائم مالية مؤرخ للنظام.";
+        const earningsSymbols = plan.entities.symbols || [];
+        const earningsSessionUpdate = {
+            current_symbol: earningsSymbols[0] || sessionState.current_symbol,
+            last_symbols: Array.from(new Set([...earningsSymbols, ...(sessionState.last_symbols || [])])).slice(0, 15),
+            summary: userMessage,
+            current_sector: plan.entities.sector || sessionState.current_sector || null
+        };
+        await updateSessionState(supabase, sessionId, userId, earningsSessionUpdate);
+        return {
+            vision,
+            memory,
+            plan,
+            tools,
+            response: earningsResponse,
+            session_update: earningsSessionUpdate,
+            vision_error: visionError,
+            tables
+        };
+    }
 
     const responderMetaNs: { source?: "llm" | "deterministic"; degraded?: boolean } = {};
 const generatedLlmReply = deterministicDomainResponse || await generateV2Response(
