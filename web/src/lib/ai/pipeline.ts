@@ -440,11 +440,13 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
         };
     }
     const isYtdMarketRequest = /(?:من\s+(?:اول|أول|بداية|بدايه)\s+السنه|من\s+(?:اول|أول|بداية|بدايه)\s+السنة|من\s+يناير|خلال\s+العام|منذ\s+بداية\s+العام|منذ\s+بدايه\s+العام|ytd|year\s*to\s*date)/i.test(normalized);
-    if (isYtdMarketRequest) {
+    const isMtdMarketRequest = /(?:من\s+(?:اول|أول|بداية|بدايه)\s+الشهر|من\s+(?:اول|أول|بداية|بدايه)\s+الشهر|خلال\s+الشهر|منذ\s+بداية\s+الشهر|منذ\s+بدايه\s+الشهر|mtd|month\s*to\s*date|الشهر\s+ده|الشهر\s+دا|الشهر\s+الحالي)/i.test(normalized);
+    const isPeriodRankingRequest = isYtdMarketRequest || isMtdMarketRequest || /(?:اعلي|أعلى|افضل|أفضل|بافضل|بأفضل|بافل|بأفل|بأعلى|باعلى|قايمه|قائمة|ترتيب).{0,25}(?:ارباح|أرباح|ارتفاع|صعود|اداء|أداء|عائد).{0,25}(?:اول|أول|بداية|بدايه|خلال|منذ).{0,15}(?:السنه|السنة|الشهر|يناير|ytd|mtd)/i.test(normalized);
+    if (isPeriodRankingRequest) {
         return {
             intent: "market_summary",
             confidence: 1,
-            entities: { symbols: [], sector: null, wants_table: true, timeframe: "historical", requested_date: null, scan_direction: null },
+            entities: { symbols: [], sector: null, wants_table: true, timeframe: "historical", requested_date: isMtdMarketRequest ? "mtd" : null, scan_direction: null },
             tools: ["get_price_history"],
             session_update: { current_symbol: null, last_symbols: sessionState.last_symbols, summary: message }
         };
@@ -740,8 +742,8 @@ export function enforceIntentFromMessage(message: string, plannerIntent: string,
     if (isSectorComparison) {
         return { intent: "sector_analysis", tools: ["get_sector_liquidity"], replaceTools: true, sector: null, requested_sectors: mentionedSectors };
     }
-    const isYtdMarket = /(?:من\s+(?:اول|أول|بداية|بدايه)\s+السنه|من\s+(?:اول|أول|بداية|بدايه)\s+السنة|من\s+يناير|خلال\s+العام|منذ\s+بداية\s+العام|منذ\s+بدايه\s+العام|ytd|year\s*to\s*date)/i.test(normalized);
-    if (isYtdMarket) {
+    const isPeriodRanking = /(?:من\s+(?:اول|أول|بداية|بدايه)\s+(?:السنه|السنة|الشهر)|من\s+يناير|خلال\s+(?:العام|الشهر)|منذ\s+بداية\s+(?:العام|الشهر)|ytd|mtd|الشهر\s+ده|الشهر\s+الحالي)/i.test(normalized) || /(?:اعلي|أعلى|افضل|أفضل|بافضل|بأفضل|بافل|بأفل|بأعلى|باعلى|قايمه|قائمة|ترتيب).{0,25}(?:ارباح|أرباح|ارتفاع|صعود|اداء|أداء|عائد).{0,25}(?:اول|أول|بداية|بدايه|خلال|منذ).{0,15}(?:السنه|السنة|الشهر|يناير|ytd|mtd)/i.test(normalized);
+    if (isPeriodRanking) {
         return { intent: "market_summary", tools: ["get_price_history"], replaceTools: true };
     }
     const isRecommendationQuery = isBestBuyStockQuestion(message) || /(?:توصيات|توصية|توصيه|ترشح|ترشيحات|فرص شراء|فرص دخول|اسهم ادخل فيها|اسهم اشتريها|اشتري ايه|ادخل في ايه|ادخل فيها|اسهم ممتازة|اسهم كويسة|تحقق ارباح|تحقق أرباح|توصيات كويسة|توصيات شراء|اسهم للشراء|فرص الشراء)/i.test(normalized);
@@ -989,7 +991,7 @@ export async function* runPipelineStream(
     }
     const requestedRange = extractRequestedDateRange(userMessage);
     let guidanceIntent = plannerResult.guidance_intent || getInvestorGuidanceIntent(userMessage, mergedSymbols.length > 0);
-    if (mergedSymbols.length > 0 && guidanceIntent !== "product_comparison") {
+    if ((mergedSymbols.length > 0 && guidanceIntent !== "product_comparison") || plannedTools.includes("get_price_history")) {
         guidanceIntent = null;
     }
     const excludedSectors = extractExcludedSectors(userMessage);

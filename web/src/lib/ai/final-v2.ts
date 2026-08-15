@@ -834,36 +834,42 @@ export function buildYtdMarketRankingResponse(
     plan: IntentPlan,
     toolResults: ToolResult[]
 ): string | null {
-    const ytdResult = toolResults.find(r => r.tool === "get_price_history" && Array.isArray(r.data?.market_ytd_ranking));
+    const ytdResult = toolResults.find(r => r.tool === "get_price_history" && (Array.isArray(r.data?.market_period_ranking) || Array.isArray(r.data?.market_ytd_ranking)));
     if (!ytdResult) return null;
 
-    const ranking = ytdResult.data.market_ytd_ranking;
+    const ranking = ytdResult.data.market_period_ranking || ytdResult.data.market_ytd_ranking;
     if (!ranking || ranking.length === 0) return null;
 
-    const countMatch = userMessage.match(/(?:اعلي|أعلى|افضل|أفضل|قايمه|قائمة)\s*(\d{1,2}|٥٠|٢٠|١٠)/);
-    let requestedLimit = 50;
+    const isMtd = ytdResult.data.period_type === "MTD" || /(?:شهر|mtd)/i.test(userMessage);
+    const countMatch = userMessage.match(/(\d{1,2}|٥٠|٢٠|١٥|١٠)/);
+    let requestedLimit = isMtd ? 15 : 50;
     if (countMatch) {
-        const arabicToNum: Record<string, number> = { "٥٠": 50, "٢٠": 20, "١٠": 10 };
+        const arabicToNum: Record<string, number> = { "٥٠": 50, "٢٠": 20, "١٥": 15, "١٠": 10 };
         const num = arabicToNum[countMatch[1]] || parseInt(countMatch[1], 10);
         if (num > 0 && num <= 100) requestedLimit = num;
     }
 
     const displayedStocks = ranking.slice(0, requestedLimit);
     const endDate = ytdResult.data.end_date || "2026-08-13";
+    const startPeriod = ytdResult.data.start_period || (isMtd ? "بداية الشهر" : "2026-01-04");
+    const periodName = isMtd ? `من بداية الشهر (${startPeriod})` : "من بداية العام 2026 (YTD)";
+    const colName = isMtd ? "نسبة الارتفاع (MTD)" : "نسبة الارتفاع (YTD)";
+    const startPriceCol = isMtd ? "سعر بداية الشهر" : "سعر بداية العام";
 
     const lines: string[] = [
-        `إليك قائمة بأعلى ${displayedStocks.length} سهماً من حيث نسبة الأرباح والعائد بالبورصة المصرية منذ بداية العام 2026 (YTD) حتى جلسة ${endDate}، مرتبة تنازلياً:`,
+        `إليك قائمة بأعلى ${displayedStocks.length} سهماً من حيث نسبة الأرباح والعائد بالبورصة المصرية ${periodName} حتى جلسة ${endDate}، مرتبة تنازلياً:`,
         "",
-        "| # | الرمز | اسم الشركة | السعر الحالي | سعر بداية العام | نسبة الارتفاع (YTD) |",
+        `| # | الرمز | اسم الشركة | السعر الحالي | ${startPriceCol} | ${colName} |`,
         "| :--- | :--- | :--- | :--- | :--- | :--- |"
     ];
 
     displayedStocks.forEach((s: any, idx: number) => {
-        lines.push(`| ${idx + 1} | **${s.symbol}** | ${s.name} | ${s.current_price} ج.م | ${s.start_price} ج.م | **+${s.ytd_return_pct}%** |`);
+        const ret = s.return_pct ?? s.mtd_return_pct ?? s.ytd_return_pct;
+        lines.push(`| ${idx + 1} | **${s.symbol}** | ${s.name} | ${s.current_price} ج.م | ${s.start_price} ج.م | **+${ret}%** |`);
     });
 
     lines.push("");
-    lines.push(`📌 الحساب مبني على أسعار الإغلاق المعتمدة بين أول جلسة تداول في يناير 2026 وآخر جلسة مسجلة (${endDate}). هذه قراءة لأداء الأسعار الفعلي وليست توصية شراء أو بيع.`);
+    lines.push(`📌 الحساب مبني على أسعار الإغلاق المعتمدة بين أول جلسة تداول في الفترة (${startPeriod}) وآخر جلسة مسجلة (${endDate}). هذه قراءة لأداء الأسعار الفعلي وليست توصية شراء أو بيع.`);
 
     return lines.join("\n");
 }
@@ -964,15 +970,15 @@ export async function generateV2Response(
         if (meta) meta.source = "deterministic";
         return newsResponse;
     }
-    const fastAdvisor = buildFastConversationalAdvisorResponse(userMessage, plan, toolResults, sessionState);
-    if (fastAdvisor) {
-        if (meta) meta.source = "deterministic";
-        return fastAdvisor;
-    }
     const ytdRanking = buildYtdMarketRankingResponse(userMessage, plan, toolResults);
     if (ytdRanking) {
         if (meta) meta.source = "deterministic";
         return sanitizeReply(ytdRanking);
+    }
+    const fastAdvisor = buildFastConversationalAdvisorResponse(userMessage, plan, toolResults, sessionState);
+    if (fastAdvisor) {
+        if (meta) meta.source = "deterministic";
+        return fastAdvisor;
     }
     const dailyHistory = buildDailyChangeHistoryResponse(userMessage, plan, toolResults);
     if (dailyHistory) {
@@ -1053,6 +1059,12 @@ export async function* generateV2Stream(
         yield sanitizeReply(newsResponse);
         return;
     }
+    const ytdRanking = buildYtdMarketRankingResponse(userMessage, plan, toolResults);
+    if (ytdRanking) {
+        if (meta) meta.source = "deterministic";
+        yield sanitizeReply(ytdRanking);
+        return;
+    }
     const fastAdvisor = buildFastConversationalAdvisorResponse(userMessage, plan, toolResults, sessionState);
     if (fastAdvisor) {
         if (meta) meta.source = "deterministic";
@@ -1130,6 +1142,9 @@ export function buildFastConversationalAdvisorResponse(
     toolResults: ToolResult[],
     sessionState?: SessionState | null
 ): string | null {
+    if (toolResults.some(r => r.tool === "get_price_history" && (Array.isArray(r.data?.market_period_ranking) || Array.isArray(r.data?.market_ytd_ranking)))) {
+        return null;
+    }
     const normMsg = userMessage.toLowerCase().replace(/[أإآ]/g, "ا").replace(/ة/g, "ه");
     const guidanceIntent = plan.guidance_intent;
 

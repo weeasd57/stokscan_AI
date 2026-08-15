@@ -41,23 +41,40 @@ export async function executeStructuredTools(
         return (plan.entities.excluded_sectors || []).some(excluded => classificationMatchesSector(value, excluded));
     };
 
-    const dataDateQuality = (date: unknown, maxAgeDays: number, requested: string | null = null) => {
-        const value = String(date || "").slice(0, 10);
-        if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return { ok: false, reason: "missing_date" };
-        if (requested && value !== requested) return { ok: false, reason: "date_mismatch" };
-        const ageDays = Math.floor((Date.now() - Date.parse(`${value}T23:59:59Z`)) / 86400000);
-        return { ok: ageDays <= maxAgeDays, reason: ageDays <= maxAgeDays ? null : "stale", ageDays };
-    };
+
 
     if (plan.tools.includes("get_price_history")) {
         if (symbols.length === 0) {
             try {
-                const { data: startPrices } = await supabase.from("stock_prices")
-                    .select("symbol, close, date")
-                    .gte("date", "2026-01-01")
-                    .lte("date", "2026-01-10");
                 const { data: latestDateRow } = await supabase.from("stock_prices").select("date").order("date", { ascending: false }).limit(1);
                 const latestDate = latestDateRow?.[0]?.date || "2026-08-13";
+                const isMtd = /(?:شهر|mtd)/i.test(userMessage) || /(?:شهر|mtd)/i.test(plan.entities?.requested_date || "") || plan.entities?.requested_date === "mtd";
+                
+                let startGte = "2026-01-01";
+                let startLte = "2026-01-10";
+                let periodType = "YTD";
+                let periodLabel = "من بداية العام 2026 (YTD)";
+                let startPeriod = "2026-01-04";
+
+                const currentMonthPrefix = latestDate.slice(0, 7);
+                if (isMtd) {
+                    const { data: mRow } = await supabase.from("stock_prices")
+                        .select("date")
+                        .gte("date", currentMonthPrefix + "-01")
+                        .order("date", { ascending: true })
+                        .limit(1);
+                    const mStart = mRow?.[0]?.date || (currentMonthPrefix + "-01");
+                    startGte = mStart;
+                    startLte = currentMonthPrefix + "-07";
+                    periodType = "MTD";
+                    periodLabel = `من بداية الشهر الحالي (${currentMonthPrefix}) حتى ${latestDate}`;
+                    startPeriod = mStart;
+                }
+
+                const { data: startPrices } = await supabase.from("stock_prices")
+                    .select("symbol, close, date")
+                    .gte("date", startGte)
+                    .lte("date", startLte);
                 const { data: endPrices } = await supabase.from("stock_prices")
                     .select("symbol, close, date, volume")
                     .eq("date", latestDate);
@@ -69,7 +86,7 @@ export async function executeStructuredTools(
                     if (!startMap.has(p.symbol)) startMap.set(p.symbol, Number(p.close));
                 });
 
-                const ytdList = (endPrices || []).map((p: any) => {
+                const rankingList = (endPrices || []).map((p: any) => {
                     const sClose = startMap.get(p.symbol);
                     if (!sClose || sClose <= 0) return null;
                     const retPct = ((Number(p.close) - sClose) / sClose) * 100;
@@ -78,17 +95,19 @@ export async function executeStructuredTools(
                         name: sMap.get(p.symbol) || p.symbol,
                         start_price: Number(sClose).toFixed(2),
                         current_price: Number(p.close).toFixed(2),
-                        ytd_return_pct: Number(retPct.toFixed(2))
+                        return_pct: Number(retPct.toFixed(2)),
+                        ytd_return_pct: Number(retPct.toFixed(2)),
+                        mtd_return_pct: Number(retPct.toFixed(2))
                     };
-                }).filter(Boolean).sort((a: any, b: any) => b.ytd_return_pct - a.ytd_return_pct);
+                }).filter(Boolean).sort((a: any, b: any) => b.return_pct - a.return_pct);
 
-                const top50 = ytdList.slice(0, 50);
+                const top50 = rankingList.slice(0, 50);
                 if (top50.length > 0) {
-                    textParts.push(`\n [جدول ترتيب أعلى 50 سهماً ربحية وأداءً بالبورصة المصرية منذ بداية العام 2026 (YTD) حتى ${latestDate}]:\n`);
-                    textParts.push(`| # | الرمز | اسم الشركة | السعر الحالي | سعر بداية العام | نسبة الارتفاع (YTD) |`);
+                    textParts.push(`\n [جدول ترتيب أعلى الأسهم ربحية وأداءً بالبورصة المصرية ${periodLabel}]:\n`);
+                    textParts.push(`| # | الرمز | اسم الشركة | السعر الحالي | سعر بداية الفترة | نسبة الارتفاع |`);
                     textParts.push(`| :--- | :--- | :--- | :--- | :--- | :--- |`);
                     top50.forEach((s: any, idx: number) => {
-                        textParts.push(`| ${idx + 1} | ${s.symbol} | ${s.name} | ${s.current_price} ج.م | ${s.start_price} ج.م | +${s.ytd_return_pct}% |`);
+                        textParts.push(`| ${idx + 1} | ${s.symbol} | ${s.name} | ${s.current_price} ج.م | ${s.start_price} ج.م | +${s.return_pct}% |`);
                     });
                     results.push({
                         tool: "get_price_history",
@@ -97,15 +116,18 @@ export async function executeStructuredTools(
                         symbols: top50.map((s: any) => s.symbol),
                         data_type: "historical",
                         data: {
+                            market_period_ranking: top50,
                             market_ytd_ranking: top50,
-                            total_scanned: ytdList.length,
-                            start_period: "2026-01-04",
+                            period_type: periodType,
+                            period_label: periodLabel,
+                            total_scanned: rankingList.length,
+                            start_period: startPeriod,
                             end_date: latestDate
                         }
                     });
                 }
             } catch (err) {
-                console.warn("Error calculating market YTD performance:", err);
+                console.warn("Error calculating market period performance:", err);
             }
         }
         for (const symbol of symbols) {
