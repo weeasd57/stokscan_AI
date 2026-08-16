@@ -117,6 +117,15 @@ export function buildFactsBySymbol(toolResults: any[]): Record<string, any> {
             if (data.resistance != null) factsBySymbol[s].resistance = Number(data.resistance);
             if (data.sma_50 != null) factsBySymbol[s].sma_50 = Number(data.sma_50);
             if (data.sma_200 != null) factsBySymbol[s].sma_200 = Number(data.sma_200);
+            if (data.ema_50 != null) factsBySymbol[s].ema_50 = Number(data.ema_50);
+            if (data.ema_200 != null) factsBySymbol[s].ema_200 = Number(data.ema_200);
+            if (data.bb_upper != null) factsBySymbol[s].bb_upper = Number(data.bb_upper);
+            if (data.bb_lower != null) factsBySymbol[s].bb_lower = Number(data.bb_lower);
+            if (data.acc_score != null) factsBySymbol[s].acc_score = Number(data.acc_score);
+            if (data.dist_score != null) factsBySymbol[s].dist_score = Number(data.dist_score);
+            if (data.wyckoff_phase != null) factsBySymbol[s].wyckoff_phase = String(data.wyckoff_phase);
+            if (data.consecutive_acc_days != null) factsBySymbol[s].consecutive_acc_days = Number(data.consecutive_acc_days);
+            if (data.consecutive_dist_days != null) factsBySymbol[s].consecutive_dist_days = Number(data.consecutive_dist_days);
             if (data.highest_250_sessions?.price != null) {
                 factsBySymbol[s].highest_price = Number(data.highest_250_sessions.price);
             }
@@ -284,7 +293,10 @@ export function validateDeterministicRules(
         if (!activeSymbol || !factsBySymbol[activeSymbol]) continue;
         const facts = factsBySymbol[activeSymbol];
 
-        const isSuggestionSentence = /(مستهدف|هدف|حد بيع|حد شراء|حد أمان|حد امان|تقريباً|تقريبا|≈|حوالي|حوالى|قبيل|بسعر|بحد|كسعر|كدعم|كمقاومة|التالي|التالية|المقبل|المقبلة|الثاني|الثانية|ثاني|ثانية)/i.test(sentence);
+        // Suggestion/target sentences are skipped — but approximation words
+        // ("تقريباً"، "حوالي") must NOT skip validation: hallucinated support levels
+        // hide behind them ("ثم 2.50 تقريباً").
+        const isSuggestionSentence = /(مستهدف|هدف|حد بيع|حد شراء|حد أمان|حد امان|≈|بسعر|بحد|كسعر|كدعم|كمقاومة|التالي|التالية|المقبل|المقبلة)/i.test(sentence);
         if (isSuggestionSentence) continue;
 
         // EVIDENCE VERIFIER CHECK 1: MACD Signal Line unproven assertion
@@ -293,17 +305,19 @@ export function validateDeterministicRules(
         }
 
         // EVIDENCE VERIFIER CHECK 2: Unproven Wyckoff Distribution assertion
-        const claimsDistribution = /(?:مرحل[ةه]\s*تصريف|إشار[ةه]\s*تصريف|سيول[ةه]\s*توزيعية)/i.test(sentence);
+        // Negated statements ("لا يوجد عليه تصريف") are honest answers — never flag them.
+        const isNegatedClaim = /(?:لا\s+(?:يوجد|توجد|يمكن\s+تأكيد)|مفيش|ليس\s+هناك|غير\s+متاح|لا\s+تتوفر|انعدام)/i.test(sentence);
+        const claimsDistribution = /(?:مرحل[ةه]\s*تصريف|إشار[ةه]\s*تصريف|سيول[ةه]\s*توزيعية|(?:عليه|فيه|به|لديه)\s*تصريف|درج[ةه]\s*(?:ال)?تصريف|يتم\s+(?:عليه\s+)?تصريف|سهم\s*تصريف)/i.test(sentence);
         const hasDistEvidence = (facts.dist_score != null && Number(facts.dist_score) > 0) || toolResults.some(r => (r.tool === "get_distribution_stocks" || r.tool === "get_accumulation_stocks") && Array.isArray(r.data?.stocks) && r.data.stocks.some((st: any) => String(st.symbol).toUpperCase() === activeSymbol?.toUpperCase() && (Number(st.dist_score) > 0 || String(st.wyckoff_phase).toLowerCase().includes("dist") || String(st.wyckoff_phase).toLowerCase().includes("mark"))));
-        if (claimsDistribution && !hasDistEvidence) {
-            errors.push(`ادعاء سيولة توزيعية غير مثبت بدليل لسهم ${activeSymbol}: لا تتوفر بيانات مسح Wyckoff/تصريف صريحة.`);
+        if (!isNegatedClaim && claimsDistribution && !hasDistEvidence) {
+            errors.push(`ادعاء تصريف غير مثبت بدليل لسهم ${activeSymbol}: لا تتوفر بيانات مسح Wyckoff/تصريف صريحة — قل إن البيانات غير متاحة بدلاً من الاستنتاج من مؤشرات أخرى.`);
         }
 
         // EVIDENCE VERIFIER CHECK 3: Unproven Wyckoff Accumulation assertion
-        const claimsAccumulation = /(?:مرحل[ةه]\s*تجميع|إشار[ةه]\s*تجميع|سيول[ةه]\s*تجميعية)/i.test(sentence);
+        const claimsAccumulation = /(?:مرحل[ةه]\s*تجميع|إشار[ةه]\s*تجميع|سيول[ةه]\s*تجميعية|(?:عليه|فيه|به|لديه)\s*تجميع|درج[ةه]\s*(?:ال)?تجميع|يتم\s+(?:عليه\s+)?تجميع)/i.test(sentence);
         const hasAccEvidence = (facts.acc_score != null && Number(facts.acc_score) > 0) || toolResults.some(r => (r.tool === "get_accumulation_stocks" || r.tool === "get_distribution_stocks") && Array.isArray(r.data?.stocks) && r.data.stocks.some((st: any) => String(st.symbol).toUpperCase() === activeSymbol?.toUpperCase() && (Number(st.acc_score) > 0 || String(st.wyckoff_phase).toLowerCase().includes("acc"))));
-        if (claimsAccumulation && !hasAccEvidence) {
-            errors.push(`ادعاء سيولة تجميعية غير مثبت بدليل لسهم ${activeSymbol}: لا تتوفر بيانات مسح Wyckoff/تجميع صريحة.`);
+        if (!isNegatedClaim && claimsAccumulation && !hasAccEvidence) {
+            errors.push(`ادعاء تجميع غير مثبت بدليل لسهم ${activeSymbol}: لا تتوفر بيانات مسح Wyckoff/تجميع صريحة — قل إن البيانات غير متاحة بدلاً من الاستنتاج من مؤشرات أخرى.`);
         }
 
         // EVIDENCE VERIFIER CHECK 4: Phase conflict between claim and actual Wyckoff data
@@ -364,24 +378,33 @@ export function validateDeterministicRules(
                     break;
                 }
                 case "support": {
-                    if (facts.support != null) {
-                        const sup = facts.support;
-                        const isMatch = Math.abs(claim.value - sup) <= 0.05 || (sup > 0 && Math.abs(claim.value - sup) / sup <= 0.02);
-                        const isPlausible = facts.price != null ? claim.value <= facts.price * 1.05 : true;
-                        if (!isMatch && !isPlausible && !isVerifiableDerivedMetric(claim.value, facts) && !ALLOWED_GENERIC_NUMBERS.has(claim.value)) {
-                            errors.push(`تضارب في قيمة الدعم لسهم ${activeSymbol}: القيمة الفعلية هي ${sup} ولكن الرد يحتوي على ${claim.value}.`);
-                        }
+                    // A support figure must match the recorded support, the LOWER Bollinger
+                    // band, or an average sitting below price — never an arbitrary "plausible"
+                    // number, and never the generic-numbers whitelist.
+                    const sup = facts.support;
+                    const isMatch = typeof sup === "number" && Number.isFinite(sup)
+                        && (Math.abs(claim.value - sup) <= 0.05 || (sup > 0 && Math.abs(claim.value - sup) / sup <= 0.02));
+                    const isKnownLowerLevel = [facts.bb_lower, facts.sma_50, facts.sma_200, facts.ema_50, facts.ema_200]
+                        .some(v => typeof v === "number" && Number.isFinite(v)
+                            && Math.abs(claim.value - v) <= 0.05
+                            && (facts.price == null || v <= facts.price * 1.02));
+                    if (!isMatch && !isKnownLowerLevel && !isVerifiableDerivedMetric(claim.value, facts)) {
+                        errors.push(`تضارب في قيمة الدعم لسهم ${activeSymbol}: الدعم المسجل هو ${sup ?? "غير متاح"} ولا توجد مؤشرات معروفة تدعم قيمة ${claim.value} — اذكر الدعم المسجل فقط أو اذكر أن البيانات غير متاحة.`);
                     }
                     break;
                 }
                 case "resistance": {
-                    if (facts.resistance != null) {
-                        const res = facts.resistance;
-                        const isMatch = Math.abs(claim.value - res) <= 0.05 || (res > 0 && Math.abs(claim.value - res) / res <= 0.02);
-                        const isPlausible = facts.price != null ? claim.value >= facts.price * 0.95 : true;
-                        if (!isMatch && !isPlausible && !isVerifiableDerivedMetric(claim.value, facts) && !ALLOWED_GENERIC_NUMBERS.has(claim.value)) {
-                            errors.push(`تضارب في قيمة المقاومة لسهم ${activeSymbol}: القيمة الفعلية هي ${res} ولكن الرد يحتوي على ${claim.value}.`);
-                        }
+                    // Mirror rule: resistance claims may cite the UPPER Bollinger band,
+                    // the 250-session high, or an average above price — nothing else.
+                    const res = facts.resistance;
+                    const isMatch = typeof res === "number" && Number.isFinite(res)
+                        && (Math.abs(claim.value - res) <= 0.05 || (res > 0 && Math.abs(claim.value - res) / res <= 0.02));
+                    const isKnownUpperLevel = [facts.bb_upper, facts.sma_50, facts.sma_200, facts.ema_50, facts.ema_200, facts.highest_price]
+                        .some(v => typeof v === "number" && Number.isFinite(v)
+                            && Math.abs(claim.value - v) <= 0.05
+                            && (facts.price == null || v >= facts.price * 0.98));
+                    if (!isMatch && !isKnownUpperLevel && !isVerifiableDerivedMetric(claim.value, facts)) {
+                        errors.push(`تضارب في قيمة المقاومة لسهم ${activeSymbol}: المقاومة المسجلة هي ${res ?? "غير متاحة"} ولا توجد مؤشرات معروفة تدعم قيمة ${claim.value} — اذكر المقاومة المسجلة فقط أو اذكر أن البيانات غير متاحة.`);
                     }
                     break;
                 }
