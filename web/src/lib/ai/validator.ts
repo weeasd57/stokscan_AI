@@ -147,7 +147,7 @@ export function buildFactsBySymbol(toolResults: any[]): Record<string, any> {
  * Checks whether a given numeric value can be legitimately derived from known facts
  * via standard mathematical and financial formulas.
  */
-export function isVerifiableDerivedMetric(val: number, facts: Record<string, any>): boolean {
+export function isVerifiableDerivedMetric(val: number, facts: Record<string, any>, tolerance = 0.6): boolean {
     const p = facts.price;
     const sup = facts.support;
     const res = facts.resistance;
@@ -156,32 +156,32 @@ export function isVerifiableDerivedMetric(val: number, facts: Record<string, any
     // 1. Distance to Support formula: ((p - sup) / sup) * 100
     if (typeof p === "number" && typeof sup === "number" && sup > 0) {
         const distSupPct = ((p - sup) / sup) * 100;
-        if (Math.abs(val - distSupPct) <= 0.6 || Math.abs(val - Math.abs(distSupPct)) <= 0.6) return true;
+        if (Math.abs(val - distSupPct) <= 0.6 || Math.abs(val - Math.abs(distSupPct)) <= tolerance) return true;
         const distSupAbs = Math.abs(p - sup);
-        if (Math.abs(val - distSupAbs) <= 0.6) return true;
+        if (Math.abs(val - distSupAbs) <= tolerance) return true;
     }
 
     // 2. Distance to Resistance formula: ((res - p) / res) * 100 or ((p - res) / res) * 100
     if (typeof p === "number" && typeof res === "number" && res > 0) {
         const distResPct = ((res - p) / res) * 100;
-        if (Math.abs(val - distResPct) <= 0.6 || Math.abs(val - Math.abs(distResPct)) <= 0.6) return true;
+        if (Math.abs(val - distResPct) <= 0.6 || Math.abs(val - Math.abs(distResPct)) <= tolerance) return true;
         const distResAbs = Math.abs(res - p);
-        if (Math.abs(val - distResAbs) <= 0.6) return true;
+        if (Math.abs(val - distResAbs) <= tolerance) return true;
     }
 
     // 3. Channel Position formula: ((p - sup) / (res - sup)) * 100
     if (typeof p === "number" && typeof sup === "number" && typeof res === "number" && res > sup) {
         const channelWidth = res - sup;
         const posPct = ((p - sup) / channelWidth) * 100;
-        if (Math.abs(val - posPct) <= 0.6) return true;
-        if (Math.abs(val - channelWidth) <= 0.6) return true;
+        if (Math.abs(val - posPct) <= tolerance) return true;
+        if (Math.abs(val - channelWidth) <= tolerance) return true;
     }
 
     // 4. RSI threshold distances: |rsi - 50|, |rsi - 70|, |rsi - 30|
     if (typeof rsi === "number") {
-        if (Math.abs(val - Math.abs(rsi - 50)) <= 0.6) return true;
-        if (Math.abs(val - Math.abs(rsi - 70)) <= 0.6) return true;
-        if (Math.abs(val - Math.abs(rsi - 30)) <= 0.6) return true;
+        if (Math.abs(val - Math.abs(rsi - 50)) <= tolerance) return true;
+        if (Math.abs(val - Math.abs(rsi - 70)) <= tolerance) return true;
+        if (Math.abs(val - Math.abs(rsi - 30)) <= tolerance) return true;
     }
 
     // 5. Known indicators: SMAs, highest price
@@ -227,8 +227,11 @@ export function extractSentenceClaims(sentence: string, activeSymbol: string, fa
             continue;
         }
 
-        // D. Volume Ratio Claims: "نسبة الحجم 0.30x", "السيولة 0.30"
-        if (/(?:نسبة الحجم|حجم التداول|السيولة|السيوله|vol_ratio)/i.test(sentence) && !isPercent) {
+        // D. Volume Ratio Claims: "نسبة الحجم 0.30x", "السيولة 0.30" — but a level
+        // sentence ("تصحيح قرب 2.50 بحجم تداول أعلى") must not swallow its numbers here.
+        if (/(?:نسبة الحجم|حجم التداول|السيولة|السيوله|vol_ratio)/i.test(sentence)
+            && !isPercent
+            && !/(?:دعم|مقاوم[ةه]|سعر|إغلاق|اغلاق)/i.test(sentence)) {
             claims.push({ type: "volume_ratio", value: num, symbol: activeSymbol, rawText: String(num), sentence });
             continue;
         }
@@ -388,7 +391,7 @@ export function validateDeterministicRules(
                         .some(v => typeof v === "number" && Number.isFinite(v)
                             && Math.abs(claim.value - v) <= 0.05
                             && (facts.price == null || v <= facts.price * 1.02));
-                    if (!isMatch && !isKnownLowerLevel && !isVerifiableDerivedMetric(claim.value, facts)) {
+                    if (!isMatch && !isKnownLowerLevel && !isVerifiableDerivedMetric(claim.value, facts, 0.15)) {
                         errors.push(`تضارب في قيمة الدعم لسهم ${activeSymbol}: الدعم المسجل هو ${sup ?? "غير متاح"} ولا توجد مؤشرات معروفة تدعم قيمة ${claim.value} — اذكر الدعم المسجل فقط أو اذكر أن البيانات غير متاحة.`);
                     }
                     break;
@@ -403,7 +406,7 @@ export function validateDeterministicRules(
                         .some(v => typeof v === "number" && Number.isFinite(v)
                             && Math.abs(claim.value - v) <= 0.05
                             && (facts.price == null || v >= facts.price * 0.98));
-                    if (!isMatch && !isKnownUpperLevel && !isVerifiableDerivedMetric(claim.value, facts)) {
+                    if (!isMatch && !isKnownUpperLevel && !isVerifiableDerivedMetric(claim.value, facts, 0.15)) {
                         errors.push(`تضارب في قيمة المقاومة لسهم ${activeSymbol}: المقاومة المسجلة هي ${res ?? "غير متاحة"} ولا توجد مؤشرات معروفة تدعم قيمة ${claim.value} — اذكر المقاومة المسجلة فقط أو اذكر أن البيانات غير متاحة.`);
                     }
                     break;
