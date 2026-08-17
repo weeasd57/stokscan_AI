@@ -61,14 +61,15 @@ export function buildEvidenceEnginePromptBlock(toolResults: ToolResult[]): strin
 
         lines.push(`\n📌 STOCK: ${sym}`);
         lines.push(`FACTS:`);
-        lines.push(`  - price: ${stockData?.price ?? stockData?.close ?? scanStock?.price ?? scanStock?.close ?? "NOT_PROVIDED"}`);
+        lines.push(`  - price: ${stockData?.price ?? stockData?.close ?? scanStock?.price ?? scanStock?.close ?? "NOT_PROVIDED"} ← [CURRENT PRICE — جنيه — use ONLY this as السعر الحالي]`);
         lines.push(`  - change_pct: ${stockData?.change_pct ?? scanStock?.change_pct ?? "NOT_PROVIDED"}`);
-        lines.push(`  - rsi_14: ${stockData?.rsi_14 ?? scanStock?.rsi_14 ?? "NOT_PROVIDED"}`);
+        lines.push(`  - rsi_14: ${stockData?.rsi_14 ?? scanStock?.rsi_14 ?? "NOT_PROVIDED"} ← [RSI مقياس 0-100 فقط — لا تقل RSI إلا بهذا الرقم]`);
         lines.push(`  - vol_ratio: ${stockData?.vol_ratio ?? scanStock?.vol_ratio ?? "NOT_PROVIDED"}`);
-        lines.push(`  - macd: ${stockData?.macd ?? scanStock?.macd ?? "NOT_PROVIDED"}`);
+        lines.push(`  - macd: ${stockData?.macd ?? scanStock?.macd ?? "NOT_PROVIDED"} ← [MACD هذا ليس RSI — قيمته قد تكون صغيرة جداً أو سالبة]`);
         lines.push(`  - macd_signal: ${stockData?.macd_signal ?? scanStock?.macd_signal ?? "NOT_PROVIDED"}`);
-        lines.push(`  - support: ${lvlData?.support ?? "NOT_PROVIDED"}`);
-        lines.push(`  - resistance: ${lvlData?.resistance ?? "NOT_PROVIDED"}`);
+        lines.push(`  - support: ${lvlData?.support ?? "NOT_PROVIDED"} ← [مستوى الدعم — ليس السعر الحالي]`);
+        lines.push(`  - resistance: ${lvlData?.resistance ?? "NOT_PROVIDED"} ← [مستوى المقاومة — ليس السعر الحالي]`);
+
 
         lines.push(`DERIVED_FLAGS:`);
         lines.push(`  - otc_market_status: ${otc ? "OTC_MARKET (سهم خارج المقصورة / سوق الأوامر)" : "MAIN_MARKET"}`);

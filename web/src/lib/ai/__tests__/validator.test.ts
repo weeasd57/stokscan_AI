@@ -6,6 +6,7 @@ import {
     autoFixNumbers
 } from "../validator";
 import { buildEvidenceEnginePromptBlock } from "../final-v2";
+import type { ToolResult } from "../types";
 
 const aalrToolResults = [
     {
@@ -207,9 +208,9 @@ describe("validator: autoFixNumbers derived metrics", () => {
 
 describe("validator: buildEvidenceEnginePromptBlock", () => {
     it("generates evidence block for stock+scan results", () => {
-        const toolResults = [
-            { tool: "get_stock", data: { symbol: "AALR", price: 310, rsi_14: 67.88, macd: 2.32, macd_signal: null, vol_ratio: 1.19 } },
-            { tool: "get_accumulation_stocks", data: { stocks: [{ symbol: "AALR", acc_score: 80, dist_score: 10, wyckoff_phase: "accumulation", consecutive_acc_days: 3 }] } }
+        const toolResults: ToolResult[] = [
+            { tool: "get_stock", source: "database", data_time: "2026-08-17", symbols: ["AALR"], data_type: "live", data: { symbol: "AALR", price: 310, rsi_14: 67.88, macd: 2.32, macd_signal: null, vol_ratio: 1.19 } },
+            { tool: "get_accumulation_stocks", source: "database", data_time: "2026-08-17", symbols: ["AALR"], data_type: "live", data: { stocks: [{ symbol: "AALR", acc_score: 80, dist_score: 10, wyckoff_phase: "accumulation", consecutive_acc_days: 3 }] } }
         ];
         const block = buildEvidenceEnginePromptBlock(toolResults);
         expect(block).toContain("=== STRICT EVIDENCE CONTEXT");
@@ -223,8 +224,8 @@ describe("validator: buildEvidenceEnginePromptBlock", () => {
     });
 
     it("generates evidence block for scan-only results (no get_stock)", () => {
-        const toolResults = [
-            { tool: "get_distribution_stocks", data: { stocks: [{ symbol: "AALR", dist_score: 75, acc_score: 5, wyckoff_phase: "distribution", consecutive_dist_days: 2 }] } }
+        const toolResults: ToolResult[] = [
+            { tool: "get_distribution_stocks", source: "database", data_time: "2026-08-17", symbols: ["AALR"], data_type: "live", data: { stocks: [{ symbol: "AALR", dist_score: 75, acc_score: 5, wyckoff_phase: "distribution", consecutive_dist_days: 2 }] } }
         ];
         const block = buildEvidenceEnginePromptBlock(toolResults);
         expect(block).toContain("STOCK: AALR");
@@ -236,14 +237,14 @@ describe("validator: buildEvidenceEnginePromptBlock", () => {
     });
 
     it("returns empty string when no relevant results", () => {
-        const toolResults = [{ tool: "search_web", data: { results: [] } }];
+        const toolResults: ToolResult[] = [{ tool: "search_web", source: "web", data_time: "2026-08-17", symbols: [], data_type: "live", data: { results: [] } }];
         const block = buildEvidenceEnginePromptBlock(toolResults);
         expect(block).toBe("");
     });
 
     it("includes all STRICT BOUNDARIES rules", () => {
-        const toolResults = [
-            { tool: "get_stock", data: { symbol: "AALR", price: 310, rsi_14: 67.88, macd: 2.32, macd_signal: null } }
+        const toolResults: ToolResult[] = [
+            { tool: "get_stock", source: "database", data_time: "2026-08-17", symbols: ["AALR"], data_type: "live", data: { symbol: "AALR", price: 310, rsi_14: 67.88, macd: 2.32, macd_signal: null } }
         ];
         const block = buildEvidenceEnginePromptBlock(toolResults);
         expect(block).toContain("NEVER claim 'فوق خط الإشارة'");
@@ -253,10 +254,11 @@ describe("validator: buildEvidenceEnginePromptBlock", () => {
     });
 
     it("handles OTC market flag correctly", () => {
-        const toolResults = [
-            { tool: "get_stock", data: { symbol: "AFDI", price: null, rsi_14: null, macd: null, macd_signal: null } }
+        const toolResults: ToolResult[] = [
+            { tool: "get_stock", source: "database", data_time: "2026-08-17", symbols: ["AFDI"], data_type: "live", data: { symbol: "AFDI", price: null, rsi_14: null, macd: null, macd_signal: null } }
         ];
         const block = buildEvidenceEnginePromptBlock(toolResults);
         expect(block).toContain("OTC_MARKET");
     });
+
 });
