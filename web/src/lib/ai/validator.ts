@@ -77,7 +77,11 @@ export function extractSymbols(text: string): string[] {
  * Supports both the ASCII decimal point and the Arabic decimal separator (٫).
  */
 export function extractNumbers(text: string): number[] {
-    const matches = text.match(/\b\d+(?:[.٫]\d+)?\b/g) || [];
+    if (!text) return [];
+    const normalized = text
+        .replace(/[٠-٩]/g, d => String("٠١٢٣٤٥٦٧٨٩".indexOf(d)))
+        .replace(/[۰-۹]/g, d => String("۰۱۲۳۴۵۶۷۸۹".indexOf(d)));
+    const matches = normalized.match(/\b\d+(?:[.٫]\d+)?\b/g) || [];
     return Array.from(new Set(matches.map(m => Number(m.replace("٫", "."))))).filter(num => !isNaN(num));
 }
 

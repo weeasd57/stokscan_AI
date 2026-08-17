@@ -3,6 +3,7 @@ import {
     validateResponse,
     validateDeterministicRules,
     isVerifiableDerivedMetric,
+    extractNumbers,
     autoFixNumbers
 } from "../validator";
 import { buildEvidenceEnginePromptBlock } from "../final-v2";
@@ -21,6 +22,18 @@ const aalrToolResults = [
 ];
 
 describe("validator deterministic rules & semantic verification", () => {
+    it("extracts Arabic-Indic numerals correctly", () => {
+        const numbers = extractNumbers("داخل من ١٠.٨٦ بسعر ٧.٢٣");
+        expect(numbers).toContain(10.86);
+        expect(numbers).toContain(7.23);
+    });
+
+    it("exempts user-provided Arabic-Indic numbers from claim violations", () => {
+        const reply = "أنت ذكرت أنك دخلت بسعر 10.86 جنيه، والسعر الحالي 310 جنيه.";
+        const errors = validateDeterministicRules(reply, aalrToolResults, "داخل من ١٠.٨٦ ؟");
+        expect(errors).toEqual([]);
+    });
+
     it("accepts a correct reply with decimal RSI and resistance values", () => {
         const reply =
             "سهم AALR يتداول عند سعر 310 جنيه. مؤشر القوة النسبية RSI يسجل 67.88 مقترباً من مناطق التشبع الشرائي. المقاومة الرئيسية عند 325.5 والدعم عند 290.";
