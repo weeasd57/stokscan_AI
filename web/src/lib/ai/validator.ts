@@ -317,7 +317,9 @@ export function validateDeterministicRules(
         }
 
         // EVIDENCE VERIFIER CHECK 3: Unproven Wyckoff Accumulation assertion
-        const claimsAccumulation = /(?:مرحل[ةه]\s*تجميع|إشار[ةه]\s*تجميع|سيول[ةه]\s*تجميعية|(?:عليه|فيه|به|لديه)\s*تجميع|درج[ةه]\s*(?:ال)?تجميع|يتم\s+(?:عليه\s+)?تجميع)/i.test(sentence);
+        // Exclude: negated/absent claims, Wyckoff-educational context, NONE labels
+        const claimsAccumulation = /(?:مرحل[\u0629\u0647]\s*(?:ال)?تجميع|(?:\u0639\u0644\u064a\u0647|\u0641\u064a\u0647|\u0628\u0647|\u0644\u062f\u064a\u0647)\s*تجميع|\u064a\u062a\u0645\s*(?:\u0639\u0644\u064a\u0647\s*)?\u062a\u062c\u0645\u064a\u0639|\u062f\u0631\u062c[\u0629\u0647]\s*(?:ال)?تجميع|\u0625\u0634\u0627\u0631[\u0629\u0647]\s*تجميع|سيول[\u0629\u0647]\s*تجميعية)/i.test(sentence)
+            && !/(?:NONE|\u063a\u064a\u0631\s*\u0645\u062a\u0627\u062d|\u0644\u0627\s*\u062a\u062a\u0648\u0641\u0631|\u0644\u064a\u0633\s*\u0647\u0646\u0627\u0643|\u0628\u064a\u0627\u0646\u0627\u062a.*\u0627\u0644\u062a\u062c\u0645\u064a\u0639.*\u063a\u064a\u0631|\u062e\u0627\u0631\u062c.*\u0645\u0633\u062d)/i.test(sentence);
         const hasAccEvidence = (facts.acc_score != null && Number(facts.acc_score) > 0) || toolResults.some(r => (r.tool === "get_accumulation_stocks" || r.tool === "get_distribution_stocks") && Array.isArray(r.data?.stocks) && r.data.stocks.some((st: any) => String(st.symbol).toUpperCase() === activeSymbol?.toUpperCase() && (Number(st.acc_score) > 0 || String(st.wyckoff_phase).toLowerCase().includes("acc"))));
         if (!isNegatedClaim && claimsAccumulation && !hasAccEvidence) {
             errors.push(`ادعاء تجميع غير مثبت بدليل لسهم ${activeSymbol}: لا تتوفر بيانات مسح Wyckoff/تجميع صريحة — قل إن البيانات غير متاحة بدلاً من الاستنتاج من مؤشرات أخرى.`);

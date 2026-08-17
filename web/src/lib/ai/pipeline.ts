@@ -1413,12 +1413,23 @@ while (attempts < maxAttempts) {
             correctionPrompt += `- لقد قمت باختلاق أو استخدام أرقام/نسب/أسعار غير موجودة بالبيانات المرفقة: (${validation.suspiciousNumbers.join(", ")}). التزم حرفياً بالأرقام والأسعار والنسب المعطاة فقط، وإذا لم يتوفر الرقم اكتب 'غير متوفر' ولا تخترع أي رقم.\n`;
         }
         if (validation.deterministicErrors && validation.deterministicErrors.length > 0) {
-            correctionPrompt += `- لقد ذكرت معلومات تتعارض مع حقائق قاعدة البيانات:\n`;
-            validation.deterministicErrors.forEach(err => {
-                correctionPrompt += `  * ${err}\n`;
-            });
-            correctionPrompt += `يمنع تماماً الاستنتاج الضمني (Implicit Inference) لأي زخم أو مرحلة تداول إلا بوجود الدليل الصريح. التزم حرفياً بالقيم المعطاة في البيانات فقط!\n`;
+
+            const hasWyckoffError = validation.deterministicErrors.some(e => e.includes("تجميع") || e.includes("تصريف") || e.includes("Wyckoff"));
+            if (hasWyckoffError) {
+                correctionPrompt += `- لقد ادّعيت مرحلة تجميع أو تصريف Wyckoff دون وجود بيانات مسح حقيقية:\n`;
+                correctionPrompt += `  * الصياغة الصحيحة الوحيدة المسموح بها عند غياب بيانات Wyckoff هي:\n`;
+                correctionPrompt += `    "بيانات مسح Wyckoff غير متاحة لهذا السهم حالياً، لذا لا يمكن تحديد مرحلة التجميع أو التصريف."\n`;
+                correctionPrompt += `  * بعد هذه الجملة يمكنك تقديم التحليل الفني العادي (RSI، الدعم، المقاومة، الحجم) فقط.\n`;
+                correctionPrompt += `  * يمنع تماماً استخدام كلمات: "مرحلة تجميع"، "سيولة تجميعية"، "عليه تجميع" إلا إذا كان acc_score > 0 في البيانات.\n`;
+            } else {
+                correctionPrompt += `- لقد ذكرت معلومات تتعارض مع حقائق قاعدة البيانات:\n`;
+                validation.deterministicErrors.forEach(err => {
+                    correctionPrompt += `  * ${err}\n`;
+                });
+                correctionPrompt += `يمنع تماماً الاستنتاج الضمني (Implicit Inference) لأي زخم أو مرحلة تداول إلا بوجود الدليل الصريح. التزم حرفياً بالقيم المعطاة في البيانات فقط!\n`;
+            }
         }
+
         if (validation.hasRepetitions) {
             correctionPrompt += `- لقد قمت بتكرار نفس العبارات أو الجمل بشكل متكرر غير طبيعي. أعد صياغة الرد بلغة عربية سلسلة ومتنوعة وبدون تكرار أي عبارة أو سطر.\n`;
         }
