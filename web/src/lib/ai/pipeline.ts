@@ -144,7 +144,15 @@ export function extractExplicitSymbols(message: string): string[] {
         const normKey = arName.replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").toLowerCase();
         if (normKey.length >= 2) {
             const escapedKey = normKey.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-            const regex = new RegExp(`(?:^|[^a-z0-9\u0621-\u064a\u0671-\u06d3])(?:و|ف|ب|ل|ك|ال)?${escapedKey}(?:$|[^a-z0-9\u0621-\u064a\u0671-\u06d3])`, "i");
+            let pattern: string;
+            if (normKey.startsWith("ال")) {
+                const keyWithoutAl = normKey.slice(2);
+                const escapedWithoutAl = keyWithoutAl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+                pattern = `(?:^|[^a-z0-9\\u0621-\\u064a\\u0671-\\u06d3])(?:(?:و|ف|ب|ل|ك|ال)?${escapedKey}|لل${escapedWithoutAl})(?:$|[^a-z0-9\\u0621-\\u064a\\u0671-\\u06d3])`;
+            } else {
+                pattern = `(?:^|[^a-z0-9\\u0621-\\u064a\\u0671-\\u06d3])(?:و|ف|ب|ل|ك|ال)?${escapedKey}(?:$|[^a-z0-9\\u0621-\\u064a\\u0671-\\u06d3])`;
+            }
+            const regex = new RegExp(pattern, "i");
             if (regex.test(normMsg)) {
                 if (Array.isArray(symbol)) {
                     matchedSymbols.push(...symbol);
