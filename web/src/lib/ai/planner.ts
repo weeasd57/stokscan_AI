@@ -136,6 +136,7 @@ const ARABIC_STOCK_MAPPINGS: Record<string, string | string[]> = {
     "أكرو": "ACRO", "اكرو": "ACRO", "أكرو مصر": "ACRO",
     "أكت فاينانشال": "ACTF", "اكت فاينانشال": "ACTF", "شركة أكت": "ACTF",
     "باندا": "ADPC", "أراب ديري": "ADPC", "اراب ديري": "ADPC", "ألبان العرب": "ADPC",
+    "ديري": "ADPC", "ديرى": "ADPC", "عرب ديري": "ADPC", "عرب دايري": "ADPC",
     "الأهلي للتنمية": "AFDI", "الاهلي للتنمية": "AFDI", "الاهلي للاستثمار": "AFDI",
     "حاويات": "ALCN", "حاويات اسكندرية": "ALCN", "الاسكندرية للحاويات": "ALCN", "الإسكندرية للحاويات": "ALCN", "حاوية": "ALCN",
     "الاسكندرية": "ALCN", "الإسكندرية": "ALCN",
@@ -165,6 +166,7 @@ const ARABIC_STOCK_MAPPINGS: Record<string, string | string[]> = {
     "كونتكت": "CNFN", "كونتكت المالية": "CNFN", "ثروة كابيتال": "CNFN",
     "كوبـر": "COPR", "كوبر": "COPR", "كوبر للاستثمار": "COPR",
     "القاهرة للزيوت": "COSG", "زيوت وصابون": "COSG", "قاهرة للزيوت": "COSG", "COSG": "COSG", "cosg": "COSG", "Cosg": "COSG", "كوزمو": "COSG", "كوزموبوليتان": "COSG", "كوزموس": "COSG", "القاهرة للزيوت والصابون": "COSG",
+    "القاهرة زيوت": "COSG", "قاهرة زيوت": "COSG",
     "القاهرة للأدوية": "CPCI", "القاهرة للادوية": "CPCI",
     "القناة للتوكيلات": "CSAG", "قناة للتوكيلات": "CSAG", "توكيلات ملاحية": "CSAG",
     "الاستشارات الهندسية": "DAPH", "تنمية واستشارات": "DAPH",
@@ -224,6 +226,7 @@ const ARABIC_STOCK_MAPPINGS: Record<string, string | string[]> = {
     "مطاحن شمال القاهرة": "MILS", "شمال القاهرة للمطاحن": "MILS",
     "مينا فارم": "MIPH", "مينافارم": "MIPH", "مينا فارم للأدوية": "MIPH",
     "الحديثة للتعليم": "MOED", "المصرية للتعليم": "MOED",
+    "المصرية لنظم التعليم": "MOED", "المصريه لنظم التعليم": "MOED", "نظم التعليم": "MOED",
     "مارديف": "MOIL", "ماريديف": "MOIL", "الخدمات الملاحية": "MOIL",
     "المهندس للتأمين": "MOIN", "المهندس للتامين": "MOIN",
     "مصر للزيوت والصابون": "MOSC",
@@ -713,7 +716,8 @@ EXAMPLE: If you see 4 stocks in the image, you MUST extract all 4 symbols, and l
 - "get_sector": Fetches aggregated technical and fundamental data for a SPECIFIC market sector (e.g., 'البنوك', 'الأدوية', 'العقارات'). Do NOT use if the user asks for a list of sectors without specifying a sector name.
 - "get_sector_list": Fetches the full list of available market sectors and stock counts. Use when the user asks for a list of sectors or all sectors (e.g., 'عندك كام قطاع', 'عدد القطاعات', 'إيه القطاعات المتاحة', 'قائمة القطاعات', 'قايمه بالقطاعات', 'هات قايمه بالقطاعات', 'القطاعات', 'كل القطاعات').
 - "get_market": Fetches overall market summary, EGX30/EGX70 index data, and top gainers/losers. Use when the user asks about the overall market, index, or general liquidity (e.g. 'حالة السوق', 'ايه اللي طلع', 'السوق').
-- "get_accumulation_stocks": Fetches a list of stocks currently in Wyckoff accumulation/distribution phases. Use when the user asks about 'تجميع', 'تصريف', 'سيولة مؤسسية', or 'accumulation'.
+- "get_accumulation_stocks": Fetches a list of stocks currently in Wyckoff accumulation/distribution phases. Use when the user asks about 'تجميع', 'تصريف', 'سيولة مؤسسية', 'accumulation', 'Wyckoff', 'وايكوف', 'WYCOFF', 'إليوت', 'إليوت فيز', 'Elliot phase', 'Elliott Wave', 'موجات إليوت', 'المرحلة', 'phase'. When a user asks for Wyckoff or Elliott analysis on specific stocks, use BOTH \"get_stock\" AND \"get_accumulation_stocks\" together.
+
 - "get_comparison": Fetches data to compare two or more stocks. Use when the user explicitly asks to compare stocks (e.g., 'مقارنة بين', 'أيهما أفضل').
 - "search_web": Searches the internet for information that is NOT available in the database (general knowledge, companies/events outside the market data, recent happenings, or when the user explicitly asks to search the internet e.g. 'ابحث في النت', 'دور على الإنترنت'). Use only when the requested information cannot come from stock/market/news database tools.
 
