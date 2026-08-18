@@ -1002,9 +1002,13 @@ Analyze the user request and return a JSON object. You MUST dynamically choose t
                         const toolsList: string[] = (finalIntent === "general_chat" || isTermsQuestion)
                             ? [] 
                             : (Array.isArray(parsed.tools) ? parsed.tools : []);
-                        if (resolvedSymbols.length > 0 && !toolsList.includes("get_stock") && finalIntent !== "general_chat") {
-                            toolsList.unshift("get_stock");
+                        const isBreakoutOrAccumulationScan = /اختراق|مقاوم|مقاومات|تجميع|وايكوف/i.test(message) && resolvedSymbols.length === 0;
+                        if (isBreakoutOrAccumulationScan && !hasImages) {
+                            if (!toolsList.includes("get_accumulation_stocks")) toolsList.push("get_accumulation_stocks");
+                            if (!toolsList.includes("get_market")) toolsList.push("get_market");
+                            if (finalIntent === "general_chat") finalIntent = "accumulation";
                         }
+
                         if (hasRecommendationKw && !hasImages) {
                             if (!toolsList.includes("get_recommendations")) toolsList.push("get_recommendations");
                             if (!toolsList.includes("get_signals")) toolsList.push("get_signals");
