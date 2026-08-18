@@ -35,6 +35,10 @@ const ARABIC_STOCK_MAPPINGS: Record<string, string | string[]> = {
     // ── AUTO  جي بي أوتو ────────────────────────────────────
     "جي بي اوتو": "AUTO", "جي بي أوتو": "AUTO", "gb اوتو": "AUTO",
 
+    // ── BIGP  بي اي جي للتجارة والاستثمار ──────────────────
+    "بي اي جي": "BIGP", "بي آي جي": "BIGP", "بي إي جي": "BIGP",
+    "بي اي جي للتجارة": "BIGP", "بي اي جي للتجارة والاستثمار": "BIGP",
+
     // ── BIOC  جلاكسو سميث كلاين ─────────────────────────────
     "جلاكسو سميث كلاين": "BIOC", "جلاكسو": "BIOC", "جلاسكو": "BIOC",
 
@@ -546,7 +550,7 @@ export function getSyncValidSymbols(): string[] {
 
 const STATIC_VALID_SYMBOLS = [
     'AALR', 'ABUK', 'ACAMD', 'ACAP', 'ADCI', 'ADPC', 'AFMC', 'AIH', 'AIIH', 'AJWA', 'ALCN', 'ALUM', 'AMES', 'AMOC',
-    'APPC', 'ARAB', 'AREH', 'ARVA', 'ATQA', 'AXPH', 'BIOC', 'BTFH', 'CAED', 'CCAP', 'CIEB', 'CIRA', 'CLHO',
+    'APPC', 'ARAB', 'AREH', 'ARVA', 'ATQA', 'AXPH', 'BIGP', 'BIOC', 'BTFH', 'CAED', 'CCAP', 'CIEB', 'CIRA', 'CLHO',
     'CNFN', 'COMI', 'COPR', 'COSG', 'CPCI', 'CRST', 'DMTY', 'EAST', 'EEII', 'EFID', 'EFIH', 'EGAL', 'EGAS', 'EGBE',
     'EGCH', 'EGREF', 'EGSA', 'EGTS', 'EGX30', 'EGX70', 'EGX100', 'EHDR', 'EITP', 'EKHO', 'ELKA', 'ELSH', 'EMFD', 'EOSB',
     'ESRS', 'ETEL', 'ETRS', 'FAIT', 'FCMD', 'FERC', 'FTNS', 'FWRY', 'GBCO', 'GDWA', 'GGCC', 'GGRN', 'GMCI', 'GOUR',

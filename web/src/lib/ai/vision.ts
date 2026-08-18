@@ -49,15 +49,18 @@ export function validateVisionOutput(data: any): VisionContext | null {
 
     return {
         image_type: ["portfolio", "chart", "market_depth", "table", "unknown"].includes(data.image_type) ? data.image_type : "unknown",
-        symbols: rawSymbols.map((s: any) => ({
-            symbol: String(s.symbol || "").toUpperCase(),
-            name: String(s.name || ""),
-            visible_values: {
-                price: numericOrNull(s.visible_values?.price ?? s.price),
-                change_pct: numericOrNull(s.visible_values?.change_pct ?? s.change_pct),
-                quantity: numericOrNull(s.visible_values?.quantity ?? s.quantity)
-            }
-        })),
+        symbols: rawSymbols.map((s: any) => {
+            const sym = String(s.symbol || "").replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+            return {
+                symbol: sym,
+                name: String(s.name || ""),
+                visible_values: {
+                    price: numericOrNull(s.visible_values?.price ?? s.price),
+                    change_pct: numericOrNull(s.visible_values?.change_pct ?? s.change_pct),
+                    quantity: numericOrNull(s.visible_values?.quantity ?? s.quantity)
+                }
+            };
+        }).filter(s => s.symbol.length >= 2),
         technical_observations,
         market_depth: {
             total_bid: data.market_depth?.total_bid ?? null,
