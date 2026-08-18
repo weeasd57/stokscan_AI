@@ -4,7 +4,7 @@ import { useChat, AVAILABLE_AI_MODELS } from "@/contexts/ChatContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useRouter } from "next/navigation";
-import Image from "next/image";
+import NextImage from "next/image";
 import { Send, X, Sparkles, User, Loader2, Lock, Maximize2, Minimize2, LogIn, UserPlus, ImagePlus, XCircle, Cpu, ChevronDown, Check, PanelLeft, Square, Download, ZoomIn } from "lucide-react";
 import { useState, useRef, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
@@ -327,7 +327,7 @@ export default function ChatWidget() {
                 className="fixed bottom-5 right-5 h-16 w-16 bg-[#FFE600] hover:bg-[#ffef5c] border-4 border-black dark:border-white text-black flex items-center justify-center shadow-[6px_6px_0_0_#000] dark:shadow-[6px_6px_0_0_#fff] transition-all hover:-translate-x-1 hover:-translate-y-1 hover:shadow-[9px_9px_0_0_#000] dark:hover:shadow-[9px_9px_0_0_#fff] active:translate-x-1 active:translate-y-1 active:shadow-none z-[9999] animate-in fade-in zoom-in duration-300 p-2"
                 title="AI Market Assistant"
             >
-                <Image src="/favicon_io/apple-touch-icon.png" alt="EGX Bots" width={40} height={40} className="w-10 h-10 object-contain" priority />
+                <NextImage src="/favicon_io/apple-touch-icon.png" alt="EGX Bots" width={40} height={40} className="w-10 h-10 object-contain" priority />
             </button>
         );
     }
@@ -373,7 +373,7 @@ export default function ChatWidget() {
                             </button>
                         )}
                         <div className="h-9 w-9 border-2 border-black bg-white flex items-center justify-center shadow-[2px_2px_0_0_#000] p-1 shrink-0">
-                            <Image src="/favicon_io/apple-touch-icon.png" alt="EGX Bots" width={28} height={28} className="w-6 h-6 object-contain" />
+                            <NextImage src="/favicon_io/apple-touch-icon.png" alt="EGX Bots" width={28} height={28} className="w-6 h-6 object-contain" />
                         </div>
                         <span>EGX AI Assistant</span>
                     </div>
@@ -447,7 +447,7 @@ export default function ChatWidget() {
                             {messages.length === 0 && (
                                 <div className="h-full flex flex-col items-center justify-center text-center p-6 space-y-4 my-auto min-h-[260px] dir-rtl">
                                     <div className="h-16 w-16 border-4 border-black dark:border-white bg-white text-black flex items-center justify-center shadow-[5px_5px_0_0_#000] dark:shadow-[5px_5px_0_0_#fff] rotate-[-3deg] p-2">
-                                        <Image src="/favicon_io/apple-touch-icon.png" alt="EGX Bots" width={48} height={48} className="w-11 h-11 object-contain" />
+                                        <NextImage src="/favicon_io/apple-touch-icon.png" alt="EGX Bots" width={48} height={48} className="w-11 h-11 object-contain" />
                                     </div>
                                     <h3 className="font-black text-xl text-black dark:text-white">اسأل السوق. خذ الإجابة بالبيانات.</h3>
                                     <p className="text-xs text-zinc-400 max-w-[300px] leading-relaxed">
@@ -466,7 +466,7 @@ export default function ChatWidget() {
                                         h-9 w-9 border-2 border-black dark:border-white flex items-center justify-center shrink-0 mt-1 shadow-[2px_2px_0_0_#000] dark:shadow-[2px_2px_0_0_#fff] p-1
                                         ${msg.role === "user" ? "bg-white dark:bg-zinc-800 text-black dark:text-white" : "bg-white dark:bg-zinc-900"}
                                     `}>
-                                        {msg.role === "user" ? <User className="h-5 w-5" /> : <Image src="/favicon_io/apple-touch-icon.png" alt="EGX Bots" width={28} height={28} className="w-6 h-6 object-contain" />}
+                                        {msg.role === "user" ? <User className="h-5 w-5" /> : <NextImage src="/favicon_io/apple-touch-icon.png" alt="EGX Bots" width={28} height={28} className="w-6 h-6 object-contain" />}
                                     </div>
                                     <div className={`
                                         flex-1 border-2 border-black dark:border-white p-3 sm:p-4 text-xs sm:text-sm max-w-full leading-relaxed min-w-0 overflow-hidden shadow-[4px_4px_0_0_#000] dark:shadow-[4px_4px_0_0_#fff]
@@ -518,7 +518,7 @@ export default function ChatWidget() {
                             {isLoading && !messages[messages.length - 1]?.content && (
                                 <div className="flex gap-3 w-full max-w-3xl mx-auto items-center p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 dark:bg-amber-500/5 transition-all duration-300">
                                     <div className="h-8 w-8 rounded-none border-2 border-black bg-white flex items-center justify-center shrink-0 shadow-md p-1">
-                                        <Image src="/favicon_io/apple-touch-icon.png" alt="EGX Bots" width={24} height={24} className="w-5 h-5 object-contain animate-pulse" />
+                                        <NextImage src="/favicon_io/apple-touch-icon.png" alt="EGX Bots" width={24} height={24} className="w-5 h-5 object-contain animate-pulse" />
                                     </div>
                                     <div className="flex-1 flex flex-col gap-0.5 overflow-hidden">
                                         <div className="flex items-center gap-2">
@@ -757,7 +757,7 @@ export default function ChatWidget() {
                         onClick={(e) => e.stopPropagation()}
                     >
                         <div className="flex items-center gap-2 text-white font-black text-sm">
-                            <Image src="/favicon_io/apple-touch-icon.png" alt="Logo" width={24} height={24} className="w-6 h-6 object-contain" />
+                            <NextImage src="/favicon_io/apple-touch-icon.png" alt="Logo" width={24} height={24} className="w-6 h-6 object-contain" />
                             <span>معاينة الصورة المرفقة</span>
                         </div>
                         <div className="flex items-center gap-3">
