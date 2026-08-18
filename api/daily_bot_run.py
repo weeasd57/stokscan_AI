@@ -2630,11 +2630,12 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
                 f"• الخطوة: *{step_name}* فشلت\n"
                 f"• التفاصيل: {str(details)[:300]}"
             )
-            print(f"[TELEGRAM_ALERT] Sending immediate step failure alert to Telegram: {alert_msg}")
-            try:
-                _notify_central_telegram(alert_msg, f"step_failure_{step_name}")
-            except Exception as e_alert:
-                print(f"[TELEGRAM_ALERT] Failed to send immediate step failure alert: {e_alert}")
+            print(f"[TELEGRAM_ALERT] Immediate step failure (Telegram notification disabled): {alert_msg}")
+            # Disabled sending system step failure alerts to the group
+            # try:
+            #     _notify_central_telegram(alert_msg, f"step_failure_{step_name}")
+            # except Exception as e_alert:
+            #     print(f"[TELEGRAM_ALERT] Failed to send immediate step failure alert: {e_alert}")
 
     try:
         # Initial status insert
@@ -3004,8 +3005,9 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
 
                 # Send digest to subscribers using the corrected notification system
                 digest_message = "\n".join(digest_lines)
-                _notify_central_telegram(digest_message, "system_digest")
-                print("\n[DAILY_DIGEST]\n" + digest_message)
+                # Disabled sending daily digest log to the group
+                # _notify_central_telegram(digest_message, "system_digest")
+                print("\n[DAILY_DIGEST] (Telegram notification disabled):\n" + digest_message)
         except Exception as e_telegram:
             print(f"[TELEGRAM_DIGEST] Failed to send daily digest: {e_telegram}")
 
