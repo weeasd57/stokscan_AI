@@ -1,3 +1,5 @@
+import { getSyncStockMappings } from "./planner";
+
 export type ClaimType =
     | "current_price"
     | "rsi"
@@ -65,11 +67,26 @@ const ALLOWED_GENERIC_NUMBERS = new Set([
 ]);
 
 /**
- * Extracts all uppercase words of length 3-6 that could represent stock tickers.
+ * Extracts all uppercase words of length 3-6 or mapped Arabic stock names that represent stock tickers.
  */
 export function extractSymbols(text: string): string[] {
     const matches = text.match(/\b[A-Z]{3,6}\b/g) || [];
-    return Array.from(new Set(matches)).filter(sym => !TECHNICAL_EXCLUSIONS.has(sym));
+    const valid = Array.from(new Set(matches)).filter(sym => !TECHNICAL_EXCLUSIONS.has(sym));
+    if (valid.length > 0) return valid;
+
+    try {
+        const mappings = getSyncStockMappings();
+        const norm = text.replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").toLowerCase();
+        for (const [arName, symbol] of Object.entries(mappings)) {
+            if (arName.length >= 3 && norm.includes(arName.replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").toLowerCase())) {
+                const sym = Array.isArray(symbol) ? symbol[0] : symbol;
+                if (sym) return [sym.toUpperCase()];
+            }
+        }
+    } catch {
+        // ignore
+    }
+    return [];
 }
 
 /**
@@ -333,7 +350,7 @@ export function validateDeterministicRules(
         // Negated statements ("لا يوجد عليه تصريف") are honest answers — never flag them.
         // Skip for scan list stocks — they're listed from DB, not hallucinated.
         const isNegatedClaim = /(?:لا\s+(?:يوجد|توجد|يمكن\s+تأكيد)|مفيش|ليس\s+هناك|غير\s+متاح|لا\s+تتوفر|انعدام)/i.test(sentence);
-        const claimsDistribution = /(?:مرحل[ةه]\s*تصريف|إشار[ةه]\s*تصريف|سيول[ةه]\s*توزيعية|(?:عليه|فيه|به|لديه)\s*تصريف|درج[ةه]\s*(?:ال)?تصريف|يتم\s+(?:عليه\s+)?تصريف|سهم\s*تصريف|ضغط\s*بيعي)/i.test(sentence);
+        const claimsDistribution = /(?:مرحل[ةه]\s*تصريف\s*وايكوف|إشار[ةه]\s*تصريف\s*مؤكد[ةه]|درج[ةه]\s*(?:ال)?تصريف|تصريف\s*وايكوف|سهم\s*تصريف\s*مؤكد)/i.test(sentence);
         const hasDistEvidence = (facts.dist_score != null && Number(facts.dist_score) > 0) || toolResults.some(r => (r.tool === "get_distribution_stocks" || r.tool === "get_accumulation_stocks") && Array.isArray(r.data?.stocks) && r.data.stocks.some((st: any) => String(st.symbol).toUpperCase() === activeSymbol?.toUpperCase() && (Number(st.dist_score) > 0 || String(st.wyckoff_phase).toLowerCase().includes("dist") || String(st.wyckoff_phase).toLowerCase().includes("mark"))));
         if (!skipWyckoffChecks && !isNegatedClaim && claimsDistribution && !hasDistEvidence) {
             errors.push(`ادعاء تصريف أو سيولة توزيعية غير مثبت بدليل لسهم ${activeSymbol}: لا تتوفر بيانات مسح Wyckoff/تصريف صريحة — قل إن البيانات غير متاحة بدلاً من الاستنتاج من مؤشرات أخرى.`);
@@ -343,7 +360,7 @@ export function validateDeterministicRules(
         // EVIDENCE VERIFIER CHECK 3: Unproven Wyckoff Accumulation assertion
         // Exclude: negated/absent claims, Wyckoff-educational context, NONE labels
         // Skip for scan list stocks — they're listed from DB, not hallucinated.
-        const claimsAccumulation = /(?:مرحل[ةه]\s*(?:ال)?تجميع|(?:عليه|فيه|به|لديه)\s*تجميع|يتم\s+(?:عليه\s+)?تجميع|درج[ةه]\s*(?:ال)?تجميع|إشار[ةه]\s*تجميع|سيول[ةه]\s*تجميعية|نشاط\s*شرائي)/i.test(sentence)
+        const claimsAccumulation = /(?:مرحل[ةه]\s*(?:ال)?تجميع\s*وايكوف|درج[ةه]\s*(?:ال)?تجميع|إشار[ةه]\s*تجميع\s*مؤكد[ةه]|تجميع\s*وايكوف)/i.test(sentence)
             && !/(?:NONE|غير\s*متاح|لا\s*تتوفر|ليس\s*هناك|بيانات.*التجميع.*غير|خارج.*مسح)/i.test(sentence);
         const hasAccEvidence = (facts.acc_score != null && Number(facts.acc_score) > 0) || toolResults.some(r => (r.tool === "get_accumulation_stocks" || r.tool === "get_distribution_stocks") && Array.isArray(r.data?.stocks) && r.data.stocks.some((st: any) => String(st.symbol).toUpperCase() === activeSymbol?.toUpperCase() && (Number(st.acc_score) > 0 || String(st.wyckoff_phase).toLowerCase().includes("acc"))));
         if (!skipWyckoffChecks && !isNegatedClaim && claimsAccumulation && !hasAccEvidence) {
@@ -376,16 +393,17 @@ export function validateDeterministicRules(
         for (const claim of claims) {
             if (userNumbers.includes(claim.value)) continue;
 
-            // Universal Fact Exemption:
-            // If the number perfectly matches ANY of the three core facts, it is a true data point.
-            // We exempt it to prevent greedy sentence/clause parsing from falsely penalizing a correct
-            // number just because it was mislabeled (e.g. tagging resistance as support).
-            const isExactCoreFact = 
-                (facts.price != null && (Math.abs(claim.value - facts.price) <= 0.05 || (facts.price > 0 && Math.abs(claim.value - facts.price) / facts.price <= 0.02))) ||
-                (facts.support != null && (Math.abs(claim.value - facts.support) <= 0.05 || (facts.support > 0 && Math.abs(claim.value - facts.support) / facts.support <= 0.02))) ||
-                (facts.resistance != null && (Math.abs(claim.value - facts.resistance) <= 0.05 || (facts.resistance > 0 && Math.abs(claim.value - facts.resistance) / facts.resistance <= 0.02)));
+            // Universal Multi-Symbol Fact Exemption:
+            // If the number matches the price, support, resistance, RSI, or level of ANY queried symbol in factsBySymbol,
+            // it is a verified true data point and should never be penalized as a mismatch for another symbol.
+            const isExactAnyCoreFact = Object.values(factsBySymbol).some((f: any) => {
+                return (f.price != null && (Math.abs(claim.value - f.price) <= 0.05 || (f.price > 0 && Math.abs(claim.value - f.price) / f.price <= 0.02))) ||
+                    (f.support != null && (Math.abs(claim.value - f.support) <= 0.05 || (f.support > 0 && Math.abs(claim.value - f.support) / f.support <= 0.02))) ||
+                    (f.resistance != null && (Math.abs(claim.value - f.resistance) <= 0.05 || (f.resistance > 0 && Math.abs(claim.value - f.resistance) / f.resistance <= 0.02))) ||
+                    (f.rsi != null && (Math.abs(claim.value - f.rsi) <= 0.51 || (f.rsi > 0 && Math.abs(claim.value - f.rsi) / f.rsi <= 0.01)));
+            });
 
-            if (isExactCoreFact) continue;
+            if (isExactAnyCoreFact) continue;
 
             switch (claim.type) {
                 case "current_price": {
