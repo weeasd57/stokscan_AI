@@ -59,6 +59,10 @@ const ARABIC_STOCK_MAPPINGS: Record<string, string | string[]> = {
     "التجاري الدولي": "COMI", "بنك التجاري الدولي": "COMI",
     "كومي": "COMI", "سي اي بي": "COMI", "سي آي بي": "COMI",
 
+    // ── FCMD  فيوتشر كير للصناعات الطبية ───────────────────
+    "فيوتشر كير": "FCMD", "فيوتشر كير للصناعات الطبية": "FCMD",
+    "فيوتشر كير الطبية": "FCMD", "شركة فيوتشر كير": "FCMD",
+
     // ── CRST  كريست مارك للمقاولات والتطوير العقاري ─────────
     "كريستمارك": "CRST", "كريست مارك": "CRST", "كريست مارك للمقاولات": "CRST",
 
@@ -538,7 +542,7 @@ const STATIC_VALID_SYMBOLS = [
     'APPC', 'ARAB', 'AREH', 'ARVA', 'ATQA', 'AXPH', 'BIOC', 'BTFH', 'CAED', 'CCAP', 'CIEB', 'CIRA', 'CLHO',
     'CNFN', 'COMI', 'COPR', 'COSG', 'CPCI', 'CRST', 'DMTY', 'EAST', 'EEII', 'EFID', 'EFIH', 'EGAL', 'EGAS', 'EGBE',
     'EGCH', 'EGREF', 'EGSA', 'EGTS', 'EGX30', 'EGX70', 'EGX100', 'EHDR', 'EITP', 'EKHO', 'ELKA', 'ELSH', 'EMFD', 'EOSB',
-    'ESRS', 'ETEL', 'ETRS', 'FAIT', 'FERC', 'FTNS', 'FWRY', 'GBCO', 'GDWA', 'GGCC', 'GGRN', 'GMCI', 'GOUR',
+    'ESRS', 'ETEL', 'ETRS', 'FAIT', 'FCMD', 'FERC', 'FTNS', 'FWRY', 'GBCO', 'GDWA', 'GGCC', 'GGRN', 'GMCI', 'GOUR',
     'GSSC', 'HELI', 'HRHO', 'ICFC', 'IDRE', 'INFI', 'IRON', 'ISMA', 'ISPH', 'JUFO', 'KABO', 'KASABF',
     'KRDI', 'KWIN', 'KZPC', 'LUTS', 'MASR', 'MBSC', 'MCQE', 'MENA', 'MFPC', 'MFSC', 'MICH', 'MILS', 'MNHD',
     'MOIL', 'MOSC', 'MPCO', 'MTIE', 'NCGC', 'NEDA', 'NHPS', 'NINH', 'NIPH', 'OBRI', 'OLFI', 'ORAS', 'ORHD', 'ORWE', 'PHDC', 'PHTV',
