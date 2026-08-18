@@ -41,6 +41,7 @@ const ARABIC_STOCK_MAPPINGS: Record<string, string | string[]> = {
 
     // ── BIOC  جلاكسو سميث كلاين ─────────────────────────────
     "جلاكسو سميث كلاين": "BIOC", "جلاكسو": "BIOC", "جلاسكو": "BIOC",
+    "gsk": "BIOC", "glaxosmithkline": "BIOC",
 
     // ── BTFH  بلتون ──────────────────────────────────────────
     "بلتون": "BTFH", "بلتون للقابضة": "BTFH",
@@ -124,6 +125,7 @@ const ARABIC_STOCK_MAPPINGS: Record<string, string | string[]> = {
     "المصرية للاتصالات": "ETEL", "المصريه للاتصالات": "ETEL",
     "للمصرية للاتصالات": "ETEL", "للمصريه للاتصالات": "ETEL",
     "اتصالات مصر": "ETEL", "وي للاتصالات": "ETEL", "اتصالات المصرية": "ETEL",
+    "we": "ETEL", "وي": "ETEL",
 
     // ── FWRY  فوري ───────────────────────────────────────────
     "فوري": "FWRY", "فورى": "FWRY",

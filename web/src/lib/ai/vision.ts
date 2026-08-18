@@ -19,6 +19,15 @@ function extractJsonFromResponse(raw: string): any {
     return null;
 }
 
+const LOGO_TICKER_ALIASES: Record<string, string> = {
+    "GSK": "BIOC",
+    "WE": "ETEL",
+    "VALU": "HRHO",
+    "EFG": "HRHO",
+    "GB": "AUTO",
+    "AZIMUT": "AZST",
+};
+
 export function validateVisionOutput(data: any): VisionContext | null {
     if (!data || typeof data !== "object") return null;
     const uncertainties = Array.isArray(data.uncertainties) ? data.uncertainties.map(String) : [];
@@ -47,11 +56,21 @@ export function validateVisionOutput(data: any): VisionContext | null {
             ? data.visible_stock_symbols.map((symbol: unknown) => ({ symbol }))
             : [];
 
-    return {
-        image_type: ["portfolio", "chart", "market_depth", "table", "unknown"].includes(data.image_type) ? data.image_type : "unknown",
-        symbols: rawSymbols.map((s: any) => {
-            const sym = String(s.symbol || "").replace(/[^A-Za-z0-9]/g, "").toUpperCase();
-            return {
+    const seenSymbols = new Set<string>();
+    const uniqueSymbols: Array<{
+        symbol: string;
+        name: string;
+        visible_values: { price: number | null; change_pct: number | null; quantity: number | null };
+    }> = [];
+
+    for (const s of rawSymbols) {
+        let sym = String(s.symbol || "").replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+        if (LOGO_TICKER_ALIASES[sym]) {
+            sym = LOGO_TICKER_ALIASES[sym];
+        }
+        if (sym.length >= 2 && !seenSymbols.has(sym)) {
+            seenSymbols.add(sym);
+            uniqueSymbols.push({
                 symbol: sym,
                 name: String(s.name || ""),
                 visible_values: {
@@ -59,8 +78,13 @@ export function validateVisionOutput(data: any): VisionContext | null {
                     change_pct: numericOrNull(s.visible_values?.change_pct ?? s.change_pct),
                     quantity: numericOrNull(s.visible_values?.quantity ?? s.quantity)
                 }
-            };
-        }).filter(s => s.symbol.length >= 2),
+            });
+        }
+    }
+
+    return {
+        image_type: ["portfolio", "chart", "market_depth", "table", "unknown"].includes(data.image_type) ? data.image_type : "unknown",
+        symbols: uniqueSymbols,
         technical_observations,
         market_depth: {
             total_bid: data.market_depth?.total_bid ?? null,
