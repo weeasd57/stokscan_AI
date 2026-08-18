@@ -17,7 +17,7 @@ export async function middleware(request: NextRequest) {
 
   // ─── Inject Admin Key for backend admin API proxy calls (Secured) ─────────
   // Verify that the requester is an authenticated admin before injecting the x-admin-key.
-  if (request.nextUrl.pathname.startsWith("/api/admin")) {
+  if (request.nextUrl.pathname.startsWith("/api/admin") && !request.nextUrl.pathname.startsWith("/api/admin-unlock")) {
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const anonKey =
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??
