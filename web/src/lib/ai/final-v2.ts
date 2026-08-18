@@ -103,6 +103,7 @@ export function buildEvidenceEnginePromptBlock(toolResults: ToolResult[]): strin
     lines.push("5. ⛔ Only state facts and conclusions directly supported by the FACTS, DERIVED_FLAGS, and AVAILABLE_EVIDENCE above.");
     lines.push("6. 💡 If a stock is flagged as OTC_MARKET (سهم خارج المقصورة / سوق الأوامر) and missing live technical data, YOU MUST explicitly state that the stock trades OTC (خارج المقصورة / سوق الأوامر) which explains why daily automated technical data / support-resistance levels are unavailable.");
     lines.push("7. ⛔ NEVER use acc_score, dist_score, or consecutive_days as price levels. These are DIMENSIONLESS SCORES (0-100) or DAY COUNTS. The ONLY valid price levels are: price, support, resistance, sma_50, sma_200, bb_upper, bb_lower from FACTS above.");
+    lines.push("8. ⛔ When presented with get_accumulation_stocks or get_distribution_stocks: ALL stocks listed under get_accumulation_stocks are ACCUMULATION stocks (درجة تجميع عالية). NEVER label any stock from get_accumulation_stocks as 'تصريف' or 'توزيع'. If get_distribution_stocks reports no stocks found, explicitly write that no distribution stocks were detected in today's scan.");
 
     lines.push("=== END STRICT EVIDENCE CONTEXT ===");
     return lines.join("\n");

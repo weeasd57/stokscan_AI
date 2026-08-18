@@ -741,9 +741,7 @@ export function enforceIntentFromMessage(message: string, plannerIntent: string,
     else if (hasAcc && !hasDist) direction = "accumulation";
     else if (hasDist && !hasAcc) direction = "distribution";
     else if (hasAcc && hasDist) {
-        const accIdx = Math.max(normalized.indexOf("تجميع"), normalized.indexOf("accumulation"));
-        const distIdx = Math.max(normalized.indexOf("تصريف"), normalized.indexOf("distribution"));
-        direction = (accIdx !== -1 && accIdx < distIdx) ? "accumulation" : "distribution";
+        direction = "both" as any;
     }
     if (/شريع|sharia/i.test(normalized)) {
         if (hasSymbol) return { intent: "stock_analysis", tools: ["get_stock", "get_stock_levels"], replaceTools: true };
@@ -778,7 +776,12 @@ export function enforceIntentFromMessage(message: string, plannerIntent: string,
             recommendation_order: oldestRequest ? "oldest" : "newest"
         };
     }
-    if (direction) return { intent: "accumulation_distribution", tools: [direction === "distribution" ? "get_distribution_stocks" : "get_accumulation_stocks"], replaceTools: true, scan_direction: direction };
+    if (direction) {
+        if ((direction as string) === "both" || (hasAcc && hasDist)) {
+            return { intent: "accumulation_distribution", tools: ["get_accumulation_stocks", "get_distribution_stocks"], replaceTools: true, scan_direction: "both" as any };
+        }
+        return { intent: "accumulation_distribution", tools: [direction === "distribution" ? "get_distribution_stocks" : "get_accumulation_stocks"], replaceTools: true, scan_direction: direction };
+    }
     if (/(قيمه عادله|القيمه العادله|fair value|عادله)/i.test(normalized) && hasSymbol) return { intent: "stock_analysis", tools: ["get_stock", "get_stock_levels"], replaceTools: true };
     if (/(?:سبب|اسباب|ليه|لماذا)/i.test(normalized) && hasSymbol) return { intent: "stock_news", tools: ["get_stock", "get_news", "get_stock_levels"], replaceTools: true };
     if (/(مقاوم|مقوام|دعم|support|resistance)/i.test(normalized) && hasSymbol && !/حلل.{0,30}(اخبار|أخبار)/i.test(normalized)) return { intent: "levels_analysis", tools: ["get_stock_levels"], replaceTools: true };
