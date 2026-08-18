@@ -1,8 +1,5 @@
-export const CHAT_ADMIN_EMAILS = new Set([
-    "user@gmail.com",
-    "weeessd57@gmail.com",
-]);
-
 export function isChatAdminEmail(email: string | null | undefined): boolean {
-    return Boolean(email && CHAT_ADMIN_EMAILS.has(email.trim().toLowerCase()));
+    if (!email) return false;
+    const adminEmails = (process.env.NEXT_PUBLIC_ADMIN_EMAILS || process.env.ADMIN_EMAILS || "").split(",").map(e => e.trim().toLowerCase()).filter(Boolean);
+    return adminEmails.includes(email.trim().toLowerCase());
 }

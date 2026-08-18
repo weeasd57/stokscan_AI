@@ -440,8 +440,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (user) {
-      const email = user.email?.toLowerCase();
-      const isSystemAdmin = user.app_metadata?.role === "admin" || email === "weeeessd57@gmail.com";
+      const isSystemAdmin = user.app_metadata?.role === "admin" || user.user_metadata?.role === "admin";
       setIsAdmin(isSystemAdmin);
     } else {
       setIsAdmin(false);

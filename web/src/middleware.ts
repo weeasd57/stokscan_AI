@@ -40,9 +40,11 @@ export async function middleware(request: NextRequest) {
           data: { user },
         } = await supabase.auth.getUser();
 
+        const adminEmails = (process.env.ADMIN_EMAILS || "").split(",").map(e => e.trim().toLowerCase()).filter(Boolean);
         const isAdmin =
           user?.app_metadata?.role === "admin" ||
-           (user?.email && ["user@gmail.com", "weeessd57@gmail.com", "weeeessd57@gmail.com", "weeasd57@gmail.com"].includes(user.email));
+          user?.user_metadata?.role === "admin" ||
+          (Boolean(user?.email) && adminEmails.includes(user!.email!.toLowerCase()));
 
         if (user && isAdmin) {
           const adminKey = process.env.ADMIN_SECRET_KEY;

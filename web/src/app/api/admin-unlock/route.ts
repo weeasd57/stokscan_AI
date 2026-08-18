@@ -3,7 +3,11 @@ import { NextRequest, NextResponse } from "next/server";
 export async function POST(req: NextRequest) {
     try {
         const { password } = await req.json();
-        const secret = process.env.ADMIN_SECRET_PASSWORD || "Aa@@@20507090";
+        const secret = process.env.ADMIN_SECRET_PASSWORD;
+
+        if (!secret) {
+            return NextResponse.json({ ok: false, error: "Not configured" }, { status: 500 });
+        }
 
         if (!password || typeof password !== "string") {
             return NextResponse.json({ ok: false, error: "Password required" }, { status: 400 });
