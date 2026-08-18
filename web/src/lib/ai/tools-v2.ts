@@ -621,18 +621,23 @@ export async function executeStructuredTools(
                                 data_time: maxDate,
                                 symbols: displayedStocks.map((r: any) => r.symbol),
                                 data_type: isStale ? "historical" : (requestedDate ? "historical" : "live"),
-                                data: { stocks: stocksWithNames, scan_rows: todayScans, date: maxDate, direction, stale_served: isStale }
+                                // IMPORTANT: only pass direction-matched stocks as scan_rows.
+                                // Passing all todayScans (neutral rows) causes the LLM to hallucinate
+                                // wrong-direction claims for neutral stocks, triggering the validator.
+                                data: { stocks: stocksWithNames, scan_rows: stocksWithNames, date: maxDate, direction, stale_served: isStale }
                             });
                         } else {
-                            // No stocks found for this direction — still push empty result with date
-                            textParts.push(`\n [مسح ${directionAr} بتاريخ ${maxDate}]: لا توجد أسهم ${directionAr} واضحة في هذا المسح.`);
+                            // No stocks found for this direction — push empty result with NO scan_rows.
+                            // Do NOT pass todayScans here — it causes LLM to pick neutral stocks and
+                            // claim they are accumulation/distribution, triggering validator errors.
+                            textParts.push(`\n [مسح ${directionAr} بتاريخ ${maxDate}]: ⛔ لا توجد أسهم ${directionAr} في هذا المسح — لا يجوز ادعاء ${directionAr} لأي سهم.`);
                             results.push({
                                 tool: currentScanTool,
                                 source: "stock_scans_summary",
                                 data_time: maxDate,
                                 symbols: [],
                                 data_type: isStale ? "historical" : (requestedDate ? "historical" : "live"),
-                                data: { stocks: [], scan_rows: todayScans, date: maxDate, direction, message: `No ${direction} stocks detected in scan (${maxDate}).` }
+                                data: { stocks: [], scan_rows: [], date: maxDate, direction, message: `No ${direction} stocks detected in scan (${maxDate}). Do NOT claim any stock is in ${direction}.` }
                             });
                         }
                     }
