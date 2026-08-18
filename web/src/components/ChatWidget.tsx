@@ -445,14 +445,119 @@ export default function ChatWidget() {
                             )}
 
                             {messages.length === 0 && (
-                                <div className="h-full flex flex-col items-center justify-center text-center p-6 space-y-4 my-auto min-h-[260px] dir-rtl">
-                                    <div className="h-16 w-16 border-4 border-black dark:border-white bg-white text-black flex items-center justify-center shadow-[5px_5px_0_0_#000] dark:shadow-[5px_5px_0_0_#fff] rotate-[-3deg] p-2">
-                                        <NextImage src="/favicon_io/apple-touch-icon.png" alt="EGX Bots" width={48} height={48} className="w-11 h-11 object-contain" />
+                                <div className="max-w-2xl mx-auto w-full py-4 px-2 space-y-6 dir-rtl animate-in fade-in slide-in-from-bottom-2 duration-300">
+                                    {/* Header & Logo */}
+                                    <div className="flex flex-col items-center text-center space-y-2.5">
+                                        <div className="relative">
+                                            <div className="h-16 w-16 border-4 border-black dark:border-white bg-[#FFE600] text-black flex items-center justify-center shadow-[5px_5px_0_0_#000] dark:shadow-[5px_5px_0_0_#fff] rotate-[-2deg] p-2">
+                                                <NextImage src="/favicon_io/apple-touch-icon.png" alt="EGX Bots" width={48} height={48} className="w-11 h-11 object-contain" />
+                                            </div>
+                                            <span className="absolute -bottom-2 -right-2 px-1.5 py-0.5 bg-[#00FF66] text-black text-[9px] font-black uppercase border-2 border-black tracking-wider">
+                                                AI PRO
+                                            </span>
+                                        </div>
+                                        <h3 className="font-black text-xl sm:text-2xl text-black dark:text-white tracking-tight">
+                                            اسأل السوق أو حلل محفظتك بالذكاء الاصطناعي
+                                        </h3>
+                                        <p className="text-xs sm:text-sm text-zinc-600 dark:text-zinc-400 max-w-lg leading-relaxed font-medium">
+                                            مساعد استثماري متصل مباشرة ببيانات البورصة المصرية اللحظية، مستويات وايكوف، ونماذج تعلم آلي متطورة.
+                                        </p>
                                     </div>
-                                    <h3 className="font-black text-xl text-black dark:text-white">اسأل السوق. خذ الإجابة بالبيانات.</h3>
-                                    <p className="text-xs text-zinc-400 max-w-[300px] leading-relaxed">
-                                        تحليل سهم، مقارنة، أخبار تاريخية، أو قراءة صورة محفظة من مكان واحد.
-                                    </p>
+
+                                    {/* Portfolio Image Upload Hero Card */}
+                                    <div 
+                                        onClick={() => fileInputRef.current?.click()}
+                                        className="group relative cursor-pointer border-3 border-dashed border-black dark:border-[#FFE600] bg-[#FFE600]/10 hover:bg-[#FFE600]/25 dark:bg-[#FFE600]/5 dark:hover:bg-[#FFE600]/15 p-4 sm:p-5 transition-all shadow-[4px_4px_0_0_#000] dark:shadow-[4px_4px_0_0_#FFE600] hover:-translate-y-0.5 active:translate-y-0 text-right"
+                                    >
+                                        <div className="flex items-start sm:items-center justify-between gap-3">
+                                            <div className="space-y-1 flex-1">
+                                                <div className="flex items-center gap-2">
+                                                    <span className="px-2 py-0.5 bg-[#FFE600] text-black text-[10px] font-black uppercase border-2 border-black">
+                                                        جديد وحصري 📸
+                                                    </span>
+                                                    <h4 className="font-black text-sm sm:text-base text-black dark:text-white">
+                                                        حلل محفظتك الاستثمارية من صورة
+                                                    </h4>
+                                                </div>
+                                                <p className="text-xs text-zinc-700 dark:text-zinc-300 leading-relaxed font-medium">
+                                                    ارفع سكرين شوت لمحفظتك من (ثندر أو تطبيق وسيطك)، وسيقوم المساعد فوراً بقراءة الأسهم، حساب نسب السيولة، وتحليل المخاطر والأهداف الفنية لكل سهم.
+                                                </p>
+                                            </div>
+                                            <button 
+                                                type="button"
+                                                className="shrink-0 px-3 py-2 bg-[#FFE600] text-black font-black text-xs border-2 border-black shadow-[2px_2px_0_0_#000] group-hover:bg-amber-300 active:translate-x-0.5 active:translate-y-0.5 transition-all flex items-center gap-1.5"
+                                            >
+                                                <ImagePlus className="w-4 h-4" />
+                                                <span className="hidden sm:inline">رفع لقطة شاشة</span>
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    {/* Smart Categorized Questions Grid */}
+                                    <div className="space-y-3">
+                                        <div className="flex items-center justify-between border-b border-black/15 dark:border-white/15 pb-1">
+                                            <span className="text-[11px] font-black uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+                                                أسئلة واقتراحات شائعة للبدء:
+                                            </span>
+                                            <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400">
+                                                اضغط على أي سؤال للإرسال فوراً ⚡
+                                            </span>
+                                        </div>
+
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                                            {[
+                                                {
+                                                    icon: "🔥",
+                                                    tag: "سيولة وزخم",
+                                                    text: "إيه أقوى الأسهم اللي بتجمع سيولة وأحجام تداول النهاردة؟"
+                                                },
+                                                {
+                                                    icon: "📊",
+                                                    tag: "وايكوف",
+                                                    text: "هل فيه أسهم في مناطق تجميع وايكوف ومؤشرات إيجابية؟"
+                                                },
+                                                {
+                                                    icon: "⚖️",
+                                                    tag: "مقارنة",
+                                                    text: "قارن لي بين البنك التجاري الدولي (COMI) وحديد عز (ESRS)"
+                                                },
+                                                {
+                                                    icon: "🛡️",
+                                                    tag: "إدارة مخاطر",
+                                                    text: "إزاي أوزع سيولتي وأحمي أرباحي عند تذبذب المؤشر العام؟"
+                                                },
+                                                {
+                                                    icon: "🏭",
+                                                    tag: "قطاعات",
+                                                    text: "ما هو أنشط قطاع في البورصة المصرية حالياً ولماذا؟"
+                                                },
+                                                {
+                                                    icon: "📈",
+                                                    tag: "أسهم دفاعية",
+                                                    text: "ما هي أفضل الأسهم الدفاعية وتوزيعات الأرباح في السوق؟"
+                                                }
+                                            ].map((q, qIdx) => (
+                                                <button
+                                                    key={qIdx}
+                                                    type="button"
+                                                    onClick={() => sendMessage(q.text)}
+                                                    className="flex items-start gap-2.5 p-3 text-right bg-white dark:bg-zinc-900 border-2 border-black dark:border-white/80 shadow-[3px_3px_0_0_#000] dark:shadow-[3px_3px_0_0_#fff] hover:bg-amber-50 dark:hover:bg-zinc-800 hover:-translate-y-0.5 active:translate-y-0 active:shadow-none transition-all group cursor-pointer"
+                                                >
+                                                    <span className="text-base shrink-0 p-1 bg-zinc-100 dark:bg-zinc-800 border border-black/20 dark:border-white/20">
+                                                        {q.icon}
+                                                    </span>
+                                                    <div className="flex flex-col min-w-0 flex-1">
+                                                        <span className="text-[10px] font-black text-amber-600 dark:text-amber-400 mb-0.5">
+                                                            {q.tag}
+                                                        </span>
+                                                        <span className="text-xs font-bold text-black dark:text-zinc-100 group-hover:text-amber-700 dark:group-hover:text-amber-300 leading-snug">
+                                                            {q.text}
+                                                        </span>
+                                                    </div>
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
                                 </div>
                             )}
 
