@@ -12,11 +12,57 @@ function normalizeArabic(str: string): string {
         .toLowerCase();
 }
 
-// Symbols that are indices, currencies, or non-stock entities — must never appear in stock rankings
+export const EGYPTIAN_MUTUAL_FUNDS: Record<string, { name: string; nameAr: string; type: string; category: "money_market" | "gold" | "equity" | "savings" | "index" }> = {
+    "BMM": {
+        name: "Beltone Money Market Fund",
+        nameAr: "صندوق بلتون للسيولة النقدية (BMM)",
+        type: "صندوق استثمار نقدي ذو عائد يومي تراكمي للسيولة والتحوط (منخفض المخاطر)",
+        category: "money_market"
+    },
+    "AZST": {
+        name: "Azimut Opportunity Equity Fund",
+        nameAr: "صندوق أزيموت لفرص الأسهم (AZST)",
+        type: "صندوق استثمار في الأسهم المصرية",
+        category: "equity"
+    },
+    "AZGD": {
+        name: "Azimut Gold Fund",
+        nameAr: "صندوق أزيموت للذهب (AZGD)",
+        type: "صندوق استثمار في الذهب والمعادن النفيسة",
+        category: "gold"
+    },
+    "AZSD": {
+        name: "Azimut Savings Fund",
+        nameAr: "صندوق أزيموت للادخار (AZSD)",
+        type: "صندوق ادخار ذو عائد ثابت",
+        category: "savings"
+    },
+    "AZEM": {
+        name: "Azimut Egypt Fund",
+        nameAr: "صندوق أزيموت مصر (AZEM)",
+        type: "صندوق استثمار في الأسهم",
+        category: "equity"
+    },
+    "CI30": {
+        name: "CI30 Index Fund",
+        nameAr: "صندوق مؤشر سي آي كابيتال EGX30 (CI30)",
+        type: "صندوق مؤشرات متداول يتبع مؤشر EGX30",
+        category: "index"
+    },
+    "EGFD": {
+        name: "EFG Hermes Money Market",
+        nameAr: "صندوق إي إف جي هيرميس للسيولة النقدية",
+        type: "صندوق نقد للسيولة ذو عائد يومي",
+        category: "money_market"
+    },
+};
+
+// Symbols that are indices, currencies, funds, or non-stock entities — must never appear in stock rankings
 const NON_EQUITY_SYMBOLS = new Set([
     "USD", "USDEGP", "USDMXN", "USDEUR", "USDGBP",
     "EGX30", "EGX70", "EGX100", "EGX", "INDEX",
     "TASI", "DFM", "ADX", "QE", "MSM",
+    ...Object.keys(EGYPTIAN_MUTUAL_FUNDS)
 ]);
 
 export interface StructuredToolOutput {
@@ -1682,9 +1728,25 @@ export async function executeStructuredTools(
         }
     }
 
-    // Symbol-level database failure fallback: if a symbol has no data in the database,
-    // trigger a web search fallback dynamically so we always have recent/live context.
+    // 1. Process Egyptian Mutual Funds: If user or portfolio image includes a fund (e.g. BMM, AZGD, AZST), provide accurate fund context
+    const fundSymbols = symbols.filter(s => !!EGYPTIAN_MUTUAL_FUNDS[s.toUpperCase()]);
+    for (const fundSym of fundSymbols) {
+        const fund = EGYPTIAN_MUTUAL_FUNDS[fundSym.toUpperCase()];
+        results.push({
+            tool: "get_fund_info",
+            source: "funds",
+            data_time: now,
+            symbols: [fundSym],
+            data_type: "live",
+            data: fund
+        });
+        textParts.push(`\n [معلومات الصندوق ${fund.nameAr}]: هذا ${fund.type}. الصناديق ووثائق الاستثمار لا يتم تداولها بالشموع اليومية أو مؤشرات RSI والدعم والمقاومة مثل الأسهم العادية، وإنما تمثل جانباً من المحفظة مخصصاً للسيولة النقدية أو التحوط أو الادخار بعائد دوري.`);
+    }
+
+    // 2. Symbol-level database failure fallback: only for genuine unlisted equity stocks
     const untrackedSymbols = symbols.filter(symbol => {
+        if (EGYPTIAN_MUTUAL_FUNDS[symbol.toUpperCase()]) return false;
+        if (NON_EQUITY_SYMBOLS.has(symbol.toUpperCase())) return false;
         const symbolResults = results.filter(res => res.symbols && res.symbols.map(s => s.toUpperCase()).includes(symbol.toUpperCase()));
         return symbolResults.length === 0 || symbolResults.every(res => res.source === "empty" || res.source === "error");
     });

@@ -43,6 +43,13 @@ const ARABIC_STOCK_MAPPINGS: Record<string, string | string[]> = {
     "جلاكسو سميث كلاين": "BIOC", "جلاكسو": "BIOC", "جلاسكو": "BIOC",
     "gsk": "BIOC", "glaxosmithkline": "BIOC",
 
+    // ── BMM / Mutual Funds صناديق الاستثمار ───────────────────
+    "صندوق بلتون": "BMM", "صندوق بلتون للسيولة": "BMM", "bmm": "BMM", "بلتون للسيولة": "BMM",
+    "صندوق ازيموت": "AZST", "صندوق أزيموت": "AZST", "azst": "AZST",
+    "صندوق الذهب": "AZGD", "صندوق ازيموت للذهب": "AZGD", "azgd": "AZGD",
+    "صندوق ازيموت للادخار": "AZSD", "azsd": "AZSD",
+    "صندوق سي اي 30": "CI30", "صندوق ci30": "CI30", "ci30": "CI30",
+
     // ── BTFH  بلتون ──────────────────────────────────────────
     "بلتون": "BTFH", "بلتون للقابضة": "BTFH",
 
@@ -552,14 +559,14 @@ export function getSyncValidSymbols(): string[] {
 
 const STATIC_VALID_SYMBOLS = [
     'AALR', 'ABUK', 'ACAMD', 'ACAP', 'ADCI', 'ADPC', 'AFMC', 'AIH', 'AIIH', 'AJWA', 'ALCN', 'ALUM', 'AMES', 'AMOC',
-    'APPC', 'ARAB', 'AREH', 'ARVA', 'ATQA', 'AXPH', 'BIGP', 'BIOC', 'BTFH', 'CAED', 'CCAP', 'CIEB', 'CIRA', 'CLHO',
-    'CNFN', 'COMI', 'COPR', 'COSG', 'CPCI', 'CRST', 'DMTY', 'EAST', 'EEII', 'EFID', 'EFIH', 'EGAL', 'EGAS', 'EGBE',
+    'APPC', 'ARAB', 'AREH', 'ARVA', 'ATQA', 'AXPH', 'AZEM', 'AZGD', 'AZSD', 'AZST', 'BIGP', 'BIOC', 'BMM', 'BTFH', 'CAED', 'CCAP', 'CI30', 'CIEB', 'CIRA', 'CLHO',
+    'CNFN', 'COMI', 'COPR', 'COSG', 'CPCI', 'CRST', 'DMTY', 'EAST', 'EEII', 'EFID', 'EFIH', 'EGFD', 'EGAL', 'EGAS', 'EGBE',
     'EGCH', 'EGREF', 'EGSA', 'EGTS', 'EGX30', 'EGX70', 'EGX100', 'EHDR', 'EITP', 'EKHO', 'ELKA', 'ELSH', 'EMFD', 'EOSB',
     'ESRS', 'ETEL', 'ETRS', 'FAIT', 'FCMD', 'FERC', 'FTNS', 'FWRY', 'GBCO', 'GDWA', 'GGCC', 'GGRN', 'GMCI', 'GOUR',
     'GSSC', 'HELI', 'HRHO', 'ICFC', 'IDRE', 'INFI', 'IRON', 'ISMA', 'ISPH', 'JUFO', 'KABO', 'KASABF',
     'KRDI', 'KWIN', 'KZPC', 'LUTS', 'MASR', 'MBSC', 'MCQE', 'MENA', 'MFPC', 'MFSC', 'MICH', 'MILS', 'MNHD',
     'MOIL', 'MOSC', 'MPCO', 'MTIE', 'NCGC', 'NEDA', 'NHPS', 'NINH', 'NIPH', 'OBRI', 'OLFI', 'ORAS', 'ORHD', 'ORWE', 'PHDC', 'PHTV',
-    'PHAR', 'POUL', 'PRDC', 'RACC', 'RREI', 'RTVC', 'RUBX', 'SAUD', 'SCEM', 'SCTS', 'SEIG', 'SIPC', 'SKPC', 'SNFC', 'SODIC', 'SVCE',
+    'PHAR', 'POUL', 'PRDC', 'RACC', 'RAYA', 'RMDA', 'RREI', 'RTVC', 'RUBX', 'SAUD', 'SCEM', 'SCTS', 'SEIG', 'SIPC', 'SKPC', 'SNFC', 'SODIC', 'SVCE',
     'SPIN', 'SWDY', 'TANM', 'TAQA', 'TMGH', 'TRTO', 'TWSA', 'TYCN', 'UEFM', 'UNIT', 'USDEGP', 'VALU', 'VLMRA', 'WATP'
 ];
 

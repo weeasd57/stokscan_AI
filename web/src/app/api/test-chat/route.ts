@@ -68,11 +68,13 @@ export async function POST(req: NextRequest) {
         const sessionState = { current_symbol: sessionSymbol, last_symbols: sessionLastSymbols, summary: sessionSummary, current_sector: null };
         const t0 = Date.now();
 
+        const images = Array.isArray(body.images) ? body.images : [];
+
         if (useStream) {
             let response = "";
             let streamError: string | null = null;
             for await (const chunk of runPipelineStream(
-                message, [], sessionState, null, [],
+                message, images, sessionState, null, [],
                 supabase, apiKeys, "test-user", "", `test-${Date.now()}`
             )) {
                 if (chunk.type === "token" && typeof chunk.data === "string") response += chunk.data;
@@ -89,7 +91,7 @@ export async function POST(req: NextRequest) {
 
         const result = await runPipeline(
             message,
-            [],
+            images,
             sessionState,
             null,
             [],
