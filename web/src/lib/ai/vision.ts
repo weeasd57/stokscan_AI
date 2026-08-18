@@ -1,4 +1,5 @@
 import { VisionContext } from "./types";
+import { getSyncStockMappings } from "./planner";
 
 const VISION_SYSTEM_PROMPT = `Inspect the attached financial image and return compact JSON only: {"image_type":"table","visible_stock_symbols":[],"summary":""}. Put only clearly visible stock ticker codes in visible_stock_symbols. Do not infer, recommend, or copy example tickers.`;
 
@@ -18,15 +19,6 @@ function extractJsonFromResponse(raw: string): any {
     }
     return null;
 }
-
-const LOGO_TICKER_ALIASES: Record<string, string> = {
-    "GSK": "BIOC",
-    "WE": "ETEL",
-    "VALU": "HRHO",
-    "EFG": "HRHO",
-    "GB": "AUTO",
-    "AZIMUT": "AZST",
-};
 
 export function validateVisionOutput(data: any): VisionContext | null {
     if (!data || typeof data !== "object") return null;
@@ -63,10 +55,14 @@ export function validateVisionOutput(data: any): VisionContext | null {
         visible_values: { price: number | null; change_pct: number | null; quantity: number | null };
     }> = [];
 
+    const stockMappings = getSyncStockMappings();
+
     for (const s of rawSymbols) {
         let sym = String(s.symbol || "").replace(/[^A-Za-z0-9]/g, "").toUpperCase();
-        if (LOGO_TICKER_ALIASES[sym]) {
-            sym = LOGO_TICKER_ALIASES[sym];
+        const lowerSym = sym.toLowerCase();
+        if (stockMappings[lowerSym]) {
+            const mapped = stockMappings[lowerSym];
+            sym = (Array.isArray(mapped) ? mapped[0] : mapped).toUpperCase();
         }
         if (sym.length >= 2 && !seenSymbols.has(sym)) {
             seenSymbols.add(sym);
