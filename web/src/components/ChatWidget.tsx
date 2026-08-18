@@ -519,7 +519,7 @@ export default function ChatWidget() {
                                                 {
                                                     icon: "⚖️",
                                                     tag: "مقارنة",
-                                                    text: "قارن لي بين البنك التجاري الدولي (COMI) وحديد عز (ESRS)"
+                                                    text: "قارن لي بين البنك التجاري الدولي (COMI) ومجموعة طلعت مصطفى (TMGH)"
                                                 },
                                                 {
                                                     icon: "🛡️",
