@@ -1671,6 +1671,30 @@ import { ToolResult } from "./types";
                 r.data.sectors.slice(0, 12).forEach((s: any) => lines.push(`  • ${s.sector}: ${s.stock_count} سهم`));
                 lines.push("");
             }
+            if (r.tool === "get_comparison" && Array.isArray(r.data?.comparisons) && r.data.comparisons.length > 0) {
+                hasContent = true;
+                lines.push(`⚖️ **مقارنة فنية مباشرة بين الأسهم المطلوبة:**`);
+                lines.push(`| الرمز | السعر الحالي | التغير | مؤشر RSI | مؤشر MACD | نسبة الحجم | الدعم | المقاومة |`);
+                lines.push(`| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |`);
+                r.data.comparisons.forEach((s: any) => {
+                    const priceStr = s.price != null ? `${s.price} ج.م` : "غير متاح";
+                    const changeStr = s.change_pct != null ? `${Number(s.change_pct) >= 0 ? "+" : ""}${s.change_pct}` : "0%";
+                    const supStr = s.support != null ? Number(s.support).toFixed(2) : "غير متاح";
+                    const resStr = s.resistance != null ? Number(s.resistance).toFixed(2) : "غير متاح";
+                    lines.push(`| ${s.symbol} | ${priceStr} | ${changeStr} | ${s.rsi_14 ?? "غير متاح"} | ${s.macd_signal ?? "غير متاح"} | ${s.vol_ratio ?? "غير متاح"}x | ${supStr} | ${resStr} |`);
+                });
+                lines.push("");
+            }
+            if (r.tool === "get_market" && r.data?.summary) {
+                hasContent = true;
+                const d = r.data;
+                lines.push(`📊 **ملخص حركة السوق (مؤشر EGX30):**`);
+                lines.push(`  • إغلاق المؤشر: ${d.summary.close} (${d.summary.change_pct}%)`);
+                if (Array.isArray(d.top_gainers) && d.top_gainers.length > 0) {
+                    lines.push(`  • أنشط الأسهم ارتفاعاً: ${d.top_gainers.slice(0, 3).map((g: any) => `${g.symbol} (+${g.change_pct}%)`).join("، ")}`);
+                }
+                lines.push("");
+            }
             if (r.tool === "get_recommendations" && Array.isArray(r.data)) {
                 hasContent = true;
                 lines.push(`📈 **الصفقات والتوصيات النشطة:**`);
