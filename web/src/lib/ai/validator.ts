@@ -282,12 +282,26 @@ export function extractSentenceClaims(sentence: string, activeSymbol: string, fa
 export function validateDeterministicRules(
     replyText: string,
     toolResults: any[],
-    userMessage?: string
+    userMessage?: string,
+    intent?: string
 ): string[] {
     const errors: string[] = [];
     const userNumbers = userMessage ? extractNumbers(userMessage) : [];
     const sentences = splitSentences(replyText);
     const factsBySymbol = buildFactsBySymbol(toolResults);
+
+    // When the intent is a market-wide scan list (accumulation_distribution), symbols that appear
+    // in the scan results are listed BECAUSE they belong to that direction — checking them again
+    // for Wyckoff evidence is redundant and causes false positives (validator fires on valid data).
+    const isScanListIntent = intent === "accumulation_distribution" || intent === "scan_list";
+    const scanListSymbols = new Set<string>();
+    if (isScanListIntent) {
+        toolResults.forEach(r => {
+            if ((r.tool === "get_accumulation_stocks" || r.tool === "get_distribution_stocks") && Array.isArray(r.data?.stocks)) {
+                r.data.stocks.forEach((st: any) => { if (st?.symbol) scanListSymbols.add(String(st.symbol).toUpperCase()); });
+            }
+        });
+    }
 
     let activeSymbol: string | null = null;
 
@@ -299,6 +313,10 @@ export function validateDeterministicRules(
         
         if (!activeSymbol || !factsBySymbol[activeSymbol]) continue;
         const facts = factsBySymbol[activeSymbol];
+
+        // For scan list responses, skip Wyckoff direction checks for symbols already in scan results.
+        // They are correctly listed from the DB — re-checking them causes spurious validation errors.
+        const skipWyckoffChecks = isScanListIntent && scanListSymbols.has(activeSymbol);
 
         // Suggestion/target sentences are skipped — but approximation words
         // ("تقريباً"، "حوالي") must NOT skip validation: hallucinated support levels
@@ -313,24 +331,28 @@ export function validateDeterministicRules(
 
         // EVIDENCE VERIFIER CHECK 2: Unproven Wyckoff Distribution assertion
         // Negated statements ("لا يوجد عليه تصريف") are honest answers — never flag them.
+        // Skip for scan list stocks — they're listed from DB, not hallucinated.
         const isNegatedClaim = /(?:لا\s+(?:يوجد|توجد|يمكن\s+تأكيد)|مفيش|ليس\s+هناك|غير\s+متاح|لا\s+تتوفر|انعدام)/i.test(sentence);
         const claimsDistribution = /(?:مرحل[ةه]\s*تصريف|إشار[ةه]\s*تصريف|سيول[ةه]\s*توزيعية|(?:عليه|فيه|به|لديه)\s*تصريف|درج[ةه]\s*(?:ال)?تصريف|يتم\s+(?:عليه\s+)?تصريف|سهم\s*تصريف|ضغط\s*بيعي)/i.test(sentence);
         const hasDistEvidence = (facts.dist_score != null && Number(facts.dist_score) > 0) || toolResults.some(r => (r.tool === "get_distribution_stocks" || r.tool === "get_accumulation_stocks") && Array.isArray(r.data?.stocks) && r.data.stocks.some((st: any) => String(st.symbol).toUpperCase() === activeSymbol?.toUpperCase() && (Number(st.dist_score) > 0 || String(st.wyckoff_phase).toLowerCase().includes("dist") || String(st.wyckoff_phase).toLowerCase().includes("mark"))));
-        if (!isNegatedClaim && claimsDistribution && !hasDistEvidence) {
+        if (!skipWyckoffChecks && !isNegatedClaim && claimsDistribution && !hasDistEvidence) {
             errors.push(`ادعاء تصريف أو سيولة توزيعية غير مثبت بدليل لسهم ${activeSymbol}: لا تتوفر بيانات مسح Wyckoff/تصريف صريحة — قل إن البيانات غير متاحة بدلاً من الاستنتاج من مؤشرات أخرى.`);
         }
 
+
         // EVIDENCE VERIFIER CHECK 3: Unproven Wyckoff Accumulation assertion
         // Exclude: negated/absent claims, Wyckoff-educational context, NONE labels
+        // Skip for scan list stocks — they're listed from DB, not hallucinated.
         const claimsAccumulation = /(?:مرحل[ةه]\s*(?:ال)?تجميع|(?:عليه|فيه|به|لديه)\s*تجميع|يتم\s+(?:عليه\s+)?تجميع|درج[ةه]\s*(?:ال)?تجميع|إشار[ةه]\s*تجميع|سيول[ةه]\s*تجميعية|نشاط\s*شرائي)/i.test(sentence)
             && !/(?:NONE|غير\s*متاح|لا\s*تتوفر|ليس\s*هناك|بيانات.*التجميع.*غير|خارج.*مسح)/i.test(sentence);
         const hasAccEvidence = (facts.acc_score != null && Number(facts.acc_score) > 0) || toolResults.some(r => (r.tool === "get_accumulation_stocks" || r.tool === "get_distribution_stocks") && Array.isArray(r.data?.stocks) && r.data.stocks.some((st: any) => String(st.symbol).toUpperCase() === activeSymbol?.toUpperCase() && (Number(st.acc_score) > 0 || String(st.wyckoff_phase).toLowerCase().includes("acc"))));
-        if (!isNegatedClaim && claimsAccumulation && !hasAccEvidence) {
+        if (!skipWyckoffChecks && !isNegatedClaim && claimsAccumulation && !hasAccEvidence) {
             errors.push(`ادعاء تجميع أو سيولة تجميعية غير مثبت بدليل لسهم ${activeSymbol}: لا تتوفر بيانات مسح Wyckoff/تجميع صريحة — قل إن البيانات غير متاحة بدلاً من الاستنتاج من مؤشرات أخرى.`);
         }
 
         // EVIDENCE VERIFIER CHECK 4: Phase conflict between claim and actual Wyckoff data
-        const hasPhaseConflict = toolResults.some(r => {
+        // Skip for scan list stocks — the DB already confirmed their direction.
+        const hasPhaseConflict = !skipWyckoffChecks && toolResults.some(r => {
             if (!Array.isArray(r.data?.stocks)) return false;
             return r.data.stocks.some((st: any) => {
                 const symMatch = String(st.symbol).toUpperCase() === activeSymbol?.toUpperCase();
@@ -348,8 +370,8 @@ export function validateDeterministicRules(
             errors.push(`تعارض في بيانات Wyckoff لسهم ${activeSymbol}: الادعاء يتناقض مع بيانات المسح الفني.`);
         }
 
-
         const claims = extractSentenceClaims(sentence, activeSymbol, facts);
+
 
         for (const claim of claims) {
             if (userNumbers.includes(claim.value)) continue;
@@ -472,7 +494,8 @@ export function validateResponse(
     liveDataString: string,
     validSymbols: string[],
     toolResults: any[] = [],
-    userMessage?: string
+    userMessage?: string,
+    intent?: string
 ): ValidationResult {
     const replySymbols = extractSymbols(replyText);
     const replyNumbers = extractNumbers(replyText);
@@ -553,7 +576,7 @@ export function validateResponse(
     }
 
     const hasRepetitions = hasExcessiveRepetitions(replyText);
-    const deterministicErrors = validateDeterministicRules(replyText, toolResults, userMessage);
+    const deterministicErrors = validateDeterministicRules(replyText, toolResults, userMessage, intent);
 
     // Chain-of-thought leak guard
     const arabicChars = (replyText.match(/[\u0600-\u06FF]/g) || []).length;

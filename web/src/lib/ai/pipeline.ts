@@ -1395,7 +1395,7 @@ while (attempts < maxAttempts) {
 
         // Run validation
         currentResponse = autoFixNumbers(currentResponse, tools.results);
-        const validation = validateResponse(currentResponse, liveDataString, validSymbols, tools.results, userMessage);
+        const validation = validateResponse(currentResponse, liveDataString, validSymbols, tools.results, userMessage, plan.intent);
         if (validation.isValid) {
             finalReply = currentResponse;
             break;
