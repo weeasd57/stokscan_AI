@@ -15,6 +15,7 @@ import { retrieveRelevantMemory } from "@/lib/ai/memory";
 import { executeStructuredTools } from "@/lib/ai/tools-v2";
 import { generateV2Response, generateV2Stream } from "@/lib/ai/final-v2";
 import { getDeepSeekApiKey, getNvidiaApiKeys, isUnlimitedChatUser } from "@/lib/ai/server-secrets";
+import { uploadChatImages } from "@/lib/ai/chat-storage";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -327,6 +328,19 @@ export async function POST(req: NextRequest) {
                         const activeSessionId = await handleSessionResolution(supabase, userId, inputSessionId, message, hasImages);
                         sendEvent({ type: "session_id", session_id: activeSessionId });
 
+                        let permanentImageUrls: string[] = [];
+                        if (hasImages) {
+                            try {
+                                permanentImageUrls = await uploadChatImages(supabase, userId, activeSessionId, imageList);
+                                if (permanentImageUrls.length > 0) {
+                                    sendEvent({ type: "image_urls", image_urls: permanentImageUrls });
+                                }
+                            } catch (uploadErr) {
+                                console.warn("[ai-chat] Image upload to Supabase storage failed:", uploadErr);
+                            }
+                        }
+                        const finalSavedImageUrl = permanentImageUrls[0] || (imageList[0]?.length < 1000 ? imageList[0] : null);
+
                         const { data: dbHistory } = await supabase
                             .from("ai_chat_messages")
                             .select("role, content")
@@ -454,7 +468,7 @@ export async function POST(req: NextRequest) {
                                                     role: "user",
                                                     content: sanitizeUserMessage(message || (hasImages ? "📷 [Image attached]" : "")),
                                                     client_message_id: clientMessageId || null,
-                                                    image_url: imageList[0] || null,
+                                                    image_url: finalSavedImageUrl,
                                                     created_at: new Date().toISOString()
                                                 },
                                                 {
@@ -540,6 +554,16 @@ export async function POST(req: NextRequest) {
         console.log(`[BOT STAGE] Starting non-streaming pipeline...`);
         const activeSessionId = await handleSessionResolution(supabase, userId, inputSessionId, message, hasImages);
 
+        let permanentImageUrls: string[] = [];
+        if (hasImages) {
+            try {
+                permanentImageUrls = await uploadChatImages(supabase, userId, activeSessionId, imageList);
+            } catch (uploadErr) {
+                console.warn("[ai-chat] Image upload to Supabase storage failed:", uploadErr);
+            }
+        }
+        const finalSavedImageUrl = permanentImageUrls[0] || (imageList[0]?.length < 1000 ? imageList[0] : null);
+
         const { data: dbHistory } = await supabase
             .from("ai_chat_messages")
             .select("role, content")
@@ -602,7 +626,7 @@ export async function POST(req: NextRequest) {
                         role: "user",
                         content: message || (hasImages ? "📷 [Image attached]" : ""),
                         client_message_id: clientMessageId || null,
-                        image_url: imageList[0] || null,
+                        image_url: finalSavedImageUrl,
                         created_at: new Date().toISOString()
                     },
                     {

@@ -635,6 +635,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
                                 assistantMsg.isStreaming = false;
                                 assistantMsg.statusText = undefined;
                                 updateAssistantMsgInState(assistantMsg);
+                            } else if (parsed.type === "image_urls" && Array.isArray(parsed.image_urls) && parsed.image_urls.length > 0) {
+                                setSessionMessages(currentSessionId, prevMsgs => 
+                                    prevMsgs.map(m => (m.timestamp === newUserMsg.timestamp ? { ...m, imageUrl: parsed.image_urls[0], images: parsed.image_urls } : m))
+                                );
                             } else if (parsed.type === "tables" && Array.isArray(parsed.data)) {
                                 assistantMsg.tables = parsed.data;
                                 updateAssistantMsgInState(assistantMsg);

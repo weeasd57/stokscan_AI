@@ -83,7 +83,7 @@ export async function GET(_req: NextRequest) {
         try {
             let { data: chatMsgs, error: chatMsgsError } = await supabase
                 .from("ai_chat_messages")
-                .select("id, session_id, user_id, role, content, latency_ms, created_at")
+                .select("id, session_id, user_id, role, content, latency_ms, image_url, created_at")
                 .order("created_at", { ascending: true })
                 .limit(3000);
 
@@ -92,7 +92,7 @@ export async function GET(_req: NextRequest) {
             if (chatMsgsError) {
                 const fallback = await supabase
                     .from("ai_chat_messages")
-                    .select("id, session_id, user_id, role, content, created_at")
+                    .select("id, session_id, user_id, role, content, image_url, created_at")
                     .order("created_at", { ascending: true })
                     .limit(3000);
                 if (fallback.data) chatMsgs = fallback.data;
@@ -138,6 +138,7 @@ export async function GET(_req: NextRequest) {
                             user_name: userName,
                             telegram_chat_id: null,
                             message: cleanMessage,
+                            image_url: msg.image_url || null,
                             reply: cleanReply,
                             latency_ms: latencyMs,
                             created_at: msg.created_at,

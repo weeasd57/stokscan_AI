@@ -325,6 +325,17 @@ export default function AIChatbotTab() {
                                                             <div className="flex items-start gap-2.5 justify-end">
                                                                 <div className="bg-zinc-100 dark:bg-zinc-800 text-black dark:text-zinc-100 p-3 rounded-2xl rounded-tr-none text-xs max-w-[85%] leading-relaxed">
                                                                     <span className="text-[10px] font-bold text-zinc-400 block mb-1">User:</span>
+                                                                    {log.image_url && (
+                                                                        <div className="mb-2">
+                                                                            <a href={log.image_url} target="_blank" rel="noopener noreferrer" title="انقر لفتح الصورة بالحجم الكامل">
+                                                                                <img 
+                                                                                    src={log.image_url} 
+                                                                                    alt="User Attached Image" 
+                                                                                    className="max-w-[220px] max-h-48 rounded-lg border border-zinc-300 dark:border-zinc-700 object-cover shadow-sm hover:opacity-90 transition-opacity cursor-pointer" 
+                                                                                />
+                                                                            </a>
+                                                                        </div>
+                                                                    )}
                                                                     <p className="whitespace-pre-wrap">{log.message}</p>
                                                                 </div>
                                                                 <div className="w-7 h-7 rounded-full bg-zinc-200 dark:bg-zinc-800 flex items-center justify-center text-zinc-600 dark:text-zinc-400 text-xs shrink-0">
