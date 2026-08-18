@@ -451,6 +451,54 @@ async def trigger_daily_bot(request: Request, background_tasks: BackgroundTasks)
     return {"status": "started", "message": "Daily bot run job has been started in the background."}
 
 
+@app.post("/api/run-accumulation-scan")
+async def trigger_accumulation_scan(request: Request):
+    """
+    Triggers the accumulation & distribution scanner (Wyckoff).
+    Called by Vercel Cron (/api/cron/accumulation-scan) or manual requests.
+    """
+    cron_secret = os.getenv("CRON_SECRET", "").strip()
+    provided_secret = request.headers.get("x-cron-secret", "").strip()
+    if cron_secret and not hmac.compare_digest(provided_secret, cron_secret):
+        raise HTTPException(status_code=401, detail="Unauthorized cron secret")
+
+    try:
+        import sys
+        scripts_dir = os.path.join(base_dir, "scripts")
+        if scripts_dir not in sys.path:
+            sys.path.insert(0, scripts_dir)
+        from accumulation_scanner import (
+            get_supabase as _acc_get_supabase,
+            fetch_all_symbols as _acc_fetch_symbols,
+            fetch_recent_technicals as _acc_fetch_tech,
+            analyze_symbol as _acc_analyze,
+            upsert_results as _acc_upsert,
+        )
+        _acc_sb = _acc_get_supabase()
+        _acc_symbols = _acc_fetch_symbols(_acc_sb)
+        _acc_tech = _acc_fetch_tech(_acc_sb, _acc_symbols, 30)
+        _acc_results = []
+        for _sym, _rows in _acc_tech.items():
+            _analysis = _acc_analyze(_rows)
+            if _analysis is not None:
+                _analysis["symbol"] = _sym
+                _acc_results.append(_analysis)
+        _acc_saved = _acc_upsert(_acc_sb, _acc_results)
+        _acc_acc_count = sum(1 for r in _acc_results if r.get("signal") == "accumulation")
+        _acc_dist_count = sum(1 for r in _acc_results if r.get("signal") == "distribution")
+        
+        return {
+            "status": "success",
+            "saved_records": _acc_saved,
+            "accumulation_count": _acc_acc_count,
+            "distribution_count": _acc_dist_count,
+            "date": dt.date.today().isoformat()
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Accumulation scan failed: {str(e)}")
+
+
+
 
 
 

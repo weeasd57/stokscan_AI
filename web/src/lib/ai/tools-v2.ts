@@ -582,7 +582,9 @@ export async function executeStructuredTools(
                         const changeStr = Number(r.change_pct || 0) >= 0 ? `+${Number(r.change_pct).toFixed(2)}%` : `${Number(r.change_pct).toFixed(2)}%`;
                         const consecutiveDays = Number(r[consecutiveField] || 0);
                         const consecStr = consecutiveDays > 1 ? ` | ${directionAr} لـ ${consecutiveDays} أيام متتالية` : "";
-                        textParts.push(`• ${idx + 1}. سهم ${r.symbol} (${r.name}): درجة ${directionAr} = ${r[scoreField]}/100 | نسبة الحجم = ${r.vol_ratio}x | التغير = ${changeStr}${consecStr} | Wyckoff: ${r.wyckoff_phase || "N/A"} | بتاريخ ${maxDate}`);
+                        const accScoreStr = r.acc_score != null ? `${r.acc_score}` : "0";
+                        const distScoreStr = r.dist_score != null ? `${r.dist_score}` : "0";
+                        textParts.push(`• ${idx + 1}. سهم ${r.symbol} (${r.name}): درجة التجميع (acc_score) = ${accScoreStr}/100 | درجة التصريف (dist_score) = ${distScoreStr}/100 | نسبة الحجم = ${r.vol_ratio}x | التغير = ${changeStr}${consecStr} | Wyckoff: ${r.wyckoff_phase || "N/A"} | بتاريخ ${maxDate}`);
                     });
                     if (lastRows.length > 0) {
                         results.push({
@@ -640,7 +642,9 @@ export async function executeStructuredTools(
                             const changeStr = Number(r.change_pct || 0) >= 0 ? `+${Number(r.change_pct).toFixed(2)}%` : `${Number(r.change_pct).toFixed(2)}%`;
                             const consecutiveDays = Number(r[consecutiveField] || 0);
                             const consecStr = consecutiveDays > 1 ? ` | ${directionAr} لـ ${consecutiveDays} أيام متتالية` : "";
-                            textParts.push(`• ${idx + 1}. سهم ${r.symbol} (${name}): درجة ${directionAr} = ${r[scoreField]}/100 | نسبة الحجم = ${r.vol_ratio}x | التغير = ${changeStr}${consecStr} | Wyckoff: ${r.wyckoff_phase || "N/A"}`);
+                            const accScoreStr = r.acc_score != null ? `${r.acc_score}` : "0";
+                            const distScoreStr = r.dist_score != null ? `${r.dist_score}` : "0";
+                            textParts.push(`• ${idx + 1}. سهم ${r.symbol} (${name}): درجة التجميع (acc_score) = ${accScoreStr}/100 | درجة التصريف (dist_score) = ${distScoreStr}/100 | نسبة الحجم = ${r.vol_ratio}x | التغير = ${changeStr}${consecStr} | Wyckoff: ${r.wyckoff_phase || "N/A"}`);
                         });
                         results.push({
                             tool: scanTool,

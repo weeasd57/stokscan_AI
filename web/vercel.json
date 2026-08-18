@@ -1,1 +1,9 @@
-{}
+{
+  "crons": [
+    {
+      "path": "/api/cron/accumulation-scan",
+      "schedule": "0 13 * * 0,1,2,3,4"
+    }
+  ]
+}
+
