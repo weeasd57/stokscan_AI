@@ -4,7 +4,8 @@ import { useChat, AVAILABLE_AI_MODELS } from "@/contexts/ChatContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useRouter } from "next/navigation";
-import { Send, X, Sparkles, User, Loader2, Lock, Maximize2, Minimize2, LogIn, UserPlus, ImagePlus, XCircle, Cpu, ChevronDown, Check, PanelLeft, Square } from "lucide-react";
+import Image from "next/image";
+import { Send, X, Sparkles, User, Loader2, Lock, Maximize2, Minimize2, LogIn, UserPlus, ImagePlus, XCircle, Cpu, ChevronDown, Check, PanelLeft, Square, Download, ZoomIn } from "lucide-react";
 import { useState, useRef, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { ChatSidebar } from "@/components/chat/ChatSidebar";
@@ -39,12 +40,38 @@ export default function ChatWidget() {
     const [input, setInput] = useState("");
     const [isExpanded, setIsExpanded] = useState(false);
     const [imagePreviews, setImagePreviews] = useState<string[]>([]);
+    const [previewModalImage, setPreviewModalImage] = useState<string | null>(null);
     const [modelMenuOpen, setModelMenuOpen] = useState(false);
     const [modelMenuPos, setModelMenuPos] = useState<{ bottom: number; left: number; width: number } | null>(null);
     const [loadingStep, setLoadingStep] = useState<1 | 2 | 3>(1);
     const [sharingMessageId, setSharingMessageId] = useState<string | null>(null);
     const [isUserScrolledUp, setIsUserScrolledUp] = useState(false);
     const isChatAdmin = isChatAdminEmail(user?.email);
+
+    const handleDownloadImage = async (url: string) => {
+        try {
+            const response = await fetch(url);
+            const blob = await response.blob();
+            const blobUrl = window.URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = blobUrl;
+            const ext = blob.type.split("/")[1] || "png";
+            a.download = `egxbots-image-${Date.now()}.${ext.replace(/[^a-z0-9]/gi, "")}`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(blobUrl);
+            toast.success(language === "ar" ? "تم تحميل الصورة بنجاح" : "Image downloaded successfully");
+        } catch {
+            const a = document.createElement("a");
+            a.href = url;
+            a.target = "_blank";
+            a.download = `egxbots-image-${Date.now()}`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+        }
+    };
 
     const shareAnswer = useCallback(async (messageIndex: number) => {
         const answerMessage = messages[messageIndex];
@@ -297,10 +324,10 @@ export default function ChatWidget() {
         return (
             <button
                 onClick={() => setIsOpen(true)}
-                className="fixed bottom-5 right-5 h-16 w-16 bg-[#FFE600] hover:bg-[#ffef5c] border-4 border-black dark:border-white text-black flex items-center justify-center shadow-[6px_6px_0_0_#000] dark:shadow-[6px_6px_0_0_#fff] transition-all hover:-translate-x-1 hover:-translate-y-1 hover:shadow-[9px_9px_0_0_#000] dark:hover:shadow-[9px_9px_0_0_#fff] active:translate-x-1 active:translate-y-1 active:shadow-none z-[9999] animate-in fade-in zoom-in duration-300"
+                className="fixed bottom-5 right-5 h-16 w-16 bg-[#FFE600] hover:bg-[#ffef5c] border-4 border-black dark:border-white text-black flex items-center justify-center shadow-[6px_6px_0_0_#000] dark:shadow-[6px_6px_0_0_#fff] transition-all hover:-translate-x-1 hover:-translate-y-1 hover:shadow-[9px_9px_0_0_#000] dark:hover:shadow-[9px_9px_0_0_#fff] active:translate-x-1 active:translate-y-1 active:shadow-none z-[9999] animate-in fade-in zoom-in duration-300 p-2"
                 title="AI Market Assistant"
             >
-                <Sparkles className="h-6 w-6 text-black" />
+                <Image src="/favicon_io/apple-touch-icon.png" alt="EGX Bots" width={40} height={40} className="w-10 h-10 object-contain" priority />
             </button>
         );
     }
@@ -345,8 +372,8 @@ export default function ChatWidget() {
                                 <PanelLeft className="h-4 w-4 stroke-[2.5]" />
                             </button>
                         )}
-                        <div className="h-9 w-9 border-2 border-black bg-white flex items-center justify-center shadow-[2px_2px_0_0_#000]">
-                            <Sparkles className="h-4 w-4 text-black" />
+                        <div className="h-9 w-9 border-2 border-black bg-white flex items-center justify-center shadow-[2px_2px_0_0_#000] p-1 shrink-0">
+                            <Image src="/favicon_io/apple-touch-icon.png" alt="EGX Bots" width={28} height={28} className="w-6 h-6 object-contain" />
                         </div>
                         <span>EGX AI Assistant</span>
                     </div>
@@ -419,8 +446,8 @@ export default function ChatWidget() {
 
                             {messages.length === 0 && (
                                 <div className="h-full flex flex-col items-center justify-center text-center p-6 space-y-4 my-auto min-h-[260px] dir-rtl">
-                                    <div className="h-16 w-16 border-4 border-black dark:border-white bg-[#67E8F9] text-black flex items-center justify-center shadow-[5px_5px_0_0_#000] dark:shadow-[5px_5px_0_0_#fff] rotate-[-3deg]">
-                                        <Sparkles className="h-7 w-7" />
+                                    <div className="h-16 w-16 border-4 border-black dark:border-white bg-white text-black flex items-center justify-center shadow-[5px_5px_0_0_#000] dark:shadow-[5px_5px_0_0_#fff] rotate-[-3deg] p-2">
+                                        <Image src="/favicon_io/apple-touch-icon.png" alt="EGX Bots" width={48} height={48} className="w-11 h-11 object-contain" />
                                     </div>
                                     <h3 className="font-black text-xl text-black dark:text-white">اسأل السوق. خذ الإجابة بالبيانات.</h3>
                                     <p className="text-xs text-zinc-400 max-w-[300px] leading-relaxed">
@@ -436,10 +463,10 @@ export default function ChatWidget() {
                                     className="flex gap-2 sm:gap-4 w-full max-w-3xl mx-auto min-w-0"
                                 >
                                     <div className={`
-                                        h-9 w-9 border-2 border-black dark:border-white flex items-center justify-center shrink-0 mt-1 shadow-[2px_2px_0_0_#000] dark:shadow-[2px_2px_0_0_#fff]
-                                        ${msg.role === "user" ? "bg-white dark:bg-zinc-800 text-black dark:text-white" : "bg-[#FFE600] text-black"}
+                                        h-9 w-9 border-2 border-black dark:border-white flex items-center justify-center shrink-0 mt-1 shadow-[2px_2px_0_0_#000] dark:shadow-[2px_2px_0_0_#fff] p-1
+                                        ${msg.role === "user" ? "bg-white dark:bg-zinc-800 text-black dark:text-white" : "bg-white dark:bg-zinc-900"}
                                     `}>
-                                        {msg.role === "user" ? <User className="h-5 w-5" /> : <Sparkles className="h-5 w-5" />}
+                                        {msg.role === "user" ? <User className="h-5 w-5" /> : <Image src="/favicon_io/apple-touch-icon.png" alt="EGX Bots" width={28} height={28} className="w-6 h-6 object-contain" />}
                                     </div>
                                     <div className={`
                                         flex-1 border-2 border-black dark:border-white p-3 sm:p-4 text-xs sm:text-sm max-w-full leading-relaxed min-w-0 overflow-hidden shadow-[4px_4px_0_0_#000] dark:shadow-[4px_4px_0_0_#fff]
@@ -449,14 +476,24 @@ export default function ChatWidget() {
                                     `}>
                                         {/* Show image thumbnails if present */}
                                         {((msg.images && msg.images.length > 0) || (msg.imageUrl && msg.imageUrl !== "[image]") || msg.imagePreviewUrl) && (
-                                            <div className="mb-2 flex flex-wrap gap-1.5">
+                                            <div className="mb-2.5 flex flex-wrap gap-2">
                                                 {(msg.images || [msg.imagePreviewUrl || msg.imageUrl!]).filter(img => img && img !== "[image]").map((img, i) => (
-                                                    <img
+                                                    <div
                                                         key={i}
-                                                        src={img}
-                                                        alt={`Attached ${i + 1}`}
-                                                        className="max-w-[180px] max-h-40 rounded-lg border border-zinc-300 dark:border-zinc-700 object-cover shadow-sm"
-                                                    />
+                                                        onClick={() => setPreviewModalImage(img)}
+                                                        className="relative group cursor-pointer overflow-hidden border-2 border-black dark:border-white shadow-[3px_3px_0_0_#000] dark:shadow-[3px_3px_0_0_#fff] hover:scale-[1.02] transition-all bg-black/5"
+                                                        title="انقر لتكبير وتحميل الصورة"
+                                                    >
+                                                        <img
+                                                            src={img}
+                                                            alt={`Attached ${i + 1}`}
+                                                            className="max-w-[200px] max-h-44 object-cover"
+                                                        />
+                                                        <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1.5 text-white text-xs font-bold">
+                                                            <ZoomIn className="w-4 h-4 text-[#FFE600]" />
+                                                            <span>تكبير / تحميل</span>
+                                                        </div>
+                                                    </div>
                                                 ))}
                                             </div>
                                         )}
@@ -480,8 +517,8 @@ export default function ChatWidget() {
 
                             {isLoading && !messages[messages.length - 1]?.content && (
                                 <div className="flex gap-3 w-full max-w-3xl mx-auto items-center p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 dark:bg-amber-500/5 transition-all duration-300">
-                                    <div className="h-8 w-8 rounded-full bg-amber-500 flex items-center justify-center shrink-0 shadow-md">
-                                        <Sparkles className="h-4 w-4 text-black animate-spin" />
+                                    <div className="h-8 w-8 rounded-none border-2 border-black bg-white flex items-center justify-center shrink-0 shadow-md p-1">
+                                        <Image src="/favicon_io/apple-touch-icon.png" alt="EGX Bots" width={24} height={24} className="w-5 h-5 object-contain animate-pulse" />
                                     </div>
                                     <div className="flex-1 flex flex-col gap-0.5 overflow-hidden">
                                         <div className="flex items-center gap-2">
@@ -707,6 +744,59 @@ export default function ChatWidget() {
                     )}
                 </div>
             </div>
+
+            {/* Fullscreen Image Lightbox Modal */}
+            {previewModalImage && (
+                <div 
+                    className="fixed inset-0 z-[100000] bg-black/90 backdrop-blur-md flex flex-col items-center justify-between p-4 sm:p-6 animate-in fade-in duration-200"
+                    onClick={() => setPreviewModalImage(null)}
+                >
+                    {/* Modal Header */}
+                    <div 
+                        className="w-full max-w-4xl flex items-center justify-between py-2 border-b-2 border-white/20 shrink-0"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <div className="flex items-center gap-2 text-white font-black text-sm">
+                            <Image src="/favicon_io/apple-touch-icon.png" alt="Logo" width={24} height={24} className="w-6 h-6 object-contain" />
+                            <span>معاينة الصورة المرفقة</span>
+                        </div>
+                        <div className="flex items-center gap-3">
+                            <button
+                                onClick={() => handleDownloadImage(previewModalImage)}
+                                className="flex items-center gap-2 px-4 py-2 bg-[#FFE600] text-black font-black text-xs border-2 border-black shadow-[3px_3px_0_0_#fff] hover:bg-yellow-300 active:translate-x-0.5 active:translate-y-0.5 transition-all cursor-pointer"
+                                title="تحميل الصورة إلى جهازك"
+                            >
+                                <Download className="w-4 h-4 stroke-[2.5]" />
+                                <span>تحميل الصورة</span>
+                            </button>
+                            <button
+                                onClick={() => setPreviewModalImage(null)}
+                                className="p-1.5 bg-white/10 hover:bg-white/20 text-white border-2 border-white/30 transition-all cursor-pointer"
+                                title="إغلاق"
+                            >
+                                <X className="w-5 h-5" />
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Modal Image Body */}
+                    <div 
+                        className="flex-1 flex items-center justify-center max-w-5xl w-full my-4 overflow-hidden"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <img 
+                            src={previewModalImage} 
+                            alt="Enlarged Chat Attachment" 
+                            className="max-w-full max-h-[75vh] object-contain border-4 border-black dark:border-white shadow-[8px_8px_0_0_#FFE600] bg-zinc-950" 
+                        />
+                    </div>
+
+                    {/* Modal Footer hint */}
+                    <div className="text-zinc-400 text-xs font-medium text-center shrink-0">
+                        انقر في أي مكان خارج الصورة أو اضغط على زر الإغلاق للعودة
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
