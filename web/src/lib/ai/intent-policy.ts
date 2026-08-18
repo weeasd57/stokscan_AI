@@ -12,7 +12,9 @@ export function isDailyPriceLimitQuestion(message: string): boolean {
 }
 
 export function isEarningsDataRequest(message: string): boolean {
-    return /(أرباح|ارباح|نتائج أعمال|قوائم مالية|إيرادات|ارباح الشركة)/i.test(message);
+    const norm = normalizeArabicIntent(message);
+    if (/(ارباحي|ارباحى|احمي|حمايه|جني|جني\s*ارباح|توزيع\s*سيول|محفظت|سيولتي|تذبذب)/i.test(norm)) return false;
+    return /(نتائج\s*اعمال|قوائم\s*ماليه|صافي\s*ربح|صافي\s*ارباح|ارباح\s*الشرك|ارباح\s*الربع|ايرادات\s*الشرك|ميزانيه\s*الشرك)/i.test(norm);
 }
 
 export function getFairValueFilters(message: string): { fair_value_direction: "above" | "below"; require_distribution: boolean; require_accumulation: boolean } {
