@@ -214,6 +214,45 @@ export function isVerifiableDerivedMetric(val: number, facts: Record<string, any
 }
 
 /**
+ * Verifies cross-stock comparison metrics (price spreads, RSI differences, volume ratio multipliers).
+ */
+export function isVerifiableCrossSymbolMetric(val: number, factsBySymbol: Record<string, any>, tolerance = 0.6): boolean {
+    const syms = Object.keys(factsBySymbol);
+    if (syms.length < 2) return false;
+
+    for (let i = 0; i < syms.length; i++) {
+        for (let j = i + 1; j < syms.length; j++) {
+            const f1 = factsBySymbol[syms[i]];
+            const f2 = factsBySymbol[syms[j]];
+
+            if (typeof f1.price === "number" && typeof f2.price === "number") {
+                const diff = Math.abs(f1.price - f2.price);
+                if (Math.abs(val - diff) <= tolerance) return true;
+                if (f2.price > 0 && Math.abs(val - (f1.price / f2.price)) <= 0.1) return true;
+                if (f1.price > 0 && Math.abs(val - (f2.price / f1.price)) <= 0.1) return true;
+            }
+
+            if (typeof f1.rsi === "number" && typeof f2.rsi === "number") {
+                const rsiDiff = Math.abs(f1.rsi - f2.rsi);
+                if (Math.abs(val - rsiDiff) <= tolerance) return true;
+            }
+
+            if (typeof f1.change_pct === "number" && typeof f2.change_pct === "number") {
+                const chgDiff = Math.abs(f1.change_pct - f2.change_pct);
+                if (Math.abs(val - chgDiff) <= tolerance) return true;
+            }
+
+            if (typeof f1.vol_ratio === "number" && typeof f2.vol_ratio === "number") {
+                const vrDiff = Math.abs(f1.vol_ratio - f2.vol_ratio);
+                if (Math.abs(val - vrDiff) <= 0.15) return true;
+                if (f2.vol_ratio > 0 && Math.abs(val - (f1.vol_ratio / f2.vol_ratio)) <= 0.15) return true;
+            }
+        }
+    }
+    return false;
+}
+
+/**
  * Extracts typed semantic claims from a sentence for a target symbol.
  */
 export function extractSentenceClaims(sentence: string, activeSymbol: string, facts: Record<string, any>): SemanticClaim[] {
@@ -221,8 +260,8 @@ export function extractSentenceClaims(sentence: string, activeSymbol: string, fa
     const numbers = extractNumbers(sentence);
     if (numbers.length === 0) return claims;
 
-    const percentMatches = new Set((sentence.match(/\d+(?:[.٫]\d+)?\s*(?:%|٪)/g) || [])
-        .map(m => Number(m.replace(/[\s%٪]/g, "").replace("٫", "."))));
+    const percentMatches = new Set((sentence.match(/(?:[%٪]\s*[-+]?\d+(?:[.٫]\d+)?|[-+]?\d+(?:[.٫]\d+)?\s*[%٪])/g) || [])
+        .map(m => Number(m.replace(/[\s%٪+]/g, "").replace("٫", "."))));
 
     for (const num of numbers) {
         const isPercent = percentMatches.has(num);
@@ -535,8 +574,11 @@ export function validateResponse(
     const factsBySymbol = buildFactsBySymbol(toolResults);
     const userNumbers = userMessage ? extractNumbers(userMessage) : [];
 
-    const percentNumbers = new Set((replyText.match(/\d+(?:\.\d+)?\s*(?:%|٪)/g) || [])
-        .map(m => Number(m.replace(/[\s%٪]/g, ""))));
+    const percentNumbers = new Set((replyText.match(/(?:[%٪]\s*[-+]?\d+(?:[.٫]\d+)?|[-+]?\d+(?:[.٫]\d+)?\s*[%٪])/g) || [])
+        .map(m => Number(m.replace(/[\s%٪+]/g, "").replace("٫", "."))));
+
+    const multiplierNumbers = new Set((replyText.match(/\d+(?:[.٫]\d+)?\s*[xX✕]/g) || [])
+        .map(m => Number(m.replace(/[\sXx✕]/g, "").replace("٫", "."))));
 
     const hasDbData = toolResults.some(r => r.tool !== "search_web" && r.tool !== "get_news");
     const hasSourceData = hasDbData && ((toolResults && toolResults.length > 0) || sourceNumbers.length > 0);
@@ -546,6 +588,8 @@ export function validateResponse(
             if (ALLOWED_GENERIC_NUMBERS.has(num)) continue;
             if (userNumbers.includes(num)) continue;
             if (percentNumbers.has(num)) continue;
+            if (multiplierNumbers.has(num)) continue;
+            if (isVerifiableCrossSymbolMetric(num, factsBySymbol)) continue;
 
             // Check if matches any raw source number
             let isMatched = false;
