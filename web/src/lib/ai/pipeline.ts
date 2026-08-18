@@ -114,10 +114,15 @@ async function saveFactSnapshots(
     }
 }
 
-function mergeVisionSymbols(planSymbols: string[], vision: VisionContext | null): string[] {
-    if (!vision || vision.confidence < 0.5) return planSymbols;
+function mergeVisionSymbols(planSymbols: string[], vision: VisionContext | null, explicitSymbolsCount: number = 0): string[] {
+    if (!vision || vision.confidence < 0.5 || !Array.isArray(vision.symbols) || vision.symbols.length === 0) return planSymbols;
     const visionSymbols = vision.symbols.map(s => s.symbol);
-    return Array.from(new Set([...planSymbols, ...visionSymbols]));
+    // If the user explicitly typed new stocks in the text prompt (e.g. "قارن COMI مع اللي في الصورة"), merge them.
+    // Otherwise, vision symbols represent the user's fresh image query and MUST fully override leftover session context.
+    if (explicitSymbolsCount > 0) {
+        return Array.from(new Set([...planSymbols, ...visionSymbols]));
+    }
+    return visionSymbols;
 }
 
 export function extractExplicitSymbols(message: string): string[] {
@@ -1011,10 +1016,8 @@ export async function* runPipelineStream(
     const explicitSymbols = extractExplicitSymbols(userMessage);
     const broadScanRequest = explicitSymbols.length === 0 && /(?:الاسهم|اسهم|هات|ابعت|اعرض).{0,40}(?:تجميع|تصريف)|(?:تجميع|تصريف).{0,40}(?:الاسهم|اسهم)/i.test(normalizeArabicIntent(userMessage));
     let mergedSymbols = explicitSymbols.length > 0
-        ? explicitSymbols
-        : Array.from(new Set([
-            ...mergeVisionSymbols(plannerResult.entities.symbols || [], vision)
-        ]));
+        ? mergeVisionSymbols(explicitSymbols, vision, explicitSymbols.length)
+        : mergeVisionSymbols(plannerResult.entities.symbols || [], vision, explicitSymbols.length);
     mergedSymbols = clearsStockContext(plannerResult) 
         ? explicitSymbols 
         : scopeImplicitSingleStockRequest(userMessage, explicitSymbols, mergedSymbols, sessionState.current_symbol, memory?.resolved_references?.symbol || null);
@@ -1767,10 +1770,8 @@ export async function runPipeline(
 
     const explicitSymbols = extractExplicitSymbols(userMessage);
     let mergedSymbols = explicitSymbols.length > 0
-        ? explicitSymbols
-        : Array.from(new Set([
-            ...mergeVisionSymbols(plannerResult.entities.symbols || [], vision)
-        ]));
+        ? mergeVisionSymbols(explicitSymbols, vision, explicitSymbols.length)
+        : mergeVisionSymbols(plannerResult.entities.symbols || [], vision, explicitSymbols.length);
     mergedSymbols = clearsStockContext(plannerResult) 
         ? explicitSymbols 
         : scopeImplicitSingleStockRequest(userMessage, explicitSymbols, mergedSymbols, sessionState.current_symbol, memory?.resolved_references?.symbol || null);
