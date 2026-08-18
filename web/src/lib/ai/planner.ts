@@ -1049,7 +1049,13 @@ Analyze the user request and return a JSON object. You MUST dynamically choose t
         || /^(?:اكبر|أكبر)\s+(?:سهم|شركة)\s+(?:في|فى|بقطاع|من)\s+(.+)$/i.exec(message.trim());
     const explicitSymbols = extractSymbolsFromText(message, validSymbols, stockMappings);
 
-    const fallbackSymbols = (hasImages || isMarketSlang)
+    // Check if the user message contains any 3-6 letter English word that is NOT a common technical term and NOT in validSymbols.
+    // This indicates they are asking about an unknown stock (like FCMD), so we should NOT fallback to session history.
+    const COMMON_TECHNICAL_WORDS = new Set(["RSI", "MACD", "ADX", "SMA", "EMA", "BUY", "SELL", "HOLD", "PDF", "XLS", "CSV", "JSON", "API", "EGX", "OTC", "VOL", "INFO", "NEWS", "STOP", "LOSS", "RISK", "AND", "THE", "FOR", "BUT", "NOT", "YES", "OK"]);
+    const englishWords = (message.match(/[a-zA-Z]{3,6}/g) || []).map(w => w.toUpperCase());
+    const hasUnknownEnglishStock = englishWords.some(w => !COMMON_TECHNICAL_WORDS.has(w) && !validSymbols.includes(w) && !w.startsWith("EGX"));
+
+    const fallbackSymbols = (hasImages || isMarketSlang || hasUnknownEnglishStock)
         ? []
         : (explicitSymbols.length > 0
             ? explicitSymbols
