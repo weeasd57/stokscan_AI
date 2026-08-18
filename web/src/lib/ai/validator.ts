@@ -600,6 +600,27 @@ export function validateResponse(
                     isMatched = true;
                     break;
                 }
+
+                // Allow LLM formatted scaled numbers (e.g., 2.72 for 2720000, "مليون")
+                const scaledMillions = num * 1_000_000;
+                if (Math.abs(scaledMillions - srcNum) <= 10000 || (srcNum > 0 && Math.abs(scaledMillions - srcNum) / srcNum <= 0.02)) {
+                    isMatched = true;
+                    break;
+                }
+
+                // Allow billions ("مليار")
+                const scaledBillions = num * 1_000_000_000;
+                if (Math.abs(scaledBillions - srcNum) <= 10000000 || (srcNum > 0 && Math.abs(scaledBillions - srcNum) / srcNum <= 0.02)) {
+                    isMatched = true;
+                    break;
+                }
+
+                // Allow thousands ("ألف")
+                const scaledThousands = num * 1_000;
+                if (Math.abs(scaledThousands - srcNum) <= 10 || (srcNum > 0 && Math.abs(scaledThousands - srcNum) / srcNum <= 0.02)) {
+                    isMatched = true;
+                    break;
+                }
             }
 
             if (!isMatched && liveDataString.includes(String(num))) {
