@@ -41,7 +41,7 @@ function extractDomain(url: string): string {
     try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return url; }
 }
 
-export async function searchWeb(query: string, limit = 5, timeoutMs = 10000): Promise<WebSearchResult[]> {
+export async function searchWeb(query: string, limit = 5, timeoutMs = 4000): Promise<WebSearchResult[]> {
     if (!query || !query.trim()) return [];
     // Datacenter IPs (Vercel) are often challenge-blocked by the DDG HTML
     // endpoint, so chain keyless sources until one returns usable results.
