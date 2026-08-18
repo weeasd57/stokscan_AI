@@ -22,10 +22,9 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
 const BLOCKED_INPUT_PATTERNS = [
-    "system prompt", "ignore previous", "your instructions",
-    "developer mode", "jailbreak", "ignore all",
-    "admin_secret_key", "api_key", "database", "supabase", "postgres",
-    "بيانات مستخدم", "قاعدة بيانات", "كلمة السر", "بيانات سرية", "اختراق", "باسورد"
+    "system prompt", "ignore previous instructions", "ignore all previous",
+    "developer mode", "jailbreak", "admin_secret_key", "service_role_key",
+    "بيانات سرية للمستخدمين", "كلمة سر السيرفر", "اختراق الموقع", "اختراق السيرفر", "اختراق النظام"
 ];
 
 function filterInput(text: string): boolean {
