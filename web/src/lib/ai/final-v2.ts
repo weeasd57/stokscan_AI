@@ -85,9 +85,9 @@ export function buildEvidenceEnginePromptBlock(toolResults: ToolResult[]): strin
         lines.push(`AVAILABLE_EVIDENCE:`);
         if (scanStock) {
             lines.push(`  - wyckoff_phase: ${scanStock.wyckoff_phase ?? scanDirection ?? "NOT_PROVIDED"}`);
-            lines.push(`  - accumulation_score (acc_score): ${scanStock.acc_score ?? "NOT_PROVIDED"}`);
-            lines.push(`  - distribution_score (dist_score): ${scanStock.dist_score ?? "NOT_PROVIDED"}`);
-            lines.push(`  - consecutive_days: ${scanStock.consecutive_acc_days ?? scanStock.consecutive_dist_days ?? "NOT_PROVIDED"}`);
+            lines.push(`  - accumulation_score (acc_score): ${scanStock.acc_score ?? "NOT_PROVIDED"} ← [هذا مؤشر تجميع 0-100 وليس سعر دعم أو مقاومة]`);
+            lines.push(`  - distribution_score (dist_score): ${scanStock.dist_score ?? "NOT_PROVIDED"} ← [هذا مؤشر تصريف 0-100 وليس سعر]`);
+            lines.push(`  - consecutive_days: ${scanStock.consecutive_acc_days ?? scanStock.consecutive_dist_days ?? "NOT_PROVIDED"} ← [هذا عدد أيام متتالية وليس سعر دعم أو مقاومة]`);
         } else {
             lines.push(`  - wyckoff_phase: NONE (No Wyckoff scan evidence present)`);
             lines.push(`  - accumulation_score: NONE`);
@@ -102,6 +102,7 @@ export function buildEvidenceEnginePromptBlock(toolResults: ToolResult[]): strin
     lines.push("4. ⛔ NEVER make implicit inferences or suggest directional momentum (e.g., 'ضغط بيعي', 'نشاط شرائي', 'جني أرباح') based purely on volume/RSI if the wyckoff_phase or direction is NOT_PROVIDED.");
     lines.push("5. ⛔ Only state facts and conclusions directly supported by the FACTS, DERIVED_FLAGS, and AVAILABLE_EVIDENCE above.");
     lines.push("6. 💡 If a stock is flagged as OTC_MARKET (سهم خارج المقصورة / سوق الأوامر) and missing live technical data, YOU MUST explicitly state that the stock trades OTC (خارج المقصورة / سوق الأوامر) which explains why daily automated technical data / support-resistance levels are unavailable.");
+    lines.push("7. ⛔ NEVER use acc_score, dist_score, or consecutive_days as price levels. These are DIMENSIONLESS SCORES (0-100) or DAY COUNTS. The ONLY valid price levels are: price, support, resistance, sma_50, sma_200, bb_upper, bb_lower from FACTS above.");
 
     lines.push("=== END STRICT EVIDENCE CONTEXT ===");
     return lines.join("\n");

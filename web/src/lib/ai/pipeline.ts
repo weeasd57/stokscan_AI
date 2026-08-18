@@ -1423,13 +1423,27 @@ while (attempts < maxAttempts) {
         if (validation.deterministicErrors && validation.deterministicErrors.length > 0) {
 
             const hasWyckoffError = validation.deterministicErrors.some(e => e.includes("تجميع") || e.includes("تصريف") || e.includes("Wyckoff"));
+            const hasPriceLevelError = validation.deterministicErrors.some(e => e.includes("تضارب في سعر") || e.includes("تضارب في قيمة الدعم") || e.includes("تضارب في قيمة المقاومة"));
+
             if (hasWyckoffError) {
                 correctionPrompt += `- لقد ادّعيت مرحلة تجميع أو تصريف Wyckoff دون وجود بيانات مسح حقيقية:\n`;
                 correctionPrompt += `  * الصياغة الصحيحة الوحيدة المسموح بها عند غياب بيانات Wyckoff هي:\n`;
                 correctionPrompt += `    "بيانات مسح Wyckoff غير متاحة لهذا السهم حالياً، لذا لا يمكن تحديد مرحلة التجميع أو التصريف."\n`;
                 correctionPrompt += `  * بعد هذه الجملة يمكنك تقديم التحليل الفني العادي (RSI، الدعم، المقاومة، الحجم) فقط.\n`;
                 correctionPrompt += `  * يمنع تماماً استخدام كلمات: "مرحلة تجميع"، "سيولة تجميعية"، "عليه تجميع" إلا إذا كان acc_score > 0 في البيانات.\n`;
-            } else {
+            }
+
+            if (hasPriceLevelError) {
+                correctionPrompt += `- لقد استخدمت قيمة خاطئة كسعر دعم أو مقاومة:\n`;
+                correctionPrompt += `  * ⛔ يمنع تماماً استخدام acc_score أو dist_score أو consecutive_days كأسعار — هذه مؤشرات (0-100) أو أعداد أيام وليست أسعار.\n`;
+                correctionPrompt += `  * مستويات الأسعار الصحيحة الوحيدة: support وresistance وsma_50 وsma_200 وbb_upper وbb_lower من حقول FACTS فقط.\n`;
+                const priceErrors = validation.deterministicErrors.filter(e => e.includes("تضارب في سعر") || e.includes("تضارب في قيمة الدعم") || e.includes("تضارب في قيمة المقاومة"));
+                priceErrors.forEach(err => {
+                    correctionPrompt += `  * ${err}\n`;
+                });
+            }
+
+            if (!hasWyckoffError && !hasPriceLevelError) {
                 correctionPrompt += `- لقد ذكرت معلومات تتعارض مع حقائق قاعدة البيانات:\n`;
                 validation.deterministicErrors.forEach(err => {
                     correctionPrompt += `  * ${err}\n`;
@@ -1437,6 +1451,7 @@ while (attempts < maxAttempts) {
                 correctionPrompt += `يمنع تماماً الاستنتاج الضمني (Implicit Inference) لأي زخم أو مرحلة تداول إلا بوجود الدليل الصريح. التزم حرفياً بالقيم المعطاة في البيانات فقط!\n`;
             }
         }
+
 
         if (validation.hasRepetitions) {
             correctionPrompt += `- لقد قمت بتكرار نفس العبارات أو الجمل بشكل متكرر غير طبيعي. أعد صياغة الرد بلغة عربية سلسلة ومتنوعة وبدون تكرار أي عبارة أو سطر.\n`;
