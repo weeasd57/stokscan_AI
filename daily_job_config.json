@@ -2,11 +2,11 @@
   "enabled": true,
   "run_time": "16:00",
   "active_days": [
-    6,
     0,
     1,
     2,
-    3
+    3,
+    6
   ],
   "model_filter": "adaptive"
 }

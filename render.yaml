@@ -10,3 +10,17 @@ services:
     envVars:
       - key: PORT
         value: "10000"
+  # The web process scheduler is best-effort because Render may restart or
+  # suspend the service. This cron job is the durable daily trigger for the
+  # market/Wyckoff scan and keeps stock_scans_summary current.
+  - type: cron
+    name: stokscan-ai-daily-scan
+    env: docker
+    region: frankfurt
+    plan: starter
+    branch: main
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    # 13:00 UTC = 16:00 Cairo during Egypt daylight saving time.
+    schedule: "0 13 * * 0-4"
+    startCommand: "python run_daily_bot_job.py --skip-sync"

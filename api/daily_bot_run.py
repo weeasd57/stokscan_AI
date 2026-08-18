@@ -2945,7 +2945,8 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
                     "historical_similarity": "البحث عن التشابه التاريخي",
                     "weekly_performance_report": "التقرير الأسبوعي للأداء",
                     "refresh_market_status": "تحديث حالة المؤشرات العامة",
-                    "weekly_adaptive_retraining": "إعادة التدريب التكيفي"
+                    "weekly_adaptive_retraining": "إعادة التدريب التكيفي",
+                    "accumulation_scan": "مسح التجميع والتصريف (Wyckoff)"
                 }
 
                 # Find recommendations count and failed steps
@@ -3007,6 +3008,41 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
                 print("\n[DAILY_DIGEST]\n" + digest_message)
         except Exception as e_telegram:
             print(f"[TELEGRAM_DIGEST] Failed to send daily digest: {e_telegram}")
+
+        # ── STEP: Accumulation / Distribution Scan ──────────────────────────
+        # يُشغَّل يومياً بعد الإغلاق لتحديث stock_scans_summary بإشارات Wyckoff
+        print("\n>>> STEP: Running Accumulation & Distribution Scan...")
+        _start_step("accumulation_scan", "Wyckoff accumulation/distribution scanner — updates stock_scans_summary")
+        try:
+            import sys as _sys
+            import os as _os
+            _scripts_dir = _os.path.join(_os.path.dirname(__file__), "..", "scripts")
+            if _scripts_dir not in _sys.path:
+                _sys.path.insert(0, _scripts_dir)
+            from accumulation_scanner import (
+                get_supabase as _acc_get_supabase,
+                fetch_all_symbols as _acc_fetch_symbols,
+                fetch_recent_technicals as _acc_fetch_tech,
+                analyze_symbol as _acc_analyze,
+                upsert_results as _acc_upsert,
+            )
+            _acc_sb = _acc_get_supabase()
+            _acc_symbols = _acc_fetch_symbols(_acc_sb)
+            _acc_tech = _acc_fetch_tech(_acc_sb, _acc_symbols, 30)
+            _acc_results = []
+            for _sym, _rows in _acc_tech.items():
+                _analysis = _acc_analyze(_rows)
+                if _analysis is not None:
+                    _analysis["symbol"] = _sym
+                    _acc_results.append(_analysis)
+            _acc_saved = _acc_upsert(_acc_sb, _acc_results)
+            _acc_acc_count = sum(1 for r in _acc_results if r.get("signal") == "accumulation")
+            _acc_dist_count = sum(1 for r in _acc_results if r.get("signal") == "distribution")
+            print(f"   ✅ Scan complete: {_acc_saved} records saved | acc={_acc_acc_count} dist={_acc_dist_count}")
+            _record_step("accumulation_scan", True, f"Saved {_acc_saved} records (acc={_acc_acc_count}, dist={_acc_dist_count})", _acc_saved)
+        except Exception as e_scan:
+            print(f"   ⚠️  Accumulation scan failed: {e_scan}")
+            _record_step("accumulation_scan", False, str(e_scan)[:300])
 
         _persist_job("completed")
         print(f"\n--- Daily Bot Run Job Completed: {dt.datetime.now()} ---")

@@ -14,7 +14,9 @@ _scheduler_state: Dict[str, Any] = {
     "enabled": True,
     "run_time": "16:00",  # Cairo time — after market close
     "timezone": "Africa/Cairo",
-    "active_days": [6, 0, 1, 2, 3],  # Sun-Thu
+    # Python weekday numbering: Monday=0 .. Sunday=6.
+    # Sunday-Thursday is therefore [0, 1, 2, 3, 6].
+    "active_days": [0, 1, 2, 3, 6],
     "model_filter": "adaptive",
     "status": "idle",
     "next_run_at": None,
