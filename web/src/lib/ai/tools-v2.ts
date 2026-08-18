@@ -520,22 +520,26 @@ export async function executeStructuredTools(
     }
 
     // ===== ACCUMULATION / DISTRIBUTION STOCKS =====
-    const scanTool = plan.tools.includes("get_distribution_stocks")
-        ? "get_distribution_stocks"
-        : plan.tools.includes("get_accumulation_stocks")
-            ? "get_accumulation_stocks"
-            : null;
+    const hasBothScanTools = plan.tools.includes("get_accumulation_stocks") && plan.tools.includes("get_distribution_stocks");
+    const scanTool = hasBothScanTools
+        ? "get_accumulation_stocks" // run once for both; direction handled below
+        : plan.tools.includes("get_distribution_stocks")
+            ? "get_distribution_stocks"
+            : plan.tools.includes("get_accumulation_stocks")
+                ? "get_accumulation_stocks"
+                : null;
     if (scanTool) {
-        const direction = scanTool === "get_distribution_stocks" ? "distribution" : "accumulation";
-        const scoreField = direction === "distribution" ? "dist_score" : "acc_score";
-        const consecutiveField = direction === "distribution" ? "consecutive_dist_days" : "consecutive_acc_days";
-        const directionAr = direction === "distribution" ? "التصريف" : "التجميع";
+        // For "both" mode we run accumulation query and use scan_rows for distribution too
+        const scanDirections: Array<"accumulation" | "distribution"> = hasBothScanTools
+            ? ["accumulation", "distribution"]
+            : [scanTool === "get_distribution_stocks" ? "distribution" : "accumulation"];
+
         try {
                 let summaryQuery = supabase
                     .from("stock_scans_summary")
                 .select("symbol, scan_date, signal, wyckoff_phase, acc_score, dist_score, vol_ratio, consecutive_acc_days, consecutive_dist_days, change_pct, volume, rsi_14, macd_signal")
                 .order("scan_date", { ascending: false })
-                .order(scoreField, { ascending: false })
+                .order("acc_score", { ascending: false })
                     .limit(200);
                 if (requestedDate) summaryQuery = summaryQuery.eq("scan_date", requestedDate);
                 const compoundMarketScan = plan.tools.includes("get_stock") && (plan.tools.includes("get_accumulation_stocks") || plan.tools.includes("get_distribution_stocks"));
@@ -558,125 +562,88 @@ export async function executeStructuredTools(
                     ? { ok: true, reason: null }
                     : dataDateQuality(maxDate, 7);
 
-                if (todayScans.length > 0 && !scanQuality.ok) {
-                    hasSummaryData = true;
-                    // Stale scan data is still real recorded data — serve the last list with its
-                    // date instead of blocking with an empty validation result. The user sees the
-                    // list plus a clear staleness note; only a zero-row scan falls back to validation.
-                    const lastSymbols = Array.from(new Set(todayScans.map((r: any) => r.symbol)));
-                    const { data: lastStocksData } = await supabase
-                        .from("stocks")
-                        .select("symbol, name")
-                        .in("symbol", lastSymbols);
-                    const lastStocksMap = new Map<string, string>();
-                    (lastStocksData || []).forEach((s: any) => {
-                        if (s?.symbol) lastStocksMap.set(s.symbol, s.name || s.symbol);
-                    });
-                    const lastRows = todayScans
-                        .filter((r: any) => r.signal === direction || Number(r[scoreField] || 0) >= 50)
-                        .sort((a: any, b: any) => Number(b[scoreField] || 0) - Number(a[scoreField] || 0))
-                        .slice(0, requestedCount || 15)
-                        .map((r: any) => ({ ...r, name: lastStocksMap.get(r.symbol) || r.symbol }));
-                    textParts.push(`\n[آخر قائمة ${directionAr} متاحة — بيانات مسح بتاريخ ${maxDate} (أحدث مسح مسجل في النظام):\n`);
-                    lastRows.forEach((r: any, idx: number) => {
-                        const changeStr = Number(r.change_pct || 0) >= 0 ? `+${Number(r.change_pct).toFixed(2)}%` : `${Number(r.change_pct).toFixed(2)}%`;
-                        const consecutiveDays = Number(r[consecutiveField] || 0);
-                        const consecStr = consecutiveDays > 1 ? ` | ${directionAr} لـ ${consecutiveDays} أيام متتالية` : "";
-                        const accScoreStr = r.acc_score != null ? `${r.acc_score}` : "0";
-                        const distScoreStr = r.dist_score != null ? `${r.dist_score}` : "0";
-                        textParts.push(`• ${idx + 1}. سهم ${r.symbol} (${r.name}): درجة التجميع (acc_score) = ${accScoreStr}/100 | درجة التصريف (dist_score) = ${distScoreStr}/100 | نسبة الحجم = ${r.vol_ratio}x | التغير = ${changeStr}${consecStr} | Wyckoff: ${r.wyckoff_phase || "N/A"} | بتاريخ ${maxDate}`);
-                    });
-                    if (lastRows.length > 0) {
-                        results.push({
-                            tool: scanTool,
-                            source: "stock_scans_summary",
-                            data_time: maxDate,
-                            symbols: lastRows.map((r: any) => r.symbol),
-                            data_type: "historical",
-                            // scan_rows mirrors the direction-filtered rows — including the raw
-                            // mixed-direction rows let the responder answer about the opposite direction.
-                            data: { stocks: lastRows, scan_rows: lastRows, date: maxDate, direction, stale_served: true, message: `Latest available ${direction} scan is from ${maxDate} (older than 7 days) — serving the last recorded list with its date.` }
-                        });
-                    } else {
-                        results.push({
-                            tool: scanTool,
-                            source: "validation",
-                            data_time: maxDate,
-                            symbols,
-                            data_type: "live",
-                            data: { stocks: [], scan_rows: [], date: maxDate, direction, validation: scanQuality, message: `No ${direction} rows in the latest recorded scan (${maxDate}).` }
-                        });
-                    }
-                } else if (todayScans.length > 0) {
-                    hasSummaryData = true;
-                    const symbolsList = Array.from(new Set(todayScans.map((r: any) => r.symbol)));
-                    const { data: stocksData } = await supabase
-                        .from("stocks")
-                        .select("symbol, name")
-                        .in("symbol", symbolsList);
-                    const stocksMap = new Map<string, string>();
-                    (stocksData || []).forEach((s: any) => {
-                        if (s?.symbol) stocksMap.set(s.symbol, s.name || s.symbol);
-                    });
+                // Fetch stock names for results
+                const allSymbolsList = Array.from(new Set(todayScans.map((r: any) => r.symbol)));
+                const { data: stocksData } = await supabase
+                    .from("stocks")
+                    .select("symbol, name")
+                    .in("symbol", allSymbolsList);
+                const stocksMap = new Map<string, string>();
+                (stocksData || []).forEach((s: any) => {
+                    if (s?.symbol) stocksMap.set(s.symbol, s.name || s.symbol);
+                });
 
-                    const strictAccumulation = direction === "accumulation" && plan.entities.min_acc_score != null;
-                    const matchingStocks = todayScans
-                        .filter((r: any) => {
-                            if (!strictAccumulation) return r.signal === direction || Number(r[scoreField] || 0) >= 50;
-                            return Number(r.acc_score || 0) > Number(plan.entities.min_acc_score)
-                                && Number(r.vol_ratio || 0) > Number(plan.entities.min_vol_ratio)
-                                && Number(r.dist_score || 0) <= Number(plan.entities.max_dist_score)
-                                && Number(r.consecutive_acc_days || 0) >= Number(plan.entities.min_consecutive_acc_days);
-                        })
-                        .sort((a: any, b: any) => Number(b[scoreField] || 0) - Number(a[scoreField] || 0));
-                    const displayedStocks = symbols.length > 0 || plan.entities.sector ? matchingStocks : matchingStocks.slice(0, requestedCount || 15);
-                    const stocksWithNames = displayedStocks.map((r: any) => ({
-                        ...r,
-                        name: stocksMap.get(r.symbol) || r.symbol
-                    }));
+                if (todayScans.length > 0) {
+                    hasSummaryData = true;
+                    const isStale = !scanQuality.ok;
 
-                    if (displayedStocks.length > 0) {
-                        textParts.push(`\n [بيانات مسح ${directionAr} بتاريخ ${maxDate}]:\n`);
-                        displayedStocks.forEach((r: any, idx: number) => {
-                            const name = stocksMap.get(r.symbol) || r.symbol;
-                            const changeStr = Number(r.change_pct || 0) >= 0 ? `+${Number(r.change_pct).toFixed(2)}%` : `${Number(r.change_pct).toFixed(2)}%`;
-                            const consecutiveDays = Number(r[consecutiveField] || 0);
-                            const consecStr = consecutiveDays > 1 ? ` | ${directionAr} لـ ${consecutiveDays} أيام متتالية` : "";
-                            const accScoreStr = r.acc_score != null ? `${r.acc_score}` : "0";
-                            const distScoreStr = r.dist_score != null ? `${r.dist_score}` : "0";
-                            textParts.push(`• ${idx + 1}. سهم ${r.symbol} (${name}): درجة التجميع (acc_score) = ${accScoreStr}/100 | درجة التصريف (dist_score) = ${distScoreStr}/100 | نسبة الحجم = ${r.vol_ratio}x | التغير = ${changeStr}${consecStr} | Wyckoff: ${r.wyckoff_phase || "N/A"}`);
-                        });
-                        results.push({
-                            tool: scanTool,
-                            source: "stock_scans_summary",
-                            data_time: maxDate,
-                            symbols: displayedStocks.map((r: any) => r.symbol),
-                            data_type: requestedDate ? "historical" : "live",
-                            data: { stocks: stocksWithNames, scan_rows: todayScans, date: maxDate, direction }
-                        });
-                    } else if (symbols.length > 0) {
-                        results.push({
-                            tool: scanTool,
-                            source: "stock_scans_summary",
-                            data_time: maxDate,
-                            symbols,
-                            data_type: requestedDate ? "historical" : "live",
-                            data: { stocks: [], scan_rows: todayScans, date: maxDate, direction, message: `No ${direction} detected.` }
-                        });
-                    } else {
-                        results.push({
-                            tool: scanTool,
-                            source: "stock_scans_summary",
-                            data_time: maxDate,
-                            symbols: [],
-                            data_type: requestedDate ? "historical" : "live",
-                            data: { stocks: [], scan_rows: todayScans, date: maxDate, direction, message: `No ${direction} detected.` }
-                        });
+                    // Process each direction (accumulation and/or distribution)
+                    for (const direction of scanDirections) {
+                        const scoreField = direction === "distribution" ? "dist_score" : "acc_score";
+                        const consecutiveField = direction === "distribution" ? "consecutive_dist_days" : "consecutive_acc_days";
+                        const directionAr = direction === "distribution" ? "التصريف" : "التجميع";
+                        const currentScanTool = direction === "distribution" ? "get_distribution_stocks" : "get_accumulation_stocks";
+
+                        const strictAccumulation = direction === "accumulation" && plan.entities.min_acc_score != null;
+                        const matchingStocks = todayScans
+                            .filter((r: any) => {
+                                if (!strictAccumulation) return r.signal === direction || Number(r[scoreField] || 0) >= 50;
+                                return Number(r.acc_score || 0) > Number(plan.entities.min_acc_score)
+                                    && Number(r.vol_ratio || 0) > Number(plan.entities.min_vol_ratio)
+                                    && Number(r.dist_score || 0) <= Number(plan.entities.max_dist_score)
+                                    && Number(r.consecutive_acc_days || 0) >= Number(plan.entities.min_consecutive_acc_days);
+                            })
+                            .sort((a: any, b: any) => Number(b[scoreField] || 0) - Number(a[scoreField] || 0));
+
+                        const displayedStocks = (symbols.length > 0 || plan.entities.sector)
+                            ? matchingStocks
+                            : matchingStocks.slice(0, requestedCount || 15);
+                        const stocksWithNames = displayedStocks.map((r: any) => ({
+                            ...r,
+                            name: stocksMap.get(r.symbol) || r.symbol
+                        }));
+
+                        const staleNote = isStale ? ` (أحدث مسح مسجل — يُرجى الإشارة للتاريخ)` : "";
+                        if (displayedStocks.length > 0) {
+                            textParts.push(`\n [بيانات مسح ${directionAr} بتاريخ ${maxDate}${staleNote}]:\n`);
+                            displayedStocks.forEach((r: any, idx: number) => {
+                                const name = stocksMap.get(r.symbol) || r.symbol;
+                                const changeStr = Number(r.change_pct || 0) >= 0 ? `+${Number(r.change_pct).toFixed(2)}%` : `${Number(r.change_pct).toFixed(2)}%`;
+                                const consecutiveDays = Number(r[consecutiveField] || 0);
+                                const consecStr = consecutiveDays > 1 ? ` | ${directionAr} لـ ${consecutiveDays} أيام متتالية` : "";
+                                const accScoreStr = r.acc_score != null ? `${r.acc_score}` : "0";
+                                const distScoreStr = r.dist_score != null ? `${r.dist_score}` : "0";
+                                textParts.push(`• ${idx + 1}. سهم ${r.symbol} (${name}): درجة التجميع (acc_score) = ${accScoreStr}/100 | درجة التصريف (dist_score) = ${distScoreStr}/100 | نسبة الحجم = ${r.vol_ratio}x | التغير = ${changeStr}${consecStr} | Wyckoff: ${r.wyckoff_phase || "N/A"}`);
+                            });
+                            results.push({
+                                tool: currentScanTool,
+                                source: "stock_scans_summary",
+                                data_time: maxDate,
+                                symbols: displayedStocks.map((r: any) => r.symbol),
+                                data_type: isStale ? "historical" : (requestedDate ? "historical" : "live"),
+                                data: { stocks: stocksWithNames, scan_rows: todayScans, date: maxDate, direction, stale_served: isStale }
+                            });
+                        } else {
+                            // No stocks found for this direction — still push empty result with date
+                            textParts.push(`\n [مسح ${directionAr} بتاريخ ${maxDate}]: لا توجد أسهم ${directionAr} واضحة في هذا المسح.`);
+                            results.push({
+                                tool: currentScanTool,
+                                source: "stock_scans_summary",
+                                data_time: maxDate,
+                                symbols: [],
+                                data_type: isStale ? "historical" : (requestedDate ? "historical" : "live"),
+                                data: { stocks: [], scan_rows: todayScans, date: maxDate, direction, message: `No ${direction} stocks detected in scan (${maxDate}).` }
+                            });
+                        }
                     }
                 }
             }
 
             if (!hasSummaryData) {
+                // Fallback: compute from stock_technical_indicators using the primary direction
+                const fallbackDirection = scanDirections[0];
+                const fallbackScoreField = fallbackDirection === "distribution" ? "dist_score" : "acc_score";
+                const fallbackDirectionAr = fallbackDirection === "distribution" ? "التصريف" : "التجميع";
                 let technicalQuery = supabase
                     .from("stock_technical_indicators")
                     .select("symbol, change_pct, volume, vol_sma20, r_vol, rsi_14, macd, macd_signal, macd_histogram, close, sma_20, date, rsi_divergence, macd_divergence, stoch_divergence")
@@ -703,7 +670,7 @@ export async function executeStructuredTools(
                     const computedStocks = todayTechs.map((t: any) => {
                         const rvol = t.r_vol || (t.vol_sma20 && Number(t.vol_sma20) > 0 ? Number(t.volume || 0) / Number(t.vol_sma20) : 1);
                         let score = 50;
-                        if (direction === "accumulation") {
+                        if (fallbackDirection === "accumulation") {
                             if (rvol >= 1.2) score += 15;
                             else if (rvol >= 0.9) score += 10;
                             if (t.rsi_14 >= 45 && t.rsi_14 <= 68) score += 15;
@@ -720,31 +687,31 @@ export async function executeStructuredTools(
                             symbol: t.symbol,
                             name: stocksMap.get(t.symbol) || t.symbol,
                             scan_date: maxDate,
-                            signal: direction,
-                            wyckoff_phase: direction === "accumulation" ? "Accumulation" : "Distribution",
-                            [scoreField]: finalScore,
-                            acc_score: direction === "accumulation" ? finalScore : 0,
-                            dist_score: direction === "distribution" ? finalScore : 0,
+                            signal: fallbackDirection,
+                            wyckoff_phase: fallbackDirection === "accumulation" ? "Accumulation" : "Distribution",
+                            [fallbackScoreField]: finalScore,
+                            acc_score: fallbackDirection === "accumulation" ? finalScore : 0,
+                            dist_score: fallbackDirection === "distribution" ? finalScore : 0,
                             vol_ratio: Number(rvol).toFixed(2),
                             change_pct: t.change_pct != null ? Number(t.change_pct).toFixed(2) : "0.00",
                             rsi_14: t.rsi_14 != null ? Number(t.rsi_14).toFixed(2) : null,
                             close: t.close,
-                            consecutive_acc_days: direction === "accumulation" ? 1 : 0,
-                            consecutive_dist_days: direction === "distribution" ? 1 : 0
+                            consecutive_acc_days: fallbackDirection === "accumulation" ? 1 : 0,
+                            consecutive_dist_days: fallbackDirection === "distribution" ? 1 : 0
                         };
                     });
 
                     const filteredStocks = computedStocks
-                        .filter((s: any) => symbols.length > 0 ? true : Number(s[scoreField]) >= 70)
-                        .sort((a: any, b: any) => Number(b[scoreField]) - Number(a[scoreField]) || Number(b.vol_ratio) - Number(a.vol_ratio));
+                        .filter((s: any) => symbols.length > 0 ? true : Number(s[fallbackScoreField]) >= 70)
+                        .sort((a: any, b: any) => Number(b[fallbackScoreField]) - Number(a[fallbackScoreField]) || Number(b.vol_ratio) - Number(a.vol_ratio));
 
                     const displayedStocks = symbols.length > 0 ? filteredStocks : filteredStocks.slice(0, requestedCount || 15);
 
                     if (displayedStocks.length > 0) {
-                        textParts.push(`\n [بيانات مسح ${directionAr} بالاستناد إلى المؤشرات الفنية والسيولة بتاريخ ${maxDate}]:\n`);
+                        textParts.push(`\n [بيانات مسح ${fallbackDirectionAr} بالاستناد إلى المؤشرات الفنية والسيولة بتاريخ ${maxDate}]:\n`);
                         displayedStocks.forEach((r: any, idx: number) => {
                             const changeStr = Number(r.change_pct || 0) >= 0 ? `+${r.change_pct}%` : `${r.change_pct}%`;
-                            textParts.push(`• ${idx + 1}. سهم ${r.symbol} (${r.name}): درجة ${directionAr} = ${r[scoreField]}/100 | نسبة الحجم = ${r.vol_ratio}x | RSI = ${r.rsi_14 || "N/A"} | التغير = ${changeStr}`);
+                            textParts.push(`• ${idx + 1}. سهم ${r.symbol} (${r.name}): درجة ${fallbackDirectionAr} = ${r[fallbackScoreField]}/100 | نسبة الحجم = ${r.vol_ratio}x | RSI = ${r.rsi_14 || "N/A"} | التغير = ${changeStr}`);
                         });
                         results.push({
                             tool: scanTool,
@@ -752,13 +719,13 @@ export async function executeStructuredTools(
                             data_time: maxDate,
                             symbols: displayedStocks.map((r: any) => r.symbol),
                             data_type: requestedDate ? "historical" : "live",
-                            data: { stocks: displayedStocks, scan_rows: displayedStocks, date: maxDate, direction }
+                            data: { stocks: displayedStocks, scan_rows: displayedStocks, date: maxDate, direction: fallbackDirection }
                         });
                     }
                 }
             }
 
-            if (!results.some(result => result.tool === scanTool)) {
+            if (!results.some(result => result.tool === scanTool || result.tool === "get_accumulation_stocks" || result.tool === "get_distribution_stocks")) {
                 results.push({
                     tool: scanTool,
                     source: "empty",
@@ -770,7 +737,7 @@ export async function executeStructuredTools(
                         scan_rows: [],
                         technical_rows: [],
                         date: requestedDate,
-                        direction,
+                        direction: scanDirections[0],
                         message: "Insufficient scan data."
                     }
                 });
