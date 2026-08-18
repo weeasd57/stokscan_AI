@@ -209,11 +209,10 @@ export function extractSentenceClaims(sentence: string, activeSymbol: string, fa
 
     for (const num of numbers) {
         const isPercent = percentMatches.has(num);
-
-        // A. Price Claims: "السعر 120.78", "إغلاق 120.78", "يتداول عند 120.78"
         const escapedNum = String(num).replace(".", "\\.");
-        const isPriceSpecific = new RegExp(`(?:السعر|سعر|إغلاق|اغلاق|يتداول عند|تداول عند|أغلق عند|اغلق عند)[^0-9\\n]{0,25}?\\b${escapedNum}\\b`, "i").test(sentence)
-            && !/(?:أعلى|اعلى|أقصى|اقصى|أدنى|ادنى|دعم|مقاومة|مقاومه|متوسط)/i.test(sentence);
+
+        // A. Price Claims: specifically preceded by price keywords
+        const isPriceSpecific = new RegExp(`(?:السعر|سعر|إغلاق|اغلاق|يتداول عند|تداول عند|أغلق عند|اغلق عند)[^0-9\\n]{0,25}?\\b${escapedNum}\\b`, "i").test(sentence);
         if (isPriceSpecific && !isPercent) {
             claims.push({ type: "current_price", value: num, symbol: activeSymbol, rawText: String(num), sentence });
             continue;
@@ -231,8 +230,7 @@ export function extractSentenceClaims(sentence: string, activeSymbol: string, fa
             continue;
         }
 
-        // D. Volume Ratio Claims: "نسبة الحجم 0.30x", "السيولة 0.30" — but a level
-        // sentence ("تصحيح قرب 2.50 بحجم تداول أعلى") must not swallow its numbers here.
+        // D. Volume Ratio Claims: "نسبة الحجم 0.30x", "السيولة 0.30"
         if (/(?:نسبة الحجم|حجم التداول|السيولة|السيوله|vol_ratio)/i.test(sentence)
             && !isPercent
             && !/(?:دعم|مقاوم[ةه]|سعر|إغلاق|اغلاق)/i.test(sentence)) {
@@ -240,14 +238,16 @@ export function extractSentenceClaims(sentence: string, activeSymbol: string, fa
             continue;
         }
 
-        // E. Support Claims: "الدعم عند 45.15", "مستوى الدعم 45.15"
-        if (/(?:دعم|مستوى الدعم|الدعم)/i.test(sentence) && !isPercent) {
+        // E. Support Claims: specifically preceded by support keywords
+        const isSupportSpecific = new RegExp(`(?:دعم|مستوى الدعم|الدعم)[^0-9\\n]{0,25}?\\b${escapedNum}\\b`, "i").test(sentence);
+        if (isSupportSpecific && !isPercent) {
             claims.push({ type: "support", value: num, symbol: activeSymbol, rawText: String(num), sentence });
             continue;
         }
 
-        // F. Resistance Claims: "المقاومة عند 144.94", "مستوى المقاومة 144.94"
-        if (/(?:مقاومة|مقاومه|مستوى المقاومة|المقاومة)/i.test(sentence) && !isPercent) {
+        // F. Resistance Claims: specifically preceded by resistance keywords
+        const isResistanceSpecific = new RegExp(`(?:مقاومة|مقاومه|مستوى المقاومة|المقاومة)[^0-9\\n]{0,25}?\\b${escapedNum}\\b`, "i").test(sentence);
+        if (isResistanceSpecific && !isPercent) {
             claims.push({ type: "resistance", value: num, symbol: activeSymbol, rawText: String(num), sentence });
             continue;
         }
@@ -381,9 +381,9 @@ export function validateDeterministicRules(
             // We exempt it to prevent greedy sentence/clause parsing from falsely penalizing a correct
             // number just because it was mislabeled (e.g. tagging resistance as support).
             const isExactCoreFact = 
-                (facts.price != null && Math.abs(claim.value - facts.price) <= 0.05) ||
-                (facts.support != null && Math.abs(claim.value - facts.support) <= 0.05) ||
-                (facts.resistance != null && Math.abs(claim.value - facts.resistance) <= 0.05);
+                (facts.price != null && (Math.abs(claim.value - facts.price) <= 0.05 || (facts.price > 0 && Math.abs(claim.value - facts.price) / facts.price <= 0.02))) ||
+                (facts.support != null && (Math.abs(claim.value - facts.support) <= 0.05 || (facts.support > 0 && Math.abs(claim.value - facts.support) / facts.support <= 0.02))) ||
+                (facts.resistance != null && (Math.abs(claim.value - facts.resistance) <= 0.05 || (facts.resistance > 0 && Math.abs(claim.value - facts.resistance) / facts.resistance <= 0.02)));
 
             if (isExactCoreFact) continue;
 
