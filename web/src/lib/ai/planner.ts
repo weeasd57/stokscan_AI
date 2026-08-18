@@ -513,7 +513,8 @@ export async function loadValidSymbols(): Promise<string[]> {
                 .select("symbol")
                 .eq("is_active", true);
             if (data && data.length > 0) {
-                cachedValidSymbols = data.map((s: any) => s.symbol.toUpperCase());
+                const dbSymbols = data.map((s: any) => s.symbol.toUpperCase());
+                cachedValidSymbols = Array.from(new Set([...dbSymbols, ...STATIC_VALID_SYMBOLS]));
                 lastSymbolsCacheTime = now;
             }
         } catch (e) {
@@ -531,10 +532,16 @@ export async function loadValidSymbols(): Promise<string[]> {
 // fallback). Used to reject Latin tickers that match no listed stock (e.g. FTNS)
 // so they never scope tools or leak into session state.
 export function getSyncValidSymbols(): string[] {
-    if (cachedValidSymbols.length > 0) return cachedValidSymbols;
-    const fromStocks = (cachedStocks || []).map((s: any) => String(s.symbol || "").toUpperCase()).filter(Boolean);
-    if (fromStocks.length > 0) return fromStocks;
-    return STATIC_VALID_SYMBOLS;
+    const symbols = new Set<string>(STATIC_VALID_SYMBOLS);
+    if (cachedValidSymbols.length > 0) {
+        cachedValidSymbols.forEach(s => symbols.add(s));
+    }
+    if (cachedStocks && cachedStocks.length > 0) {
+        cachedStocks.forEach((s: any) => {
+            if (s.symbol) symbols.add(String(s.symbol).toUpperCase());
+        });
+    }
+    return Array.from(symbols);
 }
 
 const STATIC_VALID_SYMBOLS = [
