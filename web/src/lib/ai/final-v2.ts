@@ -249,8 +249,9 @@ export function buildV2FinalMessages(
     }
 
     if (toolResults.length > 0) {
-        const liveResults = toolResults.filter(r => r.data_type !== "historical");
-        const historicalResults = toolResults.filter(r => r.data_type === "historical");
+        const validResults = toolResults.filter(r => r.source !== "empty" && r.data !== null && !(r.tool === "search_web" && Array.isArray((r.data as any)?.results) && (r.data as any).results.length === 0));
+        const liveResults = validResults.filter(r => r.data_type !== "historical");
+        const historicalResults = validResults.filter(r => r.data_type === "historical");
 
         if (liveResults.length > 0) {
             sections.push("=== LIVE DATA ===");
@@ -2166,7 +2167,8 @@ function shouldReturnNoData(
     if (visionContext || relevantFacts.length > 0) return false;
     if (!plan.needs_live_data && !plan.needs_historical_data) return false;
     return !toolResults.some(result => {
-        if (!result.data) return false;
+        if (!result.data || result.source === "empty") return false;
+        if (result.tool === "search_web" && Array.isArray((result.data as any).results) && (result.data as any).results.length === 0) return false;
         if (Array.isArray(result.data)) return result.data.length > 0;
         return typeof result.data === "object" && Object.keys(result.data).length > 0;
     });
