@@ -849,7 +849,7 @@ def generate_weekly_performance_report(trigger: str = "manual", chat_id: Optiona
 
 def _notify_subscribers_for_symbol(symbol: str, exchange: str, message: str):
     """Send notification to all users subscribed to bots that track this symbol."""
-    _notify_service_subscribers("ai_bot", message)
+    pass # Disabled by user request: Recommendations and adjustments should only appear in public channel
 
 
 def _notify_service_subscribers(service_type: str, message: str):

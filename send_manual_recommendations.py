@@ -85,7 +85,7 @@ def send_message():
 👉 [اضغط هنا لفتح المنصة](https://egxbots.com/scanner/backtests?tab=bots)"""
         
         # Send to the channel
-        chat_id = "-1002083067817"  # Without thread ID for main channel
+        chat_id = "-1002083067817_153"  # Channel + Thread ID for public channel
         print(f"📤 Sending message to chat_id: {chat_id}")
         
         bot.send_notification(message, chat_id=chat_id)

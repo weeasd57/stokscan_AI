@@ -29,7 +29,7 @@ class TelegramBot:
     _DIRECT_API = "https://api.telegram.org"
     DEFAULT_CHANNEL_ID = "-1002083067817"
     DEFAULT_THREAD_ID = 153
-    LEGACY_BAD_CHAT_IDS = {"-1003699330518"}
+    LEGACY_BAD_CHAT_IDS = {"-1003699330518", "8805346788"}
     MAX_MESSAGE_LENGTH = 3900
 
     @property
