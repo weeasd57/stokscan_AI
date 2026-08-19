@@ -27,17 +27,17 @@ function resolveReference(
         return { symbol: null, message_id: null, confidence: 0 };
     }
 
-    if (sessionSummary?.last_image_symbols && sessionSummary.last_image_symbols.length > 0) {
+    if (sessionState.current_symbol) {
         return {
-            symbol: sessionSummary.last_image_symbols[0],
+            symbol: sessionState.current_symbol,
             message_id: null,
             confidence: 0.9
         };
     }
 
-    if (sessionState.current_symbol) {
+    if (sessionSummary?.last_image_symbols && sessionSummary.last_image_symbols.length > 0) {
         return {
-            symbol: sessionState.current_symbol,
+            symbol: sessionSummary.last_image_symbols[0],
             message_id: null,
             confidence: 0.8
         };
