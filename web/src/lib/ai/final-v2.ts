@@ -1424,6 +1424,11 @@ export function buildFastConversationalAdvisorResponse(
 }
 
 export function buildDeterministicResponse(userMessage: string, plan: IntentPlan, toolResults: ToolResult[], sessionState?: SessionState | null): string | null {
+    const normMsg = userMessage.toLowerCase().replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").replace(/ى/g, "ي");
+    const asksForAdvice = /(?:انصحني|تنصحني|اعمل ايه|أعمل ايه|شاري|شريت|شريته|معايا بسعر|لو معايا|بمتوسط|رايك|رأيك|ايه العمل|ايه الحل)/i.test(normMsg);
+    if (asksForAdvice) {
+        return null; // Yield to LLM for customized expert response
+    }
     const fastAdvisor = buildFastConversationalAdvisorResponse(userMessage, plan, toolResults, sessionState);
     if (fastAdvisor) return fastAdvisor;
     const scan = toolResults.find(result => result.tool === "get_accumulation_stocks" || result.tool === "get_distribution_stocks");
