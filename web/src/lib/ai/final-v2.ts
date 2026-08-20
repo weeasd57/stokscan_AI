@@ -752,7 +752,7 @@ export function buildDeterministicNewsResponse(
     plan: IntentPlan,
     toolResults: ToolResult[]
 ): string | null {
-    const normMsg = userMessage.toLowerCase().replace(/[أإآ]/g, "ا").replace(/ة/g, "ه");
+    const normMsg = userMessage.toLowerCase().replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").replace(/ى/g, "ي");
     // Compound requests ("سعر راميدا كام واخبار كومي ايه") must reach the LLM with all
     // tool data — this news-only template would hide the price half of the question.
     const compoundSplit = userMessage
@@ -934,7 +934,7 @@ export function buildDailyChangeHistoryResponse(
     plan: IntentPlan,
     toolResults: ToolResult[]
 ): string | null {
-    const normMsg = userMessage.replace(/[أإآ]/g, "ا").replace(/ة/g, "ه");
+    const normMsg = userMessage.replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").replace(/ى/g, "ي");
     // Future-forecast phrasing keeps its dedicated deterministic handling.
     if (/(?:توقع|متوقع|توقعات)/i.test(normMsg)) return null;
     const dayByDayMarker = /يوم\s*بـ?\s*يوم|التغير\s*اليومي|تغير\s*يومي|سعر\s*كل\s*يوم|اداء\s*يومي|تغيره?\s*(?:يوميا|يوم بيوم)/i.test(normMsg);
@@ -1200,7 +1200,7 @@ export function buildFastConversationalAdvisorResponse(
     if (toolResults.some(r => r.tool === "get_price_history" && (Array.isArray(r.data?.market_period_ranking) || Array.isArray(r.data?.market_ytd_ranking)))) {
         return null;
     }
-    const normMsg = userMessage.toLowerCase().replace(/[أإآ]/g, "ا").replace(/ة/g, "ه");
+    const normMsg = userMessage.toLowerCase().replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").replace(/ى/g, "ي");
     const guidanceIntent = plan.guidance_intent;
 
     const hasSpecificSymbols = Boolean(plan.entities?.symbols?.length);

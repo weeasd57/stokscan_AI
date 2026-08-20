@@ -76,9 +76,9 @@ export function extractSymbols(text: string): string[] {
 
     try {
         const mappings = getSyncStockMappings();
-        const norm = text.replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").toLowerCase();
+        const norm = text.replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").replace(/ى/g, "ي").toLowerCase();
         for (const [arName, symbol] of Object.entries(mappings)) {
-            if (arName.length >= 3 && norm.includes(arName.replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").toLowerCase())) {
+            if (arName.length >= 3 && norm.includes(arName.replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").replace(/ى/g, "ي").toLowerCase())) {
                 const sym = Array.isArray(symbol) ? symbol[0] : symbol;
                 if (sym) return [sym.toUpperCase()];
             }

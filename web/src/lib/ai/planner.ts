@@ -86,6 +86,8 @@ const ARABIC_STOCK_MAPPINGS: Record<string, string | string[]> = {
     "اميس": "AMES", "المركز الطبي": "AMES", "المركز الطبى": "AMES",
     "المركز الطبي الاسكندرية": "AMES", "الاسكندرية الطبية": "AMES",
     "الاسكندرية الجديدة للخدمات الطبية": "AMES",
+    "الاسكندرية لخدمات طبية": "AMES", "الاسكندرية للخدمات الطبية": "AMES",
+    "اسكندرية لخدمات طبية": "AMES", "اسكندرية للخدمات الطبية": "AMES",
 
     // ── KORA  قرة لمشروعات الطاقة والاستثمار ─────────────────
     "قرة لمشروعات الطاقة": "KORA", "قرة للطاقة": "KORA", "قرة الطاقة": "KORA",
@@ -679,6 +681,7 @@ export function extractSymbolsFromText(
     let normalizedText = text
         .replace(/[أإآ]/g, "ا")
         .replace(/ة/g, "ه")
+        .replace(/ى/g, "ي")
         .toLowerCase();
 
     const mergedMappings = { ...ARABIC_STOCK_MAPPINGS, ...stockMappings };
@@ -687,6 +690,7 @@ export function extractSymbolsFromText(
         const normalizedKey = key
             .replace(/[أإآ]/g, "ا")
             .replace(/ة/g, "ه")
+            .replace(/ى/g, "ي")
             .toLowerCase();
 
         // Escape regex special characters in the key

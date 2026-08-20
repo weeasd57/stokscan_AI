@@ -144,9 +144,9 @@ export function extractExplicitSymbols(message: string): string[] {
 
     // Attempt to match Arabic full names from the mapping
     const stockMappings = getSyncStockMappings();
-    let normMsg = message.replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").toLowerCase();
+    let normMsg = message.replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").replace(/ى/g, "ي").toLowerCase();
     for (const [arName, symbol] of Object.entries(stockMappings).sort((a, b) => b[0].length - a[0].length)) {
-        const normKey = arName.replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").toLowerCase();
+        const normKey = arName.replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").replace(/ى/g, "ي").toLowerCase();
         if (normKey.length >= 2) {
             const escapedKey = normKey.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
             let pattern: string;
@@ -222,7 +222,7 @@ export function buildCompoundDeterministicPlan(message: string, sessionState: Se
     const plans = commands.map(command => {
         let plan = buildDeterministicPlannerResult(command, state);
         const sector = extractSectorFromMessage(command) || extractSectorFromMessage(state.summary || "");
-        const normalized = command.toLowerCase().replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").replace(/[٠-٩]/g, d => String("٠١٢٣٤٥٦٧٨٩".indexOf(d)));
+        const normalized = command.toLowerCase().replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").replace(/ى/g, "ي").replace(/[٠-٩]/g, d => String("٠١٢٣٤٥٦٧٨٩".indexOf(d)));
         if (/(اخبار|اخباره|خبر)/i.test(normalized) && sector && (!plan || !plan.tools.includes("get_news"))) {
             plan = { ...(plan || buildDeterministicPlannerResult(`قطاع ${sector}`, state)!), intent: "sector_analysis", entities: { ...(plan?.entities || {}), symbols: [], sector }, tools: Array.from(new Set([...(plan?.tools || []), "get_sector", "get_news"])) } as PlannerResult;
         }
@@ -717,7 +717,7 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
 }
 
 export function isMarketWideRequest(message: string): boolean {
-    const normalized = message.replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").replace(/[٠-٩]/g, d => String("٠١٢٣٤٥٦٧٨٩".indexOf(d))).toLowerCase();
+    const normalized = message.replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").replace(/ى/g, "ي").replace(/[٠-٩]/g, d => String("٠١٢٣٤٥٦٧٨٩".indexOf(d))).toLowerCase();
     const marketTerms = [
         /اخبار\s+(السوق|البورصه)/i,
         /(?:السيول|السيوله)\s+(فين|في\s+السوق|ل?يوم|لبوم|بتاريخ|يوم)/i,
@@ -763,7 +763,7 @@ export function enforceIntentFromMessage(message: string, plannerIntent: string,
     if (isTermsDefinitionRequest(message)) {
         return { intent: "general_chat", tools: [], replaceTools: true };
     }
-    const normalized = message.toLowerCase().replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").replace(/[٠-٩]/g, d => String("٠١٢٣٤٥٦٧٨٩".indexOf(d)));
+    const normalized = message.toLowerCase().replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").replace(/ى/g, "ي").replace(/[٠-٩]/g, d => String("٠١٢٣٤٥٦٧٨٩".indexOf(d)));
     const hasExplicitSymbol = /\b[A-Za-z]{2,6}\b/.test(message);
     const hasSymbol = symbols.length > 0 || hasExplicitSymbol;
     if (message.trim().length <= 2 && !hasSymbol) {
@@ -888,7 +888,7 @@ export function enforceIntentFromMessage(message: string, plannerIntent: string,
 }
 
 export function extractSectorFromMessage(message: string): string | null {
-    const normalized = message.toLowerCase().replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").replace(/[٠-٩]/g, d => String("٠١٢٣٤٥٦٧٨٩".indexOf(d)));
+    const normalized = message.toLowerCase().replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").replace(/ى/g, "ي").replace(/[٠-٩]/g, d => String("٠١٢٣٤٥٦٧٨٩".indexOf(d)));
     if (/(استصلاح|اراضي استصلاح|استصلاح اراضي|اراضى|زراعه|زراعي|زراعيه|agri|agriculture|reclamation)/i.test(normalized)) return "استصلاح أراضي";
     if (/(البنوك|بنوك|banking sector|banks)/i.test(normalized)) return "بنوك";
     if (/(العقارات|عقارات|عقاري|real estate)/i.test(normalized)) return "عقارات";

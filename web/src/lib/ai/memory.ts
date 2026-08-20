@@ -19,7 +19,7 @@ function resolveReference(
     sessionSummary: SessionSummary | null,
     sessionState: SessionState
 ): { symbol: string | null; message_id: string | null; confidence: number } {
-    const normMsg = message.replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").toLowerCase();
+    const normMsg = message.replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").replace(/ى/g, "ي").toLowerCase();
 
     const hasReference = /(?:^|[^\u0621-\u064A])(السهم\s+(?:ده|دا|دي)|ده\s+كده|ده|دا|دي|هذا)(?:$|[^\u0621-\u064A])/.test(normMsg);
 
