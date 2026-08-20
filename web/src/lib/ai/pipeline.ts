@@ -777,7 +777,7 @@ export function enforceIntentFromMessage(message: string, plannerIntent: string,
     const hasAcc = /تجميع|accumulation/i.test(normalized);
     const noDist = /(?:لا|بدون|مفيش|صفر|0|zero).{0,15}(?:يوجد)?.{0,15}(?:تصريف|distribution)/i.test(normalized) || /(?:تصريف|distribution)\s*(?:=|يساوي)\s*0/.test(normalized);
     const noAcc = /(?:لا|بدون|مفيش|صفر|0|zero).{0,15}(?:يوجد)?.{0,15}(?:تجميع|accumulation)/i.test(normalized) || /(?:تجميع|accumulation)\s*(?:=|يساوي)\s*0/.test(normalized);
-    const asksSectorLiquidity = /(?:السيول|السيوله|سيوله).{0,30}(?:انهو|انهي|اي\s+قطاع|أي\s+قطاع|قطاع|القطاعات)|(?:انهو|انهي|اي|أى|أي|فين).{0,20}(?:قطاع|القطاعات).{0,20}(?:السيول|السيوله|سيوله)/i.test(normalized);
+    const asksSectorLiquidity = /(?:السيول|السيوله|سيوله).{0,30}(?:انهو|انهي|اي\s+قطاع|أي\s+قطاع|قطاع|القطاعات)/i.test(normalized) || /(?:انهو|انهي|اي|أى|أي|فين).{0,20}(?:قطاع|القطاعات).{0,20}(?:السيول|السيوله|سيوله)/i.test(normalized) || /(?:انشط|أنشط|نشاط|حركة|حركه|سيولة|سيوله)\s+(?:قطاع|القطاعات)/i.test(normalized);
     let direction: "accumulation" | "distribution" | null = null;
     if (hasAcc && noDist) direction = "accumulation";
     else if (hasDist && noAcc) direction = "distribution";
