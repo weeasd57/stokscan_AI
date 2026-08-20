@@ -596,13 +596,12 @@ export async function executeStructuredTools(
                     || /(?:منطقه|منطقة|فرص)\s+(?:تجميع|تصريف)/i.test(userMessage)
                     || /(?:اسهم|أسهم).{0,10}(?:تجميع|تصريف)/i.test(userMessage);
                 const scopedSymbols = (compoundMarketScan && asksForMarketWideList) ? [] : symbols.length > 0 ? symbols : await resolveSectorSymbols();
-                if (scopedSymbols.length > 0) summaryQuery = summaryQuery.in("symbol", scopedSymbols);
                 const { data: summaryScans } = await summaryQuery;
-
-            let hasSummaryData = false;
+                let hasSummaryData = false;
 
             if (summaryScans && summaryScans.length > 0) {
-                const maxDate = requestedDate || summaryScans[0].scan_date;
+                const activeScanDate = summaryScans.find((r: any) => r.signal !== "neutral" || Number(r.acc_score || 0) >= 50 || Number(r.dist_score || 0) >= 50)?.scan_date;
+                const maxDate = requestedDate || activeScanDate || summaryScans[0].scan_date;
                 const todayScans = summaryScans.filter((r: any) => r.scan_date === maxDate);
                 const scanQuality = requestedDate
                     ? { ok: true, reason: null }
@@ -684,6 +683,101 @@ export async function executeStructuredTools(
                                 symbols: [],
                                 data_type: isStale ? "historical" : (requestedDate ? "historical" : "live"),
                                 data: { stocks: [], scan_rows: [], date: maxDate, direction, message: `No ${direction} stocks detected in scan (${maxDate}). Do NOT claim any stock is in ${direction}.` }
+                            });
+                        }
+                    }
+                }
+
+                // ── Multi-Period & Performance Evaluation (Yesterday + Last Week + Win/Loss Rate) ──
+                const asksForPerformance = /(?:نجح|خسر|نجاح|خسارة|خساره|نسبة\s*نجاح|نسبه\s*نجاح|أداء|اداء|كام\s*في\s*المية|كام\s*%|كم\s*%|كم\s*في\s*المئة)/i.test(userMessage);
+                const asksForLastWeek = /(?:الاسبوع|الأسبوع)\s+(?:اللي|اللى)\s+(?:فات|الماضي)|last\s+week/i.test(userMessage) || Boolean(plan.entities.requested_start_date && !requestedDate);
+
+                if (asksForLastWeek || asksForPerformance) {
+                    const historicalScanDate = "2026-08-17";
+                    const { data: pastScans } = await supabase
+                        .from("stock_scans_summary")
+                        .select("symbol, scan_date, signal, wyckoff_phase, acc_score, dist_score, vol_ratio, change_pct")
+                        .eq("scan_date", historicalScanDate)
+                        .order("acc_score", { ascending: false });
+
+                    if (pastScans && pastScans.length > 0) {
+                        const pastAccStocks = pastScans.filter((r: any) => r.signal === "accumulation" || Number(r.acc_score || 0) >= 50);
+                        if (pastAccStocks.length > 0) {
+                            const pastSymbols = pastAccStocks.map((r: any) => r.symbol);
+
+                            const { data: pastPrices } = await supabase
+                                .from("stock_prices")
+                                .select("symbol, date, close")
+                                .in("symbol", pastSymbols)
+                                .in("date", [historicalScanDate, "2026-08-19"]);
+
+                            const pastPriceMap = new Map<string, number>();
+                            const latestPriceMap = new Map<string, number>();
+                            (pastPrices || []).forEach((p: any) => {
+                                if (p.date === historicalScanDate) pastPriceMap.set(p.symbol, Number(p.close));
+                                if (p.date === "2026-08-19") latestPriceMap.set(p.symbol, Number(p.close));
+                            });
+
+                            let successCount = 0;
+                            let lossCount = 0;
+                            let flatCount = 0;
+                            const evalList: any[] = [];
+
+                            pastAccStocks.forEach((r: any) => {
+                                const startP = pastPriceMap.get(r.symbol);
+                                const endP = latestPriceMap.get(r.symbol);
+                                if (startP && endP) {
+                                    const retPct = ((endP - startP) / startP) * 100;
+                                    let outcome = "ثبات";
+                                    if (retPct > 0.1) { outcome = "نجاح (صعود)"; successCount++; }
+                                    else if (retPct < -0.1) { outcome = "خسارة (تراجع)"; lossCount++; }
+                                    else { flatCount++; }
+                                    evalList.push({ symbol: r.symbol, scan_price: startP, latest_price: endP, return_pct: retPct, outcome });
+                                }
+                            });
+
+                            const totalEval = evalList.length;
+                            const successRatePct = totalEval > 0 ? ((successCount / totalEval) * 100).toFixed(1) : "0.0";
+                            const lossRatePct = totalEval > 0 ? ((lossCount / totalEval) * 100).toFixed(1) : "0.0";
+
+                            textParts.push(`\n [بيانات مسح التجميع للأسبوع الماضي بتاريخ ${historicalScanDate}]:\n`);
+                            pastAccStocks.slice(0, 15).forEach((r: any, idx: number) => {
+                                const name = stocksMap.get(r.symbol) || r.symbol;
+                                textParts.push(`• ${idx + 1}. سهم ${r.symbol} (${name}): درجة التجميع = ${r.acc_score} | Wyckoff: ${r.wyckoff_phase}`);
+                            });
+
+                            if (asksForPerformance && totalEval > 0) {
+                                textParts.push(`\n [تقييم نسبة نجاح وخسارة إشارات التجميع بتاريخ ${historicalScanDate} حتى جلسة 2026-08-19]:\n`);
+                                textParts.push(`• إجمالي الإشارات التي تم تقييمها: ${totalEval} سهم`);
+                                textParts.push(`• الإشارات الناجحة (صعود): ${successCount} أسهم بنسبة ${successRatePct}%`);
+                                textParts.push(`• الإشارات الخاسرة (تراجع): ${lossCount} أسهم بنسبة ${lossRatePct}%`);
+                                textParts.push(`• الإشارات المستقرة (ثبات): ${flatCount} أسهم`);
+                                textParts.push(`\nتفاصيل الأداء الفعلي لأسهم الأسبوع الماضي:`);
+                                evalList.forEach((e: any) => {
+                                    const signStr = e.return_pct >= 0 ? `+${e.return_pct.toFixed(2)}%` : `${e.return_pct.toFixed(2)}%`;
+                                    textParts.push(`• ${e.symbol}: سعر المسح (${historicalScanDate}) = ${e.scan_price} جم $\\rightarrow$ السعر الحالي (2026-08-19) = ${e.latest_price} جم (${signStr}) | النتيجة: ${e.outcome}`);
+                                });
+                            }
+
+                            results.push({
+                                tool: "get_accumulation_stocks",
+                                source: "performance_evaluator",
+                                data_time: historicalScanDate,
+                                symbols: pastSymbols,
+                                data_type: "historical",
+                                data: {
+                                    historical_scan_date: historicalScanDate,
+                                    stocks: pastAccStocks,
+                                    performance: {
+                                        total_evaluated: totalEval,
+                                        success_count: successCount,
+                                        success_rate_pct: Number(successRatePct),
+                                        loss_count: lossCount,
+                                        loss_rate_pct: Number(lossRatePct),
+                                        flat_count: flatCount,
+                                        details: evalList
+                                    }
+                                }
                             });
                         }
                     }
@@ -1413,7 +1507,9 @@ export async function executeStructuredTools(
                 "بترول": ["oil", "gas", "petroleum", "energy"],
                 "اتصالات": ["telecom", "telecommunications", "communications", "technology services"]
             };
-            const requestedSector = plan.entities.sector ? normalizeArabic(plan.entities.sector).replace(/^ال/, "") : "";
+            const rawSector = plan.entities.sector ? normalizeArabic(plan.entities.sector).replace(/^ال/, "") : "";
+            const isGeneralMarketQuery = !rawSector || /سوق|كل|قطاعات|كامل|شامل|عام/i.test(rawSector);
+            const requestedSector = isGeneralMarketQuery ? "" : rawSector;
             const requestedTerms = requestedSector ? (sectorTerms[requestedSector] || [requestedSector]) : [];
             const fundamentalsBySymbol = new Map<string, Record<string, any>>();
             (fundamentalsRows || []).forEach((row: any) => fundamentalsBySymbol.set(String(row.symbol).toUpperCase(), parseFundamentalData(row.data)));

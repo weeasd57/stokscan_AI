@@ -274,7 +274,25 @@ export function extractSingleStockFromRecentHistory(history: Array<{ role: strin
     return unique.length === 1 ? unique[0] : null;
 }
 
-export function extractRequestedDate(message: string): string | null {
+export function extractRequestedDate(message: string, refDate: Date = new Date()): string | null {
+    const normalized = message.toLowerCase();
+
+    // Relative dates
+    if (/(?:اول|أول)\s*(?:امبارح|امس|أمس)/i.test(normalized)) {
+        const d = new Date(refDate);
+        d.setDate(d.getDate() - 2);
+        return d.toISOString().slice(0, 10);
+    }
+    if (/(?:امبارح|امس|أمس|البارح|بالامس|بالأمس)/i.test(normalized)) {
+        const d = new Date(refDate);
+        d.setDate(d.getDate() - 1);
+        return d.toISOString().slice(0, 10);
+    }
+    if (/(?:النهارده|النهاردة|اليوم)/i.test(normalized) && /(?:بتاريخ|تاريخ|جلسة|جلسه|مسح|بيانات)/i.test(normalized)) {
+        const d = new Date(refDate);
+        return d.toISOString().slice(0, 10);
+    }
+
     const isoMatch = message.match(/(?:^|\s)(\d{4})-(\d{1,2})-(\d{1,2})(?:\s|$|[؟?])/);
     if (isoMatch) {
         const year = Number(isoMatch[1]);
@@ -286,13 +304,33 @@ export function extractRequestedDate(message: string): string | null {
         }
     }
     const match = message.match(/(?:^|\s)(\d{1,2})[\/-](\d{1,2})(?:[\/-](\d{4}))?(?:\s|$|[؟?])/);
-    if (!match) return null;
-    const day = Number(match[1]);
-    const month = Number(match[2]);
-    const year = match[3] ? Number(match[3]) : new Date().getFullYear();
-    const date = new Date(Date.UTC(year, month - 1, day));
-    if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return null;
-    return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    if (match) {
+        const day = Number(match[1]);
+        const month = Number(match[2]);
+        const year = match[3] ? Number(match[3]) : refDate.getFullYear();
+        const date = new Date(Date.UTC(year, month - 1, day));
+        if (date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day) {
+            return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+        }
+    }
+
+    // Arabic month names e.g. "19 اغسطس" or "19 أغسطس"
+    const monthsAr: Record<string, number> = {
+        "يناير": 1, "فبراير": 2, "مارس": 3, "ابريل": 4, "أبريل": 4, "مايو": 5, "يونيو": 6,
+        "يوليو": 7, "اغسطس": 8, "أغسطس": 8, "سبتمبر": 9, "اكتوبر": 10, "أكتوبر": 10, "نوفمبر": 11, "ديسمبر": 12
+    };
+    const arMonthMatch = message.match(/(\d{1,2})\s*(يناير|فبراير|مارس|ابريل|أبريل|مايو|يونيو|يوليو|اغسطس|أغسطس|سبتمبر|اكتوبر|أكتوبر|نوفمبر|ديسمبر)(?:\s*(\d{4}))?/i);
+    if (arMonthMatch) {
+        const day = Number(arMonthMatch[1]);
+        const monthName = arMonthMatch[2];
+        const month = monthsAr[monthName];
+        const year = arMonthMatch[3] ? Number(arMonthMatch[3]) : refDate.getFullYear();
+        if (month) {
+            return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+        }
+    }
+
+    return null;
 }
 
 export function isEgxWeekend(date: string): boolean {
@@ -1114,7 +1152,7 @@ export async function* runPipelineStream(
             ,min_vol_ratio: plannerResult.entities.min_vol_ratio ?? null
             ,excluded_sectors: Array.from(new Set([...excludedSectors, ...plannerExcludedSectors]))
             ,requested_sectors: enforced.requested_sectors || plannerResult.entities.requested_sectors || []
-            ,requested_date: requestedRange ? null : extractTemporalContext(userMessage).date
+            ,requested_date: extractRequestedDate(userMessage) || null
             ,requested_start_date: requestedRange?.start || null
             ,requested_end_date: requestedRange?.end || null
         },
@@ -1888,7 +1926,7 @@ export async function runPipeline(
             ,min_vol_ratio: plannerResult.entities.min_vol_ratio ?? null
             ,excluded_sectors: Array.from(new Set([...excludedSectors, ...plannerExcludedSectors]))
             ,requested_sectors: enforced.requested_sectors || plannerResult.entities.requested_sectors || []
-            ,requested_date: requestedRange ? null : extractTemporalContext(userMessage).date
+            ,requested_date: extractRequestedDate(userMessage) || null
             ,requested_start_date: requestedRange?.start || null
             ,requested_end_date: requestedRange?.end || null
         },

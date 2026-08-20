@@ -8,6 +8,10 @@
 // ============================================================
 const ARABIC_STOCK_MAPPINGS: Record<string, string | string[]> = {
 
+    // ── IEOC  المشروعات الصناعية والهندسية ────────────────
+    "المشروعات الصناعية": "IEOC", "المشروعات الصناعيه": "IEOC",
+    "المشروعات الصناعية والهندسية": "IEOC", "المشروعات الصناعيه والهندسيه": "IEOC",
+
     // ── ABUK  أبو قير للأسمدة ──────────────────────────────
     "أبو قير": "ABUK", "ابو قير": "ABUK",
     "ابوقير للأسمدة": "ABUK", "أبو قير للأسمدة": "ABUK",
@@ -169,7 +173,7 @@ const ARABIC_STOCK_MAPPINGS: Record<string, string | string[]> = {
     "المجموعة العقارية": "AREH", "عقارية مصرية": "AREH",
     "صمامات العرب": "ARVA", "العربية للصمامات": "ARVA",
     "أطلس للاستثمار": "AIVCB", "اطلس للاستثمار": "AIVCB", "أطلس": "AIVCB", "اطلس": "AIVCB", "أطلس للإستثمارات": "AIVCB", "اطلس للاستثمارات": "AIVCB", "ATLS": "AIVCB", "AIFI": "AIVCB",
-    "أسباير": "ASPI", "اسباير": "ASPI", "أسباير كابيتال": "ASPI",
+    "أسباير": "ASPI", "اسباير": "ASPI", "أسباير كابيتال": "ASPI", "ركاز": "ASPI", "ركزة": "ASPI", "ركاز القابضة": "ASPI", "ركزة القابضة": "ASPI", "ركاز للاستثمار": "ASPI", "ركزة للاستثمار": "ASPI", "RKAZ": "ASPI", "rkaz": "ASPI", "Rkaz": "ASPI",
     "التوفيق للتأجير": "ATLC", "التوفيق لتاجير": "ATLC", "أي تي ليز": "ATLC",
     "عتاقة": "ATQA", "عتاقه": "ATQA", "صلب عتاقة": "ATQA", "مصر الوطنية للصلب": "ATQA",
     "إسكندرية للأدوية": "AXPH", "اسكندرية للادوية": "AXPH", "الإسكندرية للأدوية": "AXPH",
@@ -400,7 +404,7 @@ const ARABIC_STOCK_MAPPINGS: Record<string, string | string[]> = {
     "زهراء المعادي": "ZMID",
 
     // ── أسهم إضافية شائعة الذكر ───────────────────────────────
-    "ايبكو": "PHAR", "إيبكو": "PHAR", "ايبيكو": "PHAR", "إيبيكو": "PHAR",
+    "ايبكو": "PHAR", "إيبكو": "PHAR", "ايبيكو": "PHAR", "إيبيكو": "PHAR", "ايببكو": "PHAR", "إيببكو": "PHAR", "اببكو": "PHAR", "EIPICO": "PHAR", "eipico": "PHAR",
     "مطاحن اسكندرية والغربية": "AFMC",
     "العبور للاستثمار": "OBRI",
     "العبور للاستثمار العقاري": "OBRI",
@@ -556,6 +560,34 @@ export function getSyncValidSymbols(): string[] {
         });
     }
     return Array.from(symbols);
+}
+
+export function getSyncSymbolOfficialNameMap(): Record<string, { name_en?: string; name_ar?: string }> {
+    const map: Record<string, { name_en?: string; name_ar?: string }> = {
+        TALM: { name_en: "Taaleem Management Services", name_ar: "تعليم لخدمات الإدارة" },
+        AFMC: { name_en: "Alexandria Flour Mills", name_ar: "مطاحن ومخابز الإسكندرية" },
+        TMGH: { name_en: "Talaat Moustafa Group Holding", name_ar: "مجموعة طلعت مصطفى القابضة" },
+        COMI: { name_en: "Commercial International Bank", name_ar: "البنك التجاري الدولي" },
+        EAST: { name_en: "Eastern Company", name_ar: "الشرقية - إيسترن كومباني" },
+        PHAR: { name_en: "EIPICO", name_ar: "المصرية الدولية للصناعات الدوائية - إيبيكو" },
+        ASPI: { name_en: "Aspire Capital Holding", name_ar: "أسباير كابيتال القابضة" },
+        IEOC: { name_en: "Industrial and Engineering Projects", name_ar: "المشروعات الصناعية والهندسية" },
+        FCMD: { name_en: "Future Care Medical", name_ar: "فيوتشر كير للصناعات الطبية" },
+        AALR: { name_en: "General Co. for Land Reclamation", name_ar: "الشركة العامة لاستصلاح الأراضي" },
+        EFIC: { name_en: "Egyptian Financial & Industrial", name_ar: "المالية والصناعية المصرية" }
+    };
+    if (cachedStocks && cachedStocks.length > 0) {
+        cachedStocks.forEach((s: any) => {
+            if (s.symbol) {
+                const sym = String(s.symbol).toUpperCase();
+                map[sym] = {
+                    name_en: s.name?.trim() || map[sym]?.name_en,
+                    name_ar: s.name_ar?.trim() || map[sym]?.name_ar
+                };
+            }
+        });
+    }
+    return map;
 }
 
 const STATIC_VALID_SYMBOLS = [
@@ -1073,7 +1105,7 @@ Analyze the user request and return a JSON object. You MUST dynamically choose t
     }
 
     const isBestBuy = isBestBuyStockQuestion(message);
-    const isMarketSlang = /مين طلع ومين نزل|ايه اللي طلع وايه اللي نزل|ايه اللى طلع وايه اللى نزل|السوق عمل ايه|حالة السوق|صعود وهبوط|gainers and losers|what went up|whole market|where is liquidity|نجم\s+الاسبوع|نجم\s+الأسبوع|القطاع\s+اللي\s+هيطلع|القطاع\s+اللي\s+يرتفع|السهم\s+اللي\s+هيرتفع|السهم\s+اللي\s+يبقي\s+نجم/i.test(message);
+    const isMarketSlang = /مين طلع ومين نزل|ايه اللي طلع وايه اللي نزل|ايه اللى طلع وايه اللى نزل|السوق عمل ايه|حالة السوق|صعود وهبوط|gainers and losers|what went up|whole market|where is liquidity|نجم\s+الاسبوع|نجم\s+الأسبوع|القطاع\s+اللي\s+هيطلع|القطاع\s+اللي\s+يرتفع|السهم\s+اللي\s+هيرتفع|السهم\s+اللي\s+يبقي\s+نجم|سيول|سيولة|السيولة|السيوله|قايمه|قائمة|اقوى الاسهم|أقوى الأسهم|افضل الاسهم|أفضل الأسهم|السوق كله|القطاعات|حركة السيولة|توزيع السيولة/i.test(message);
     const sectorFollowUp = /^(?:اى|أي|ايه|ما هو|ما هي|مين)\s+(?:اكبر|أكبر)\s+(?:سهم|شركة)\s+(?:في|فى|بقطاع|من)\s+(.+)$/i.exec(message.trim())
         || /^(?:اكبر|أكبر)\s+(?:سهم|شركة)\s+(?:في|فى|بقطاع|من)\s+(.+)$/i.exec(message.trim());
     const explicitSymbols = extractSymbolsFromText(message, validSymbols, stockMappings);

@@ -418,8 +418,7 @@ def calculate_indicators_for_symbol(symbol: str, exchange: str = "EGX") -> List[
     last_close_val = float(df["close"].iloc[-1]) if not df["close"].empty else 0.0
     last_date_val = df.index[-1]
     days_since = (pd.Timestamp.now() - last_date_val).days
-    recent_vol = pd.to_numeric(df["volume"].tail(5), errors="coerce").fillna(0).sum()
-    if last_close_val <= 0 or days_since > 30 or recent_vol == 0:
+    if last_close_val <= 0 or days_since > 30:
         return []
 
     close = pd.to_numeric(df["close"], errors="coerce").fillna(0.0)
@@ -987,6 +986,11 @@ def _dispatch_similarity_notifications(results: List[Dict[str, Any]]):
 
 def _notify_central_telegram(message: str, service_type: str = "central"):
     """Send a service-level message to the configured public Telegram topic."""
+    # Permanently block internal system execution digests/logs and step status reports from Telegram
+    if service_type in {"system_digest", "central", "system_log"} or service_type.startswith("step_failure") or "حالة خطوات التشغيل" in message or "ملخص التشغيل اليومي" in message:
+        print(f"[CENTRAL_NOTIFY] Blocked internal system digest message ({service_type}) from Telegram by user request.")
+        return False
+
     try:
         from api.telegram_bot import get_telegram_bot
         bot = get_telegram_bot()
@@ -2925,91 +2929,8 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
                 _record_step("weekly_adaptive_retraining", False, str(e)[:200], 0)
                 print(f"[ADAPTIVE] Weekly retraining failed with error: {e}")
 
-        # 10. Send Daily Digest Telegram Report
-        try:
-            from api.telegram_bot import get_telegram_bot
-            bot = get_telegram_bot()
-            if bot:
-                elapsed = (dt.datetime.now(dt.timezone.utc) - dt.datetime.fromisoformat(job_start_time.replace("Z", "+00:00"))).total_seconds()
-                
-                step_names_ar = {
-                    "sync_inventory": "تحديث قائمة الأسهم",
-                    "mark_non_listed": "تحديد الأسهم غير المدرجة",
-                    "sync_prices": "مزامنة الأسعار",
-                    "calculate_indicators": "حساب المؤشرات الفنية",
-                    "news_sentiment": "تحليل الأخبار بالذكاء الاصطناعي",
-                    "precompute_heatmap": "حساب الـ Heatmap",
-                    "update_positions": "تحديث المحفظة",
-                    "evaluate_recommendations": "تقييم التوصيات القديمة",
-                    "refresh_market_status_for_gate": "تحديث بوابة التوصيات",
-                    "generate_recommendations": "توليد التوصيات الجديدة",
-                    "historical_similarity": "البحث عن التشابه التاريخي",
-                    "weekly_performance_report": "التقرير الأسبوعي للأداء",
-                    "refresh_market_status": "تحديث حالة المؤشرات العامة",
-                    "weekly_adaptive_retraining": "إعادة التدريب التكيفي",
-                    "accumulation_scan": "مسح التجميع والتصريف (Wyckoff)"
-                }
-
-                # Find recommendations count and failed steps
-                recs_count = 0
-                warnings_or_errors = []
-                for step in steps_log:
-                    name = step.get("step")
-                    status = step.get("status")
-                    if name == "generate_recommendations":
-                        recs_count = step.get("count", 0)
-                    if status == "failed":
-                        warnings_or_errors.append(f"• *{step_names_ar.get(name, name)}*: {step.get('details')}")
-
-                digest_lines = [
-                    f"🤖 *ملخص التشغيل اليومي لـ StokScan AI*",
-                    f"📅 التاريخ: {dt.datetime.now().strftime('%Y-%m-%d %H:%M')}",
-                    f"⏱️ مدة التشغيل الإجمالية: {elapsed:.1f} ثانية",
-                    f"✨ التوصيات الجديدة المولدة اليوم: *{recs_count}*",
-                    "",
-                    "📋 *حالة خطوات التشغيل اليومية:*",
-                ]
-
-                for step in steps_log:
-                    name = step.get("step")
-                    status = step.get("status")
-                    count = step.get("count", 0)
-                    
-                    emoji = "✅" if status in ("success", "skipped") else "❌"
-                    if status == "skipped":
-                        emoji = "⏭️"
-                    
-                    step_ar = step_names_ar.get(name, name)
-                    line = f"{emoji} *{step_ar}* — {status.upper()}"
-                    if count > 0 and name != "generate_recommendations":
-                        line += f" ({count})"
-                    digest_lines.append(line)
-                
-                try:
-                    res_status = stock_ai.supabase.table("market_cache").select("payload").eq("cache_key", "market_status_Egypt").maybe_single().execute()
-                    if res_status.data and res_status.data.get("payload"):
-                        payload_data = res_status.data["payload"]
-                        egx30_change = payload_data.get("egx30", {}).get("change_pct", 0)
-                        egx30_close = payload_data.get("egx30", {}).get("close", 0)
-                        market_state = "Bullish 📈" if egx30_change >= 0 else "Bearish 📉"
-                        digest_lines.append("")
-                        digest_lines.append(f"📊 *حالة السوق اليوم (EGX30)*: {market_state}")
-                        digest_lines.append(f"• الإغلاق: {egx30_close:,.2f} | التغيير: {egx30_change:+.2f}%")
-                except Exception as me_err:
-                    print(f"[TELEGRAM_DIGEST] Market status read error: {me_err}")
-                
-                if warnings_or_errors:
-                    digest_lines.append("")
-                    digest_lines.append("🚨 *الأخطاء والتحذيرات التي حدثت:*")
-                    digest_lines.extend(warnings_or_errors)
-
-                # Send digest to subscribers using the corrected notification system
-                digest_message = "\n".join(digest_lines)
-                # Disabled sending daily digest log to the group
-                # _notify_central_telegram(digest_message, "system_digest")
-                print("\n[DAILY_DIGEST] (Telegram notification disabled):\n" + digest_message)
-        except Exception as e_telegram:
-            print(f"[TELEGRAM_DIGEST] Failed to send daily digest: {e_telegram}")
+        # 10. Daily Digest Telegram Report (DISABLED BY USER REQUEST)
+        print("\n[DAILY_DIGEST] Internal system digest sending to Telegram is permanently disabled.")
 
         # ── STEP: Accumulation / Distribution Scan ──────────────────────────
         # يُشغَّل يومياً بعد الإغلاق لتحديث stock_scans_summary بإشارات Wyckoff

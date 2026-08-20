@@ -1,4 +1,5 @@
 import { IntentPlan, VisionContext, ToolResult, FactSnapshot, SessionState } from "./types";
+import { getSyncSymbolOfficialNameMap } from "./planner";
 import { AI_CONFIG } from "./config";
 import { getDeepSeekApiKey, getNvidiaApiKeys } from "./server-secrets";
 import { describeDatedFallback, getFairValueFilters, getInvestorGuidanceIntent, isBestBuyStockQuestion, isDailyPriceLimitQuestion, isEarningsDataRequest, isFairValueScanRequest, isTermsDefinitionRequest, isUsageLimitQuestion } from "./intent-policy";
@@ -173,12 +174,21 @@ export function buildV2FinalMessages(
         sections.push("=== RESPONSE MODE: INVESTOR EDUCATION ===\n" + guidanceRules[guidanceIntent]);
     }
 
+    const officialNameMap = getSyncSymbolOfficialNameMap();
     const allowedSymbols = Array.from(new Set([
         ...toolResults.flatMap(result => result.symbols || []),
         ...(visionContext?.symbols || []).map(symbol => symbol.symbol)
     ])).filter(Boolean);
     if (allowedSymbols.length > 0) {
-        sections.push("=== ALLOWED SYMBOLS ===\n" + allowedSymbols.join(", "));
+        sections.push("=== ALLOWED SYMBOLS & OFFICIAL NAMES ===");
+        allowedSymbols.forEach(sym => {
+            const symUpper = sym.toUpperCase();
+            const info = officialNameMap[symUpper];
+            const nameAr = info?.name_ar ? ` (${info.name_ar})` : "";
+            const nameEn = info?.name_en ? ` - ${info.name_en}` : "";
+            sections.push(`- ${symUpper}${nameAr}${nameEn}`);
+        });
+        sections.push("⚠️ MANDATORY NAME ACCURACY RULE: You MUST use the EXACT official Arabic stock name listed above for each symbol code. NEVER guess, assume, or invent company names based on ticker letters.");
     }
 
     if (visionContext) {
@@ -544,7 +554,7 @@ async function callDeepSeekApi(
     stream: boolean = false
 ): Promise<{ response: string | null; streamGen?: AsyncGenerator<string> }> {
     const controller = new AbortController();
-    const timeoutMs = modelName === "deepseek-reasoner" ? 45000 : 15000;
+    const timeoutMs = modelName === "deepseek-reasoner" ? 45000 : 30000;
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
     try {
         const maxTokens = modelName === "deepseek-reasoner" ? 4000 : AI_CONFIG.limits.responseMaxTokens;
@@ -2000,6 +2010,9 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
 
     const scanResult = toolResults.find(result => result.tool === "get_accumulation_stocks" || result.tool === "get_distribution_stocks");
     if (scanResult) {
+        if (toolResults.some(r => r.source === "performance_evaluator") || /(?:نجح|خسر|نجاح|خسارة|خساره|نسبة\s*نجاح|نسبه\s*نجاح|أداء|اداء|كام\s*في\s*المية|كام\s*%|كم\s*%)/i.test(userMessage)) {
+            return null;
+        }
         const direction = plan.entities.scan_direction || scanResult.data?.direction || (scanResult.tool === "get_distribution_stocks" ? "distribution" : "accumulation");
         const directionAr = direction === "distribution" ? "التصريف" : "التجميع";
         const scoreField = direction === "distribution" ? "dist_score" : "acc_score";

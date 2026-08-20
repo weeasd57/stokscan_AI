@@ -1875,31 +1875,30 @@ def get_stock_data_yahoo(
     """
     Fetch stock data from Yahoo Finance.
     """
-    # Disk-less: No local file check. 
-    # Logic: Always fetch from Yahoo if get_stock_data-Supabase failed.
     if force_local:
         return pd.DataFrame()
 
-    # 2. Fetch from Yahoo
-    # Yahoo Ticker Normalization
-    yf_ticker = ticker
-    if ticker.endswith(".US"):
-        yf_ticker = ticker.replace(".US", "")
-    elif ticker.endswith(".EGX"):
-        # Yahoo often uses .CA for Egypt (Cairo)
-        base = ticker.replace(".EGX", "")
-        yf_ticker = f"{base}.CA"
-    
+    symbol_map = {
+        "FCMD": "ICMI.CA",
+        "FCMD.CA": "ICMI.CA",
+        "FCMD.EGX": "ICMI.CA",
+    }
+    yf_ticker = symbol_map.get(ticker)
+    if not yf_ticker:
+        if ticker.endswith(".US"):
+            yf_ticker = ticker.replace(".US", "")
+        elif ticker.endswith(".EGX"):
+            base = ticker.replace(".EGX", "")
+            yf_ticker = f"{base}.CA"
+        else:
+            yf_ticker = f"{ticker}.CA" if not ticker.endswith(".CA") else ticker
+
     try:
-        # Download history
+        import yfinance as yf
         df = yf.download(yf_ticker, start=from_date, progress=False, auto_adjust=True)
-        
-        # Yahoo returns MultiIndex columns sometimes if multiple tickers (not here)
-        # normalize columns: Open, High, Low, Close, Volume
         if isinstance(df.columns, pd.MultiIndex):
              df.columns = df.columns.get_level_values(0)
         
-        # Standardize names
         df = df.rename(columns={
             "Open": "open", 
             "High": "high", 
@@ -1908,7 +1907,6 @@ def get_stock_data_yahoo(
             "Volume": "volume"
         })
         
-        # Ensure index is datetime
         if not isinstance(df.index, pd.DatetimeIndex):
             df.index = pd.to_datetime(df.index)
             
@@ -1918,46 +1916,12 @@ def get_stock_data_yahoo(
         if df.empty:
              raise ValueError(f"No data found for {yf_ticker} on Yahoo")
 
-        # Sync Directly
         sync_df_to_supabase(ticker, df)
         return df
         
     except Exception as e:
         raise ValueError(f"Yahoo fetch failed for {yf_ticker}: {e}")
 
-
-def _get_supabase_info(ticker: str) -> Dict[str, Any]:
-    """Helper to find the latest available date and record count for a ticker in Supabase."""
-    _init_supabase()
-    out = {"last_date": None, "count": 0}
-    if not supabase:
-        return out
-    try:
-        sb_symbol = ticker
-        sb_exchange = "US"
-        if "." in ticker:
-            parts = ticker.split(".")
-            sb_symbol = parts[0]
-            sb_exchange = parts[1]
-            if sb_exchange in ["CC", "CA"]: sb_exchange = "EGX"
-
-        if sb_exchange.upper() in {"BINANCE", "FOREX", "LSE"}:
-            return out
-            
-        res = supabase.table("stock_prices")\
-            .select("date", count="exact")\
-            .eq("symbol", sb_symbol)\
-            .eq("exchange", sb_exchange)\
-            .order("date", desc=True)\
-            .limit(1)\
-            .execute()
-        
-        if res.data:
-            out["last_date"] = pd.to_datetime(res.data[0]["date"]).date()
-            out["count"] = res.count or 0
-    except Exception as e:
-        print(f"Error checking Supabase info for {ticker}: {e}")
-    return out
 
 def _get_supabase_last_date(ticker: str) -> Optional[dt.date]:
     return _get_supabase_info(ticker)["last_date"]

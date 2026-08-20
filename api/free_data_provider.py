@@ -145,6 +145,9 @@ def fetch_eod_data_free(symbol: str, period: str = "6mo") -> List[Dict[str, Any]
         symbol_map = {
             "EGX30.INDX": "^CASE30",         # Cairo Composite Stock Index (EGX30)
             "EGX100.INDX": "^CASE30",        # Fallback to EGX30 (no EGX100 in yfinance)
+            "FCMD": "ICMI.CA",
+            "FCMD.CA": "ICMI.CA",
+            "FCMD.EGX": "ICMI.CA",
         }
         
         yf_symbol = symbol_map.get(symbol, symbol)
