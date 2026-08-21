@@ -2727,6 +2727,22 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
             _record_step("calculate_indicators", False, str(e)[:200], 0)
             print(f"[INDICATORS] Error: {e}")
 
+        # 2.2 Update AI Scores for all symbols in stock_technical_indicators
+        print("\n>>> STEP 2.2: Updating AI ML Scores for all stocks in DB...")
+        _start_step("ml_scores_update", "Calculating KING and EGX model scores for all stocks")
+        try:
+            import subprocess
+            script_path = os.path.join(project_root, "api", "update_ml_scores.py")
+            if os.path.exists(script_path):
+                subprocess.run([sys.executable, script_path], check=True)
+                _record_step("ml_scores_update", True, "Successfully updated AI ML Scores in DB", 1)
+            else:
+                print(f"[ML_SCORES] Script not found at {script_path}")
+                _record_step("ml_scores_update", False, "Script not found", 0)
+        except Exception as e:
+            _record_step("ml_scores_update", False, str(e)[:200], 0)
+            print(f"[ML_SCORES] Error updating scores: {e}")
+
         # 2.5 Fetch & Analyze News Sentiment
         print("\n>>> STEP 2.5: Fetching and analyzing news sentiment...")
         _start_step("news_sentiment", "Fetching and analyzing news sentiment from Google News RSS")

@@ -2,8 +2,7 @@ import { NextResponse } from "next/server";
 import { getSupabaseClient } from "@/lib/supabase/route-data";
 
 export const runtime = "nodejs";
-
-// ISR: revalidate every 5 minutes (Next.js built-in cache layer)
+export const dynamic = "force-dynamic";
 export const revalidate = 300;
 
 export async function GET() {

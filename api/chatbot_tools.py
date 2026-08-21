@@ -224,7 +224,7 @@ class ChatbotTools:
             # Get latest stock data from last trading session
             # Using stock_bars_intraday as the data source
             query = supabase.table("stock_bars_intraday").select(
-                "symbol, price as close_price, rsi, macd, volume_ratio, "
+                "symbol, close_price:price, rsi, macd, volume_ratio, "
                 "accumulation_score, distribution_score, support, resistance, "
                 "date, exchange"
             ).order("date", desc=True).limit(200)
@@ -297,7 +297,7 @@ class ChatbotTools:
         try:
             # Get stocks with accumulation
             response = supabase.table("stock_bars_intraday").select(
-                "symbol, price as close_price, rsi, macd, volume_ratio, "
+                "symbol, close_price:price, rsi, macd, volume_ratio, "
                 "accumulation_score, distribution_score, support, resistance, "
                 "date, exchange"
             ).gte("accumulation_score", min_accumulation).order("date", desc=True).limit(200).execute()
@@ -373,7 +373,7 @@ class ChatbotTools:
         
         try:
             response = supabase.table("stock_bars_intraday").select(
-                "symbol, price as close_price, rsi, macd, volume_ratio, "
+                "symbol, close_price:price, rsi, macd, volume_ratio, "
                 "accumulation_score, distribution_score, support, resistance, "
                 "date, exchange"
             ).gte("distribution_score", min_distribution).order("date", desc=True).limit(200).execute()
@@ -443,7 +443,7 @@ class ChatbotTools:
         try:
             # Get latest data for this symbol
             response = supabase.table("stock_bars_intraday").select(
-                "symbol, price as close_price, rsi, macd, volume_ratio, "
+                "symbol, close_price:price, rsi, macd, volume_ratio, "
                 "accumulation_score, distribution_score, support, resistance, "
                 "date, exchange, name"
             ).eq("symbol", symbol.upper()).order("date", desc=True).limit(1).execute()
