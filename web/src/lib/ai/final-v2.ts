@@ -70,6 +70,8 @@ export function buildEvidenceEnginePromptBlock(toolResults: ToolResult[]): strin
         lines.push(`  - macd_signal: ${stockData?.macd_signal ?? scanStock?.macd_signal ?? "NOT_PROVIDED"}`);
         lines.push(`  - support: ${lvlData?.support ?? "NOT_PROVIDED"} ← [مستوى الدعم — ليس السعر الحالي]`);
         lines.push(`  - resistance: ${lvlData?.resistance ?? "NOT_PROVIDED"} ← [مستوى المقاومة — ليس السعر الحالي]`);
+        lines.push(`  - king_ai_score: ${stockData?.king_ai_score ?? scanStock?.king_ai_score ?? "NOT_PROVIDED"} ← [تقييم نموذج KING للتعلم الآلي فنيًا من 0 إلى 1، مثلاً 0.583 تعني ثقة 58.3%]`);
+        lines.push(`  - egx_ai_score: ${stockData?.egx_ai_score ?? scanStock?.egx_ai_score ?? "NOT_PROVIDED"} ← [تقييم نموذج EGX للتعلم الآلي فنيًا من 0 إلى 1، مثلاً 0.67 تعني ثقة 67.0%]`);
 
 
         lines.push(`DERIVED_FLAGS:`);
@@ -98,7 +100,10 @@ export function buildEvidenceEnginePromptBlock(toolResults: ToolResult[]): strin
 
     lines.push("\nSTRICT BOUNDARIES FOR MODEL:");
     lines.push("1. ⛔ NEVER claim 'فوق خط الإشارة' or 'تحت خط الإشارة' if macd_signal is NOT_PROVIDED or UNKNOWN.");
-    lines.push("2. ⛔ NEVER classify volume as 'سيولة توزيعية' or 'إشارة تصريف' unless distribution_score or wyckoff_phase is explicitly positive in AVAILABLE_EVIDENCE.");
+    lines.push("1b. ⛔ MACD > 0 (above the zero line) does NOT by itself mean a bullish signal. Without an explicit macd_signal value or a Histogram trend in the data, you MUST describe MACD as NEUTRAL (محايد). Never claim 'إشارة إيجابية', 'إيجابية فوق خط الصفر', 'تقاطع صاعد' or any bullish crossover based solely on MACD being positive. The ONLY valid MACD comparisons are: MACD vs the provided macd_signal line, or Histogram trend in the data — nothing else.");
+    lines.push("2. ⛔ NEVER classify volume as 'سيولة توزيعية' or 'إشارة تصريحي' unless distribution_score or wyckoff_phase is explicitly positive in AVAILABLE_EVIDENCE.");
+    lines.push("2b. ⛔ INFERENCE BAN — SELLING PRESSURE: A high vol_ratio (e.g. 1.69x) alone NEVER implies 'ضغط بيعي', 'سيولة توزيعية', 'تصريح' or 'توزيع'. Selling-pressure language requires distribution_score > 0 OR wyckoff_phase == distribution/market in AVAILABLE_EVIDENCE. If neither is present, describe volume only as 'نشط' (active) and state the numeric ratio, with NO directional-selling inference.");
+    lines.push("2c. ⛔ INFERENCE BAN — BUYING PRESSURE: A high vol_ratio alone NEVER implies 'ضغط شرائي', 'نشاط شرائي' or 'تجميع'. Buying-pressure language requires accumulation_score > 0 OR wyckoff_phase == accumulation/strong_accumulation in AVAILABLE_EVIDENCE. If neither is present, describe volume only as 'نشط' (active) and state the numeric ratio, with NO directional-buying inference.");
     lines.push("3. ⛔ NEVER classify volume as 'سيولة تجميعية' or 'إشارة تجميع' unless accumulation_score or wyckoff_phase is explicitly positive in AVAILABLE_EVIDENCE.");
     lines.push("4. ⛔ NEVER make implicit inferences or suggest directional momentum (e.g., 'ضغط بيعي', 'نشاط شرائي', 'جني أرباح') based purely on volume/RSI if the wyckoff_phase or direction is NOT_PROVIDED.");
     lines.push("5. ⛔ Only state facts and conclusions directly supported by the FACTS, DERIVED_FLAGS, and AVAILABLE_EVIDENCE above.");
@@ -106,6 +111,7 @@ export function buildEvidenceEnginePromptBlock(toolResults: ToolResult[]): strin
     lines.push("7. ⛔ NEVER use acc_score, dist_score, or consecutive_days as price levels. These are DIMENSIONLESS SCORES (0-100) or DAY COUNTS. The ONLY valid price levels are: price, support, resistance, sma_50, sma_200, bb_upper, bb_lower from FACTS above.");
     lines.push("8. ⛔ When presented with get_accumulation_stocks or get_distribution_stocks: ALL stocks listed under get_accumulation_stocks are ACCUMULATION stocks (درجة تجميع عالية). NEVER label any stock from get_accumulation_stocks as 'تصريف' or 'توزيع'. If get_distribution_stocks reports no stocks found, explicitly write that no distribution stocks were detected in today's scan.");
     lines.push("9. ⛔ CRITICAL: If the distribution scan result shows stocks=[] or says 'لا توجد أسهم تصريف', you MUST NOT mention ANY stock as having 'تصريف', 'سيولة توزيعية', 'ضغط بيعي', or 'مرحلة تصريف'. Just say: 'لا توجد أسهم توزيع واضحة في المسح الحالي'. Same rule applies to accumulation: if accumulation scan is empty, do not invent accumulation stocks.");
+    lines.push("10. ⛔ تحذير قوة الإشارة RSI: كلمة 'آمن' أو 'قوي' أو 'إيجابية واضحة' للزخم لا تنطبق على RSI بين 40-70. RSI في المنطقة 40-70 هو 'محايد' أو 'يتميل للإيجابية/السلبية' فقط. لا تقل أبداً 'منطقة زخم صاعد إيجابي وآمن'، 'آمن تماماً'، أو 'إشارة قوية' إذا كان RSI بين 40 و 70. استخدم بدلاً منها: 'زخم محايد يميل للإيجابية' أو 'محايد بنسبة RSI X'.");
 
     lines.push("=== END STRICT EVIDENCE CONTEXT ===");
     return lines.join("\n");
@@ -355,6 +361,13 @@ export function buildV2FinalMessages(
     sections.push("  • عندما يسأل المستخدم 'في أي منطقة' أو 'منطقة إيه حالياً' أو عن موقع السعر مقارنة بالدعم والمقاومة لأسهم معينة:");
     sections.push("    1. استخدم قيم الحقول المحسوبة الجاهزة في === LIVE DATA === (مثل: price_vs_support, distance_from_support_pct, trading_zone, position_pct) لوصف موقع السعر بدقة.");
     sections.push("    2. يمنع تماماً مقارنة الأرقام يدوياً من قبلك لتفادي أخطاء الحساب اللغوي؛ اعتمد 100% على الحقل trading_zone و price_vs_support المكتوب في البيانات لتصنيف النطاق الفني.");
+    sections.push("  • 🚫 قاعدة مصفوفة القرار (Decision Matrix) — للاستعلامات مقارنة أسهم (2 سهم فأكثر): عند مقارنة أسهم، يجب عليك بناء **مصفوفة قرار** تلقائية تلقائياً من البيانات المقدرة، تتكوّن من البندات التالية لكل سهم:");
+    sections.push("    - التقنية (Technical): RSI، MACD (مقابل خط الإشارة إن وجد)، الاتجاه، مستويات الدعم/المقاومة، Bollinger Bands.");
+    sections.push("    - السيولة (Liquidity): vol_ratio، عدد الأيام المتداولة، wyckoff_phase.");
+    sections.push("    - التعلم الآلي (ML): KING AI score، EGX AI score (مع الفرق النقطي الدقيق بين الأسهم).");
+    sections.push("    - المخاطر (Risk): مسافة السعر من أقرب مستوى دعم/مقاومة، إشارات توزيع/تجميع المتاحة.");
+    sections.push("    - الثقة النهائية (Final Confidence): مجموع البندات الموجبة.");
+    sections.push("    ثم اجمعها في عمود 'النتيجة النهائية' وقلّلها إلى فئات: STRONG BUY (قوي للشراء) / BUY (أفضل) / NEUTRAL (محايد) / AVOID (تجنب). لا تخترع بندًا واحدة من عدها — استخدم فقط القيم الموجودة في === LIVE DATA ===. كن النظام المحسوب وليس الكاتب الذي يخترع.");
     sections.push("- عندما يسأل المستخدم عن وجود توصيات أو إشارات (أو عند العثور على توصيات في البيانات):");
     sections.push("  • إذا توفرت توصيات أو إشارات في بيانات الأدوات (المسترجعة من get_recommendations أو get_signals): قم بعرض تفاصيل كل توصية بوضوح (سعر الدخول، الهدف، وقف الخسارة، ونسبة العائد المتوقعة أو الفعلية والتقييم الفعلي لأدائها).");
     sections.push("  • إذا لم تكن هناك توصيات مسجلة للأسهم المطلوبة في البيانات: ابدأ الرد بإجابة حوارية مباشرة موضحاً أنه لا توجد حالياً توصيات جديدة مسجلة على هذه الأسهم بصفحة التوصيات بالنظام، ثم قدم له قراءة فنية لمستويات الدعم والمقاومة للاسترشاد بها.");
@@ -432,12 +445,22 @@ export function buildV2FinalMessages(
 2. يجب تغطية ومقارنة جميع الأسهم المذكورة في البيانات أدناه وعدم تجاهل أي سهم منها.
 3. قواعد القراءة الفنية للمؤشرات:
    - RSI أكبر من أو يساوي 70: منطقة تشبع شرائي (Overbought) وتخفيف/جني أرباح، وتعتبر مرتفعة المخاطر للشراء.
-   - RSI بين 50 و 68: منطقة زخم صاعد إيجابي وآمن (Bullish Momentum)، وتعتبر الأفضل فنيّاً إذا رافقها حجم تداول جيد فوق المتوسط.
+    - RSI بين 50 و 68: منطقة زخم محايد يميل للإيجابية. تتطلب حجم تداول مثبت (vol_ratio ≥ 1.0) لتأكيد الإشارة. لا تُصف بأنها 'آمنة'، 'قوية'، أو 'واضحة' إلا إذا رانج الحجم أو المؤشرات الأخرى دعم ذلك.
    - RSI بين 40 و 49: منطقة حيادية استقرار.
    - نسبة الحجم (Volume Ratio): أكبر من 1.0x تعني تداولاً كثيفاً فوق المتوسط، وأقل من 1.0x تعني تداولاً أقل من المتوسط.
 4. سلامة اللغة والموضوعية:
    - اكتب بلغة عربية فصحى سليمة 100% وبدون أخطاء إملائية أو ركيكة (يمنع استخدام عبارات مثل "يوصي بنا" أو "أن نستثمر").
-   - اذكر الجانب الفني لكل سهم وموقعه الموضوعي باختصار شديد. في حالة الاستعلام عن وجود توصيات أو صفقات بالاسم، اعرض تفاصيل التوصية المتوفرة (سعر الدخول، الهدف، وقف الخسارة، ونسبة العائد الفعلي)؛ خلاف ذلك اذكر الجانب الفني دون تقديم أوامر شراء صريحة.`;
+   - اذكر الجانب الفني لكل سهم وموقعه الموضوعي باختصار شديد. في حالة الاستعلام عن وجود توصيات أو صفقات بالاسم، اعرض تفاصيل التوصية المتوفرة (سعر الدخول، الهدف، وقف الخسارة، ونسبة العائد الفعلي)؛ خلاف ذلك اذكر الجانب الفني دون تقديم أوامر شراء صريحة.
+5. قواعد عرض تقييمات نماذج الذكاء الاصطناعي (ML Scores):
+   - يمتلك النظام تقييمين يعتمدان على الذكاء الاصطناعي وتعلم الآلة لكل سهم: KING AI Score و EGX AI Score (يتم تمثيلهما كنسبة مئوية، مثلاً 58.3% أو 0.0% أو غير متوفر).
+   - يجب عليك في نهاية تحليلك لأي سهم، وبعد ذكر رأيك الفني والمالي التقليدي، أن تضيف فقرة مستقلة تمامًا في نهاية الرد بعنوان "**الرأي الإحصائي للذكاء الاصطناعي (ML Scores)**".
+   - اذكر فيها بوضوح تقييم KING AI ونموذج EGX AI للسهم وفسرهما للعميل. وضح أن النسبة تمثل درجة ثقة الموديل في إيجابية الاتجاه فنيًا (النسب المرتفعة تشير لفرص قوية والنسب القريبة من الصفر تعني تجنب السهم تمامًا فنيًا).
+   - 📊 قاعدة فارق نقاط ML (ML Score Delta): عند مقارنة سهمين أو أكثر، يجب أن تذكر الفرق الدقيق بين نقاط KING AI و EGX AI لكل أزواج الأسهم (مثال: 'KING AI يتفوق على TMGH بـ +1.0 نقطة، EGX AI بـ +0.3 نقطة'). إذا كان الفرق ≤ 1.0 نقطة، صرّح صراحة أن الفرق 'ضيق / غير إحصائيًا ولا يلزم دلالة ضعيفة' ولا يُعتبر فرقاً معنوياً. لا تقل أبداً 'تفوق كبير' أو 'ميزة واضحة' إذا كان الفرق ≤ 1.0 نقطة.
+    - 📊 قاعدة توافق النماذج (Model Consensus): عند عرض ML Scores، أضف قسماً 'رأي النماذات' يحتوي على:
+      • تفسير كل نموذج بناءاً على النسبة: 70%+ = 'إيجابي قوي'، 55-70% = 'إيجابي متوسط'، 45-55% = 'محايد'، 30-45% = 'متحفظ'، <30% = 'سلبي'.
+      • احسب 'اتفاق النماذات': إذا كان الاتجاه نفسه (كلاهما >50% أو كليهما <50%) → 'اتفاق قوي'؛ إذا خالفوا → 'اتفاق ضعيف'؛ إذا فرق ≥ 15 نقطة → 'اتفاق منخفض جداً'.
+      • استنتج 'القرار الفني العام': اتفاق قوي + نطاق عالي = 'شراء/مراجعة'؛ اتفاق ضعيف = 'مراقبة'؛ اتفاق منخفض = 'انتظار'.
+      - لا تنسَ: النماذات قد تتباين، وهذا شائع. اشرح للمستخدم لماذى قد تختلف النماذات.`;
 
     const messages: { role: string; content: any }[] = [
         { role: "system", content: systemPrompt }

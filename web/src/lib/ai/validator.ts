@@ -49,8 +49,11 @@ const TECHNICAL_EXCLUSIONS = new Set([
     "OTC", "PE", "PER", "PB", "PBV", "ROE", "ROA", "ROI", "NAV", "GDP", "CBE", "FRA",
     "IPO", "MFI", "ATR", "VWAP", "STOCH", "BB", "CCI", "SAR", "PGRST", "HTTP", "HTTPS",
     "URL", "HTML", "PDF", "FAQ", "JSON", "UTC", "GMT", "AM", "PM", "APP", "BOT", "BOTS",
-    "CHAT", "LIVE", "DATA", "FREE", "PRO", "PLUS", "VIP", "MAX", "MIN", "SMA20", "SMA50", "SMA200"
+    "CHAT", "LIVE", "DATA", "FREE", "PRO", "PLUS", "VIP", "MAX", "MIN", "SMA20", "SMA50", "SMA200",
+    // ML model labels used in AI score output — must NOT be treated as stock tickers
+    "KING", "EGX", "SCORE", "ML", "LLM", "GPT"
 ]);
+
 
 // Numbers that represent valid universal time units, day numbers, or standard market parameters
 const ALLOWED_GENERIC_NUMBERS = new Set([
@@ -96,6 +99,7 @@ export function extractSymbols(text: string): string[] {
 export function extractNumbers(text: string): number[] {
     if (!text) return [];
     const normalized = text
+        .replace(/,/g, "")
         .replace(/[٠-٩]/g, d => String("٠١٢٣٤٥٦٧٨٩".indexOf(d)))
         .replace(/[۰-۹]/g, d => String("۰۱۲۳۴۵۶۷۸۹".indexOf(d)));
     const matches = normalized.match(/\b\d+(?:[.٫]\d+)?\b/g) || [];
@@ -125,15 +129,30 @@ export function buildFactsBySymbol(toolResults: any[]): Record<string, any> {
             if (!factsBySymbol[s]) factsBySymbol[s] = {};
 
             if (data.close != null) factsBySymbol[s].price = Number(data.close);
-            if (data.price != null) factsBySymbol[s].price = Number(data.price);
+            if (data.price != null && typeof data.price !== "object") factsBySymbol[s].price = Number(data.price);
+            // change_pct: handles string formats like "+2.61%" and raw numeric
             if (data.change_pct != null) factsBySymbol[s].change_pct = parseFloat(String(data.change_pct).replace(/[%+]/g, ""));
-            if (data.rsi_14 != null) factsBySymbol[s].rsi = Number(data.rsi_14);
-            if (data.rsi != null) factsBySymbol[s].rsi = Number(data.rsi);
-            if (data.macd != null) factsBySymbol[s].macd = Number(data.macd);
-            if (data.macd_signal != null) factsBySymbol[s].macd_signal = Number(data.macd_signal);
+            if (data.change_pct_num != null) factsBySymbol[s].change_pct = Number(data.change_pct_num);
 
-            if (data.vol_ratio != null) factsBySymbol[s].vol_ratio = Number(data.vol_ratio);
+            // rsi_14: handles string "52.88" and raw numeric
+            if (data.rsi_14 != null) factsBySymbol[s].rsi = Number(data.rsi_14);
+            if (data.rsi_14_num != null) factsBySymbol[s].rsi = Number(data.rsi_14_num);
+
+            // macd: prefer raw numeric, fall back to signal/string
+            if (data.macd != null && !Number.isNaN(Number(data.macd))) factsBySymbol[s].macd = Number(data.macd);
+            if (data.macd_signal != null) factsBySymbol[s].macd_signal = Number(data.macd_signal);
+            if (data.macd_signal_num != null) factsBySymbol[s].macd_signal = Number(data.macd_signal_num);
+            if (data.macd_histogram != null) factsBySymbol[s].macd_histogram = Number(data.macd_histogram);
+
+            // vol_ratio: handles string "1.10x", numeric, and _num variant
+            if (data.vol_ratio != null) {
+                const vrStr = String(data.vol_ratio);
+                const parsed = Number(vrStr.replace(/[x٪%]/g, ""));
+                if (!Number.isNaN(parsed)) factsBySymbol[s].vol_ratio = parsed;
+            }
+            if (data.vol_ratio_num != null) factsBySymbol[s].vol_ratio = Number(data.vol_ratio_num);
             if (data.volRatio != null) factsBySymbol[s].vol_ratio = Number(data.volRatio);
+
             if (data.support != null) factsBySymbol[s].support = Number(data.support);
             if (data.resistance != null) factsBySymbol[s].resistance = Number(data.resistance);
             if (data.sma_50 != null) factsBySymbol[s].sma_50 = Number(data.sma_50);
@@ -150,6 +169,14 @@ export function buildFactsBySymbol(toolResults: any[]): Record<string, any> {
             if (data.highest_250_sessions?.price != null) {
                 factsBySymbol[s].highest_price = Number(data.highest_250_sessions.price);
             }
+            if (data.king_ai_score != null) factsBySymbol[s].king_ai_score = Number(data.king_ai_score);
+            if (data.egx_ai_score != null) factsBySymbol[s].egx_ai_score = Number(data.egx_ai_score);
+            if (data.volume != null) {
+                const v = Number(data.volume);
+                if (!Number.isNaN(v)) factsBySymbol[s].volume = v;
+            }
+            if (data.vol_sma20 != null) factsBySymbol[s].vol_sma20 = Number(data.vol_sma20);
+            if (data.value != null) factsBySymbol[s].value = Number(data.value);
         };
 
         if (r.data?.symbol) {
@@ -158,6 +185,17 @@ export function buildFactsBySymbol(toolResults: any[]): Record<string, any> {
         if (Array.isArray(r.data?.stocks)) {
             r.data.stocks.forEach((s: any) => {
                 if (s.symbol) processSymbolData(s.symbol, s);
+            });
+        }
+        if (r.tool === "get_comparison" && r.data && typeof r.data === "object") {
+            Object.keys(r.data).forEach(sym => {
+                const upperSym = sym.toUpperCase();
+                const sData = r.data[sym];
+                if (sData && typeof sData === "object") {
+                    if (sData.price) processSymbolData(upperSym, sData.price);
+                    if (sData.tech) processSymbolData(upperSym, sData.tech);
+                    if (sData.info) processSymbolData(upperSym, sData.info);
+                }
             });
         }
     });
@@ -210,6 +248,40 @@ export function isVerifiableDerivedMetric(val: number, facts: Record<string, any
     if (typeof facts.sma_200 === "number" && Math.abs(val - facts.sma_200) <= 0.05) return true;
     if (typeof facts.highest_price === "number" && Math.abs(val - facts.highest_price) <= 0.05) return true;
 
+    // 5b. Change percentage (already parsed as decimal number in buildFactsBySymbol)
+    if (typeof facts.change_pct === "number" && Math.abs(val - facts.change_pct) <= 0.15) return true;
+
+    // 5c. Volume / value traded
+    if (typeof facts.volume === "number" && Math.abs(val - facts.volume) <= facts.volume * 0.02) return true;
+    if (typeof facts.value === "number" && Math.abs(val - facts.value) <= facts.value * 0.02) return true;
+
+    // 6. MACD value: exact match within tight tolerance (e.g., 0.27)
+    if (typeof facts.macd === "number" && Math.abs(val - facts.macd) <= 0.05) return true;
+    // 6b. MACD histogram: |macd - macd_signal|
+    if (typeof facts.macd === "number" && typeof facts.macd_signal === "number" && Math.abs(val - Math.abs(facts.macd - facts.macd_signal)) <= 0.05) return true;
+    // 6c. MACD histogram from explicit field
+    if (typeof facts.macd_histogram === "number" && Math.abs(val - facts.macd_histogram) <= 0.05) return true;
+
+    // 7. Volume ratio: exact match within tolerance (e.g., 0.32, 1.1)
+    if (typeof facts.vol_ratio === "number" && Math.abs(val - facts.vol_ratio) <= 0.15) return true;
+
+    // 8. ML scores: KING AI, EGX AI (stored as 0-1 decimals, LLM may state as 0-100 %)
+    if (typeof facts.king_ai_score === "number") {
+        if (Math.abs(val - facts.king_ai_score) <= 0.05) return true;           // decimal form (0.583)
+        if (Math.abs(val - facts.king_ai_score * 100) <= 0.6) return true;       // percentage form (58.3)
+    }
+    if (typeof facts.egx_ai_score === "number") {
+        if (Math.abs(val - facts.egx_ai_score) <= 0.05) return true;
+        if (Math.abs(val - facts.egx_ai_score * 100) <= 0.6) return true;
+    }
+
+    // 9. ML score difference: |king_ai_score - egx_ai_score| (decimal or percentage-points)
+    if (typeof facts.king_ai_score === "number" && typeof facts.egx_ai_score === "number") {
+        const mlDiff = Math.abs(facts.king_ai_score - facts.egx_ai_score);
+        if (Math.abs(val - mlDiff) <= 0.10) return true;                          // decimal (0.005)
+        if (Math.abs(val - mlDiff * 100) <= 1.0) return true;                     // percentage points (0.5)
+    }
+
     return false;
 }
 
@@ -247,6 +319,27 @@ export function isVerifiableCrossSymbolMetric(val: number, factsBySymbol: Record
                 if (Math.abs(val - vrDiff) <= 0.15) return true;
                 if (f2.vol_ratio > 0 && Math.abs(val - (f1.vol_ratio / f2.vol_ratio)) <= 0.15) return true;
             }
+
+            // Cross-symbol MACD difference and ratio
+            if (typeof f1.macd === "number" && typeof f2.macd === "number") {
+                const macdDiff = Math.abs(f1.macd - f2.macd);
+                if (Math.abs(val - macdDiff) <= 0.10) return true;
+                if (f2.macd !== 0 && typeof f1.macd === "number" && Math.abs(val - (f1.macd / f2.macd)) <= 0.15) return true;
+            }
+
+            // Cross-symbol ML score difference (decimal or percentage-points)
+            if (typeof f1.king_ai_score === "number" && typeof f2.king_ai_score === "number") {
+                const mlDiff = Math.abs(f1.king_ai_score - f2.king_ai_score);
+                if (Math.abs(val - mlDiff) <= 0.10) return true;                   // decimal (0.005)
+                if (Math.abs(val - mlDiff * 100) <= 1.0) return true;              // percentage points (0.5)
+                if (f2.king_ai_score > 0 && Math.abs(val - (f1.king_ai_score / f2.king_ai_score)) <= 0.15) return true;
+            }
+
+            // Cross-symbol SMA difference
+            if (typeof f1.sma_50 === "number" && typeof f2.sma_50 === "number") {
+                const smaDiff = Math.abs(f1.sma_50 - f2.sma_50);
+                if (Math.abs(val - smaDiff) <= 0.20) return true;
+            }
         }
     }
     return false;
@@ -275,13 +368,15 @@ export function extractSentenceClaims(sentence: string, activeSymbol: string, fa
         }
 
         // B. RSI Claims: "RSI عند 54.31", "مؤشر القوة النسبية 54.31"
-        if (/(?:rsi|قوة نسبية|قوه نسبيه)/i.test(sentence) && num <= 100 && !isPercent) {
+        const isRsiSpecific = new RegExp(`(?:rsi|قوة نسبية|قوه نسبيه)[^0-9\\n]{0,25}?\\b${escapedNum}\\b`, "i").test(sentence);
+        if (isRsiSpecific && num <= 100 && !isPercent) {
             claims.push({ type: "rsi", value: num, symbol: activeSymbol, rawText: String(num), sentence });
             continue;
         }
 
         // C. MACD Claims: "MACD عند 11.97", "مؤشر الماكد 11.97"
-        if (/(?:macd|ماكد)/i.test(sentence) && !isPercent) {
+        const isMacdSpecific = new RegExp(`(?:macd|ماكد)[^0-9\\n]{0,25}?\\b${escapedNum}\\b`, "i").test(sentence);
+        if (isMacdSpecific && !isPercent) {
             claims.push({ type: "macd", value: num, symbol: activeSymbol, rawText: String(num), sentence });
             continue;
         }
@@ -389,7 +484,7 @@ export function validateDeterministicRules(
         // Negated statements ("لا يوجد عليه تصريف") are honest answers — never flag them.
         // Skip for scan list stocks — they're listed from DB, not hallucinated.
         const isNegatedClaim = /(?:لا\s+(?:يوجد|توجد|يمكن\s+تأكيد)|مفيش|ليس\s+هناك|غير\s+متاح|لا\s+تتوفر|انعدام)/i.test(sentence);
-        const claimsDistribution = /(?:مرحل[ةه]\s*تصريف\s*وايكوف|إشار[ةه]\s*تصريف\s*مؤكد[ةه]|درج[ةه]\s*(?:ال)?تصريف|تصريف\s*وايكوف|سهم\s*تصريف\s*مؤكد)/i.test(sentence);
+        const claimsDistribution = /(?:مرحل[ةه]\s*تصريف(?:\s*وايكوف)?|إشار[ةه]\s*تصريف\s*مؤكد[ةه]|درج[ةه]\s*(?:ال)?تصريف|تصريف\s*وايكوف|سيولة\s*(?:توزيع|توزيعية|تصريف|تصريفية|بيعية))/i.test(sentence) && !/(?:توزيعات\s*أرباح|توزيع\s*نقدي|أرباح)/i.test(sentence);
         const hasDistEvidence = (facts.dist_score != null && Number(facts.dist_score) > 0) || toolResults.some(r => (r.tool === "get_distribution_stocks" || r.tool === "get_accumulation_stocks") && Array.isArray(r.data?.stocks) && r.data.stocks.some((st: any) => String(st.symbol).toUpperCase() === activeSymbol?.toUpperCase() && (Number(st.dist_score) > 0 || String(st.wyckoff_phase).toLowerCase().includes("dist") || String(st.wyckoff_phase).toLowerCase().includes("mark"))));
         if (!skipWyckoffChecks && !isNegatedClaim && claimsDistribution && !hasDistEvidence) {
             errors.push(`ادعاء تصريف أو سيولة توزيعية غير مثبت بدليل لسهم ${activeSymbol}: لا تتوفر بيانات مسح Wyckoff/تصريف صريحة — قل إن البيانات غير متاحة بدلاً من الاستنتاج من مؤشرات أخرى.`);
@@ -399,7 +494,7 @@ export function validateDeterministicRules(
         // EVIDENCE VERIFIER CHECK 3: Unproven Wyckoff Accumulation assertion
         // Exclude: negated/absent claims, Wyckoff-educational context, NONE labels
         // Skip for scan list stocks — they're listed from DB, not hallucinated.
-        const claimsAccumulation = /(?:مرحل[ةه]\s*(?:ال)?تجميع\s*وايكوف|درج[ةه]\s*(?:ال)?تجميع|إشار[ةه]\s*تجميع\s*مؤكد[ةه]|تجميع\s*وايكوف)/i.test(sentence)
+        const claimsAccumulation = /(?:مرحل[ةه]\s*(?:ال)?تجميع(?:\s*وايكوف)?|درج[ةه]\s*(?:ال)?تجميع|إشار[ةه]\s*تجميع\s*مؤكد[ةه]|تجميع\s*وايكوف|سيولة\s*(?:تجميع|تجميعية|شرائية))/i.test(sentence)
             && !/(?:NONE|غير\s*متاح|لا\s*تتوفر|ليس\s*هناك|بيانات.*التجميع.*غير|خارج.*مسح)/i.test(sentence);
         const hasAccEvidence = (facts.acc_score != null && Number(facts.acc_score) > 0) || toolResults.some(r => (r.tool === "get_accumulation_stocks" || r.tool === "get_distribution_stocks") && Array.isArray(r.data?.stocks) && r.data.stocks.some((st: any) => String(st.symbol).toUpperCase() === activeSymbol?.toUpperCase() && (Number(st.acc_score) > 0 || String(st.wyckoff_phase).toLowerCase().includes("acc"))));
         if (!skipWyckoffChecks && !isNegatedClaim && claimsAccumulation && !hasAccEvidence) {
@@ -424,6 +519,55 @@ export function validateDeterministicRules(
         });
         if (hasPhaseConflict) {
             errors.push(`تعارض في بيانات Wyckoff لسهم ${activeSymbol}: الادعاء يتناقض مع بيانات المسح الفني.`);
+        }
+
+        // EVIDENCE VERIFIER CHECK 5: Selling-pressure inference from vol_ratio without distribution evidence
+        // A high vol_ratio alone (e.g. 1.69x) must NEVER be interpreted as "ضغط بيعي" or "توزيع"
+        // unless dist_score > 0 or wyckoff_phase indicates distribution.
+        const claimsSellingPressure = /(?:سيولة\s*توزيعية|سيولة\s*تصريفية|تصريف\s*بيعي|سيولة\s*تصريف|ضغط\s*تصريفي)/i.test(sentence);
+        const sentenceMentionsVolRatio = /(?:نسبة\s*الحجم|vol_ratio|نسبة\s*السيولة|حجم\s*التداول|نسبة\s*الحجم)/i.test(sentence) || facts.vol_ratio != null;
+        if (!skipWyckoffChecks && !isNegatedClaim && claimsSellingPressure && sentenceMentionsVolRatio && !hasDistEvidence) {
+            errors.push(`استنتاج غير مثبت لضغط بيعي من نسبة حجم لسهم ${activeSymbol}: vol_ratio قد يكون عالياً (${facts.vol_ratio ?? "غير متوفر"}) لكنه لا يعني توزيع/تصريف دون دليل توزيع صريح (dist_score أو wyckoff_phase). استخدم مصطلح 'نشط' فقط.`);
+        }
+
+        // EVIDENCE VERIFIER CHECK 6: ML Score point-difference misreporting
+        // When the response claims a large/clear advantage in ML scores ("تفوق كبير", "ميزة واضحة"),
+        // the actual numeric difference must be > 1.0 point to avoid false emphasis.
+        const claimsLargeMlAdvantage = /(?:تفوق\s*كبير|ميزة\s*واضحة|تفوق\s*واضح|فارق\s*كبير|تفوق\s*ملحوظ|ميزة\s*واضحة|بصورة\s*واضحة)/i.test(sentence);
+        const mentionsMlScores = /(?:KING|ML|نموذج\s*الذكاء|ذكاء\s*اصطناعي|ai\s*score|king_ai|egx_ai)/i.test(sentence);
+        if (claimsLargeMlAdvantage && mentionsMlScores) {
+            const syms = Object.keys(factsBySymbol);
+            if (syms.length >= 2) {
+                let maxDiffFound = 0;
+                for (let i = 0; i < syms.length; i++) {
+                    for (let j = i + 1; j < syms.length; j++) {
+                        for (const scoreKey of ["king_ai_score", "egx_ai_score"]) {
+                            const v1 = factsBySymbol[syms[i]][scoreKey];
+                            const v2 = factsBySymbol[syms[j]][scoreKey];
+                            if (typeof v1 === "number" && typeof v2 === "number") {
+                                maxDiffFound = Math.max(maxDiffFound, Math.abs(v1 - v2));
+                            }
+                        }
+                    }
+                }
+                // ML scores are 0-1 scaled; multiply by 100 to get points
+                const diffInPoints = maxDiffFound * 100;
+                if (diffInPoints > 0 && diffInPoints <= 1.0) {
+                    errors.push(`ادعاء تفوق كبير/ميزة واضحة لنقاط ML غير دقيق: الفرق الفعلي بين أفضل أزواج ML scores هو ${diffInPoints.toFixed(1)} نقطة (≤ 1.0) — اعتبره غير معنوي ولا تدّعِ تفوقاً كبيراً.`);
+                }
+            }
+        }
+
+        // EVIDENCE VERIFIER CHECK 8: False "آمن" / "قوي" / "إيجابية واضحة" claim with neutral RSI
+        // When RSI is in the 40-70 neutral range, words like "آمن", "إشارة قوية",
+        // "زخم قوي", "منطقة آمن", "إيجابية واضحة" overstate the evidence. These should
+        // be downgraded to "محايد" or "يتميل للإيجابية".
+        const rsi = facts?.rsi != null ? Number(facts.rsi) : null;
+        if (rsi !== null && rsi >= 40 && rsi <= 70 && !Number.isNaN(rsi)) {
+            const strongWords = /\bآمن\b|إشارة\s*قوي|زخم\s*قوي|منطقة\s*آمن|صاعد\s*إيجابي\s*وآمن|إيجابية\s*واضحة|تفوق\s*واضح/g;
+            if (strongWords.test(sentence)) {
+                errors.push(`ادعاء "آمن" أو "قوي" مبالغ فيه لسهم ${activeSymbol} مع RSI = ${rsi} (محايد 40-70): استخدم "محايد يميل للإيجابية" بدلاً من "آمن" أو "قوي".`);
+            }
         }
 
         const claims = extractSentenceClaims(sentence, activeSymbol, facts);
@@ -623,8 +767,13 @@ export function validateResponse(
                 }
             }
 
-            if (!isMatched && liveDataString.includes(String(num))) {
-                isMatched = true;
+            if (!isMatched) {
+                const numStr = String(num);
+                const escapedNum = numStr.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+                const numRegex = new RegExp(`(?:^|[^0-9.])${escapedNum}(?:[^0-9.]|$)`, "g");
+                if (numRegex.test(liveDataString)) {
+                    isMatched = true;
+                }
             }
 
             // Check if matches any mathematically verifiable formula from facts

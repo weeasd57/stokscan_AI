@@ -10,6 +10,26 @@ function normalizeArabic(str: string): string {
         .toLowerCase();
 }
 
+const UNRELATED_NEWS_KEYWORDS = [
+    "زمالك", "أهلي", "كرة", "كره", "مباراة", "دوري", "كأس",
+    "كابلات", "مقاولون", "سيارة", "سيارات", "عقاري", "عقارات",
+    "أسمنت", "اسمنت", "بترول", "غاز", "بتروكيماويات",
+    "صفحة", "أبراج", "عالم المال"
+];
+
+function isRelevantNews(title: string, symbol: string, companyName: string): boolean {
+    if (!title) return false;
+    const t = title.toLowerCase();
+    const sym = symbol.toLowerCase();
+    const name = (companyName || "").toLowerCase();
+    const nameTokens = name.split(/\s+/).filter(token => token.length > 3);
+    const hasSymbol = sym.length >= 3 && t.includes(sym);
+    const hasName = nameTokens.some(token => t.includes(token));
+    const hasUnrelated = UNRELATED_NEWS_KEYWORDS.some(k => t.includes(k));
+    if (hasUnrelated) return false;
+    return hasSymbol || hasName;
+}
+
 function getLevenshteinDistance(a: string, b: string): number {
     const matrix = [];
     for (let i = 0; i <= b.length; i++) {
@@ -645,12 +665,28 @@ export async function executeTools(supabase: any, plannerResult: PlannerResult, 
 
             const { data: newsData } = await newsQuery;
 
-            if (newsData && newsData.length > 0) {
+            let filteredNewsData = newsData || [];
+            if (filteredNewsData.length > 0 && symbols.length > 0) {
+                const uniqueSymbols = Array.from(new Set(symbols.map(s => String(s).toUpperCase()).filter(Boolean)));
+                const { data: nameRows } = await supabase.from("stocks").select("symbol, name").in("symbol", uniqueSymbols).limit(uniqueSymbols.length);
+                const nameMap = new Map<string, string>((nameRows || []).map((r: any): [string, string] => [String(r.symbol).toUpperCase(), String(r.name || "")]));
+                filteredNewsData = filteredNewsData.filter((item: any) => {
+                    const sym = String(item.symbol || "").toUpperCase();
+                    const name: string = String(nameMap.get(sym) || "");
+                    const headlines = Array.isArray(item.headlines) ? item.headlines : [];
+                    const validHeadlines = headlines.map((hl: any) => String(hl ?? "")).filter((hl: string) => isRelevantNews(hl, sym, name));
+                    item.headlines = validHeadlines;
+                    item.news_count = validHeadlines.length;
+                    return validHeadlines.length > 0 || Number(item.sentiment_score) !== 0;
+                }).filter((item: any) => item.headlines.length > 0 || Number(item.sentiment_score) !== 0);
+            }
+
+            if (filteredNewsData.length > 0) {
                 outputText += `\n📰 [أخبار وتحليلات المعنويات للأسهم - آخر ${AI_CONFIG.tools.newsDaysLookback} أيام]:\n`;
-                outputText += `📌 إجمالي الأسهم التي لديها أخبار مسجلة: ${newsData.length} سهم\n\n`;
+                outputText += `📌 إجمالي الأسهم التي لديها أخبار مسجلة: ${filteredNewsData.length} سهم\n\n`;
                 
                 const newsByDate = new Map<string, any[]>();
-                newsData.forEach((item: any) => {
+                filteredNewsData.forEach((item: any) => {
                     const dateKey = item.date || todayStr;
                     if (!newsByDate.has(dateKey)) {
                         newsByDate.set(dateKey, []);

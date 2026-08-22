@@ -59,6 +59,50 @@ NEGATION_WINDOW = 4
 
 
 def _is_arabic(text: str) -> bool:
+    return any('\u0600' <= ch <= '\u06FF' for ch in text)
+
+
+def get_symbol_search_terms(symbol: str) -> List[str]:
+    sym = symbol.split(".")[0].upper().strip()
+    terms = [sym]
+    if sym.endswith("S") and len(sym) > 1:
+        terms.append(sym[:-1])
+    return list(dict.fromkeys(terms))
+
+
+def is_relevant_news(title: str, symbol: str, company_name: str = "") -> bool:
+    if not title or not symbol:
+        return False
+    t = title.lower()
+    sym = symbol.split(".")[0].upper().strip()
+    terms = get_symbol_search_terms(sym)
+    for term in terms:
+        if len(term) >= 3 and term.lower() in t:
+            return True
+    name = (company_name or "").lower()
+    name_tokens = [token for token in name.split() if len(token) > 3]
+    if name_tokens and any(token in t for token in name_tokens):
+        return True
+    return False
+
+
+UNRELEVANT_NEWS_PATTERNS = [
+    r"\bزمالك\b", r"\bأهلي\b", r"\bكره\b", r"\bكرة\b", r"\bمباراة\b", r"\bدوري\b",
+    r"\bكابلات\b", r"\bكهربائية\b", r"\bمقاولون\b", r"\bسيارة\b", r"\bسيارات\b",
+    r"\bعقاري\b", r"\bعقارات\b", r"\bعقار\b", r"\bاسمنت\b", r"\bأسمنت\b",
+    r"\bبترول\b", r"\bغاز\b", r"\bبتروكيماويات\b",
+    r"\bصفحة\b", r"\bأبراج\b", r"\bعالم\s+المال\b",
+]
+
+
+def is_unrelated_news(title: str) -> bool:
+    if not title:
+        return False
+    t = title.lower()
+    return any(re.search(p, t) for p in UNRELEVANT_NEWS_PATTERNS)
+
+
+def _is_arabic(text: str) -> bool:
     """Check if a term contains Arabic characters."""
     return any('\u0600' <= ch <= '\u06FF' for ch in text)
 
@@ -148,6 +192,7 @@ def fetch_google_news(symbol: str, days_back: int = 3) -> List[Dict[str, Any]]:
     """
     Fetches news from Google News RSS using both Arabic and English queries.
     Uses standard xml.etree.ElementTree and urllib.
+    Returns only headlines relevant to the requested symbol/company.
     """
     clean_sym = symbol.split(".")[0].upper()
     
@@ -158,7 +203,7 @@ def fetch_google_news(symbol: str, days_back: int = 3) -> List[Dict[str, Any]]:
     ]
     
     news_items = {}
-    cutoff_date = dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=days_back)
+    cutoff_date = dt.date.today() - dt.timedelta(days=days_back)
     
     for query in queries:
         try:
@@ -206,7 +251,12 @@ def fetch_google_news(symbol: str, days_back: int = 3) -> List[Dict[str, Any]]:
         except Exception as e:
             print(f"[NEWS_ENGINE] Error fetching news query '{query}': {e}")
             
-    return list(news_items.values())
+    # Keep only headlines that are relevant to the requested symbol
+    relevant_items = [
+        item for item in news_items.values()
+        if is_relevant_news(item["title"], clean_sym) and not is_unrelated_news(item["title"])
+    ]
+    return relevant_items
 
 def analyze_sentiment(news_list: List[Dict[str, Any]]) -> Dict[str, Any]:
     """

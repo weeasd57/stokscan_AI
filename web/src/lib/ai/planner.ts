@@ -595,16 +595,26 @@ export function getSyncSymbolOfficialNameMap(): Record<string, { name_en?: strin
 }
 
 const STATIC_VALID_SYMBOLS = [
-    'AALR', 'ABUK', 'ACAMD', 'ACAP', 'ADCI', 'ADPC', 'AFMC', 'AIH', 'AIIH', 'AJWA', 'ALCN', 'ALUM', 'AMES', 'AMOC',
-    'APPC', 'ARAB', 'AREH', 'ARVA', 'ATQA', 'AXPH', 'AZEM', 'AZGD', 'AZSD', 'AZST', 'BIGP', 'BIOC', 'BMM', 'BTFH', 'CAED', 'CCAP', 'CI30', 'CIEB', 'CIRA', 'CLHO',
-    'CNFN', 'COMI', 'COPR', 'COSG', 'CPCI', 'CRST', 'DMTY', 'EAST', 'EEII', 'EFID', 'EFIH', 'EGFD', 'EGAL', 'EGAS', 'EGBE',
-    'EGCH', 'EGREF', 'EGSA', 'EGTS', 'EGX30', 'EGX70', 'EGX100', 'EHDR', 'EITP', 'EKHO', 'ELKA', 'ELSH', 'EMFD', 'EOSB',
-    'ESRS', 'ETEL', 'ETRS', 'FAIT', 'FCMD', 'FERC', 'FTNS', 'FWRY', 'GBCO', 'GDWA', 'GGCC', 'GGRN', 'GMCI', 'GOUR',
-    'GSSC', 'HELI', 'HRHO', 'ICFC', 'IDRE', 'INFI', 'IRON', 'ISMA', 'ISPH', 'JUFO', 'KABO', 'KASABF',
-    'KRDI', 'KWIN', 'KZPC', 'LUTS', 'MASR', 'MBSC', 'MCQE', 'MENA', 'MFPC', 'MFSC', 'MICH', 'MILS', 'MNHD',
-    'MOIL', 'MOSC', 'MPCO', 'MTIE', 'NCGC', 'NEDA', 'NHPS', 'NINH', 'NIPH', 'OBRI', 'OLFI', 'ORAS', 'ORHD', 'ORWE', 'PHDC', 'PHTV',
-    'PHAR', 'POUL', 'PRDC', 'RACC', 'RAYA', 'RMDA', 'RREI', 'RTVC', 'RUBX', 'SAUD', 'SCEM', 'SCTS', 'SEIG', 'SIPC', 'SKPC', 'SNFC', 'SODIC', 'SVCE',
-    'SPIN', 'SWDY', 'TANM', 'TAQA', 'TMGH', 'TRTO', 'TWSA', 'TYCN', 'UEFM', 'UNIT', 'USDEGP', 'VALU', 'VLMRA', 'WATP'
+    'AALR', 'ABUK', 'ACAMD', 'ACAP', 'ACGC', 'ACRO', 'ACTF', 'ADCI', 'ADIB', 'ADPC', 'AFDI', 'AFMC', 'AGIG', 'AIDC', 'AIH',
+    'AIND', 'AITG', 'AIVCB', 'AJWA', 'ALCN', 'ALEX', 'ALRA', 'ALUM', 'AMER', 'AMES', 'AMIA', 'AMOC', 'ANFI', 'APPC', 'APSW',
+    'ARAB', 'ARCC', 'AREH', 'AREHA', 'ARVA', 'ASCM', 'ASPI', 'ATLC', 'ATQA', 'AUTO', 'AXPH', 'BINV', 'BIOC', 'BONY', 'BTFH',
+    'CAED', 'CANA', 'CCAP', 'CCRS', 'CEFM', 'CERA', 'CFGH', 'CICH', 'CIEB', 'CIRA', 'CIRF', 'CLHO', 'CNFN', 'COMI', 'COPR',
+    'COSG', 'CPCI', 'CPME', 'CRST', 'CSAG', 'DAPH', 'DCRC', 'DEIN', 'DGTZ', 'DOMT', 'DSCW', 'DTPP', 'EALR', 'EASB', 'EAST',
+    'EBSC', 'ECAP', 'EDBM', 'EDFM', 'EEII', 'EFIC', 'EFID', 'EFIH', 'EFMP', 'EGAL', 'EGAS', 'EGBE', 'EGCH', 'EGREF', 'EGSA',
+    'EGTS', 'EGX100', 'EGX30', 'EHDR', 'EITP', 'EIUD', 'ELEC', 'ELKA', 'ELNA', 'ELSH', 'EMFD', 'EMRI', 'ENGC', 'EOSB',
+    'EPCO', 'EPPK', 'ESGI', 'ESRS', 'ETEL', 'ETRS', 'EXPA', 'FAIT', 'FAITA', 'FCMD', 'FERC', 'FWRY', 'GBCO', 'GDWA', 'GGCC',
+    'GGRN', 'GIHD', 'GMCI', 'GOCO', 'GOUR', 'GPIM', 'GPPL', 'GRCA', 'GSPC', 'GSSC', 'GTEX', 'GTHE', 'GTWL', 'HDBK', 'HELI',
+    'HRHO', 'ICAL', 'ICFC', 'ICID', 'ICLE', 'IDHC', 'IDRE', 'IEEC', 'IEOC', 'IFAP', 'INFI', 'IPPM', 'IRAX', 'IRON', 'ISMA',
+    'ISMQ', 'ISPH', 'JUFO', 'KABO', 'KASABF', 'KORA', 'KRDI', 'KWIN', 'KZPC', 'LCSW', 'LUTS', 'MAAL', 'MASR', 'MATD', 'MBEG',
+    'MBSC', 'MCQE', 'MCRO', 'MEDP', 'MEGM', 'MENA', 'MEPA', 'MFIN', 'MFPC', 'MFSC', 'MHOT', 'MICH', 'MILS', 'MIPH', 'MOED',
+    'MOIL', 'MOIN', 'MOSC', 'MPCI', 'MPCO', 'MPRC', 'MRCO', 'MTIE', 'NAHO', 'NAPR', 'NARE', 'NASR', 'NBKE', 'NCCW', 'NCEM',
+    'NCGC', 'NCIN', 'NCMP', 'NDRL', 'NEDA', 'NHPS', 'NINH', 'NIPH', 'NOAF', 'OBRI', 'OCDI', 'OCPH', 'ODHN', 'ODID', 'ODIN',
+    'OFH', 'OIH', 'OLFI', 'ORAS', 'OREG', 'ORHD', 'ORMT', 'ORWE', 'PACH', 'PHAR', 'PHDC', 'PHGC', 'PHTV', 'PIOH', 'POUL',
+    'PRCL', 'PRDC', 'PRMH', 'QNBA', 'QNBE', 'RACC', 'RAKT', 'RAYA', 'RMDA', 'RMTV', 'ROTO', 'RREI', 'RTVC', 'RUBX', 'SAIB',
+    'SAUD', 'SBAG', 'SCEM', 'SCFM', 'SCTS', 'SDTI', 'SEIG', 'SEIGA', 'SIMO', 'SIPC', 'SKPC', 'SMCS', 'SMCSA', 'SMFR', 'SMPP',
+    'SNFC', 'SPHT', 'SPIN', 'SPMD', 'SRWA', 'SUCE', 'SUGR', 'SVCE', 'SWDY', 'TALM', 'TANM', 'TAQA', 'TMGH', 'TORA', 'TOUR',
+    'TRTO', 'TWSA', 'TYCN', 'UASG', 'UBEE', 'UEFM', 'UEGC', 'UNBE', 'UNIP', 'UNIT', 'USDEGP', 'UTOP', 'VALU', 'VLMRA', 'WACE',
+    'WATP', 'WCDF', 'WKOL', 'ZEOT', 'ZMID'
 ];
 
 function getLevenshteinDistance(a: string, b: string): number {

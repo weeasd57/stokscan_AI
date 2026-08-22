@@ -342,7 +342,18 @@ def fetch_tradingview_prices(
         return False, "tvDatafeed library not installed. Run: pip install tvDatafeed"
     
     import datetime as dt
-    from api.stock_ai import _last_trading_day, sync_df_to_supabase, _get_supabase_info
+    from api.stock_ai import _last_trading_day, sync_df_to_supabase
+    from api.stock_ai import _init_supabase, _get_thread_local_supabase
+    import pandas as pd
+    
+    def _get_supabase_info(ticker):
+        _init_supabase()
+        sb = _get_thread_local_supabase()
+        sym = ticker.replace(".EGX", "").replace(".CA", "")
+        res = sb.table("stock_prices").select("date").eq("symbol", sym).order("date", desc=True).limit(1).execute()
+        if res.data:
+            return {"last_date": pd.to_datetime(res.data[0]["date"]).date(), "count": 100}
+        return {"last_date": None, "count": 0}
 
     # Map string timeframe to tvDatafeed Interval
     tf_map = {

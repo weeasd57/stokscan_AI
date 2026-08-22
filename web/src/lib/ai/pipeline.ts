@@ -1760,10 +1760,16 @@ import { ToolResult } from "./types";
         });
     }
 
-    // No tool produced usable content — say so clearly instead of an empty header + disclaimer.
-    if (!hasContent) {
-        return "عذراً، لم تتوفر بيانات موثقة لهذا الطلب من قاعدة البيانات حالياً، لذلك لن أخمن إجابة غير مدعومة بالبيانات. جرّب إعادة صياغة السؤال (مثلاً: سعر سهم معين، أسهم التجميع اليوم، ترتيب الأسهم بالسيولة، أداء القطاعات) وسأعرض النتائج الموثقة المتاحة.";
-    }
+     // No tool produced usable content — say so clearly instead of an empty header + disclaimer.
+     // But if tables (built from the same tool results) contain real data, don't contradict
+     // the table by saying "no verified data" — acknowledge the table instead.
+     if (!hasContent) {
+         const availableTables = buildExcelTables(toolsResults, null);
+         if (availableTables.length > 0) {
+             return "تم توفير البيانات الأساسية في الجدول أعلاه. لم يُنتج تحليل نصي موثوق بعد (جميع محاولات الذكاء الاصطناعي فشلت في اجتياز فحص البيانات). الرجاء الاطلاع على الأرقام مباشرةً واتخاذ القرار بناءً عليها. 📌 الرأي مبني على مؤشرات السعر والزخم والحجم والمستويات الفنية المسجلة، وهو لأغراض استرشادية وليس توصية مباشرة بالشراء أو البيع.";
+         }
+         return "عذراً، لم تتوفر بيانات موثقة لهذا الطلب من قاعدة البيانات حالياً، لذلك لن أخمن إجابة غير مدعومة بالبيانات. جرّب إعادة صياغة السؤال (مثلاً: سعر سهم معين، أسهم التجميع اليوم، ترتيب الأسهم بالسيولة، أداء القطاعات) وسأعرض النتائج الموثقة المتاحة.";
+     }
 
     lines.push("📌 الرأي مبني على مؤشرات السعر والزخم والحجم والمستويات الفنية المسجلة، وهو لأغراض استرشادية وليس توصية مباشرة بالشراء أو البيع.");
     return lines.join("\n").trim();

@@ -30,6 +30,13 @@ function stockRow(stock: any, symbolFallback = ""): string[] {
             : ""
     );
 
+    const formatScore = (val: any) => {
+        if (val === null || val === undefined || val === "") return "N/A";
+        const num = Number(val);
+        if (isNaN(num)) return "N/A";
+        return `${(num * 100).toFixed(1)}%`;
+    };
+
     return [
         cell(stock?.symbol || symbolFallback),
         cell(stock?.name || stock?.info?.name),
@@ -38,11 +45,13 @@ function stockRow(stock: any, symbolFallback = ""): string[] {
         metric(volume),
         metric(tech?.rsi_14 ?? stock?.rsi_14),
         metric(tech?.macd_signal ?? stock?.macd_signal, 4),
-        cell(stock?.signal || tech?.signal || "")
+        cell(stock?.signal || tech?.signal || ""),
+        formatScore(tech?.king_ai_score ?? stock?.king_ai_score),
+        formatScore(tech?.egx_ai_score ?? stock?.egx_ai_score)
     ];
 }
 
-const stockHeaders = ["السهم", "الاسم", "السعر", "التغير %", "نسبة الحجم", "RSI", "MACD", "الإشارة"];
+const stockHeaders = ["السهم", "الاسم", "السعر", "التغير %", "نسبة الحجم", "RSI", "MACD", "الإشارة", "تقييم KING AI", "تقييم EGX AI"];
 
 function buildStockTable(tool: ToolResult): ExcelTable | null {
     const data = tool.data || {};

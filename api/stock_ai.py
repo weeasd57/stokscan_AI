@@ -114,10 +114,12 @@ class _MetaLabelingClassifier:
         meta_model: Any,
         meta_feature_names: List[str],
         meta_threshold: float = 0.7,
+        return_raw_prob: bool = False,
     ):
         self.primary_model = primary_model
         self.meta_model = meta_model
         self.meta_feature_names = list(meta_feature_names or [])
+        self.return_raw_prob = return_raw_prob
         try:
             self.meta_threshold = float(meta_threshold)
         except Exception:
@@ -155,7 +157,10 @@ class _MetaLabelingClassifier:
             meta_prob = meta_pred
 
         # Filter: only keep primary probability when meta confidence passes threshold
-        filtered_prob = np.where(np.asarray(meta_prob) >= self.meta_threshold, np.asarray(primary_prob), 0.0)
+        if getattr(self, 'return_raw_prob', False):
+            filtered_prob = np.asarray(primary_prob)
+        else:
+            filtered_prob = np.where(np.asarray(meta_prob) >= self.meta_threshold, np.asarray(primary_prob), 0.0)
         return np.column_stack([1 - filtered_prob, filtered_prob])
 
     def predict(self, X: pd.DataFrame):

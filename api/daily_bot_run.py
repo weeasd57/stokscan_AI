@@ -518,7 +518,7 @@ def calculate_indicators_for_symbol(symbol: str, exchange: str = "EGX") -> List[
     # Build records for the last 5 days (returned for batch upsert)
     records = []
     calc_ts = dt.datetime.utcnow().isoformat()
-    last_indices = df.index[-5:]
+    last_indices = df.index[-1:]
     for idx in last_indices:
         date_str = idx.strftime("%Y-%m-%d")
         
@@ -600,12 +600,17 @@ def _batch_upsert_indicators(all_records: List[Dict[str, Any]], batch_size: int 
     for i in range(0, len(all_records), batch_size):
         batch = all_records[i:i + batch_size]
         try:
+            # Delete old records for these symbols so we don't accumulate multiple dates
+            batch_symbols = list(set([r["symbol"] for r in batch]))
+            if batch_symbols:
+                supabase.table("stock_technical_indicators").delete().in_("symbol", batch_symbols).execute()
             supabase.table("stock_technical_indicators").upsert(batch).execute()
         except Exception as e:
             print(f"[INDICATORS] Batch upsert failed for batch {i//batch_size}: {e}")
             # Fallback: upsert individually
             for rec in batch:
                 try:
+                    supabase.table("stock_technical_indicators").delete().eq("symbol", rec["symbol"]).execute()
                     supabase.table("stock_technical_indicators").upsert(rec).execute()
                 except Exception as e2:
                     print(f"[INDICATORS] Individual upsert failed for {rec.get('symbol')}: {e2}")
@@ -2993,4 +2998,8 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
 
 
 if __name__ == "__main__":
-    asyncio.run(run_daily_job())
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--skip-sync", action="store_true")
+    args = parser.parse_args()
+    asyncio.run(run_daily_job(skip_sync=args.skip_sync))

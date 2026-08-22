@@ -145,7 +145,7 @@ class FastScanResult(Dict[str, Any]):
     pass
 
 
-def _load_model(model_name: str):
+def _load_model(model_name: str, return_raw_prob: bool = False):
     """Load a model artifact, supporting meta_labeling_system, lgbm_booster, and legacy formats.
     Uses the same loading logic as stock_ai.py to ensure PCA support.
     """
@@ -217,7 +217,7 @@ def _load_model(model_name: str):
         meta_feature_names = artifact.get("meta_feature_names") or []
         meta_threshold = artifact.get("meta_threshold", 0.7)
 
-        model = _MetaLabelingClassifier(primary_clf, meta_model, meta_feature_names, meta_threshold)
+        model = _MetaLabelingClassifier(primary_clf, meta_model, meta_feature_names, meta_threshold, return_raw_prob=return_raw_prob)
         is_lgbm = True
 
     # ── lgbm_booster artifact ────────────────────────────────────────────────
@@ -332,7 +332,7 @@ class _BoosterWrapper:
         return np.column_stack([1 - probs, probs])
 
 
-def _is_stock_active(df: pd.DataFrame, max_stale_days: int = 30) -> Tuple[bool, str]:
+def _is_stock_active(df: pd.DataFrame, max_stale_days: int = 30, current_date=None) -> Tuple[bool, str]:
     """
     Check if a stock is still actively trading based on recent price data.
     Returns (is_active, reason).
@@ -355,7 +355,11 @@ def _is_stock_active(df: pd.DataFrame, max_stale_days: int = 30) -> Tuple[bool, 
         last_date = pd.to_datetime(df["timestamp"].iloc[-1], errors="coerce")
 
     if last_date is not None:
-        days_since = (pd.Timestamp.now() - last_date).days
+        if current_date:
+            now_dt = pd.to_datetime(current_date)
+        else:
+            now_dt = pd.Timestamp.now()
+        days_since = (now_dt - last_date).days
         if days_since > max_stale_days:
             return False, f"Last data {days_since} days ago (>{max_stale_days})"
 
@@ -385,6 +389,7 @@ def _process_symbol(
     market_df: Optional[pd.DataFrame] = None,
     validator: Optional[CouncilValidator] = None,
     sector_returns_df: Optional[pd.DataFrame] = None,
+    to_date: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
     """Process a single symbol - called in parallel."""
     try:
@@ -393,7 +398,7 @@ def _process_symbol(
             raw = raw.iloc[-500:].copy()
 
         # 🚫 Skip delisted/suspended stocks
-        is_active, reason = _is_stock_active(raw)
+        is_active, reason = _is_stock_active(raw, current_date=to_date)
         if not is_active:
             return None
         
@@ -523,13 +528,13 @@ def _process_symbol(
         if pred == 1:
             if validator is not None and validator_score is not None:
                 try:
-                    if float(validator_score) < float(getattr(validator, "approval_threshold", 0.5)):
+                    if float(validator_score) < float(getattr(validator, "approval_threshold", 0.5)) and buy_threshold > 0.0:
                         return None
                 except Exception:
                     pass
             
             distribution_gate = get_distribution_gate(candidate.iloc[-1])
-            if distribution_gate["blocked"]:
+            if distribution_gate["blocked"] and buy_threshold > 0.0:
                 print(
                     f"[FILTER] Rejecting {sym} due to {distribution_gate['reason']} "
                     f"(MM_Distribution={distribution_gate['mm_distribution']:.0f}, "
@@ -538,7 +543,7 @@ def _process_symbol(
                 return None
 
             news_sentiment = stock_ai._get_latest_news_sentiment(sym)
-            if news_sentiment.get("negative_flag") == 1:
+            if news_sentiment.get("negative_flag") == 1 and buy_threshold > 0.0:
                 print(
                     f"[SENTIMENT_VETO] Rejecting {sym} due to negative news "
                     f"sentiment ({news_sentiment.get('sentiment_score', 0.0)})"
@@ -579,6 +584,7 @@ def _process_symbol(
             ai_score = _calculate_ai_score(float(precision), buy_threshold)
             
             return {
+                "date": str(candidate.index[-1].date()) if hasattr(candidate.index, 'date') else str(pd.to_datetime(candidate.index[-1]).date()),
                 "symbol": sym,
                 "exchange": ex,
                 "name": name,
@@ -608,6 +614,8 @@ def _process_symbol(
         return None
     except Exception as e:
         msg = str(e)
+        if sym == "TMGH":
+            print(f"DEBUG SCAN ERROR TMGH: {msg}")
         # Silently skip assets with categorical mismatch or known data-type issues
         if "categorical_feature do not match" in msg:
             return None
@@ -731,6 +739,7 @@ def fast_scan(
     buy_threshold: float = 0.60,
     council_model: Optional[str] = None,
     validator_model: Optional[str] = None,
+    return_raw_prob: bool = False,
 ):
     start = time.time()
     
@@ -740,8 +749,16 @@ def fast_scan(
     
     try:
         symbols_data = load_symbols_for_country(country)
+        # TEMPORARY HACK FOR FAST TMGH TESTING
+        if "TMGH" in [s.get("Symbol") for s in symbols_data]:
+            symbols_data = [s for s in symbols_data if s.get("Symbol") == "TMGH"]
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to load symbols: {e}")
+
+    try:
+        model, predictors, is_lgbm = _load_model(model_name, return_raw_prob=return_raw_prob)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to load model: {e}")
 
     # Warm bulk cache for all exchanges in this country
     exchanges = {_normalize_exchange(str(row.get("Exchange", ""))) for row in symbols_data if isinstance(row, dict)}
@@ -750,7 +767,7 @@ def fast_scan(
     for ex in exchanges:
         if not ex:
             continue
-        bulk_map[ex] = _get_exchange_bulk_data(ex, from_date=from_date, to_date=to_date, bypass_min_limit=True)
+        bulk_map[ex] = _get_exchange_bulk_data(ex, bypass_min_limit=True)
         fundamentals_map_by_ex[ex] = _get_exchange_fundamentals_map(ex)
 
     if os.getenv("DEBUG_FUNDAMENTALS") == "1":
@@ -829,6 +846,14 @@ def fast_scan(
                         market_df = pd.DataFrame(all_data)
                         market_df["date"] = pd.to_datetime(market_df["date"])
                         market_df = market_df.set_index("date").sort_index()
+                        
+                        if to_date:
+                            try:
+                                target_dt = pd.to_datetime(to_date)
+                                market_df = market_df[market_df.index <= target_dt]
+                            except Exception:
+                                pass
+                                
                         print(f"DEBUG SCAN: Loaded {len(market_df)} EGX30 index rows from Supabase.")
             except Exception as db_err:
                 print(f"DEBUG SCAN: Failed to load market context from Supabase: {db_err}")
@@ -908,7 +933,20 @@ def fast_scan(
         df = df_map.get(sym)
         if df is None or df.empty:
             continue
-        
+            
+        if to_date:
+            try:
+                target_dt = pd.to_datetime(to_date)
+                if 'date' in df.columns:
+                    df = df[df['date'] <= to_date]
+                else:
+                    df = df[df.index <= target_dt]
+            except Exception:
+                pass
+                
+        if df.empty:
+            continue
+            
         symbols_to_process.append((sym, ex, name, df))
 
     scanned = len(symbols_to_process)
@@ -937,7 +975,7 @@ def fast_scan(
                 if date_col in df_all_scan.columns:
                     df_all_scan["date_only"] = pd.to_datetime(df_all_scan[date_col]).dt.date
                     df_all_scan = df_all_scan.sort_values(["symbol", "date_only"])
-                    df_all_scan["daily_return"] = df_all_scan.groupby("symbol")["close"].pct_change().fillna(0.0)
+                    df_all_scan["daily_return"] = df_all_scan.groupby("symbol")["Close"].pct_change().fillna(0.0)
                     sector_returns_df = df_all_scan.groupby(["date_only", "sector"], observed=False)["daily_return"].mean().reset_index()
                     print(f"Calculated sector average returns for {len(sector_returns_df)} date-sector combinations in fast scan.")
         except Exception as e:
@@ -950,7 +988,7 @@ def fast_scan(
                 _process_symbol, sym, ex, name, df, model, predictors, min_precision,
                 target_pct, stop_loss_pct, look_forward_days, buy_threshold, 
                 fundamentals_map_by_ex.get(ex.upper()), council, market_df, validator,
-                sector_returns_df
+                sector_returns_df, to_date
             ): sym
             for sym, ex, name, df in symbols_to_process
         }

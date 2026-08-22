@@ -101,6 +101,7 @@ export interface ToolResult {
     source: string;
     data_time: string;
     symbols: string[];
+    symbol_count?: number;
     data_type: "live" | "historical" | "image-derived";
     data: any;
     error?: string;

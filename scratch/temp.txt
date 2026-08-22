@@ -1,100 +1,39 @@
-                "peRatio": r.get("peRatio") if "peRatio" in r else None,
-                "eps": r.get("eps") if "eps" in r else None,
-                "dividendYield": r.get("dividendYield") if "dividendYield" in r else None,
-                "marketCap": r.get("marketCap") if "marketCap" in r else None,
-                "fund_score": r.get("fund_score") if "fund_score" in r else None,
-            }
-            present = [k for k, v in sample.items() if v not in (None, "", 0, 0.0)]
-            print(f"DEBUG FUND: {sym}.{ex} present={present} sample={sample}")
-        
-        if not available_predictors:
-            return None
-        
-        prob = None
-        if hasattr(model, "predict_proba"):
-            try:
-                prob = float(model.predict_proba(candidate[available_predictors])[0][1])
-                pred = 1 if prob >= buy_threshold else 0
-            except Exception:
-                pred = int(model.predict(candidate[available_predictors])[0])
-        else:
-            pred = int(model.predict(candidate[available_predictors])[0])
-        
-        precision = prob if prob is not None else 0.5
+def _load_model(model_name: str):
+    """Load a model artifact, supporting meta_labeling_system, lgbm_booster, and legacy formats.
+    Uses the same loading logic as stock_ai.py to ensure PCA support.
+    """
+    models_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "models"))
+    # Security: reject traversal/absolute paths before opening + pickle.load
+    try:
+        model_path = safe_model_path(model_name, models_dir)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
-        # Optional validator gating (trained on base-model BUY candidates)
-        validator_score = None
-        if validator is not None and precision is not None:
-            try:
-                import numpy as np
+    cached = _get_model_cached(model_path)
+    if cached:
+        return cached
 
-                validator_score = float(
-                    validator.predict_proba(candidate, primary_conf=np.asarray([float(precision)]))[0][1]
-                )
-            except Exception:
-                validator_score = None
-        
-        # Phase 2: Council Filtering
-        council_score = 0.0
-        consensus_ratio = ""
-        detailed_votes = {}
-        if council:
-            # get_consensus returns a numpy array for each row
-            scores = council.get_consensus(candidate)
-            if len(scores) > 0:
-                council_score = float(scores[0])
-            
-            votes = council.get_detailed_votes(candidate)
-            detailed_votes = {m: float(v[0]) for m, v in votes.items() if len(v) > 0}
-            
-            # Consensus Ratio string e.g. "2/4"
-            passing_votes = sum(1 for v in detailed_votes.values() if v >= 0.55)
-            total_voters = len(detailed_votes)
-            consensus_ratio = f"{passing_votes}/{total_voters}"
+    if not os.path.exists(model_path):
+        raise FileNotFoundError(f"Model file not found: {model_path}")
+    with open(model_path, "rb") as f:
+        artifact = pickle.load(f)
 
-        # Debug logging for BUY predictions or interesting scores
-        if pred == 1 or council_score > 0.4:
-            debug_msg = f"DEBUG SCAN: {sym} | radar_prob={precision:.3f} | council={council_score:.2f} [{consensus_ratio}]"
-            if pred == 1:
-                debug_msg += " | [OK] RADAR BUY"
-            if council_score >= 0.55:
-                debug_msg += " | [OK] COUNCIL PASS"
-            try:
-                print(debug_msg)
-                if detailed_votes:
-                    print(f"   Votes: {detailed_votes}")
-            except Exception:
-                pass
-        
-        # Filter logic: Must pass Radar Buy (pred=1) and validator if provided
-        if pred == 1:
-            if validator is not None and validator_score is not None:
-                try:
-                    if float(validator_score) < float(getattr(validator, "approval_threshold", 0.5)):
-                        return None
-                except Exception:
-                    pass
-            
-            distribution_gate = get_distribution_gate(candidate.iloc[-1])
-            if distribution_gate["blocked"]:
-                print(
-                    f"[FILTER] Rejecting {sym} due to {distribution_gate['reason']} "
-                    f"(MM_Distribution={distribution_gate['mm_distribution']:.0f}, "
-                    f"CMF={distribution_gate['cmf_20']:.2f})"
-                )
-                return None
+    predictors: Optional[List[str]] = None
+    is_lgbm = False
+    model = artifact
 
-            news_sentiment = stock_ai._get_latest_news_sentiment(sym)
-            if news_sentiment.get("negative_flag") == 1:
-                print(
-                    f"[SENTIMENT_VETO] Rejecting {sym} due to negative news "
-                    f"sentiment ({news_sentiment.get('sentiment_score', 0.0)})"
-                )
-                return None
+    try:
+        import lightgbm as lgb
+        import xgboost as xgb_mod
+    except Exception:
+        lgb = None
+        xgb_mod = None
 
-            last_close = float(candidate.iloc[-1]["Close"])
+    # ── meta_labeling_system artifact (NEW format) ──────────────────────────
+    if isinstance(artifact, dict) and artifact.get("kind") == "meta_labeling_system":
+        if lgb is None:
+            raise ValueError("lightgbm is required to load meta_labeling_system artifacts")
 
-            # ── Acceleration Score + Dynamic Risk ──
-            accel_score = calculate_acceleration_score(candidate)
-            
-            # Extract ATR, ADX,
+        primary_art = artifact.get("primary_model")
+        if not isinstance(primary_art, dict) or primary_art.get("kind") != "lgbm_booster":
+            raise ValueError("Invalid meta_labeling_
