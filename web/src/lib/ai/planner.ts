@@ -408,7 +408,7 @@ const ARABIC_STOCK_MAPPINGS: Record<string, string | string[]> = {
     "زهراء المعادي": "ZMID",
 
     // ── أسهم إضافية شائعة الذكر ───────────────────────────────
-    "ايبكو": "PHAR", "إيبكو": "PHAR", "ايبيكو": "PHAR", "إيبيكو": "PHAR", "ايببكو": "PHAR", "إيببكو": "PHAR", "اببكو": "PHAR", "EIPICO": "PHAR", "eipico": "PHAR",
+    "ايبكو": "PHAR", "إيبكو": "PHAR", "ايبيكو": "PHAR", "إيبيكو": "PHAR", "ايببكو": "PHAR", "إيببكو": "PHAR", "اببكو": "PHAR", "ابيكو": "PHAR", "أبيكو": "PHAR", "EIPICO": "PHAR", "eipico": "PHAR",
     "مطاحن اسكندرية والغربية": "AFMC",
     "العبور للاستثمار": "OBRI",
     "العبور للاستثمار العقاري": "OBRI",
