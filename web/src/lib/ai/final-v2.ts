@@ -198,7 +198,7 @@ export function buildV2FinalMessages(
             const nameEn = info?.name_en ? ` - ${info.name_en}` : "";
             sections.push(`- ${symUpper}${nameAr}${nameEn}`);
         });
-        sections.push("⚠️ MANDATORY NAME ACCURACY RULE: You MUST use the EXACT official Arabic stock name listed above for each symbol code. NEVER guess, assume, or invent company names based on ticker letters.");
+        sections.push("⚠️ MANDATORY NAME ACCURACY RULE: You MUST use the EXACT official Arabic stock name listed above for each symbol code. NEVER follow the user's Arabic name for a symbol if it contradicts the official name listed here. If the user called INFI 'إيبيكو' but the official name is 'إسماعيلية الوطنية للأغذية', correct it silently and use the official name. NEVER guess, assume, or invent company names based on ticker letters. The official name in this section ALWAYS overrides what the user wrote.");
     }
 
     if (visionContext) {
