@@ -2,6 +2,17 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
+async function getUserWithTimeout(supabase: any, timeoutMs = 4500) {
+  try {
+    const timeoutPromise = new Promise<{ data: { user: null }; error: any }>((resolve) =>
+      setTimeout(() => resolve({ data: { user: null }, error: new Error("Auth timeout") }), timeoutMs)
+    );
+    return await Promise.race([supabase.auth.getUser(), timeoutPromise]);
+  } catch (err) {
+    return { data: { user: null }, error: err };
+  }
+}
+
 export async function middleware(request: NextRequest) {
   // Clone headers and inject ngrok skip header
   const requestHeaders = new Headers(request.headers);
@@ -16,7 +27,6 @@ export async function middleware(request: NextRequest) {
   }
 
   // ─── Inject Admin Key for backend admin API proxy calls (Secured) ─────────
-  // Verify that the requester is an authenticated admin before injecting the x-admin-key.
   if (request.nextUrl.pathname.startsWith("/api/admin") && !request.nextUrl.pathname.startsWith("/api/admin-unlock")) {
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const anonKey =
@@ -38,7 +48,7 @@ export async function middleware(request: NextRequest) {
       try {
         const {
           data: { user },
-        } = await supabase.auth.getUser();
+        } = await getUserWithTimeout(supabase, 4500);
 
         const adminEmails = (process.env.ADMIN_EMAILS || "").split(",").map(e => e.trim().toLowerCase()).filter(Boolean);
         const isAdmin =
@@ -87,7 +97,7 @@ export async function middleware(request: NextRequest) {
 
     const {
       data: { user },
-    } = await supabase.auth.getUser();
+    } = await getUserWithTimeout(supabase, 4500);
 
     // No session → redirect to login
     if (!user) {
@@ -95,8 +105,6 @@ export async function middleware(request: NextRequest) {
       loginUrl.searchParams.set("next", request.nextUrl.pathname);
       return NextResponse.redirect(loginUrl);
     }
-
-    // Logged in → allow through (password gate handled on the page)
   }
   // ───────────────────────────────────────────────────────────────────────────
 

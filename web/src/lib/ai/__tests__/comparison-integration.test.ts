@@ -8,6 +8,9 @@ describe("Validator with realistic multi-stock comparison data", () => {
             {
                 tool: "get_stock",
                 source: "database",
+                data_time: "2026-08-20",
+                symbols: ["AFMC"],
+                data_type: "live",
                 data: {
                     symbol: "AFMC",
                     name: "Arab African International Bank",
@@ -34,6 +37,9 @@ describe("Validator with realistic multi-stock comparison data", () => {
             {
                 tool: "get_stock",
                 source: "database",
+                data_time: "2026-08-20",
+                symbols: ["AFMC"],
+                data_type: "live",
                 data: {
                     symbol: "AALR",
                     name: "Arab Light Industries",
@@ -60,6 +66,9 @@ describe("Validator with realistic multi-stock comparison data", () => {
             {
                 tool: "get_stock",
                 source: "database",
+                data_time: "2026-08-20",
+                symbols: ["AFMC"],
+                data_type: "live",
                 data: {
                     symbol: "CRST",
                     name: "Cairo Resorts",
@@ -125,6 +134,9 @@ describe("Validator with realistic multi-stock comparison data", () => {
             {
                 tool: "get_stock",
                 source: "database",
+                data_time: "2026-08-20",
+                symbols: ["AFMC"],
+                data_type: "live",
                 data: {
                     symbol: "TMGH",
                     name: "Talaat Mostafa Group",
@@ -151,6 +163,9 @@ describe("Validator with realistic multi-stock comparison data", () => {
             {
                 tool: "get_stock",
                 source: "database",
+                data_time: "2026-08-20",
+                symbols: ["AFMC"],
+                data_type: "live",
                 data: {
                     symbol: "AALR",
                     name: "Arab Light Industries",
@@ -177,6 +192,9 @@ describe("Validator with realistic multi-stock comparison data", () => {
             {
                 tool: "get_stock",
                 source: "database",
+                data_time: "2026-08-20",
+                symbols: ["AFMC"],
+                data_type: "live",
                 data: {
                     symbol: "ZEOT",
                     name: "El Zohul",

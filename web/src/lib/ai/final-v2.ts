@@ -5,6 +5,7 @@ import { getDeepSeekApiKey, getNvidiaApiKeys } from "./server-secrets";
 import { describeDatedFallback, getFairValueFilters, getInvestorGuidanceIntent, isBestBuyStockQuestion, isDailyPriceLimitQuestion, isEarningsDataRequest, isFairValueScanRequest, isTermsDefinitionRequest, isUsageLimitQuestion } from "./intent-policy";
 import { sanitizeReply } from "./sanitizer";
 import { isOtcStock, buildOtcNotice } from "./otc-stocks";
+import { buildComparisonMatrix } from "./comparison-matrix";
 
 const MAX_CONTEXT_CHARS = 30000;
 
@@ -98,10 +99,15 @@ export function buildEvidenceEnginePromptBlock(toolResults: ToolResult[]): strin
         }
     }
 
+    const matrixRes = buildComparisonMatrix(toolResults);
+    if (matrixRes) {
+        lines.push("\n" + matrixRes.formatted_prompt_block);
+    }
+
     lines.push("\nSTRICT BOUNDARIES FOR MODEL:");
     lines.push("1. ⛔ NEVER claim 'فوق خط الإشارة' or 'تحت خط الإشارة' if macd_signal is NOT_PROVIDED or UNKNOWN.");
     lines.push("1b. ⛔ MACD > 0 (above the zero line) does NOT by itself mean a bullish signal. Without an explicit macd_signal value or a Histogram trend in the data, you MUST describe MACD as NEUTRAL (محايد). Never claim 'إشارة إيجابية', 'إيجابية فوق خط الصفر', 'تقاطع صاعد' or any bullish crossover based solely on MACD being positive. The ONLY valid MACD comparisons are: MACD vs the provided macd_signal line, or Histogram trend in the data — nothing else.");
-    lines.push("2. ⛔ NEVER classify volume as 'سيولة توزيعية' or 'إشارة تصريحي' unless distribution_score or wyckoff_phase is explicitly positive in AVAILABLE_EVIDENCE.");
+    lines.push("2. ⛔ NEVER classify volume as 'سيولة توزيعية' or 'إشارة تصريح' unless distribution_score or wyckoff_phase is explicitly positive in AVAILABLE_EVIDENCE.");
     lines.push("2b. ⛔ INFERENCE BAN — SELLING PRESSURE: A high vol_ratio (e.g. 1.69x) alone NEVER implies 'ضغط بيعي', 'سيولة توزيعية', 'تصريح' or 'توزيع'. Selling-pressure language requires distribution_score > 0 OR wyckoff_phase == distribution/market in AVAILABLE_EVIDENCE. If neither is present, describe volume only as 'نشط' (active) and state the numeric ratio, with NO directional-selling inference.");
     lines.push("2c. ⛔ INFERENCE BAN — BUYING PRESSURE: A high vol_ratio alone NEVER implies 'ضغط شرائي', 'نشاط شرائي' or 'تجميع'. Buying-pressure language requires accumulation_score > 0 OR wyckoff_phase == accumulation/strong_accumulation in AVAILABLE_EVIDENCE. If neither is present, describe volume only as 'نشط' (active) and state the numeric ratio, with NO directional-buying inference.");
     lines.push("3. ⛔ NEVER classify volume as 'سيولة تجميعية' or 'إشارة تجميع' unless accumulation_score or wyckoff_phase is explicitly positive in AVAILABLE_EVIDENCE.");
@@ -111,11 +117,11 @@ export function buildEvidenceEnginePromptBlock(toolResults: ToolResult[]): strin
     lines.push("7. ⛔ NEVER use acc_score, dist_score, or consecutive_days as price levels. These are DIMENSIONLESS SCORES (0-100) or DAY COUNTS. The ONLY valid price levels are: price, support, resistance, sma_50, sma_200, bb_upper, bb_lower from FACTS above.");
     lines.push("8. ⛔ When presented with get_accumulation_stocks or get_distribution_stocks: ALL stocks listed under get_accumulation_stocks are ACCUMULATION stocks (درجة تجميع عالية). NEVER label any stock from get_accumulation_stocks as 'تصريف' or 'توزيع'. If get_distribution_stocks reports no stocks found, explicitly write that no distribution stocks were detected in today's scan.");
     lines.push("9. ⛔ CRITICAL: If the distribution scan result shows stocks=[] or says 'لا توجد أسهم تصريف', you MUST NOT mention ANY stock as having 'تصريف', 'سيولة توزيعية', 'ضغط بيعي', or 'مرحلة تصريف'. Just say: 'لا توجد أسهم توزيع واضحة في المسح الحالي'. Same rule applies to accumulation: if accumulation scan is empty, do not invent accumulation stocks.");
-    lines.push("10. ⛔ تحذير قوة الإشارة RSI: كلمة 'آمن' أو 'قوي' أو 'إيجابية واضحة' للزخم لا تنطبق على RSI بين 40-70. RSI في المنطقة 40-70 هو 'محايد' أو 'يتميل للإيجابية/السلبية' فقط. لا تقل أبداً 'منطقة زخم صاعد إيجابي وآمن'، 'آمن تماماً'، أو 'إشارة قوية' إذا كان RSI بين 40 و 70. استخدم بدلاً منها: 'زخم محايد يميل للإيجابية' أو 'محايد بنسبة RSI X'.");
-    lines.push("11. 📝 هيكل الرد الإلزامي للمقارنات (MANDATORY COMPARISON LAYOUT): عندما يطلب المستخدم مقارنة أسهم، يجب الالتزام بهذا الترتيب الصارم: 1. النظرة العامة، 2. التحليل الفني لكل سهم، 3. مصفوفة القرار (Decision Matrix) في جدول (يحتوي: السهم | جودة الاتجاه | زخم | سيولة | مخاطرة الدخول | القرار)، 4. الرأي الإحصائي للذكاء الاصطناعي (ML Scores & Consensus)، 5. الخلاصة وشروط الدخول الثابتة.");
+    lines.push("10. ⛔ تحذير قوة الإشارة RSI: كلمة 'آمن' أو 'قوي' أو 'إيجابية واضحة' للزخم لا تنطبق على RSI بين 40-70. RSI في المنطقة 40-70 هو 'محايد' أو 'يميل للإيجابية/السلبية' فقط. لا تقل أبداً 'منطقة زخم صاعد إيجابي وآمن'، 'آمن تماماً'، أو 'إشارة قوية' إذا كان RSI بين 40 و 70. استخدم بدلاً منها: 'زخم محايد يميل للإيجابية' أو 'محايد بنسبة RSI X'.");
+    lines.push("11. 📝 هيكل الرد الإلزامي للمقارنات (MANDATORY COMPARISON LAYOUT): عندما يطلب المستخدم مقارنة أسهم، يجب الالتزام بهذا الترتيب الصارم: 1. النظرة العامة، 2. التحليل الفني لكل سهم، 3. مصفوفة القرار (Decision Matrix) في جدول (يحتوي: السهم | جودة الاتجاه | زخم | سيولة | مخاطرة الدخول | القرار)، 4. الرأي الإحصائي للذكاء الاصطناعي (ML Scores & Consensus)، 5. الخلاصة وشروط الدخول الثابتة والخاتمة التوجيهية (Decision Conclusion).");
     lines.push("12. 📏 عتبات المؤشرات الثابتة (STRICT THRESHOLDS): للـ ADX (أقل 20=ضعيف، 20-25=بداية، 25-40=قوي، >40=مفرط/قوي جداً). للـ RSI (>70=تشبع شرائي ومخاطرة عالية ولا تطارد السهم، <30=تشبع بيعي، 40-70=محايد). للـ vol_ratio (<0.8x=سيولة ضعيفة، ~1.0x=متوسطة، >1.5x=انفجار). لا تنصح بالدخول إذا كانت السيولة ضعيفة.");
-    lines.push("13. 🎯 شروط الدخول (ACTIONABLE CONDITIONS): لا تكتفي بـ 'للمراقبة'. قدم دائماً شروطاً تنفيذية: ماذا يجب أن يحدث لكي نشتري؟ (مثال: 'الدخول يصبح جذاباً إذا عاد الحجم فوق 1.0x واخترق X، بينما كسر الدعم Y يلغي السيناريو').");
-    lines.push("14. 🤖 الرأي الإحصائي والرياضيات (ML MODELS & MATH): أولاً: ⛔ يُمنع تماماً إجراء عمليات طرح أو حساب فوارق (Deltas) بين نسب الموديلات لتجنب الأخطاء الحسابية، اكتفِ بذكر النسب المئوية والمقارنة المباشرة. ثانياً: النماذج لا تلغي التحليل الفني! إذا كان RSI>70 والموديل إيجابي فالقرار هو الانتظار لارتفاع المخاطرة. ثالثاً: للنسب بين 45% و 55% استخدم مصطلح 'اتفاق نموذجي على الحياد' ولا تستخدم أبداً 'اتفاق قوي'. رابعاً: لا تخترع تعريفات لعمل النماذج.");
+    lines.push("13. 🎯 شروط الدخول (ACTIONABLE CONDITIONS): لا تكتفي بـ 'للمراقبة'. قدم دائماً شروطاً تنفيذية: ماذا يجب أن يحدث لكي نشتري؟ (مثال: 'الدخول يصبح جذاباً إذا عاد الحجم فوق 1.0x اخترق X، بينما كسر الدعم Y يلغي السيناريو').");
+    lines.push("14. 🤖 الرأي الإحصائي والرياضيات (ML MODELS & MATH): استخدم دائماً القيم المجهزة مسبقاً في ML STATISTICAL DELTAS أعلاه. لا تخترع فوارق حسابية من عندك.");
 
     lines.push("=== END STRICT EVIDENCE CONTEXT ===");
     return lines.join("\n");
@@ -2148,9 +2154,7 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
             : null;
 
         const omitted = stocks.length > 10 ? `تم عرض ملخص أول 10 أسهم فقط؛ الجدول المنظم يحتوي على جميع الأسهم المتاحة (${stocks.length}).` : null;
-        const opinionLines = stocks.length <= 3 ? stocks.map(result => buildStockOpinion(result, levelResults)) : [];
-        const modelCrashNotice = "⚠️ **تنبيه:** تعذر على نموذج الذكاء الاصطناعي إتمام صياغة التحليل الفني التفاعلي كاملاً في هذه المحاولة بسبب ضغط مؤقت في الخدمة. يرجى إعادة إرسال السؤال مرة أخرى للحصول على التحليل الفني كاملاً من الذكاء الاصطناعي.";
-        return [modelCrashNotice, "", describeDatedFallback(plan.entities.requested_date, stocks[0]?.data_time), ...lines, ...levelLines, levelFallback, ...opinionLines, ...(fairValueRequest ? buildTechnicalValuationLines(stocks, levelResults) : []), omitted, "هذه أرقام بيانات تداول مباشرة استرشادية من قاعدة البيانات، وليست توصية مباشرة بالشراء أو البيع."].filter(Boolean).join("\n");
+        return [describeDatedFallback(plan.entities.requested_date, stocks[0]?.data_time), ...lines, ...levelLines, levelFallback, ...opinionLines, ...(fairValueRequest ? buildTechnicalValuationLines(stocks, levelResults) : []), omitted, "هذه أرقام بيانات تداول مباشرة استرشادية من قاعدة البيانات، وليست توصية مباشرة بالشراء أو البيع."].filter(Boolean).join("\n");
 
     }
 
