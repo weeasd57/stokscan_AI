@@ -593,6 +593,38 @@ def calculate_indicators_for_symbol(symbol: str, exchange: str = "EGX") -> List[
     return records
 
 
+def prune_technical_indicators_to_latest():
+    """
+    STRICT MAINTENANCE: Enforce exactly 1 single latest snapshot row per symbol in stock_technical_indicators.
+    Deletes any older historical date rows so the table never accumulates duplicate date rows per stock.
+    """
+    try:
+        res = supabase.table("stock_technical_indicators").select("symbol, exchange, date").execute()
+        rows = res.data or []
+        if not rows:
+            return
+            
+        from collections import defaultdict
+        by_sym = defaultdict(list)
+        for r in rows:
+            by_sym[(r["symbol"], r.get("exchange", "EGX"))].append(r["date"])
+            
+        deleted_count = 0
+        for (sym, ex), dates in by_sym.items():
+            if len(dates) > 1:
+                max_d = max(dates)
+                try:
+                    del_res = supabase.table("stock_technical_indicators").delete().eq("symbol", sym).eq("exchange", ex).lt("date", max_d).execute()
+                    deleted_count += len(del_res.data or [])
+                except Exception as del_err:
+                    print(f"[PRUNE] Failed to prune old dates for {sym}: {del_err}")
+                    
+        if deleted_count > 0:
+            print(f"[PRUNE] Cleaned up {deleted_count} older date rows from stock_technical_indicators.")
+    except Exception as e:
+        print(f"[PRUNE] Indicator table pruning error: {e}")
+
+
 def _batch_upsert_indicators(all_records: List[Dict[str, Any]], batch_size: int = 200):
     """Upsert indicator records in large batches to minimize HTTP requests."""
     if not all_records:
@@ -600,9 +632,28 @@ def _batch_upsert_indicators(all_records: List[Dict[str, Any]], batch_size: int 
     for i in range(0, len(all_records), batch_size):
         batch = all_records[i:i + batch_size]
         try:
-            # Delete old records for these symbols so we don't accumulate multiple dates
+            # Delete old records for these symbols so we don't accumulate multiple dates, but preserve existing AI scores!
             batch_symbols = list(set([r["symbol"] for r in batch]))
             if batch_symbols:
+                existing_scores = {}
+                try:
+                    res = supabase.table("stock_technical_indicators").select("symbol, king_ai_score, egx_ai_score").in_("symbol", batch_symbols).execute()
+                    if res.data:
+                        for row in res.data:
+                            if row.get("king_ai_score") is not None or row.get("egx_ai_score") is not None:
+                                existing_scores[row["symbol"]] = (row.get("king_ai_score"), row.get("egx_ai_score"))
+                except Exception as e_score:
+                    pass
+
+                for rec in batch:
+                    sym = rec.get("symbol")
+                    if sym in existing_scores:
+                        k_s, e_s = existing_scores[sym]
+                        if k_s is not None and rec.get("king_ai_score") is None:
+                            rec["king_ai_score"] = k_s
+                        if e_s is not None and rec.get("egx_ai_score") is None:
+                            rec["egx_ai_score"] = e_s
+
                 supabase.table("stock_technical_indicators").delete().in_("symbol", batch_symbols).execute()
             supabase.table("stock_technical_indicators").upsert(batch).execute()
         except Exception as e:
@@ -614,6 +665,9 @@ def _batch_upsert_indicators(all_records: List[Dict[str, Any]], batch_size: int 
                     supabase.table("stock_technical_indicators").upsert(rec).execute()
                 except Exception as e2:
                     print(f"[INDICATORS] Individual upsert failed for {rec.get('symbol')}: {e2}")
+
+    # Enforce strict 1-row-per-stock constraint across entire table
+    prune_technical_indicators_to_latest()
 
 
 def _fetch_technical_snapshot(symbol: str, exchange: str) -> dict:
@@ -647,13 +701,8 @@ def _fetch_technical_snapshot(symbol: str, exchange: str) -> dict:
 
 
 def _send_telegram_adjustment(symbol: str, exchange: str, adjustment: dict):
-    """Send adjustment notification via Telegram to subscribers."""
+    """Send adjustment notification via Telegram to public channel topic."""
     try:
-        from api.telegram_bot import get_telegram_bot
-        bot = get_telegram_bot()
-        if not bot:
-            return
-
         adj_type = adjustment.get("type", "adjustment")
         emoji_map = {
             "target_raised": "🎯📈",
@@ -688,29 +737,21 @@ def _send_telegram_adjustment(symbol: str, exchange: str, adjustment: dict):
         msg += f"━━━━━━━━━━━━━━━━━━━━\n"
         msg += f"🔗 [تحديثات الفكرة على المنصة]({web_origin}/scanner/backtests?tab=bots)"
 
-        # Send to admin
-        bot.send_notification(msg)
-
-        # Send to subscribers of this symbol's bot
-        _notify_subscribers_for_symbol(symbol, exchange, msg)
+        _notify_central_telegram(msg, "recommendation_adjustment")
 
     except Exception as e:
         print(f"[SMART_EVAL] Telegram notification failed: {e}")
 
 
 def _send_telegram_exit(symbol: str, exchange: str, entry_price: float, exit_price: float, pl_pct: float, status: str):
-    """Send exit notification via Telegram to subscribers."""
+    """Send exit notification via Telegram to public channel topic."""
     try:
-        from api.telegram_bot import get_telegram_bot
-        bot = get_telegram_bot()
-        if not bot:
-            return
-
         web_origin = os.getenv("WEB_ORIGIN", "https://egxbots.com").strip().rstrip("/")
         emoji = "🎉🎯" if status == "win" else "🛡️⚠️"
         status_text_ar = "توصية ناجحة (تحقيق الهدف) ✅" if status == "win" else "تفعيل وقف الخسارة 🛡️"
         status_text_en = "Target Hit (Profit) ✅" if status == "win" else "Stop Loss Hit (Loss) 🛡️"
 
+        pl_sign = "+" if pl_pct > 0 else ""
         msg = (
             f"{emoji} *إغلاق صفقة / Close Signal* 🏁\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
@@ -718,17 +759,13 @@ def _send_telegram_exit(symbol: str, exchange: str, entry_price: float, exit_pri
             f"📌 *النتيجة:* {status_text_ar} / {status_text_en}\n"
             f"📈 *سعر الدخول:* `{entry_price:.2f}` EGP\n"
             f"💰 *سعر الخروج:* `{exit_price:.2f}` EGP\n"
-            f"📊 *صافي العائد:* `{pl_pct:+.2f}%`\n"
+            f"📊 *صافي العائد:* `{pl_sign}{pl_pct:.2f}%`\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
             f"🔗 *لمتابعة الصفقات التاريخية والتحليلات:*\n"
             f"👉 [اضغط هنا لفتح المنصة]({web_origin}/scanner/backtests?tab=bots)\n"
         )
 
-        # Send to admin
-        bot.send_notification(msg)
-
-        # Send to subscribers of this symbol's bot
-        _notify_subscribers_for_symbol(symbol, exchange, msg)
+        _notify_central_telegram(msg, "recommendation_exit")
 
     except Exception as e:
         print(f"[SMART_EVAL] Telegram exit notification failed for {symbol}: {e}")
@@ -2736,14 +2773,9 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
         print("\n>>> STEP 2.2: Updating AI ML Scores for all stocks in DB...")
         _start_step("ml_scores_update", "Calculating KING and EGX model scores for all stocks")
         try:
-            import subprocess
-            script_path = os.path.join(project_root, "api", "update_ml_scores.py")
-            if os.path.exists(script_path):
-                subprocess.run([sys.executable, script_path], check=True)
-                _record_step("ml_scores_update", True, "Successfully updated AI ML Scores in DB", 1)
-            else:
-                print(f"[ML_SCORES] Script not found at {script_path}")
-                _record_step("ml_scores_update", False, "Script not found", 0)
+            from api.update_ml_scores import update_all_scores
+            update_all_scores()
+            _record_step("ml_scores_update", True, "Successfully updated AI ML Scores in DB", 1)
         except Exception as e:
             _record_step("ml_scores_update", False, str(e)[:200], 0)
             print(f"[ML_SCORES] Error updating scores: {e}")

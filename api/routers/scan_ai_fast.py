@@ -524,8 +524,8 @@ def _process_symbol(
             except Exception:
                 pass
         
-        # Filter logic: Must pass Radar Buy (pred=1) and validator if provided
-        if pred == 1:
+        # Filter logic: Must pass Radar Buy (pred=1) or buy_threshold <= 0.0 / return_raw_prob for raw probability scanning
+        if pred == 1 or buy_threshold <= 0.0 or return_raw_prob:
             if validator is not None and validator_score is not None:
                 try:
                     if float(validator_score) < float(getattr(validator, "approval_threshold", 0.5)) and buy_threshold > 0.0:
@@ -749,9 +749,6 @@ def fast_scan(
     
     try:
         symbols_data = load_symbols_for_country(country)
-        # TEMPORARY HACK FOR FAST TMGH TESTING
-        if "TMGH" in [s.get("Symbol") for s in symbols_data]:
-            symbols_data = [s for s in symbols_data if s.get("Symbol") == "TMGH"]
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to load symbols: {e}")
 
@@ -876,7 +873,7 @@ def fast_scan(
                 print(f"WARNING SCAN: Failed to determine active market regime: {e}")
         
         calibrated_threshold = regime_thresholds.get(active_regime)
-        if calibrated_threshold:
+        if calibrated_threshold and buy_threshold > 0.0 and not return_raw_prob:
             print(f"DEBUG SCAN: Dynamically overriding buy_threshold with model's calibrated {active_regime.upper()} threshold: {calibrated_threshold}")
             buy_threshold = calibrated_threshold
 

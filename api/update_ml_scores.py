@@ -13,20 +13,34 @@ from api.stock_ai import _init_supabase, _get_thread_local_supabase
 from api.routers.scan_ai_fast import fast_scan
 
 def update_all_scores():
-    print('[ML_SCORES] Starting update of AI scores via fast_scan pipeline...')
+    print('[ML_SCORES] Starting update of raw AI scores via fast_scan pipeline (unfiltered)...')
     _init_supabase(force=True)
     sb = _get_thread_local_supabase()
     
-    print('[ML_SCORES] Running fast_scan for KING model...')
+    print('[ML_SCORES] Running fast_scan for KING model across all stocks...')
     try:
-        king_results = fast_scan(country='Egypt', limit=300, model_name='KING.pkl', buy_threshold=0.0, return_raw_prob=True)
+        king_results = fast_scan(
+            country='Egypt',
+            limit=500,
+            min_precision=0.0,
+            buy_threshold=0.0,
+            model_name='KING.pkl',
+            return_raw_prob=True
+        )
     except Exception as e:
         print(f"Error running KING scan: {e}")
         king_results = {}
         
-    print('[ML_SCORES] Running fast_scan for EGX model...')
+    print('[ML_SCORES] Running fast_scan for EGX model across all stocks...')
     try:
-        egx_results = fast_scan(country='Egypt', limit=300, model_name='model_EGX.pkl', buy_threshold=0.0, return_raw_prob=True)
+        egx_results = fast_scan(
+            country='Egypt',
+            limit=500,
+            min_precision=0.0,
+            buy_threshold=0.0,
+            model_name='model_EGX.pkl',
+            return_raw_prob=True
+        )
     except Exception as e:
         print(f"Error running EGX scan: {e}")
         egx_results = {}
@@ -39,33 +53,31 @@ def update_all_scores():
         print('[ML_SCORES] No results found from fast_scan. Aborting DB update.')
         return
         
-    print(f'[ML_SCORES] Updating {len(all_symbols)} symbols in DB...')
+    print(f'[ML_SCORES] Updating raw ML scores for {len(all_symbols)} stocks in DB...')
     success_count = 0
     
     for sym in all_symbols:
         k_res = king_map.get(sym, {})
         e_res = egx_map.get(sym, {})
         
-        # fallback to the date from the other model if one is missing
-        date_str = k_res.get('date') or e_res.get('date')
-        if not date_str:
-            continue
-            
         k_score = k_res.get('precision')
         e_score = e_res.get('precision')
         
-        try:
-            # Match exactly the date from fast_scan, as it's guaranteed to be the latest trading day in the DB
-            sb.table('stock_technical_indicators').update({
-                'king_ai_score': k_score,
-                'egx_ai_score': e_score
-            }).eq('symbol', sym).eq('exchange', 'EGX').eq('date', date_str).execute()
-            success_count += 1
-        except Exception as e:
-            print(f"Update error for {sym}: {e}")
-            pass
+        if k_score is not None or e_score is not None:
+            try:
+                update_payload = {}
+                if k_score is not None:
+                    update_payload['king_ai_score'] = round(float(k_score), 4)
+                if e_score is not None:
+                    update_payload['egx_ai_score'] = round(float(e_score), 4)
+                    
+                res = sb.table('stock_technical_indicators').update(update_payload).eq('symbol', sym).eq('exchange', 'EGX').execute()
+                if res.data:
+                    success_count += len(res.data)
+            except Exception as e:
+                print(f"Update error for {sym}: {e}")
             
-    print(f'[ML_SCORES] Successfully updated {success_count} rows.')
+    print(f'[ML_SCORES] Successfully updated raw ML scores for {success_count} stocks.')
 
 if __name__ == '__main__':
     update_all_scores()

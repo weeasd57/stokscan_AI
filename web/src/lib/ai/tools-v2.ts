@@ -931,13 +931,26 @@ export async function executeStructuredTools(
                     })
                 ),
                 Promise.all(
-                    symbols.map(sym => {
+                    symbols.map(async sym => {
                         let query = supabase.from("stock_technical_indicators")
                             .select("symbol, close, rsi_14, macd_signal, macd, macd_histogram, change_pct, volume, vol_sma20, vwap_20, adx_14, momentum_10, date, sma_50, ema_50, sma_200, ema_200, bb_upper, bb_lower, stoch_k, stoch_d, king_ai_score, egx_ai_score")
                             .ilike("symbol", sym)
                             .eq("exchange", "EGX");
                         if (requestedDate) query = query.eq("date", requestedDate);
-                        return query.order("date", { ascending: false }).limit(1).maybeSingle();
+                        const { data } = await query.order("date", { ascending: false }).limit(5);
+                        if (!data || data.length === 0) return { data: null };
+                        const latest = { ...data[0] };
+                        if (latest.king_ai_score == null || latest.egx_ai_score == null) {
+                            for (let i = 1; i < data.length; i++) {
+                                if (latest.king_ai_score == null && data[i].king_ai_score != null) {
+                                    latest.king_ai_score = data[i].king_ai_score;
+                                }
+                                if (latest.egx_ai_score == null && data[i].egx_ai_score != null) {
+                                    latest.egx_ai_score = data[i].egx_ai_score;
+                                }
+                            }
+                        }
+                        return { data: latest };
                     })
                 ),
                 supabase.from("stocks").select("symbol, name").eq("exchange", "EGX").or(
