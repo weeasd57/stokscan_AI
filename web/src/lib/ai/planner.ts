@@ -422,6 +422,20 @@ const ARABIC_STOCK_MAPPINGS: Record<string, string | string[]> = {
     "ابوقير": "ABUK",
     "أبوقير": "ABUK",
     "شمس": "ELSH",
+
+    // ── GRCA  جراند كابيتال ──────────────────────────────────────
+    "جراند": "GRCA", "جراند كابيتال": "GRCA", "جراند للاستثمار": "GRCA",
+    "Grand Capital": "GRCA", "grand capital": "GRCA",
+
+    // ── GOCO  جولدن كوست / القابضة ──────────────────────────────
+    "جولدن كوست": "GOCO", "القابضة للاستثمار": "GOCO",
+
+    // ── GOUR  جور / جود للسياحة ─────────────────────────────────
+    "جود السياحة": "GOUR", "جور": "GOUR",
+
+    // ── GRCA / GSPC  إضافية ─────────────────────────────────────
+    "الصناعات الكيماوية": "GSPC", "كيماويات مصر": "GSPC",
+    "الغربية للتجارة": "GTHE", "جراند تريد": "GTHE",
 };
 import { SessionState, PlannerResult, VisionContext } from "./types";
 import { AI_CONFIG } from "./config";
