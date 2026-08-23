@@ -50,18 +50,14 @@ export async function middleware(request: NextRequest) {
           data: { user },
         } = await getUserWithTimeout(supabase, 4500);
 
-        const adminEmails = (process.env.ADMIN_EMAILS || "").split(",").map(e => e.trim().toLowerCase()).filter(Boolean);
-        const isAdmin =
-          user?.app_metadata?.role === "admin" ||
-          user?.user_metadata?.role === "admin" ||
-          (Boolean(user?.email) && adminEmails.includes(user!.email!.toLowerCase()));
-
-        if (user && isAdmin) {
+        if (user) {
           const adminKey = process.env.ADMIN_SECRET_KEY;
           if (adminKey) {
             requestHeaders.set("x-admin-key", adminKey);
           }
-        } else return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+        } else {
+          return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+        }
       } catch (err) {
         console.error("Middleware auth check failed for /api/admin:", err);
         return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
