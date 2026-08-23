@@ -360,28 +360,35 @@ export function extractSentenceClaims(sentence: string, activeSymbol: string, fa
         const isPercent = percentMatches.has(num);
         const escapedNum = String(num).replace(".", "\\.");
 
-        // A. Price Claims: specifically preceded by price keywords
-        const isPriceSpecific = new RegExp(`(?:السعر|سعر|إغلاق|اغلاق|يتداول عند|تداول عند|أغلق عند|اغلق عند)[^0-9\\n]{0,25}?\\b${escapedNum}\\b`, "i").test(sentence);
-        if (isPriceSpecific && !isPercent) {
-            claims.push({ type: "current_price", value: num, symbol: activeSymbol, rawText: String(num), sentence });
-            continue;
-        }
-
-        // B. RSI Claims: "RSI عند 54.31", "مؤشر القوة النسبية 54.31"
+        // A. RSI Claims: "RSI عند 54.31", "مؤشر القوة النسبية 54.31"
         const isRsiSpecific = new RegExp(`(?:rsi|قوة نسبية|قوه نسبيه)[^0-9\\n]{0,25}?\\b${escapedNum}\\b`, "i").test(sentence);
         if (isRsiSpecific && num <= 100 && !isPercent) {
             claims.push({ type: "rsi", value: num, symbol: activeSymbol, rawText: String(num), sentence });
             continue;
         }
 
-        // C. MACD Claims: "MACD عند 11.97", "مؤشر الماكد 11.97"
-        const isMacdSpecific = new RegExp(`(?:macd|ماكد)[^0-9\\n]{0,25}?\\b${escapedNum}\\b`, "i").test(sentence);
+        // B. MACD Claims: "MACD عند 11.97", "مؤشر الماكد 11.97", "خط الإشارة 91.18"
+        const isMacdSpecific = new RegExp(`(?:macd|ماكد|خط الإشارة|خط الاشارة|signal line|هيستوجرام|histogram)[^0-9\\n]{0,35}?\\b${escapedNum}\\b`, "i").test(sentence);
         if (isMacdSpecific && !isPercent) {
             claims.push({ type: "macd", value: num, symbol: activeSymbol, rawText: String(num), sentence });
             continue;
         }
 
-        // D. Volume Ratio Claims: "نسبة الحجم 0.30x", "السيولة 0.30"
+        // C. Support Claims: specifically preceded by support keywords
+        const isSupportSpecific = new RegExp(`(?:دعم|مستوى الدعم|الدعم)[^0-9\\n]{0,25}?\\b${escapedNum}\\b`, "i").test(sentence);
+        if (isSupportSpecific && !isPercent) {
+            claims.push({ type: "support", value: num, symbol: activeSymbol, rawText: String(num), sentence });
+            continue;
+        }
+
+        // D. Resistance Claims: specifically preceded by resistance keywords
+        const isResistanceSpecific = new RegExp(`(?:مقاومة|مقاومه|مستوى المقاومة|المقاومة)[^0-9\\n]{0,25}?\\b${escapedNum}\\b`, "i").test(sentence);
+        if (isResistanceSpecific && !isPercent) {
+            claims.push({ type: "resistance", value: num, symbol: activeSymbol, rawText: String(num), sentence });
+            continue;
+        }
+
+        // E. Volume Ratio Claims: "نسبة الحجم 0.30x", "السيولة 0.30"
         if (/(?:نسبة الحجم|حجم التداول|السيولة|السيوله|vol_ratio)/i.test(sentence)
             && !isPercent
             && !/(?:دعم|مقاوم[ةه]|سعر|إغلاق|اغلاق)/i.test(sentence)) {
@@ -389,23 +396,17 @@ export function extractSentenceClaims(sentence: string, activeSymbol: string, fa
             continue;
         }
 
-        // E. Support Claims: specifically preceded by support keywords
-        const isSupportSpecific = new RegExp(`(?:دعم|مستوى الدعم|الدعم)[^0-9\\n]{0,25}?\\b${escapedNum}\\b`, "i").test(sentence);
-        if (isSupportSpecific && !isPercent) {
-            claims.push({ type: "support", value: num, symbol: activeSymbol, rawText: String(num), sentence });
-            continue;
-        }
-
-        // F. Resistance Claims: specifically preceded by resistance keywords
-        const isResistanceSpecific = new RegExp(`(?:مقاومة|مقاومه|مستوى المقاومة|المقاومة)[^0-9\\n]{0,25}?\\b${escapedNum}\\b`, "i").test(sentence);
-        if (isResistanceSpecific && !isPercent) {
-            claims.push({ type: "resistance", value: num, symbol: activeSymbol, rawText: String(num), sentence });
-            continue;
-        }
-
-        // G. Moving Average Claims: "متوسط 50 يوم (84.87)"
+        // F. Moving Average Claims: "متوسط 50 يوم (84.87)"
         if (/(?:متوسط|متوسطات|sma|ema)/i.test(sentence)) {
             claims.push({ type: "moving_average", value: num, symbol: activeSymbol, rawText: String(num), sentence });
+            continue;
+        }
+
+        // G. Price Claims: specifically preceded by explicit price keywords AND NOT preceded by indicators
+        const isPriceSpecific = new RegExp(`(?:السعر الحالي|سعر الإغلاق|سعر الاغلاق|السعر عند|سعر عند|يتداول عند|تداول عند|أغلق عند|اغلق عند|سعر السهم|السعر هو|السعر)[^0-9\\n]{0,20}?\\b${escapedNum}\\b`, "i").test(sentence)
+            && !new RegExp(`(?:دعم|مقاومة|مقاومه|macd|ماكد|rsi|خط الإشارة|خط الاشارة|متوسط|sma|ema)[^0-9\\n]{0,25}?\\b${escapedNum}\\b`, "i").test(sentence);
+        if (isPriceSpecific && !isPercent) {
+            claims.push({ type: "current_price", value: num, symbol: activeSymbol, rawText: String(num), sentence });
             continue;
         }
 
