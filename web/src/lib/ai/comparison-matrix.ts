@@ -49,19 +49,32 @@ export interface ComparisonMatrixResult {
 
 export function calculateStockScores(stock: any): StockEvaluation {
     const sym = String(stock.symbol || stock.info?.symbol || "UNKNOWN").toUpperCase();
-    const price = stock.price ?? stock.close ?? null;
-    const change_pct = stock.change_pct ?? null;
-    const rsi = stock.rsi_14 ?? stock.rsi ?? null;
-    const vol_ratio = stock.vol_ratio ?? (stock.volume && stock.vol_sma20 ? Number(stock.volume) / Number(stock.vol_sma20) : null);
-    const macd = stock.macd ?? null;
-    const macd_signal = stock.macd_signal ?? null;
-    const support = stock.support ?? null;
-    const resistance = stock.resistance ?? null;
-    const king_ai = stock.king_ai_score != null ? Number(stock.king_ai_score) : null;
-    const egx_ai = stock.egx_ai_score != null ? Number(stock.egx_ai_score) : null;
-    const acc_score = stock.acc_score ?? null;
-    const dist_score = stock.dist_score ?? null;
-    const wyckoff = stock.wyckoff_phase ?? null;
+    const price = stock.price != null && !isNaN(Number(stock.price)) ? Number(stock.price) : (stock.close != null && !isNaN(Number(stock.close)) ? Number(stock.close) : null);
+    const change_pct = stock.change_pct != null && !isNaN(Number(stock.change_pct)) ? Number(stock.change_pct) : null;
+    const rsi = stock.rsi_14 != null && !isNaN(Number(stock.rsi_14)) ? Number(stock.rsi_14) : (stock.rsi != null && !isNaN(Number(stock.rsi)) ? Number(stock.rsi) : null);
+
+    // Parse vol_ratio safely to guaranteed number or null
+    let vol_ratio: number | null = null;
+    const rawVol = stock.vol_ratio ?? null;
+    if (rawVol != null) {
+        const num = parseFloat(String(rawVol).replace(/x/gi, ""));
+        if (!isNaN(num)) vol_ratio = num;
+    }
+    if (vol_ratio == null && stock.volume && stock.vol_sma20) {
+        const v = Number(stock.volume);
+        const sma = Number(stock.vol_sma20);
+        if (sma > 0 && !isNaN(v) && !isNaN(sma)) vol_ratio = v / sma;
+    }
+
+    const macd = stock.macd != null && !isNaN(Number(stock.macd)) ? Number(stock.macd) : null;
+    const macd_signal = stock.macd_signal != null && !isNaN(Number(stock.macd_signal)) ? Number(stock.macd_signal) : null;
+    const support = stock.support != null && !isNaN(Number(stock.support)) ? Number(stock.support) : null;
+    const resistance = stock.resistance != null && !isNaN(Number(stock.resistance)) ? Number(stock.resistance) : null;
+    const king_ai = stock.king_ai_score != null && !isNaN(Number(stock.king_ai_score)) ? Number(stock.king_ai_score) : null;
+    const egx_ai = stock.egx_ai_score != null && !isNaN(Number(stock.egx_ai_score)) ? Number(stock.egx_ai_score) : null;
+    const acc_score = stock.acc_score != null && !isNaN(Number(stock.acc_score)) ? Number(stock.acc_score) : null;
+    const dist_score = stock.dist_score != null && !isNaN(Number(stock.dist_score)) ? Number(stock.dist_score) : null;
+    const wyckoff = stock.wyckoff_phase ? String(stock.wyckoff_phase) : null;
 
     // 1. Technical Score (0-10)
     let techScore = 5.0; // Base neutral
@@ -240,14 +253,21 @@ export function buildComparisonMatrix(toolResults: ToolResult[]): ComparisonMatr
     lines.push("Below is the pre-computed, strict analytical decision matrix. DO NOT alter these scores or invent non-existent metrics:\n");
 
     evaluatedStocks.forEach(s => {
+        const kingStr = typeof s.king_ai_score === "number" && Number.isFinite(s.king_ai_score)
+            ? (s.king_ai_score > 1 ? s.king_ai_score.toFixed(1) : (s.king_ai_score * 100).toFixed(1)) + "%"
+            : "N/A";
+        const egxStr = typeof s.egx_ai_score === "number" && Number.isFinite(s.egx_ai_score)
+            ? (s.egx_ai_score > 1 ? s.egx_ai_score.toFixed(1) : (s.egx_ai_score * 100).toFixed(1)) + "%"
+            : "N/A";
+
         lines.push(`📊 ${s.symbol} (${s.name}):`);
         lines.push(`  - Technical Score: ${s.technical_score}/10`);
         lines.push(`  - Liquidity Score: ${s.liquidity_score}/10`);
-        lines.push(`  - ML Score: ${s.ml_score}/10 (KING: ${s.king_ai_score ? (s.king_ai_score > 1 ? s.king_ai_score : Math.round(s.king_ai_score * 1000) / 10).toFixed(1) + "%" : "N/A"}, EGX: ${s.egx_ai_score ? (s.egx_ai_score > 1 ? s.egx_ai_score : Math.round(s.egx_ai_score * 1000) / 10).toFixed(1) + "%" : "N/A"})`);
+        lines.push(`  - ML Score: ${s.ml_score}/10 (KING: ${kingStr}, EGX: ${egxStr})`);
         lines.push(`  - Risk Score: ${s.risk_score}/10 (Higher = More Risk)`);
         lines.push(`  - MACD State: ${s.macd != null ? (s.macd > 0 ? "فوق الصفر (موجب)" : "تحت الصفر (سالب)") : "غير متاح"}`);
         lines.push(`  - MACD Signal Line Comparison: ${s.has_macd_signal ? (s.macd! > s.macd_signal! ? "فوق خط الإشارة" : "تحت خط الإشارة") : "NOT_PROVIDED (⛔ DO NOT claim above/below signal line!)"}`);
-        lines.push(`  - Volume Interpretation: ${s.vol_ratio != null ? (s.vol_ratio >= 1.0 ? `تداول كثيف (${s.vol_ratio.toFixed(2)}x من المتوسط)` : `تداول أقل من المتوسط (${s.vol_ratio.toFixed(2)}x)`) : "غير متاح"}`);
+        lines.push(`  - Volume Interpretation: ${typeof s.vol_ratio === "number" && Number.isFinite(s.vol_ratio) ? (s.vol_ratio >= 1.0 ? `تداول كثيف (${s.vol_ratio.toFixed(2)}x من المتوسط)` : `تداول أقل من المتوسط (${s.vol_ratio.toFixed(2)}x)`) : "غير متاح"}`);
         lines.push(`  - Volume Note: ⛔ Volume ratio alone does NOT equal selling pressure / ضغط بيعي unlessWyckoff/dist_score is explicitly provided.`);
     });
 
