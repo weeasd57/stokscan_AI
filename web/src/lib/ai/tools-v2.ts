@@ -621,11 +621,10 @@ export async function executeStructuredTools(
                     || /(?:اسهم|أسهم).{0,10}(?:تجميع|تصريف)/i.test(userMessage);
                 const scopedSymbols = (compoundMarketScan && asksForMarketWideList) ? [] : symbols.length > 0 ? symbols : await resolveSectorSymbols();
                 const { data: summaryScans } = await summaryQuery;
-                let hasSummaryData = false;
+                const directionsWithSummary = new Set<"accumulation" | "distribution">();
 
             if (summaryScans && summaryScans.length > 0) {
-                const activeScanDate = summaryScans.find((r: any) => r.signal !== "neutral" || Number(r.acc_score || 0) >= 50 || Number(r.dist_score || 0) >= 50)?.scan_date;
-                const maxDate = requestedDate || activeScanDate || summaryScans[0].scan_date;
+                const maxDate = requestedDate || summaryScans[0].scan_date;
                 const todayScans = summaryScans.filter((r: any) => r.scan_date === maxDate);
                 const scanQuality = requestedDate
                     ? { ok: true, reason: null }
@@ -643,7 +642,6 @@ export async function executeStructuredTools(
                 });
 
                 if (todayScans.length > 0) {
-                    hasSummaryData = true;
                     const isStale = !scanQuality.ok;
 
                     // Process each direction (accumulation and/or distribution)
@@ -656,6 +654,7 @@ export async function executeStructuredTools(
                         const strictAccumulation = direction === "accumulation" && plan.entities.min_acc_score != null;
                         const matchingStocks = todayScans
                             .filter((r: any) => {
+                                if (scopedSymbols.length > 0 && !scopedSymbols.includes(r.symbol)) return false;
                                 if (!strictAccumulation) return r.signal === direction || Number(r[scoreField] || 0) >= 50;
                                 return Number(r.acc_score || 0) > Number(plan.entities.min_acc_score)
                                     && Number(r.vol_ratio || 0) > Number(plan.entities.min_vol_ratio)
@@ -674,6 +673,7 @@ export async function executeStructuredTools(
 
                         const staleNote = isStale ? ` (أحدث مسح مسجل — يُرجى الإشارة للتاريخ)` : "";
                         if (displayedStocks.length > 0) {
+                            directionsWithSummary.add(direction);
                             textParts.push(`\n [بيانات مسح ${directionAr} بتاريخ ${maxDate}${staleNote}]:\n`);
                             displayedStocks.forEach((r: any, idx: number) => {
                                 const name = stocksMap.get(r.symbol) || r.symbol;
@@ -690,23 +690,7 @@ export async function executeStructuredTools(
                                 data_time: maxDate,
                                 symbols: displayedStocks.map((r: any) => r.symbol),
                                 data_type: isStale ? "historical" : (requestedDate ? "historical" : "live"),
-                                // IMPORTANT: only pass direction-matched stocks as scan_rows.
-                                // Passing all todayScans (neutral rows) causes the LLM to hallucinate
-                                // wrong-direction claims for neutral stocks, triggering the validator.
                                 data: { stocks: stocksWithNames, scan_rows: stocksWithNames, date: maxDate, direction, stale_served: isStale }
-                            });
-                        } else {
-                            // No stocks found for this direction — push empty result with NO scan_rows.
-                            // Do NOT pass todayScans here — it causes LLM to pick neutral stocks and
-                            // claim they are accumulation/distribution, triggering validator errors.
-                            textParts.push(`\n [مسح ${directionAr} بتاريخ ${maxDate}]: ⛔ لا توجد أسهم ${directionAr} في هذا المسح — لا يجوز ادعاء ${directionAr} لأي سهم.`);
-                            results.push({
-                                tool: currentScanTool,
-                                source: "stock_scans_summary",
-                                data_time: maxDate,
-                                symbols: [],
-                                data_type: isStale ? "historical" : (requestedDate ? "historical" : "live"),
-                                data: { stocks: [], scan_rows: [], date: maxDate, direction, message: `No ${direction} stocks detected in scan (${maxDate}). Do NOT claim any stock is in ${direction}.` }
                             });
                         }
                     }
@@ -765,8 +749,9 @@ export async function executeStructuredTools(
                             const lossRatePct = totalEval > 0 ? ((lossCount / totalEval) * 100).toFixed(1) : "0.0";
 
                             textParts.push(`\n [بيانات مسح التجميع للأسبوع الماضي بتاريخ ${historicalScanDate}]:\n`);
+                            const stocksMapLocal = new Map<string, string>();
                             pastAccStocks.slice(0, 15).forEach((r: any, idx: number) => {
-                                const name = stocksMap.get(r.symbol) || r.symbol;
+                                const name = stocksMapLocal.get(r.symbol) || r.symbol;
                                 textParts.push(`• ${idx + 1}. سهم ${r.symbol} (${name}): درجة التجميع = ${r.acc_score} | Wyckoff: ${r.wyckoff_phase}`);
                             });
 
@@ -808,18 +793,17 @@ export async function executeStructuredTools(
                 }
             }
 
-            if (!hasSummaryData) {
-                // Fallback: compute from stock_technical_indicators using the primary direction
-                const fallbackDirection = scanDirections[0];
-                const fallbackScoreField = fallbackDirection === "distribution" ? "dist_score" : "acc_score";
-                const fallbackDirectionAr = fallbackDirection === "distribution" ? "التصريف" : "التجميع";
+            const directionsNeedingFallback = scanDirections.filter(d => !directionsWithSummary.has(d));
+            if (directionsNeedingFallback.length > 0) {
+                // Fallback: compute from stock_technical_indicators for directions missing summary data
                 let technicalQuery = supabase
                     .from("stock_technical_indicators")
                     .select("symbol, change_pct, volume, vol_sma20, r_vol, rsi_14, macd, macd_signal, macd_histogram, close, sma_20, date, rsi_divergence, macd_divergence, stoch_divergence, king_ai_score, egx_ai_score")
                     .order("date", { ascending: false })
-                    .limit(400);
+                    .limit(500);
                 if (requestedDate) technicalQuery = technicalQuery.eq("date", requestedDate);
-                if (symbols.length > 0) technicalQuery = technicalQuery.in("symbol", symbols);
+                if (scopedSymbols.length > 0) technicalQuery = technicalQuery.in("symbol", scopedSymbols);
+                else if (symbols.length > 0) technicalQuery = technicalQuery.in("symbol", symbols);
                 const { data: latestTechs } = await technicalQuery;
 
                 if (latestTechs && latestTechs.length > 0) {
@@ -827,89 +811,107 @@ export async function executeStructuredTools(
                     const todayTechs = latestTechs.filter((r: any) => r.date === maxDate);
 
                     const symbolsList = Array.from(new Set(todayTechs.map((r: any) => r.symbol)));
-                    const { data: stocksData } = await supabase
+                    const { data: stocksDataFb } = await supabase
                         .from("stocks")
                         .select("symbol, name")
                         .in("symbol", symbolsList);
                     const stocksMap = new Map<string, string>();
-                    (stocksData || []).forEach((s: any) => {
+                    (stocksDataFb || []).forEach((s: any) => {
                         if (s?.symbol) stocksMap.set(s.symbol, s.name || s.symbol);
                     });
 
-                    const computedStocks = todayTechs.map((t: any) => {
-                        const rvol = t.r_vol || (t.vol_sma20 && Number(t.vol_sma20) > 0 ? Number(t.volume || 0) / Number(t.vol_sma20) : 1);
-                        let score = 50;
-                        if (fallbackDirection === "accumulation") {
-                            if (rvol >= 1.2) score += 15;
-                            else if (rvol >= 0.9) score += 10;
-                            if (t.rsi_14 >= 45 && t.rsi_14 <= 68) score += 15;
-                            if (t.macd && t.macd_signal && t.macd >= t.macd_signal) score += 10;
-                            if (t.close >= (t.sma_20 || 0)) score += 10;
-                        } else {
-                            if (t.rsi_14 >= 70) score += 20;
-                            if (t.rsi_divergence === "BEARISH" || t.macd_divergence === "BEARISH" || t.stoch_divergence === "BEARISH") score += 15;
-                            if (t.macd && t.macd_signal && t.macd < t.macd_signal) score += 10;
-                            if (rvol >= 1.2 && Number(t.change_pct) < 0) score += 15;
+                    for (const fallbackDirection of directionsNeedingFallback) {
+                        const fallbackScoreField = fallbackDirection === "distribution" ? "dist_score" : "acc_score";
+                        const fallbackDirectionAr = fallbackDirection === "distribution" ? "التصريف" : "التجميع";
+                        const fallbackScanTool = fallbackDirection === "distribution" ? "get_distribution_stocks" : "get_accumulation_stocks";
+
+                        const computedStocks = todayTechs.map((t: any) => {
+                            const rvol = t.r_vol || (t.vol_sma20 && Number(t.vol_sma20) > 0 ? Number(t.volume || 0) / Number(t.vol_sma20) : 1);
+                            let score = 50;
+                            if (fallbackDirection === "accumulation") {
+                                if (rvol >= 1.5) score += 20;
+                                else if (rvol >= 1.2) score += 15;
+                                else if (rvol >= 0.9) score += 10;
+                                if (t.rsi_14 >= 45 && t.rsi_14 <= 68) score += 15;
+                                else if (t.rsi_14 >= 40 && t.rsi_14 < 45) score += 8;
+                                if (t.macd && t.macd_signal && t.macd >= t.macd_signal) score += 10;
+                                if (t.close >= (t.sma_20 || 0)) score += 10;
+                                if (t.rsi_divergence === "BULLISH" || t.macd_divergence === "BULLISH") score += 8;
+                            } else {
+                                if (t.rsi_14 >= 70) score += 20;
+                                else if (t.rsi_14 >= 65) score += 12;
+                                if (t.rsi_divergence === "BEARISH" || t.macd_divergence === "BEARISH" || t.stoch_divergence === "BEARISH") score += 15;
+                                if (t.macd && t.macd_signal && t.macd < t.macd_signal) score += 10;
+                                if (rvol >= 1.2 && Number(t.change_pct) < 0) score += 15;
+                                else if (rvol >= 1.2) score += 8;
+                            }
+                            const finalScore = Math.min(score, 98);
+                            return {
+                                symbol: t.symbol,
+                                name: stocksMap.get(t.symbol) || t.symbol,
+                                scan_date: maxDate,
+                                signal: fallbackDirection,
+                                wyckoff_phase: fallbackDirection === "accumulation" ? "Accumulation" : "Distribution",
+                                [fallbackScoreField]: finalScore,
+                                acc_score: fallbackDirection === "accumulation" ? finalScore : 0,
+                                dist_score: fallbackDirection === "distribution" ? finalScore : 0,
+                                vol_ratio: Number(rvol).toFixed(2),
+                                change_pct: t.change_pct != null ? Number(t.change_pct).toFixed(2) : "0.00",
+                                rsi_14: t.rsi_14 != null ? Number(t.rsi_14).toFixed(2) : null,
+                                close: t.close,
+                                consecutive_acc_days: fallbackDirection === "accumulation" ? 1 : 0,
+                                consecutive_dist_days: fallbackDirection === "distribution" ? 1 : 0,
+                                king_ai_score: t.king_ai_score != null ? Number(t.king_ai_score).toFixed(4) : null,
+                                egx_ai_score: t.egx_ai_score != null ? Number(t.egx_ai_score).toFixed(4) : null,
+                            };
+                        });
+
+                        const filteredStocks = computedStocks
+                            .filter((s: any) => symbols.length > 0 ? true : Number(s[fallbackScoreField]) >= 65)
+                            .sort((a: any, b: any) => Number(b[fallbackScoreField]) - Number(a[fallbackScoreField]) || Number(b.vol_ratio) - Number(a.vol_ratio));
+
+                        const displayedStocks = symbols.length > 0 ? filteredStocks : filteredStocks.slice(0, requestedCount || 15);
+
+                        if (displayedStocks.length > 0) {
+                            textParts.push(`\n [بيانات مسح ${fallbackDirectionAr} بالاستناد إلى المؤشرات الفنية والسيولة بتاريخ ${maxDate}]:\n`);
+                            displayedStocks.forEach((r: any, idx: number) => {
+                                const changeStr = Number(r.change_pct || 0) >= 0 ? `+${r.change_pct}%` : `${r.change_pct}%`;
+                                const kingStr = r.king_ai_score != null ? ` | KING AI: ${(Number(r.king_ai_score) * 100).toFixed(1)}%` : "";
+                                const egxStr = r.egx_ai_score != null ? ` | EGX AI: ${(Number(r.egx_ai_score) * 100).toFixed(1)}%` : "";
+                                textParts.push(`• ${idx + 1}. سهم ${r.symbol} (${r.name}): درجة ${fallbackDirectionAr} = ${r[fallbackScoreField]}/100 | نسبة الحجم = ${r.vol_ratio}x | RSI = ${r.rsi_14 || "N/A"} | التغير = ${changeStr}${kingStr}${egxStr}`);
+                            });
+                            results.push({
+                                tool: fallbackScanTool,
+                                source: "stock_technical_indicators",
+                                data_time: maxDate,
+                                symbols: displayedStocks.map((r: any) => r.symbol),
+                                data_type: requestedDate ? "historical" : "live",
+                                data: { stocks: displayedStocks, scan_rows: displayedStocks, date: maxDate, direction: fallbackDirection }
+                            });
                         }
-                        const finalScore = Math.min(score, 98);
-                        return {
-                            symbol: t.symbol,
-                            name: stocksMap.get(t.symbol) || t.symbol,
-                            scan_date: maxDate,
-                            signal: fallbackDirection,
-                            wyckoff_phase: fallbackDirection === "accumulation" ? "Accumulation" : "Distribution",
-                            [fallbackScoreField]: finalScore,
-                            acc_score: fallbackDirection === "accumulation" ? finalScore : 0,
-                            dist_score: fallbackDirection === "distribution" ? finalScore : 0,
-                            vol_ratio: Number(rvol).toFixed(2),
-                            change_pct: t.change_pct != null ? Number(t.change_pct).toFixed(2) : "0.00",
-                            rsi_14: t.rsi_14 != null ? Number(t.rsi_14).toFixed(2) : null,
-                            close: t.close,
-                            consecutive_acc_days: fallbackDirection === "accumulation" ? 1 : 0,
-                            consecutive_dist_days: fallbackDirection === "distribution" ? 1 : 0
-                        };
-                    });
-
-                    const filteredStocks = computedStocks
-                        .filter((s: any) => symbols.length > 0 ? true : Number(s[fallbackScoreField]) >= 70)
-                        .sort((a: any, b: any) => Number(b[fallbackScoreField]) - Number(a[fallbackScoreField]) || Number(b.vol_ratio) - Number(a.vol_ratio));
-
-                    const displayedStocks = symbols.length > 0 ? filteredStocks : filteredStocks.slice(0, requestedCount || 15);
-
-                    if (displayedStocks.length > 0) {
-                        textParts.push(`\n [بيانات مسح ${fallbackDirectionAr} بالاستناد إلى المؤشرات الفنية والسيولة بتاريخ ${maxDate}]:\n`);
-                        displayedStocks.forEach((r: any, idx: number) => {
-                            const changeStr = Number(r.change_pct || 0) >= 0 ? `+${r.change_pct}%` : `${r.change_pct}%`;
-                            textParts.push(`• ${idx + 1}. سهم ${r.symbol} (${r.name}): درجة ${fallbackDirectionAr} = ${r[fallbackScoreField]}/100 | نسبة الحجم = ${r.vol_ratio}x | RSI = ${r.rsi_14 || "N/A"} | التغير = ${changeStr}`);
-                        });
-                        results.push({
-                            tool: scanTool,
-                            source: "stock_technical_indicators",
-                            data_time: maxDate,
-                            symbols: displayedStocks.map((r: any) => r.symbol),
-                            data_type: requestedDate ? "historical" : "live",
-                            data: { stocks: displayedStocks, scan_rows: displayedStocks, date: maxDate, direction: fallbackDirection }
-                        });
                     }
                 }
             }
 
-            if (!results.some(result => result.tool === scanTool || result.tool === "get_accumulation_stocks" || result.tool === "get_distribution_stocks")) {
-                results.push({
-                    tool: scanTool,
-                    source: "empty",
-                    data_time: requestedDate || now,
-                    symbols,
-                    data_type: requestedDate ? "historical" : "live",
-                    data: {
-                        stocks: [],
-                        scan_rows: [],
-                        technical_rows: [],
-                        date: requestedDate,
-                        direction: scanDirections[0],
-                        message: "Insufficient scan data."
-                    }
-                });
+            // Ensure every requested direction emits a ToolResult object
+            for (const dir of scanDirections) {
+                const targetTool = dir === "distribution" ? "get_distribution_stocks" : "get_accumulation_stocks";
+                if (!results.some(r => r.tool === targetTool)) {
+                    results.push({
+                        tool: targetTool,
+                        source: "empty",
+                        data_time: requestedDate || now,
+                        symbols,
+                        data_type: requestedDate ? "historical" : "live",
+                        data: {
+                            stocks: [],
+                            scan_rows: [],
+                            date: requestedDate,
+                            direction: dir,
+                            message: `No ${dir} stocks found.`
+                        }
+                    });
+                }
             }
         } catch (e) {
             console.warn("Error fetching accumulation stocks:", e);

@@ -505,6 +505,7 @@ export function validateDeterministicRules(
         // EVIDENCE VERIFIER CHECK 4: Phase conflict between claim and actual Wyckoff data
         // Skip for scan list stocks — the DB already confirmed their direction.
         const hasPhaseConflict = !skipWyckoffChecks && toolResults.some(r => {
+            if (r.source === "performance_evaluator" || r.data_type === "historical") return false;
             if (!Array.isArray(r.data?.stocks)) return false;
             return r.data.stocks.some((st: any) => {
                 const symMatch = String(st.symbol).toUpperCase() === activeSymbol?.toUpperCase();
