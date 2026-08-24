@@ -1089,7 +1089,16 @@ Analyze the user request and return a JSON object. You MUST dynamically choose t
                         } else if (isHistoricalRecallQuery) {
                             finalIntent = "historical_recall";
                         } else if (resolvedSymbols.length > 0 && finalIntent === "general_chat") {
-                            finalIntent = "portfolio";
+                            // User typed only a stock name/symbol with no specific question.
+                            // Route to stock_analysis (not portfolio which triggers image_analysis pipeline) 
+                            // to get a full technical analysis response with get_stock tool.
+                            if (!hasImages) {
+                                finalIntent = "stock_analysis";
+                                if (!Array.isArray(parsed.tools)) parsed.tools = [];
+                                if (!parsed.tools.includes("get_stock")) parsed.tools.push("get_stock");
+                            } else {
+                                finalIntent = "portfolio";
+                            }
                         }
 
                         const toolsList: string[] = (finalIntent === "general_chat" || isTermsQuestion)
