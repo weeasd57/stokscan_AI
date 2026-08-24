@@ -597,18 +597,29 @@ def prune_technical_indicators_to_latest():
     """
     STRICT MAINTENANCE: Enforce exactly 1 single latest snapshot row per symbol in stock_technical_indicators.
     Deletes any older historical date rows so the table never accumulates duplicate date rows per stock.
+    IMPORTANT: Paginates through the full table — Supabase default limit is 1000 rows.
     """
     try:
-        res = supabase.table("stock_technical_indicators").select("symbol, exchange, date").execute()
-        rows = res.data or []
-        if not rows:
+        # Paginate through ALL rows — don't rely on default 1000 limit
+        all_rows = []
+        page_size = 1000
+        offset = 0
+        while True:
+            res = supabase.table("stock_technical_indicators").select("symbol, exchange, date").range(offset, offset + page_size - 1).execute()
+            batch = res.data or []
+            all_rows.extend(batch)
+            if len(batch) < page_size:
+                break
+            offset += page_size
+
+        if not all_rows:
             return
-            
+
         from collections import defaultdict
         by_sym = defaultdict(list)
-        for r in rows:
+        for r in all_rows:
             by_sym[(r["symbol"], r.get("exchange", "EGX"))].append(r["date"])
-            
+
         deleted_count = 0
         for (sym, ex), dates in by_sym.items():
             if len(dates) > 1:
@@ -618,11 +629,14 @@ def prune_technical_indicators_to_latest():
                     deleted_count += len(del_res.data or [])
                 except Exception as del_err:
                     print(f"[PRUNE] Failed to prune old dates for {sym}: {del_err}")
-                    
+
         if deleted_count > 0:
             print(f"[PRUNE] Cleaned up {deleted_count} older date rows from stock_technical_indicators.")
+        else:
+            print(f"[PRUNE] Table is clean — {len(by_sym)} symbols, each with exactly 1 row.")
     except Exception as e:
         print(f"[PRUNE] Indicator table pruning error: {e}")
+
 
 
 def _batch_upsert_indicators(all_records: List[Dict[str, Any]], batch_size: int = 200):
