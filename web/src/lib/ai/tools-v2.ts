@@ -697,7 +697,7 @@ export async function executeStructuredTools(
                 }
 
                 // ── Multi-Period & Performance Evaluation (Yesterday + Last Week + Win/Loss Rate) ──
-                const asksForPerformance = /(?:نجح|خسر|نجاح|خسارة|خساره|نسبة\s*نجاح|نسبه\s*نجاح|أداء|اداء|كام\s*في\s*المية|كام\s*%|كم\s*%|كم\s*في\s*المئة)/i.test(userMessage);
+                const asksForPerformance = /(?:نسبة\s*(?:نجاح|خسارة)|نسبه\s*(?:نجاح|خساره)|معدل\s*(?:النجاح|الخسارة|نجاح|خسارة)|أداء\s*(?:المسح|التجميع|التصريف|التوصيات)|اداء\s*(?:المسح|التجميع|التصريف|التوصيات)|احصائيات\s*النجاح|إحصائيات\s*النجاح|كام\s*في\s*المية\s*(?:نجاح|نجحت)|كم\s*نسبة\s*نجاح)/i.test(userMessage);
                 const asksForLastWeek = /(?:الاسبوع|الأسبوع)\s+(?:اللي|اللى)\s+(?:فات|الماضي)|last\s+week/i.test(userMessage) || Boolean(plan.entities.requested_start_date && !requestedDate);
 
                 if (asksForLastWeek || asksForPerformance) {
