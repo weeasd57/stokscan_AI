@@ -46,7 +46,7 @@ class BotConfig:
     name: str = "Primary Bot"
     user_id: Optional[str] = None
     execution_mode: str = "TELEGRAM"  # "VIRTUAL" | "TELEGRAM" | "BOTH"
-    telegram_chat_id: Optional[int] = -1003699330518
+    telegram_chat_id: Optional[int] = -1002083067817  # Public channel: https://t.me/c/2083067817
     telegram_token: Optional[str] = None
     coins: list[str] = None
     king_threshold: float = 0.85

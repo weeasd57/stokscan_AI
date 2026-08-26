@@ -908,64 +908,13 @@ def _notify_subscribers_for_symbol(symbol: str, exchange: str, message: str):
 
 
 def _notify_service_subscribers(service_type: str, message: str):
-    """Send notification to subscribers via Telegram using registered user profiles."""
-    try:
-        from api.telegram_bot import get_telegram_bot
-        bot = get_telegram_bot()
-        if not bot:
-            print(f"[SERVICE_NOTIFY] No Telegram bot instance found for {service_type}.")
-            return
-
-        # Get all registered users with telegram_chat_id from profiles table
-        try:
-            res = (
-                supabase.table("profiles")
-                .select("telegram_chat_id, display_name, username")
-                .not_.is_("telegram_chat_id", "null")
-                .neq("telegram_chat_id", "")
-                .execute()
-            )
-            
-            subscribers = res.data or []
-            if not subscribers:
-                print(f"[SERVICE_NOTIFY] No subscribers found with valid telegram_chat_id for {service_type}")
-                return
-                
-            queued_count = 0
-            for subscriber in subscribers:
-                chat_id = subscriber.get("telegram_chat_id")
-                if chat_id:
-                    try:
-                        if bot.send_notification(message, chat_id=str(chat_id)):
-                            queued_count += 1
-                    except Exception as send_err:
-                        print(f"[SERVICE_NOTIFY] Failed to send to {chat_id}: {send_err}")
-            
-            print(f"[SERVICE_NOTIFY] Queued {service_type} message for {queued_count}/{len(subscribers)} subscribers; delivery is handled asynchronously")
-            
-        except Exception as db_err:
-            print(f"[SERVICE_NOTIFY] Database query failed for {service_type}: {db_err}")
-            
-            # Fallback to admin channel if database query fails
-            chat_id = getattr(bot, "chat_id", None)
-            is_fallback = (chat_id == -1003699330518 or str(chat_id) == "-1003699330518")
-            
-            if not chat_id or is_fallback:
-                env_chat_id = os.getenv("TELEGRAM_CHAT_ID")
-                if env_chat_id:
-                    chat_id = env_chat_id
-                else:
-                    # Use the correct Telegram channel ID with thread from the URL provided
-                    chat_id = "-1002083067817_153"  # Channel + Thread ID
-
-            if chat_id and not is_fallback:
-                print(f"[SERVICE_NOTIFY] Fallback: Broadcasting {service_type} to admin channel: {chat_id}")
-                bot.send_notification(message, chat_id=str(chat_id))
-            else:
-                print(f"[SERVICE_NOTIFY] Cannot send {service_type} broadcast: No valid chat_id found.")
-                
-    except Exception as e:
-        print(f"[SERVICE_NOTIFY] {service_type} notification error: {e}")
+    """Route all service/recommendation notifications to the public channel only.
+    
+    Per user requirement: ALL stock updates, recommendations, buy/sell signals
+    must go ONLY to the public channel (-1002083067817_153). Individual subscriber
+    DMs for these events are disabled.
+    """
+    _notify_central_telegram(message, service_type)
 
 
 def _dispatch_similarity_notifications(results: List[Dict[str, Any]]):
