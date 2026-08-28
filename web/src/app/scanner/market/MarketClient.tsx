@@ -1698,15 +1698,15 @@ export default function MarketClient() {
         return { last, change, changePct };
     };
 
-    const egx30Stats = data?.egx30 ? getStats(data.egx30) : { last: 0, change: 0, changePct: 0 };
-    const egx100Stats = data?.egx100 ? getStats(data.egx100) : { last: 0, change: 0, changePct: 0 };
-    const usdegpStats = data?.usdegp ? getStats(data.usdegp) : { last: 0, change: 0, changePct: 0 };
+    const egx30Stats = data?.egx30 && Array.isArray(data.egx30) && data.egx30.length > 0 ? getStats(data.egx30) : { last: 0, change: 0, changePct: 0 };
+    const egx100Stats = data?.egx100 && Array.isArray(data.egx100) && data.egx100.length > 0 ? getStats(data.egx100) : { last: 0, change: 0, changePct: 0 };
+    const usdegpStats = data?.usdegp && Array.isArray(data.usdegp) && data.usdegp.length > 0 ? getStats(data.usdegp) : { last: 0, change: 0, changePct: 0 };
 
     const CustomTooltip = ({ active, payload, label }: any) => {
         if (active && payload && payload.length) {
             const val = typeof payload[0].value === "number" ? payload[0].value : null;
             if (val === null) return null;
-            const prevVal = activeChartData.length > 1 ? activeChartData[activeChartData.length - 2].close : val;
+            const prevVal = activeChartData && activeChartData.length > 1 ? activeChartData[activeChartData.length - 2].close : val;
             const dayChange = val - prevVal;
             const up = dayChange >= 0;
             return (
@@ -1767,9 +1767,9 @@ export default function MarketClient() {
     }
 
     const activeChartData =
-        activeTab === "egx30" ? data.egx30 :
+        (activeTab === "egx30" ? data.egx30 :
         activeTab === "egx100" ? data.egx100 :
-        data.usdegp;
+        data.usdegp) || [];
 
     const chartColor =
         activeTab === "usdegp" ? "#8B5CF6" :
@@ -2008,7 +2008,7 @@ export default function MarketClient() {
                 </div>
 
                 <div className="h-[380px] w-full" dir="ltr">
-                    {activeChartData.length > 0 ? (
+                    {activeChartData && activeChartData.length > 0 ? (
                         <ResponsiveContainer width="100%" height="100%">
                             <AreaChart data={activeChartData} margin={{ top: 10, right: 10, left: 10, bottom: 5 }}>
                                 <defs>

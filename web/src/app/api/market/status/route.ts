@@ -29,7 +29,39 @@ export async function GET() {
       );
     }
 
-    return NextResponse.json(data.payload, {
+    const payload = (typeof data.payload === "string" ? JSON.parse(data.payload) : data.payload) || {};
+    const safePayload = {
+      ...payload,
+      egx30: Array.isArray(payload.egx30) ? payload.egx30 : [],
+      egx100: Array.isArray(payload.egx100) ? payload.egx100 : [],
+      usdegp: Array.isArray(payload.usdegp) ? payload.usdegp : [],
+    };
+
+    // If usdegp is empty in cache, fallback to stock_prices
+    if (safePayload.usdegp.length === 0) {
+      try {
+        const { data: usdRows } = await supabase
+          .from("stock_prices")
+          .select("date, open, high, low, close, volume")
+          .eq("symbol", "USDEGP")
+          .order("date", { ascending: true })
+          .limit(365);
+        if (usdRows && usdRows.length > 0) {
+          safePayload.usdegp = usdRows.map((r: any) => ({
+            date: r.date,
+            open: toNumber(r.open, 0),
+            high: toNumber(r.high, 0),
+            low: toNumber(r.low, 0),
+            close: toNumber(r.close, 0),
+            volume: toNumber(r.volume, 0),
+          }));
+        }
+      } catch (err) {
+        console.error("Failed to fetch USD/EGP fallback prices:", err);
+      }
+    }
+
+    return NextResponse.json(safePayload, {
       headers: { 'Cache-Control': 'public, s-maxage=120, stale-while-revalidate=300' }
     });
   } catch (error) {

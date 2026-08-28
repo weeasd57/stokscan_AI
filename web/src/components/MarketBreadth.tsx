@@ -151,8 +151,10 @@ interface Mover {
     rsi_14: number;
 }
 
-export function TopMovers({ gainers, losers, isAr }: { gainers: Mover[]; losers: Mover[]; isAr: boolean }) {
-    if (!gainers.length && !losers.length) return null;
+export function TopMovers({ gainers = [], losers = [], isAr }: { gainers?: Mover[]; losers?: Mover[]; isAr: boolean }) {
+    const safeGainers = Array.isArray(gainers) ? gainers : [];
+    const safeLosers = Array.isArray(losers) ? losers : [];
+    if (!safeGainers.length && !safeLosers.length) return null;
 
     const renderTable = (items: Mover[], type: "gain" | "loss") => {
         const color = type === "gain" ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400";

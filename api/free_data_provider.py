@@ -145,6 +145,8 @@ def fetch_eod_data_free(symbol: str, period: str = "6mo") -> List[Dict[str, Any]
         symbol_map = {
             "EGX30.INDX": "^CASE30",         # Cairo Composite Stock Index (EGX30)
             "EGX100.INDX": "^CASE30",        # Fallback to EGX30 (no EGX100 in yfinance)
+            "USDEGP.FOREX": "EGP=X",
+            "USDEGP": "EGP=X",
             "FCMD": "ICMI.CA",
             "FCMD.CA": "ICMI.CA",
             "FCMD.EGX": "ICMI.CA",
@@ -416,8 +418,8 @@ def get_market_status_free(from_date: str = None, period: str = "1y") -> Dict[st
     # Initialize results
     egx30_data = []
     egx100_data = []
+    usd_egp_data = []
 
-    
     # 1. Fetch existing historical index/forex data from Supabase first (single fetch, no loops)
     logger.info("Seeding market status history from Supabase...")
     try:
@@ -446,9 +448,10 @@ def get_market_status_free(from_date: str = None, period: str = "1y") -> Dict[st
             
             # Fetch USD/EGP history
             try:
-                all_data = []  # USD/EGP data fetched separately via background task
-                if all_data:
-                    usd_egp_history = [
+                res_usd = supabase.table("stock_prices").select("date,open,high,low,close,volume").eq("symbol", "USDEGP").gte("date", from_date).order("date", desc=False).execute()
+                usd_rows = res_usd.data or []
+                if usd_rows:
+                    usd_egp_data = [
                         {
                             "date": r["date"],
                             "open": float(r.get("open", 0)),
@@ -457,9 +460,9 @@ def get_market_status_free(from_date: str = None, period: str = "1y") -> Dict[st
                             "close": float(r.get("close", 0)),
                             "volume": int(r.get("volume", 0))
                         }
-                        for r in all_data
+                        for r in usd_rows
                     ]
-
+                    logger.info(f"Loaded {len(usd_egp_data)} USD/EGP history rows from Supabase")
             except Exception as e:
                 logger.debug(f"Supabase USD/EGP history fetch failed: {e}")
 
@@ -510,6 +513,19 @@ def get_market_status_free(from_date: str = None, period: str = "1y") -> Dict[st
     except Exception as e:
         logger.warning(f"EGX100 merge failed: {e}")
 
+    try:
+        fresh_usd = fetch_eod_data_free("USDEGP.FOREX", period=period)
+        if not fresh_usd:
+            fresh_usd = fetch_eod_data_free("EGP=X", period=period)
+        if fresh_usd:
+            merged = {r["date"]: r for r in usd_egp_data}
+            for r in fresh_usd:
+                merged[r["date"]] = r
+            usd_egp_data = [merged[d] for d in sorted(merged.keys())]
+            logger.info(f"USD/EGP merged to {len(usd_egp_data)} rows after fetch")
+    except Exception as e:
+        logger.warning(f"USD/EGP merge failed: {e}")
+
     # EGX100 fallback (if still empty, use EGX30)
     if not egx100_data:
         egx100_data = egx30_data
@@ -541,7 +557,7 @@ def get_market_status_free(from_date: str = None, period: str = "1y") -> Dict[st
     return {
         "egx30": egx30_data,
         "egx100": egx100_data,
-
+        "usdegp": usd_egp_data,
         "regime": regime,
         "egx30_return": egx30_return,
         "reject_buys": reject_buys,

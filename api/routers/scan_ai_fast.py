@@ -730,7 +730,7 @@ def fast_scan(
     country: str = "Egypt",
     limit: int = 200,
     min_precision: float = 0.5,
-    model_name: str = "model_EGX.pkl",
+    model_name: str = "model_EGX.bin",
     from_date: str = None,
     to_date: str = None,
     target_pct: float = 2.0,
@@ -783,7 +783,7 @@ def fast_scan(
         raise HTTPException(status_code=400, detail="Model predictors not found")
 
     market_gate = should_reject_new_buys() if country == "Egypt" else {"blocked": False, "reason": "market gate not applicable"}
-    if market_gate.get("blocked"):
+    if market_gate.get("blocked") and not return_raw_prob:
         duration = time.time() - start
         print(f"[MARKET_GATE] Fast scan blocked: {market_gate.get('reason')}")
         return {

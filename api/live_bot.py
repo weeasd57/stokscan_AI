@@ -161,8 +161,8 @@ class BotConfig:
     trading_mode: str = "aggressive"  # "defensive" | "aggressive" | "hybrid"
 
     # Model Paths
-    king_model_path: str = "api/models/KING.pkl"
-    council_model_path: str = "api/models/The_Council_Validator.pkl"
+    king_model_path: str = "api/models/KING.bin"
+    council_model_path: str = "api/models/The_Council_Validator.bin"
 
     # Cornix Direct Integration
     cornix_webhook_url: Optional[str] = None

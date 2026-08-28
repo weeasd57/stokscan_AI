@@ -30,7 +30,7 @@ class RegimeInfo:
     momentum_score: float  # -100 to +100
     volatility_score: float  # 0-100
     trend_strength: float  # 0-100
-    recommended_model: str  # "KING.pkl" or "model_EGX.pkl"
+    recommended_model: str  # "KING.bin" or "model_EGX.bin"
     reason: str
 
 
@@ -41,8 +41,8 @@ class AdaptiveModelSelector:
 
     def __init__(
         self,
-        king_model_path: str = "api/models/KING.pkl",
-        egx_model_path: str = "api/models/model_EGX.pkl",
+        king_model_path: str = "api/models/KING.bin",
+        egx_model_path: str = "api/models/model_EGX.bin",
         lookback_days: int = 60,  # فترة التحليل
         bull_momentum_threshold: float = 40.0,  # حد الصعود القوي (أكثر واقعية)
         bear_momentum_threshold: float = -10.0,  # حد الهبوط
@@ -406,7 +406,7 @@ def discover_model_candidates(
             names = [
                 fn
                 for fn in os.listdir(models_dir)
-                if fn.lower().endswith(".pkl")
+                if fn.lower().endswith(".pkl") or fn.lower().endswith(".bin")
             ]
         except Exception:
             names = []
@@ -423,7 +423,7 @@ def discover_model_candidates(
         if not os.path.exists(model_path):
             continue
 
-        normalized_name = safe_name.replace(".pkl", "").upper()
+        normalized_name = safe_name.replace(".pkl", "").replace(".bin", "").upper()
         card = _load_model_card(models_dir, safe_name)
         card_exchange = (
             str(card.get("exchange") or "").strip().upper() or None

@@ -36,8 +36,8 @@ import subprocess
 def get_git_changes():
     files = set()
     try:
-        # Files changed in the last commit
-        res = subprocess.run(["git", "diff", "--name-only", "HEAD~1", "HEAD"], capture_output=True, text=True)
+        # Files changed since the Hugging Face Space baseline deployment 23 days ago
+        res = subprocess.run(["git", "diff", "--name-only", "78cc5e6", "HEAD"], capture_output=True, text=True)
         if res.returncode == 0:
             for line in res.stdout.splitlines():
                 if line.strip():
@@ -68,6 +68,17 @@ def get_git_changes():
             # Exclude large binary/cache files or package managers
             if any(x in clean_path for x in [".git/", "package-lock.json", "node_modules/", "deploy_to_hf.py"]):
                 continue
+            
+            # Only include backend code running on Hugging Face Space (api/ folder, root python files, scripts/, Dockerfile, requirements.txt)
+            is_backend = (
+                (clean_path.startswith("api/") and not clean_path.startswith("api/symbols_data/")) or 
+                (clean_path.endswith(".py") and not clean_path.startswith("web/")) or
+                clean_path.startswith("scripts/") or
+                clean_path in ["requirements.txt", "Dockerfile", "README.md"]
+            )
+            if not is_backend:
+                continue
+                
             valid_files.append(clean_path)
     return valid_files
 
@@ -90,33 +101,38 @@ if not FILES_TO_UPLOAD:
 if not HF_TOKEN:
     raise SystemExit("❌ Set HF_TOKEN environment variable first:\n   $env:HF_TOKEN='hf_your_token_here'")
 
+from huggingface_hub import CommitOperationAdd
+
 api = HfApi(token=HF_TOKEN)
-print(f"\n🚀 Uploading {len(FILES_TO_UPLOAD)} files to {REPO_ID}...\n")
+print(f"\n🚀 Preparing {len(FILES_TO_UPLOAD)} files for upload to {REPO_ID}...\n")
 
-success, failed = 0, []
-
+operations = []
 for rel_path in FILES_TO_UPLOAD:
     local_path = os.path.join(BASE_DIR, rel_path.replace("/", os.sep))
     if not os.path.exists(local_path):
         print(f"  ⚠  SKIP (not found): {rel_path}")
         continue
-    try:
-        api.upload_file(
-            path_or_fileobj=local_path,
+    
+    operations.append(
+        CommitOperationAdd(
             path_in_repo=rel_path,
+            path_or_fileobj=local_path
+        )
+    )
+    print(f"  📦 Staged: {rel_path}")
+
+if operations:
+    print(f"\n⚡ Sending atomic commit with {len(operations)} files to Hugging Face...")
+    try:
+        api.create_commit(
             repo_id=REPO_ID,
             repo_type=REPO_TYPE,
-            commit_message=f"deploy: update {rel_path.split('/')[-1]}",
+            operations=operations,
+            commit_message="deploy: update backend code and binary models"
         )
-        print(f"  ✅ {rel_path}")
-        success += 1
+        print("✅ Atomic deployment successful! Only 1 commit created.")
     except Exception as e:
-        print(f"  ❌ FAILED {rel_path}: {e}")
-        failed.append(rel_path)
-
-print(f"\n{'='*50}")
-print(f"Done: {success} uploaded, {len(failed)} failed.")
-if failed:
-    print("Failed files:")
-    for f in failed:
-        print(f"  - {f}")
+        print(f"❌ Atomic commit failed: {e}")
+        raise SystemExit(1)
+else:
+    print("⚠ No files to upload.")

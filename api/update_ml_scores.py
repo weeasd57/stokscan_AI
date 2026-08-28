@@ -24,7 +24,7 @@ def update_all_scores():
             limit=500,
             min_precision=0.0,
             buy_threshold=0.0,
-            model_name='KING.pkl',
+            model_name='KING.bin',
             return_raw_prob=True
         )
     except Exception as e:
@@ -38,7 +38,7 @@ def update_all_scores():
             limit=500,
             min_precision=0.0,
             buy_threshold=0.0,
-            model_name='model_EGX.pkl',
+            model_name='model_EGX.bin',
             return_raw_prob=True
         )
     except Exception as e:

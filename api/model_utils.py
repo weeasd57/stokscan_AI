@@ -22,7 +22,7 @@ import numpy as np
 # Path safety
 # ---------------------------------------------------------------------------
 
-def safe_model_path(model_name: str, models_dir: str, allowed_ext=(".pkl",)) -> str:
+def safe_model_path(model_name: str, models_dir: str, allowed_ext=(".pkl", ".bin")) -> str:
     """
     Resolve a user-supplied model name to a path strictly inside models_dir.
 

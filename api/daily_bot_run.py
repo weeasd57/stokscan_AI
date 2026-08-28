@@ -1995,7 +1995,7 @@ async def generate_daily_recommendations(model_name: Optional[str] = None):
     generate rich detailed Arabic reports, and insert them into scan_results.
     """
     from typing import Optional
-    resolved_model = "model_EGX.pkl"
+    resolved_model = "model_EGX.bin"
     
     # ── Load EGX30 index data unconditionally for trend check and adaptive selection ──
     market_df = None
@@ -2090,20 +2090,20 @@ async def generate_daily_recommendations(model_name: Optional[str] = None):
             except Exception as e:
                 print(f"[WARNING] Error running AdaptiveModelSelector: {e}. Falling back to default model: {resolved_model}")
         else:
-            if not model_lower.endswith(".pkl"):
-                resolved_model = f"{model_name}.pkl"
+            if not model_lower.endswith(".pkl") and not model_lower.endswith(".bin"):
+                resolved_model = f"{model_name}.bin"
             else:
                 resolved_model = model_name
 
     council_model = None
     validator_model = None
-    if resolved_model == "model_EGX.pkl" or resolved_model.endswith("model_EGX.pkl"):
-        council_model = "KING.pkl"
+    if resolved_model in ["model_EGX.pkl", "model_EGX.bin"] or resolved_model.endswith("model_EGX.pkl") or resolved_model.endswith("model_EGX.bin"):
+        council_model = "KING.bin"
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        if os.path.exists(os.path.join(base_dir, "models", "The_Council_Validator.pkl")):
-            validator_model = "The_Council_Validator.pkl"
-        elif os.path.exists(os.path.join(base_dir, "api", "models", "The_Council_Validator.pkl")):
-            validator_model = "The_Council_Validator.pkl"
+        if os.path.exists(os.path.join(base_dir, "models", "The_Council_Validator.bin")):
+            validator_model = "The_Council_Validator.bin"
+        elif os.path.exists(os.path.join(base_dir, "api", "models", "The_Council_Validator.bin")):
+            validator_model = "The_Council_Validator.bin"
 
     print(f"[RECOMMENDATIONS] Running ML fast scan for EGX stocks using model: {resolved_model} (council: {council_model}, validator: {validator_model})...")
     scan_resp = fast_scan(
@@ -2336,11 +2336,12 @@ def _refresh_market_status_cache():
         res_data = get_market_status_free(period="1y")
         egx30_data = res_data.get("egx30", [])
         egx100_data = res_data.get("egx100", [])
+        usdegp_data = res_data.get("usdegp", [])
 
         regime = res_data.get("regime", "sideways")
         egx30_return = res_data.get("egx30_return", 0.0)
         
-        print(f"[MARKET_STATUS] Fetched market data (FREE): {len(egx30_data)} EGX30 rows, regime={regime}")
+        print(f"[MARKET_STATUS] Fetched market data (FREE): {len(egx30_data)} EGX30 rows, {len(usdegp_data)} USD/EGP rows, regime={regime}")
         
         # Save to local file cache in api/symbols_data/market_status.json
         cache_path = os.path.join(base_dir, "symbols_data", "market_status.json")
@@ -2373,7 +2374,7 @@ def _refresh_market_status_cache():
                 INDEX_META = [
                     ("EGX30", "INDX", egx30_data),
                     ("EGX100", "INDX", egx100_data),
-
+                    ("USDEGP", "FOREX", usdegp_data),
                 ]
                 
                 # Ensure these index symbols exist in stock_fundamentals to satisfy foreign key constraints

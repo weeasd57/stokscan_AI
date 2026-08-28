@@ -38,8 +38,8 @@ class SimpleAdaptiveSelector:
     
     def __init__(
         self,
-        king_model_path: str = "api/models/KING.pkl",
-        egx_model_path: str = "api/models/model_EGX.pkl",
+        king_model_path: str = "api/models/KING.bin",
+        egx_model_path: str = "api/models/model_EGX.bin",
         evaluation_period_days: int = 30,  # كل كام يوم نقيّم؟
         min_trades_for_evaluation: int = 3,  # أقل عدد صفقات للتقييم
         underperformance_threshold: float = 0.10,  # أقل من 10% ROI في الشهر = ضعيف
