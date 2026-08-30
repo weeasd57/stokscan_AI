@@ -286,8 +286,28 @@ export function buildV2FinalMessages(
             liveResults.forEach(r => {
                 sections.push(`الأداة: ${r.tool} | المصدر: ${r.source} | الوقت: ${r.data_time} | نوع: ${r.data_type}`);
                 if (typeof r.data === "object" && r.data !== null) {
-                    for (const [key, val] of Object.entries(r.data)) {
-                        sections.push(`  ${key}: ${formatFactValue(val)}`);
+                    if (r.tool === "get_technical_scan" && Array.isArray(r.data.stocks)) {
+                        sections.push("  stocks_table (You MUST output this exact Markdown table structure to the user under a suitable heading. Do not convert it to lists or paragraphs):");
+                        sections.push("  | # | السهم | الاسم | السعر | التغير | RSI | حجم نسبي | تفاصيل فنية أخرى |");
+                        sections.push("  |---|---|---|---|---|---|---|---|");
+                        r.data.stocks.forEach((s: any, idx: number) => {
+                            const changeStr = Number(s.change_pct) >= 0 ? `+${s.change_pct}%` : `${s.change_pct}%`;
+                            const extra = [];
+                            if (s.ema_50 && s.ema_50 !== "N/A") extra.push(`EMA 50: ${s.ema_50}`);
+                            if (s.ema_200 && s.ema_200 !== "N/A") extra.push(`EMA 200: ${s.ema_200}`);
+                            if (s.divergence_summary) extra.push(s.divergence_summary);
+                            const detailText = extra.length > 0 ? extra.join(" ، ") : "-";
+                            sections.push(`  | ${idx + 1} | **${s.symbol}** | ${s.name || s.symbol} | ${s.close} ج.م | ${changeStr} | ${s.rsi || "N/A"} | ${s.r_vol || "1.00"}x | ${detailText} |`);
+                        });
+                        for (const [key, val] of Object.entries(r.data)) {
+                            if (key !== "stocks") {
+                                sections.push(`  ${key}: ${formatFactValue(val)}`);
+                            }
+                        }
+                    } else {
+                        for (const [key, val] of Object.entries(r.data)) {
+                            sections.push(`  ${key}: ${formatFactValue(val)}`);
+                        }
                     }
                 }
             });
@@ -445,12 +465,20 @@ export function buildV2FinalMessages(
 
     const today = new Date().toISOString().split("T")[0];
 
-    const lengthRule = (plan.intent === "stock_analysis" || plan.intent === "general_chat")
+    const lengthRule = plan.intent === "technical_scan"
+        ? "اعرض قائمة الأسهم ونتائج المسح الفني دائمًا في جدول ماركداون (Markdown Table) منسق ومكتمل الأعمدة بدلاً من القوائم المنقطة أو الأسطر الطويلة لتفادي تداخل النصوص واللغات."
+        : (plan.intent === "stock_analysis" || plan.intent === "general_chat")
         ? "أجب مباشرة في فقرة قصيرة أو نقطتين إلى أربع نقاط حسب عدد الأرقام المطلوبة، من دون افتتاحية محفوظة أو حشو."
-        : "أجب مباشرة وبقدر التفصيل الذي يحتاجه السؤال؛ اجمع الأرقام المتصلة في جمل طبيعية ولا تحوّل كل حقل إلى سطر ثابت.";
+        : "أجب مباشرة وبقدر التفصيل الذي يحتاجه السؤال؛ اجمع الأرقام المتصلة في جمل طبيعية ولا تحوّل كل حقل إلى سطر ثابت (إلا في حالة القوائم أو نتائج الفلاتر فاستخدم الجداول دائماً).";
 
     const systemPrompt = `أنت الخبير والمحلل الفني الاحترافي للبورصة المصرية (EGX Bots). اليوم: ${today}.
 دورك تقديم قراءة فنية موضوعية ومباشرة تعتمد حكراً على الأرقام الحقيقية في البيانات.
+
+🚨 قانون تنسيق جداول المسح الفني الفائق الأهمية (MANDATORY TABLE RULE):
+إذا كانت البيانات تحتوي على نتائج مسح فني أو فلاتر أو قائمة أسهم (مثل get_technical_scan أو get_accumulation_stocks)، يجب عليك عرضها بالكامل في جدول ماركداون (Markdown Table) منسق ومكتمل الأعمدة كالتالي:
+| # | السهم | الاسم | السعر | التغير | RSI | حجم نسبي | تفاصيل فنية أخرى |
+|---|---|---|---|---|---|---|---|
+يمنع منعاً باتاً صياغة القوائم أو نتائج الفلاتر الفنية في شكل نقاط (Bullet points) أو فقرات نصية عادية. يجب دائماً استخدام الجدول.
 
 قواعد تحليل وتغطية الأسهم الصارمة:
 1. ${lengthRule}
@@ -472,7 +500,9 @@ export function buildV2FinalMessages(
       • تفسير كل نموذج بناءاً على النسبة: 70%+ = 'إيجابي قوي'، 55-70% = 'إيجابي متوسط'، 45-55% = 'محايد'، 30-45% = 'متحفظ'، <30% = 'سلبي'.
       • احسب 'اتفاق النماذات': إذا كان الاتجاه نفسه (كلاهما >50% أو كليهما <50%) → 'اتفاق قوي'؛ إذا خالفوا → 'اتفاق ضعيف'؛ إذا فرق ≥ 15 نقطة → 'اتفاق منخفض جداً'.
       • استنتج 'القرار الفني العام': اتفاق قوي + نطاق عالي = 'شراء/مراجعة'؛ اتفاق ضعيف = 'مراقبة'؛ اتفاق منخفض = 'انتظار'.
-      - لا تنسَ: النماذات قد تتباين، وهذا شائع. اشرح للمستخدم لماذى قد تختلف النماذات.`;
+      - لا تنسَ: النماذات قد تتباين، وهذا شائع. اشرح للمستخدم لماذى قد تختلف النماذات.
+6. تنسيق القوائم والجداول (Formatting Guideline):
+   - عندما يُطلب منك عرض قائمة أسهم أو نتائج مسح فني أو فلاتر أو مقارنات متعددة، اعرضها دائماً في جدول ماركداون (Markdown Table) منسق ومكتمل الأعمدة بدلاً من القوائم المنقطة أو الأسطر الطويلة. هذا يمنع تداخل النصوص واللغات ويجعل العرض احترافياً ونظيفاً ونظيفاً جداً في واجهة المستخدم.`;
 
     const messages: { role: string; content: any }[] = [
         { role: "system", content: systemPrompt }
@@ -750,27 +780,7 @@ async function* parseSseStream(res: Response): AsyncGenerator<string, void, unkn
 }
 
 function removeModelTables(text: string): string {
-    const lines = text.split("\n");
-    const output: string[] = [];
-    let inTable = false;
-
-    for (const line of lines) {
-        const trimmed = line.trim();
-        const tableRow = trimmed.startsWith("|") && trimmed.endsWith("|");
-        const separator = tableRow && /^\|[\s:|-]+\|$/.test(trimmed);
-        if (tableRow || separator) {
-            inTable = true;
-            continue;
-        }
-        if (inTable && !trimmed) {
-            inTable = false;
-            continue;
-        }
-        inTable = false;
-        output.push(line);
-    }
-
-    return output.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+    return text;
 }
 
 export interface ResponderMeta {
@@ -1075,16 +1085,6 @@ export async function generateV2Response(
         if (meta) meta.source = "deterministic";
         return sanitizeReply(dailyHistory);
     }
-    const techScanResponse = buildDeterministicTechnicalScanResponse(userMessage, plan, toolResults);
-    if (techScanResponse) {
-        if (meta) meta.source = "deterministic";
-        return sanitizeReply(techScanResponse);
-    }
-    const bothAccDistResponse = buildBothAccumulationDistributionResponse(userMessage, plan, toolResults);
-    if (bothAccDistResponse) {
-        if (meta) meta.source = "deterministic";
-        return sanitizeReply(bothAccDistResponse);
-    }
     const singleStockAccDistResponse = buildSingleStockAccumulationDistributionResponse(userMessage, plan, toolResults);
     if (singleStockAccDistResponse) {
         if (meta) meta.source = "deterministic";
@@ -1116,13 +1116,29 @@ export async function generateV2Response(
     const result = await callResponderLlm(messages, apiKeys, false, requestedModel);
     if (result.response) {
         if (meta) meta.source = "llm";
-        return sanitizeReply(appendVerifiedWebSources(removeModelTables(result.response), toolResults));
+        let reply = sanitizeReply(appendVerifiedWebSources(result.response, toolResults));
+        // Hybrid: append deterministic scan table after LLM qualitative analysis
+        const scanTableHtml = buildDeterministicTechnicalScanResponse(userMessage, plan, toolResults);
+        if (scanTableHtml && !reply.includes("|---|")) {
+            reply = reply + "\n\n---\n" + scanTableHtml;
+        }
+        return appendLiveSessionNotices(reply, toolResults);
     }
     if (meta) {
         meta.source = "deterministic";
         meta.degraded = true;
     }
-    return sanitizeReply(buildDeterministicResponse(userMessage, plan, toolResults, sessionState) || "عذراً، لم أتمكن من إنشاء الرد.");
+    const detReply = sanitizeReply(buildDeterministicResponse(userMessage, plan, toolResults, sessionState) || "عذراً، لم أتمكن من إنشاء الرد.");
+    return appendLiveSessionNotices(detReply, toolResults);
+}
+
+function appendLiveSessionNotices(reply: string, toolResults: ToolResult[]): string {
+    const stockResults = toolResults.filter(r => r.tool === "get_stock" && r.data?.symbol);
+    const hasLiveFailed = stockResults.some(r => r.data?.live_refresh_failed === true);
+    if (hasLiveFailed && !reply.includes("تعذر جلب السعر المباشر")) {
+        return reply + "\n\n> ⚠️ **ملاحظة:** تم إجراء محاولة لتحديث بيانات السهم لحظياً من جلسة التداول، ولكن تعذر جلب السعر المباشر حالياً بسبب بطء الاستجابة. تم الاعتماد على آخر إغلاق رسمي مسجل. سيتم تحديث جميع البيانات تلقائياً بعد إغلاق الجلسة بساعة، أو يمكنك المحاولة لاحقاً.";
+    }
+    return reply;
 }
 
 export async function* generateV2Stream(
@@ -1182,18 +1198,6 @@ export async function* generateV2Stream(
         yield sanitizeReply(dailyHistory);
         return;
     }
-    const techScanResponse = buildDeterministicTechnicalScanResponse(userMessage, plan, toolResults);
-    if (techScanResponse) {
-        if (meta) meta.source = "deterministic";
-        yield sanitizeReply(techScanResponse);
-        return;
-    }
-    const bothAccDistResponse = buildBothAccumulationDistributionResponse(userMessage, plan, toolResults);
-    if (bothAccDistResponse) {
-        if (meta) meta.source = "deterministic";
-        yield sanitizeReply(bothAccDistResponse);
-        return;
-    }
     const singleStockAccDistResponse = buildSingleStockAccumulationDistributionResponse(userMessage, plan, toolResults);
     if (singleStockAccDistResponse) {
         if (meta) meta.source = "deterministic";
@@ -1232,10 +1236,15 @@ export async function* generateV2Stream(
         try {
             let completeResponse = "";
             for await (const token of result.streamGen) completeResponse += token;
-            const safeResponse = sanitizeReply(appendVerifiedWebSources(removeModelTables(completeResponse), toolResults));
+            let safeResponse = sanitizeReply(appendVerifiedWebSources(completeResponse, toolResults));
+            // Hybrid: append deterministic scan table after LLM qualitative analysis
+            const scanTableMd = buildDeterministicTechnicalScanResponse(userMessage, plan, toolResults);
+            if (scanTableMd && !safeResponse.includes("|---|")) {
+                safeResponse = safeResponse + "\n\n---\n" + scanTableMd;
+            }
             if (safeResponse) {
                 if (meta) meta.source = "llm";
-                yield safeResponse;
+                yield appendLiveSessionNotices(safeResponse, toolResults);
                 return;
             }
         } catch (streamErr: any) {
@@ -1248,8 +1257,11 @@ export async function* generateV2Stream(
         meta.source = "deterministic";
         meta.degraded = true;
     }
-    yield sanitizeReply(buildDeterministicResponse(userMessage, plan, toolResults, sessionState)
-        || "عذراً، يبدو أن هناك ضغطاً على خدمة الذكاء الاصطناعي حالياً. يرجى إعادة إرسال رسالتك من جديد.");
+    yield appendLiveSessionNotices(
+        sanitizeReply(buildDeterministicResponse(userMessage, plan, toolResults, sessionState)
+            || "عذراً، يبدو أن هناك ضغطاً على خدمة الذكاء الاصطناعي حالياً. يرجى إعادة إرسال رسالتك من جديد."),
+        toolResults
+    );
 }
 
 function buildVisionUncertaintyResponse(vision: VisionContext): string {
@@ -1517,17 +1529,18 @@ export function buildDeterministicTechnicalScanResponse(
     }
 
     lines.push(`تم رصد **${stocks.length} أسهم** تطابق معايير هذا القالب:\n`);
+    lines.push("| # | السهم | الاسم | السعر | التغير | RSI | حجم نسبي | تفاصيل فنية أخرى |");
+    lines.push("|---|---|---|---|---|---|---|---|");
+
     stocks.slice(0, 15).forEach((s: any, idx: number) => {
         const changeStr = Number(s.change_pct) >= 0 ? `+${s.change_pct}%` : `${s.change_pct}%`;
         const extraDetails: string[] = [];
-        if (s.rsi && s.rsi !== "N/A") extraDetails.push(`RSI: **${s.rsi}**`);
-        if (s.r_vol && s.r_vol !== "1.00") extraDetails.push(`حجم نسبي: **${s.r_vol}x**`);
-        if (s.ema_50 && s.ema_50 !== "N/A") extraDetails.push(`EMA 50: **${s.ema_50}**`);
-        if (s.ema_200 && s.ema_200 !== "N/A") extraDetails.push(`EMA 200: **${s.ema_200}**`);
-        if (s.divergence_summary) extraDetails.push(`الدايفرجنس: **${s.divergence_summary}**`);
+        if (s.ema_50 && s.ema_50 !== "N/A") extraDetails.push(`EMA 50: ${s.ema_50}`);
+        if (s.ema_200 && s.ema_200 !== "N/A") extraDetails.push(`EMA 200: ${s.ema_200}`);
+        if (s.divergence_summary) extraDetails.push(s.divergence_summary);
+        const detailText = extraDetails.length > 0 ? extraDetails.join(" ، ") : "-";
 
-        const detailText = extraDetails.length > 0 ? ` | ${extraDetails.join(" | ")}` : "";
-        lines.push(`${idx + 1}. **${s.symbol}** (${s.name}): السعر **${s.close} ج.م** (${changeStr})${detailText}`);
+        lines.push(`| ${idx + 1} | **${s.symbol}** | ${s.name || s.symbol} | ${s.close} ج.م | ${changeStr} | ${s.rsi || "N/A"} | ${s.r_vol || "1.00"}x | ${detailText} |`);
     });
 
     lines.push(`\n⚠️ *ملاحظة: هذه البيانات مستخرجة رقمياً من المؤشرات الفنية لجلسة ${dataTime}، وليست توصية شراء أو بيع مباشرة.*`);
@@ -1550,27 +1563,29 @@ export function buildBothAccumulationDistributionResponse(
 
     const lines: string[] = [
         `### ملخص مسح التجميع والتصريف (جلسة ${scanDate})\n`,
-        `🟢 **أهم أسهم التجميع المؤسسي (Accumulation):**`
+        `🟢 **أهم أسهم التجميع المؤسسي (Accumulation):**\n`
     ];
 
     if (accStocks.length > 0) {
+        lines.push("| # | السهم | الاسم | درجة التجميع | حجم السيولة | مرحلة وايكوف |");
+        lines.push("|---|---|---|---|---|---|");
         accStocks.slice(0, 8).forEach((s: any, idx: number) => {
-            const name = s.name && s.name !== s.symbol ? ` (${s.name})` : "";
-            const vol = s.vol_ratio ? ` | حجم: ${s.vol_ratio}x` : "";
-            const wyckoff = s.wyckoff_phase ? ` | وايكوف: ${s.wyckoff_phase}` : "";
-            lines.push(`${idx + 1}. **${s.symbol}**${name}: درجة التجميع **${s.acc_score}/100**${vol}${wyckoff}`);
+            const vol = s.vol_ratio ? `${s.vol_ratio}x` : "-";
+            const wyckoff = s.wyckoff_phase || "-";
+            lines.push(`| ${idx + 1} | **${s.symbol}** | ${s.name || s.symbol} | ${s.acc_score}/100 | ${vol} | ${wyckoff} |`);
         });
     } else {
         lines.push(`- لا توجد أسهم تجميع مسجلة بدرجات مرتفعة اليوم.`);
     }
 
-    lines.push(`\n🔴 **أهم أسهم التصريف والضغط البيعي (Distribution):**`);
+    lines.push(`\n🔴 **أهم أسهم التصريف والضغط البيعي (Distribution):**\n`);
     if (distStocks.length > 0) {
+        lines.push("| # | السهم | الاسم | درجة التصريف | حجم السيولة | مرحلة وايكوف |");
+        lines.push("|---|---|---|---|---|---|");
         distStocks.slice(0, 8).forEach((s: any, idx: number) => {
-            const name = s.name && s.name !== s.symbol ? ` (${s.name})` : "";
-            const vol = s.vol_ratio ? ` | حجم: ${s.vol_ratio}x` : "";
-            const wyckoff = s.wyckoff_phase ? ` | وايكوف: ${s.wyckoff_phase}` : "";
-            lines.push(`${idx + 1}. **${s.symbol}**${name}: درجة التصريف **${s.dist_score}/100**${vol}${wyckoff}`);
+            const vol = s.vol_ratio ? `${s.vol_ratio}x` : "-";
+            const wyckoff = s.wyckoff_phase || "-";
+            lines.push(`| ${idx + 1} | **${s.symbol}** | ${s.name || s.symbol} | ${s.dist_score}/100 | ${vol} | ${wyckoff} |`);
         });
     } else {
         lines.push(`- لا توجد أسهم تصريف حاد مسجلة اليوم.`);
@@ -1613,17 +1628,25 @@ export function buildSingleStockAccumulationDistributionResponse(
         verdict = `حالة وايكوف المسجلة للسهم: **${wyckoff}**.`;
     }
 
+    const priceLine = data.is_live_intraday
+        ? `- السعر اللحظي (مباشر من الجلسة): **${price} ج.م** (${change}) 🟢 *(محدث ${data.live_update_time})*`
+        : `- السعر الحالي: **${price} ج.م** (${change})`;
+
+    const failNotice = data.live_refresh_failed
+        ? `\n\n> ⚠️ **ملاحظة:** تم إجراء محاولة لتحديث بيانات السهم لحظياً من جلسة التداول، ولكن تعذر جلب السعر المباشر حالياً بسبب بطء الاستجابة. تم الاعتماد على آخر إغلاق رسمي مسجل. سيتم تحديث جميع البيانات تلقائياً بعد إغلاق الجلسة بساعة، أو يمكنك المحاولة لاحقاً.`
+        : "";
+
     return [
         `### تحليل التجميع والتصريف لسهم ${data.symbol} (${data.name || data.symbol}):\n`,
         `${verdict}\n`,
         `**المؤشرات الفنية والسيولة:**`,
-        `- السعر الحالي: **${price} ج.م** (${change})`,
+        priceLine,
         `- مرحلة وايكوف (Wyckoff): **${wyckoff}**`,
         `- درجة التجميع (Accumulation Score): **${accScore}**`,
         `- درجة التصريف (Distribution Score): **${distScore}**`,
         `- حجم التداول النسبي: **${volRatio}** من المتوسط`,
         `- مؤشر القوة النسبية (RSI): **${rsi}**`,
-        `\n⚠️ *هذه البيانات وصفية لرصد السيولة المؤسسية وليست توصية مباشرة بالشراء أو البيع.*`
+        `\n⚠️ *هذه البيانات وصفية لرصد السيولة المؤسسية وليست توصية مباشرة بالشراء أو البيع.*${failNotice}`
     ].join("\n");
 }
 

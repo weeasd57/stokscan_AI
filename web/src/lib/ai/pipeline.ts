@@ -12,6 +12,7 @@ import { AI_CONFIG } from "./config";
 import { normalizeArabicIntent, extractInvestorPreferences, getFairValueFilters, isFairValueScanRequest, getInvestorGuidanceIntent as classifyInvestorGuidance, isDailyPriceLimitQuestion, isEarningsDataRequest, isTermsDefinitionRequest, isUsageLimitQuestion, isBestBuyStockQuestion } from "./intent-policy";
 import { extractExcludedSectorNames, extractMentionedSectorNames } from "./sector-taxonomy";
 import { isOtcStock, buildOtcNotice } from "./otc-stocks";
+import { isEgxSessionOpen } from "./live-stock-updater";
 
 export interface PipelineResult {
     vision: VisionContext | null;
@@ -1300,11 +1301,14 @@ export async function* runPipelineStream(
 
     // ===== STAGE 4: Tools and Data Fetching =====
     if (plan.needs_live_data || plan.needs_historical_data) {
+        const isSingleStockLive = isEgxSessionOpen() && plan.tools.includes("get_stock") && plan.entities.symbols.length > 0;
         yield {
             type: "status",
             data: {
                 status: "tools",
-                message: plan.tools.includes("search_web") ? "البحث على الإنترنت في مصادر فعلية..." : "جلب بيانات السوق..."
+                message: isSingleStockLive
+                    ? "⏳ جاري تحديث بيانات السهم اللحظية وحساب المؤشرات الفنية من الجلسة..."
+                    : (plan.tools.includes("search_web") ? "البحث على الإنترنت في مصادر فعلية..." : "جلب بيانات السوق...")
             }
         };
     }

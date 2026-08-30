@@ -2,6 +2,7 @@ import { IntentPlan, ToolResult } from "./types";
 import { AI_CONFIG } from "./config";
 import { classificationMatchesSector } from "./sector-taxonomy";
 import { searchWeb } from "./web-search";
+import { isEgxSessionOpen, fetchLiveStockIndicators } from "./live-stock-updater";
 
 function normalizeArabic(str: string): string {
     return str
@@ -1059,9 +1060,16 @@ export async function executeStructuredTools(
 
             if (topMatches.length > 0) {
                 textParts.push(`\n [نتائج الماسح الفني - قالب: ${presetTitleAr} (${presetDescAr}) بتاريخ ${latestDate}]:\n`);
+                textParts.push(`| # | السهم | الاسم | السعر | التغير | RSI | حجم نسبي | تفاصيل فنية أخرى |`);
+                textParts.push(`|---|---|---|---|---|---|---|---|`);
                 topMatches.forEach((s, idx) => {
                     const changeSign = Number(s.change_pct) >= 0 ? `+${s.change_pct}%` : `${s.change_pct}%`;
-                    textParts.push(`• ${idx + 1}. سهم ${s.symbol} (${s.name}): السعر = ${s.close} ج.م | التغير = ${changeSign} | RSI = ${s.rsi} | حجم التداول النسبي = ${s.r_vol}x | EMA 50 = ${s.ema_50} | EMA 200 = ${s.ema_200}`);
+                    const extra: string[] = [];
+                    if (s.ema_50 && s.ema_50 !== "N/A") extra.push(`EMA 50: ${s.ema_50}`);
+                    if (s.ema_200 && s.ema_200 !== "N/A") extra.push(`EMA 200: ${s.ema_200}`);
+                    if (s.divergence_summary) extra.push(s.divergence_summary);
+                    const detailText = extra.length > 0 ? extra.join(" ، ") : "-";
+                    textParts.push(`| ${idx + 1} | **${s.symbol}** | ${s.name || s.symbol} | ${s.close} ج.م | ${changeSign} | ${s.rsi || "N/A"} | ${s.r_vol || "1.00"}x | ${detailText} |`);
                 });
             } else {
                 textParts.push(`\n [نتائج الماسح الفني - قالب: ${presetTitleAr} بتاريخ ${latestDate}]: لم يتم العثور على أسهم تطابق الشروط الدقيقة حالياً في جلسة ${latestDate}.\n`);
@@ -1142,6 +1150,52 @@ export async function executeStructuredTools(
             techsRes.forEach(r => {
                 if (r.data?.symbol) techsMap.set(r.data.symbol.toUpperCase(), r.data);
             });
+
+            // Live on-demand intraday refresh during open EGX trading hours (Sun-Thu 10:00 AM - 2:30 PM Cairo time)
+            const liveRefreshedMap = new Map<string, { data?: any; success: boolean; error?: string; from_cache?: boolean }>();
+            const sessionIsOpen = isEgxSessionOpen();
+
+            if (sessionIsOpen && symbols.length > 0 && symbols.length <= 5) {
+                await Promise.all(symbols.map(async (sym) => {
+                    const upperSym = sym.toUpperCase();
+                    try {
+                        const liveRes = await fetchLiveStockIndicators(upperSym, supabase);
+                        liveRefreshedMap.set(upperSym, liveRes);
+                        if (liveRes.success && liveRes.data && liveRes.data.close > 0) {
+                            const ld = liveRes.data;
+                            const existingTech = techsMap.get(upperSym) || {};
+                            techsMap.set(upperSym, {
+                                ...existingTech,
+                                symbol: upperSym,
+                                close: ld.close,
+                                open: ld.open,
+                                high: ld.high,
+                                low: ld.low,
+                                change_pct: ld.change_pct,
+                                change_abs: ld.change_abs,
+                                rsi_14: ld.rsi_14 ?? existingTech.rsi_14,
+                                macd: ld.macd ?? existingTech.macd,
+                                macd_signal: ld.macd_signal ?? existingTech.macd_signal,
+                                ema_50: ld.ema_50 ?? existingTech.ema_50,
+                                ema_200: ld.ema_200 ?? existingTech.ema_200,
+                                sma_50: ld.sma_50 ?? existingTech.sma_50,
+                                sma_200: ld.sma_200 ?? existingTech.sma_200,
+                                bb_upper: ld.bb_upper ?? existingTech.bb_upper,
+                                bb_lower: ld.bb_lower ?? existingTech.bb_lower,
+                                stoch_k: ld.stoch_k ?? existingTech.stoch_k,
+                                stoch_d: ld.stoch_d ?? existingTech.stoch_d,
+                                volume: ld.volume || existingTech.volume,
+                                date: ld.updated_at.split("T")[0],
+                                is_live_intraday: true,
+                                live_update_time: ld.cairo_time_str
+                            });
+                        }
+                    } catch (e: any) {
+                        liveRefreshedMap.set(upperSym, { success: false, error: e?.message || "تعذر التحديث" });
+                    }
+                }));
+            }
+
             const stocksMap = new Map<string, any>();
             (stocksRes.data || []).forEach((s: any) => {
                 if (s?.symbol) stocksMap.set(s.symbol.toUpperCase(), s);
@@ -1167,11 +1221,12 @@ export async function executeStructuredTools(
                     const stockData: any = stocksMap.get(upperSym);
                     const fundamentals = fundamentalsMap.get(upperSym) || {};
                     const scanData = scansMap.get(upperSym);
+                    const liveInfo = liveRefreshedMap.get(upperSym);
 
                     if (price || tech) {
                         const priceData = price as any;
                         const techData = tech as any;
-                        const closePrice = priceData?.close ?? techData?.close ?? "N/A";
+                        const closePrice = techData?.close ?? priceData?.close ?? "N/A";
                         const changeStr = techData && typeof techData.change_pct === "number"
                             ? `${techData.change_pct >= 0 ? "+" : ""}${techData.change_pct.toFixed(2)}%`
                             : "N/A";
@@ -1210,15 +1265,19 @@ export async function executeStructuredTools(
                         const wyckoffStr = wyckoffPhase ? `, مرحلة وايكوف = ${wyckoffPhase}` : "";
                         const accScoreStr = accScore != null ? `, درجة التجميع = ${accScore}/100` : "";
                         const distScoreStr = distScore != null ? `, درجة التصريف = ${distScore}/100` : "";
+                        const liveStatusStr = techData?.is_live_intraday ? ` (محدث لحظياً ${techData.live_update_time})` : "";
 
-                        textParts.push(`• ${sym} (${stockData?.name || sym}): السعر = ${closePrice} ج.م, التغير = ${changeStr}, RSI = ${rsi}, MACD = ${macd}, SMA 50 = ${sma50}, EMA 50 = ${ema50}, SMA 200 = ${sma200}, EMA 200 = ${ema200}, Bollinger Upper = ${bbUpper}, Bollinger Lower = ${bbLower}, Stochastic %K = ${stochK}, Stochastic %D = ${stochD}, نسبة السيولة = ${volRatioStr}${wyckoffStr}${accScoreStr}${distScoreStr}, تقييم نموذج KING AI = ${kingScore}, تقييم نموذج EGX AI = ${egxScore}`);
+                        textParts.push(`• ${sym} (${stockData?.name || sym}): السعر = ${closePrice} ج.م${liveStatusStr}, التغير = ${changeStr}, RSI = ${rsi}, MACD = ${macd}, SMA 50 = ${sma50}, EMA 50 = ${ema50}, SMA 200 = ${sma200}, EMA 200 = ${ema200}, Bollinger Upper = ${bbUpper}, Bollinger Lower = ${bbLower}, Stochastic %K = ${stochK}, Stochastic %D = ${stochD}, نسبة السيولة = ${volRatioStr}${wyckoffStr}${accScoreStr}${distScoreStr}, تقييم نموذج KING AI = ${kingScore}, تقييم نموذج EGX AI = ${egxScore}`);
+
+                        const isLive = Boolean(techData?.is_live_intraday);
+                        const liveFailed = Boolean(sessionIsOpen && liveInfo && !liveInfo.success);
 
                         results.push({
                             tool: "get_stock",
-                            source: "database",
-                            data_time: priceData?.date || techData?.date || now,
+                            source: isLive ? "live_session" : "database",
+                            data_time: isLive ? (techData?.live_update_time || now) : (priceData?.date || techData?.date || now),
                             symbols: [upperSym],
-                            data_type: "live",
+                            data_type: isLive ? "live" : "cached",
                             data: {
                                 symbol: upperSym,
                                 name: stockData?.name || upperSym,
@@ -1243,6 +1302,11 @@ export async function executeStructuredTools(
                                 bb_lower: bbLower,
                                 stoch_k: stochK,
                                 stoch_d: stochD,
+                                is_live_intraday: isLive,
+                                live_update_time: techData?.live_update_time || null,
+                                live_refresh_failed: liveFailed,
+                                live_refresh_error: liveInfo?.error || null,
+                                session_open: sessionIsOpen,
                                 king_ai_score: techData?.king_ai_score ?? null,
                                 egx_ai_score: techData?.egx_ai_score ?? null,
                                 wyckoff_phase: wyckoffPhase,
