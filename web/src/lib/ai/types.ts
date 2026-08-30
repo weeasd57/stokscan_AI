@@ -59,7 +59,7 @@ export interface FactSnapshot {
 }
 
 export interface IntentPlan {
-    intent: "image_analysis" | "stock_analysis" | "stock_news" | "levels_analysis" | "risk_analysis" | "sector_analysis" | "comparison" | "historical_recall" | "market_summary" | "accumulation_distribution" | "current_data" | "previous_analysis_comparison" | "follow_up" | "clarification" | "general_chat";
+    intent: "image_analysis" | "stock_analysis" | "stock_news" | "levels_analysis" | "risk_analysis" | "sector_analysis" | "comparison" | "historical_recall" | "market_summary" | "accumulation_distribution" | "current_data" | "previous_analysis_comparison" | "follow_up" | "clarification" | "technical_scan" | "general_chat";
     confidence: number;
     guidance_intent?: "onboarding" | "allocation" | "product_comparison" | "product_explainer" | "terms_explainer" | null;
     entities: {
@@ -69,6 +69,7 @@ export interface IntentPlan {
         timeframe: "current" | "historical" | "unspecified";
         reference: "last_image" | "last_stock" | "previous_analysis" | null;
         scan_direction?: "accumulation" | "distribution" | null;
+        technical_preset?: "macd_cross" | "rsi_oversold" | "volume_breakout" | "sma_200_breakout" | "smart_money_flow" | "rsi_bullish_divergence" | "bearish_divergence_alert" | null;
         fair_value_direction?: "above" | "below" | null;
         require_distribution?: boolean;
         require_accumulation?: boolean;
@@ -132,6 +133,7 @@ export interface PlannerResult {
         timeframe?: string | null;
         requested_date?: string | null;
         scan_direction?: "accumulation" | "distribution" | null;
+        technical_preset?: "macd_cross" | "rsi_oversold" | "volume_breakout" | "sma_200_breakout" | "smart_money_flow" | "rsi_bullish_divergence" | "bearish_divergence_alert" | null;
         fair_value_direction?: "above" | "below" | null;
         require_distribution?: boolean;
         require_accumulation?: boolean;

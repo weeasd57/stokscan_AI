@@ -827,7 +827,16 @@ EXAMPLE: If you see 4 stocks in the image, you MUST extract all 4 symbols, and l
 - "get_sector": Fetches aggregated technical and fundamental data for a SPECIFIC market sector (e.g., 'البنوك', 'الأدوية', 'العقارات'). Do NOT use if the user asks for a list of sectors without specifying a sector name.
 - "get_sector_list": Fetches the full list of available market sectors and stock counts. Use when the user asks for a list of sectors or all sectors (e.g., 'عندك كام قطاع', 'عدد القطاعات', 'إيه القطاعات المتاحة', 'قائمة القطاعات', 'قايمه بالقطاعات', 'هات قايمه بالقطاعات', 'القطاعات', 'كل القطاعات').
 - "get_market": Fetches overall market summary, EGX30/EGX70 index data, and top gainers/losers. Use when the user asks about the overall market, index, or general liquidity (e.g. 'حالة السوق', 'ايه اللي طلع', 'السوق').
-- "get_accumulation_stocks": Fetches a list of stocks currently in Wyckoff accumulation/distribution phases. Use when the user asks about 'تجميع', 'تصريف', 'سيولة مؤسسية', 'accumulation', 'Wyckoff', 'وايكوف', 'WYCOFF', 'إليوت', 'إليوت فيز', 'Elliot phase', 'Elliott Wave', 'موجات إليوت', 'المرحلة', 'phase'. When a user asks for Wyckoff or Elliott analysis on specific stocks, use BOTH \"get_stock\" AND \"get_accumulation_stocks\" together.
+- "get_accumulation_stocks": Fetches a list of stocks currently in Wyckoff accumulation/distribution phases. Use when the user asks about 'تجميع', 'تصريف', 'سيولة مؤسسية', 'accumulation', 'Wyckoff', 'وايكوف', 'WYCOFF', 'إليوت', 'إليوت فيز', 'Elliot phase', 'Elliott Wave', 'موجات إليوت', 'المرحلة', 'phase'. When a user asks for Wyckoff or Elliott analysis on specific stocks, use BOTH "get_stock" AND "get_accumulation_stocks" together.
+- "get_technical_scan": Fetches stocks matching market screener technical filters & templates. Presets:
+  * "macd_cross": MACD golden cross above EMA 50 (التقاطع الذهبي لـ MACD).
+  * "rsi_oversold": RSI below 35 oversold reversal zone (منطقة ذروة البيع RSI).
+  * "volume_breakout": Volume breakout above 20-day average (اختراق حجم التداول).
+  * "sma_200_breakout": Price breaking above 200-day moving average (اختراق الاتجاه طويل المدى).
+  * "smart_money_flow": Institutional smart money flow accumulation (تدفق الأموال الذكية).
+  * "rsi_bullish_divergence": Bullish RSI divergence reversal (صعودي RSI تباعد).
+  * "bearish_divergence_alert": Bearish divergence warning (تنبيه تباعد هبوطي).
+  Use when user asks about any of these screener templates or technical indicator filters across the market.
 
 - "get_comparison": Fetches data to compare two or more stocks. Use when the user explicitly asks to compare stocks (e.g., 'مقارنة بين', 'أيهما أفضل').
 - "search_web": Searches the internet for information that is NOT available in the database (general knowledge, companies/events outside the market data, recent happenings, or when the user explicitly asks to search the internet e.g. 'ابحث في النت', 'دور على الإنترنت'). Use only when the requested information cannot come from stock/market/news database tools.
@@ -837,14 +846,15 @@ Analyze the user request and return a JSON object. You MUST dynamically choose t
 
 **JSON STRUCTURE TO RETURN:**
 {
-  "intent": "Brief string describing intent (e.g., stock_analysis, sector_analysis, market_summary, general_chat)",
+  "intent": "Brief string describing intent (e.g., stock_analysis, sector_analysis, market_summary, technical_scan, general_chat)",
   "confidence": 0.95,
   "guidance_intent": null,
   "entities": {
     "symbols": ["SYMBOL1", "SYMBOL2"], // EXACT stock tickers in uppercase (e.g. COMI). Empty array if none.
     "sector": "Arabic Sector Name", // e.g. "بنوك", "عقارات". Null if none.
     "wants_table": false, // Set to true if user wants a table
-      "scan_direction": null, // Set to "accumulation" or "distribution" if requested, else null
+    "scan_direction": null, // Set to "accumulation" or "distribution" if requested, else null
+    "technical_preset": null, // Set to "macd_cross" | "rsi_oversold" | "volume_breakout" | "sma_200_breakout" | "smart_money_flow" | "rsi_bullish_divergence" | "bearish_divergence_alert" if asking for a technical scan, else null
     "timeframe": null
   },
   "tools": ["ToolName1", "ToolName2"], // EXACT tool names selected from AVAILABLE TOOLS. [] for general_chat.
@@ -1053,10 +1063,12 @@ Analyze the user request and return a JSON object. You MUST dynamically choose t
                         const isMarketScan = 
                             (parsed.intent === "market_summary" || 
                             parsed.intent === "accumulation" ||
+                            parsed.intent === "technical_scan" ||
                             parsed.intent === "sector_analysis" ||
                             (Array.isArray(parsed.tools) && (
                                 parsed.tools.includes("get_market") || 
                                 parsed.tools.includes("get_indices") || 
+                                parsed.tools.includes("get_technical_scan") || 
                                 parsed.tools.includes("get_accumulation_stocks")
                             )) ||
                             /مين طلع ومين نزل|ايه اللي طلع وايه اللي نزل|ايه اللى طلع وايه اللى نزل|السوق عمل ايه|حالة السوق|صعود وهبوط|gainers and losers|what went up|whole market|where is liquidity|اسهم (الشهر|السهر)|(الشهر|السهر) (اللي|اللى) (فات|الماضي)|سيولة|تجميع/i.test(message))
@@ -1125,7 +1137,9 @@ Analyze the user request and return a JSON object. You MUST dynamically choose t
                             entities: {
                                 symbols: resolvedSymbols,
                                 sector: parsed.entities?.sector || null,
-                                wants_table: Boolean(parsed.entities?.wants_table || isAggregateTableRequest || hasImages) && finalIntent !== "general_chat"
+                                wants_table: Boolean(parsed.entities?.wants_table || isAggregateTableRequest || hasImages) && finalIntent !== "general_chat",
+                                scan_direction: parsed.entities?.scan_direction || null,
+                                technical_preset: parsed.entities?.technical_preset || null
                             },
                             tools: Array.from(new Set(toolsList)),
                             image_summary: imageSummary,

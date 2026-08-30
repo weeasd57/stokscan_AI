@@ -123,6 +123,7 @@ export function buildEvidenceEnginePromptBlock(toolResults: ToolResult[]): strin
     lines.push("13. 🎯 شروط الدخول (ACTIONABLE CONDITIONS): لا تكتفي بـ 'للمراقبة'. قدم دائماً شروطاً تنفيذية: ماذا يجب أن يحدث لكي نشتري؟ (مثال: 'الدخول يصبح جذاباً إذا عاد الحجم فوق 1.0x اخترق X، بينما كسر الدعم Y يلغي السيناريو').");
     lines.push("14. 🤖 الرأي الإحصائي والرياضيات (ML MODELS & MATH): استخدم دائماً القيم المجهزة مسبقاً في ML STATISTICAL DELTAS أعلاه. لا تخترع فوارق حسابية من عندك.");
     lines.push("15. ⛔ سلامة ومطابقة الرموز والبيانات (SYMBOL & DATA INTEGRITY): يجب عليك فقط كتابة وتحليل الأسهم الموجودة صراحة في STRICT EVIDENCE CONTEXT أعلاه. يمنع منعاً باتاً استبدال أو خلط رموز الأسهم ببعضها البعض، ويجب ربط بيانات كل سهم (السعر، التغير، RSI، حجم التداول، إلخ) برمزها الصحيح بدقة بالغة دون أي تبديل أو خلط، مع الامتناع التام عن ذكر أو مناقشة أي أسهم غير متواجدة في البيانات المرفقة.");
+    lines.push("16. 📊 قوالب الماسح الفني (TECHNICAL SCREENER TEMPLATES): عند وجود نتائج get_technical_scan، اعرض الأسهم المرصودة مع أسمائها، أسعارها، ونسب التغير والمؤشرات ذات الصلة (مثل RSI، MACD، حجم التداول النسبي، أو إشارات الدايفرجنس). وضح للمستخدم طبيعة الفلتر الفني ومعناه الاستثماري دون تقديم نصيحة شراء مباشرة.");
 
     lines.push("=== END STRICT EVIDENCE CONTEXT ===");
     return lines.join("\n");
@@ -1074,6 +1075,21 @@ export async function generateV2Response(
         if (meta) meta.source = "deterministic";
         return sanitizeReply(dailyHistory);
     }
+    const techScanResponse = buildDeterministicTechnicalScanResponse(userMessage, plan, toolResults);
+    if (techScanResponse) {
+        if (meta) meta.source = "deterministic";
+        return sanitizeReply(techScanResponse);
+    }
+    const bothAccDistResponse = buildBothAccumulationDistributionResponse(userMessage, plan, toolResults);
+    if (bothAccDistResponse) {
+        if (meta) meta.source = "deterministic";
+        return sanitizeReply(bothAccDistResponse);
+    }
+    const singleStockAccDistResponse = buildSingleStockAccumulationDistributionResponse(userMessage, plan, toolResults);
+    if (singleStockAccDistResponse) {
+        if (meta) meta.source = "deterministic";
+        return sanitizeReply(singleStockAccDistResponse);
+    }
     const isAnalyticalQuery = /(سبب|ليه|لماذا|ازاي|إزاي|تفسير|سر|ينزل|يهبط|يطلع|صعود|هبوط|فرص|أحسن|احسن|افضل|أفضل|توقعات|متوقع|مقارن|قارن|حالة|حالتها|رايك|رأيك|توجيه|تجميع|تصريف|تحليل|شراء|بيع|مناسب|اشتريت|خسران|نازل)/i.test(userMessage);
     const needsGuidanceResponse = plan.guidance_intent;
     const deterministic = toolResults.length === 0 && !needsGuidanceResponse && !isAnalyticalQuery
@@ -1164,6 +1180,24 @@ export async function* generateV2Stream(
     if (dailyHistory) {
         if (meta) meta.source = "deterministic";
         yield sanitizeReply(dailyHistory);
+        return;
+    }
+    const techScanResponse = buildDeterministicTechnicalScanResponse(userMessage, plan, toolResults);
+    if (techScanResponse) {
+        if (meta) meta.source = "deterministic";
+        yield sanitizeReply(techScanResponse);
+        return;
+    }
+    const bothAccDistResponse = buildBothAccumulationDistributionResponse(userMessage, plan, toolResults);
+    if (bothAccDistResponse) {
+        if (meta) meta.source = "deterministic";
+        yield sanitizeReply(bothAccDistResponse);
+        return;
+    }
+    const singleStockAccDistResponse = buildSingleStockAccumulationDistributionResponse(userMessage, plan, toolResults);
+    if (singleStockAccDistResponse) {
+        if (meta) meta.source = "deterministic";
+        yield sanitizeReply(singleStockAccDistResponse);
         return;
     }
 
@@ -1457,6 +1491,142 @@ export function buildFastConversationalAdvisorResponse(
     return null;
 }
 
+export function buildDeterministicTechnicalScanResponse(
+    userMessage: string,
+    plan: IntentPlan,
+    toolResults: ToolResult[]
+): string | null {
+    const techScan = toolResults.find(r => r.tool === "get_technical_scan");
+    if (!techScan?.data) return null;
+
+    const data = techScan.data;
+    const stocks: any[] = Array.isArray(data.stocks) ? data.stocks : [];
+    const presetNameAr = data.preset_name_ar || "الماسح الفني";
+    const descAr = data.description_ar || "";
+    const dataTime = techScan.data_time || "أحدث جلسة";
+
+    const lines: string[] = [
+        `### نتائج ${presetNameAr}`,
+        descAr ? `*${descAr}* (جلسة ${dataTime})\n` : `(جلسة ${dataTime})\n`
+    ];
+
+    if (stocks.length === 0) {
+        lines.push(`لا توجد أسهم تحقق الشروط الدقيقة لهذا الفلتر حالياً في جلسة ${dataTime}.`);
+        lines.push(`\nيمكنك تجربة فلتر آخر من قوالب الماسح الفني مثل التقاطع الذهبي لـ MACD أو تدفق الأموال الذكية.`);
+        return lines.join("\n");
+    }
+
+    lines.push(`تم رصد **${stocks.length} أسهم** تطابق معايير هذا القالب:\n`);
+    stocks.slice(0, 15).forEach((s: any, idx: number) => {
+        const changeStr = Number(s.change_pct) >= 0 ? `+${s.change_pct}%` : `${s.change_pct}%`;
+        const extraDetails: string[] = [];
+        if (s.rsi && s.rsi !== "N/A") extraDetails.push(`RSI: **${s.rsi}**`);
+        if (s.r_vol && s.r_vol !== "1.00") extraDetails.push(`حجم نسبي: **${s.r_vol}x**`);
+        if (s.ema_50 && s.ema_50 !== "N/A") extraDetails.push(`EMA 50: **${s.ema_50}**`);
+        if (s.ema_200 && s.ema_200 !== "N/A") extraDetails.push(`EMA 200: **${s.ema_200}**`);
+        if (s.divergence_summary) extraDetails.push(`الدايفرجنس: **${s.divergence_summary}**`);
+
+        const detailText = extraDetails.length > 0 ? ` | ${extraDetails.join(" | ")}` : "";
+        lines.push(`${idx + 1}. **${s.symbol}** (${s.name}): السعر **${s.close} ج.م** (${changeStr})${detailText}`);
+    });
+
+    lines.push(`\n⚠️ *ملاحظة: هذه البيانات مستخرجة رقمياً من المؤشرات الفنية لجلسة ${dataTime}، وليست توصية شراء أو بيع مباشرة.*`);
+    return lines.join("\n");
+}
+
+export function buildBothAccumulationDistributionResponse(
+    userMessage: string,
+    plan: IntentPlan,
+    toolResults: ToolResult[]
+): string | null {
+    const accScan = toolResults.find(r => r.tool === "get_accumulation_stocks");
+    const distScan = toolResults.find(r => r.tool === "get_distribution_stocks");
+    if (!accScan || !distScan) return null;
+    if (plan.entities.symbols.length > 0) return null;
+
+    const accStocks: any[] = Array.isArray(accScan.data?.stocks) ? accScan.data.stocks : [];
+    const distStocks: any[] = Array.isArray(distScan.data?.stocks) ? distScan.data.stocks : [];
+    const scanDate = accScan.data_time || "أحدث جلسة";
+
+    const lines: string[] = [
+        `### ملخص مسح التجميع والتصريف (جلسة ${scanDate})\n`,
+        `🟢 **أهم أسهم التجميع المؤسسي (Accumulation):**`
+    ];
+
+    if (accStocks.length > 0) {
+        accStocks.slice(0, 8).forEach((s: any, idx: number) => {
+            const name = s.name && s.name !== s.symbol ? ` (${s.name})` : "";
+            const vol = s.vol_ratio ? ` | حجم: ${s.vol_ratio}x` : "";
+            const wyckoff = s.wyckoff_phase ? ` | وايكوف: ${s.wyckoff_phase}` : "";
+            lines.push(`${idx + 1}. **${s.symbol}**${name}: درجة التجميع **${s.acc_score}/100**${vol}${wyckoff}`);
+        });
+    } else {
+        lines.push(`- لا توجد أسهم تجميع مسجلة بدرجات مرتفعة اليوم.`);
+    }
+
+    lines.push(`\n🔴 **أهم أسهم التصريف والضغط البيعي (Distribution):**`);
+    if (distStocks.length > 0) {
+        distStocks.slice(0, 8).forEach((s: any, idx: number) => {
+            const name = s.name && s.name !== s.symbol ? ` (${s.name})` : "";
+            const vol = s.vol_ratio ? ` | حجم: ${s.vol_ratio}x` : "";
+            const wyckoff = s.wyckoff_phase ? ` | وايكوف: ${s.wyckoff_phase}` : "";
+            lines.push(`${idx + 1}. **${s.symbol}**${name}: درجة التصريف **${s.dist_score}/100**${vol}${wyckoff}`);
+        });
+    } else {
+        lines.push(`- لا توجد أسهم تصريف حاد مسجلة اليوم.`);
+    }
+
+    lines.push(`\n⚠️ *البيانات وصفية مستخرجة من تتبع السيولة المؤسسية ونموذج وايكوف وليست توصية شراء أو بيع.*`);
+    return lines.join("\n");
+}
+
+export function buildSingleStockAccumulationDistributionResponse(
+    userMessage: string,
+    plan: IntentPlan,
+    toolResults: ToolResult[]
+): string | null {
+    const normMsg = userMessage.toLowerCase().replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").replace(/ى/g, "ي");
+    if (!/(?:تجميع|تصريف|وايكوف|wyckoff)/i.test(normMsg)) return null;
+
+    const singleStock = toolResults.find(result => result.tool === "get_stock" && result.data?.symbol);
+    if (!singleStock?.data) return null;
+
+    const data = singleStock.data;
+    const wyckoff = data.wyckoff_phase || "غير محدد";
+    const accScore = data.acc_score != null ? `${data.acc_score}/100` : "غير متوفر";
+    const distScore = data.dist_score != null ? `${data.dist_score}/100` : "غير متوفر";
+    const price = data.price ?? "N/A";
+    const change = data.change_pct ?? "N/A";
+    const rsi = data.rsi_14 ?? "N/A";
+    const volRatio = data.vol_ratio ?? "1.00x";
+
+    let verdict = "";
+    if (data.acc_score != null && data.dist_score != null) {
+        if (data.acc_score >= 50 && data.acc_score > data.dist_score) {
+            verdict = `السهم يمر بحالة **تجميع مؤسسي (Accumulation)**، حيث تتفوق درجة التجميع (${accScore}) على درجة التصريف (${distScore}).`;
+        } else if (data.dist_score >= 50 && data.dist_score > data.acc_score) {
+            verdict = `السهم يواجه **ضغط تصريف بيعي (Distribution)**، حيث تتفوق درجة التصريف (${distScore}) على درجة التجميع (${accScore}).`;
+        } else {
+            verdict = `حالة السهم متوازنة بين التجميع (${accScore}) والتصريف (${distScore}) دون سيطرة مطلقة لأحدهما.`;
+        }
+    } else {
+        verdict = `حالة وايكوف المسجلة للسهم: **${wyckoff}**.`;
+    }
+
+    return [
+        `### تحليل التجميع والتصريف لسهم ${data.symbol} (${data.name || data.symbol}):\n`,
+        `${verdict}\n`,
+        `**المؤشرات الفنية والسيولة:**`,
+        `- السعر الحالي: **${price} ج.م** (${change})`,
+        `- مرحلة وايكوف (Wyckoff): **${wyckoff}**`,
+        `- درجة التجميع (Accumulation Score): **${accScore}**`,
+        `- درجة التصريف (Distribution Score): **${distScore}**`,
+        `- حجم التداول النسبي: **${volRatio}** من المتوسط`,
+        `- مؤشر القوة النسبية (RSI): **${rsi}**`,
+        `\n⚠️ *هذه البيانات وصفية لرصد السيولة المؤسسية وليست توصية مباشرة بالشراء أو البيع.*`
+    ].join("\n");
+}
+
 export function buildDeterministicResponse(userMessage: string, plan: IntentPlan, toolResults: ToolResult[], sessionState?: SessionState | null): string | null {
     const normMsg = userMessage.toLowerCase().replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").replace(/ى/g, "ي");
     const asksForAdvice = /(?:انصحني|تنصحني|اعمل ايه|أعمل ايه|شاري|شريت|شريته|معايا بسعر|لو معايا|بمتوسط|رايك|رأيك|ايه العمل|ايه الحل)/i.test(normMsg);
@@ -1465,6 +1635,19 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
     }
     const fastAdvisor = buildFastConversationalAdvisorResponse(userMessage, plan, toolResults, sessionState);
     if (fastAdvisor) return fastAdvisor;
+
+    // Technical scan templates
+    const techScanRes = buildDeterministicTechnicalScanResponse(userMessage, plan, toolResults);
+    if (techScanRes) return techScanRes;
+
+    // Both accumulation & distribution
+    const bothAccDistRes = buildBothAccumulationDistributionResponse(userMessage, plan, toolResults);
+    if (bothAccDistRes) return bothAccDistRes;
+
+    // Single stock accumulation / distribution
+    const singleStockAccDistRes = buildSingleStockAccumulationDistributionResponse(userMessage, plan, toolResults);
+    if (singleStockAccDistRes) return singleStockAccDistRes;
+
     const scan = toolResults.find(result => result.tool === "get_accumulation_stocks" || result.tool === "get_distribution_stocks");
     if (scan?.source === "validation" || scan?.data?.validation?.ok === false) {
         const direction = scan.data?.direction === "distribution" ? "التصريف" : "التجميع";

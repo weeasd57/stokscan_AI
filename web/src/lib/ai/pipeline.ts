@@ -51,7 +51,7 @@ export function scopeImplicitSingleStockRequest(
 }
 
 function clearsStockContext(plan: { intent: string; tools?: string[]; entities?: { symbols?: string[] }; guidance_intent?: any }): boolean {
-    return plan.intent === "sector_analysis" || (Array.isArray(plan.tools) && plan.tools.includes("get_recommendations") && (plan.entities?.symbols?.length || 0) === 0) || (plan.intent === "market_summary" && (plan.entities?.symbols?.length || 0) === 0) || Boolean(plan.guidance_intent);
+    return plan.intent === "sector_analysis" || plan.intent === "technical_scan" || (plan.intent === "accumulation_distribution" && (plan.entities?.symbols?.length || 0) === 0) || (Array.isArray(plan.tools) && (plan.tools.includes("get_recommendations") || plan.tools.includes("get_technical_scan")) && (plan.entities?.symbols?.length || 0) === 0) || (plan.intent === "market_summary" && (plan.entities?.symbols?.length || 0) === 0) || Boolean(plan.guidance_intent);
 }
 
 async function saveFactSnapshots(
@@ -246,6 +246,7 @@ export function buildCompoundDeterministicPlan(message: string, sessionState: Se
         sector,
         wants_table: plans.some(p => p.entities.wants_table),
         scan_direction: plans.map(p => p.entities.scan_direction).find(Boolean) || last.entities.scan_direction || null,
+        technical_preset: plans.map(p => p.entities.technical_preset).find(Boolean) || last.entities.technical_preset || null,
         fair_value_direction: plans.map(p => p.entities.fair_value_direction).find(Boolean) || last.entities.fair_value_direction || null,
         require_distribution: plans.some(p => p.entities.require_distribution),
         require_accumulation: plans.some(p => p.entities.require_accumulation),
@@ -501,6 +502,116 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
             session_update: { current_symbol: allocationSymbols[0], last_symbols: allocationSymbols, summary: message }
         };
     }
+    // Check if query asks for BOTH accumulation and distribution together
+    const isBothAccumulationAndDistribution = explicitSymbols.length === 0 && (
+        /(?:تجميع\s*(?:و|أو|او|مع|ولا)\s*تصريف|تصريف\s*(?:و|أو|او|مع|ولا)\s*تجميع|تجميع\s+وتصريف|التجميع\s+والتصريف)/i.test(normalized) ||
+        (/(?:تجميع|accumulation)/i.test(normalized) && /(?:تصريف|distribution)/i.test(normalized))
+    );
+    if (isBothAccumulationAndDistribution) {
+        return {
+            intent: "accumulation_distribution",
+            confidence: 1,
+            entities: { symbols: [], sector: null, wants_table: true, timeframe: "current", requested_date: null, scan_direction: null },
+            tools: ["get_accumulation_stocks", "get_distribution_stocks"],
+            session_update: { current_symbol: null, last_symbols: sessionState.last_symbols, summary: message }
+        };
+    }
+
+    // Single stock accumulation / distribution query (e.g. "هل سهم فوري عليه تجميع ولا تصريف؟" or "تجميع COMI")
+    if (explicitSymbols.length > 0 && /(?:تجميع|تصريف|وايكوف|wyckoff)/i.test(normalized)) {
+        return {
+            intent: "stock_analysis",
+            confidence: 1,
+            entities: { symbols: explicitSymbols, sector: null, wants_table: true, timeframe: "current", requested_date: null, scan_direction: /تصريف/i.test(normalized) ? "distribution" : "accumulation" },
+            tools: ["get_stock", "get_stock_levels", "get_accumulation_stocks"],
+            session_update: { current_symbol: explicitSymbols[0], last_symbols: explicitSymbols, summary: message }
+        };
+    }
+
+    // Technical Scanner Template 1: MACD Golden Cross
+    const isMacdCross = explicitSymbols.length === 0 && /(?:تقاطع\s*(?:ذهبي|ايجابي|إيجابي)|جولدن\s*كروس|golden\s*cross|macd\s*(?:cross|ذهبي)|تقاطع\s*(?:خط\s*)?الماكد|ماكد\s*كروس)/i.test(normalized);
+    if (isMacdCross) {
+        return {
+            intent: "technical_scan",
+            confidence: 1,
+            entities: { symbols: [], sector: null, wants_table: true, timeframe: "current", requested_date: null, technical_preset: "macd_cross" },
+            tools: ["get_technical_scan"],
+            session_update: { current_symbol: null, last_symbols: sessionState.last_symbols, summary: message }
+        };
+    }
+
+    // Technical Scanner Template 2: RSI Oversold
+    const isRsiOversold = explicitSymbols.length === 0 && /(?:ذرو[ةه]\s*البيع|تشبع\s*(?:بيعي|البيع)|oversold|rsi\s*(?:اقل|أقل|تحت|دون|<=|<)?\s*(?:30|35)|ار\s*اس\s*اي\s*(?:اقل|أقل|تحت|دون)\s*(?:30|35))/i.test(normalized);
+    if (isRsiOversold) {
+        return {
+            intent: "technical_scan",
+            confidence: 1,
+            entities: { symbols: [], sector: null, wants_table: true, timeframe: "current", requested_date: null, technical_preset: "rsi_oversold" },
+            tools: ["get_technical_scan"],
+            session_update: { current_symbol: null, last_symbols: sessionState.last_symbols, summary: message }
+        };
+    }
+
+    // Technical Scanner Template 3: Volume Breakout
+    const isVolumeBreakout = explicitSymbols.length === 0 && /(?:اختراق\s*حجم(?:\s*التداول)?|انفجار\s*حجم(?:\s*التداول)?|فوليوم\s*(?:عالي|انفجاري|غير\s*عادي|قياسي|ضخم|كبير)|volume\s*breakout|احجام\s*تداول\s*(?:غير\s*عادي[ةه]|عالي[ةه]|قياسي[ةه])|حجم\s*تداول\s*(?:غير\s*عادي|انفجاري|كبير|عالي))/i.test(normalized);
+    if (isVolumeBreakout) {
+        return {
+            intent: "technical_scan",
+            confidence: 1,
+            entities: { symbols: [], sector: null, wants_table: true, timeframe: "current", requested_date: null, technical_preset: "volume_breakout" },
+            tools: ["get_technical_scan"],
+            session_update: { current_symbol: null, last_symbols: sessionState.last_symbols, summary: message }
+        };
+    }
+
+    // Technical Scanner Template 4: SMA 200 Breakout
+    const isSma200 = explicitSymbols.length === 0 && /(?:اختراق\s*الاتجاه|متوسط\s*200|موفينج\s*200|ema\s*200|sma\s*200|فوق\s*(?:متوسط\s*)?200\s*يوم)/i.test(normalized);
+    if (isSma200) {
+        return {
+            intent: "technical_scan",
+            confidence: 1,
+            entities: { symbols: [], sector: null, wants_table: true, timeframe: "current", requested_date: null, technical_preset: "sma_200_breakout" },
+            tools: ["get_technical_scan"],
+            session_update: { current_symbol: null, last_symbols: sessionState.last_symbols, summary: message }
+        };
+    }
+
+    // Technical Scanner Template 5: Smart Money Flow
+    const isSmartMoney = explicitSymbols.length === 0 && /(?:[اأ]موال\s*ذكي[ةه]|تدفق\s*(?:ال)?[اأ]موال|سيول[ةه]\s*ذكي[ةه]|smart\s*money|cmf)/i.test(normalized);
+    if (isSmartMoney) {
+        return {
+            intent: "technical_scan",
+            confidence: 1,
+            entities: { symbols: [], sector: null, wants_table: true, timeframe: "current", requested_date: null, technical_preset: "smart_money_flow" },
+            tools: ["get_technical_scan"],
+            session_update: { current_symbol: null, last_symbols: sessionState.last_symbols, summary: message }
+        };
+    }
+
+    // Technical Scanner Template 6: Bullish RSI Divergence
+    const isBullishDiv = explicitSymbols.length === 0 && /(?:دايفرجنس\s*(?:ايجابي|إيجابي|صعودي)|تباعد\s*(?:صعودي|ايجابي|إيجابي)|bullish\s*divergence|(?:دايفرجنس|تباعد).{0,25}(?:rsi|ار\s*اس\s*اي).{0,25}(?:ايجابي|صعودي)|(?:rsi|ار\s*اس\s*اي).{0,25}(?:دايفرجنس|تباعد).{0,25}(?:ايجابي|صعودي)|دايفرجنس.{0,15}ايجابي)/i.test(normalized);
+    if (isBullishDiv) {
+        return {
+            intent: "technical_scan",
+            confidence: 1,
+            entities: { symbols: [], sector: null, wants_table: true, timeframe: "current", requested_date: null, technical_preset: "rsi_bullish_divergence" },
+            tools: ["get_technical_scan"],
+            session_update: { current_symbol: null, last_symbols: sessionState.last_symbols, summary: message }
+        };
+    }
+
+    // Technical Scanner Template 7: Bearish Divergence Alert
+    const isBearishDiv = explicitSymbols.length === 0 && /(?:دايفرجنس\s*(?:سلبي|هبوطي)|تباعد\s*(?:هبوطي|سلبي)|bearish\s*divergence|تحذير\s*دايفرجنس|تنبيه\s*تباعد|دايفرجنس.{0,15}(?:سلبي|هبوطي)|تباعد.{0,15}هبوطي)/i.test(normalized);
+    if (isBearishDiv) {
+        return {
+            intent: "technical_scan",
+            confidence: 1,
+            entities: { symbols: [], sector: null, wants_table: true, timeframe: "current", requested_date: null, technical_preset: "bearish_divergence_alert" },
+            tools: ["get_technical_scan"],
+            session_update: { current_symbol: null, last_symbols: sessionState.last_symbols, summary: message }
+        };
+    }
+
     const isAccumulationScan = /(?:تجميع|تجميعي|تجميعيه|accumulation)/i.test(normalized) && /(?:اسهم|الاسهم|قايمه|قائمة|هات|اعرض|فين|منطقة|منطقه|مؤسسي|مؤسسات|فرص|هل فيه|هل في)/i.test(normalized);
     if (isAccumulationScan && explicitSymbols.length === 0) {
         return {
@@ -819,12 +930,20 @@ export function enforceIntentFromMessage(message: string, plannerIntent: string,
             recommendation_order: oldestRequest ? "oldest" : "newest"
         };
     }
-    if (direction) {
+    if (direction && !hasSymbol) {
         if ((direction as string) === "both" || (hasAcc && hasDist)) {
             return { intent: "accumulation_distribution", tools: ["get_accumulation_stocks", "get_distribution_stocks"], replaceTools: true, scan_direction: "both" as any };
         }
         return { intent: "accumulation_distribution", tools: [direction === "distribution" ? "get_distribution_stocks" : "get_accumulation_stocks"], replaceTools: true, scan_direction: direction };
     }
+    if (hasSymbol && /(?:تجميع|تصريف|وايكوف|wyckoff)/i.test(normalized)) {
+        return { 
+            intent: "stock_analysis", 
+            tools: ["get_stock", "get_stock_levels", "get_accumulation_stocks"], 
+            replaceTools: true 
+        };
+    }
+    if (plannerIntent === "technical_scan") return { intent: "technical_scan", tools: ["get_technical_scan"], replaceTools: true };
     if (/(قيمه عادله|القيمه العادله|fair value|عادله)/i.test(normalized) && hasSymbol) return { intent: "stock_analysis", tools: ["get_stock", "get_stock_levels"], replaceTools: true };
     if (/(?:سبب|اسباب|ليه|لماذا)/i.test(normalized) && hasSymbol) return { intent: "stock_news", tools: ["get_stock", "get_news", "get_stock_levels"], replaceTools: true };
     if (/(مقاوم|مقوام|دعم|support|resistance)/i.test(normalized) && hasSymbol && !/حلل.{0,30}(اخبار|أخبار)/i.test(normalized)) return { intent: "levels_analysis", tools: ["get_stock_levels"], replaceTools: true };
@@ -883,7 +1002,15 @@ export function enforceIntentFromMessage(message: string, plannerIntent: string,
     const sector = extractSectorFromMessage(normalized);
     if (sector && /(اخبار|خبر|news)/i.test(normalized)) return { intent: "sector_analysis", tools: ["get_sector", "get_news"], replaceTools: true, sector };
     if (sector && !hasSymbol) return { intent: "sector_analysis", tools: ["get_sector"], replaceTools: true, sector };
-    if (plannerIntent === "stock_analysis" && hasSymbol) return { intent: "stock_analysis", tools: ["get_stock", "get_stock_levels"], replaceTools: true };
+    if (plannerIntent === "technical_scan") return { intent: "technical_scan", tools: ["get_technical_scan"], replaceTools: true };
+    if (plannerIntent === "stock_analysis" && hasSymbol) {
+        const isAccOrDist = /(?:تجميع|تصريف|وايكوف|wyckoff)/i.test(normalized);
+        return { 
+            intent: "stock_analysis", 
+            tools: isAccOrDist ? ["get_stock", "get_stock_levels", "get_accumulation_stocks"] : ["get_stock", "get_stock_levels"], 
+            replaceTools: true 
+        };
+    }
     return { intent: plannerIntent, tools: [] };
 }
 
@@ -910,7 +1037,7 @@ export function needsLiveDataForTools(tools: string[]): boolean {
     const liveTools = new Set([
         "get_stock", "get_market", "get_indices", "get_news",
         "get_recommendations", "get_signals", "get_sector",
-        "get_accumulation_stocks", "get_distribution_stocks", "get_sector_liquidity", "get_sector_list", "get_stock_levels", "get_comparison", "get_fair_value_scan", "get_price_history", "search_web"
+        "get_accumulation_stocks", "get_distribution_stocks", "get_technical_scan", "get_sector_liquidity", "get_sector_list", "get_stock_levels", "get_comparison", "get_fair_value_scan", "get_price_history", "search_web"
     ]);
     return tools.some(tool => liveTools.has(tool));
 }
@@ -1067,7 +1194,7 @@ export async function* runPipelineStream(
     if (mergedSymbols.length === 0 && memory?.resolved_references?.symbol) {
         mergedSymbols.push(memory.resolved_references.symbol);
     }
-    if (mergedSymbols.length === 0 && sessionState.current_symbol && /(أبيع|ابيع|بيع|أحتفظ|احتفظ|أخرج|اخرج|بكام|بكم|السعر)/i.test(userMessage) && !isBestBuyStockQuestion(userMessage)) {
+    if (mergedSymbols.length === 0 && sessionState.current_symbol && /(أبيع|ابيع|بيع(?!ه|ها|هم|ين)|أحتفظ|احتفظ|أخرج|اخرج|بكام|بكم|السعر)/i.test(userMessage) && !isBestBuyStockQuestion(userMessage) && !isMarketWideRequest(userMessage) && plannerResult.intent !== "technical_scan") {
         mergedSymbols.push(sessionState.current_symbol);
     }
     if (mergedSymbols.length === 0 && sessionState.current_symbol && /(اخباره|أخباره|هات\s+اخبار|هات\s+أخبار|خبره)/i.test(userMessage)) mergedSymbols.push(sessionState.current_symbol);
@@ -1077,7 +1204,7 @@ export async function* runPipelineStream(
     if (mergedSymbols.length === 0 && sessionState.current_symbol && (
         /(عليه|عليها|فيه|فيها|ليه|ليها|له|لها|عنه|عنها|به|بها|معاه|معاها|هو|هي|ده|دي|هذا|هذه|تجميع|تصريف|تحليل|مؤشر|مؤشرات|دعم|مقاومة|مقاومه)/i.test(userMessage) ||
         userMessage.trim().split(/\s+/).length <= 3
-    ) && !isMarketWideRequest(userMessage) && !isBestBuyStockQuestion(userMessage)) {
+    ) && !isMarketWideRequest(userMessage) && !isBestBuyStockQuestion(userMessage) && plannerResult.intent !== "technical_scan") {
         mergedSymbols.push(sessionState.current_symbol);
     }
     // An explicit company-name phrase that resolves to no known symbol ("حلل دلتا للطباعه")
@@ -1092,7 +1219,7 @@ export async function* runPipelineStream(
     const unrecognizedTicker = !vision && explicitSymbols.length === 0
         && /^[A-Za-z]{2,6}[؟?\s.]*$/.test(userMessage.trim());
     const compoundRequest = splitChatCommands(userMessage).length > 1;
-    if ((isMarketWideRequest(userMessage) || broadScanRequest || isBestBuyStockQuestion(userMessage)) && !compoundRequest && extractExplicitSymbols(userMessage).length === 0) mergedSymbols = [];
+    if ((isMarketWideRequest(userMessage) || broadScanRequest || isBestBuyStockQuestion(userMessage) || plannerResult.intent === "technical_scan" || plannerResult.intent === "accumulation_distribution") && !compoundRequest && extractExplicitSymbols(userMessage).length === 0) mergedSymbols = [];
     if (plannerResult.entities.sector && extractExplicitSymbols(userMessage).length === 0) mergedSymbols = [];
     const fairValueScanRequest = isFairValueScanRequest(userMessage);
     const enforced: ReturnType<typeof enforceIntentFromMessage> = compoundRequest
@@ -1108,7 +1235,7 @@ export async function* runPipelineStream(
         : fairValueScanRequest
             ? { intent: "market_summary", tools: ["get_fair_value_scan"], replaceTools: true }
             : enforceIntentFromMessage(userMessage, plannerResult.intent, mergedSymbols, sessionState);
-    const marketScopedTools = new Set(["get_market", "get_sector_liquidity", "get_sector_list", "get_fair_value_scan"]);
+    const marketScopedTools = new Set(["get_market", "get_sector_liquidity", "get_sector_list", "get_fair_value_scan", "get_technical_scan", "get_accumulation_stocks", "get_distribution_stocks"]);
     if (explicitSymbols.length === 0 && enforced.tools.some(tool => marketScopedTools.has(tool))) mergedSymbols = [];
     const datedDomainRequest = Boolean(extractRequestedDate(userMessage) || extractRequestedDateRange(userMessage)) && ["stock_analysis", "stock_news", "comparison", "sector_analysis", "accumulation_distribution"].includes(enforced.intent);
     const historicalRequest = needsHistoricalData(enforced.intent, userMessage);
@@ -1148,6 +1275,7 @@ export async function* runPipelineStream(
             ,require_distribution: Boolean(enforced.require_distribution || plannerResult.entities.require_distribution)
             ,require_accumulation: Boolean(enforced.require_accumulation || plannerResult.entities.require_accumulation)
             ,recommendation_order: enforced.recommendation_order || plannerResult.entities.recommendation_order || null
+            ,technical_preset: plannerResult.entities.technical_preset || null
             ,min_acc_score: plannerResult.entities.min_acc_score ?? null
             ,min_vol_ratio: plannerResult.entities.min_vol_ratio ?? null
             ,excluded_sectors: Array.from(new Set([...excludedSectors, ...plannerExcludedSectors]))
@@ -1251,17 +1379,33 @@ export async function* runPipelineStream(
     let emptyScanResult = false;
     let scanStale = false;
     let scanDate: string | null = null;
-    const directionAr = plan.entities.scan_direction === "distribution" ? "تصريف" : "تجميع";
+    const hasAccTool = tools.results.some(r => r.tool === "get_accumulation_stocks");
+    const hasDistTool = tools.results.some(r => r.tool === "get_distribution_stocks");
+    const isBothScans = hasAccTool && hasDistTool;
+    const directionAr = isBothScans ? "تجميع وتصريف" : (plan.entities.scan_direction === "distribution" ? "تصريف" : "تجميع");
+
     if (isMarketWideScan) {
-        tools.results.forEach(res => {
-            if (res.tool === "get_accumulation_stocks" || res.tool === "get_distribution_stocks") {
-                if (Array.isArray(res.data?.stocks) && res.data.stocks.length === 0) {
-                    emptyScanResult = true;
-                    if (res.data?.validation && !res.data.validation.ok) scanStale = true;
-                    if (res.data?.date) scanDate = String(res.data.date);
-                }
+        if (isBothScans) {
+            // When both accumulation and distribution are requested, buildBothAccumulationDistributionResponse
+            // handles presentation. Only flag as empty scan if BOTH tools return 0 stocks.
+            const accRes = tools.results.find(r => r.tool === "get_accumulation_stocks");
+            const distRes = tools.results.find(r => r.tool === "get_distribution_stocks");
+            const accEmpty = !Array.isArray(accRes?.data?.stocks) || accRes.data.stocks.length === 0;
+            const distEmpty = !Array.isArray(distRes?.data?.stocks) || distRes.data.stocks.length === 0;
+            if (accEmpty && distEmpty) {
+                emptyScanResult = true;
+                if (accRes?.data?.date) scanDate = String(accRes.data.date);
+                else if (distRes?.data?.date) scanDate = String(distRes.data.date);
             }
-        });
+        } else {
+            const targetTool = plan.entities.scan_direction === "distribution" ? "get_distribution_stocks" : "get_accumulation_stocks";
+            const targetRes = tools.results.find(r => r.tool === targetTool) || tools.results.find(r => r.tool === "get_accumulation_stocks" || r.tool === "get_distribution_stocks");
+            if (targetRes && Array.isArray(targetRes.data?.stocks) && targetRes.data.stocks.length === 0) {
+                emptyScanResult = true;
+                if (targetRes.data?.validation && !targetRes.data.validation.ok) scanStale = true;
+                if (targetRes.data?.date) scanDate = String(targetRes.data.date);
+            }
+        }
     }
 
     const deterministicDomainResponse = emptyScanResult
@@ -1851,7 +1995,7 @@ export async function runPipeline(
     if (mergedSymbols.length === 0 && memory?.resolved_references?.symbol) {
         mergedSymbols.push(memory.resolved_references.symbol);
     }
-    if (mergedSymbols.length === 0 && sessionState.current_symbol && /(أبيع|ابيع|بيع|أحتفظ|احتفظ|أخرج|اخرج|بكام|بكم|السعر)/i.test(userMessage) && !isBestBuyStockQuestion(userMessage)) {
+    if (mergedSymbols.length === 0 && sessionState.current_symbol && /(أبيع|ابيع|بيع(?!ه|ها|هم|ين)|أحتفظ|احتفظ|أخرج|اخرج|بكام|بكم|السعر)/i.test(userMessage) && !isBestBuyStockQuestion(userMessage) && !isMarketWideRequest(userMessage) && plannerResult.intent !== "technical_scan") {
         mergedSymbols.push(sessionState.current_symbol);
     }
     if (mergedSymbols.length === 0 && sessionState.current_symbol && /(اخباره|أخباره|هات\s+اخبار|هات\s+أخبار|خبره)/i.test(userMessage)) mergedSymbols.push(sessionState.current_symbol);
@@ -1861,7 +2005,7 @@ export async function runPipeline(
     if (mergedSymbols.length === 0 && sessionState.current_symbol && (
         /(عليه|عليها|فيه|فيها|ليه|ليها|له|لها|عنه|عنها|به|بها|معاه|معاها|هو|هي|ده|دي|هذا|هذه|تجميع|تصريف|تحليل|مؤشر|مؤشرات|دعم|مقاومة|مقاومه)/i.test(userMessage) ||
         userMessage.trim().split(/\s+/).length <= 3
-    ) && !isMarketWideRequest(userMessage) && !isBestBuyStockQuestion(userMessage)) {
+    ) && !isMarketWideRequest(userMessage) && !isBestBuyStockQuestion(userMessage) && plannerResult.intent !== "technical_scan") {
         mergedSymbols.push(sessionState.current_symbol);
     }
     // An explicit company-name phrase that resolves to no known symbol ("حلل دلتا للطباعه")
@@ -1876,7 +2020,7 @@ export async function runPipeline(
     const unrecognizedTicker = !vision && explicitSymbols.length === 0
         && /^[A-Za-z]{2,6}[؟?\s.]*$/.test(userMessage.trim());
     const compoundRequest = splitChatCommands(userMessage).length > 1;
-    if ((isMarketWideRequest(userMessage) || isBestBuyStockQuestion(userMessage)) && !compoundRequest && extractExplicitSymbols(userMessage).length === 0) mergedSymbols = [];
+    if ((isMarketWideRequest(userMessage) || isBestBuyStockQuestion(userMessage) || plannerResult.intent === "technical_scan" || plannerResult.intent === "accumulation_distribution") && !compoundRequest && extractExplicitSymbols(userMessage).length === 0) mergedSymbols = [];
     if (plannerResult.entities.sector && extractExplicitSymbols(userMessage).length === 0) mergedSymbols = [];
     const enforced: ReturnType<typeof enforceIntentFromMessage> = compoundRequest
         ? { 
@@ -1889,7 +2033,7 @@ export async function runPipeline(
             require_accumulation: plannerResult.entities.require_accumulation
           }
         : enforceIntentFromMessage(userMessage, plannerResult.intent, mergedSymbols, sessionState);
-    const marketScopedTools = new Set(["get_market", "get_sector_liquidity", "get_sector_list", "get_fair_value_scan"]);
+    const marketScopedTools = new Set(["get_market", "get_sector_liquidity", "get_sector_list", "get_fair_value_scan", "get_technical_scan", "get_accumulation_stocks", "get_distribution_stocks"]);
     if (explicitSymbols.length === 0 && enforced.tools.some(tool => marketScopedTools.has(tool))) mergedSymbols = [];
     const datedDomainRequest = Boolean(extractRequestedDate(userMessage) || extractRequestedDateRange(userMessage)) && ["stock_analysis", "stock_news", "comparison", "sector_analysis", "accumulation_distribution"].includes(enforced.intent);
     const historicalRequest = needsHistoricalData(enforced.intent, userMessage);
@@ -1928,6 +2072,7 @@ export async function runPipeline(
             ,require_distribution: Boolean(enforced.require_distribution || plannerResult.entities.require_distribution)
             ,require_accumulation: Boolean(enforced.require_accumulation || plannerResult.entities.require_accumulation)
             ,recommendation_order: enforced.recommendation_order || plannerResult.entities.recommendation_order || null
+            ,technical_preset: plannerResult.entities.technical_preset || null
             ,min_acc_score: plannerResult.entities.min_acc_score ?? null
             ,min_vol_ratio: plannerResult.entities.min_vol_ratio ?? null
             ,excluded_sectors: Array.from(new Set([...excludedSectors, ...plannerExcludedSectors]))
@@ -2020,17 +2165,33 @@ export async function runPipeline(
     let emptyScanResult = false;
     let scanStale = false;
     let scanDate: string | null = null;
-    const directionAr = plan.entities.scan_direction === "distribution" ? "تصريف" : "تجميع";
+    const hasAccTool = tools.results.some(r => r.tool === "get_accumulation_stocks");
+    const hasDistTool = tools.results.some(r => r.tool === "get_distribution_stocks");
+    const isBothScans = hasAccTool && hasDistTool;
+    const directionAr = isBothScans ? "تجميع وتصريف" : (plan.entities.scan_direction === "distribution" ? "تصريف" : "تجميع");
+
     if (isMarketWideScan) {
-        tools.results.forEach(res => {
-            if (res.tool === "get_accumulation_stocks" || res.tool === "get_distribution_stocks") {
-                if (Array.isArray(res.data?.stocks) && res.data.stocks.length === 0) {
-                    emptyScanResult = true;
-                    if (res.data?.validation && !res.data.validation.ok) scanStale = true;
-                    if (res.data?.date) scanDate = String(res.data.date);
-                }
+        if (isBothScans) {
+            // When both accumulation and distribution are requested, buildBothAccumulationDistributionResponse
+            // handles presentation. Only flag as empty scan if BOTH tools return 0 stocks.
+            const accRes = tools.results.find(r => r.tool === "get_accumulation_stocks");
+            const distRes = tools.results.find(r => r.tool === "get_distribution_stocks");
+            const accEmpty = !Array.isArray(accRes?.data?.stocks) || accRes.data.stocks.length === 0;
+            const distEmpty = !Array.isArray(distRes?.data?.stocks) || distRes.data.stocks.length === 0;
+            if (accEmpty && distEmpty) {
+                emptyScanResult = true;
+                if (accRes?.data?.date) scanDate = String(accRes.data.date);
+                else if (distRes?.data?.date) scanDate = String(distRes.data.date);
             }
-        });
+        } else {
+            const targetTool = plan.entities.scan_direction === "distribution" ? "get_distribution_stocks" : "get_accumulation_stocks";
+            const targetRes = tools.results.find(r => r.tool === targetTool) || tools.results.find(r => r.tool === "get_accumulation_stocks" || r.tool === "get_distribution_stocks");
+            if (targetRes && Array.isArray(targetRes.data?.stocks) && targetRes.data.stocks.length === 0) {
+                emptyScanResult = true;
+                if (targetRes.data?.validation && !targetRes.data.validation.ok) scanStale = true;
+                if (targetRes.data?.date) scanDate = String(targetRes.data.date);
+            }
+        }
     }
 
     const deterministicDomainResponse = emptyScanResult
@@ -2130,7 +2291,7 @@ const generatedLlmReply = deterministicDomainResponse || await generateV2Respons
     // Leaked English chain-of-thought leaves no usable Arabic answer — treat as failure.
     const replyArabicChars = ((generatedLlmReply || "").match(/[\u0600-\u06FF]/g) || []).length;
     const replyAsciiChars = ((generatedLlmReply || "").match(/[A-Za-z]/g) || []).length;
-    const nonArabicReply = replyArabicChars < 40 || replyAsciiChars > replyArabicChars;
+    const nonArabicReply = responderMetaNs.source !== "deterministic" && (replyArabicChars < 40 || replyAsciiChars > replyArabicChars);
     let response = (genericFailure || nonArabicReply)
         ? (topMoversRequest ? buildTopMoversResponse(tools) : buildMarketLiquidityResponse(tools))
             || buildDeterministicResponse(userMessage, plan, tools.results)
