@@ -216,6 +216,9 @@ const ARABIC_STOCK_MAPPINGS: Record<string, string | string[]> = {
     "القاهرة للأدوية": "CPCI", "القاهرة للادوية": "CPCI",
     "القناة للتوكيلات": "CSAG", "قناة للتوكيلات": "CSAG", "توكيلات ملاحية": "CSAG",
     "الاستشارات الهندسية": "DAPH", "تنمية واستشارات": "DAPH",
+    "التعمير والاستشارات الهندسية": "DAPH", "التعمير والاستشارات": "DAPH",
+    "تعمير والاستشارات الهندسية": "DAPH", "تعمير والاستشارات": "DAPH",
+    "تعمير الهندسية": "DAPH", "تعمير": "DAPH",
     "الدلتا للإنشاء": "DCRC", "دلتا للانشاء": "DCRC",
     "الدلتا للتأمين": "DEIN", "دلتا للتامين": "DEIN",
     "دايس للملابس": "DSCW",
@@ -246,7 +249,7 @@ const ARABIC_STOCK_MAPPINGS: Record<string, string | string[]> = {
     "العامة للصوامع": "GSSC", "الصوامع والتخزين": "GSSC",
     "جيتكس": "GTEX", "جيتكس للأثاث": "GTEX",
     "جولدن تكس": "GTWL", "الذهب للمنسوجات": "GTWL",
-    "التعمير والإسكان": "HDBK", "التعمير والاسكان": "HDBK", "بنك التعمير والاسكان": "HDBK", "بنك الاسكان": "HDBK",
+    "التعمير والإسكان": "HDBK", "التعمير والاسكان": "HDBK", "بنك التعمير والاسكان": "HDBK", "بنك الاسكان": "HDBK", "بنك التعمير": "HDBK",
     "الدولية للمخصبات": "ICFC", "مخصبات": "ICFC",
     "الدولية للاستثمار": "ICID", "الدولية للتنمية": "ICID",
     "الإسماعيلية للتطوير": "IDRE", "الاسماعيلية للاسكان": "IDRE",
@@ -760,6 +763,18 @@ export function extractSymbolsFromText(
     return Array.from(new Set(found)).filter(s => validSymbols.includes(s));
 }
 
+// Arabic words that strongly indicate a listed-company name (e.g. "التعمير والاستشارات").
+// Used to detect when the user asks about a company we could NOT map to a symbol,
+// so we do NOT silently reuse the previous conversation symbol.
+const COMPANY_NAME_HINT_PATTERN = /(?:تعمير|استشار|اسكان|إسكان|مقاولات|صناعات|قابضة|قابضه|مساهمات|منتجعات|فنادق|مطاحن|مخابز|دواجن|صوامع|بتروكيماويات|استصلاح|أدوية|ادويه|غذائية|غذائيه|طبية|طبيه|زراعية|زراعيه|هندسية|هندسيه|سياحية|سياحيه|عقاري|استثماري|للاستثمار|للاستشارات|للتعمير|للاسكان|للمقاولات|للصناعات|مطاحن ومخابز)/i;
+const SECTOR_OR_MARKET_QUERY_PATTERN = /(قطاع|القطاعات|أسهم|اسهم|الشركات|السوق|البورصة|البورصه|أفضل|افضل|مين|توصيات|توصية|توصيه|سيولة|سيوله|تجميع|تصريف|مؤشر|المؤشرات|دولار|ذهب|صناديق|محفظة|محفظه|أخبار|اخبار|إيرادات|ايرادات|أرباح|ارباح|تعريف|ايه معنى|ما معنى)/i;
+
+export function isUnresolvedCompanyNameMention(message: string, extractedSymbols: string[]): boolean {
+    if (!message || extractedSymbols.length > 0) return false;
+    if (SECTOR_OR_MARKET_QUERY_PATTERN.test(message)) return false;
+    return COMPANY_NAME_HINT_PATTERN.test(message);
+}
+
 // In-Memory Image Cache - DISABLED for better accuracy
 const imageCache = new Map<string, PlannerResult>();
 const ENABLE_IMAGE_CACHE = false; // 🔧 Disabled to force fresh analysis
@@ -1078,12 +1093,24 @@ Analyze the user request and return a JSON object. You MUST dynamically choose t
 
                         const isTermsQuestion = isTermsDefinitionRequest(message) && symbols.length === 0;
                         const isExplicitComparison = /قارن|مقارنة|مفاضلة|بين|الاتنين|السهمين/i.test(message) || symbolsTextExtracted.length >= 2;
+                        // Guard: user mentioned a company-like name we could not map —
+                        // drop symbols that merely echo the previous session context (no silent fallback).
+                        const unresolvedCompanyName = isUnresolvedCompanyNameMention(message, symbolsTextExtracted);
+                        if (unresolvedCompanyName && symbols.length > 0) {
+                            const sessionContextSet = new Set([
+                                ...(session.last_symbols || []),
+                                ...(session.current_symbol ? [session.current_symbol] : [])
+                            ].map(s => String(s).toUpperCase()));
+                            if (symbols.every(s => sessionContextSet.has(s))) {
+                                symbols.length = 0;
+                            }
+                        }
                         let resolvedSymbols: string[] = [];
                         if (symbolsTextExtracted.length > 0 && !isExplicitComparison) {
                             resolvedSymbols = [symbolsTextExtracted[0]];
                         } else if (symbols.length > 0) {
                             resolvedSymbols = symbols;
-                        } else if (!isMarketScan && !hasImages && !isTermsQuestion) {
+                        } else if (!isMarketScan && !hasImages && !isTermsQuestion && !unresolvedCompanyName) {
                             if ((isFollowupQuery || isAggregateTableRequest) && session.last_symbols?.length) {
                                 resolvedSymbols = session.last_symbols;
                             }
@@ -1136,6 +1163,10 @@ Analyze the user request and return a JSON object. You MUST dynamically choose t
                             intent: finalIntent,
                             confidence: parsed.confidence || 0.95,
                             guidance_intent: parsed.guidance_intent || null,
+                            unresolved_stock: unresolvedCompanyName && resolvedSymbols.length === 0,
+                            service_degraded_message: (unresolvedCompanyName && resolvedSymbols.length === 0)
+                                ? "مقدرش ألاقي سهم بالاسم ده في قاعدة بيانات البورصة المصرية 🤔\nاكتب رمز السهم (مثال: DAPH) أو الاسم الكامل المسجل (مثال: التعمير والاستشارات الهندسية)، ولو بتقصد قطاع كامل اكتب اسم القطاع (مثال: قطاع العقارات)."
+                                : (parsed.service_degraded_message || null),
                             entities: {
                                 symbols: resolvedSymbols,
                                 sector: parsed.entities?.sector || null,
@@ -1187,6 +1218,7 @@ Analyze the user request and return a JSON object. You MUST dynamically choose t
     const sectorFollowUp = /^(?:اى|أي|ايه|ما هو|ما هي|مين)\s+(?:اكبر|أكبر)\s+(?:سهم|شركة)\s+(?:في|فى|بقطاع|من)\s+(.+)$/i.exec(message.trim())
         || /^(?:اكبر|أكبر)\s+(?:سهم|شركة)\s+(?:في|فى|بقطاع|من)\s+(.+)$/i.exec(message.trim());
     const explicitSymbols = extractSymbolsFromText(message, validSymbols, stockMappings);
+    const unresolvedCompanyNameFallback = isUnresolvedCompanyNameMention(message, explicitSymbols);
 
     // Check if the user message contains any 3-6 letter English word that is NOT a common technical term and NOT in validSymbols.
     // This indicates they are asking about an unknown stock (like FCMD), so we should NOT fallback to session history.
@@ -1194,7 +1226,7 @@ Analyze the user request and return a JSON object. You MUST dynamically choose t
     const englishWords = (message.match(/[a-zA-Z]{3,6}/g) || []).map(w => w.toUpperCase());
     const hasUnknownEnglishStock = englishWords.some(w => !COMMON_TECHNICAL_WORDS.has(w) && !validSymbols.includes(w) && !w.startsWith("EGX"));
 
-    const fallbackSymbols = (hasImages || isMarketSlang || hasUnknownEnglishStock)
+    const fallbackSymbols = (hasImages || isMarketSlang || hasUnknownEnglishStock || unresolvedCompanyNameFallback)
         ? []
         : (explicitSymbols.length > 0
             ? explicitSymbols
@@ -1230,6 +1262,23 @@ Analyze the user request and return a JSON object. You MUST dynamically choose t
             session_update: {
                 current_symbol: fallbackSymbols[0],
                 last_symbols: fallbackSymbols.map((s: string) => correctStockSymbol(s, validSymbols)),
+                summary: message
+            }
+        };
+    }
+
+    if (unresolvedCompanyNameFallback) {
+        console.log(`[Planner Fallback] Unresolved company name mention — asking for clarification instead of reusing session symbols.`);
+        return {
+            intent: "general_chat",
+            confidence: 0.9,
+            entities: { symbols: [], sector: null, wants_table: false },
+            tools: [],
+            unresolved_stock: true,
+            service_degraded_message: "مقدرش ألاقي سهم بالاسم ده في قاعدة بيانات البورصة المصرية 🤔\nاكتب رمز السهم (مثال: DAPH) أو الاسم الكامل المسجل (مثال: التعمير والاستشارات الهندسية)، ولو بتقصد قطاع كامل اكتب اسم القطاع (مثال: قطاع العقارات).",
+            session_update: {
+                current_symbol: session.current_symbol,
+                last_symbols: session.last_symbols ? session.last_symbols.map((s: string) => correctStockSymbol(s, validSymbols)) : [],
                 summary: message
             }
         };

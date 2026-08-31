@@ -91,6 +91,7 @@ export interface IntentPlan {
     tools: string[];
     clarification_needed: boolean;
     service_degraded_message?: string | null;
+    unresolved_stock?: boolean;
     resolved_from: {
         symbol: string | null;
         message_id: string | null;
@@ -148,6 +149,7 @@ export interface PlannerResult {
     tools: string[];
     image_summary?: string | null;
     service_degraded_message?: string | null;
+    unresolved_stock?: boolean;
     session_update: {
         current_symbol: string | null;
         last_symbols: string[];

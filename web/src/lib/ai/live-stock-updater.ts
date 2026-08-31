@@ -206,7 +206,23 @@ export async function fetchLiveStockIndicators(
         // 4. Update Supabase asynchronously/safely if client provided
         if (supabase && liveData.close > 0) {
             try {
-                // Upsert to stock_technical_indicators to maintain 1-row-per-symbol rule
+                // Preserve existing AI ML scores (king/egx) — the upsert replaces the
+                // single snapshot row per symbol, and dropping these columns would wipe
+                // the ML scores until the next daily job re-computes them.
+                let existingScores: { king_ai_score: number | null; egx_ai_score: number | null } | null = null;
+                try {
+                    const { data: existingRow } = await supabase
+                        .from("stock_technical_indicators")
+                        .select("king_ai_score, egx_ai_score")
+                        .eq("symbol", cleanSym)
+                        .eq("exchange", "EGX")
+                        .limit(1)
+                        .maybeSingle();
+                    if (existingRow) existingScores = existingRow;
+                } catch (readErr) {
+                    console.warn(`[LIVE_UPDATER] Score preservation read failed for ${cleanSym}:`, readErr);
+                }
+
                 await supabase.from("stock_technical_indicators").upsert({
                     symbol: cleanSym,
                     exchange: "EGX",
@@ -228,8 +244,10 @@ export async function fetchLiveStockIndicators(
                     bb_lower: liveData.bb_lower,
                     stoch_k: liveData.stoch_k,
                     stoch_d: liveData.stoch_d,
+                    king_ai_score: existingScores?.king_ai_score ?? null,
+                    egx_ai_score: existingScores?.egx_ai_score ?? null,
                     updated_at: isoNow
-                }, { onConflict: "symbol" });
+                }, { onConflict: "symbol,exchange,date" });
             } catch (dbErr) {
                 console.warn(`[LIVE_UPDATER] Supabase upsert failed for ${cleanSym}:`, dbErr);
             }

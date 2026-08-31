@@ -1,7 +1,7 @@
 import { IntentPlan, VisionContext, SessionState, SessionSummary, PlannerResult } from "./types";
 import { analyzeImage } from "./vision";
 import { retrieveRelevantMemory, MemoryResult } from "./memory";
-import { getSyncStockMappings, getStocksList, getSyncValidSymbols, loadValidSymbols } from "./planner";
+import { getSyncStockMappings, getStocksList, getSyncValidSymbols, loadValidSymbols, isUnresolvedCompanyNameMention } from "./planner";
 import { executeStructuredTools, StructuredToolOutput } from "./tools-v2";
 import { buildDeterministicResponse, generateV2Response, generateV2Stream, getResponderCooldownMs } from "./final-v2";
 import { validateResponse, autoFixNumbers } from "./validator";
@@ -737,6 +737,9 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
         };
     }
     const symbols = broadScan ? [] : extractExplicitSymbols(message);
+    // Guard: a company-like name that maps to no known symbol must NOT inherit
+    // the previous session symbol (e.g. "التعمير والاستشارات" must not resolve to FCMD).
+    const unresolvedCompanyNameMention = !broadScan && isUnresolvedCompanyNameMention(message, symbols);
     const temporal = extractTemporalContext(message);
     const marketWideRequest = isMarketWideRequest(message);
     const riskFollowUp = /(يخسر|خسار|يهبط|ينزل).{0,30}(تاني|اكتر|أكتر|اكثر|أكثر|%|في الميه|فى الميه)|(?:ممكن|هل).{0,20}(يخسر|يهبط|ينزل)/i.test(normalized);
@@ -752,20 +755,20 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
     if ((marketWideRequest || (isBestBuyStockQuestion(message) && !hasGroupReference)) && extractExplicitSymbols(message).length === 0) {
         symbols.length = 0;
     }
-    if (temporal.date && symbols.length === 0 && sessionState.current_symbol && !marketWideRequest) {
+    if (temporal.date && symbols.length === 0 && sessionState.current_symbol && !marketWideRequest && !unresolvedCompanyNameMention) {
         symbols.push(sessionState.current_symbol);
     }
-    if (riskFollowUp && symbols.length === 0 && sessionState.current_symbol) {
+    if (riskFollowUp && symbols.length === 0 && sessionState.current_symbol && !unresolvedCompanyNameMention) {
         symbols.push(sessionState.current_symbol);
     }
     const fiveSessionForecast = /(توقعات|توقع|متوقع|تقعات|وقعات).{0,25}(?:5|خمس|الخمسه|الخمسة).{0,15}(جلسات|جلسه|جلسة)|(?:5|خمس|الخمسه|الخمسة).{0,15}(جلسات|جلسه|جلسة).{0,25}(توقعات|توقع|متوقع|تقعات|وقعات)/i.test(normalized);
-    if (fiveSessionForecast && symbols.length === 0 && sessionState.current_symbol) {
+    if (fiveSessionForecast && symbols.length === 0 && sessionState.current_symbol && !unresolvedCompanyNameMention) {
         symbols.push(sessionState.current_symbol);
     }
-    if (/(كسر|يكسر).{0,12}الدعم|الدعم.{0,12}(اتكسر|انكسر)/i.test(normalized) && symbols.length === 0 && sessionState.current_symbol) symbols.push(sessionState.current_symbol);
-    if ((isDailyPriceLimitQuestion(message) || /(?:أ|ا)عل[ىي].{0,15}(?:سعر|قم[هة])/i.test(normalized)) && symbols.length === 0 && sessionState.current_symbol) symbols.push(sessionState.current_symbol);
+    if (/(كسر|يكسر).{0,12}الدعم|الدعم.{0,12}(اتكسر|انكسر)/i.test(normalized) && symbols.length === 0 && sessionState.current_symbol && !unresolvedCompanyNameMention) symbols.push(sessionState.current_symbol);
+    if ((isDailyPriceLimitQuestion(message) || /(?:أ|ا)عل[ىي].{0,15}(?:سعر|قم[هة])/i.test(normalized)) && symbols.length === 0 && sessionState.current_symbol && !unresolvedCompanyNameMention) symbols.push(sessionState.current_symbol);
     const isGeneralStockFollowUp = /(?:مناسب|استثمار|استثمر|ادخل|شراء|اشتري|فرصه|فرصة|رايك|رأيك|توقعات|وضعه|اخباره|أخباره|حركته|تحليل|مستهدف|اهداف|أهداف|دعم|مقاومه|مقاومة|شهور|سنه|سنة|شهر|اسبوع|أسبوع)/i.test(normalized);
-    if (isGeneralStockFollowUp && symbols.length === 0 && sessionState.current_symbol && !isMarketWideRequest(message) && !isBestBuyStockQuestion(message)) {
+    if (isGeneralStockFollowUp && symbols.length === 0 && sessionState.current_symbol && !isMarketWideRequest(message) && !isBestBuyStockQuestion(message) && !unresolvedCompanyNameMention) {
         symbols.push(sessionState.current_symbol);
     }
     const sectorReference = /القطاع\s+(?:ده|دا|هذا)/i.test(normalized) ? sessionState.summary : null;
@@ -1291,6 +1294,8 @@ export async function* runPipelineStream(
         needs_historical_data: historicalRequest,
         tools: plannedTools,
         clarification_needed: false,
+        service_degraded_message: plannerResult.service_degraded_message || null,
+        unresolved_stock: Boolean(plannerResult.unresolved_stock),
         resolved_from: {
             symbol: memory?.resolved_references?.symbol || null,
             message_id: memory?.resolved_references?.message_id || null
@@ -2091,6 +2096,8 @@ export async function runPipeline(
         needs_historical_data: historicalRequest,
         tools: plannedTools,
         clarification_needed: false,
+        service_degraded_message: plannerResult.service_degraded_message || null,
+        unresolved_stock: Boolean(plannerResult.unresolved_stock),
         resolved_from: {
             symbol: memory?.resolved_references?.symbol || null,
             message_id: memory?.resolved_references?.message_id || null

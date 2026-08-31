@@ -1656,6 +1656,9 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
     if (asksForAdvice) {
         return null; // Yield to LLM for customized expert response
     }
+    if (plan.unresolved_stock && plan.service_degraded_message) {
+        return plan.service_degraded_message;
+    }
     const fastAdvisor = buildFastConversationalAdvisorResponse(userMessage, plan, toolResults, sessionState);
     if (fastAdvisor) return fastAdvisor;
 
