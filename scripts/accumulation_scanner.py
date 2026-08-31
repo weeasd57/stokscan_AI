@@ -24,8 +24,15 @@ from datetime import datetime, date, timedelta
 from supabase import create_client, Client
 
 # ─── Config ──────────────────────────────────────────────────────────────────
-SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://gfcmaxbtscmizsakarvc.supabase.co")
-SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdmY21heGJ0c2NtaXpzYWthcnZjIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2Nzg5MDI2NCwiZXhwIjoyMDgzNDY2MjY0fQ.Q4ENAx_KPqinbm_XxpQGWdOGRwVKM-0BGTyw9qD2h4E")
+SUPABASE_URL = (
+    os.environ.get("NEXT_PUBLIC_SUPABASE_URL")
+    or os.environ.get("SUPABASE_URL")
+)
+SUPABASE_KEY = (
+    os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+    or os.environ.get("SUPABASE_KEY")
+    or os.environ.get("SUPABASE_SERVICE_KEY")
+)
 
 VOL_RATIO_THRESHOLD   = 1.2   # حجم تداول يتخطى المتوسط ب 20% فأكثر
 STRONG_THRESHOLD      = 2.0   # حجم تداول يتخطى المتوسط ب 100% فأكثر (تجميع قوي)
@@ -33,7 +40,21 @@ LOOKBACK_DAYS         = 30    # نطاق جلب البيانات للتحليل
 MIN_ROWS_REQUIRED     = 5     # أقل عدد أيام بيانات مطلوب لتحليل السهم
 
 def get_supabase() -> Client:
-    return create_client(SUPABASE_URL, SUPABASE_KEY)
+    if SUPABASE_URL and SUPABASE_KEY:
+        return create_client(SUPABASE_URL, SUPABASE_KEY)
+    # Fallback: reuse the API's already-initialized client (e.g. inside the daily job)
+    try:
+        _root = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+        if _root not in sys.path:
+            sys.path.insert(0, _root)
+        import api.stock_ai as _stock_ai
+        _stock_ai._init_supabase()
+        _client = _stock_ai.supabase
+        if _client is not None:
+            return _client
+    except Exception as e:
+        print(f"  ⚠️  Could not reuse API Supabase client: {e}")
+    raise RuntimeError("Missing Supabase credentials: set NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY")
 
 
 def fetch_all_symbols(sb: Client) -> list[str]:

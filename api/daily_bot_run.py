@@ -2912,24 +2912,38 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
                         if new_booster:
                             import joblib
                             api_dir = os.path.dirname(os.path.abspath(__file__))
-                            model_path = os.path.join(api_dir, "models", "model_EGX.pkl")
+                            base_dir = os.path.dirname(api_dir)
+                            # Save back to the exact artifact the learner loaded (.bin or .pkl)
+                            model_path = getattr(learner, "model_path", None)
+                            if not model_path or not os.path.exists(model_path):
+                                model_path = os.path.join(api_dir, "models", "model_EGX.bin")
                             if not os.path.exists(model_path):
-                                base_dir = os.path.dirname(api_dir)
+                                model_path = os.path.join(base_dir, "models", "model_EGX.bin")
+                            if not os.path.exists(model_path):
+                                model_path = os.path.join(api_dir, "models", "model_EGX.pkl")
+                            if not os.path.exists(model_path):
                                 model_path = os.path.join(base_dir, "models", "model_EGX.pkl")
                             try:
                                 # Ensure parent directories exist
                                 os.makedirs(os.path.dirname(model_path), exist_ok=True)
+                                new_model_str = new_booster.model_to_string()
                                 if os.path.exists(model_path):
                                     data = joblib.load(model_path)
-                                    if isinstance(data, dict) and data.get("kind") == "lgbm_booster":
-                                        data["model_str"] = new_booster.model_to_string()
+                                    if isinstance(data, dict) and data.get("kind") == "meta_labeling_system":
+                                        primary_art = data.get("primary_model") or {}
+                                        primary_art["kind"] = "lgbm_booster"
+                                        primary_art["model_str"] = new_model_str
+                                        data["primary_model"] = primary_art
+                                        joblib.dump(data, model_path)
+                                    elif isinstance(data, dict) and data.get("kind") == "lgbm_booster":
+                                        data["model_str"] = new_model_str
                                         joblib.dump(data, model_path)
                                     else:
                                         joblib.dump(new_booster, model_path)
                                 else:
                                     joblib.dump(new_booster, model_path)
-                                print(f"[ADAPTIVE] Weekly retraining completed successfully with {len(mistakes)} mistakes.")
-                                _record_step("weekly_adaptive_retraining", True, f"Retrained on {len(mistakes)} mistakes", len(mistakes))
+                                print(f"[ADAPTIVE] Weekly retraining completed successfully with {len(mistakes)} mistakes (saved to {model_path}).")
+                                _record_step("weekly_adaptive_retraining", True, f"Retrained on {len(mistakes)} mistakes (saved {os.path.basename(model_path)})", len(mistakes))
                             except Exception as save_err:
                                 print(f"[ADAPTIVE] Failed to save retrained model: {save_err}")
                                 _record_step("weekly_adaptive_retraining", False, f"Failed to save: {save_err}", 0)
@@ -2956,7 +2970,11 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
         try:
             import sys as _sys
             import os as _os
-            _scripts_dir = _os.path.join(_os.path.dirname(__file__), "..", "scripts")
+            _scripts_dir = _os.path.abspath(_os.path.join(_os.path.dirname(__file__), "..", "scripts"))
+            if not _os.path.isdir(_scripts_dir):
+                _cwd_scripts = _os.path.abspath(_os.path.join(_os.getcwd(), "scripts"))
+                if _os.path.isdir(_cwd_scripts):
+                    _scripts_dir = _cwd_scripts
             if _scripts_dir not in _sys.path:
                 _sys.path.insert(0, _scripts_dir)
             from accumulation_scanner import (

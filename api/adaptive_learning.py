@@ -35,33 +35,52 @@ class ActiveLearner:
         _init_supabase()
 
     def _load_and_setup_model(self, model_path=None):
-        """Loads model and handles both sklearn wrapper and raw booster artifacts."""
+        """Loads model and handles sklearn wrapper, lgbm_booster, and meta_labeling_system artifacts."""
         try:
+            self.model_path = None
+            self._artifact = None
             if not model_path:
                 api_dir = os.path.dirname(os.path.abspath(__file__))
-                model_path = os.path.join(api_dir, "models", f"model_{self.exchange}.pkl")
-                if not os.path.exists(model_path):
-                    base_dir = os.path.dirname(api_dir)
-                    model_path = os.path.join(base_dir, "models", f"model_{self.exchange}.pkl")
-            
-            if not os.path.exists(model_path):
-                _log(f"Model not found at {model_path}", self.log_cb)
+                base_dir = os.path.dirname(api_dir)
+                candidates = [
+                    os.path.join(api_dir, "models", f"model_{self.exchange}.pkl"),
+                    os.path.join(api_dir, "models", f"model_{self.exchange}.bin"),
+                    os.path.join(base_dir, "models", f"model_{self.exchange}.pkl"),
+                    os.path.join(base_dir, "models", f"model_{self.exchange}.bin"),
+                ]
+                model_path = next((p for p in candidates if os.path.exists(p)), None)
+
+            if not model_path or not os.path.exists(model_path):
+                _log(f"Model not found for {self.exchange} (tried .pkl/.bin under api/models and models)", self.log_cb)
                 return
 
-            ext = os.path.splitext(model_path)[1]
             data = joblib.load(model_path)
-            
-            if isinstance(data, dict) and data.get("kind") == "lgbm_booster":
+
+            if isinstance(data, dict) and data.get("kind") == "meta_labeling_system":
+                primary_art = data.get("primary_model") or {}
+                if primary_art.get("kind") != "lgbm_booster" or not primary_art.get("model_str"):
+                    _log(f"Invalid meta_labeling_system artifact at {model_path}", self.log_cb)
+                    return
+                self.model = lgb.Booster(model_str=primary_art["model_str"])
+                self.predictors = primary_art.get("feature_names") or PREDICTORS
+                self.is_booster = True
+                self.model_path = model_path
+                self._artifact = data
+                _log(f"Loaded Native LGBM Booster (meta_labeling_system) for {self.exchange} from {model_path}", self.log_cb)
+            elif isinstance(data, dict) and data.get("kind") == "lgbm_booster":
                 # It's my new booster artifact
                 self.model = lgb.Booster(model_str=data["model_str"])
                 self.predictors = data.get("feature_names", PREDICTORS)
                 self.is_booster = True
-                _log(f"Loaded Native LGBM Booster for {self.exchange}", self.log_cb)
+                self.model_path = model_path
+                self._artifact = data
+                _log(f"Loaded Native LGBM Booster for {self.exchange} from {model_path}", self.log_cb)
             else:
                 self.model = data
                 self.is_booster = False
-                _log(f"Loaded Sklearn LGBM Model for {self.exchange}", self.log_cb)
-                
+                self.model_path = model_path
+                _log(f"Loaded Sklearn LGBM Model for {self.exchange} from {model_path}", self.log_cb)
+
         except Exception as e:
             _log(f"ActiveLearner failed to load model: {e}", self.log_cb)
 
