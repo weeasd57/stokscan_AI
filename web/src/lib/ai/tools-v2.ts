@@ -1906,16 +1906,44 @@ export async function executeStructuredTools(
             if (!rows.length) return { tool: "get_stock_levels", source: "empty", data_time: requestedDate || now.slice(0, 10), symbols: [requested], data_type: requestedDate ? "historical" : "live", data: { symbol: requested } } as ToolResult;
             const latest = rows[0];
             const close = Number(latest.close);
-            const support = Math.min(...rows.map((row: any) => Number(row.low ?? row.close)));
-            const resistance = Math.max(...rows.map((row: any) => Number(row.high ?? row.close)));
-            
+
+            // Practical levels: pick the NEAREST meaningful level to the price from a
+            // recent window (20 sessions) and a long window (60 sessions). Using the raw
+            // 60-session min/max produced absurd levels for trending stocks (e.g. support
+            // 65% below the price after a big rally), which confused users.
+            const recentRows = rows.slice(0, 20);
+            const recentLows = recentRows.map((row: any) => Number(row.low ?? row.close));
+            const recentHighs = recentRows.map((row: any) => Number(row.high ?? row.close));
+            const longLows = rows.map((row: any) => Number(row.low ?? row.close));
+            const longHighs = rows.map((row: any) => Number(row.high ?? row.close));
+            const longSupport = Math.min(...longLows);
+            const longResistance = Math.max(...longHighs);
+
+            const pickSupport = (candidates: number[]): number => {
+                const valid = candidates.filter((v) => Number.isFinite(v) && v > 0);
+                if (!valid.length) return 0;
+                const below = valid.filter((v) => v <= close);
+                return below.length ? Math.max(...below) : Math.max(...valid);
+            };
+            const pickResistance = (candidates: number[]): number => {
+                const valid = candidates.filter((v) => Number.isFinite(v) && v > 0);
+                if (!valid.length) return 0;
+                const above = valid.filter((v) => v >= close);
+                return above.length ? Math.min(...above) : Math.max(...valid);
+            };
+
+            const support = pickSupport([Math.min(...recentLows), longSupport]);
+            const resistance = pickResistance([Math.max(...recentHighs), longResistance]);
+
             const price_vs_support = close >= support ? "فوق الدعم" : "تحت الدعم (كسر الدعم)";
             const price_vs_resistance = close >= resistance ? "فوق المقاومة (اختراق المقاومة)" : "تحت المقاومة";
-            const distance_from_support_pct = support > 0 ? Number((((close - support) / support) * 100).toFixed(2)) : 0;
-            const distance_from_resistance_pct = resistance > 0 ? Number((((resistance - close) / resistance) * 100).toFixed(2)) : 0;
+            // Distance is measured FROM the current price (how far the level is from it),
+            // not from the level itself — the old formula inflated the figure and misled users.
+            const distance_from_support_pct = support > 0 ? Number((((close - support) / close) * 100).toFixed(2)) : 0;
+            const distance_from_resistance_pct = resistance > 0 ? Number((((resistance - close) / close) * 100).toFixed(2)) : 0;
             const range = resistance - support;
             const position_pct = range > 0 ? Number((((close - support) / range) * 100).toFixed(2)) : 50;
-            
+
             let trading_zone = "منطقة حيادية للمراقبة (بين الدعم والمقاومة)";
             if (close < support) {
                 trading_zone = "تحت مستوى الدعم (تم كسر الدعم فنيّاً)";
@@ -1931,10 +1959,10 @@ export async function executeStructuredTools(
                 trading_zone = "تحت مستوى المقاومة وقريب منها (منطقة مقاومة وجني أرباح مضاربية)";
             }
             if (distance_from_support_pct > 40) {
-                trading_zone += ` (تنبيه: مستوى الدعم ${support} بعيد جداً عن السعر الحالي بمسافة ${distance_from_support_pct}% ولا يُعد مرجعاً عملياً للتداول قصير المدى)`;
+                trading_zone += ` (تنبيه: أقرب مستوى دعم ${support} لا يزال بعيداً عن السعر الحالي بنحو ${distance_from_support_pct}% — لا يوجد دعم فني قريب عملي)`;
             }
             if (distance_from_resistance_pct > 40) {
-                trading_zone += ` (تنبيه: مستوى المقاومة ${resistance} بعيد جداً عن السعر الحالي بمسافة ${distance_from_resistance_pct}% ولا يُعد مرجعاً عملياً للتداول قصير المدى)`;
+                trading_zone += ` (تنبيه: أقرب مستوى مقاومة ${resistance} بعيد عن السعر الحالي بنحو ${distance_from_resistance_pct}%)`;
             }
 
             return {
@@ -1948,6 +1976,8 @@ export async function executeStructuredTools(
                     close,
                     support,
                     resistance,
+                    long_term_support: longSupport,
+                    long_term_resistance: longResistance,
                     lookback_sessions: rows.length,
                     price_vs_support,
                     price_vs_resistance,
