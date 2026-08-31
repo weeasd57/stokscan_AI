@@ -286,6 +286,10 @@ class TelegramBot:
         for target in targets:
             payload = self._build_send_payload(message, target, message_thread_id)
             if payload:
+                # Render the Markdown formatting (*bold*, `code`) instead of showing
+                # literal asterisks/backticks. The sender loop already falls back to
+                # plain text if Telegram rejects the parse.
+                payload["parse_mode"] = "Markdown"
                 chunks = self._split_message(message)
                 for chunk_index, chunk in enumerate(chunks):
                     chunk_payload = dict(payload)

@@ -772,7 +772,10 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
         const stopLoss = lastAdj?.new_stop ? Number(lastAdj.new_stop) : (row.stop_loss || 0);
 
         const hasTarget2 = !!richDetails?.target_2;
-        const target2 = hasTarget2 ? Number(richDetails.target_2) : 0;
+        const rawTarget2 = hasTarget2 ? Number(richDetails.target_2) : 0;
+        // SYNC GUARD: target 1 may have been raised by smart adjustments while the
+        // stored target_2 stayed stale — always keep the second target above the first.
+        const target2 = rawTarget2 > 0 ? Math.max(rawTarget2, Math.round(targetPrice * 1.1 * 100) / 100) : 0;
 
         // Calculate ATR from Entry Price & Stop Loss (since SL = Entry - 1.0x ATR, ATR = Entry - SL)
         const atrValue = entryPrice && stopLoss && entryPrice > stopLoss ? (entryPrice - stopLoss) : 0;

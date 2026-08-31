@@ -731,23 +731,28 @@ def _send_telegram_adjustment(symbol: str, exchange: str, adjustment: dict):
         web_origin = os.getenv("WEB_ORIGIN", "https://egxbots.com").strip().rstrip("/")
 
         reason_ar = adjustment.get('reason_ar', adj_type)
-        reason_en = adjustment.get('reason_en', adj_type)
 
         msg = (
-            f"{emoji} *تعديل ذكي على التوصية / Smart Update* 🔧\n"
+            f"{emoji} *تحديث ذكي على التوصية* 🔧\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
             f"💎 *السهم:* `{symbol}.{exchange}`\n"
-            f"📌 *التعديل:* {reason_ar}\n"
-            f"     *{reason_en}*\n"
+            f"📌 {reason_ar}\n"
             f"💰 *السعر الحالي:* `{adjustment.get('current_price', '—')}` EGP\n"
         )
         if adjustment.get("old_target") and adjustment.get("new_target"):
-            msg += f"🎯 *الهدف:* `{adjustment['old_target']}` ➔ `{adjustment['new_target']}` EGP\n"
+            try:
+                old_t = float(adjustment["old_target"])
+                new_t = float(adjustment["new_target"])
+                raise_pct = ((new_t - old_t) / old_t) * 100 if old_t > 0 else 0.0
+                msg += f"🎯 *الهدف الأول:* `{old_t:.2f}` ➜ `{new_t:.2f}` EGP (`{raise_pct:+.1f}%`)\n"
+                msg += f"🚀 *الهدف الثاني:* `{round(new_t * 1.10, 2):.2f}` EGP\n"
+            except (TypeError, ValueError):
+                msg += f"🎯 *الهدف الأول:* `{adjustment['old_target']}` ➜ `{adjustment['new_target']}` EGP\n"
         if adjustment.get("old_stop") and adjustment.get("new_stop"):
-            msg += f"🛡️ *وقف الخسارة:* `{adjustment['old_stop']}` ➔ `{adjustment['new_stop']}` EGP\n"
-            
-        msg += f"\n📊 *المؤشرات:* RSI: `{adjustment.get('rsi', '—')}` | ADX: `{adjustment.get('adx', '—')}`\n"
-        msg += f"📈 *العائد الحالي للفكرة:* `{adjustment.get('pl_pct', '—')}%`\n"
+            msg += f"🛡️ *وقف الخسارة:* `{adjustment['old_stop']}` ➜ `{adjustment['new_stop']}` EGP\n"
+
+        msg += f"\n📊 RSI: `{adjustment.get('rsi', '—')}` | ADX: `{adjustment.get('adx', '—')}`\n"
+        msg += f"📈 *العائد الحالي:* `{adjustment.get('pl_pct', '—')}`%\n"
         msg += f"━━━━━━━━━━━━━━━━━━━━\n"
         msg += f"🔗 [تحديثات الفكرة على المنصة]({web_origin}/scanner/backtests?tab=bots)"
 
@@ -757,26 +762,38 @@ def _send_telegram_adjustment(symbol: str, exchange: str, adjustment: dict):
         print(f"[SMART_EVAL] Telegram notification failed: {e}")
 
 
-def _send_telegram_exit(symbol: str, exchange: str, entry_price: float, exit_price: float, pl_pct: float, status: str):
+def _send_telegram_exit(symbol: str, exchange: str, entry_price: float, exit_price: float, pl_pct: float, status: str, created_at: str = ""):
     """Send exit notification via Telegram to public channel topic."""
     try:
         web_origin = os.getenv("WEB_ORIGIN", "https://egxbots.com").strip().rstrip("/")
-        emoji = "🎉🎯" if status == "win" else "🛡️⚠️"
-        status_text_ar = "توصية ناجحة (تحقيق الهدف) ✅" if status == "win" else "تفعيل وقف الخسارة 🛡️"
-        status_text_en = "Target Hit (Profit) ✅" if status == "win" else "Stop Loss Hit (Loss) 🛡️"
+        emoji = "🎉" if status == "win" else "🛡️"
+        status_text_ar = "تحقيق الهدف ✅" if status == "win" else "تفعيل وقف الخسارة"
+        status_text_en = "Target Hit" if status == "win" else "Stop Loss Hit"
 
         pl_sign = "+" if pl_pct > 0 else ""
+
+        duration_line = ""
+        if created_at:
+            try:
+                start = dt.datetime.fromisoformat(str(created_at).replace("Z", ""))
+                days_held = max((dt.datetime.utcnow() - start).days, 0)
+                if days_held > 0:
+                    duration_line = f"⏱️ *مدة الصفقة:* `{days_held}` يوم\n"
+            except Exception:
+                pass
+
         msg = (
-            f"{emoji} *إغلاق صفقة / Close Signal* 🏁\n"
+            f"{emoji} *إغلاق توصية / Trade Closed* 🏁\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
             f"💎 *السهم:* `{symbol}.{exchange}`\n"
-            f"📌 *النتيجة:* {status_text_ar} / {status_text_en}\n"
-            f"📈 *سعر الدخول:* `{entry_price:.2f}` EGP\n"
-            f"💰 *سعر الخروج:* `{exit_price:.2f}` EGP\n"
-            f"📊 *صافي العائد:* `{pl_sign}{pl_pct:.2f}%`\n"
+            f"📌 *النتيجة:* {status_text_ar} ({status_text_en})\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"🔗 *لمتابعة الصفقات التاريخية والتحليلات:*\n"
-            f"👉 [اضغط هنا لفتح المنصة]({web_origin}/scanner/backtests?tab=bots)\n"
+            f"📈 *سعر الدخول:* `{entry_price:.2f}` EGP\n"
+            f"🏁 *سعر الخروج:* `{exit_price:.2f}` EGP\n"
+            f"📊 *صافي العائد:* `{pl_sign}{pl_pct:.2f}%`\n"
+            f"{duration_line}"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"🔗 [سجل الصفقات الكامل على المنصة]({web_origin}/scanner/backtests?tab=bots)"
         )
 
         _notify_central_telegram(msg, "recommendation_exit")
@@ -1583,6 +1600,23 @@ def evaluate_old_recommendations():
             }
             if new_target is not None and new_target != target_price:
                 update_data["target_price"] = new_target
+                # SYNC FIX: keep target_2 inside top_reasons aligned with the raised
+                # target, otherwise the website shows a first target higher than the
+                # second one after consecutive raises (e.g. EDBM T1=7.08 vs T2=1.67).
+                try:
+                    tr_res = (
+                        supabase.table("scan_results")
+                        .select("top_reasons")
+                        .eq("id", rec["id"])
+                        .single()
+                        .execute()
+                    )
+                    tr = (getattr(tr_res, "data", None) or {}).get("top_reasons")
+                    if isinstance(tr, dict) and tr.get("target_2"):
+                        tr["target_2"] = round(new_target * 1.10, 2)
+                        update_data["top_reasons"] = tr
+                except Exception as tr_err:
+                    print(f"[EVALUATE] Failed to sync target_2 for {symbol}: {tr_err}")
             if new_stop is not None and new_stop != stop_loss:
                 update_data["stop_loss"] = new_stop
             if all_adjustments:
@@ -1618,7 +1652,7 @@ def evaluate_old_recommendations():
                 _send_telegram_adjustment(symbol, exchange, adj)
 
         if found_event:
-            _send_telegram_exit(symbol, exchange, entry_price, exit_price, pl_pct, status)
+            _send_telegram_exit(symbol, exchange, entry_price, exit_price, pl_pct, status, created_at=created_at_date)
 
         print(f"[EVALUATE] {symbol}: status={status}, return={pl_pct:.2f}%, trend={trend_strength}, adjustments={len(new_adjustments)}")
 
@@ -2266,11 +2300,11 @@ async def generate_daily_recommendations(model_name: Optional[str] = None):
         current_date = dt.datetime.now().strftime("%Y-%m-%d")
         
         msg_lines = [
-            f"🚀 *توصيات الذكاء الاصطناعي الجديدة / New AI Recommendations* 🚀",
-            f"📅 *التاريخ:* `{current_date}`",
+            f"🤖 *توصيات الذكاء الاصطناعي اليومية*",
+            f"📅 {current_date} | 🇪🇬 البورصة المصرية",
             f"━━━━━━━━━━━━━━━━━━━━\n"
         ]
-        
+
         # SMART 6 FIX: Send all top 10 (was top 5 — users missed half the recommendations)
         for idx, r in enumerate(top_10):
             sym = r.get("symbol")
@@ -2281,19 +2315,25 @@ async def generate_daily_recommendations(model_name: Optional[str] = None):
             tp2 = round(tp * 1.10, 2)
             score = round(float(r.get("precision", 0.5)) * 10)
             name = r.get("name", sym)
-            
+
+            tp1_pct = ((tp / ep - 1) * 100) if ep > 0 else 0.0
+            tp2_pct = ((tp2 / ep - 1) * 100) if ep > 0 else 0.0
+            sl_pct = ((sl / ep - 1) * 100) if ep > 0 else 0.0
+            score = max(0, min(score, 10))
+            score_bar = "▰" * score + "▱" * (10 - score)
+
             msg_lines.append(
-                f"🔥 *#{idx+1} {sym}.{ex}* | {name}\n"
-                f"▪️ *الدخول المقترح:* `{ep:.2f}` EGP\n"
-                f"▪️ *الهدف الأول:* `{tp:.2f}` | *الهدف الثاني:* `{tp2:.2f}`\n"
-                f"▪️ *وقف الخسارة:* `{sl:.2f}`\n"
-                f"▪️ *تقييم الزخم (Score):* `{score}/10` ⚡\n"
+                f"🔥 *{idx+1}. {sym}* — {name}\n"
+                f"💰 الدخول: `{ep:.2f}` EGP\n"
+                f"🎯 هدف 1: `{tp:.2f}` (`{tp1_pct:+.1f}%`) ← 🚀 هدف 2: `{tp2:.2f}` (`{tp2_pct:+.1f}%`)\n"
+                f"🛑 الوقف: `{sl:.2f}` (`{sl_pct:+.1f}%`)\n"
+                f"⭐ `{score_bar}` `{score}/10`\n"
                 f"━━━━━━━━━━━━━━━━━━━━"
             )
-            
+
         msg_lines.append(
-            f"📈 *إجمالي الإشارات الجديدة:* `{len(top_10)}` أسهم\n\n"
-            f"🔗 *لمتابعة الرسوم البيانية والتفاصيل الكاملة:*\n"
+            f"📊 *إجمالي التوصيات:* `{len(top_10)}` أسهم\n\n"
+            f"🔗 *الرسوم البيانية والتفاصيل الكاملة:*\n"
             f"👉 [اضغط هنا لفتح المنصة]({web_origin}/scanner/backtests?tab=bots)"
         )
         
