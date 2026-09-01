@@ -58,36 +58,139 @@ def get_supabase() -> Client:
 
 
 def fetch_all_symbols(sb: Client) -> list[str]:
-    """جلب جميع رموز الأسهم المصرية من جدول stocks"""
-    res = sb.table("stocks").select("symbol").eq("country", "Egypt").execute()
-    syms = [r["symbol"] for r in (res.data or [])]
-    # Fallback: if no results with 'Egypt', get all
+    """جلب جميع رموز الأسهم المصرية (stock_fundamentals هو المصدر الأشمل، ثم stocks كتكامل)"""
+    syms: set[str] = set()
+
+    # 1) الكون الأساسي: نفس مصدر الـ daily job (stock_fundamentals / exchange=EGX)
+    try:
+        offset = 0
+        page_size = 1000  # PostgREST يقطع النتائج عند 1000 صف — لا بد من التقسيم لصفحات
+        while True:
+            res = sb.table("stock_fundamentals").select("symbol").eq("exchange", "EGX").range(offset, offset + page_size - 1).execute()
+            rows = res.data or []
+            for r in rows:
+                if r.get("symbol"):
+                    syms.add(r["symbol"])
+            if len(rows) < page_size:
+                break
+            offset += page_size
+    except Exception as e:
+        print(f"  ⚠️  stock_fundamentals symbol fetch failed: {e}")
+
+    # 2) تكامل من جدول stocks (country=Egypt) لأي رمز غير موجود في الأساسيات
+    try:
+        res = sb.table("stocks").select("symbol").eq("country", "Egypt").execute()
+        for r in (res.data or []):
+            if r.get("symbol"):
+                syms.add(r["symbol"])
+    except Exception as e:
+        print(f"  ⚠️  stocks symbol fetch failed: {e}")
+
     if not syms:
+        # Fallback أخير: كل رموز جدول stocks
         res2 = sb.table("stocks").select("symbol").execute()
-        syms = [r["symbol"] for r in (res2.data or [])]
-    return syms
+        syms = {r["symbol"] for r in (res2.data or []) if r.get("symbol")}
+
+    return sorted(syms)
 
 
 def fetch_recent_technicals(sb: Client, symbols: list[str], lookback_days: int) -> dict[str, list[dict]]:
-    """جلب آخر N يوم من المؤشرات الفنية لكل سهم"""
-    since = (date.today() - timedelta(days=lookback_days)).isoformat()
-    BATCH = 50
-    all_data: dict[str, list[dict]] = {}
+    """جلب آخر N يوم من بيانات كل سهم لإشارات التجميع/التصريف.
 
+    ملاحظة مهمة: جدول stock_technical_indicators أصبح يحتفظ بلقطة واحدة فقط
+    لكل سهم (خطوة الـ prune اليومية تحذف التواريخ القديمة)، بينما التحليل يحتاج
+    ≥5 جلسات لكل سهم. لذلك يُعاد بناء السجل التاريخي من جدول stock_prices:
+      - change_pct:  التغير اليومي مقابل الإغلاق السابق
+      - vol_sma20:   متوسط حجم التداول لآخر 20 جلسة (شاملة الجلسة الحالية)
+      - rsi_14 / macd_signal: تُدمج من أحدث لقطة مؤشرات للسهم (لآخر يوم فقط)
+    """
+    since_analysis = (date.today() - timedelta(days=lookback_days)).isoformat()
+    # نافذة إضافية لتسخين متوسط الحجم 20 جلسة قبل بداية نافذة التحليل
+    since_fetch = (date.today() - timedelta(days=lookback_days + 25)).isoformat()
+
+    BATCH = 50
+    PAGE_SIZE = 1000  # PostgREST يقطع الاستجابة عند 1000 صف — التقسيم لصفحات إلزامي
+    prices_by_symbol: dict[str, list[dict]] = {}
     for i in range(0, len(symbols), BATCH):
         batch = symbols[i:i+BATCH]
-        res = sb.table("stock_technical_indicators") \
-                .select("symbol, date, change_pct, volume, vol_sma20, rsi_14, macd_signal, close, vwap_20") \
-                .in_("symbol", batch) \
-                .gte("date", since) \
-                .order("date", desc=False) \
-                .execute()
+        offset = 0
+        while True:
+            res = sb.table("stock_prices") \
+                    .select("symbol, date, close, volume") \
+                    .in_("symbol", batch) \
+                    .gte("date", since_fetch) \
+                    .order("date", desc=False) \
+                    .order("symbol", desc=False) \
+                    .range(offset, offset + PAGE_SIZE - 1) \
+                    .execute()
+            rows = res.data or []
+            for row in rows:
+                sym = row["symbol"]
+                if sym not in prices_by_symbol:
+                    prices_by_symbol[sym] = []
+                prices_by_symbol[sym].append(row)
+            if len(rows) < PAGE_SIZE:
+                break
+            offset += PAGE_SIZE
 
-        for row in (res.data or []):
-            sym = row["symbol"]
-            if sym not in all_data:
-                all_data[sym] = []
-            all_data[sym].append(row)
+    # أحدث لقطة مؤشرات فنية لكل سهم (مصدر rsi_14 و macd_signal)
+    latest_indicators: dict[str, dict] = {}
+    try:
+        offset = 0
+        page_size = 1000
+        while True:
+            res = sb.table("stock_technical_indicators") \
+                    .select("symbol, date, rsi_14, macd_signal") \
+                    .order("date", desc=True) \
+                    .range(offset, offset + page_size - 1) \
+                    .execute()
+            rows = res.data or []
+            for row in rows:
+                sym = row["symbol"]
+                if sym not in latest_indicators:
+                    latest_indicators[sym] = row
+            if len(rows) < page_size:
+                break
+            offset += page_size
+    except Exception as e:
+        print(f"  ⚠️  Could not load indicator snapshots (rsi/macd): {e}")
+
+    all_data: dict[str, list[dict]] = {}
+    for sym, rows in prices_by_symbol.items():
+        rows = sorted(rows, key=lambda r: str(r.get("date") or ""))
+        history: list[dict] = []
+        recent_vols: list[float] = []
+        prev_close: float | None = None
+        for row in rows:
+            close = float(row.get("close") or 0)
+            vol = float(row.get("volume") or 0)
+            recent_vols.append(vol)
+            window = recent_vols[-20:]
+            sma20 = (sum(window) / len(window)) if window else 0.0
+            if prev_close is not None and prev_close > 0:
+                change_pct = (close / prev_close - 1.0) * 100.0
+            else:
+                change_pct = 0.0
+            prev_close = close
+            history.append({
+                "symbol": sym,
+                "date": row.get("date"),
+                "close": close,
+                "volume": vol,
+                "vol_sma20": round(sma20, 2),
+                "change_pct": round(change_pct, 4),
+            })
+
+        # دمج rsi/macd في آخر يوم فقط (هي المستخدمة في analyze_symbol)
+        ind = latest_indicators.get(sym)
+        if ind and history:
+            history[-1]["rsi_14"] = ind.get("rsi_14")
+            history[-1]["macd_signal"] = ind.get("macd_signal")
+
+        # نافذة التحليل الفعلية: آخر lookback_days (كما كان السلوك السابق)
+        window_rows = [h for h in history if str(h.get("date") or "") >= since_analysis]
+        if window_rows:
+            all_data[sym] = window_rows
 
     return all_data
 
@@ -333,6 +436,16 @@ def run():
     print("💾 Saving results to Supabase (stock_scans_summary)...")
     saved = upsert_results(sb, results)
     print(f"   → {saved} records saved ✅\n")
+
+    # 4.5 تنظيف المسحات الأقدم من 90 يوماً لمنع نمو الجدول بلا حدود
+    try:
+        cutoff = (date.today() - timedelta(days=90)).isoformat()
+        del_res = sb.table("stock_scans_summary").delete().lt("scan_date", cutoff).execute()
+        deleted = len(del_res.data or [])
+        if deleted:
+            print(f"   → Pruned {deleted} scan rows older than {cutoff}\n")
+    except Exception as e:
+        print(f"  ⚠️  Prune failed (non-fatal): {e}")
 
     # 5. طباعة أعلى 10 تجميع
     top_acc = sorted(
