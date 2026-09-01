@@ -484,21 +484,26 @@ export function validateDeterministicRules(
         // EVIDENCE VERIFIER CHECK 2: Unproven Wyckoff Distribution assertion
         // Negated statements ("لا يوجد عليه تصريف") are honest answers — never flag them.
         // Skip for scan list stocks — they're listed from DB, not hallucinated.
-        const isNegatedClaim = /(?:لا\s+(?:يوجد|توجد|يمكن\s+تأكيد)|مفيش|ليس\s+هناك|غير\s+متاح|لا\s+تتوفر|انعدام)/i.test(sentence);
+        const isNegatedClaim = /(?:لا\s+(?:يوجد|توجد|يمكن\s+تأكيد)|مفيش|ليس\s+هناك|غير\s*متاح|لا\s+تتوفر|انعدام)/i.test(sentence);
+        // Honest zero-value reporting ("درجة التجميع (acc_score) = 0") states the ABSENCE of a
+        // Wyckoff signal — it must not be treated as a directional claim, otherwise truthful
+        // answers are rejected and the pipeline falls back to the safe table.
+        const mentionsAccumulationZero = /(?:تجميع|تجميعية)[^.\n]{0,30}?(?:صفر|\b0(?!\.\d))/i.test(sentence);
+        const mentionsDistributionZero = /(?:تصريف|تصريفية|توزيع)[^.\n]{0,30}?(?:صفر|\b0(?!\.\d))/i.test(sentence);
         const claimsDistribution = /(?:مرحل[ةه]\s*تصريف(?:\s*وايكوف)?|إشار[ةه]\s*تصريف\s*مؤكد[ةه]|درج[ةه]\s*(?:ال)?تصريف|تصريف\s*وايكوف|سيولة\s*(?:توزيع|توزيعية|تصريف|تصريفية|بيعية))/i.test(sentence) && !/(?:توزيعات\s*أرباح|توزيع\s*نقدي|أرباح)/i.test(sentence);
         const hasDistEvidence = (facts.dist_score != null && Number(facts.dist_score) > 0) || toolResults.some(r => (r.tool === "get_distribution_stocks" || r.tool === "get_accumulation_stocks") && Array.isArray(r.data?.stocks) && r.data.stocks.some((st: any) => String(st.symbol).toUpperCase() === activeSymbol?.toUpperCase() && (Number(st.dist_score) > 0 || String(st.wyckoff_phase).toLowerCase().includes("dist") || String(st.wyckoff_phase).toLowerCase().includes("mark"))));
-        if (!skipWyckoffChecks && !isNegatedClaim && claimsDistribution && !hasDistEvidence) {
+        if (!skipWyckoffChecks && !isNegatedClaim && !mentionsDistributionZero && claimsDistribution && !hasDistEvidence) {
             errors.push(`ادعاء تصريف أو سيولة توزيعية غير مثبت بدليل لسهم ${activeSymbol}: لا تتوفر بيانات مسح Wyckoff/تصريف صريحة — قل إن البيانات غير متاحة بدلاً من الاستنتاج من مؤشرات أخرى.`);
         }
 
 
         // EVIDENCE VERIFIER CHECK 3: Unproven Wyckoff Accumulation assertion
-        // Exclude: negated/absent claims, Wyckoff-educational context, NONE labels
+        // Exclude: negated/absent claims, Wyckoff-educational context, NONE labels, zero-value reports
         // Skip for scan list stocks — they're listed from DB, not hallucinated.
         const claimsAccumulation = /(?:مرحل[ةه]\s*(?:ال)?تجميع(?:\s*وايكوف)?|درج[ةه]\s*(?:ال)?تجميع|إشار[ةه]\s*تجميع\s*مؤكد[ةه]|تجميع\s*وايكوف|سيولة\s*(?:تجميع|تجميعية|شرائية))/i.test(sentence)
-            && !/(?:NONE|غير\s*متاح|لا\s*تتوفر|ليس\s*هناك|بيانات.*التجميع.*غير|خارج.*مسح)/i.test(sentence);
+            && !/(?:NONE|غير\s*متاح|لا\s*تتوفر|ليس\s+هناك|بيانات.*التجميع.*غير|خارج.*مسح)/i.test(sentence);
         const hasAccEvidence = (facts.acc_score != null && Number(facts.acc_score) > 0) || toolResults.some(r => (r.tool === "get_accumulation_stocks" || r.tool === "get_distribution_stocks") && Array.isArray(r.data?.stocks) && r.data.stocks.some((st: any) => String(st.symbol).toUpperCase() === activeSymbol?.toUpperCase() && (Number(st.acc_score) > 0 || String(st.wyckoff_phase).toLowerCase().includes("acc"))));
-        if (!skipWyckoffChecks && !isNegatedClaim && claimsAccumulation && !hasAccEvidence) {
+        if (!skipWyckoffChecks && !isNegatedClaim && !mentionsAccumulationZero && claimsAccumulation && !hasAccEvidence) {
             errors.push(`ادعاء تجميع أو سيولة تجميعية غير مثبت بدليل لسهم ${activeSymbol}: لا تتوفر بيانات مسح Wyckoff/تجميع صريحة — قل إن البيانات غير متاحة بدلاً من الاستنتاج من مؤشرات أخرى.`);
         }
 
@@ -514,8 +519,8 @@ export function validateDeterministicRules(
                 const distScore = Number(st.dist_score || 0);
                 const wyckoffPhase = String(st.wyckoff_phase || "").toLowerCase();
                 const signal = String(st.signal || "").toLowerCase();
-                if (claimsDistribution && accScore > distScore && (wyckoffPhase.includes("accumulation") || signal === "accumulation")) return true;
-                if (claimsAccumulation && distScore > accScore && (wyckoffPhase.includes("distribution") || signal === "distribution")) return true;
+                if (claimsDistribution && !mentionsDistributionZero && accScore > distScore && (wyckoffPhase.includes("accumulation") || signal === "accumulation")) return true;
+                if (claimsAccumulation && !mentionsAccumulationZero && distScore > accScore && (wyckoffPhase.includes("distribution") || signal === "distribution")) return true;
                 return false;
             });
         });
