@@ -2,11 +2,13 @@
  * Regression tests for Arabic company-name resolution.
  * Covers the "التعمير والاستشارات" (DAPH) incident: the name must resolve to DAPH,
  * and unknown company names must NOT silently fall back to the previous session symbol.
+ * Covers the "اي فاينس" (EFIH) incident (2026-09-01): a typo'd short name must resolve
+ * to EFIH instead of falling through to the session's distribution-scan context.
  */
 const { extractSymbolsFromText, isUnresolvedCompanyNameMention } = require("../ai/planner");
 
 const VALID_SYMBOLS = [
-    "DAPH", "HDBK", "TMGH", "FCMD", "COMI", "AFMC", "ELKA", "PHDC", "EHDR", "EAST", "SWDY"
+    "DAPH", "HDBK", "TMGH", "FCMD", "COMI", "AFMC", "ELKA", "PHDC", "EHDR", "EAST", "SWDY", "EFIH", "VALU"
 ];
 
 describe("Arabic company name resolution (DAPH incident)", () => {
@@ -60,5 +62,33 @@ describe("Unresolved company-name guard", () => {
     test("does not flag sector/market queries", () => {
         expect(isUnresolvedCompanyNameMention("قطاع العقارات ايه افضل سهم فيه؟", [])).toBe(false);
         expect(isUnresolvedCompanyNameMention("حالة السوق النهاردة؟", [])).toBe(false);
+    });
+});
+
+describe("e-finance name resolution (typo incident)", () => {
+    test("resolves the full name 'اي فاينانس' to EFIH", () => {
+        const syms = extractSymbolsFromText("اي فاينانس ممكن ينزل لفين؟", VALID_SYMBOLS, {});
+        expect(syms).toContain("EFIH");
+    });
+
+    test("resolves the typo'd 'اي فاينس' (missing letters) to EFIH", () => {
+        const syms = extractSymbolsFromText("اي فاينس ممكن ينزل لفين عشان عاوز اشتري ببمبلغ كبير شوية", VALID_SYMBOLS, {});
+        expect(syms).toContain("EFIH");
+    });
+
+    test("resolves bare 'فينس' and 'فاينس' typos to EFIH", () => {
+        expect(extractSymbolsFromText("رأيكم في سهم فينس؟", VALID_SYMBOLS, {})).toContain("EFIH");
+        expect(extractSymbolsFromText("فاينس نازل النهارده", VALID_SYMBOLS, {})).toContain("EFIH");
+    });
+
+    test("resolves Latin 'e-finance' / 'efinance' to EFIH", () => {
+        expect(extractSymbolsFromText("e-finance ينزل لفين؟", VALID_SYMBOLS, {})).toContain("EFIH");
+        expect(extractSymbolsFromText("efinance forecast", VALID_SYMBOLS, {})).toContain("EFIH");
+    });
+
+    test("'فاليو فاينانس' still resolves to VALU (longest match wins)", () => {
+        const syms = extractSymbolsFromText("فاليو فاينانس وضعها ايه؟", VALID_SYMBOLS, {});
+        expect(syms).toContain("VALU");
+        expect(syms).not.toContain("EFIH");
     });
 });

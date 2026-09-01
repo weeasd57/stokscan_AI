@@ -116,6 +116,10 @@ const ARABIC_STOCK_MAPPINGS: Record<string, string | string[]> = {
     // ── EFIH  إي فاينانس ─────────────────────────────────────
     "إي فاينانس": "EFIH", "اي فاينانس": "EFIH",
     "إي فاينانس للاستثمارات": "EFIH",
+    "فاينانس": "EFIH", "فينانس": "EFIH",
+    "فاينس": "EFIH", "فينس": "EFIH",
+    "اي فاينس": "EFIH", "اي فينس": "EFIH",
+    "e-finance": "EFIH", "efinance": "EFIH", "e finance": "EFIH",
 
     // ── EGAL  مصر للألومنيوم ────────────────────────────────
     "مصر للألومنيوم": "EGAL", "مصر للالومنيوم": "EGAL",
