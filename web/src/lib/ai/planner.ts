@@ -1004,7 +1004,7 @@ Analyze the user request and return a JSON object. You MUST dynamically choose t
             try {
                 plannerAttempts += 1;
                 const controller = new AbortController();
-                const timeoutMs = isDeepSeek ? 4000 : (hasImages ? 3500 : 2500);
+                const timeoutMs = isDeepSeek ? 4000 : (hasImages ? 15000 : 2500);
                 const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
                 const reqBody: any = {

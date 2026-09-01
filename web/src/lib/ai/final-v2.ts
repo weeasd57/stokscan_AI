@@ -661,7 +661,6 @@ const DEEPSEEK_RESPONDER_MODELS = [
 ];
 
 const NVIDIA_MODEL_TUNING: Record<string, { maxTokens: number; timeoutMs: number; reasoningEffort?: string }> = {
-    "nvidia/llama-3.1-nemotron-nano-vl-8b-v1": { maxTokens: 2500, timeoutMs: 20000 },
     "meta/llama-3.2-11b-vision-instruct": { maxTokens: 2500, timeoutMs: 25000 },
     "nvidia/nemotron-3.5-lightning-30b-a3b": { maxTokens: 2500, timeoutMs: 15000 },
     "meta/muse-glimmer-30b": { maxTokens: 2500, timeoutMs: 20000 }

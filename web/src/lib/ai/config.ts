@@ -2,7 +2,8 @@ export const AI_CONFIG = {
   models: {
     planner: {
       text: ["deepseek-chat"],
-      vision: ["nvidia/llama-3.1-nemotron-nano-vl-8b-v1", "meta/llama-3.2-11b-vision-instruct"],
+      // nvidia/llama-3.1-nemotron-nano-vl-8b-v1 reached end-of-life 2026-08-26 (HTTP 410).
+      vision: ["meta/llama-3.2-11b-vision-instruct"],
     },
     response: {
       default: "deepseek-chat",
@@ -11,7 +12,7 @@ export const AI_CONFIG = {
         "deepseek-chat",
         "deepseek-reasoner"
       ],
-      vision: ["nvidia/llama-3.1-nemotron-nano-vl-8b-v1", "meta/llama-3.2-11b-vision-instruct"],
+      vision: ["meta/llama-3.2-11b-vision-instruct"],
     },
   },
   limits: {

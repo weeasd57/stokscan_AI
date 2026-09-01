@@ -104,9 +104,12 @@ export async function analyzeImage(
     apiKeys: string[],
     messageId: string
 ): Promise<{ vision: VisionContext | null; error: string | null }> {
+    // NOTE (2026-09-01): both previous NVIDIA vision models reached end-of-life on
+    // 2026-08-26 and now return HTTP 410 — image analysis silently failed for every
+    // upload since then. meta/llama-3.2-11b-vision-instruct is verified working
+    // (~5s per image, well within VISION_TIMEOUT_MS).
     const visionModels = [
-        "nvidia/nemotron-nano-12b-v2-vl",
-        "nvidia/llama-3.1-nemotron-nano-vl-8b-v1"
+        "meta/llama-3.2-11b-vision-instruct"
     ];
 
     const userContent: Array<{ type: string; text?: string; image_url?: { url: string } }> = [];
