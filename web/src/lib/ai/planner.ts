@@ -200,7 +200,9 @@ const ARABIC_STOCK_MAPPINGS: Record<string, string | string[]> = {
     "المجموعة العقارية": "AREH", "عقارية مصرية": "AREH",
     "صمامات العرب": "ARVA", "العربية للصمامات": "ARVA",
     "أطلس للاستثمار": "AIVCB", "اطلس للاستثمار": "AIVCB", "أطلس": "AIVCB", "اطلس": "AIVCB", "أطلس للإستثمارات": "AIVCB", "اطلس للاستثمارات": "AIVCB", "ATLS": "AIVCB", "AIFI": "AIVCB",
-    "أسباير": "ASPI", "اسباير": "ASPI", "أسباير كابيتال": "ASPI", "ركاز": "ASPI", "ركزة": "ASPI", "ركاز القابضة": "ASPI", "ركزة القابضة": "ASPI", "ركاز للاستثمار": "ASPI", "ركزة للاستثمار": "ASPI", "RKAZ": "ASPI", "rkaz": "ASPI", "Rkaz": "ASPI",
+    "أسباير": "ASPI", "اسباير": "ASPI", "أسباير كابيتال": "ASPI",
+    // ركاز القابضة (Rekaz Holding) - سهم منفصل في سوق SMEs برمز RKAZ، لا علاقة له بأسباير
+    "ركاز": "RKAZ", "ركزة": "RKAZ", "ركاز القابضة": "RKAZ", "ركزة القابضة": "RKAZ", "ركاز للاستثمار": "RKAZ", "ركزة للاستثمار": "RKAZ", "RKAZ": "RKAZ", "rkaz": "RKAZ", "Rkaz": "RKAZ",
     "التوفيق للتأجير": "ATLC", "التوفيق لتاجير": "ATLC", "أي تي ليز": "ATLC",
     "عتاقة": "ATQA", "عتاقه": "ATQA", "صلب عتاقة": "ATQA", "مصر الوطنية للصلب": "ATQA",
     "إسكندرية للأدوية": "AXPH", "اسكندرية للادوية": "AXPH", "الإسكندرية للأدوية": "AXPH",
@@ -238,7 +240,7 @@ const ARABIC_STOCK_MAPPINGS: Record<string, string | string[]> = {
     "المصريين للإسكان": "EHDR", "المصريون للاسكان": "EHDR", "المصريين للاسكان": "EHDR",
     "المشروعات السياحية": "EITP", "مصر للسياحة": "EITP",
     "الكابلات الكهربائية": "ELEC", "كابلات مصر": "ELEC", "الكابلات": "ELEC",
-    "النصر للمحاصيل": "ELNA", "محاصيل زراعية": "ELNA",
+    "النصر للمحاصيل": "ELNA", "محاصيل زراعية": "ELNA", "النصر للحاصلات": "ELNA", "النصر لتصنيع الحاصلات": "ELNA", "الحاصلات الزراعية": "ELNA", "حاصلات زراعية": "ELNA",
     "الهندسية للصناعات": "ENGC",
     "العروبة للسمسرة": "EOSB", "العروبة للوساطة": "EOSB",
     "ايجترانس": "ETRS", "إيجترانس": "ETRS", "المصرية للنقل": "ETRS",
@@ -306,7 +308,7 @@ const ARABIC_STOCK_MAPPINGS: Record<string, string | string[]> = {
     "برايم": "PRMH", "برايم القابضة": "PRMH",
     "قطر الوطني": "QNBE", "بنك قطر الوطني": "QNBE", "QNB": "QNBE", "كيو ان بي": "QNBE",
     "راية للاتصالات": "RACC", "راية كونتاكت": "RACC",
-    "راكتا": "RAKT", "ورق راكتا": "RAKT", "رواد السياحة": "ROTO", "الرواد للسياحة": "ROTO",
+    "راكتا": "RAKT", "ورق راكتا": "RAKT", "رواد السياحة": "ROTO", "الرواد للسياحة": "ROTO", "روتو": "ROTO",
     "العربية للاستثمار العقاري": "RREI", "عرب عقارات": "RREI",
     "رمكو": "RTVC", "رمكو للقرى السياحية": "RTVC",
     "روبكس": "RUBX", "روبكس البلاستيك": "RUBX",
@@ -341,7 +343,7 @@ const ARABIC_STOCK_MAPPINGS: Record<string, string | string[]> = {
     "النزهة للاستثمار": "NINH",
 
     // ── HRHO  هيرميس / EFG ───────────────────────────────────
-    "هيرميس": "HRHO", "المجموعة المالية هيرميس": "HRHO",
+    "هيرميس": "HRHO", "هيرمس": "HRHO", "المجموعة المالية هيرميس": "HRHO",
     "المجموعة المالية": "HRHO",
     "إي اف جي القابضة": "HRHO", "اي اف جي": "HRHO",
 
@@ -656,7 +658,7 @@ const STATIC_VALID_SYMBOLS = [
     'MOIL', 'MOIN', 'MOSC', 'MPCI', 'MPCO', 'MPRC', 'MRCO', 'MTIE', 'NAHO', 'NAPR', 'NARE', 'NASR', 'NBKE', 'NCCW', 'NCEM',
     'NCGC', 'NCIN', 'NCMP', 'NDRL', 'NEDA', 'NHPS', 'NINH', 'NIPH', 'NOAF', 'OBRI', 'OCDI', 'OCPH', 'ODHN', 'ODID', 'ODIN',
     'OFH', 'OIH', 'OLFI', 'ORAS', 'OREG', 'ORHD', 'ORMT', 'ORWE', 'PACH', 'PHAR', 'PHDC', 'PHGC', 'PHTV', 'PIOH', 'POUL',
-    'PRCL', 'PRDC', 'PRMH', 'QNBA', 'QNBE', 'RACC', 'RAKT', 'RAYA', 'RMDA', 'RMTV', 'ROTO', 'RREI', 'RTVC', 'RUBX', 'SAIB',
+    'PRCL', 'PRDC', 'PRMH', 'QNBA', 'QNBE', 'RACC',     'RAKT', 'RAYA', 'RKAZ', 'RMDA', 'RMTV', 'ROTO', 'RREI', 'RTVC', 'RUBX', 'SAIB',
     'SAUD', 'SBAG', 'SCEM', 'SCFM', 'SCTS', 'SDTI', 'SEIG', 'SEIGA', 'SIMO', 'SIPC', 'SKPC', 'SMCS', 'SMCSA', 'SMFR', 'SMPP',
     'SNFC', 'SPHT', 'SPIN', 'SPMD', 'SRWA', 'SUCE', 'SUGR', 'SVCE', 'SWDY', 'TALM', 'TANM', 'TAQA', 'TMGH', 'TORA', 'TOUR',
     'TRTO', 'TWSA', 'TYCN', 'UASG', 'UBEE', 'UEFM', 'UEGC', 'UNBE', 'UNIP', 'UNIT', 'USDEGP', 'UTOP', 'VALU', 'VLMRA', 'WACE',
@@ -737,6 +739,8 @@ export function extractSymbolsFromText(
     }
 
     let normalizedText = text
+        .replace(/[\u064B-\u065F\u0670]/g, "")
+        .replace(/\u0640/g, "")
         .replace(/[أإآ]/g, "ا")
         .replace(/ة/g, "ه")
         .replace(/ى/g, "ي")
@@ -746,6 +750,8 @@ export function extractSymbolsFromText(
     // Use regex with Arabic/Latin word boundaries to avoid substring false positives
     for (const [key, symbolOrArr] of Object.entries(mergedMappings).sort((a, b) => b[0].length - a[0].length)) {
         const normalizedKey = key
+            .replace(/[\u064B-\u065F\u0670]/g, "")
+            .replace(/\u0640/g, "")
             .replace(/[أإآ]/g, "ا")
             .replace(/ة/g, "ه")
             .replace(/ى/g, "ي")
@@ -1111,7 +1117,16 @@ Analyze the user request and return a JSON object. You MUST dynamically choose t
                         }
                         let resolvedSymbols: string[] = [];
                         if (symbolsTextExtracted.length > 0 && !isExplicitComparison) {
-                            resolvedSymbols = [symbolsTextExtracted[0]];
+                            const sessionEchoSet = new Set([
+                                ...(session.last_symbols || []),
+                                ...(session.current_symbol ? [session.current_symbol] : [])
+                            ].map(s => String(s).toUpperCase()));
+                            resolvedSymbols = [...symbolsTextExtracted];
+                            for (const s of symbols) {
+                                if (!resolvedSymbols.includes(s) && !sessionEchoSet.has(s)) {
+                                    resolvedSymbols.push(s);
+                                }
+                            }
                         } else if (symbols.length > 0) {
                             resolvedSymbols = symbols;
                         } else if (!isMarketScan && !hasImages && !isTermsQuestion && !unresolvedCompanyName) {

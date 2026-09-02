@@ -20,6 +20,22 @@ const metric = (value: unknown, digits = 2): string => {
     return Number.isFinite(numeric) ? numeric.toFixed(digits).replace(/\.00$/, "") : cell(value);
 };
 
+const SIGNAL_LABELS: Record<string, string> = {
+    accumulation: "تجميع",
+    strong_accumulation: "تجميع قوي",
+    weak_accumulation: "تجميع ضعيف",
+    distribution: "تصريف",
+    strong_distribution: "تصريف قوي",
+    weak_distribution: "تصريف ضعيف",
+    neutral: "محايد"
+};
+
+const formatSignal = (value: unknown): string => {
+    if (value === null || value === undefined || value === "") return "";
+    const key = String(value);
+    return SIGNAL_LABELS[key] ?? key;
+};
+
 function stockRow(stock: any, symbolFallback = ""): string[] {
     const tech = stock?.tech || stock;
     const price = stock?.price?.close ?? stock?.price ?? tech?.close ?? "";
@@ -44,8 +60,8 @@ function stockRow(stock: any, symbolFallback = ""): string[] {
         metric(change),
         metric(volume),
         metric(tech?.rsi_14 ?? stock?.rsi_14),
-        metric(tech?.macd_signal ?? stock?.macd_signal, 4),
-        cell(stock?.signal || tech?.signal || ""),
+        metric(tech?.macd ?? stock?.macd ?? tech?.macd_signal ?? stock?.macd_signal, 4),
+        formatSignal(stock?.signal || tech?.signal || ""),
         formatScore(tech?.king_ai_score ?? stock?.king_ai_score),
         formatScore(tech?.egx_ai_score ?? stock?.egx_ai_score)
     ];

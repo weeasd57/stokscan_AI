@@ -1,4 +1,4 @@
-import { IntentPlan, VisionContext, ToolResult, FactSnapshot, SessionState } from "./types";
+﻿import { IntentPlan, VisionContext, ToolResult, FactSnapshot, SessionState } from "./types";
 import { getSyncSymbolOfficialNameMap } from "./planner";
 import { AI_CONFIG } from "./config";
 import { getDeepSeekApiKey, getNvidiaApiKeys } from "./server-secrets";
@@ -85,6 +85,20 @@ export function buildEvidenceEnginePromptBlock(toolResults: ToolResult[]): strin
         }
         const macdSig = stockData?.macd_signal ?? scanStock?.macd_signal;
         lines.push(`  - macd_signal_line_status: ${macdSig != null ? `PROVIDED (${macdSig})` : "UNKNOWN (do NOT state above/below signal line!)"}`);
+
+        const kingConsensusVal = Number(stockData?.king_ai_score ?? scanStock?.king_ai_score);
+        const egxConsensusVal = Number(stockData?.egx_ai_score ?? scanStock?.egx_ai_score);
+        if (Number.isFinite(kingConsensusVal) && Number.isFinite(egxConsensusVal)) {
+            const kingPct = kingConsensusVal * 100;
+            const egxPct = egxConsensusVal * 100;
+            const deltaPts = Math.abs(kingPct - egxPct);
+            const sameDirection = (kingPct > 50 && egxPct > 50) || (kingPct < 50 && egxPct < 50);
+            const agreementLabel = deltaPts >= 15 ? "اتفاق منخفض جداً" : sameDirection ? "اتفاق قوي" : "اتفاق ضعيف";
+            const thresholdPhrase = deltaPts >= 15 ? "الفرق ≥ 15 نقطة" : "الفرق أقل من 15 نقطة";
+            lines.push(`  - model_consensus: KING AI = ${kingPct.toFixed(2)}%, EGX AI = ${egxPct.toFixed(2)}%, الفرق = ${deltaPts.toFixed(2)} نقطة (${thresholdPhrase}) → ${agreementLabel} ← [قيمة محسوبة مسبقًا: استخدمها حرفيًا في قسم رأي النماذج ولا تعد حسابها ولا تعكس مقارنة الـ 15 نقطة]`);
+        } else {
+            lines.push(`  - model_consensus: NOT_PROVIDED (لا تذكر اتفاق النماذج)`);
+        }
 
         lines.push(`AVAILABLE_EVIDENCE:`);
         if (scanStock) {
@@ -483,6 +497,7 @@ export function buildV2FinalMessages(
 قواعد تحليل وتغطية الأسهم الصارمة:
 1. ${lengthRule}
 2. يجب تغطية ومقارنة جميع الأسهم المذكورة في البيانات أدناه وعدم تجاهل أي سهم منها.
+2b. إذا كان اسم السهم في البيانات يختلف عمّا كتبه المستخدم في سؤاله (مثلاً كتب 'روتو' أو 'الرود' أو 'الرواد'، أو كتب 'راكتا' أو 'راكطا' أو 'ورق راكتا')، اذكر في أول سطر من التحليل الاسم الذي حُلَّ إليه الاستعلام (مثال: 'روتو → الرواد للسياحة') حتى يتأكد العميل أن التحليل يخص السهم الذي يقصده. استخدم الأسماء الوصفية فقط (لا تكتب رموز الأسهم المؤلفة من حروف لاتينية في هذا السطر التوضيحي).
 3. قواعد القراءة الفنية للمؤشرات:
    - RSI أكبر من أو يساوي 70: منطقة تشبع شرائي (Overbought) وتخفيف/جني أرباح، وتعتبر مرتفعة المخاطر للشراء.
     - RSI بين 50 و 68: منطقة زخم محايد يميل للإيجابية. تتطلب حجم تداول مثبت (vol_ratio ≥ 1.0) لتأكيد الإشارة. لا تُصف بأنها 'آمنة'، 'قوية'، أو 'واضحة' إلا إذا رانج الحجم أو المؤشرات الأخرى دعم ذلك.
@@ -498,8 +513,8 @@ export function buildV2FinalMessages(
    - 📊 قاعدة فارق نقاط ML (ML Score Delta): عند مقارنة سهمين أو أكثر، يجب أن تذكر الفرق الدقيق بين نقاط KING AI و EGX AI لكل أزواج الأسهم (مثال: 'الموديل الأول يتفوق على الموديل الثاني بفارق نقاط معين'). إذا كان الفرق ≤ 1.0 نقطة، صرّح صراحة أن الفرق 'ضيق / غير إحصائيًا ولا يلزم دلالة ضعيفة' ولا يُعتبر فرقاً معنوياً. لا تقل أبداً 'تفوق كبير' أو 'ميزة واضحة' إذا كان الفرق ≤ 1.0 نقطة.
     - 📊 قاعدة توافق النماذج (Model Consensus): عند عرض ML Scores، أضف قسماً 'رأي النماذات' يحتوي على:
       • تفسير كل نموذج بناءاً على النسبة: 70%+ = 'إيجابي قوي'، 55-70% = 'إيجابي متوسط'، 45-55% = 'محايد'، 30-45% = 'متحفظ'، <30% = 'سلبي'.
-      • احسب 'اتفاق النماذات': إذا كان الاتجاه نفسه (كلاهما >50% أو كليهما <50%) → 'اتفاق قوي'؛ إذا خالفوا → 'اتفاق ضعيف'؛ إذا فرق ≥ 15 نقطة → 'اتفاق منخفض جداً'.
-      • استنتج 'القرار الفني العام': اتفاق قوي + نطاق عالي = 'شراء/مراجعة'؛ اتفاق ضعيف = 'مراقبة'؛ اتفاق منخفض = 'انتظار'.
+      • 'اتفاق النماذج': انسخ قيمة model_consensus من DERIVED_FLAGS حرفيًا (الفرق بالنقاط + التصنيف). ممنوع إعادة حسابها بنفسك أو القول إن الفرق 'أكبر من 15 نقطة' إذا كانت القيمة المحسوبة أقل من 15 نقطة والعكس صحيح.
+      • استنتج 'القرار الفني العام' من تصنيف model_consensus: اتفاق قوي + نطاق عالي = 'شراء/مراجعة'؛ اتفاق ضعيف = 'مراقبة'؛ اتفاق منخفض جداً = 'انتظار'.
       - لا تنسَ: النماذات قد تتباين، وهذا شائع. اشرح للمستخدم لماذى قد تختلف النماذات.
 6. تنسيق القوائم والجداول (Formatting Guideline):
    - عندما يُطلب منك عرض قائمة أسهم أو نتائج مسح فني أو فلاتر أو مقارنات متعددة، اعرضها دائماً في جدول ماركداون (Markdown Table) منسق ومكتمل الأعمدة بدلاً من القوائم المنقطة أو الأسطر الطويلة. هذا يمنع تداخل النصوص واللغات ويجعل العرض احترافياً ونظيفاً ونظيفاً جداً في واجهة المستخدم.`;

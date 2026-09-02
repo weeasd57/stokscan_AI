@@ -1231,7 +1231,8 @@ export async function executeStructuredTools(
                             ? `${techData.change_pct >= 0 ? "+" : ""}${techData.change_pct.toFixed(2)}%`
                             : "N/A";
                         const rsi = techData?.rsi_14 != null ? Number(techData.rsi_14).toFixed(2) : "N/A";
-                        const macd = techData?.macd_signal != null ? Number(techData.macd_signal).toFixed(4) : "N/A";
+                        const macdMain = techData?.macd != null ? Number(techData.macd).toFixed(4) : "N/A";
+                        const macdSignal = techData?.macd_signal != null ? Number(techData.macd_signal).toFixed(4) : "N/A";
                         const vol = techData?.volume ?? priceData?.volume ?? null;
                         const volSma20 = techData?.vol_sma20 ?? null;
                         let volRatioStr = "1.00x";
@@ -1267,7 +1268,7 @@ export async function executeStructuredTools(
                         const distScoreStr = distScore != null ? `, درجة التصريف = ${distScore}/100` : "";
                         const liveStatusStr = techData?.is_live_intraday ? ` (محدث لحظياً ${techData.live_update_time})` : "";
 
-                        textParts.push(`• ${sym} (${stockData?.name || sym}): السعر = ${closePrice} ج.م${liveStatusStr}, التغير = ${changeStr}, RSI = ${rsi}, MACD = ${macd}, SMA 50 = ${sma50}, EMA 50 = ${ema50}, SMA 200 = ${sma200}, EMA 200 = ${ema200}, Bollinger Upper = ${bbUpper}, Bollinger Lower = ${bbLower}, Stochastic %K = ${stochK}, Stochastic %D = ${stochD}, نسبة السيولة = ${volRatioStr}${wyckoffStr}${accScoreStr}${distScoreStr}, تقييم نموذج KING AI = ${kingScore}, تقييم نموذج EGX AI = ${egxScore}`);
+                        textParts.push(`• ${sym} (${stockData?.name || sym}): السعر = ${closePrice} ج.م${liveStatusStr}, التغير = ${changeStr}, RSI = ${rsi}, MACD = ${macdMain}, MACD Signal = ${macdSignal}, SMA 50 = ${sma50}, EMA 50 = ${ema50}, SMA 200 = ${sma200}, EMA 200 = ${ema200}, Bollinger Upper = ${bbUpper}, Bollinger Lower = ${bbLower}, Stochastic %K = ${stochK}, Stochastic %D = ${stochD}, نسبة السيولة = ${volRatioStr}${wyckoffStr}${accScoreStr}${distScoreStr}, تقييم نموذج KING AI = ${kingScore}, تقييم نموذج EGX AI = ${egxScore}`);
 
                         const isLive = Boolean(techData?.is_live_intraday);
                         const liveFailed = Boolean(sessionIsOpen && liveInfo && !liveInfo.success);
@@ -1286,7 +1287,7 @@ export async function executeStructuredTools(
                                 change_pct_num: changePctNum,
                                 rsi_14: rsi,
                                 rsi_14_num: rsiNum,
-                                macd_signal: macd,
+                                macd_signal: macdSignal,
                                 macd_signal_num: macdSignalNum,
                                 macd: macdNum,
                                 macd_histogram: macdNum != null && macdSignalNum != null ? macdNum - macdSignalNum : null,
@@ -1312,6 +1313,7 @@ export async function executeStructuredTools(
                                 wyckoff_phase: wyckoffPhase,
                                 acc_score: accScore,
                                 dist_score: distScore,
+                                signal: scanData?.signal || null,
                                 consecutive_acc_days: scanData?.consecutive_acc_days ?? 0,
                                 consecutive_dist_days: scanData?.consecutive_dist_days ?? 0,
                                 market_cap: fundamentals.marketCap ?? fundamentals.market_cap ?? null,
@@ -2050,7 +2052,7 @@ export async function executeStructuredTools(
                     const sectorSymbols = sectorStocks.map((s: any) => s.symbol);
                     let sectorTechQuery = supabase
                         .from("stock_technical_indicators")
-                            .select("symbol, close, change_pct, volume, vol_sma20, rsi_14, macd_signal, date, king_ai_score, egx_ai_score")
+                            .select("symbol, close, change_pct, volume, vol_sma20, rsi_14, macd, macd_signal, date, king_ai_score, egx_ai_score")
                         .eq("exchange", "EGX")
                         .in("symbol", sectorSymbols)
                         .order("date", { ascending: false })
@@ -2211,6 +2213,11 @@ export async function executeStructuredTools(
                     textParts.push(row("RSI (14)", compareSymbols.map((s: string) => {
                         const t = techMap.get(s.toUpperCase());
                         return t?.rsi_14 != null ? Number(t.rsi_14).toFixed(2) : "N/A";
+                    })));
+
+                    textParts.push(row("MACD", compareSymbols.map((s: string) => {
+                        const t = techMap.get(s.toUpperCase());
+                        return t?.macd != null ? Number(t.macd).toFixed(4) : "N/A";
                     })));
 
                     textParts.push(row("خط الإشارة (MACD)", compareSymbols.map((s: string) => {

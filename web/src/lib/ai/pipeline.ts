@@ -43,7 +43,7 @@ export function scopeImplicitSingleStockRequest(
     currentSymbol: string | null,
     resolvedSymbol: string | null
 ): string[] {
-    if (explicitSymbols.length > 0) return explicitSymbols;
+    if (explicitSymbols.length > 0) return plannedSymbols.length > 0 ? plannedSymbols : explicitSymbols;
     const normalized = normalizeArabicIntent(message);
     const singularOwnedPosition = /(?:شريت|اشتريت|شاري|داخل).{0,35}(?:انهارده|اليوم|السهم|ونزل|نازل)|(?:السهم|هو|انه).{0,25}(?:نزل|نازل).{0,25}(?:يطلع|امل|اعمل)/i.test(normalized);
     if (!singularOwnedPosition) return plannedSymbols;
@@ -145,9 +145,9 @@ export function extractExplicitSymbols(message: string): string[] {
 
     // Attempt to match Arabic full names from the mapping
     const stockMappings = getSyncStockMappings();
-    let normMsg = message.replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").replace(/ى/g, "ي").toLowerCase();
+    let normMsg = message.replace(/[\u064B-\u065F\u0670]/g, "").replace(/\u0640/g, "").replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").replace(/ى/g, "ي").toLowerCase();
     for (const [arName, symbol] of Object.entries(stockMappings).sort((a, b) => b[0].length - a[0].length)) {
-        const normKey = arName.replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").replace(/ى/g, "ي").toLowerCase();
+        const normKey = arName.replace(/[\u064B-\u065F\u0670]/g, "").replace(/\u0640/g, "").replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").replace(/ى/g, "ي").toLowerCase();
         if (normKey.length >= 2) {
             const escapedKey = normKey.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
             let pattern: string;
@@ -1184,9 +1184,11 @@ export async function* runPipelineStream(
 
     const explicitSymbols = extractExplicitSymbols(userMessage);
     const broadScanRequest = explicitSymbols.length === 0 && /(?:الاسهم|اسهم|هات|ابعت|اعرض).{0,40}(?:تجميع|تصريف)|(?:تجميع|تصريف).{0,40}(?:الاسهم|اسهم)/i.test(normalizeArabicIntent(userMessage));
-    let mergedSymbols = explicitSymbols.length > 0
-        ? mergeVisionSymbols(explicitSymbols, vision, explicitSymbols.length)
-        : mergeVisionSymbols(plannerResult.entities.symbols || [], vision, explicitSymbols.length);
+    const plannerResolvedSymbols = plannerResult.entities.symbols || [];
+    const unionSymbols = explicitSymbols.length > 0
+        ? Array.from(new Set([...explicitSymbols, ...plannerResolvedSymbols]))
+        : plannerResolvedSymbols;
+    let mergedSymbols = mergeVisionSymbols(unionSymbols, vision, explicitSymbols.length);
     mergedSymbols = clearsStockContext(plannerResult) 
         ? explicitSymbols 
         : scopeImplicitSingleStockRequest(userMessage, explicitSymbols, mergedSymbols, sessionState.current_symbol, memory?.resolved_references?.symbol || null);
@@ -1883,7 +1885,7 @@ function hasMeaningfulData(result: ToolResult): boolean {
                     const changeStr = s.change_pct != null ? `${Number(s.change_pct) >= 0 ? "+" : ""}${s.change_pct}` : "0%";
                     const supStr = s.support != null ? Number(s.support).toFixed(2) : "غير متاح";
                     const resStr = s.resistance != null ? Number(s.resistance).toFixed(2) : "غير متاح";
-                    lines.push(`| ${s.symbol} | ${priceStr} | ${changeStr} | ${s.rsi_14 ?? "غير متاح"} | ${s.macd_signal ?? "غير متاح"} | ${s.vol_ratio ?? "غير متاح"}x | ${supStr} | ${resStr} |`);
+                    lines.push(`| ${s.symbol} | ${priceStr} | ${changeStr} | ${s.rsi_14 ?? "غير متاح"} | ${s.macd ?? s.macd_signal ?? "غير متاح"} | ${s.vol_ratio ?? "غير متاح"}x | ${supStr} | ${resStr} |`);
                 });
                 lines.push("");
             }
@@ -2001,9 +2003,11 @@ export async function runPipeline(
         ?? generalChatPlan(sessionState);
 
     const explicitSymbols = extractExplicitSymbols(userMessage);
-    let mergedSymbols = explicitSymbols.length > 0
-        ? mergeVisionSymbols(explicitSymbols, vision, explicitSymbols.length)
-        : mergeVisionSymbols(plannerResult.entities.symbols || [], vision, explicitSymbols.length);
+    const plannerResolvedSymbols = plannerResult.entities.symbols || [];
+    const unionSymbols = explicitSymbols.length > 0
+        ? Array.from(new Set([...explicitSymbols, ...plannerResolvedSymbols]))
+        : plannerResolvedSymbols;
+    let mergedSymbols = mergeVisionSymbols(unionSymbols, vision, explicitSymbols.length);
     mergedSymbols = clearsStockContext(plannerResult) 
         ? explicitSymbols 
         : scopeImplicitSingleStockRequest(userMessage, explicitSymbols, mergedSymbols, sessionState.current_symbol, memory?.resolved_references?.symbol || null);
