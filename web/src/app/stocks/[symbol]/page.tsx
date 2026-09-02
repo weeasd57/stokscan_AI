@@ -25,13 +25,25 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   const companyName = fund.name || fund.Name || symbol;
   const sector = fund.sector || fund.Sector || "";
 
-  const title = `سعر سهم ${companyName} (${symbol}) مباشر ومؤشرات التحليل الفني | EGX Bots`;
-  const description = `تابع سعر سهم ${companyName} (${symbol}) المباشر، وتوصيات الذكاء الاصطناعي، ومؤشرات التحليل الفني (RSI، MACD، ADX) ونقاط الدعم والمقاومة في البورصة المصرية.`;
+  const title = `تحليل وسعر سهم ${companyName} (${symbol}) بالذكاء الاصطناعي | EGX Bots`;
+  const description = `تحليل سهم ${companyName} (${symbol}) بالذكاء الاصطناعي والسعر المباشر، تقييم AI Score، مؤشرات التحليل الفني (RSI، MACD، ADX) ونقاط الدعم والمقاومة في البورصة المصرية.`;
 
   return {
     title,
     description,
-    keywords: [symbol, companyName, "EGX BOTS", "egxbots", "egx bots", "البورصة المصرية", "تحليل أسهم", "سعر سهم " + companyName, "تحليل سهم " + companyName],
+    keywords: [
+      symbol,
+      companyName,
+      `تحليل سهم ${companyName}`,
+      `سعر سهم ${companyName}`,
+      `تحليل سهم ${symbol}`,
+      `توقعات سهم ${symbol}`,
+      "تحليل الأسهم المصرية بالذكاء الاصطناعي",
+      "EGX BOTS",
+      "egxbots",
+      "البورصة المصرية",
+      "EGX"
+    ],
     alternates: {
       canonical: `https://egxbots.com/stocks/${symbol.toLowerCase()}`,
     },

@@ -12,19 +12,39 @@ export const metadata = {
     canonical: 'https://egxbots.com',
   },
   title: {
-    default: "EGX BOTS | تحليل البورصة المصرية بالذكاء الاصطناعي وشات بوت ذكي",
+    default: "EGX BOTS | محلل الأسهم المصرية بالذكاء الاصطناعي | EGX AI Stock Analyzer",
     template: "%s | EGX BOTS"
   },
-  description: "منصة EGX BOTS (egxbots) هي منصة متقدمة لتحليل الأسهم المصرية باستخدام الذكاء الاصطناعي، الماسح الفني، المحاكاة التاريخية، وشات بوت تفاعلي ذكي للإجابة على كل أسئلتك عن السوق.",
-  keywords: ["EGX BOTS", "egxbots", "egx bots", "إي جي إكس بوتس", "البورصة المصرية", "EGX", "ذكاء اصطناعي", "تحليل أسهم", "تداول آلي", "إشارات تداول", "شات بوت ذكي", "AI Chatbot", "مساعد ذكي للبورصة"],
+  description: "منصة EGX BOTS (egxbots) - أقوى محلل للأسهم المصرية بالذكاء الاصطناعي (EGX AI Analyzer). نوفر ماسحاً فنياً متقدماً، وتقييماً يومياً للأسهم، ومحاكاة تاريخية، وشات بوت تفاعلي مباشر للبورصة المصرية.",
+  keywords: [
+    "EGX BOTS",
+    "egxbots",
+    "egx bot",
+    "egx bots",
+    "egx ai analyzer",
+    "تحليل الأسهم المصرية بالذكاء الاصطناعي",
+    "محلل الأسهم المصرية بالذكاء الاصطناعي",
+    "إي جي إكس بوتس",
+    "البورصة المصرية",
+    "EGX",
+    "ذكاء اصطناعي",
+    "تحليل أسهم",
+    "ماسح البورصة المصرية",
+    "توصيات البورصة المصرية",
+    "تداول آلي",
+    "إشارات تداول",
+    "شات بوت ذكي",
+    "AI Chatbot",
+    "مساعد ذكي للبورصة"
+  ],
   authors: [{ name: "EGX BOTS Team" }],
   creator: "EGX BOTS",
   openGraph: {
     type: "website",
     locale: "ar_EG",
     url: "https://egxbots.com",
-    title: "EGX BOTS | تحليل البورصة المصرية بالذكاء الاصطناعي وشات بوت ذكي",
-    description: "منصة EGX BOTS (egxbots) لتحليل الأسهم المصرية بالذكاء الاصطناعي، الماسح الفني، المحاكاة التاريخية، ومساعد ذكي (AI Chatbot) للإجابة على استفساراتك.",
+    title: "EGX BOTS | محلل الأسهم المصرية بالذكاء الاصطناعي | EGX AI Stock Analyzer",
+    description: "منصة EGX BOTS (egxbots) لتحليل أسهم البورصة المصرية بالذكاء الاصطناعي (EGX AI Analyzer)، الماسح الفني، المحاكاة التاريخية، ومساعد ذكي تفاعلي للسوق.",
     siteName: "EGX BOTS",
     images: [
       {
@@ -38,10 +58,10 @@ export const metadata = {
     ],
   },
   twitter: {
-    card: "summary",
-    title: "EGX BOTS | AI Stock Analysis & Interactive Chatbot",
-    description: "AI-driven stock analysis platform for EGX with technical scanning, backtests, and a smart interactive AI Chatbot.",
-    images: ["https://egxbots.com/icon-512.png"],
+    card: "summary_large_image",
+    title: "EGX BOTS | EGX AI Stock Analyzer | محلل البورصة المصرية",
+    description: "Advanced AI Stock Analyzer for the Egyptian Exchange (EGX) with technical scanning, daily AI scores, backtests, and AI chatbot.",
+    images: ["https://egxbots.com/dashboard_preview.png"],
   },
   manifest: "/favicon_io/site.webmanifest",
   icons: {
@@ -81,6 +101,15 @@ export default function RootLayout({
               "@context": "https://schema.org",
               "@graph": [
                 {
+                  "@type": "WebSite",
+                  "@id": "https://egxbots.com/#website",
+                  "url": "https://egxbots.com",
+                  "name": "EGX BOTS",
+                  "alternateName": ["EGX AI Analyzer", "egxbots", "محلل الأسهم المصرية بالذكاء الاصطناعي"],
+                  "description": "منصة تحليل الأسهم المصرية بالذكاء الاصطناعي والماسح الفني التفاعلي",
+                  "inLanguage": "ar-EG"
+                },
+                {
                   "@type": "FinancialService",
                   "@id": "https://egxbots.com/#financial-service",
                   "name": "EGX BOTS",
@@ -99,10 +128,11 @@ export default function RootLayout({
                 {
                   "@type": "SoftwareApplication",
                   "@id": "https://egxbots.com/#software-application",
-                  "name": "EGX BOTS",
+                  "name": "EGX BOTS - AI Stock Analyzer",
+                  "alternateName": ["egx ai analyzer", "محلل الأسهم المصرية"],
                   "operatingSystem": "Web",
                   "applicationCategory": "FinanceApplication",
-                  "description": "EGX BOTS (egxbots) is an advanced AI-driven stock analysis platform for the Egyptian Exchange (EGX).",
+                  "description": "EGX BOTS (egxbots) is an advanced AI-driven stock analyzer for the Egyptian Exchange (EGX) featuring daily AI scores, quantitative scanners, and market chatbot.",
                   "offers": {
                     "@type": "Offer",
                     "price": "0",
