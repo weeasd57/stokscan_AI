@@ -1258,6 +1258,10 @@ export async function* runPipelineStream(
         && /يوم\s*بـ?\s*يوم|التغير\s*اليومي|تغير\s*يومي|سعر\s*كل\s*يوم|أداء\s*يومي|(?:اخر|آخر)\s*(?:اسبوع|أسبوع|ايام|أيام|جلسات).{0,30}(?:تغير|نسب)/i.test(userMessage)) {
         plannedTools.push("get_price_history");
     }
+    const isGreetingMsg = /^(?:ازيك|إزيك|عامل ايه|عامل إيه|اهلا|أهلا|مرحبا|السلام عليكم|شكرا|شكرًا|تمام|اوكي|أوكي)[؟?،,.!\s]*$/i.test(userMessage.trim());
+    if (plannedTools.length === 0 && (unrecognizedTicker || unresolvedStockName || (mergedSymbols.length === 0 && !isGreetingMsg && !isTermsDefinitionRequest(userMessage) && userMessage.trim().length >= 2))) {
+        plannedTools.push("search_web");
+    }
     const requestedRange = extractRequestedDateRange(userMessage);
     let guidanceIntent = plannerResult.guidance_intent || getInvestorGuidanceIntent(userMessage, mergedSymbols.length > 0);
     const dataScanTools = new Set(["get_price_history", "get_accumulation_stocks", "get_distribution_stocks", "get_fair_value_scan", "get_recommendations", "get_sector_liquidity"]);
@@ -2074,6 +2078,10 @@ export async function runPipeline(
         && /يوم\s*بـ?\s*يوم|التغير\s*اليومي|تغير\s*يومي|سعر\s*كل\s*يوم|أداء\s*يومي|(?:اخر|آخر)\s*(?:اسبوع|أسبوع|ايام|أيام|جلسات).{0,30}(?:تغير|نسب)/i.test(userMessage)) {
         plannedTools.push("get_price_history");
     }
+    const isGreetingMsg = /^(?:ازيك|إزيك|عامل ايه|عامل إيه|اهلا|أهلا|مرحبا|السلام عليكم|شكرا|شكرًا|تمام|اوكي|أوكي)[؟?،,.!\s]*$/i.test(userMessage.trim());
+    if (plannedTools.length === 0 && (unrecognizedTicker || unresolvedStockName || (mergedSymbols.length === 0 && !isGreetingMsg && !isTermsDefinitionRequest(userMessage) && userMessage.trim().length >= 2))) {
+        plannedTools.push("search_web");
+    }
     const requestedRange = extractRequestedDateRange(userMessage);
     let guidanceIntent = plannerResult.guidance_intent || getInvestorGuidanceIntent(userMessage, mergedSymbols.length > 0);
     if (mergedSymbols.length > 0 && guidanceIntent !== "product_comparison") {
@@ -2254,10 +2262,11 @@ export async function runPipeline(
         };
     }
 
-    // Explicit company name that matched no listed stock — say so instead of silently
-    // answering about whatever the session previously discussed.
-    if (tools.results.length === 0 && unresolvedStockName) {
-        const unknownStockResponse = `لم أجد شركة بهذا الاسم («${unresolvedStockName}») في قاعدة بيانات البورصة المصرية المتاحة لي، لذلك لن أحلل سهمًا آخر بدلًا منه. تأكد من كتابة الاسم كما هو معروف في السوق أو اكتب الرمز اللاتيني (مثل AMES أو COMI)، ولو كانت الشركة غير مدرجة في EGX فهي خارج تغطية النظام حاليًا.`;
+    const hasWebResults = tools.results.some(r => r.tool === "search_web" && Array.isArray(r.data?.results) && r.data.results.length > 0);
+
+    // Explicit company name that matched no listed stock — say so if web search has no results
+    if (!hasWebResults && tools.results.length === 0 && unresolvedStockName) {
+        const unknownStockResponse = `لم أجد شركة بهذا الاسم («${unresolvedStockName}») في قاعدة بيانات البورصة المصرية المسجلة على المنصة، ولم تسفر نتائج البحث عن معلومات موثقة. تأكد من كتابة الاسم كما هو معروف في السوق أو اكتب الرمز اللاتيني (مثل AMES أو COMI).`;
         const unknownSessionUpdate = {
             current_symbol: null,
             last_symbols: sessionState.last_symbols || [],
@@ -2277,11 +2286,10 @@ export async function runPipeline(
         };
     }
 
-    // Bare ticker matching no listed stock — say it is not covered instead of
-    // running empty tools and serving a degraded fallback with junk web snippets.
-    if (unrecognizedTicker) {
+    // Bare ticker matching no listed stock — say it is not covered if web search has no results
+    if (!hasWebResults && unrecognizedTicker) {
         const ticker = userMessage.trim().replace(/[؟?\s.]+$/, "").toUpperCase();
-        const uncoveredResponse = `الرمز ${ticker} غير موجود في تغطية النظام حالياً (غير مدرج في قاعدة أسهم البورصة المصرية المتاحة لي)، ولن أخمن بياناته. تأكد من كتابة الرمز بشكل صحيح (مثل COMI أو AMES)، أو اكتب اسم الشركة بالعربي وسأحاول التعرف عليه.`;
+        const uncoveredResponse = `الرمز ${ticker} غير مسجل في قاعدة بيانات الأسهم الرئيسية للبورصة المصرية على المنصة حالياً، ولم تتوفر نتائج بحث موثقة عنه. تأكد من كتابة الرمز بشكل صحيح (مثل COMI أو DGTZ)، أو اكتب اسم الشركة بالعربي وسأبحث عنها.`;
         const uncoveredSessionUpdate = {
             current_symbol: null,
             last_symbols: sessionState.last_symbols || [],
