@@ -1731,15 +1731,25 @@ while (attempts < maxAttempts) {
 
 import { ToolResult } from "./types";
 
+function hasMeaningfulData(result: ToolResult): boolean {
+    if (result.source === "empty") return false;
+    if (!result.data || typeof result.data !== "object") return false;
+    if (Array.isArray(result.data)) return result.data.length > 0;
+    const keys = Object.keys(result.data);
+    if (keys.length === 0) return false;
+    if (keys.length === 1 && result.data.symbol) return false;
+    return true;
+}
+
  function buildSafeFallbackResponse(toolsResults: ToolResult[], plan: IntentPlan): string {
      const sectorLiquidity = toolsResults.find(result => result.tool === "get_sector_liquidity");
      if (sectorLiquidity) {
          return buildDeterministicResponse("سيولة القطاعات", plan, toolsResults)
              || "تعذر صياغة ملخص سيولة القطاعات، لكن البيانات الموثقة متاحة في الجدول.";
      }
-     const isSectorScoped = plan.tools.includes("get_sector_liquidity") || plan.tools.includes("get_sector_list") || plan.intent === "sector_analysis";
-     const stockResult = toolsResults.find(result => result.tool === "get_stock" && result.data?.symbol);
-     const symbol = isSectorScoped ? null : (stockResult?.data?.symbol || plan.entities.symbols?.[0] || null);
+      const isSectorScoped = plan.tools.includes("get_sector_liquidity") || plan.tools.includes("get_sector_list") || plan.intent === "sector_analysis";
+      const stockResult = toolsResults.find(result => result.tool === "get_stock" && hasMeaningfulData(result) && result.data?.symbol);
+      const symbol = isSectorScoped ? null : (stockResult?.data?.symbol || plan.entities.symbols?.[0] || null);
      
      const otcNotice = symbol && isOtcStock(symbol) ? buildOtcNotice(symbol) : null;
 
@@ -1754,6 +1764,7 @@ import { ToolResult } from "./types";
 
     if (Array.isArray(toolsResults)) {
         toolsResults.forEach(r => {
+            if (!hasMeaningfulData(r)) return;
             if (r.tool === "get_stock" && r.data?.symbol) {
                 hasContent = true;
                 const d = r.data;
