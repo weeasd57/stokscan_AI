@@ -11,6 +11,7 @@ Next.js 14 App Router frontend. All source lives under `web/src/`.
 | `src/components/` | Shared UI: charts (ApexCharts/Lightweight Charts), tables, dialogs, widgets |
 | `src/contexts/` | Zustand-based global state providers (Auth, Theme, Language, Watchlist, Scanner, Chat) |
 | `src/lib/` | Business logic: `api.ts` (typed fetch wrappers), `ai/` (planner, pipeline, tools, final) |
+| `src/lib/ai/corporate-actions.ts` | Chat-time corporate actions (اكتتاب/توزيعات/تجزئة/منح): DB-first lookup, keyless web-search fallback with results cached back into `corporate_actions` |
 | `src/middleware.ts` | Auth enforcement (Supabase SSR cookies), locale prefix stripping, admin header injection |
 
 ## Key Conventions

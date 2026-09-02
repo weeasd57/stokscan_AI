@@ -3,6 +3,7 @@ import { AI_CONFIG } from "./config";
 import { classificationMatchesSector } from "./sector-taxonomy";
 import { searchWeb } from "./web-search";
 import { isEgxSessionOpen, fetchLiveStockIndicators } from "./live-stock-updater";
+import { getCorporateActionsForSymbols, formatCorporateActionsSummary, CORPORATE_ACTIONS_QUERY_PATTERN } from "./corporate-actions";
 
 function normalizeArabic(str: string): string {
     return str
@@ -1327,6 +1328,57 @@ export async function executeStructuredTools(
             }
         } catch (e) {
             console.warn("Error fetching live stock data:", e);
+        }
+    }
+
+    // ===== CORPORATE ACTIONS (rights issues / splits / dividends / bonus shares) =====
+    // Free + smart: database first; for symbols with no coverage, a keyless web
+    // search runs during the chat and its classified results are saved back
+    // into corporate_actions so future questions hit the DB directly.
+    const caMentioned = CORPORATE_ACTIONS_QUERY_PATTERN.test(userMessage);
+    const caToolsRelevant = plan.tools.includes("get_stock")
+        || plan.tools.includes("get_news")
+        || plan.tools.includes("get_comparison")
+        || plan.tools.includes("get_corporate_actions");
+    if ((caMentioned || caToolsRelevant) && symbols.length > 0 && !requestedDate && !requestedStartDate) {
+        try {
+            const analysisIntent = plan.intent === "stock_analysis" || plan.intent === "comparison" || plan.intent === "risk_analysis";
+            const caResult = await getCorporateActionsForSymbols(supabase, symbols, {
+                enableWebSearch: caMentioned || analysisIntent,
+            });
+            if (caResult.items.length > 0) {
+                textParts.push(formatCorporateActionsSummary(caResult));
+                results.push({
+                    tool: "get_corporate_actions",
+                    source: caResult.fromWeb > 0 ? "database+web" : "database",
+                    data_time: now,
+                    symbols: caResult.symbolsCovered,
+                    data_type: "live",
+                    data: {
+                        corporate_actions: caResult.items,
+                        counts: {
+                            total: caResult.items.length,
+                            from_database: caResult.fromDatabase,
+                            from_web: caResult.fromWeb,
+                            saved_to_database: caResult.savedToDatabase,
+                        },
+                    },
+                });
+                // Attach per-symbol actions to every get_stock result so
+                // single-stock analysis always carries its corporate actions
+                results
+                    .filter(r => r.tool === "get_stock" && r.data && typeof r.data === "object")
+                    .forEach(r => {
+                        const sym = String(r.symbols?.[0] || r.data?.symbol || "").toUpperCase();
+                        r.data.corporate_actions = caResult.items.filter(
+                            i => String(i.symbol).toUpperCase() === sym
+                        );
+                    });
+            } else if (caMentioned) {
+                textParts.push(`\n [أحداث مالية]: لا توجد أحداث مالية (اكتتاب/توزيعات/تجزئة/منح) مسجلة أو متاحة حالياً للأسهم ${symbols.join("، ")} بعد فحص قاعدة البيانات والبحث الحي.\n`);
+            }
+        } catch (e) {
+            console.warn("Error fetching corporate actions:", e);
         }
     }
 

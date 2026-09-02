@@ -956,6 +956,11 @@ export function enforceIntentFromMessage(message: string, plannerIntent: string,
         const compoundAnalysis = /حلل.{0,20}(هات|اخبار|أخبار)|هات.{0,20}(اخبار|أخبار)|لو\s+كسر.{0,20}(اخبار|أخبار)/i.test(normalized);
         return { intent: "stock_analysis", tools: compoundAnalysis ? ["get_stock", "get_stock_levels", "get_news"] : ["get_stock", "get_stock_levels"], replaceTools: true };
     }
+    // Corporate-action questions (اكتتاب/توزيعات/تجزئة/منحة/كوبون...) route to
+    // news + corporate actions so the answer is grounded in real events.
+    if (/(?:اكتتاب|توزيعات|توزيع\s*ارباح|كوبون|تجزئ[ةه]|منح[ةه]|سهم\s*مجاني|زياد[ةه]\s*ر[أا]س\s*المال|تخفيض\s*(?:ر[أا]س|القيم[ةه])|اعاد[ةه]\s*شراء|dividend|coupon|rights?\s+issue|stock\s+split|bonus\s+shares?)/i.test(normalized) && hasSymbol) {
+        return { intent: "stock_news", tools: ["get_news", "get_corporate_actions"], replaceTools: true };
+    }
     if (/(?:اخبار|أخبار|(?:^|\s)خبر(?:\s|$)|news)/i.test(normalized) && hasSymbol) return { intent: "stock_news", tools: ["get_news"], replaceTools: true };
     if (/(مقارن|قارن|compare)/i.test(normalized) && symbols.length >= 2) return { intent: "comparison", tools: ["get_comparison"], replaceTools: true };
     if (/(يخسر|خسار|يهبط|ينزل|يطلع|صعود|هبوط)/i.test(normalized) && hasSymbol) return { intent: "risk_analysis", tools: ["get_stock", "get_stock_levels", "get_distribution_stocks"], replaceTools: true, scan_direction: "distribution" };
@@ -1041,7 +1046,7 @@ export function needsLiveDataForTools(tools: string[]): boolean {
     const liveTools = new Set([
         "get_stock", "get_market", "get_indices", "get_news",
         "get_recommendations", "get_signals", "get_sector",
-        "get_accumulation_stocks", "get_distribution_stocks", "get_technical_scan", "get_sector_liquidity", "get_sector_list", "get_stock_levels", "get_comparison", "get_fair_value_scan", "get_price_history", "search_web"
+        "get_accumulation_stocks", "get_distribution_stocks", "get_technical_scan", "get_sector_liquidity", "get_sector_list", "get_stock_levels", "get_comparison", "get_fair_value_scan", "get_price_history", "search_web", "get_corporate_actions"
     ]);
     return tools.some(tool => liveTools.has(tool));
 }

@@ -232,6 +232,28 @@ function buildNewsTable(tool: ToolResult): ExcelTable | null {
     };
 }
 
+function buildCorporateActionsTable(tool: ToolResult): ExcelTable | null {
+    const actions = Array.isArray(tool.data?.corporate_actions) ? tool.data.corporate_actions : [];
+    const rows = actions.map((item: any) => [
+        cell(item.symbol),
+        cell(item.action_type_ar || item.action_type),
+        cell(item.title),
+        cell(String(item.published_at || item.action_date || "").slice(0, 10)),
+        cell(item.source),
+        cell(item.details ? Object.entries(item.details).map(([k, v]) => `${k}=${v}`).join(", ") : "")
+    ]).filter((row: string[]) => row.some(Boolean));
+    if (rows.length === 0) return null;
+
+    return {
+        id: tool.tool,
+        title: "الأحداث المالية المؤثرة (اكتتابات/توزيعات/تجزئة/منح)",
+        headers: ["السهم", "نوع الحدث", "الخبر", "التاريخ", "المصدر", "تفاصيل مستخرجة"],
+        rows,
+        source: tool.source,
+        data_time: tool.data_time,
+    };
+}
+
 function buildHistoricalFactsTable(tool: ToolResult): ExcelTable | null {
     const facts = tool.data && typeof tool.data === "object" ? tool.data : {};
     const rows = Object.entries(facts)
@@ -338,6 +360,7 @@ export function buildExcelTables(toolResults: ToolResult[], vision: VisionContex
         else if (tool.tool === "get_recommendations") table = buildRecommendationsTable(tool);
         else if (tool.tool === "get_accumulation_stocks" || tool.tool === "get_distribution_stocks") table = buildScanTable(tool);
         else if (tool.tool === "get_news") table = buildNewsTable(tool);
+        else if (tool.tool === "get_corporate_actions") table = buildCorporateActionsTable(tool);
         else if (tool.tool === "get_historical_facts") table = buildHistoricalFactsTable(tool);
         else if (tool.tool === "get_market") {
             table = buildMarketTable(tool);

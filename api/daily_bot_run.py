@@ -2800,6 +2800,24 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
             _record_step("news_sentiment", False, str(e)[:200], 0)
             print(f"[NEWS_SENTIMENT] Error: {e}")
 
+        # 2.6 Corporate Actions Sweep (rights issues / splits / dividends / bonus
+        # shares) — targeted Google News RSS queries. Runs ONCE per day here;
+        # the chat pipeline never invokes this (it only reads the table and
+        # caches its own keyless web findings with origin = 'chat_cache').
+        print("\n>>> STEP 2.6: Fetching corporate actions (اكتتابات/توزيعات/تجزئة/منح)...")
+        _start_step("corporate_actions", "Fetching and classifying corporate actions from Google News RSS")
+        try:
+            from api.corporate_actions_engine import process_exchange_corporate_actions
+            if not symbols_raw:
+                symbols_raw = _fetch_egx_symbols()
+                symbols_raw = _filter_active_symbols(symbols_raw)
+
+            ok_ca, ca_count = process_exchange_corporate_actions("EGX", symbols_raw, days_back=30)
+            _record_step("corporate_actions", ok_ca, f"Stored/refreshed {ca_count} corporate actions", ca_count)
+        except Exception as e:
+            _record_step("corporate_actions", False, str(e)[:200], 0)
+            print(f"[CORPORATE_ACTIONS] Error: {e}")
+
         # 2.7 Pre-compute and save Sector Heatmap
         print("\n>>> STEP 2.7: Pre-computing and saving Sector Heatmap...")
         _start_step("precompute_heatmap", "Pre-computing and saving Sector Heatmap to Supabase")

@@ -309,3 +309,28 @@ create table if not exists public.ai_chat_messages (
 );
 create index if not exists ai_chat_messages_session_idx on public.ai_chat_messages(session_id, created_at asc);
 
+-- 17. corporate_actions (rights issues, splits, dividends, bonus shares, ...)
+create table if not exists public.corporate_actions (
+  id bigserial primary key,
+  symbol text not null,
+  exchange text not null default 'EGX',
+  action_type text not null,
+  title text not null,
+  action_date date,
+  published_at timestamptz,
+  url text,
+  source text,
+  sentiment_score double precision,
+  sentiment_label text,
+  details jsonb,
+  confidence double precision default 0.5,
+  origin text default 'scheduler',
+  dedupe_key text not null,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+create unique index if not exists corporate_actions_dedupe_idx on public.corporate_actions (dedupe_key);
+create index if not exists corporate_actions_symbol_published_idx on public.corporate_actions (symbol, exchange, published_at desc);
+create index if not exists corporate_actions_type_published_idx on public.corporate_actions (action_type, published_at desc);
+alter table public.corporate_actions enable row level security;
+

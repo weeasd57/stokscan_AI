@@ -357,7 +357,21 @@ def process_exchange_news(exchange: str, symbols: List[str]) -> Tuple[bool, int]
             news = fetch_google_news(symbol, days_back=3)
             # 2. Analyze
             sentiment = analyze_sentiment(news)
-            
+
+            # 2.5 Classify corporate actions from the SAME fetched news
+            # (rights issues, splits, dividends, bonus shares, ...) — no
+            # extra network calls, reuses the headlines already fetched.
+            try:
+                from api.corporate_actions_engine import process_news_list_for_corporate_actions
+                clean_ca_sym = symbol.split(".")[0].upper()
+                ca_saved = process_news_list_for_corporate_actions(
+                    clean_ca_sym, exchange, news, supabase=stock_ai.supabase
+                )
+                if ca_saved:
+                    print(f"[NEWS_ENGINE] Stored {ca_saved} corporate action(s) for {clean_ca_sym}")
+            except Exception as ca_err:
+                print(f"[NEWS_ENGINE] Corporate action classification skipped for {symbol}: {ca_err}")
+
             # 3. Save to Supabase (upsert based on symbol and date)
             payload = {
                 "symbol": symbol.split(".")[0].upper(),

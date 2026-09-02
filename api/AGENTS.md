@@ -30,6 +30,8 @@ FastAPI application serving the stock analysis, backtesting, ML, chatbot, and tr
 | `unified_labeling.py` | Label generation for ML training |
 | `train_council_validator_crypto.py` | ML model training pipeline |
 | `council.py` / `council_validator.py` | Ensemble model validation |
+| `news_sentiment_engine.py` | Keyless Google News RSS fetcher + bilingual sentiment lexicon (`stock_news_sentiment` table); classifies corporate actions during the same news pass |
+| `corporate_actions_engine.py` | Corporate actions (حقوق اكتتاب/تجزئة/توزيعات/منح/رأس مال) classifier and storage into `corporate_actions`; run via `process_exchange_news` or `run_corporate_actions_update.py` |
 
 ## Key Conventions
 

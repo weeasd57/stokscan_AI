@@ -380,6 +380,11 @@ export function buildV2FinalMessages(
     sections.push("- عندما يسأل المستخدم عن سبب هبوط أو صعود أو حركة سهم معين (مثل: ما سبب هبوط/صعود... أو ليه نزل/طلع...):");
     sections.push("  1. إذا كانت هناك أخبار في === LIVE DATA ===، اشرح العوامل والأخبار المرتبطة بالسهم أولاً.");
     sections.push("  2. قدم تحليلاً فنياً ومالياً مفسراً لسبب الحركة (مثل: عمليات جني أرباح فنية طبيعية بعد وصول مؤشر RSI لمناطق تشبع شرائي مرتفعة، أو ضعف السيولة وانخفاض التداول عن المتوسط، أو اختبار مستويات مقاومة وتراجع السعر منها، أو حركات تصحيحية في المسار الصاعد).");
+    sections.push("- الأحداث المالية المؤثرة (أداة get_corporate_actions في === LIVE DATA ===):");
+    sections.push("  1. إذا وُجدت أحداث مالية للسهم (حقوق اكتتاب، توزيعات أرباح، تجزئة، أسهم مجانية، زيادة/تخفيض رأس المال، استحواذ)، اذكرها صراحة عند تحليل السهم لأنها تؤثر مباشرة على السعر والسيولة.");
+    sections.push("  2. اربط الحدث بأثره المتوقع: حقوق الاكتتاب تمتص السيولة وقد تضغط على السعر مؤقتاً، التوزيعات والأسهم المجانية تجذب السيولة قبل موعدها، التجزئة/تخفيض القيمة الاسمية يغيران السعر الاسمي دون تغيير القيمة السوقية للشركة.");
+    sections.push("  3. الأحداث التي جاءت من البحث الحي (origin أو source يشير لموقع ويب) يجب ذكر مصدرها (اسم الموقع) عند سردها، ولا يجوز إضافة تفاصيل أو أرقام غير موجودة في البيانات.");
+    sections.push("  4. إذا لم توجد أحداث مالية مسجلة للسهم، لا تفترض وجود اكتتاب أو توزيعات أو تجزئة من عندك — قل إنه لا توجد أحداث مسجلة.");
     sections.push("- عندما يسأل المستخدم عن القيمة العادلة أو التقييم لسهم معين (مثل: ما القيمة العادلة لسهم...):");
     sections.push("  1. قدّم تحليلاً شاملاً مستنداً إلى البيانات المتاحة (السعر الحالي، القيمة السوقية، ومستويات الدعم والمقاومة الحسابية).");
     sections.push("  2. وضح نطاق الحركة السعرية ومستويات القيمة العادلة الفنية بين الدعم والمقاومة والقيمة السوقية للشركة.");
@@ -828,12 +833,31 @@ export function buildDeterministicNewsResponse(
     const newsResult = toolResults.find(r => r.tool === "get_news");
     if (!newsResult) return null;
 
+    // Corporate actions complement the headlines and must never be hidden by
+    // this deterministic template.
+    const caResult = toolResults.find(r => r.tool === "get_corporate_actions");
+    const caItems = caResult && Array.isArray(caResult.data?.corporate_actions)
+        ? caResult.data.corporate_actions
+        : [];
+    const formatCaSection = (items: any[]): string[] => {
+        const lines = ["", "الأحداث المالية المؤثرة (اكتتابات/توزيعات/تجزئة/منح/رأس المال):"];
+        items.slice(0, 6).forEach((item: any) => {
+            const dateStr = item.published_at ? ` (${String(item.published_at).slice(0, 10)})` : "";
+            const sourceStr = item.source ? ` — المصدر: ${item.source}` : "";
+            lines.push(`- **${item.symbol}** (${item.action_type_ar}): ${item.title}${dateStr}${sourceStr}`);
+        });
+        return lines;
+    };
+
     const items = Array.isArray(newsResult.data) ? newsResult.data : [];
     const rangeLabel = plan.entities.requested_start_date && plan.entities.requested_end_date
         ? ` من ${plan.entities.requested_start_date} إلى ${plan.entities.requested_end_date}`
         : " الحالية";
 
     if (items.length === 0) {
+        if (caItems.length > 0) {
+            return [`لا توجد أخبار عامة مسجلة خلال الفترة${rangeLabel}، لكن توجد أحداث مالية مؤثرة:`, ...formatCaSection(caItems)].join("\n");
+        }
         return `لا توجد أخبار أو بيانات معنويات مسجلة خلال الفترة${rangeLabel}${plan.entities.symbols?.length ? ` للأسهم ${plan.entities.symbols.join("، ")}` : ""}.`;
     }
 
@@ -858,6 +882,9 @@ export function buildDeterministicNewsResponse(
     }
 
     if (uniqueItems.length === 0) {
+        if (caItems.length > 0) {
+            return [`لا توجد عناوين أخبار عامة مسجلة خلال الفترة${rangeLabel}، لكن توجد أحداث مالية مؤثرة:`, ...formatCaSection(caItems)].join("\n");
+        }
         return `لا توجد أخبار أو بيانات معنويات مسجلة خلال الفترة${rangeLabel}.`;
     }
 
@@ -872,6 +899,10 @@ export function buildDeterministicNewsResponse(
         const symbolPrefix = item.symbol ? `**${item.symbol}**: ` : "";
         lines.push(`- ${symbolPrefix}${title}${formattedDate}`);
     });
+
+    if (caItems.length > 0) {
+        lines.push(...formatCaSection(caItems));
+    }
 
     return lines.join("\n");
 }
