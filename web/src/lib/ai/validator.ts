@@ -128,8 +128,19 @@ export function buildFactsBySymbol(toolResults: any[]): Record<string, any> {
             const s = sym.toUpperCase();
             if (!factsBySymbol[s]) factsBySymbol[s] = {};
 
-            if (data.close != null) factsBySymbol[s].price = Number(data.close);
-            if (data.price != null && typeof data.price !== "object") factsBySymbol[s].price = Number(data.price);
+            // Price candidates: a symbol legitimately has MULTIPLE reported prices in one
+            // pipeline run — the live intraday price (get_stock / live updater) AND the
+            // latest EOD close (get_stock_levels reads stock_prices). During market hours
+            // these differ. Keep them ALL; the price check accepts a match against any.
+            const priceCandidate = data.close != null ? Number(data.close)
+                : (data.price != null && typeof data.price !== "object" ? Number(data.price) : null);
+            if (priceCandidate != null && Number.isFinite(priceCandidate)) {
+                factsBySymbol[s].price = priceCandidate;
+                if (!Array.isArray(factsBySymbol[s].price_candidates)) factsBySymbol[s].price_candidates = [];
+                if (!factsBySymbol[s].price_candidates.some((p: number) => Math.abs(p - priceCandidate) < 1e-9)) {
+                    factsBySymbol[s].price_candidates.push(priceCandidate);
+                }
+            }
             // change_pct: handles string formats like "+2.61%" and raw numeric
             if (data.change_pct != null) factsBySymbol[s].change_pct = parseFloat(String(data.change_pct).replace(/[%+]/g, ""));
             if (data.change_pct_num != null) factsBySymbol[s].change_pct = Number(data.change_pct_num);
@@ -598,10 +609,18 @@ export function validateDeterministicRules(
             switch (claim.type) {
                 case "current_price": {
                     if (facts.price != null) {
-                        const price = facts.price;
-                        const isMatch = Math.abs(claim.value - price) <= 0.05 || (price > 0 && Math.abs(claim.value - price) / price <= 0.02);
+                        // Accept a match against ANY reported price (live intraday or latest EOD
+                        // close) — they coexist during market hours. The +1e-9 guards against
+                        // floating-point misses (e.g. |0.98 - 1.03| evaluating to 0.05000000000000004).
+                        const priceCandidates: number[] = Array.isArray(facts.price_candidates) && facts.price_candidates.length > 0
+                            ? facts.price_candidates
+                            : [facts.price];
+                        const isMatch = priceCandidates.some(price =>
+                            Math.abs(claim.value - price) <= 0.05 + 1e-9 ||
+                            (price > 0 && Math.abs(claim.value - price) / price <= 0.02)
+                        );
                         if (!isMatch && !ALLOWED_GENERIC_NUMBERS.has(claim.value)) {
-                            errors.push(`تضارب في سعر سهم ${activeSymbol}: السعر الفعلي هو ${price} ولكن الرد يحتوي على ${claim.value}.`);
+                            errors.push(`تضارب في سعر سهم ${activeSymbol}: السعر الفعلي هو ${facts.price} ولكن الرد يحتوي على ${claim.value}.`);
                         }
                     }
                     break;
