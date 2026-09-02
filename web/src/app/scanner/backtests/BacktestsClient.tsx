@@ -322,7 +322,7 @@ function TelegramNotificationCard() {
 
 
     const joinChannel = () => {
-        window.open("https://t.me/THNDR_1", "_blank");
+        window.open("https://t.me/egxbots/153", "_blank");
     };
 
     return (

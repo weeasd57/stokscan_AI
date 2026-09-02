@@ -475,16 +475,10 @@ class TelegramBot:
                 self._handle_start_with_user_id(chat_id, user_id_param, msg)
             else:
                 self._handle_start(chat_id)
-        elif text.startswith("/status"):
-            self._handle_status(chat_id)
-        elif text.startswith("/positions"):
-            self._handle_positions(chat_id)
-        elif text.startswith("/trades"):
-            self._handle_trades(chat_id)
-        elif text.startswith("/weekly"):
-            self._handle_weekly(chat_id)
         elif text.startswith("/daily"):
             self._handle_daily(chat_id)
+        elif text.startswith("/weekly"):
+            self._handle_weekly(chat_id)
         elif text.startswith("/help"):
             self._handle_help(chat_id)
 
@@ -648,92 +642,6 @@ class TelegramBot:
             "_You can also enter this ID manually in your profile settings\\._",
         )
 
-    def _handle_status(self, chat_id):
-        if not self._is_admin(chat_id):
-            self._reply(
-                chat_id,
-                "❌ Unauthorized: This command is only available for the bot administrator.",
-            )
-            return
-        if not self.bot_instance:
-            self._reply(chat_id, "Bot not available.")
-            return
-        st = self.bot_instance.get_status()
-        bal = "N/A"
-        try:
-            a = self.bot_instance.api.get_account()
-            bal = f"${float(a.equity):.2f} (Cash: ${float(a.cash):.2f})"
-        except Exception:
-            pass
-
-        # Count Telegram subscribers from profiles
-        sub_count = 0
-        try:
-            from api.stock_ai import supabase
-            res = supabase.table("profiles").select("id", count="exact").not_.is_("telegram_chat_id", "null").neq("telegram_chat_id", "").execute()
-            sub_count = res.count if hasattr(res, "count") else len(res.data or [])
-        except Exception as e:
-            self._log(f"Error counting subscribers: {e}")
-
-        self._reply(
-            chat_id,
-            f"🤖 *Status:* {st.get('status', '?').upper()}\n"
-            f"💰 *Equity:* {bal}\n"
-            f"🕒 *Last Scan:* {st.get('last_scan') or 'Never'}\n"
-            f"📈 *Coins:* {len(st.get('config', {}).get('coins', []))}\n"
-            f"👥 *Subscribers:* `{sub_count}` users",
-        )
-
-    def _handle_positions(self, chat_id):
-        if not self._is_admin(chat_id):
-            self._reply(
-                chat_id,
-                "❌ Unauthorized: This command is only available for the bot administrator.",
-            )
-            return
-        if not self.bot_instance or not self.bot_instance.api:
-            self._reply(chat_id, "Bot API not available.")
-            return
-        try:
-            pos = self.bot_instance.api.list_positions()
-            if not pos:
-                self._reply(chat_id, "No open positions.")
-                return
-            msg = "📊 *Open Positions:*\n\n"
-            for p in pos:
-                pnl = float(p.unrealized_pl)
-                e = "🟢" if pnl > 0 else "🔴"
-                msg += f"{e} *{p.symbol}*  Entry ${float(p.avg_entry_price):.2f}  Now ${float(p.current_price):.2f}  PnL ${pnl:.2f}\n"
-            self._reply(chat_id, msg)
-        except Exception as e:
-            self._reply(chat_id, f"Error: {e}")
-
-    def _handle_trades(self, chat_id):
-        if not self._is_admin(chat_id):
-            self._reply(
-                chat_id,
-                "❌ Unauthorized: This command is only available for the bot administrator.",
-            )
-            return
-        if not self.bot_instance:
-            self._reply(chat_id, "Bot not available.")
-            return
-        trades = list(self.bot_instance._trades)[-5:]
-        if not trades:
-            self._reply(chat_id, "No recent trades.")
-            return
-        msg = "📜 *Recent Trades:*\n\n"
-        for t in reversed(trades):
-            a = t.get("action")
-            s = t.get("symbol")
-            pr = t.get("price") or 0
-            pnl = t.get("pnl", 0)
-            ts = t.get("timestamp", "").split("T")[0]
-            icon = "🛒" if a == "BUY" else "💰"
-            pnl_t = f" | PnL: ${pnl:.2f}" if a == "SELL" else ""
-            msg += f"{icon} {a} {s} @ ${pr:.2f}{pnl_t} ({ts})\n"
-        self._reply(chat_id, msg)
-
     def _handle_weekly(self, chat_id):
         # Allow admins or registered profiles
         is_admin = self._is_admin(chat_id)
@@ -764,8 +672,6 @@ class TelegramBot:
             )
             return
 
-        self._reply(chat_id, "⏳ جاري إعداد التقرير الأسبوعي... / Generating weekly report...")
-        
         try:
             from api.daily_bot_run import generate_weekly_performance_report
             generate_weekly_performance_report(trigger="manual", chat_id=chat_id)
@@ -802,55 +708,40 @@ class TelegramBot:
             )
             return
 
-        self._reply(chat_id, "⏳ جاري إعداد التوصيات اليومية... / Generating daily recommendations...")
-        
         try:
             import asyncio
             from api.daily_bot_run import generate_daily_recommendations
             
-            # Run the async function
+            # Run the async function silently (no status messages sent to Telegram)
             try:
                 loop = asyncio.get_event_loop()
                 if loop.is_running():
-                    # If we're already in an event loop, create a new thread
                     import concurrent.futures
                     with concurrent.futures.ThreadPoolExecutor() as executor:
                         future = executor.submit(asyncio.run, generate_daily_recommendations())
-                        count = future.result()
+                        future.result()
                 else:
-                    count = asyncio.run(generate_daily_recommendations())
+                    asyncio.run(generate_daily_recommendations())
             except RuntimeError:
-                # Fallback: create new event loop in thread
                 import concurrent.futures
                 with concurrent.futures.ThreadPoolExecutor() as executor:
                     future = executor.submit(asyncio.run, generate_daily_recommendations())
-                    count = future.result()
-            
-            if count and count > 0:
-                self._reply(chat_id, f"✅ تم إرسال {count} توصية يومية جديدة بنجاح! / Successfully sent {count} daily recommendations!")
-            else:
-                self._reply(chat_id, "ℹ️ لا توجد توصيات جديدة اليوم / No new recommendations today")
+                    future.result()
         except Exception as e:
-            self._reply(chat_id, f"❌ حدث خطأ أثناء توليد التوصيات اليومية: {e}")
+            self._log(f"[/daily] Error generating daily recommendations: {e}")
 
     def _handle_help(self, chat_id):
         self._reply(
             chat_id,
             "📋 *الأوامر المتاحة / Available Commands:*\n\n"
             "🔗 /start — ربط حسابك بالمنصة\n"
-            "📊 /daily — التوصيات اليومية الجديدة\n"
+            "🚀 /daily — التوصيات اليومية الجديدة\n"
             "📊 /weekly — تقرير الأداء الأسبوعي للمنصة\n"
-            "📊 /status — حالة البوت *(للمشرف)*\n"
-            "📈 /positions — المراكز المفتوحة *(للمشرف)*\n"
-            "📜 /trades — آخر الصفقات *(للمشرف)*\n"
             "❓ /help — عرض هذه القائمة\n\n"
             "━━━━━━━━━━━━━━━━━━━━\n\n"
             "🔗 /start — Link your account\n"
-            "📊 /daily — Daily AI recommendations\n"
+            "🚀 /daily — Daily AI recommendations\n"
             "📊 /weekly — Weekly platform performance report\n"
-            "📊 /status — Bot status *(Admin)*\n"
-            "📈 /positions — Open positions *(Admin)*\n"
-            "📜 /trades — Recent trades *(Admin)*\n"
             "❓ /help — Show this menu",
         )
 
@@ -862,12 +753,6 @@ class TelegramBot:
             {"command": "start", "description": "🔗 ربط الحساب / Link account"},
             {"command": "daily", "description": "🚀 التوصيات اليومية / Daily recommendations"},
             {"command": "weekly", "description": "📊 تقرير الأداء الأسبوعي / Weekly report"},
-            {"command": "status", "description": "📊 حالة البوت / Bot status"},
-            {
-                "command": "positions",
-                "description": "📈 المراكز المفتوحة / Open positions",
-            },
-            {"command": "trades", "description": "📜 آخر الصفقات / Recent trades"},
             {"command": "help", "description": "❓ مساعدة / Help"},
         ]
         self._call_api("setMyCommands", {"commands": commands})

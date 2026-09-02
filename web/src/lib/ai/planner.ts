@@ -249,7 +249,7 @@ const ARABIC_STOCK_MAPPINGS: Record<string, string | string[]> = {
     "فيصل دولار": "FAITA",
     "جدوى التنمية": "GDWA",
     "الجيزة العامة": "GGCC", "جيزة مقاولات": "GGCC", "الجيزة للمقاولات": "GGCC",
-    "جو جرين": "GGRN", "جو جرين للاستثمار": "GGRN", "جرين": "GGRN",
+    "جو جرين": "GGRN", "جو جرين للاستثمار": "GGRN", "جرين": "GGRN", "جوحرين": "GGRN", "جو حرين": "GGRN", "GoGreen": "GGRN", "go green": "GGRN",
     "الغربية للإسكان": "GIHD", "الغربية للاسكان": "GIHD",
     "جي ام سي": "GMCI", "جي أم سي": "GMCI",
     "جولدن بيراميدز": "GPPL", "سيتي ستارز": "GPPL", "جولدن": "GPPL",

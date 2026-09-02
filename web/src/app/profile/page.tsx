@@ -384,7 +384,7 @@ export default function ProfilePage() {
 
                       <div className="flex flex-col gap-3 w-full">
                         <a
-                          href="https://t.me/THNDR_1"
+                          href="https://t.me/egxbots/153"
                           target="_blank"
                           rel="noopener noreferrer"
                           className="inline-flex h-12 w-full items-center justify-center gap-2 border-4 border-black dark:border-white bg-amber-300 dark:bg-amber-400 text-black font-black text-xs uppercase tracking-[0.1em] shadow-[3px_3px_0px_rgba(0,0,0,1)] hover:translate-x-[-2px] hover:translate-y-[-2px] hover:shadow-[4px_4px_0px_rgba(0,0,0,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none"
@@ -393,7 +393,7 @@ export default function ProfilePage() {
                           {isAr ? "الانضمام لقناة التليجرام" : "Join Telegram Channel"}
                         </a>
                         <a
-                          href="https://web.telegram.org/a/#?tgaddr=tg%3A%2F%2Fresolve%3Fdomain%3DTHNDR_1"
+                          href="https://t.me/egxbots/153"
                           target="_blank"
                           rel="noopener noreferrer"
                           className="inline-flex h-10 w-full items-center justify-center gap-2 border-4 border-black dark:border-white bg-white dark:bg-zinc-800 text-black dark:text-white text-[10px] font-black uppercase tracking-[0.1em] shadow-[2px_2px_0px_rgba(0,0,0,1)] hover:translate-x-[-2px] hover:translate-y-[-2px] hover:shadow-[3px_3px_0px_rgba(0,0,0,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none"

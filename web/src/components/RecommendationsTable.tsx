@@ -10,6 +10,7 @@ import StockLogo from "./StockLogo";
 import { useTheme } from "@/contexts/ThemeContext";
 import TradingViewChart from "./TradingViewChartDynamic";
 import TelegramServiceToggle from "./TelegramServiceToggle";
+import RecommendationCalendar from "./RecommendationCalendar";
 import {
     Search, Filter, AlertTriangle, RefreshCw, ChevronLeft, ChevronRight,
     TrendingUp, TrendingDown, Layers, Info, CheckCircle2, X, BarChart2,
@@ -218,7 +219,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
     const [searchTerm, setSearchTerm] = useState("");
     const [selectedSector, setSelectedSector] = useState("");
     const [selectedSignal, setSelectedSignal] = useState("");
-    const [activeTab, setActiveTab] = useState<"active" | "closed" | "all">("active");
+    const [activeTab, setActiveTab] = useState<"active" | "closed" | "all" | "calendar">("active");
     const [timeRange, setTimeRange] = useState<"all" | "7d" | "30d">("all");
     const [sortBy, setSortBy] = useState("precision");
     const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
@@ -1909,6 +1910,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                     {[
                         { id: "active", label: isAr ? "الصفقات النشطة (المفتوحة)" : "Active Trades (Open)", count: tabCounts.activeCount },
                         { id: "closed", label: isAr ? "أرشيف العمليات (المغلقة)" : "Closed Archive", count: tabCounts.closedCount },
+                        { id: "calendar", label: isAr ? "📅 تقويم أرباح التوصيات" : "📅 Profit Calendar", count: tabCounts.totalCount },
                         { id: "all", label: isAr ? "جميع الصفقات" : "All Trades", count: tabCounts.totalCount }
                     ].map(tab => {
                         const isSelected = activeTab === tab.id;
@@ -1949,6 +1951,15 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                 </div>
             )}
 
+            {/* Calendar View Tab */}
+            {activeTab === "calendar" ? (
+                <RecommendationCalendar
+                    recommendations={recommendations}
+                    loading={recsLoading}
+                    onSelectStock={handleStockClick}
+                />
+            ) : (
+                <>
             {/* Interactive Filters */}
             {limit === Infinity && (!isLandingPage || user) && (
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 p-4 border-4 border-black dark:border-white bg-white dark:bg-zinc-950 text-black dark:text-white shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_rgba(255,255,255,1)]">
@@ -2425,6 +2436,8 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                         </button>
                     </div>
                 </div>
+            )}
+            </>
             )}
         </div>
     );
