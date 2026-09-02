@@ -589,6 +589,45 @@ describe("validator: Evidence Verifier CHECK 8 — false 'آمن'/'قوي' with 
     );
     expect(check8Errors.length).toBe(0);
   });
+
+  it("CHECK 8: does not flag negated 'آمن' claim with neutral RSI", () => {
+    const reply = "لا يوجد مستوى آمن لسهم AFMC عند RSI 52.88.";
+    const errors = validateDeterministicRules(
+      reply,
+      afmcToolResults,
+      "حلل سهم AFMC",
+    );
+    const check8Errors = errors.filter(
+      (e) => e.includes("آمن") && e.includes("RSI"),
+    );
+    expect(check8Errors.length).toBe(0);
+  });
+
+  it("CHECK 8: does not flag negated 'قوي' claim with neutral RSI", () => {
+    const reply = "ليس لدى السهم AFMC إشارة قوية عند RSI 52.88.";
+    const errors = validateDeterministicRules(
+      reply,
+      afmcToolResults,
+      "حلل سهم AFMC",
+    );
+    const check8Errors = errors.filter(
+      (e) => e.includes("آمن") && e.includes("RSI"),
+    );
+    expect(check8Errors.length).toBe(0);
+  });
+
+  it("CHECK 8: does not flag negated 'إيجابية واضحة' claim with neutral RSI", () => {
+    const reply = "لا توجد إيجابية واضحة لسهم AFMC مع RSI 52.88.";
+    const errors = validateDeterministicRules(
+      reply,
+      afmcToolResults,
+      "حلل سهم AFMC",
+    );
+    const check8Errors = errors.filter(
+      (e) => e.includes("آمن") && e.includes("RSI"),
+    );
+    expect(check8Errors.length).toBe(0);
+  });
 });
 
 describe("validator: Model Consensus rules in system prompt", () => {

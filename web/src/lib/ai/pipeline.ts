@@ -1488,7 +1488,7 @@ export async function* runPipelineStream(
     }
 
     let attempts = 0;
-    const maxAttempts = 2;
+    const maxAttempts = 3;
     let correctionPrompt: string | undefined = undefined;
     let finalReply = "";
 

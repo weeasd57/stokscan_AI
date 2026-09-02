@@ -578,16 +578,27 @@ export function validateDeterministicRules(
 
         // EVIDENCE VERIFIER CHECK 8: False "آمن" / "قوي" / "إيجابية واضحة" claim with neutral RSI
         // When RSI is in the 40-70 neutral range, words like "آمن", "إشارة قوية",
-        // "زخم قوي", "منطقة آمن", "إيجابية واضحة" overstate the evidence. These should
-        // be downgraded to "محايد" or "يتميل للإيجابية".
+        // "زخم قوي", "منطقة آمن", "صاعد إيجابي وآمن", "إيجابية واضحة", "تفوق واضح"
+        // overstate the evidence. These should be downgraded to "محايد" or "يتميل للإيجابية".
+        // However, negated claims (e.g. "لا يوجد مستوى آمن", "ليست إشارة قوية") are honest
+        // and must NOT be flagged.
         const rsi = facts?.rsi != null ? Number(facts.rsi) : null;
         if (rsi !== null && rsi >= 40 && rsi <= 70 && !Number.isNaN(rsi)) {
-            const strongWords = /\bآمن\b|إشارة\s*قوي|زخم\s*قوي|منطقة\s*آمن|صاعد\s*إيجابي\s*وآمن|إيجابية\s*واضحة|تفوق\s*واضح/g;
-            if (strongWords.test(sentence)) {
+            const strongWordsCheck = /\bآمن\b|إشارة\s*قوي|زخم\s*قوي|منطقة\s*آمن|صاعد\s*إيجابي\s*وآمن|إيجابية\s*واضحة|تفوق\s*واضح/gi;
+            let strongMatch;
+            let hasUnnegatedStrongWord = false;
+            while ((strongMatch = strongWordsCheck.exec(sentence)) !== null) {
+                const textBeforeStrong = sentence.slice(0, strongMatch.index);
+                const hasNegationBefore = /لا|ليس|غير|لم|لن|مفيش|ما\s+فيش/i.test(textBeforeStrong);
+                if (!hasNegationBefore) {
+                    hasUnnegatedStrongWord = true;
+                    break;
+                }
+            }
+            if (hasUnnegatedStrongWord) {
                 errors.push(`ادعاء "آمن" أو "قوي" مبالغ فيه لسهم ${activeSymbol} مع RSI = ${rsi} (محايد 40-70): استخدم "محايد يميل للإيجابية" بدلاً من "آمن" أو "قوي".`);
             }
         }
-
         const claims = extractSentenceClaims(sentence, activeSymbol, facts);
 
 
