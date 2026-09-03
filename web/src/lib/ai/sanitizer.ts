@@ -263,6 +263,9 @@ export function sanitizeReply(reply: string, liveDataString?: string): string {
         // Remove long risk management sections
         .replace(/📌\s*إدارة المخاطر:[\s\S]*?(?=\n\n|$)/gi, "")
         .replace(/\d+\.\s*لا تحوّل[\s\S]*?(?=\n\n|$)/gi, "")
+        // Clean collapsed inline pipe lists like: "1 | COSG | ... | 2026-09-03 2 | MOED | ... | 2026-09-03"
+        .replace(/(?:^|\n)\s*(?:📋\s*(?:جدول|قائمة)[^\n]*)?\s*(?:\d+\s*\|\s*[A-Z]{2,6}\b[^\n]*\d+\s*\|\s*[A-Z]{2,6}\b[\s\S]*?)(?=\n\s*(?:📊|##|###|\*\*|•|-|🎯|📌|$))/g, "\n")
+        .replace(/(?:\d+\s*\|\s*[A-Z]{2,6}\s*\|[^\n|]+(?:\|[^\n|]+){2,}\s*){2,}/g, "")
         // Fix broken Arabic grammar patterns
         .replace(/يوصي بنا/gi, "يرجح التحليل الفني")
         .replace(/أن نستثمر في/gi, "الأقوى فنيّاً")

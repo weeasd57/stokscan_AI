@@ -1,4 +1,4 @@
-﻿import { IntentPlan, VisionContext, ToolResult, FactSnapshot, SessionState } from "./types";
+import { IntentPlan, VisionContext, ToolResult, FactSnapshot, SessionState } from "./types";
 import { getSyncSymbolOfficialNameMap } from "./planner";
 import { AI_CONFIG } from "./config";
 import { getDeepSeekApiKey, getNvidiaApiKeys } from "./server-secrets";
@@ -73,6 +73,10 @@ export function buildEvidenceEnginePromptBlock(toolResults: ToolResult[]): strin
         lines.push(`  - resistance: ${lvlData?.resistance ?? "NOT_PROVIDED"} ← [مستوى المقاومة — ليس السعر الحالي]`);
         lines.push(`  - king_ai_score: ${stockData?.king_ai_score ?? scanStock?.king_ai_score ?? "NOT_PROVIDED"} ← [تقييم نموذج KING للتعلم الآلي فنيًا من 0 إلى 1، مثلاً 0.583 تعني ثقة 58.3%]`);
         lines.push(`  - egx_ai_score: ${stockData?.egx_ai_score ?? scanStock?.egx_ai_score ?? "NOT_PROVIDED"} ← [تقييم نموذج EGX للتعلم الآلي فنيًا من 0 إلى 1، مثلاً 0.67 تعني ثقة 67.0%]`);
+        const rec = stockData?.recommendation;
+        if (rec) {
+            lines.push(`  - platform_recommendation: ${rec.has_recommendation ? (rec.is_active ? `ACTIVE_OPEN (إشارة ${rec.signal}، سعر الدخول: ${rec.entry_price} ج.م، المستهدف: ${rec.target_price} ج.م، وقف الخسارة: ${rec.stop_loss} ج.م، صدرت: ${rec.duration}، العائد المحقق حتى الآن: ${rec.profit_loss_str})` : `PREVIOUS_CLOSED (الحالة: ${rec.status}، النتيجة: ${rec.outcome_desc}، صدرت: ${rec.duration}، العائد: ${rec.profit_loss_str})`) : "NONE (لا توجد توصيات سابقة أو حالية مسجلة لهذا السهم على المنصة)"}`);
+        }
 
 
         lines.push(`DERIVED_FLAGS:`);
@@ -331,7 +335,13 @@ export function buildV2FinalMessages(
             sections.push("=== HISTORICAL DATA ===");
             historicalResults.forEach(r => {
                 sections.push(`الأداة: ${r.tool} | المصدر: ${r.source} | الوقت: ${r.data_time} | نوع: ${r.data_type}`);
-                if (typeof r.data === "object" && r.data !== null) {
+                if (r.tool === "get_recommendations" && Array.isArray(r.data)) {
+                    sections.push("  recommendations_data (Use this strictly for qualitative performance analysis; DO NOT output raw table rows into the text response as the interactive Excel table is already rendered above your answer):");
+                    r.data.forEach((rec: any, idx: number) => {
+                        const retSign = rec.return_pct != null ? `${rec.return_pct >= 0 ? "+" : ""}${Number(rec.return_pct).toFixed(2)}%` : "-";
+                        sections.push(`  - [${rec.symbol} - ${rec.name || rec.symbol}]: إشارة=${rec.signal || "BUY"} | حالة=${rec.status_label || rec.status} | دخول=${rec.entry_price} ج.م | هدف=${rec.target_price} ج.م | وقف=${rec.stop_loss} ج.م | عائد=${retSign} | مدة=${rec.duration || rec.created_at}`);
+                    });
+                } else if (typeof r.data === "object" && r.data !== null) {
                     for (const [key, val] of Object.entries(r.data)) {
                         sections.push(`  ${key}: ${formatFactValue(val)}`);
                     }
@@ -419,9 +429,16 @@ export function buildV2FinalMessages(
     sections.push("    - المخاطر (Risk): مسافة السعر من أقرب مستوى دعم/مقاومة، إشارات توزيع/تجميع المتاحة.");
     sections.push("    - الثقة النهائية (Final Confidence): مجموع البندات الموجبة.");
     sections.push("    ثم اجمعها في عمود 'النتيجة النهائية' وقلّلها إلى فئات: STRONG BUY (قوي للشراء) / BUY (أفضل) / NEUTRAL (محايد) / AVOID (تجنب). لا تخترع بندًا واحدة من عدها — استخدم فقط القيم الموجودة في === LIVE DATA ===. كن النظام المحسوب وليس الكاتب الذي يخترع.");
-    sections.push("- عندما يسأل المستخدم عن وجود توصيات أو إشارات (أو عند العثور على توصيات في البيانات):");
-    sections.push("  • إذا توفرت توصيات أو إشارات في بيانات الأدوات (المسترجعة من get_recommendations أو get_signals): قم بعرض تفاصيل كل توصية بوضوح (سعر الدخول، الهدف، وقف الخسارة، ونسبة العائد المتوقعة أو الفعلية والتقييم الفعلي لأدائها).");
-    sections.push("  • إذا لم تكن هناك توصيات مسجلة للأسهم المطلوبة في البيانات: ابدأ الرد بإجابة حوارية مباشرة موضحاً أنه لا توجد حالياً توصيات جديدة مسجلة على هذه الأسهم بصفحة التوصيات بالنظام، ثم قدم له قراءة فنية لمستويات الدعم والمقاومة للاسترشاد بها.");
+    sections.push("- عندما يسأل المستخدم عن قوائم أو توصيات السوق أو الأسبوع أو كل التوصيات المفتوحة (استعلام عام يشمل أكثر من سهم):");
+    sections.push("  • جدول التوصيات الكامل التفاعلي (مع إمكانية التصدير لإكسيل) يُعرض تلقائياً أعلى ردك مباشرة كعنصر تفاعلي في واجهة المحادثة. يمنع منعاً باتاً تكرار أو طباعة أسطر الجدول أو كتابة نصوص بنظام '1 | COSG | ...' داخل النص.");
+    sections.push("  • يمنع تماماً استخدام عنوان '🎯 موقف توصيات المنصة للسهم' في الاستعلامات العامة للتوصيات؛ هذا العنوان مخصص فقط للسهم الفردي.");
+    sections.push("  • لا تقل أبداً '📋 جدول توصيات...' أو تعد بجدول تالٍ في ردك، بل ادخل مباشرة في التحليل الفني النوعي.");
+    sections.push("  • قدم تحليلاً نوعياً ذكياً وموجزاً يصنف التوصيات إلى: 🟢 الأفضل أداءً (الرابحة مع نسب العائد)، ⚪ المتعادلة (0.00% صفقات راكدة لم تتحرك)، 🔴 المتراجعة (خسائر غير محققة)، و🏁 المنتهية (المغلقة بتحقيق الهدف أو ضرب الوقف إن وُجدت).");
+    sections.push("- 🎯 موقف توصيات منصة EGX Bots للسهم (مخصص حصرياً وإلزامي عند تحليل أو الاستعلام عن سهم واحد بعينه مثل: حلل ABUK، سعر COMI، أو هل له توصية):");
+    sections.push("  • في ردود الأسهم الفردية فقط، خصص قسماً بعنوان '🎯 موقف توصيات المنصة للسهم' يوضح بدقة:");
+    sections.push("    1. إذا كانت هناك توصية نشطة (مفتوحة / open): اذكر نوع الإشارة (شراء BUY أو بيع SELL)، سعر الدخول، المستهدف، وقف الخسارة، تاريخ صدورها والمدة المنقضية (مثال: 'صدرت منذ 4 أيام بتاريخ 2026-08-31')، والعائد المحقق حتى الآن (مثال: +14.20%).");
+    sections.push("    2. إذا كانت هناك توصية سابقة مغلقة (حققت الهدف win أو ضربت الوقف loss): اذكر متى صدرت، وكيف انتهت (حققت الهدف بنجاح بربح X% أو ضربت وقف الخسارة بنسبة Y%).");
+    sections.push("    3. إذا لم تكن هناك أي توصيات سابقة أو حالية مسجلة للسهم: وضح بصراحة واختصار أنه لا توجد توصيات مسجلة لهذا السهم على المنصة حالياً.");
     sections.push("  • 🚫 قاعدة صارمة لتقييم 'الأقوى' أو 'الأفضل' أداءً في التوصيات:");
     sections.push("    1. العائد بقيمة 0.00% يعني تعادلاً تاماً (صفقة راكدة لم تتحرك)، وليس ربحاً ولا ينبغي تسميتها 'مرحلة إيجابية' أو 'صفقة رابحة'.");
     sections.push("    2. الترتيب الصحيح لقوة أداء الصفقات هو: الأعلى ربحاً (الموجب) > الأقرب للتعادل (الأقل خسارة أو 0.00%) > الأكبر خسارة (السالب).");

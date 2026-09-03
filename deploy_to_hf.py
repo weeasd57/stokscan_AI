@@ -128,7 +128,8 @@ if operations:
             repo_id=REPO_ID,
             repo_type=REPO_TYPE,
             operations=operations,
-            commit_message="deploy: update backend code and binary models"
+            commit_message="deploy: update backend code and binary models",
+            create_pr=True
         )
         print("✅ Atomic deployment successful! Only 1 commit created.")
     except Exception as e:

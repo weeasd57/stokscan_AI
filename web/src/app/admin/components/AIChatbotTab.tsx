@@ -104,13 +104,29 @@ export default function AIChatbotTab() {
         })).sort((a, b) => new Date(b.last_date).getTime() - new Date(a.last_date).getTime());
     }, [logs]);
 
+    const [dateFilter, setDateFilter] = useState<"all" | "today" | "week">("all");
+
     const filteredUserGroups = useMemo(() => {
-        if (!searchUserQuery.trim()) return userGroups;
+        const now = Date.now();
+        const oneDay = 24 * 60 * 60 * 1000;
+        const sevenDays = 7 * oneDay;
+
+        let filtered = userGroups;
+
+        if (dateFilter === "today") {
+            filtered = filtered.filter(g => now - new Date(g.last_date).getTime() <= oneDay);
+        } else if (dateFilter === "week") {
+            filtered = filtered.filter(g => now - new Date(g.last_date).getTime() <= sevenDays);
+        }
+
+        if (!searchUserQuery.trim()) return filtered;
         const q = searchUserQuery.toLowerCase();
-        return userGroups.filter(
-            g => g.user_name.toLowerCase().includes(q) || g.user_id.toLowerCase().includes(q)
+        return filtered.filter(
+            g => g.user_name.toLowerCase().includes(q) ||
+                 g.user_id.toLowerCase().includes(q) ||
+                 g.logs.some(l => (l.message || "").toLowerCase().includes(q) || (l.reply || "").toLowerCase().includes(q))
         );
-    }, [userGroups, searchUserQuery]);
+    }, [userGroups, searchUserQuery, dateFilter]);
 
     const selectedGroup = useMemo(() => {
         if (!selectedUserId && filteredUserGroups.length > 0) {
@@ -142,13 +158,47 @@ export default function AIChatbotTab() {
                 <div>
                     <h2 className="text-2xl font-black uppercase tracking-tight text-black dark:text-white flex items-center gap-3">
                         <Sparkles className="w-8 h-8 text-indigo-500" />
-                        AI Chatbot Monitor
+                        AI Chatbot & Support Monitor
                     </h2>
-                    <p className="text-zinc-500 font-medium mt-1">Monitor user conversations with the AI assistant.</p>
+                    <p className="text-zinc-500 font-medium mt-1">سجل استفسارات ومحادثات العملاء وتذاكر الدعم الفني المباشر.</p>
                 </div>
             </div>
 
-            <div className="w-full">
+            {/* Sub-tab Navigation */}
+            <div className="flex items-center gap-3 border-b-2 border-zinc-200 dark:border-zinc-800 pb-3">
+                <button
+                    onClick={() => setViewMode("ai_config")}
+                    className={`px-4 py-2 text-xs md:text-sm font-bold rounded-lg transition-all flex items-center gap-2 ${
+                        viewMode === "ai_config"
+                            ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/20"
+                            : "bg-zinc-100 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 hover:text-black dark:hover:text-white"
+                    }`}
+                >
+                    <Sparkles className="w-4 h-4" />
+                    <span>🤖 سجل محادثات الذكاء الاصطناعي (AI Chatbot)</span>
+                    <span className="text-[10px] bg-black/20 dark:bg-white/20 px-2 py-0.5 rounded-full font-mono">
+                        {userGroups.length}
+                    </span>
+                </button>
+                <button
+                    onClick={() => setViewMode("support_chats")}
+                    className={`px-4 py-2 text-xs md:text-sm font-bold rounded-lg transition-all flex items-center gap-2 ${
+                        viewMode === "support_chats"
+                            ? "bg-indigo-600 text-white shadow-md shadow-indigo-600/20"
+                            : "bg-zinc-100 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 hover:text-black dark:hover:text-white"
+                    }`}
+                >
+                    <MessageSquare className="w-4 h-4" />
+                    <span>💬 تذاكر ودعم العملاء المباشر (Human Support)</span>
+                </button>
+            </div>
+
+            {viewMode === "support_chats" ? (
+                <div className="w-full bg-white dark:bg-black border-4 border-black dark:border-white shadow-[8px_8px_0px_rgba(0,0,0,1)] dark:shadow-[8px_8px_0px_rgba(255,255,255,1)] p-4">
+                    <SupportTab />
+                </div>
+            ) : (
+                <div className="w-full">
                     {/* User-grouped Logs Column */}
                     <div className="w-full">
                         <div className={isFullscreen 
@@ -164,7 +214,7 @@ export default function AIChatbotTab() {
                                             AI Chat User Sessions
                                         </h3>
                                         <p className="text-xs text-zinc-500 font-medium">
-                                            {userGroups.length} users recorded
+                                            {filteredUserGroups.length} من {userGroups.length} عميل مسجل
                                         </p>
                                     </div>
                                 </div>
@@ -199,17 +249,32 @@ export default function AIChatbotTab() {
                                 <div className="grid grid-cols-1 md:grid-cols-3 flex-1 overflow-hidden min-h-[500px]">
                                     {/* Right Pane: Users List (Moved via flex order) */}
                                     <div className="md:col-span-1 border-l-2 border-zinc-200 dark:border-zinc-800 flex flex-col bg-zinc-50/50 dark:bg-black overflow-hidden order-first md:order-last">
-                                        {/* Search Filter */}
-                                        <div className="p-3 border-b border-zinc-200 dark:border-zinc-800">
+                                        {/* Search Filter & Date Quick Tabs */}
+                                        <div className="p-3 border-b border-zinc-200 dark:border-zinc-800 space-y-2">
                                             <div className="relative">
-                                                <Search className="w-4 h-4 absolute left-3 top-3 text-zinc-400" />
+                                                <Search className="w-4 h-4 absolute left-3 top-2.5 text-zinc-400" />
                                                 <input
                                                     type="text"
                                                     value={searchUserQuery}
                                                     onChange={(e) => setSearchUserQuery(e.target.value)}
-                                                    placeholder="Search user name..."
+                                                    placeholder="بحث باسم العميل، الإيميل، أو نص الرسالة..."
                                                     className="w-full bg-white dark:bg-black border border-zinc-300 dark:border-zinc-800 pl-9 pr-3 py-2 text-xs rounded-lg text-black dark:text-white placeholder:text-zinc-500 focus:outline-none focus:border-indigo-500"
                                                 />
+                                            </div>
+                                            <div className="flex items-center gap-1">
+                                                {(["all", "today", "week"] as const).map((filterKey) => (
+                                                    <button
+                                                        key={filterKey}
+                                                        onClick={() => setDateFilter(filterKey)}
+                                                        className={`flex-1 py-1 text-[11px] font-bold rounded-md transition-all text-center ${
+                                                            dateFilter === filterKey
+                                                                ? "bg-indigo-500 text-white shadow-sm"
+                                                                : "bg-zinc-100 dark:bg-zinc-900 text-zinc-500 hover:text-black dark:hover:text-white"
+                                                        }`}
+                                                    >
+                                                        {filterKey === "all" ? "الكل" : filterKey === "today" ? "اليوم" : "آخر 7 أيام"}
+                                                    </button>
+                                                ))}
                                             </div>
                                         </div>
 
@@ -359,7 +424,14 @@ export default function AIChatbotTab() {
                                                                         )}
                                                                     </span>
                                                                     <div className="text-black dark:text-zinc-100">
-                                                                        <FormattedChatMessage content={log.reply} role="assistant" showSuggestedButtons={false} latencyMs={log.latency_ms} />
+                                                                        {log.reply && log.reply.trim().length > 0 ? (
+                                                                            <FormattedChatMessage content={log.reply} role="assistant" showSuggestedButtons={false} latencyMs={log.latency_ms} />
+                                                                        ) : (
+                                                                            <div className="text-zinc-400 dark:text-zinc-500 italic text-[11px] py-1 flex items-center gap-1.5">
+                                                                                <span>⚠️</span>
+                                                                                <span>لم يتم تسجيل رد من المساعد (أو انقطع الاتصال أثناء التوليد)</span>
+                                                                            </div>
+                                                                        )}
                                                                     </div>
                                                                 </div>
                                                             </div>
@@ -379,6 +451,7 @@ export default function AIChatbotTab() {
                         </div>
                     </div>
                 </div>
-            </div>
+            )}
+        </div>
     );
 }

@@ -141,11 +141,42 @@ async function insertChatMessages(supabase: any, rows: any[]): Promise<void> {
 }
 
 function generateSuggestedButtons(plannerResult: any, sessionState: any): string[] {
-    if (plannerResult?.intent === "general_chat" || plannerResult?.intent === "sector_analysis" || plannerResult?.intent === "market_summary") {
+    const isRecQuery = Array.isArray(plannerResult?.tools) && plannerResult.tools.includes("get_recommendations");
+    if (isRecQuery) {
+        const filter = plannerResult?.entities?.recommendation_filter;
+        if (filter === "this_week") {
+            return [
+                "عايز توصيات الاسبوع اللى فات",
+                "هات كل التوصيات المفتوحه",
+                "أقوى الأسهم النهارده"
+            ];
+        }
+        if (filter === "last_week") {
+            return [
+                "عايز توصيات الاسبوع الحالى",
+                "هات كل التوصيات المفتوحه",
+                "أقوى الأسهم النهارده"
+            ];
+        }
         return [
+            "عايز توصيات الاسبوع الحالى",
+            "عايز توصيات الاسبوع اللى فات",
+            "أقوى الأسهم النهارده"
+        ];
+    }
+    if (plannerResult?.intent === "sector_analysis") {
+        const sec = plannerResult?.entities?.sector;
+        return [
+            sec ? `أقوى أسهم قطاع ${sec}` : "أقوى قطاع بالسيولة",
+            "هات كل التوصيات المفتوحه",
+            "أقوى الأسهم النهارده"
+        ];
+    }
+    if (plannerResult?.intent === "general_chat" || plannerResult?.intent === "market_summary") {
+        return [
+            "هات كل التوصيات المفتوحه",
             "أقوى الأسهم النهارده",
-            "مقارنة COMI و EAST",
-            "البنوك حالتها إيه؟"
+            "مقارنة COMI و EAST"
         ];
     }
     const symbols = plannerResult?.entities?.symbols || [];

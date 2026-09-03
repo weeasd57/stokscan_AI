@@ -8,9 +8,18 @@
 // ============================================================
 const ARABIC_STOCK_MAPPINGS: Record<string, string | string[]> = {
 
-    // ── IEOC  المشروعات الصناعية والهندسية ────────────────
-    "المشروعات الصناعية": "IEOC", "المشروعات الصناعيه": "IEOC",
-    "المشروعات الصناعية والهندسية": "IEOC", "المشروعات الصناعيه والهندسيه": "IEOC",
+    // ── IEEC  المشروعات الصناعية والهندسية ────────────────
+    "المشروعات الصناعية والهندسية": "IEEC", "المشروعات الصناعيه والهندسيه": "IEEC",
+    "مشروعات صناعية وهندسية": "IEEC", "مشروعات صناعيه وهندسيه": "IEEC",
+    "المشروعات الصناعية": "IEEC", "المشروعات الصناعيه": "IEEC",
+    "مشروعات صناعية": "IEEC", "مشروعات صناعيه": "IEEC",
+    "المشروعات الهندسية": "IEEC", "المشروعات الهندسيه": "IEEC",
+    "مشروعات هندسية": "IEEC", "مشروعات هندسيه": "IEEC",
+    "الصناعات الهندسية": "IEEC", "الصناعات الهندسيه": "IEEC",
+    "صناعات هندسية": "IEEC", "صناعات هندسيه": "IEEC",
+    "صناعية وهندسية": "IEEC", "صناعيه وهندسيه": "IEEC",
+    "الهندسية والمشروعات": "IEEC", "الهندسيه والمشروعات": "IEEC",
+    "IEEC": "IEEC", "IECC": "IEEC", "IICC": "IEEC", "IEOC": "IEEC", "IICE": "IEEC",
 
     // ── ABUK  أبو قير للأسمدة ──────────────────────────────
     "أبو قير": "ABUK", "ابو قير": "ABUK",
@@ -200,7 +209,10 @@ const ARABIC_STOCK_MAPPINGS: Record<string, string | string[]> = {
     "المجموعة العقارية": "AREH", "عقارية مصرية": "AREH",
     "صمامات العرب": "ARVA", "العربية للصمامات": "ARVA",
     "أطلس للاستثمار": "AIVCB", "اطلس للاستثمار": "AIVCB", "أطلس": "AIVCB", "اطلس": "AIVCB", "أطلس للإستثمارات": "AIVCB", "اطلس للاستثمارات": "AIVCB", "ATLS": "AIVCB", "AIFI": "AIVCB",
-    "أسباير": "ASPI", "اسباير": "ASPI", "أسباير كابيتال": "ASPI",
+    "أسباير": "ASPI", "اسباير": "ASPI", "أسباير كابيتال": "ASPI", "اسباير كابيتال": "ASPI",
+    "اسابير": "ASPI", "أصابير": "ASPI", "اسابير كبتال": "ASPI", "اسابير كابيتال": "ASPI", "اسباير كبتال": "ASPI", "أسباير كبتال": "ASPI", "اسباير كبيتال": "ASPI", "أسباير كبيتال": "ASPI", "اسابير كبيتال": "ASPI", "أصابير كابيتال": "ASPI", "أصابير كبتال": "ASPI",
+    "اسبير": "ASPI", "أسبير": "ASPI", "اسبير كابيتال": "ASPI", "أسبير كابيتال": "ASPI", "اسبير كبتال": "ASPI", "أسبير كبتال": "ASPI",
+    "أسباير كابيتال القابضة": "ASPI", "اسباير كابيتال القابضة": "ASPI", "اسباير القابضة": "ASPI", "أسباير القابضة": "ASPI", "اسابير كابيتال القابضة": "ASPI", "اسابير كبتال القابضة": "ASPI", "أسباير للاستثمارات المالية": "ASPI", "اسباير للاستثمارات المالية": "ASPI",
     // ركاز القابضة (Rekaz Holding) - سهم منفصل في سوق SMEs برمز RKAZ، لا علاقة له بأسباير
     "ركاز": "RKAZ", "ركزة": "RKAZ", "ركاز القابضة": "RKAZ", "ركزة القابضة": "RKAZ", "ركاز للاستثمار": "RKAZ", "ركزة للاستثمار": "RKAZ", "RKAZ": "RKAZ", "rkaz": "RKAZ", "Rkaz": "RKAZ",
     "التوفيق للتأجير": "ATLC", "التوفيق لتاجير": "ATLC", "أي تي ليز": "ATLC",
@@ -233,7 +245,7 @@ const ARABIC_STOCK_MAPPINGS: Record<string, string | string[]> = {
     "العربية لاستصلاح الاراضي": "EALR", "العربية لاستصلاح الأراضي": "EALR",
     "الجوهرة": "ECAP", "الجوهرة للسيراميك": "ECAP", "عز للسيراميك": "ECAP",
     "مطاحن شرق الدلتا": "EDFM", "شرق الدلتا للمطاحن": "EDFM",
-    "الهندسية للاستثمار": "EEII", "العربية الهندسية": "EEII",
+    "العربية للصناعات الهندسية": "EEII", "العربيه للصناعات الهندسيه": "EEII", "الهندسية للاستثمار": "EEII", "العربية الهندسية": "EEII", "عربية صناعات هندسية": "EEII",
     "المالية والصناعية": "EFIC", "المالية والصناعية المصرية": "EFIC", "كفر الزيات للمالية": "EFIC",
     "غاز مصر": "EGAS", "ايجاس": "EGAS", "إيجاس": "EGAS",
     "المصري الخليجي": "EGBE", "المصرى الخليجى": "EGBE", "بنك ايجي بنك": "EGBE", "ايجي بنك": "EGBE",
@@ -260,7 +272,6 @@ const ARABIC_STOCK_MAPPINGS: Record<string, string | string[]> = {
     "الدولية للمخصبات": "ICFC", "مخصبات": "ICFC",
     "الدولية للاستثمار": "ICID", "الدولية للتنمية": "ICID",
     "الإسماعيلية للتطوير": "IDRE", "الاسماعيلية للاسكان": "IDRE",
-    "المشروعات الهندسية": "IEEC",
     "الإسماعيلية للأغذية": "INFI", "الاسماعيلية الدواجن": "INFI", "فوديكو": "INFI", "فوديكوه": "INFI", "فودكو": "INFI", "إسماعيلية فوديكو": "INFI", "اسماعيلية فوديكو": "INFI", "الإسماعيلية الوطنية للصناعات الغذائية": "INFI", "الاسماعيلية الوطنية للصناعات الغذائية": "INFI",
     "إسماعيلية للدواجن": "ISMA", "اسماعيلية مصر للدواجن": "ISMA",
     "حديد ومناجم": "ISMQ", "مناجم ومحاجر": "ISMQ", "مناجم الصلب": "ISMQ",
@@ -288,8 +299,11 @@ const ARABIC_STOCK_MAPPINGS: Record<string, string | string[]> = {
     "مصر للزيوت والصابون": "MOSC",
     "ممفيس": "MPCI", "ممفيس للأدوية": "MPCI", "ممفيس للادوية": "MPCI",
     "إنتاج إعلامي": "MPRC", "الانتاج الاعلامي": "MPRC", "مدينة الانتاج الاعلامي": "MPRC", "الإنتاج الإعلامي": "MPRC",
-    "ام ام جروب": "MTIE", "إم إم جروب": "MTIE", "ام.ام جروب": "MTIE",
-    "النعيم": "NAHO", "النعيم القابضة": "NAHO",
+    "النعيم العقارية": "NARE", "النعيم العقاريه": "NARE", "نعيم عقارية": "NARE", "نعيم عقاريه": "NARE",
+    "مجموعة النعيم العقارية": "NARE", "مجموعه النعيم العقاريه": "NARE", "مجموعة النعيم العقارية القابضة": "NARE", "مجموعه النعيم العقاريه القابضه": "NARE",
+    "النعيم العقارية القابضة": "NARE", "النعيم العقاريه القابضه": "NARE", "نعيم عقارية قابضة": "NARE", "نعيم عقاريه قابضه": "NARE",
+    "النعيم للاستثمار العقاري": "NARE", "النعيم العقاري": "NARE",
+    "النعيم": "NAHO", "النعيم القابضة": "NAHO", "النعيم القابضه": "NAHO", "نعيم قابضة": "NAHO", "نعيم قابضه": "NAHO", "النعيم للاستثمارات المالية": "NAHO",
     "النصر": "NASR", "النصر للمقاولات": "NASR",
     "الكويت الوطني": "NBKE", "بنك الكويت الوطني": "NBKE", "الكويت الوطني مصر": "NBKE",
     "النصر للأعمال المدنية": "NCCW", "النصر للاعمال المدنية": "NCCW",
@@ -623,7 +637,10 @@ export function getSyncSymbolOfficialNameMap(): Record<string, { name_en?: strin
         GTWL: { name_en: "Golden Textiles & Clothes Wool", name_ar: "جولدن للمنسوجات والملابس الصوفية (GTWL)" },
         COPR: { name_en: "Cooper for Commercial Investment", name_ar: "كوبر للاستثمار التجاري والعقاري (COPR)" },
         MPCO: { name_en: "Mansourah Poultry Co.", name_ar: "المنصورة للدواجن (MPCO)" },
-        ASPI: { name_en: "Aspire Capital Holding", name_ar: "أسباير كابيتال القابضة" },
+        ASPI: { name_en: "Aspire Capital Holding for Financial Investments", name_ar: "أسباير كابيتال القابضة" },
+        NARE: { name_en: "Naeem Real Estate Holding Group", name_ar: "مجموعة النعيم العقارية القابضة" },
+        NAHO: { name_en: "Naeem Holding Co.", name_ar: "النعيم القابضة للاستثمارات المالية" },
+        IEEC: { name_en: "Industrial & Engineering Enterprises Co.", name_ar: "المشروعات الصناعية والهندسية" },
         IEOC: { name_en: "Industrial and Engineering Projects", name_ar: "المشروعات الصناعية والهندسية" },
         FCMD: { name_en: "Future Care Medical", name_ar: "فيوتشر كير للصناعات الطبية" },
         AALR: { name_en: "General Co. for Land Reclamation", name_ar: "الشركة العامة لاستصلاح الأراضي" },
@@ -690,8 +707,18 @@ function getLevenshteinDistance(a: string, b: string): number {
     return matrix[b.length][a.length];
 }
 
+export const LATIN_TICKER_ALIASES: Record<string, string> = {
+    "IECC": "IEEC",
+    "IICC": "IEEC",
+    "IEOC": "IEEC",
+    "IICE": "IEEC",
+};
+
 export function correctStockSymbol(symbol: string, validSymbols: string[]): string {
     const upperSym = symbol.trim().toUpperCase();
+    if (LATIN_TICKER_ALIASES[upperSym]) {
+        return LATIN_TICKER_ALIASES[upperSym];
+    }
     if (validSymbols.includes(upperSym)) {
         return upperSym;
     }
@@ -729,7 +756,9 @@ export function extractSymbolsFromText(
 
     const tokens = textUpper.split(/[^A-Z0-9]/).map(t => t.trim()).filter(Boolean);
     for (const token of tokens) {
-        if (validSymbols.includes(token)) {
+        if (LATIN_TICKER_ALIASES[token]) {
+            found.push(LATIN_TICKER_ALIASES[token]);
+        } else if (validSymbols.includes(token)) {
             found.push(token);
         } else if (token.length >= 3) {
             const corrected = correctStockSymbol(token, validSymbols);

@@ -162,18 +162,29 @@ function buildComparisonTable(tool: ToolResult): ExcelTable | null {
 
 function buildRecommendationsTable(tool: ToolResult): ExcelTable | null {
     const recommendations = Array.isArray(tool.data) ? tool.data : [];
-    const rows = recommendations.map((item: any) => [
-        cell(item.symbol), cell(item.name), cell(item.signal), cell(item.entry_price),
-        cell(item.target_price), cell(item.stop_loss), cell(item.current_price),
-        item.return_pct == null ? "غير متاح" : `${item.return_pct >= 0 ? "+" : ""}${Number(item.return_pct).toFixed(2)}%`,
-        cell(item.status || "غير محقق"), cell(item.created_at)
-    ]);
+    const rows = recommendations.map((item: any) => {
+        const statusText = item.status === "open"
+            ? "نشطة (مفتوحة)"
+            : item.status === "win"
+                ? "حققت الهدف (رابحة)"
+                : item.status === "loss"
+                    ? "ضربت الوقف (خاسرة)"
+                    : (item.status_label || item.status || "مغلقة");
+        const cleanDate = item.created_at ? String(item.created_at).slice(0, 10) : "-";
+        const returnText = item.return_pct == null ? "غير متاح" : `${item.return_pct >= 0 ? "+" : ""}${Number(item.return_pct).toFixed(2)}%`;
+        return [
+            cell(item.symbol), cell(item.name), cell(item.signal || "BUY"), cell(item.entry_price),
+            cell(item.target_price), cell(item.stop_loss), cell(item.current_price),
+            returnText,
+            cell(statusText), cell(cleanDate)
+        ];
+    });
     if (rows.length === 0) return null;
 
     return {
         id: tool.tool,
         title: "الإشارات المسجلة",
-        headers: ["السهم", "الاسم", "الإشارة المسجلة", "سعر الدخول", "الهدف", "وقف الخسارة", "السعر الحالي", "العائد غير المحقق", "الحالة", "تاريخ الإشارة"],
+        headers: ["السهم", "الاسم", "الإشارة المسجلة", "سعر الدخول", "الهدف", "وقف الخسارة", "السعر الحالي", "العائد", "الحالة", "تاريخ الإشارة"],
         rows,
         source: tool.source,
         data_time: tool.data_time

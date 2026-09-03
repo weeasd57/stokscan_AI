@@ -36,6 +36,47 @@ function isRelevantNews(title: string, symbol: string, companyName: string): boo
     return false;
 }
 
+export function formatRecDuration(dateStr: string): string {
+    if (!dateStr) return "";
+    const createdDate = new Date(dateStr);
+    const now = new Date();
+    const diffMs = now.getTime() - createdDate.getTime();
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    const dateFormatted = dateStr.slice(0, 10);
+    if (diffDays <= 0) return `اليوم (${dateFormatted})`;
+    if (diffDays === 1) return `منذ يوم واحد (${dateFormatted})`;
+    if (diffDays === 2) return `منذ يومين (${dateFormatted})`;
+    if (diffDays < 7) return `منذ ${diffDays} أيام (${dateFormatted})`;
+    const diffWeeks = Math.floor(diffDays / 7);
+    if (diffWeeks === 1) return `منذ أسبوع (${dateFormatted})`;
+    if (diffWeeks === 2) return `منذ أسبوعين (${dateFormatted})`;
+    if (diffWeeks <= 4) return `منذ ${diffWeeks} أسابيع (${dateFormatted})`;
+    const diffMonths = Math.floor(diffDays / 30);
+    if (diffMonths === 1) return `منذ شهر (${dateFormatted})`;
+    return `منذ ${diffMonths} أشهر (${dateFormatted})`;
+}
+
+export function getWeekDateRanges(baseDate = new Date()) {
+    const d = new Date(baseDate);
+    const day = d.getDay(); // 0 is Sunday in EGX trading week
+    const sunday = new Date(d);
+    sunday.setDate(d.getDate() - day);
+    sunday.setHours(0, 0, 0, 0);
+
+    const prevSunday = new Date(sunday);
+    prevSunday.setDate(sunday.getDate() - 7);
+    prevSunday.setHours(0, 0, 0, 0);
+
+    const prevSaturday = new Date(sunday);
+    prevSaturday.setMilliseconds(-1);
+
+    return {
+        thisWeekStart: sunday.toISOString(),
+        lastWeekStart: prevSunday.toISOString(),
+        lastWeekEnd: prevSaturday.toISOString()
+    };
+}
+
 export const EGYPTIAN_MUTUAL_FUNDS: Record<string, { name: string; nameAr: string; type: string; category: "money_market" | "gold" | "equity" | "savings" | "index" }> = {
     "BMM": {
         name: "Beltone Money Market Fund",
@@ -1099,7 +1140,7 @@ export async function executeStructuredTools(
     // ===== LIVE STOCK DATA =====
     if (plan.needs_live_data && plan.tools.includes("get_stock") && symbols.length > 0) {
         try {
-            const [pricesRes, techsRes, stocksRes, fundamentalsRes, scansRes] = await Promise.all([
+            const [pricesRes, techsRes, stocksRes, fundamentalsRes, scansRes, scanResultsRes] = await Promise.all([
                 Promise.all(
                     symbols.map(sym => {
                         let query = supabase.from("stock_prices")
@@ -1140,7 +1181,11 @@ export async function executeStructuredTools(
                 supabase.from("stock_scans_summary")
                     .select("symbol, scan_date, signal, wyckoff_phase, acc_score, dist_score, vol_ratio, consecutive_acc_days, consecutive_dist_days")
                     .or(symbols.map(s => `symbol.ilike.${s}`).join(","))
-                    .order("scan_date", { ascending: false })
+                    .order("scan_date", { ascending: false }),
+                supabase.from("scan_results")
+                    .select("symbol, name, signal, status, entry_price, target_price, stop_loss, exit_price, profit_loss_pct, created_at, updated_at")
+                    .or(symbols.map(s => `symbol.ilike.${s}`).join(","))
+                    .order("created_at", { ascending: false })
             ]);
 
             const pricesMap = new Map<string, any>();
@@ -1213,6 +1258,15 @@ export async function executeStructuredTools(
                 }
             });
 
+            const recsMap = new Map<string, any[]>();
+            (scanResultsRes?.data || []).forEach((row: any) => {
+                const sym = String(row.symbol || "").toUpperCase();
+                if (sym) {
+                    if (!recsMap.has(sym)) recsMap.set(sym, []);
+                    recsMap.get(sym)!.push(row);
+                }
+            });
+
             if (pricesMap.size > 0 || techsMap.size > 0) {
                 textParts.push(`\n [بيانات السوق الحالية - ${now.split("T")[0]}]:\n`);
                 symbols.forEach(sym => {
@@ -1269,7 +1323,74 @@ export async function executeStructuredTools(
                         const distScoreStr = distScore != null ? `, درجة التصريف = ${distScore}/100` : "";
                         const liveStatusStr = techData?.is_live_intraday ? ` (محدث لحظياً ${techData.live_update_time})` : "";
 
-                        textParts.push(`• ${sym} (${stockData?.name || sym}): السعر = ${closePrice} ج.م${liveStatusStr}, التغير = ${changeStr}, RSI = ${rsi}, MACD = ${macdMain}, MACD Signal = ${macdSignal}, SMA 50 = ${sma50}, EMA 50 = ${ema50}, SMA 200 = ${sma200}, EMA 200 = ${ema200}, Bollinger Upper = ${bbUpper}, Bollinger Lower = ${bbLower}, Stochastic %K = ${stochK}, Stochastic %D = ${stochD}, نسبة السيولة = ${volRatioStr}${wyckoffStr}${accScoreStr}${distScoreStr}, تقييم نموذج KING AI = ${kingScore}, تقييم نموذج EGX AI = ${egxScore}`);
+                        // Stock recommendation status on the platform
+                        const symbolRecs = recsMap.get(upperSym) || [];
+                        const activeRec = symbolRecs.find((r: any) => String(r.status || "").toLowerCase() === "open");
+                        const latestRec = activeRec || symbolRecs[0] || null;
+
+                        let recInfoText = "";
+                        let recDataObj: any = null;
+
+                        if (activeRec) {
+                            const entry = Number(activeRec.entry_price);
+                            const curP = Number(closePrice);
+                            let retPct = activeRec.profit_loss_pct != null ? Number(activeRec.profit_loss_pct) : null;
+                            if (retPct == null && entry > 0 && curP > 0) {
+                                retPct = ((curP - entry) / entry) * 100;
+                            }
+                            const retStr = retPct != null ? `${retPct >= 0 ? "+" : ""}${retPct.toFixed(2)}%` : "قيد المتابعة";
+                            const durStr = formatRecDuration(activeRec.created_at);
+                            recInfoText = `🟢 توجد توصية نشطة (مفتوحة) حالياً على منصة EGX Bots: إشارة ${activeRec.signal || "BUY"}، سعر الدخول ${activeRec.entry_price} ج.م، المستهدف ${activeRec.target_price} ج.م، وقف الخسارة ${activeRec.stop_loss} ج.م، صدرت ${durStr}، وحققت حتى الآن عائداً قدره ${retStr}.`;
+                            recDataObj = {
+                                has_recommendation: true,
+                                is_active: true,
+                                status: "open",
+                                signal: activeRec.signal || "BUY",
+                                entry_price: activeRec.entry_price,
+                                target_price: activeRec.target_price,
+                                stop_loss: activeRec.stop_loss,
+                                created_at: activeRec.created_at,
+                                duration: durStr,
+                                profit_loss_pct: retPct,
+                                profit_loss_str: retStr
+                            };
+                        } else if (latestRec) {
+                            const statusLower = String(latestRec.status || "").toLowerCase();
+                            const retPct = latestRec.profit_loss_pct != null ? Number(latestRec.profit_loss_pct) : null;
+                            const retStr = retPct != null ? `${retPct >= 0 ? "+" : ""}${retPct.toFixed(2)}%` : "N/A";
+                            const durStr = formatRecDuration(latestRec.created_at);
+                            const statusDesc = statusLower === "win"
+                                ? `حققت هدفها بنجاح بربح ${retStr}`
+                                : statusLower === "loss"
+                                    ? `ضربت وقف الخسارة بخسارة ${retStr}`
+                                    : `أغلقت بعائد ${retStr}`;
+                            recInfoText = `⚪ لا توجد توصية نشطة حالياً. آخر توصية سابقة صدرت للسهم على المنصة كانت ${durStr} (إشارة ${latestRec.signal || "BUY"} بسعر دخول ${latestRec.entry_price} ج.م)، وقد ${statusDesc}.`;
+                            recDataObj = {
+                                has_recommendation: true,
+                                is_active: false,
+                                status: latestRec.status,
+                                signal: latestRec.signal || "BUY",
+                                entry_price: latestRec.entry_price,
+                                target_price: latestRec.target_price,
+                                stop_loss: latestRec.stop_loss,
+                                exit_price: latestRec.exit_price,
+                                created_at: latestRec.created_at,
+                                duration: durStr,
+                                profit_loss_pct: retPct,
+                                profit_loss_str: retStr,
+                                outcome_desc: statusDesc
+                            };
+                        } else {
+                            recInfoText = "⚪ لا توجد توصيات سابقة أو حالية مسجلة لهذا السهم على منصة EGX Bots.";
+                            recDataObj = {
+                                has_recommendation: false,
+                                is_active: false,
+                                status: "none",
+                                message: "لا توجد توصيات سابقة أو حالية مسجلة لهذا السهم على المنصة."
+                            };
+                        }
+
+                        textParts.push(`• ${sym} (${stockData?.name || sym}): السعر = ${closePrice} ج.م${liveStatusStr}, التغير = ${changeStr}, RSI = ${rsi}, MACD = ${macdMain}, MACD Signal = ${macdSignal}, SMA 50 = ${sma50}, EMA 50 = ${ema50}, SMA 200 = ${sma200}, EMA 200 = ${ema200}, Bollinger Upper = ${bbUpper}, Bollinger Lower = ${bbLower}, Stochastic %K = ${stochK}, Stochastic %D = ${stochD}, نسبة السيولة = ${volRatioStr}${wyckoffStr}${accScoreStr}${distScoreStr}, تقييم نموذج KING AI = ${kingScore}, تقييم نموذج EGX AI = ${egxScore}\n  [موقف توصيات المنصة لسهم ${sym}]: ${recInfoText}`);
 
                         const isLive = Boolean(techData?.is_live_intraday);
                         const liveFailed = Boolean(sessionIsOpen && liveInfo && !liveInfo.success);
@@ -1320,7 +1441,8 @@ export async function executeStructuredTools(
                                 market_cap: fundamentals.marketCap ?? fundamentals.market_cap ?? null,
                                 eps: fundamentals.eps ?? null,
                                 book_value_per_share: fundamentals.bookValuePerShare ?? fundamentals.book_value_per_share ?? null,
-                                pe_ratio: fundamentals.peRatio ?? fundamentals.pe_ratio ?? null
+                                pe_ratio: fundamentals.peRatio ?? fundamentals.pe_ratio ?? null,
+                                recommendation: recDataObj
                             }
                         });
                     }
@@ -1710,11 +1832,29 @@ export async function executeStructuredTools(
     if (plan.tools.includes("get_recommendations") || plan.tools.includes("get_signals")) {
         try {
             const oldestRequest = plan.entities.recommendation_order === "oldest";
+            const normMsg = userMessage.toLowerCase().replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").replace(/ى/g, "ي");
+            const recFilter = plan.entities.recommendation_filter || (
+                /(?:مفتوح|نشط)/i.test(normMsg) ? "open" :
+                /(?:الاسبوع\s+الحال|هذا\s+الاسبوع)/i.test(normMsg) ? "this_week" :
+                /(?:الاسبوع\s+الماضي|الاسبوع\s+اللى\s+فات|الاسبوع\s+السابق)/i.test(normMsg) ? "last_week" : null
+            );
+
             const fetchRecommendationPage = (from: number, to: number) => {
                 let query = supabase.from("scan_results")
-                    .select("symbol, name, signal, entry_price, target_price, stop_loss, created_at")
+                    .select("symbol, name, signal, status, entry_price, target_price, stop_loss, exit_price, profit_loss_pct, created_at, updated_at")
                     .eq("country", AI_CONFIG.tools.defaultCountry);
                 if (symbols.length > 0) query = query.or(symbols.map(s => `symbol.ilike.${s}`).join(","));
+
+                if (recFilter === "open") {
+                    query = query.eq("status", "open");
+                } else if (recFilter === "this_week") {
+                    const { thisWeekStart } = getWeekDateRanges();
+                    query = query.gte("created_at", thisWeekStart);
+                } else if (recFilter === "last_week") {
+                    const { lastWeekStart, lastWeekEnd } = getWeekDateRanges();
+                    query = query.gte("created_at", lastWeekStart).lte("created_at", lastWeekEnd);
+                }
+
                 return query.order("created_at", { ascending: oldestRequest }).range(from, to);
             };
             const { data, error } = await fetchRecommendationPage(0, AI_CONFIG.tools.recommendationsLimit - 1);
@@ -1747,40 +1887,38 @@ export async function executeStructuredTools(
                             : false;
                     const current = latestBySymbol.get(String(row.symbol || "").toUpperCase());
                     const currentPrice = Number(current?.close);
-                    const returnPct = Number.isFinite(entry) && entry > 0 && Number.isFinite(currentPrice) ? ((currentPrice - entry) / entry) * 100 : null;
-                    return { ...row, current_price: Number.isFinite(currentPrice) ? currentPrice : null, current_date: current?.date || null, return_pct: returnPct, status: returnPct == null ? "غير مقيم" : returnPct >= 0 ? "ربح غير محقق" : "خسارة غير محققة", validation: { ok: quality.ok && levelsValid, date: quality, levels: levelsValid ? null : "invalid_trade_levels" } };
+                    const returnPct = row.profit_loss_pct != null
+                        ? Number(row.profit_loss_pct)
+                        : (Number.isFinite(entry) && entry > 0 && Number.isFinite(currentPrice) ? ((currentPrice - entry) / entry) * 100 : null);
+                    return {
+                        ...row,
+                        current_price: Number.isFinite(currentPrice) ? currentPrice : null,
+                        current_date: current?.date || null,
+                        return_pct: returnPct,
+                        status_label: row.status === "open" ? "نشطة (مفتوحة)" : row.status === "win" ? "حققت الهدف (رابحة)" : row.status === "loss" ? "ضربت الوقف (خاسرة)" : (row.status || "مغلقة"),
+                        validation: { ok: quality.ok && levelsValid, date: quality, levels: levelsValid ? null : "invalid_trade_levels" }
+                    };
                 }).filter((row: any) => row.validation.ok).slice(0, AI_CONFIG.tools.recommendationsLimit);
 
                 if (enrichedRecommendations.length === 0) {
-                    results.push({ tool: "get_recommendations", source: "validation", data_time: now, symbols: [], data_type: "historical", data: [], error: "كل الإشارات المتاحة قديمة أو متناقضة وتم حجبها." });
-                    textParts.push("[الإشارات التاريخية]: تم حجب البيانات القديمة أو غير المنطقية.");
+                    const noRecMsg = recFilter === "open"
+                        ? "لا توجد توصيات مفتوحة حالياً في النظام."
+                        : recFilter === "this_week"
+                            ? "لم تصدر توصيات خلال هذا الأسبوع حتى الآن."
+                            : recFilter === "last_week"
+                                ? "لم يتم العثور على توصيات مسجلة للأسبوع الماضي."
+                                : "لا توجد توصيات مطابقة للشروط حالياً.";
+                    results.push({ tool: "get_recommendations", source: "validation", data_time: now, symbols: [], data_type: "historical", data: [], error: noRecMsg });
+                    textParts.push(`[توصيات المنصة]: ${noRecMsg}`);
                     return { results, formattedText: textParts.join("\n") };
                 }
 
-                textParts.push(`\n [إشارات وتوصيات تداول البورصة المصرية من قاعدة البيانات]:\n`);
-
-                const validRecs = enrichedRecommendations.filter((r: any) => r.return_pct != null);
-                if (validRecs.length > 0) {
-                    const rankedRecs = [...validRecs].sort((a: any, b: any) => Number(b.return_pct) - Number(a.return_pct));
-                    const best = rankedRecs[0];
-                    const bestReturn = Number(best.return_pct);
-                    if (bestReturn > 0) {
-                        textParts.push(`📊 [التقييم الفعلي لأداء الصفقات]: التوصية الأفضل أداءً هي ${best.symbol} بعائد غير محقق يبلغ +${bestReturn.toFixed(2)}%، بينما تختلف باقي الصفقات.`);
-                    } else if (bestReturn === 0) {
-                        textParts.push(`📊 [التقييم الفعلي لأداء الصفقات]: لا توجد توصيات رابحة حالياً (كل التوصيات خاسرة أو متعادلة). الصفقة الأقرب للتعادل هي ${best.symbol} بعائد 0.00% (تعادل تام دون أي أرباح فعلية وتعتبر صفقة راكدة لم تتحرك)، وباقي الصفقات تسجل خسائر غير محققة.`);
-                    } else {
-                        textParts.push(`📊 [التقييم الفعلي لأداء الصفقات]: لا توجد أي توصية رابحة أو متعادلة حالياً (جميع التوصيات في حالة خسارة غير محققة). الأقل خسارة هي ${best.symbol} بخسارة غير محققة تبلغ ${bestReturn.toFixed(2)}%.`);
-                    }
-                }
-
-                enrichedRecommendations.forEach((r: any) => {
-                    const signal = String(r.signal || "BUY").toUpperCase();
-                    const entry = r.entry_price ? `${r.entry_price} ج.م` : "N/A";
-                    const target = r.target_price ? `${r.target_price} ج.م` : "N/A";
-                    const stop = r.stop_loss ? `${r.stop_loss} ج.م` : "N/A";
-                    const dateStr = r.created_at ? String(r.created_at).replace("T", " ").split(".")[0] : "تاريخ غير محدد";
-                    const performance = r.return_pct == null ? "العائد الحالي = غير متاح" : `السعر الحالي = ${r.current_price} | العائد حتى آخر سعر (${r.current_date}) = ${r.return_pct >= 0 ? "+" : ""}${r.return_pct.toFixed(2)}%`;
-                    textParts.push(`• إشارة تاريخية ${r.symbol} (${r.name || r.symbol}): الإشارة = ${signal} | سعر الدخول = ${entry} | الهدف = ${target} | وقف الخسارة = ${stop} | ${performance} | تاريخ الإشارة = ${dateStr}`);
+                const filterTitle = recFilter === "open" ? "التوصيات المفتوحة الحالية" : recFilter === "this_week" ? "توصيات الأسبوع الحالي" : recFilter === "last_week" ? "توصيات الأسبوع الماضي" : "إشارات وتوصيات التداول";
+                textParts.push(`\n [${filterTitle} من منصة EGX Bots (${enrichedRecommendations.length} توصية - الجدول الكامل التفاعلي معروض للمستخدم أعلى الشاشة)]:`);
+                enrichedRecommendations.forEach((r: any, idx: number) => {
+                    const retSign = r.return_pct != null ? `${r.return_pct >= 0 ? "+" : ""}${Number(r.return_pct).toFixed(2)}%` : "-";
+                    const dur = formatRecDuration(r.created_at);
+                    textParts.push(`• ${idx + 1}. ${r.symbol} (${r.name || r.symbol}): إشارة ${r.signal || "BUY"} | حالة ${r.status_label} | دخول ${r.entry_price} ج.م | مستهدف ${r.target_price} ج.م | وقف ${r.stop_loss} ج.م | عائد ${retSign} | ${dur}`);
                 });
 
                 results.push({
@@ -1791,6 +1929,27 @@ export async function executeStructuredTools(
                     data_type: "historical",
                     data: enrichedRecommendations
                 });
+            } else {
+                const targetSymbol = symbols.length > 0 ? symbols.join(", ") : "";
+                const noRecMsg = targetSymbol
+                    ? `لا توجد توصيات مسجلة لسهم (${targetSymbol}) في المنصة حالياً.`
+                    : (recFilter === "open"
+                        ? "لا توجد توصيات مفتوحة حالياً في النظام."
+                        : recFilter === "this_week"
+                            ? "لم تصدر توصيات خلال هذا الأسبوع حتى الآن."
+                            : recFilter === "last_week"
+                                ? "لم يتم العثور على توصيات مسجلة للأسبوع الماضي."
+                                : "لا توجد توصيات مسجلة في المنصة حالياً.");
+                results.push({
+                    tool: "get_recommendations",
+                    source: "scan_results",
+                    data_time: now,
+                    symbols,
+                    data_type: "historical",
+                    data: [],
+                    error: noRecMsg
+                });
+                textParts.push(`[توصيات المنصة]: ${noRecMsg}`);
             }
         } catch (e) {
             console.warn("Error fetching recommendations:", e);

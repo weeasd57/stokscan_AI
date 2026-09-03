@@ -28,7 +28,7 @@ async def get_customer_messages(session_id: str):
     if not _supabase:
         raise HTTPException(status_code=500, detail="Supabase not initialized")
     try:
-        res = _supabase.table("support_messages").select("*").eq("session_id", session_id).order("created_at", desc=False).execute()
+        res = _supabase.table("support_messages").select("session_id, content, created_at, user_name, sender").eq("session_id", session_id).order("created_at", desc=False).execute()
         return {"messages": res.data or []}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -47,7 +47,7 @@ async def admin_get_chats():
     if not _supabase:
         raise HTTPException(status_code=500, detail="Supabase not initialized")
     try:
-        res = _supabase.table("support_messages").select("*").order("created_at", desc=True).limit(1000).execute()
+        res = _supabase.table("support_messages").select("session_id, content, created_at, user_name, sender").order("created_at", desc=True).limit(500).execute()
         messages = res.data or []
         
         sessions = {}
@@ -70,7 +70,7 @@ async def admin_get_session_messages(session_id: str):
     if not _supabase:
         raise HTTPException(status_code=500, detail="Supabase not initialized")
     try:
-        res = _supabase.table("support_messages").select("*").eq("session_id", session_id).order("created_at", desc=False).execute()
+        res = _supabase.table("support_messages").select("session_id, content, created_at, user_name, sender").eq("session_id", session_id).order("created_at", desc=False).execute()
         return {"messages": res.data or []}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -94,7 +94,6 @@ async def admin_send_reply(req: AdminReplyRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
         
-    # Send confirmation / update to Admin's Telegram
     from api.support_chat import load_admin_chat_id, send_telegram_message
     admin_chat_id = load_admin_chat_id()
     if admin_chat_id:
