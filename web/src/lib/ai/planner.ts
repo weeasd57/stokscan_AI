@@ -644,7 +644,8 @@ export function getSyncSymbolOfficialNameMap(): Record<string, { name_en?: strin
         IEOC: { name_en: "Industrial and Engineering Projects", name_ar: "المشروعات الصناعية والهندسية" },
         FCMD: { name_en: "Future Care Medical", name_ar: "فيوتشر كير للصناعات الطبية" },
         AALR: { name_en: "General Co. for Land Reclamation", name_ar: "الشركة العامة لاستصلاح الأراضي" },
-        EFIC: { name_en: "Egyptian Financial & Industrial", name_ar: "المالية والصناعية المصرية" }
+        EFIC: { name_en: "Egyptian Financial & Industrial", name_ar: "المالية والصناعية المصرية" },
+        KORA: { name_en: "Korra Energie", name_ar: "شركة قرة للطاقة" }
     };
     if (cachedStocks && cachedStocks.length > 0) {
         cachedStocks.forEach((s: any) => {

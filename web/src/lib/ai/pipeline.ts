@@ -952,11 +952,25 @@ export function enforceIntentFromMessage(message: string, plannerIntent: string,
     const hasRecommendationKw = /(?:توصيات|توصيه|توصية|إشارة|إشارات|اشارة|اشارات|توصي)/i.test(normalized);
     if (hasRecommendationKw) {
         const oldestRequest = /(اقدم|أقدم)/i.test(normalized);
+        const isRecFilterOpen = /(?:مفتوح[ةه]|open)/i.test(normalized);
+        const isRecFilterThisWeek = /(?:[اأ]سبوع\s*(?:حالي|الحالي|الحالى|ده|هذا)|this\s*week)/i.test(normalized);
+        const isRecFilterLastWeek = /(?:[اأ]سبوع\s*(?:الماضي|السابق|الفايت|اللي\s*فات|اللى\s*فات)|last\s*week)/i.test(normalized);
+        const recFilter: "open" | "this_week" | "last_week" | "all" | null = isRecFilterOpen ? "open" : isRecFilterLastWeek ? "last_week" : isRecFilterThisWeek ? "this_week" : null;
+        if (hasSymbol) {
+            return {
+                intent: "stock_analysis",
+                tools: ["get_stock", "get_recommendations", "get_stock_levels"],
+                replaceTools: true,
+                recommendation_order: oldestRequest ? "oldest" : "newest",
+                recommendation_filter: recFilter
+            };
+        }
         return {
             intent: oldestRequest ? "historical_recall" : "market_summary",
             tools: ["get_recommendations", "get_signals"],
             replaceTools: true,
-            recommendation_order: oldestRequest ? "oldest" : "newest"
+            recommendation_order: oldestRequest ? "oldest" : "newest",
+            recommendation_filter: recFilter
         };
     }
     if (direction && !hasSymbol) {

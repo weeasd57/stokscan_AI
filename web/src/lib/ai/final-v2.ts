@@ -2493,9 +2493,20 @@ function shouldReturnNoData(
     if (visionContext || relevantFacts.length > 0) return false;
     if (!plan.needs_live_data && !plan.needs_historical_data) return false;
     return !toolResults.some(result => {
-        if (!result.data || result.source === "empty") return false;
+        if (!result.data || result.source === "empty") {
+            if ((result.tool === "get_recommendations" || result.tool === "get_signals") && (plan.entities.symbols?.length ?? 0) > 0) {
+                return true;
+            }
+            return false;
+        }
         if (result.tool === "search_web" && Array.isArray((result.data as any).results) && (result.data as any).results.length === 0) return false;
-        if (Array.isArray(result.data)) return result.data.length > 0;
+        if (Array.isArray(result.data)) {
+            if (result.data.length > 0) return true;
+            if ((result.tool === "get_recommendations" || result.tool === "get_signals") && (plan.entities.symbols?.length ?? 0) > 0) {
+                return true;
+            }
+            return false;
+        }
         return typeof result.data === "object" && Object.keys(result.data).length > 0;
     });
 }
