@@ -4,6 +4,7 @@ import {
   validateDeterministicRules,
   isVerifiableDerivedMetric,
   extractNumbers,
+  extractSymbols,
   autoFixNumbers,
 } from "../validator";
 import {
@@ -1315,5 +1316,14 @@ describe("validator: Evidence Verifier CHECKs 9-11", () => {
       e.includes("اتفاق") && e.includes("غير دقيق"),
     );
     expect(check11Errors.length).toBe(0);
+  });
+});
+
+describe("validator: platform status words are not treated as tickers", () => {
+  it("does not extract recommendation status words as stock symbols", () => {
+    expect(extractSymbols("التوصية CLOSED وتحقق الهدف — لا توجد توصية نشطة OPEN حالياً")).not.toContain("CLOSED");
+    expect(extractSymbols("حالة ACTIVE_OPEN على السهم")).not.toContain("ACTIVE");
+    expect(extractSymbols("حالة ACTIVE_OPEN على السهم")).not.toContain("OPEN");
+    expect(extractSymbols("لا توجد توصية مسجلة NONE")).not.toContain("NONE");
   });
 });

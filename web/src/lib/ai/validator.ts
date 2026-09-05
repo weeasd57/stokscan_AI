@@ -51,7 +51,10 @@ const TECHNICAL_EXCLUSIONS = new Set([
     "URL", "HTML", "PDF", "FAQ", "JSON", "UTC", "GMT", "AM", "PM", "APP", "BOT", "BOTS",
     "CHAT", "LIVE", "DATA", "FREE", "PRO", "PLUS", "VIP", "MAX", "MIN", "SMA20", "SMA50", "SMA200",
     // ML model labels used in AI score output — must NOT be treated as stock tickers
-    "KING", "EGX", "SCORE", "ML", "LLM", "GPT"
+    "KING", "EGX", "SCORE", "ML", "LLM", "GPT",
+    // Recommendation/platform status words that appear in replies and platform data
+    // (ACTIVE_OPEN / PREVIOUS_CLOSED / NONE ...) — must NOT be treated as tickers
+    "OPEN", "CLOSED", "ACTIVE", "NONE", "WIN", "LOSS", "NEW", "ENTRY", "TARGET", "STOP"
 ]);
 
 

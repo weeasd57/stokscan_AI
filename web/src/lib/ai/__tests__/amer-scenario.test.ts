@@ -110,6 +110,13 @@ describe("AMER stock scenario (live chat log verification)", () => {
     expect(block).not.toMatch(/جني أرباح فنية\s*طبيعي/);
   });
 
+  it("AMER: evidence block should ban 'طبيعي' as a value judgment on price action", () => {
+    const block = buildEvidenceEnginePromptBlock(amerToolResults);
+    expect(block).toContain("17b");
+    expect(block).toContain("تراجع يومي طبيعي");
+    expect(block).toContain("دون الحكم عليها بأنها طبيعية");
+  });
+
   it("AMER: should include separation rule for platform recommendations", () => {
     const mockPlan: any = {
       intent: "stock_detail",
