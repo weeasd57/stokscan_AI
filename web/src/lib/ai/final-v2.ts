@@ -97,9 +97,38 @@ export function buildEvidenceEnginePromptBlock(toolResults: ToolResult[]): strin
             const egxPct = egxConsensusVal * 100;
             const deltaPts = Math.abs(kingPct - egxPct);
             const sameDirection = (kingPct > 50 && egxPct > 50) || (kingPct < 50 && egxPct < 50);
-            const agreementLabel = deltaPts >= 15 ? "اتفاق منخفض جداً" : sameDirection ? "اتفاق قوي" : "اتفاق ضعيف";
-            const thresholdPhrase = deltaPts >= 15 ? "الفرق ≥ 15 نقطة" : "الفرق أقل من 15 نقطة";
-            lines.push(`  - model_consensus: KING AI = ${kingPct.toFixed(2)}%, EGX AI = ${egxPct.toFixed(2)}%, الفرق = ${deltaPts.toFixed(2)} نقطة (${thresholdPhrase}) → ${agreementLabel} ← [قيمة محسوبة مسبقًا: استخدمها حرفيًا في قسم رأي النماذج ولا تعد حسابها ولا تعكس مقارنة الـ 15 نقطة]`);
+            let agreementLabel: string;
+            let thresholdPhrase: string;
+            if (sameDirection) {
+                if (deltaPts <= 3) {
+                    agreementLabel = "اتفاق قوي";
+                    thresholdPhrase = "الفرق ≤ 3 نقاط";
+                } else if (deltaPts <= 8) {
+                    agreementLabel = "اتفاق متوسط";
+                    thresholdPhrase = "الفرق بين 3 و 8 نقاط";
+                } else if (deltaPts < 15) {
+                    agreementLabel = "اتفاق ضعيف";
+                    thresholdPhrase = "الفرق بين 8 و 15 نقطة";
+                } else {
+                    agreementLabel = "اتفاق منخفض جداً";
+                    thresholdPhrase = "الفرق ≥ 15 نقطة";
+                }
+            } else {
+                if (deltaPts <= 3) {
+                    agreementLabel = "اختلاف ضيق";
+                    thresholdPhrase = "الفرق ≤ 3 نقاط (اتجاهان متباينان)";
+                } else if (deltaPts <= 8) {
+                    agreementLabel = "اختلاف متوسط";
+                    thresholdPhrase = "الفرق بين 3 و 8 نقاط (اتجاهان متباينان)";
+                } else if (deltaPts < 15) {
+                    agreementLabel = "اختلاف كبير";
+                    thresholdPhrase = "الفرق بين 8 و 15 نقطة (اتجاهان متباينان)";
+                } else {
+                    agreementLabel = "اتفاق منخفض جداً";
+                    thresholdPhrase = "الفرق ≥ 15 نقطة (اتجاهان متباينان)";
+                }
+            }
+            lines.push(`  - model_consensus: KING AI = ${kingPct.toFixed(2)}%, EGX AI = ${egxPct.toFixed(2)}%, الفرق = ${deltaPts.toFixed(2)} نقطة (${thresholdPhrase}) → ${agreementLabel} ← [قيمة محسوبة مسبقًا: استخدمها حرفيًا في قسم رأي النماذج ولا تعد حسابها ولاتعيد حساها]`);
         } else {
             lines.push(`  - model_consensus: NOT_PROVIDED (لا تذكر اتفاق النماذج)`);
         }
@@ -138,10 +167,11 @@ export function buildEvidenceEnginePromptBlock(toolResults: ToolResult[]): strin
     lines.push("10. ⛔ تحذير قوة الإشارة RSI: كلمة 'آمن' أو 'قوي' أو 'إيجابية واضحة' للزخم لا تنطبق على RSI بين 40-70. RSI في المنطقة 40-70 هو 'محايد' أو 'يميل للإيجابية/السلبية' فقط. لا تقل أبداً 'منطقة زخم صاعد إيجابي وآمن'، 'آمن تماماً'، أو 'إشارة قوية' إذا كان RSI بين 40 و 70. استخدم بدلاً منها: 'زخم محايد يميل للإيجابية' أو 'محايد بنسبة RSI X'.");
     lines.push("11. 📝 هيكل الرد الإلزامي للمقارنات (MANDATORY COMPARISON LAYOUT): عندما يطلب المستخدم مقارنة أسهم، يجب الالتزام بهذا الترتيب الصارم: 1. النظرة العامة، 2. التحليل الفني لكل سهم، 3. مصفوفة القرار (Decision Matrix) في جدول (يحتوي: السهم | جودة الاتجاه | زخم | سيولة | مخاطرة الدخول | القرار)، 4. الرأي الإحصائي للذكاء الاصطناعي (ML Scores & Consensus)، 5. الخلاصة وشروط الدخول الثابتة والخاتمة التوجيهية (Decision Conclusion).");
     lines.push("12. 📏 عتبات المؤشرات الثابتة (STRICT THRESHOLDS): للـ ADX (أقل 20=ضعيف، 20-25=بداية، 25-40=قوي، >40=مفرط/قوي جداً). للـ RSI (>70=تشبع شرائي ومخاطرة عالية ولا تطارد السهم، <30=تشبع بيعي، 40-70=محايد). للـ vol_ratio (<0.8x=سيولة ضعيفة، ~1.0x=متوسطة، >1.5x=انفجار). لا تنصح بالدخول إذا كانت السيولة ضعيفة.");
-    lines.push("13. 🎯 شروط الدخول (ACTIONABLE CONDITIONS): لا تكتفي بـ 'للمراقبة'. قدم دائماً شروطاً تنفيذية: ماذا يجب أن يحدث لكي نشتري؟ (مثال: 'الدخول يصبح جذاباً إذا عاد الحجم فوق 1.0x اخترق X، بينما كسر الدعم Y يلغي السيناريو').");
+    lines.push("13. 🎯 شروط الدخول (ACTIONABLE CONDITIONS): فقط عندما يدعمها التحليل الفني والأساسي واضواً. لا تقدّم شروط دخول إذا لم تدعمها البيانات (RSI 40-70، أو السعر قريب من المقاومة، أو سيولة ضعيفة). عندما يكون الاتجاه واضحاً والزخم إيجابياً، قدّم شرطاً تنفيذياً محدداً (مثال: 'الدخول يصبح جذاباً إذا عاد الحجم فوق 1.0x واخترق X، بينما كسر الدعم Y يلغي السيناريو').");
     lines.push("14. 🤖 الرأي الإحصائي والرياضيات (ML MODELS & MATH): استخدم دائماً القيم المجهزة مسبقاً في ML STATISTICAL DELTAS أعلاه. لا تخترع فوارق حسابية من عندك.");
-    lines.push("15. ⛔ سلامة ومطابقة الرموز والبيانات (SYMBOL & DATA INTEGRITY): يجب عليك فقط كتابة وتحليل الأسهم الموجودة صراحة في STRICT EVIDENCE CONTEXT أعلاه. يمنع منعاً باتاً استبدال أو خلط رموز الأسهم ببعضها البعض، ويجب ربط بيانات كل سهم (السعر، التغير، RSI، حجم التداول، إلخ) برمزها الصحيح بدقة بالغة دون أي تبديل أو خلط، مع الامتناع التام عن ذكر أو مناقشة أي أسهم غير متواجدة في البيانات المرفقة.");
-    lines.push("16. 📊 قوالب الماسح الفني (TECHNICAL SCREENER TEMPLATES): عند وجود نتائج get_technical_scan، اعرض الأسهم المرصودة مع أسمائها، أسعارها، ونسب التغير والمؤشرات ذات الصلة (مثل RSI، MACD، حجم التداول النسبي، أو إشارات الدايفرجنس). وضح للمستخدم طبيعة الفلتر الفني ومعناه الاستثماري دون تقديم نصيحة شراء مباشرة.");
+    lines.push("15. 📋 فصل وضوح: استخراج التوصيات (SEPARATE MARKET VIEW FROM RECOMMENDATION): إذا وجدت platform_recommendation في STRICT EVIDENCE CONTEXT، استخرجها في قسم منفصل بعنوان 'توصية سابقة على المنصة'. لا تخلطها مع تحليلك الفني الحالي. إذا كانت التوصية نشطة (ACTIVE_OPEN)، قل 'هذه توصية سابقة لم تمكنها من التنفيذ بعد' ولا تصفها بأنها توصية حالية. إذا كانت CLOSED أو NONE، قل ذلك صراحةً ثم انتقل إلى التحليل الفني الحالي.");
+    lines.push("16. ⛔ سلامة ومطابقة الرموز والبيانات (SYMBOL & DATA INTEGRITY): يجب عليك فقط كتابة وتحليل الأسهم الموجودة صراحة في STRICT EVIDENCE CONTEXT أعلاه. يمنع منعاً باتاً استبدال أو خلط رموز الأسهم ببعضها البعض، ويجب ربط بيانات كل سهم (السعر، التغير، RSI، حجم التداول، إلخ) برمزها الصحيح بدقة بالغة دون أي تبديل أو خلط، مع الامتناع التام عن ذكر أو مناقشة أي أسهم غير متواجدة في البيانات المرفقة.");
+    lines.push("17. 📊 قوالب الماسح الفني (TECHNICAL SCREENER TEMPLATES): عند وجود نتائج get_technical_scan، اعرض الأسهم المرصودة مع أسمائها، أسعارها، ونسب التغير والمؤشرات ذات الصلة (مثل RSI، MACD، حجم التداول النسبي، أو إشارات الدايفرجنس). وضح للمستخدم طبيعة الفلتر الفني ومعناه الاستثماري دون تقديم نصيحة شراء مباشرة.");
 
     lines.push("=== END STRICT EVIDENCE CONTEXT ===");
     return lines.join("\n");
@@ -389,7 +419,7 @@ export function buildV2FinalMessages(
     sections.push("- لا تعيد سرد قوائم الأسهم في النص؛ اشرح الاتجاهات فقط واترك القائمة للجدول المنظم");
     sections.push("- عندما يسأل المستخدم عن سبب هبوط أو صعود أو حركة سهم معين (مثل: ما سبب هبوط/صعود... أو ليه نزل/طلع...):");
     sections.push("  1. إذا كانت هناك أخبار في === LIVE DATA ===، اشرح العوامل والأخبار المرتبطة بالسهم أولاً.");
-    sections.push("  2. قدم تحليلاً فنياً ومالياً مفسراً لسبب الحركة (مثل: عمليات جني أرباح فنية طبيعية بعد وصول مؤشر RSI لمناطق تشبع شرائي مرتفعة، أو ضعف السيولة وانخفاض التداول عن المتوسط، أو اختبار مستويات مقاومة وتراجع السعر منها، أو حركات تصحيحية في المسار الصاعد).");
+    sections.push("  2. قدم تحليلاً فنياً ومالياً مفسراً لسبب الحركة (مثل: عمليات جني أرباح فنية بعد وصول مؤشر RSI لمناطق تشبع شرائي مرتفعة، أو ضعف السيولة وانخفاض التداول عن المتوسط، أو اختبار مستويات مقاومة وتراجع السعر منها، أو حركات تصحيحية في المسار الصاعد).");
     sections.push("- الأحداث المالية المؤثرة (أداة get_corporate_actions في === LIVE DATA ===):");
     sections.push("  1. إذا وُجدت أحداث مالية للسهم (حقوق اكتتاب، توزيعات أرباح، تجزئة، أسهم مجانية، زيادة/تخفيض رأس المال، استحواذ)، اذكرها صراحة عند تحليل السهم لأنها تؤثر مباشرة على السعر والسيولة.");
     sections.push("  2. اربط الحدث بأثره المتوقع: حقوق الاكتتاب تمتص السيولة وقد تضغط على السعر مؤقتاً، التوزيعات والأسهم المجانية تجذب السيولة قبل موعدها، التجزئة/تخفيض القيمة الاسمية يغيران السعر الاسمي دون تغيير القيمة السوقية للشركة.");
@@ -535,15 +565,17 @@ export function buildV2FinalMessages(
    - 📊 قاعدة فارق نقاط ML (ML Score Delta): عند مقارنة سهمين أو أكثر، يجب أن تذكر الفرق الدقيق بين نقاط KING AI و EGX AI لكل أزواج الأسهم (مثال: 'الموديل الأول يتفوق على الموديل الثاني بفارق نقاط معين'). إذا كان الفرق ≤ 1.0 نقطة، صرّح صراحة أن الفرق 'ضيق / غير إحصائيًا ولا يلزم دلالة ضعيفة' ولا يُعتبر فرقاً معنوياً. لا تقل أبداً 'تفوق كبير' أو 'ميزة واضحة' إذا كان الفرق ≤ 1.0 نقطة.
     - 📊 قاعدة توافق النماذج (Model Consensus): عند عرض ML Scores، أضف قسماً 'رأي النماذات' يحتوي على:
       • تفسير كل نموذج بناءاً على النسبة: 70%+ = 'إيجابي قوي'، 55-70% = 'إيجابي متوسط'، 45-55% = 'محايد'، 30-45% = 'متحفظ'، <30% = 'سلبي'.
-      • 'اتفاق النماذج': انسخ قيمة model_consensus من DERIVED_FLAGS حرفيًا (الفرق بالنقاط + التصنيف). ممنوع إعادة حسابها بنفسك أو القول إن الفرق 'أكبر من 15 نقطة' إذا كانت القيمة المحسوبة أقل من 15 نقطة والعكس صحيح.
-      • استنتج 'القرار الفني العام' من تصنيف model_consensus: اتفاق قوي + نطاق عالي = 'شراء/مراجعة'؛ اتفاق ضعيف = 'مراقبة'؛ اتفاق منخفض جداً = 'انتظار'.
+      • 'اتفاق النموذب': انسخ قيمة model_consensus من DERIVED_FLAGS حرفيًا (الفرق بالنقاط + التصنيف). ممنوع إعادة حسابها بنفسك أو تعديل التصنيف.
+      • استنتج 'القرار الفني العام' من تصنيف model_consensus مع الأخذ بعين الاعتبار باقي التحليل الفني: لا تعتمد على توافق النماذج وحده لاتخاذ قرار شراء. اتفاق قوي (الفرق ≤ 3 نقاط بنفس الاتجاه) مع مؤشرات فنية أخرى إيجابية = 'مراجعة'. اتفاق متوسط = 'مراقبة'. اتفاق ضعيف، اختلاف كبير، أو اتفاق منخفض جداً = 'انتظار'.
       - لا تنسَ: النماذات قد تتباين، وهذا شائع. اشرح للمستخدم لماذى قد تختلف النماذات.
 6. تنسيق القوائم والجداول (Formatting Guideline):
    - عندما يُطلب منك عرض قائمة أسهم أو نتائج مسح فني أو فلاتر أو مقارنات متعددة، اعرضها دائماً في جدول ماركداون (Markdown Table) منسق ومكتمل الأعمدة بدلاً من القوائم المنقطة أو الأسطر الطويلة. هذا يمنع تداخل النصوص واللغات ويجعل العرض احترافياً ونظيفاً ونظيفاً جداً في واجهة المستخدم.
 7. التعامل مع الأسهم والشركات غير المدرجة بقاعدة البيانات الرئيسية (Unlisted/SME Stocks):
    - إذا سأل المستخدم عن شركة أو سهم (مثل ركاز RKAZ أو أي شركة غير مسجلة في الـ 236 سهماً الرئيسية للمنصة) وتوفرت عنها نتائج بحث على الويب (=== VERIFIED WEB SEARCH RESULTS ===):
    - وضح للمستخدم في أول سطر من إجابتك بوضوح واحترافية: أن هذا السهم/الشركة غير مدرج في قاعدة بيانات الأسهم الرئيسية الـ 236 المسجلة على المنصة (مثلاً لأنه مدرج بسوق المشروعات الصغيرة والمتوسطة SMEs / بورصة النيل، أو شركة خارج السوق الرئيسي)، وبالتالي لا تتوفر له مؤشرات فنية أو سكورات ML آلية لحظية.
-   - ثم قدم له ملخصاً وافياً ومفيداً عن نشاط الشركة، وتطوراتها، وأحدث الأخبار المتاحة عنها من نتائج البحث على الويب مع الإشارة للمصادر بصيغة [1] و [2].`;
+    - ثم قدم له ملخصاً وافياً ومفيداً عن نشاط الشركة، وتطوراتها، وأحدث الأخبار المتاحة عنها من نتائج البحث على الويب مع الإشارة للمصادر بصيغة [1] و [2].
+8. ⚠️ شروط الدخول (ACTIONABLE CONDITIONS): فقط عندما يدعمها التحليل الفني والأساسي واضواً. لا تقدّم شروط دخول إذا لم تدعمها البيانات (RSI 40-70، أو السعر قريب من المقاومة، أو سيولة ضعيفة). عندما يكون الاتجاه واضحاً والزخم إيجابياً، قدّم شرطاً تنفيذياً محدداً.
+9. 📋 فصل وضوح: استخراج التوصيات (SEPARATE MARKET VIEW FROM RECOMMENDATION): إذا وجدت platform_recommendation في البيانات، استخرجها في قسم منفصل بعنوان 'توصية سابقة على المنصة'. لا تخلطها مع تحليلك الفني الحالي. إذا كانت التوصية نشطة (ACTIVE_OPEN)، قل 'هذه توصية سابقة لم تمكنها من التنفيذ بعد' ولا تصفها بأنها توصية حالية. إذا كانت CLOSED أو NONE، قل ذلك صراحةً ثم انتقل إلى التحليل الفني الحالي.`;
 
     const messages: { role: string; content: any }[] = [
         { role: "system", content: systemPrompt }
@@ -1046,10 +1078,13 @@ export function buildDailyChangeHistoryResponse(
     toolResults: ToolResult[]
 ): string | null {
     const normMsg = userMessage.replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").replace(/ى/g, "ي");
-    // Future-forecast phrasing keeps its dedicated deterministic handling.
-    if (/(?:توقع|متوقع|توقعات)/i.test(normMsg)) return null;
-    const dayByDayMarker = /يوم\s*بـ?\s*يوم|التغير\s*اليومي|تغير\s*يومي|سعر\s*كل\s*يوم|اداء\s*يومي|تغيره?\s*(?:يوميا|يوم بيوم)/i.test(normMsg);
-    const weekMarker = /(?:اخر|آخر)\s*(?:اسبوع|أسبوع|اسبوعين|أسبوعين|ايام|أيام|جلسات)|يوميا/i.test(normMsg);
+    // Day-by-day history requests that ALSO ask for a forecast ("... يوم بيوم ... ومتوقع
+    // يعمل ايه") still get the deterministic daily table for the historical half;
+    // only pure forecast phrasing skips this template.
+    const explicitHistoryAsk = /(?:كل\s+يوم\s+(?:من|النهارده|النهاردة)|يوم\s*بـ?\s*يوم|سعر\s*كل\s*يوم|(?:سعر\s+)?(?:اقفال|إقفال).{0,40}(?:كل\s+يوم|يوم\s*بـ?\s*يوم)|(?:اسبوعين|أسبوعين|ايام|أيام|جلسات)\s*(?:فات|فاتت|فاتوا))/i.test(normMsg);
+    if (/(?:توقع|متوقع|توقعات)/i.test(normMsg) && !explicitHistoryAsk) return null;
+    const dayByDayMarker = /يوم\s*بـ?\s*يوم|التغير\s*اليومي|تغير\s*يومي|سعر\s*كل\s*يوم|كل\s*يوم\s+من|اداء\s*يومي|تغيره?\s*(?:يوميا|يوم بيوم)|(?:سعر\s+)?(?:اقفال|إقفال).{0,40}(?:كل\s+يوم|يوم\s*بـ?\s*يوم)|(?:كل\s+يوم|يوم\s*بـ?\s*يوم).{0,60}(?:فات|فاتت|فاتوا)/i.test(normMsg);
+    const weekMarker = /(?:اخر|آخر)\s*(?:اسبوع|أسبوع|اسبوعين|أسبوعين|ايام|أيام|جلسات)|(?:اسبوعين|أسبوعين)\s*(?:فات|فاتت|فاتوا)|يوميا/i.test(normMsg);
     const changeMention = /تغير|نسبه|نسبة|اداء|أداء/i.test(normMsg);
     if (!dayByDayMarker && !(weekMarker && changeMention)) return null;
 
@@ -1141,15 +1176,15 @@ export async function generateV2Response(
         if (meta) meta.source = "deterministic";
         return sanitizeReply(ytdRanking);
     }
-    const fastAdvisor = buildFastConversationalAdvisorResponse(userMessage, plan, toolResults, sessionState);
-    if (fastAdvisor) {
-        if (meta) meta.source = "deterministic";
-        return fastAdvisor;
-    }
     const dailyHistory = buildDailyChangeHistoryResponse(userMessage, plan, toolResults);
     if (dailyHistory) {
         if (meta) meta.source = "deterministic";
         return sanitizeReply(dailyHistory);
+    }
+    const fastAdvisor = buildFastConversationalAdvisorResponse(userMessage, plan, toolResults, sessionState);
+    if (fastAdvisor) {
+        if (meta) meta.source = "deterministic";
+        return fastAdvisor;
     }
     const singleStockAccDistResponse = buildSingleStockAccumulationDistributionResponse(userMessage, plan, toolResults);
     if (singleStockAccDistResponse) {
@@ -1252,16 +1287,16 @@ export async function* generateV2Stream(
         yield sanitizeReply(ytdRanking);
         return;
     }
-    const fastAdvisor = buildFastConversationalAdvisorResponse(userMessage, plan, toolResults, sessionState);
-    if (fastAdvisor) {
-        if (meta) meta.source = "deterministic";
-        yield sanitizeReply(fastAdvisor);
-        return;
-    }
     const dailyHistory = buildDailyChangeHistoryResponse(userMessage, plan, toolResults);
     if (dailyHistory) {
         if (meta) meta.source = "deterministic";
         yield sanitizeReply(dailyHistory);
+        return;
+    }
+    const fastAdvisor = buildFastConversationalAdvisorResponse(userMessage, plan, toolResults, sessionState);
+    if (fastAdvisor) {
+        if (meta) meta.source = "deterministic";
+        yield sanitizeReply(fastAdvisor);
         return;
     }
     const singleStockAccDistResponse = buildSingleStockAccumulationDistributionResponse(userMessage, plan, toolResults);

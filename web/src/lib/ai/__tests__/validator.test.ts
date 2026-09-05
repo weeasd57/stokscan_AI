@@ -1089,3 +1089,231 @@ describe("validator: buildEvidenceEnginePromptBlock", () => {
     expect(block).toContain("OTC_MARKET");
   });
 });
+
+describe("validator: Evidence Verifier CHECKs 9-11", () => {
+  // Tool results for a stock with king_ai_score=0.583 and egx_ai_score=0.539
+  // This gives a 4.4-point difference — the exact scenario from the bot review
+  const diffMlToolResults = [
+    {
+      data: {
+        symbol: "TEST",
+        price: 310,
+        rsi_14: 55.0,
+        macd: 0.5,
+        macd_signal: 0.3,
+        support: 290,
+        resistance: 325,
+        king_ai_score: 0.583,
+        egx_ai_score: 0.539,
+      },
+    },
+  ];
+
+  // Tool results for a stock with king_ai_score=0.583 and egx_ai_score=0.580
+  // This gives a 0.3-point difference — genuinely close/strong agreement
+  const closeMlToolResults = [
+    {
+      data: {
+        symbol: "CLOSE",
+        price: 100,
+        rsi_14: 65.0,
+        macd: 0.2,
+        macd_signal: 0.1,
+        support: 95,
+        resistance: 105,
+        king_ai_score: 0.583,
+        egx_ai_score: 0.580,
+      },
+    },
+  ];
+
+  it("CHECK 9: rejects unwarranted 'طبيعي' judgment on profit-taking", () => {
+    const reply = "عمليات جني أرباح فنية طبيعية بعد وصول مؤشر RSI لمناطق تشبع شرائي مرتفعة لسهم TEST.";
+    const errors = validateDeterministicRules(
+      reply,
+      diffMlToolResults,
+      "حلل سهم TEST",
+    );
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors.some((e) => e.includes("طبيعي"))).toBe(true);
+  });
+
+  it("CHECK 9: does NOT flag linguistic uses of 'طبيعي' (e.g. محادثة طبيعية)", () => {
+    const reply = "محادثة طبيعية مع العميل يوضح فيها التحليل الفني للسهم.";
+    const errors = validateDeterministicRules(
+      reply,
+      diffMlToolResults,
+      "حلل سهم TEST",
+    );
+    const check9Errors = errors.filter((e) =>
+      e.includes("طبيعي") && !e.includes("محادثة"),
+    );
+    expect(check9Errors.length).toBe(0);
+  });
+
+  it("CHECK 9: rejects 'هذا طبيعي' as value judgment without data", () => {
+    const reply = "الفرق بين النماذج غير مبرر. هذا طبيعي — النماذج تلتقط الاتجاه طويل الأجل لسهم TEST.";
+    const errors = validateDeterministicRules(
+      reply,
+      diffMlToolResults,
+      "حلل سهم TEST",
+    );
+    expect(errors.length).toBeGreaterThan(0);
+    expect(
+      errors.some((e) => e.includes("طبيعي")),
+    ).toBe(true);
+  });
+
+  it("CHECK 10: rejects 'مناسب للدخول' without technical criteria", () => {
+    const reply = "سهم TEST مناسب للدخول الآن.";
+    const errors = validateDeterministicRules(
+      reply,
+      diffMlToolResults,
+      "حلل سهم TEST",
+    );
+    expect(errors.length).toBeGreaterThan(0);
+    expect(
+      errors.some((e) => e.includes("معايير") || e.includes("دخول")),
+    ).toBe(true);
+  });
+
+  it("CHECK 10: accepts 'مناسب للدخول' WITH explicit technical criteria", () => {
+    const reply = "مناسب للدخول إذا اقترب السعر من مستوى الدعم 290 جنيه وعاد الحجم فوق 1.0x.";
+    const errors = validateDeterministicRules(
+      reply,
+      diffMlToolResults,
+      "حلل سهم TEST",
+    );
+    const check10Errors = errors.filter(
+      (e) => e.includes("معايير") || e.includes("غير مدعوم"),
+    );
+    expect(check10Errors.length).toBe(0);
+  });
+
+  it("CHECK 11: rejects 'اتفاق قوي' when ML score diff > 3 points (4.4pt scenario)", () => {
+    const reply = "KING AI = 58.3% و EGX AI = 53.9%، الفرق = 4.4 نقطة → اتفاق قوي لسهم TEST.";
+    const errors = validateDeterministicRules(
+      reply,
+      diffMlToolResults,
+      "حلل سهم TEST",
+    );
+    expect(errors.length).toBeGreaterThan(0);
+    expect(
+      errors.some((e) => e.includes("اتفاق قوي") || e.includes("غير دقيق")),
+    ).toBe(true);
+  });
+
+  it("CHECK 11: accepts 'اتفاق قوي' when ML score diff <= 3 points", () => {
+    const reply = "KING AI = 58.3% و EGX AI = 58.0%، الفرق = 0.3 نقطة → اتفاق قوي لسهم CLOSE.";
+    const errors = validateDeterministicRules(
+      reply,
+      closeMlToolResults,
+      "حلل سهم CLOSE",
+    );
+    const check11Errors = errors.filter((e) =>
+      e.includes("اتفاق") && e.includes("غير دقيق"),
+    );
+    expect(check11Errors.length).toBe(0);
+  });
+
+  it("CHECK 11: rejects weak agreement label when diff <= 3 with same direction", () => {
+    const reply = "KING AI = 58.3% و EGX AI = 58.0%، الفرق = 0.3 نقطة → اتفاق ضعيف لسهم CLOSE.";
+    const errors = validateDeterministicRules(
+      reply,
+      closeMlToolResults,
+      "حلل سهم CLOSE",
+    );
+    expect(errors.length).toBeGreaterThan(0);
+    expect(
+      errors.some((e) => e.includes("اتفاق") && e.includes("<= 3")),
+    ).toBe(true);
+  });
+
+  it("CHECK 10: does NOT flag negated entry recommendation (e.g. 'لا ينصح بالدخول')", () => {
+    const reply = "RSI عالي جداً (93) لسهم TEST لا ينصح بالدخول الآن.";
+    const errors = validateDeterministicRules(
+      reply,
+      diffMlToolResults,
+      "حلل سهم TEST",
+    );
+    const check10Errors = errors.filter((e) =>
+      e.includes("معايير") || e.includes("إشارة دخول غير مدعومة"),
+    );
+    expect(check10Errors.length).toBe(0);
+  });
+
+  // Real-scenario from the Abdullah session: MOIN 62.3% vs 53.9% = 8.4 points.
+  const moinMlToolResults = [
+    {
+      data: {
+        symbol: "MOIN",
+        price: 37.4,
+        change_pct: "+15.04%",
+        rsi_14: 58.99,
+        macd: 1.5526,
+        macd_signal: 0.3,
+        support: 30,
+        resistance: 45,
+        king_ai_score: 0.623,
+        egx_ai_score: 0.539,
+      },
+    },
+  ];
+
+  // Real-scenario from the Abdullah session: MAAL 58.8% vs 56.0% = 2.8 points.
+  const maalMlToolResults = [
+    {
+      data: {
+        symbol: "MAAL",
+        price: 9.94,
+        change_pct: "+3.54%",
+        rsi_14: 72.12,
+        macd: 0.3368,
+        macd_signal: 0.2,
+        support: 8.5,
+        resistance: 13.44,
+        king_ai_score: 0.588,
+        egx_ai_score: 0.56,
+      },
+    },
+  ];
+
+  it("CHECK 11: rejects 'اتفاق متوسط' when ML score diff is 8.4pt (real MOIN mislabel)", () => {
+    const reply = "KING AI إيجابي متوسط (62.3%) وEGX محايد (53.9%) — اتفاق متوسط لسهم MOIN.";
+    const errors = validateDeterministicRules(
+      reply,
+      moinMlToolResults,
+      "حلل سهم MOIN",
+    );
+    expect(errors.length).toBeGreaterThan(0);
+    expect(
+      errors.some((e) => e.includes("اتفاق") && e.includes("> 8")),
+    ).toBe(true);
+  });
+
+  it("CHECK 11: accepts 'اتفاق ضعيف' when ML score diff is 8.4pt (real MOIN correct label)", () => {
+    const reply = "KING AI = 62.3% و EGX AI = 53.9% — اتفاق ضعيف لسهم MOIN.";
+    const errors = validateDeterministicRules(
+      reply,
+      moinMlToolResults,
+      "حلل سهم MOIN",
+    );
+    const check11Errors = errors.filter((e) =>
+      e.includes("اتفاق") && e.includes("غير دقيق"),
+    );
+    expect(check11Errors.length).toBe(0);
+  });
+
+  it("CHECK 11: accepts 'اتفاق قوي' when ML score diff is 2.8pt (real MAAL correct label)", () => {
+    const reply = "KING AI = 58.8% و EGX AI = 56.0% — اتفاق قوي لسهم MAAL.";
+    const errors = validateDeterministicRules(
+      reply,
+      maalMlToolResults,
+      "حلل سهم MAAL",
+    );
+    const check11Errors = errors.filter((e) =>
+      e.includes("اتفاق") && e.includes("غير دقيق"),
+    );
+    expect(check11Errors.length).toBe(0);
+  });
+});

@@ -599,6 +599,64 @@ export function validateDeterministicRules(
                 errors.push(`ادعاء "آمن" أو "قوي" مبالغ فيه لسهم ${activeSymbol} مع RSI = ${rsi} (محايد 40-70): استخدم "محايد يميل للإيجابية" بدلاً من "آمن" أو "قوي".`);
             }
         }
+        // EVIDENCE VERIFIER CHECK 9: Unwarranted "طبيعي" judgment on market movements
+        // Describing price action as "طبيعي" (natural) is a value judgment, not data.
+        // Only legitimate in linguistic context (e.g. "محادثة طبيعية"); flag when applied
+        // to market movements (profit-taking, pullback, decline, correction).
+        if (!/(?:محادثة|نص|جملة|لغة)/i.test(sentence)) {
+            const naturalJudgment = /(?:جني\s*أرباح\s*فنية\s*طبيعي|سلوك\s*طبيعي|حركة\s*طبيعي|ارتفاع\s*طبيعي|انخفاض\s*طبيعي|تصحيح\s*طبيعي|سحب\s*طبيعي|تخميد\s*طبيعي|هبوط\s*طبيعي|صعود\s*طبيعي|هذا\s*طبيعي|هو\s*طبيعي|من\s*الطبيعي)/i;
+            const naturalMatch = naturalJudgment.exec(sentence);
+            if (naturalMatch) {
+                const textBeforeNatural = sentence.slice(0, naturalMatch.index);
+                const hasNegationBefore = /(?:ليس\s*|\s*(?:لا|غير|لم|لن|مفيش|ما\s+فيش))\s*طبيعي|(?:ليس|غير|لا)/i.test(textBeforeNatural.slice(-20));
+                if (!hasNegationBefore) {
+                    errors.push(`استخدام حكم غير مبرر بـ "طبيعي" لحركة سهم ${activeSymbol}: صياغة توصيل بحيادية. استبدل بـ "عمليات جني أرباح" أو "تصحيح" أو "انخفاض" أو "موقع سعري متماسك" بدون تصنيف قيمي.`);
+                }
+            }
+        }
+
+        // EVIDENCE VERIFIER CHECK 10: "مناسب للدخول" (suitable for entry) without technical criteria
+        // The LLM must provide specific technical conditions alongside any entry recommendation.
+        // "مناسب للدخول" or similar phrases alone are premature buy signals.
+        const entrySignalWords = /(?:مناسب\s*للدخول|مناسب\s*للشراء|ينصح\s*بالدخول|ينصح\s*بالشراء|إشارة\s*شراء|وقت\s*الدخول)/i;
+        const entryMatch = entrySignalWords.exec(sentence);
+        if (entryMatch) {
+            const textBeforeMatch = sentence.slice(0, entryMatch.index);
+            const hasNegationBefore = /(?:لا|ليس|غير|لم|لن|مفيش|ما\s+فيش|ليس)\s*|\s+(?:لا|ليس|غير|لم|لن|مفيش)/i.test(textBeforeMatch);
+            if (!hasNegationBefore) {
+                const hasCriteria = /(?:سعر\s*الدخول|هدف|وقف\s*خسارة|مستوى\s*دعم|مستوى\s*مقاومة|RSI|MACD|حجم|زخم|نطاق|سعر\s*افتتاحي|مؤشر)/i;
+                const hasEntryCriteria = hasCriteria.test(sentence) || /(?:إذا|عندما|شرط|متطلب|بشرط|بمجرد|إذا اقترب)/i.test(sentence);
+                if (!hasEntryCriteria) {
+                    errors.push(`إشارة دخول غير مدعومة بمعايير لسهم ${activeSymbol}: "${sentence.slice(0, 80)}..." — يجب توضيح شروط تنفيذية محددة (سعر الدخول، هدف، وقف خسارة، أو مؤشرات فنية).`);
+                }
+            }
+        }
+
+        // EVIDENCE VERIFIER CHECK 11: Model consensus label mislabeling
+        // When the response uses "اتفاق قوي" (strong agreement) but the actual ML score diff
+        // exceeds 3 points, the label is inaccurate. Uses the same thresholds as final-v2.ts.
+        const kingScore = facts.king_ai_score;
+        const egxScore = facts.egx_ai_score;
+        if (kingScore != null && egxScore != null) {
+            const diffPoints = Math.abs(Number(kingScore) - Number(egxScore)) * 100;
+            const sameDirection = (kingScore > 0.5 && egxScore > 0.5) || (kingScore < 0.5 && egxScore < 0.5);
+            const claimsStrongAgreement = /اتفاق\s*قوي|strong\s*agreement/i.test(sentence);
+            const claimsWeakAgreement = /(?:اتفاق\s*ضعيف|اتفاق\s*منخفض\s*جدا|اختلاف\s*كبير|اختلاف\s*متوسط|اختلاف\s*ضيق)/i.test(sentence);
+            const claimsMediumAgreement = /اتفاق\s*متوسط/i.test(sentence);
+            if (claimsStrongAgreement && diffPoints > 3) {
+                errors.push(`تصنيف غير دقيق لاتفاق النماذج لسهم ${activeSymbol}: يقول "${sentence.slice(0, 80)}..." لكن الفرق الفعلي هو ${diffPoints.toFixed(1)} نقطة (> 3) — ليس "اتفاق قوي".`);
+            }
+            if (claimsMediumAgreement && diffPoints > 8) {
+                errors.push(`تصنيف غير دقيق لاتفاق النماذج لسهم ${activeSymbol}: يقول "${sentence.slice(0, 80)}..." لكن الفرق الفعلي هو ${diffPoints.toFixed(1)} نقطة (> 8) — ليس "اتفاق متوسط" بل "اتفاق ضعيف".`);
+            }
+            if (sameDirection && diffPoints <= 3 && claimsWeakAgreement) {
+                errors.push(`تصنيف منخفض لاتفاق النماذات لسهم ${activeSymbol}: الفرق الفعلي هو ${diffPoints.toFixed(1)} نقطة (<= 3 بنفس الاتجاه) — يجب أن يكون "اتفاق قوي" أو "اتفاق متوسط".`);
+            }
+            if (sameDirection && diffPoints <= 3 && claimsMediumAgreement) {
+                errors.push(`تصنيف منخفض لاتفاق النماذات لسهم ${activeSymbol}: الفرق الفعلي هو ${diffPoints.toFixed(1)} نقطة (<= 3 بنفس الاتجاه) — يجب أن يكون "اتفاق قوي".`);
+            }
+        }
+
         const claims = extractSentenceClaims(sentence, activeSymbol, facts);
 
 

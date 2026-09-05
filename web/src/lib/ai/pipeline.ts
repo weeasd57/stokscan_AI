@@ -809,6 +809,71 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
     const requestedDate = temporal.date;
     const isClearMarketRequest = marketWideRequest || isBestBuyStockQuestion(message) || oldestRecommendationRequest || /(?:(?:أ|ا)عل[ىي]|(?:أ|ا)قو[ىي]|أحسن|احسن|أفضل|افضل|سيول|السيول|السيوله|تجميع|تصريف|القطاعات|قطاعات|حالة السوق|حاله البورصه|حالة البورصة|اداء المؤشر|أداء المؤشر|المؤشر النهارده|السوق عمل|دولار|usd)/i.test(normalized);
     const isClearStockRequest = symbols.length > 0;
+
+    // Day-by-day / closing-price history requests for a named stock or the
+    // active session stock ("سعر إقفال X كل يوم من النهارده ولغاية أسبوعين
+    // فاتوا + المتوقع") must pull structured price history instead of replying
+    // "لا توجد بيانات تاريخية" from a single live snapshot.
+    const dayByDayHistory = /(?:سعر\s+(?:اقفال|إقفال|الاقفال|الإقفال)|اقفال|إقفال)\s*(?:ال)?(?:سهم|سعر)?\s*.{0,45}(?:كل\s+يوم|يوم\s*بـ?\s*يوم|يوميا|يومية|يوميه)/i.test(normalized)
+        || /(?:كل\s+يوم|يوم\s*بـ?\s*يوم).{0,20}(?:من|النهارده|النهاردة).{0,60}(?:ولغاية|لغاية|حتى|الى|الي).{0,30}(?:فات|فاتت|فاتوا|الماضي|الماضية|السابق)/i.test(normalized)
+        || /(?:اقفال|إقفال).{0,60}(?:اسبوعين|أسبوعين|جلسات|فات|فاتت|فاتوا)/i.test(normalized);
+    if (dayByDayHistory && symbols.length === 0 && sessionState.current_symbol && !unresolvedCompanyNameMention && !marketWideRequest) {
+        symbols.push(sessionState.current_symbol);
+    }
+    if (dayByDayHistory && symbols.length > 0 && !marketWideRequest && !/(قارن|مقارن)/i.test(normalized)) {
+        return {
+            intent: "stock_analysis",
+            confidence: 1,
+            entities: { symbols, sector: null, wants_table: true, timeframe: "historical", requested_date: null, scan_direction: null },
+            tools: ["get_stock", "get_stock_levels", "get_price_history"],
+            session_update: { current_symbol: symbols[0], last_symbols: symbols, summary: message }
+        };
+    }
+
+    // Investment-horizon clarification after a sharia/recommendation request
+    // ("مش مضاربة استثمار لحد أول السنة") must never hijack into a Finance
+    // sector scan — "استثمار" here is a horizon, not the Finance sector.
+    const horizonClarification = !marketWideRequest
+        && symbols.length === 0
+        && !sector
+        && /(?:مش\s+مضاربه|مش\s+مضاربة|استثمار|مضاربه|مضاربة).{0,35}(?:لحد|حتى|الى|الي|طويل|الاجل|الأجل|المدى|الامد|بعدين|بدايه|بداية)/i.test(normalized);
+    if (horizonClarification && !isBestBuyStockQuestion(message)) {
+        const priorRecContext = /(شريع|sharia|توصي|ادخل\s+في|فرص|استثمر)/i.test(String(sessionState.summary || ""));
+        if (priorRecContext) {
+            return {
+                intent: "market_summary",
+                confidence: 1,
+                entities: { symbols: [], sector: null, wants_table: true, timeframe: "current", requested_date: null, scan_direction: null, recommendation_order: "newest", recommendation_filter: null },
+                tools: ["get_recommendations"],
+                session_update: { current_symbol: null, last_symbols: sessionState.last_symbols, summary: message }
+            };
+        }
+        return {
+            intent: "general_chat",
+            confidence: 1,
+            guidance_intent: "allocation",
+            entities: { symbols: [], sector: null, wants_table: false, timeframe: "current", requested_date: null, scan_direction: null },
+            tools: [],
+            session_update: { current_symbol: sessionState.current_symbol, last_symbols: sessionState.last_symbols, summary: message }
+        };
+    }
+
+    // "هما سهمين أخش فيهم ليه كل ده؟" — a follow-up asking to narrow the
+    // previous sharia/recommendation feed to a couple of entries must stay on
+    // the recommendation feed, not drift back into a Finance sector scan.
+    const pickFromPriorRecommendations = symbols.length === 0
+        && /(?:سهمين|الاتنين|السهمين|اتنين|منهم|فيهم|من دول|دول).{0,25}(?:اخش|ادخل|اشتري|اختار|أختار)/i.test(normalized)
+        && /(شريع|sharia|توصي|فرص|ادخل|استثمار|قطاع)/i.test(String(sessionState.summary || ""));
+    if (pickFromPriorRecommendations) {
+        return {
+            intent: "market_summary",
+            confidence: 1,
+            entities: { symbols: [], sector: null, wants_table: true, timeframe: "current", requested_date: null, scan_direction: null, recommendation_order: "newest", recommendation_filter: null },
+            tools: ["get_recommendations"],
+            session_update: { current_symbol: null, last_symbols: sessionState.last_symbols, summary: message }
+        };
+    }
+
     if (!sector && !isGreeting && !beginnerPortfolioRequest && !isHistorical && !requestedDate && !isClearMarketRequest && !isClearStockRequest) return null;
 
     if (oldestRecommendationRequest) {
@@ -1080,7 +1145,7 @@ export function extractSectorFromMessage(message: string): string | null {
     if (/(تجزئه|تجزئة|بيع بالتجزئه|retail trade|retail)/i.test(normalized)) return "تجارة تجزئة";
     if (/(خدمات تجاريه|خدمات تجارية|commercial services)/i.test(normalized)) return "خدمات تجارية";
     if (/(سياحه|السياحه|فنادق|الفنادق|tourism|hotels|travel)/i.test(normalized)) return "سياحة وخدمات استهلاكية";
-    if (/(finance|financial|مالي|تمويل|استثمار)/i.test(normalized)) return "Finance";
+    if (/(finance|financial|مالي|تمويل|(?:قطاع\s+)?الاستثمار\s*(?:المالي|فى البورصه|في البورصة)?|شركات?\s+الاستثمار|شركات?\s+استثمار|اسهم\s+الاستثمار|أسهم\s+الاستثمار|اسهم\s+استثمار|أسهم\s+استثمار|صناديق\s+الاستثمار|بنوك?\s+استثمار)/i.test(normalized)) return "Finance";
     return null;
 }
 
