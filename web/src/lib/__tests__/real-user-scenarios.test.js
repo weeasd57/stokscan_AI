@@ -84,6 +84,16 @@ describe("Real chat routing — AMER daily closing history (Q1)", () => {
 });
 
 describe("Real chat routing — sharia + investment horizon chain (Q2-Q4)", () => {
+  it("routes a one-year investment request to market recommendations instead of the previous stock", () => {
+    const plan = buildDeterministicPlannerResult(
+      "عايز اسهم استثمار لمده سنه",
+      { current_symbol: "AMER", last_symbols: ["AMER"], summary: "تحليل AMER" },
+    );
+    expect(plan).toMatchObject({ intent: "market_summary", tools: ["get_recommendations"] });
+    expect(plan.entities.symbols).toEqual([]);
+    expect(plan.entities.sector).toBeNull();
+  });
+
   it("routes the sharia weekly entry request to recommendations", () => {
     const plan = buildDeterministicPlannerResult(
       "عاوز ادخل في أسهم شريعه خلال الأسبوع ده",
@@ -222,5 +232,6 @@ describe("Real chat system prompt — response quality rules present", () => {
     expect(systemPrompt).toContain("فقط عندما يدعمها التحليل");
     expect(systemPrompt).toContain("توصية سابقة على المنصة");
     expect(systemPrompt).toContain("لا تخلطها مع تحليلك الفني الحالي");
+    expect(systemPrompt).toContain("https://t.me/egxbots");
   });
 });

@@ -429,6 +429,23 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
     }
     const normalized = normalizeArabicIntent(message);
     const explicitSymbols = extractExplicitSymbols(message);
+    // A new, market-wide investment request must not inherit the previous
+    // stock from the session (for example: "عايز اسهم استثمار لمدة سنة"
+    // after an AMER analysis). Route it to recommendations before resolving
+    // implicit stock context or sectors.
+    const broadInvestmentRequest = explicitSymbols.length === 0
+        && /(?:عايز|عاوز|اريد|أريد|محتاج|نفسي|اسهم|أسهم|فرص|ادخل|استثمر|استثمار)/i.test(normalized)
+        && /(?:استثمار|استثمر|احتفاظ|طويل|سنه|سنة|العام|عاماً|عام كامل|شهور|شهر|مدى|اجل|أجل)/i.test(normalized)
+        && !/(?:قطاع|القطاع|شركة|سهم\s+[A-Z]{2,6}|[A-Z]{2,6})/i.test(message);
+    if (broadInvestmentRequest) {
+        return {
+            intent: "market_summary",
+            confidence: 1,
+            entities: { symbols: [], sector: null, wants_table: true, timeframe: "current", requested_date: null, scan_direction: null, recommendation_order: "newest", recommendation_filter: null },
+            tools: ["get_recommendations"],
+            session_update: { current_symbol: null, last_symbols: [], summary: message }
+        };
+    }
     const excludedSectors = extractExcludedSectors(message);
     const referencedSector = extractSectorFromMessage(message) || sessionState.current_sector || extractSectorFromMessage(sessionState.summary || "");
     const sectorNewsFollowUp = /(?:اخبار|أخبار|خبر(?!ه)|عناوين).{0,35}(?:القطاع|قطاع|متعلقه|متعلقة)|(?:القطاع|قطاع).{0,35}(?:اخبار|أخبار|خبر|عناوين)/i.test(normalized);
