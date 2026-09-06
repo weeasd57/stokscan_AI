@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { Loader2, Sparkles, MessageSquare, Link as LinkIcon, User, RefreshCw, Search, Clock, ChevronRight, Trash2, Maximize, Minimize } from "lucide-react";
+import { Loader2, Sparkles, MessageSquare, Link as LinkIcon, User, RefreshCw, Search, Clock, ChevronRight, Trash2, Maximize, Minimize, Database, Zap } from "lucide-react";
 import { toast } from "sonner";
 import SupportTab from "./SupportTab";
 import { FormattedChatMessage } from "@/components/chat/FormattedChatMessage";
@@ -34,7 +34,37 @@ export default function AIChatbotTab() {
             const res = await fetch("/api/admin/ai-chatbot/logs");
             if (res.ok) {
                 const data = await res.json();
-                setLogs(data);
+                // Extract data source info: prefer persisted metadata (pipeline provenance),
+                // fall back to parsing the reply text (legacy rows / backend chatbot)
+                const enrichedData = data.map((log: any) => {
+                    const reply = log.reply || "";
+                    let dataSource = log.data_source || "unknown";
+                    let dataDate = log.data_date || null;
+
+                    // Fallback: extract data source from reply text
+                    if (!dataSource || dataSource === "unknown") {
+                        if (reply.includes("بيانات لحظية (Real-time)")) {
+                            dataSource = "realtime";
+                        } else if (reply.includes("بيانات من قاعدة البيانات (Supabase)")) {
+                            dataSource = "supabase";
+                        }
+                    }
+
+                    // Fallback: extract data date if present in reply text
+                    if (!dataDate) {
+                        const dateMatch = reply.match(/تاريخ البيانات:\s*([^\n]+)/);
+                        if (dateMatch) {
+                            dataDate = dateMatch[1].trim();
+                        }
+                    }
+
+                    return {
+                        ...log,
+                        dataSource,
+                        dataDate
+                    };
+                });
+                setLogs(enrichedData);
             }
         } catch (e) {
             console.error("Failed to load logs");
@@ -417,11 +447,28 @@ export default function AIChatbotTab() {
                                                                         <span className="flex items-center gap-1">
                                                                             <Sparkles className="w-3 h-3 text-indigo-500" /> EGX Bots AI:
                                                                         </span>
-                                                                        {log.latency_ms && log.latency_ms > 0 && (
-                                                                            <span className="text-[10px] font-mono font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md border border-emerald-500/20 flex items-center gap-1">
-                                                                                <Clock className="w-3 h-3 text-emerald-500" /> {(log.latency_ms / 1000).toFixed(2)}s ({log.latency_ms} ms)
-                                                                            </span>
-                                                                        )}
+                                                                        <div className="flex items-center gap-1.5">
+                                                                            {log.dataSource === "realtime" && (
+                                                                                <span className="text-[9px] font-bold text-amber-600 dark:text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-md border border-amber-500/20 flex items-center gap-1" title="تم بناء الرد من بيانات السوق اللحظية">
+                                                                                    <Zap className="w-3 h-3 text-amber-500" /> Real-time
+                                                                                </span>
+                                                                            )}
+                                                                            {log.dataSource === "supabase" && (
+                                                                                <span className="text-[9px] font-bold text-blue-600 dark:text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded-md border border-blue-500/20 flex items-center gap-1" title="تم بناء الرد من قاعدة البيانات (Supabase)">
+                                                                                    <Database className="w-3 h-3 text-blue-500" /> Supabase
+                                                                                </span>
+                                                                            )}
+                                                                            {log.dataDate && (
+                                                                                <span className="text-[9px] font-bold text-zinc-600 dark:text-zinc-400 bg-zinc-500/10 px-2 py-0.5 rounded-md border border-zinc-500/20 flex items-center gap-1" title="تاريخ البيانات التي اتخذ الموديل القرار عليها">
+                                                                                    <Clock className="w-3 h-3 text-zinc-500" /> {log.dataDate}
+                                                                                </span>
+                                                                            )}
+                                                                            {log.latency_ms && log.latency_ms > 0 && (
+                                                                                <span className="text-[10px] font-mono font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md border border-emerald-500/20 flex items-center gap-1">
+                                                                                    <Clock className="w-3 h-3 text-emerald-500" /> {(log.latency_ms / 1000).toFixed(2)}s
+                                                                                </span>
+                                                                            )}
+                                                                        </div>
                                                                     </span>
                                                                     <div className="text-black dark:text-zinc-100">
                                                                         {log.reply && log.reply.trim().length > 0 ? (

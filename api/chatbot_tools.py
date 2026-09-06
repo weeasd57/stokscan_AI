@@ -7,9 +7,403 @@ Architecture:
 """
 
 from typing import List, Dict, Optional, Literal
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, time
+import pytz
 from api.stock_ai import _init_supabase, supabase
 from api.opportunity_analyzer import OpportunityAnalyzer
+
+
+def is_market_open(now=None) -> bool:
+    """
+    Check if the Egyptian stock market (EGX) is currently open.
+    Market hours: 10:00 AM - 2:30 PM Cairo time, Sunday-Thursday.
+    
+    Note: Python weekday() is Monday=0 ... Friday=4, Saturday=5, Sunday=6.
+    The EGX trading week is Sunday-Thursday (weekend = Friday & Saturday).
+    """
+    try:
+        cairo_tz = pytz.timezone('Africa/Cairo')
+        now = now or datetime.now(cairo_tz)
+        if now.tzinfo is None:
+            now = cairo_tz.localize(now)
+        
+        # Weekend in Egypt: Friday (4) and Saturday (5)
+        if now.weekday() in (4, 5):
+            return False
+        
+        # Market hours: 10:00 - 14:30
+        market_open = time(10, 0)
+        market_close = time(14, 30)
+        current_time = now.time()
+        
+        return market_open <= current_time <= market_close
+    except Exception:
+        # Fallback: assume market is closed if timezone check fails
+        return False
+
+
+def _last_completed_session_date(now) -> Optional[datetime]:
+    """
+    Date of the most recent COMPLETED EGX session (Sunday-Thursday).
+    Python weekday(): Monday=0 ... Friday=4, Saturday=5, Sunday=6.
+    - On a trading day after 14:30 Cairo → today
+    - Otherwise → the previous non-Friday/Saturday date
+    """
+    try:
+        d = now.date()
+        if d.weekday() not in (4, 5) and now.time() > time(14, 30):
+            return d
+        d = d - timedelta(days=1)
+        while d.weekday() in (4, 5):
+            d = d - timedelta(days=1)
+        return d
+    except Exception:
+        return None
+
+
+def should_use_realtime_data(now=None) -> bool:
+    """
+    Determine whether real-time API data should be preferred over Supabase.
+    
+    Logic (EGX week = Sunday-Thursday, Python weekday(): Friday=4, Saturday=5):
+    - Friday/Saturday: Supabase (no session, no sync will run)
+    - During market hours (10:00-14:30 Sun-Thu): real-time
+    - Sync window (14:30-18:00): real-time until Supabase sync completes
+    - After 18:00: Supabase
+    """
+    try:
+        cairo_tz = pytz.timezone('Africa/Cairo')
+        now = now or datetime.now(cairo_tz)
+        if now.tzinfo is None:
+            now = cairo_tz.localize(now)
+        
+        # No real-time preference on weekends (Friday/Saturday)
+        if now.weekday() in (4, 5):
+            return False
+        
+        current_time = now.time()
+        
+        # Market hours: 10:00 - 14:30
+        market_open = time(10, 0)
+        market_close = time(14, 30)
+        
+        # Gap period: 14:30 - 18:00 (use real-time during sync window)
+        sync_window_end = time(18, 0)
+        
+        if market_open <= current_time <= market_close:
+            return True  # Market hours: use real-time
+        elif market_close < current_time <= sync_window_end:
+            return True  # Sync window: use real-time until Supabase is updated
+        else:
+            return False  # After sync window: use Supabase
+    except Exception:
+        # Fallback: use Supabase if check fails
+        return False
+
+
+def check_supabase_data_freshness() -> bool:
+    """
+    Check if Supabase daily price data covers the last completed EGX session.
+    
+    The daily sync job (daily_bot_run) upserts rows into `stock_prices` keyed by
+    (symbol, exchange, date). Data is considered fresh when the newest stored
+    `date` matches (or exceeds) the most recent completed EGX session date.
+    """
+    try:
+        if not supabase:
+            return False
+        
+        response = supabase.table("stock_prices").select(
+            "date"
+        ).eq("exchange", "EGX").order("date", desc=True).limit(1).execute()
+        
+        if not (response.data and response.data[0].get("date")):
+            return False
+        
+        latest_date = str(response.data[0]["date"])[:10]
+        now_cairo = datetime.now(pytz.timezone('Africa/Cairo'))
+        expected = _last_completed_session_date(now_cairo)
+        if expected is None:
+            return False
+        
+        return latest_date >= expected.isoformat()
+    except Exception as e:
+        print(f"Error checking Supabase freshness: {e}")
+        return False
+
+
+def _compute_technicals_from_ohlcv(records: List[Dict]) -> Optional[Dict]:
+    """
+    Compute technical indicators from daily OHLCV records
+    (as returned by api.free_data_provider.fetch_eod_data_free).
+    
+    Returns close/change_pct/RSI-14/MACD/volume_ratio/support/resistance
+    plus a volume-weighted accumulation/distribution heuristic, or None
+    when the records are insufficient.
+    """
+    if not records or len(records) < 2:
+        return None
+    
+    try:
+        closes = [float(r.get("close") or 0) for r in records]
+        lows = [float(r.get("low") or r.get("close") or 0) for r in records]
+        highs = [float(r.get("high") or r.get("close") or 0) for r in records]
+        vols = [float(r.get("volume") or 0) for r in records]
+        
+        if any(c <= 0 for c in closes):
+            return None
+        
+        latest = records[-1]
+        close = closes[-1]
+        prev = closes[-2]
+        change_pct = ((close - prev) / prev * 100) if prev > 0 else None
+        
+        # RSI-14 (Wilder smoothing)
+        rsi = None
+        if len(closes) >= 15:
+            gains, losses = [], []
+            for i in range(1, len(closes)):
+                ch = closes[i] - closes[i - 1]
+                gains.append(max(ch, 0.0))
+                losses.append(max(-ch, 0.0))
+            avg_gain = sum(gains[:14]) / 14.0
+            avg_loss = sum(losses[:14]) / 14.0
+            for i in range(14, len(gains)):
+                avg_gain = (avg_gain * 13 + gains[i]) / 14.0
+                avg_loss = (avg_loss * 13 + losses[i]) / 14.0
+            if avg_loss > 0:
+                rsi = round(100 - 100 / (1 + avg_gain / avg_loss), 2)
+            else:
+                rsi = 100.0
+        
+        # MACD (12/26/9)
+        macd = None
+        if len(closes) >= 35:
+            def _ema(values, period):
+                k = 2.0 / (period + 1)
+                out = [values[0]]
+                for v in values[1:]:
+                    out.append(v * k + out[-1] * (1 - k))
+                return out
+            
+            ema12 = _ema(closes, 12)
+            ema26 = _ema(closes, 26)
+            macd_line = [a - b for a, b in zip(ema12, ema26)]
+            signal_line = _ema(macd_line, 9)
+            macd = round(macd_line[-1], 6)
+        
+        # Volume ratio vs 20-session average
+        volume_ratio = None
+        if len(vols) >= 21:
+            base = [v for v in vols[-21:-1] if v > 0]
+            if base and sum(base) > 0:
+                avg_vol = sum(base) / len(base)
+                if avg_vol > 0 and vols[-1] > 0:
+                    volume_ratio = round(vols[-1] / avg_vol, 2)
+        
+        # Support / resistance from the last 20 sessions
+        window_lows = [v for v in lows[-20:] if v > 0]
+        window_highs = [v for v in highs[-20:] if v > 0]
+        support = min(window_lows) if window_lows else None
+        resistance = max(window_highs) if window_highs else None
+        
+        # Volume-weighted accumulation/distribution heuristic (last 10 sessions)
+        acc_score = None
+        dist_score = None
+        recent = records[-10:]
+        up_vol = 0.0
+        down_vol = 0.0
+        for i in range(1, len(recent)):
+            v = float(recent[i].get("volume") or 0)
+            c_cur = float(recent[i].get("close") or 0)
+            c_prev = float(recent[i - 1].get("close") or 0)
+            if c_cur <= 0 or c_prev <= 0:
+                continue
+            if c_cur >= c_prev:
+                up_vol += v
+            else:
+                down_vol += v
+        total_vol = up_vol + down_vol
+        if total_vol > 0:
+            acc_score = round(50 + 50 * (up_vol - down_vol) / total_vol, 1)
+            dist_score = round(50 + 50 * (down_vol - up_vol) / total_vol, 1)
+        
+        return {
+            "price": close,
+            "close_price": close,
+            "change_pct": round(change_pct, 2) if change_pct is not None else None,
+            "rsi": rsi,
+            "macd": macd,
+            "volume_ratio": volume_ratio,
+            "support": support,
+            "resistance": resistance,
+            "accumulation_score": acc_score,
+            "distribution_score": dist_score,
+            "date": str(latest.get("date") or datetime.now().strftime("%Y-%m-%d"))[:10],
+            "exchange": "EGX",
+        }
+    except Exception as e:
+        print(f"Technical computation failed: {e}")
+        return None
+
+
+def _fetch_supabase_stock_detail(symbol: str) -> Optional[Dict]:
+    """
+    Build a full stock snapshot from Supabase:
+    stock_prices (latest close + support/resistance window) +
+    stock_scans_summary (Wyckoff acc/dist scores) + stocks (display name).
+    """
+    try:
+        if not supabase:
+            return None
+        
+        sym = symbol.upper()
+        prices = supabase.table("stock_prices").select(
+            "symbol, date, close, high, low"
+        ).eq("exchange", "EGX").eq("symbol", sym).order(
+            "date", desc=True
+        ).limit(60).execute()
+        rows = prices.data or []
+        if not rows:
+            return None
+        
+        latest = rows[0]
+        try:
+            close = float(latest["close"])
+        except (TypeError, ValueError):
+            return None
+        
+        closes = [float(r["close"]) for r in rows if r.get("close")]
+        window_lows = [float(r["low"]) for r in rows[:20] if r.get("low")]
+        window_highs = [float(r["high"]) for r in rows[:20] if r.get("high")]
+        
+        prev_close = closes[1] if len(closes) > 1 else None
+        change_pct = None
+        if prev_close:
+            change_pct = round((close - prev_close) / prev_close * 100, 2)
+        
+        scans = supabase.table("stock_scans_summary").select(
+            "scan_date, acc_score, dist_score, vol_ratio, rsi_14, "
+            "macd_signal, change_pct, signal, wyckoff_phase"
+        ).eq("symbol", sym).order("scan_date", desc=True).limit(1).execute()
+        scan = (scans.data or [{}])[0]
+        
+        stock_info = supabase.table("stocks").select(
+            "symbol, name, name_ar, exchange"
+        ).eq("symbol", sym).limit(1).execute()
+        info = (stock_info.data or [{}])[0]
+        
+        if change_pct is None and isinstance(scan.get("change_pct"), (int, float)):
+            change_pct = round(float(scan["change_pct"]), 2)
+        
+        return {
+            "symbol": sym,
+            "name": info.get("name_ar") or info.get("name") or sym,
+            "exchange": info.get("exchange") or "EGX",
+            "price": close,
+            "close_price": close,
+            "change_pct": change_pct,
+            "rsi": scan.get("rsi_14"),
+            "macd": scan.get("macd_signal"),
+            "volume_ratio": scan.get("vol_ratio"),
+            "accumulation_score": scan.get("acc_score"),
+            "distribution_score": scan.get("dist_score"),
+            "wyckoff_phase": scan.get("wyckoff_phase"),
+            "support": min(window_lows) if window_lows else None,
+            "resistance": max(window_highs) if window_highs else None,
+            "date": str(latest.get("date"))[:10],
+        }
+    except Exception as e:
+        print(f"Supabase stock detail failed for {symbol}: {e}")
+        return None
+
+
+def _fetch_supabase_market_snapshot(max_symbols: int = 200) -> tuple:
+    """
+    Latest market-wide snapshot from Supabase:
+    stock_scans_summary (Wyckoff scores, newest scan_date) joined with
+    stock_prices (newest date closes).
+    
+    Returns (rows, snapshot_date).
+    """
+    try:
+        if not supabase:
+            return [], None
+        
+        scans = supabase.table("stock_scans_summary").select(
+            "symbol, scan_date, acc_score, dist_score, vol_ratio, "
+            "rsi_14, macd_signal, change_pct"
+        ).order("scan_date", desc=True).limit(max_symbols * 2).execute()
+        if not scans.data:
+            return [], None
+        
+        latest_scan_date = scans.data[0].get("scan_date")
+        scan_by_symbol = {}
+        for row in scans.data:
+            if row.get("scan_date") != latest_scan_date:
+                continue
+            sym = str(row.get("symbol", "")).upper()
+            if sym:
+                scan_by_symbol[sym] = row
+        
+        prices = supabase.table("stock_prices").select(
+            "symbol, close, date"
+        ).eq("exchange", "EGX").order(
+            "date", desc=True
+        ).limit(max_symbols * 2).execute()
+        price_rows = prices.data or []
+        latest_price_date = price_rows[0].get("date") if price_rows else None
+        price_by_symbol = {}
+        for row in price_rows:
+            if row.get("date") != latest_price_date:
+                continue
+            sym = str(row.get("symbol", "")).upper()
+            if sym:
+                price_by_symbol[sym] = row
+        
+        rows = []
+        for sym, scan in scan_by_symbol.items():
+            price_row = price_by_symbol.get(sym, {})
+            close = price_row.get("close")
+            if close is None:
+                continue
+            rows.append({
+                "symbol": sym,
+                "price": close,
+                "close_price": close,
+                "rsi": scan.get("rsi_14"),
+                "macd": scan.get("macd_signal"),
+                "volume_ratio": scan.get("vol_ratio"),
+                "accumulation_score": scan.get("acc_score"),
+                "distribution_score": scan.get("dist_score"),
+                "change_pct": scan.get("change_pct"),
+                "support": None,
+                "resistance": None,
+                "date": str(latest_price_date or latest_scan_date)[:10],
+                "exchange": "EGX",
+            })
+        
+        return rows, str(latest_price_date or latest_scan_date)[:10]
+    except Exception as e:
+        print(f"Supabase market snapshot failed: {e}")
+        return [], None
+
+
+def _resolve_data_source_mode() -> str:
+    """
+    Decide the data source mode for chatbot stock tools.
+    
+    - 'realtime': during the live EGX session (always real-time, even if a
+      manual sync marked the DB fresh), or during the post-close sync window
+      while Supabase still lacks the last session's data.
+    - 'supabase': outside market hours once Supabase data is complete
+      (or on weekends / after the sync window).
+    """
+    if is_market_open():
+        return "realtime"
+    if should_use_realtime_data() and not check_supabase_data_freshness():
+        return "realtime"
+    return "supabase"
 
 
 def parse_user_intent(user_query: str, conversation_history: list = None) -> Dict:
@@ -39,6 +433,10 @@ def parse_user_intent(user_query: str, conversation_history: list = None) -> Dic
         "بيوك": "BIOC",
         "فارم كير": "FERC",
         "فيرك": "FERC",
+        "فيركيم": "FERC",
+        "فركيم": "FERC",
+        "فرك": "FERC",
+        "فركم": "FERC",
         "سي اى بى": "CIB",
         "سيب": "CIB",
         "المصرية": "COMI",
@@ -63,7 +461,24 @@ def parse_user_intent(user_query: str, conversation_history: list = None) -> Dic
     
     # Determine intent with improved pattern matching
     
-    # 1. Check for portfolio/advice queries (highest priority for these keywords)
+    # 0. Check for Telegram channel link request (highest priority — must run
+    # before ticker extraction so words like "LINK" are not treated as symbols)
+    telegram_keywords = ["تليجرام", "قناة", "channel", "telegram", "رابط", "تابعنا"]
+    if any(word in query_lower for word in telegram_keywords):
+        return {
+            "intent": "telegram_link",
+            "query": user_query
+        }
+    
+    # 1. Check for analytics/performance queries (high priority)
+    analytics_keywords = ["أداء", "نجاح", "فشل", "إحصائيات", "win rate", "success rate", "performance", "stats", "winrate"]
+    if any(word in query_lower for word in analytics_keywords):
+        return {
+            "intent": "analytics",
+            "query": user_query
+        }
+    
+    # 2. Check for portfolio/advice queries (highest priority for these keywords)
     if any(word in query_lower for word in ["محفظ", "portfolio", "نصائح", "advice", "جميع اسهم"]):
         return {
             "intent": "portfolio_analysis",
@@ -136,24 +551,33 @@ def parse_user_intent(user_query: str, conversation_history: list = None) -> Dic
         # More colloquial patterns
         analysis_keywords = [
             "تحليل", "وضع", "رأي", "رائيك", "سيولة", "analysis",
-            "كويس", "حلو", "هل", "ايه", "إيه", "شايف", "نظرتك"
+            "كويس", "حلو", "هل", "ايه", "إيه", "شايف", "نظرتك", "سهم"
         ]
         if any(word in query_lower for word in analysis_keywords):
             return {
                 "intent": "stock_analysis",
                 "ticker": tickers[0],
-                "required_data": ["price", "rsi", "macd", "volume_ratio", "support", "resistance", 
+                "required_data": ["price", "rsi", "macd", "volume_ratio", "support", "resistance",
                                  "accumulation_score", "distribution_score"]
             }
     
     # 6. Check for screening intents
-    # Weekly opportunities
-    opportunity_keywords = ["أفضل", "احسن", "فرص", "متوقع", "يرتفع", "forecast", "سهم", "اسهم"]
-    if any(word in query_lower for word in opportunity_keywords):
+    # Weekly opportunities - but NOT if there's a specific ticker
+    opportunity_keywords = ["أفضل", "احسن", "فرص", "متوقع", "يرتفع", "forecast"]
+    if any(word in query_lower for word in opportunity_keywords) and not tickers:
         return {
             "intent": "screening",
             "criteria": "weekly_opportunity",
             "required_data": ["all"]
+        }
+    
+    # If there's a ticker but no clear intent, default to stock analysis
+    if tickers and len(tickers) == 1:
+        return {
+            "intent": "stock_analysis",
+            "ticker": tickers[0],
+            "required_data": ["price", "rsi", "macd", "volume_ratio", "support", "resistance",
+                             "accumulation_score", "distribution_score"]
         }
     
     # Below midpoint with accumulation
@@ -183,7 +607,7 @@ def parse_user_intent(user_query: str, conversation_history: list = None) -> Dic
             "required_data": ["all"]
         }
     
-    # 7. Default to general for unclear intents
+    # 8. Default to general for unclear intents
     return {
         "intent": "general",
         "query": user_query
@@ -221,51 +645,66 @@ class ChatbotTools:
             return {"error": "Database not available", "data": []}
         
         try:
-            # Get latest stock data from last trading session
-            # Using stock_bars_intraday as the data source
-            query = supabase.table("stock_bars_intraday").select(
-                "symbol, close_price:price, rsi, macd, volume_ratio, "
-                "accumulation_score, distribution_score, support, resistance, "
-                "date, exchange"
-            ).order("date", desc=True).limit(200)
+            # Resolve the data source mode (realtime vs Supabase)
+            mode = _resolve_data_source_mode()
             
-            if min_accumulation:
-                query = query.gte("accumulation_score", min_accumulation)
+            data_source = "supabase_db"
+            data_date = None
+            stocks_data = []
             
-            response = query.execute()
-            stocks_data = response.data if response.data else []
+            if mode == "realtime":
+                try:
+                    from api.intraday_downloader import _fetch_egx_symbols
+                    
+                    symbols = _fetch_egx_symbols()
+                    if not symbols:
+                        symbols = ["COMI", "EAST", "HRHO", "ISPH", "ESRS"]  # Fallback symbols
+                    
+                    from api.free_data_provider import fetch_eod_data_free
+                    for symbol in symbols[:50]:  # Limit to 50 symbols for performance
+                        try:
+                            records = fetch_eod_data_free(symbol, period="3mo")
+                            tech = _compute_technicals_from_ohlcv(records)
+                            if tech and tech.get("price"):
+                                tech["symbol"] = symbol
+                                stocks_data.append(tech)
+                        except Exception:
+                            continue
+                    
+                    if stocks_data:
+                        data_source = "realtime_api"
+                        data_date = max(r.get("date") or "" for r in stocks_data)
+                except Exception as rt_error:
+                    print(f"Real-time fetch failed, falling back to Supabase: {rt_error}")
+                    stocks_data = []
+            
+            if not stocks_data:
+                stocks_data, snapshot_date = _fetch_supabase_market_snapshot()
+                data_source = "supabase_db"
+                data_date = snapshot_date
             
             if not stocks_data:
                 return {
                     "error": None,
                     "data": [],
                     "message": "لا توجد بيانات متاحة حالياً",
-                    "query_date": datetime.now().isoformat()
+                    "query_date": datetime.now().isoformat(),
+                    "data_source": data_source,
+                    "data_date": data_date
                 }
             
-            # Filter to get most recent data per symbol
-            latest_by_symbol = {}
-            for stock in stocks_data:
-                sym = stock.get("symbol")
-                date = stock.get("date")
-                
-                if sym not in latest_by_symbol:
-                    latest_by_symbol[sym] = stock
-                else:
-                    if date > latest_by_symbol[sym].get("date"):
-                        latest_by_symbol[sym] = stock
-            
-            stocks_list = list(latest_by_symbol.values())
-            
-            # Run opportunity analysis
-            opportunities = self.analyzer.rank_opportunities(stocks_list, top_n=top_n)
+            opportunities = self.analyzer.rank_opportunities(stocks_data, top_n=top_n)
+            for opp in opportunities:
+                opp["data_source"] = data_source
             
             return {
                 "error": None,
                 "data": opportunities,
                 "query_date": datetime.now().isoformat(),
-                "total_analyzed": len(stocks_list),
-                "top_count": len(opportunities)
+                "total_analyzed": len(stocks_data),
+                "top_count": len(opportunities),
+                "data_source": data_source,
+                "data_date": data_date
             }
         
         except Exception as e:
@@ -295,44 +734,31 @@ class ChatbotTools:
             return {"error": "Database not available", "data": []}
         
         try:
-            # Get stocks with accumulation
-            response = supabase.table("stock_bars_intraday").select(
-                "symbol, close_price:price, rsi, macd, volume_ratio, "
-                "accumulation_score, distribution_score, support, resistance, "
-                "date, exchange"
-            ).gte("accumulation_score", min_accumulation).order("date", desc=True).limit(200).execute()
+            # Latest Wyckoff scan data from Supabase (stock_scans_summary)
+            stocks_data, snapshot_date = _fetch_supabase_market_snapshot()
             
-            stocks_data = response.data if response.data else []
+            # Filter by minimum accumulation score
+            stocks_data = [
+                s for s in stocks_data
+                if isinstance(s.get("accumulation_score"), (int, float))
+                and s["accumulation_score"] >= min_accumulation
+            ]
             
             if not stocks_data:
                 return {
                     "error": None,
                     "data": [],
                     "message": "لا توجد أسهم تحقق هذه الشروط حالياً",
-                    "query_date": datetime.now().isoformat()
+                    "query_date": datetime.now().isoformat(),
+                    "data_source": "supabase_db",
+                    "data_date": snapshot_date
                 }
             
-            # Filter latest per symbol
-            latest_by_symbol = {}
-            for stock in stocks_data:
-                sym = stock.get("symbol")
-                date = stock.get("date")
-                
-                if sym not in latest_by_symbol:
-                    latest_by_symbol[sym] = stock
-                else:
-                    if date > latest_by_symbol[sym].get("date"):
-                        latest_by_symbol[sym] = stock
-            
-            # Filter below midpoint
-            filtered = self.analyzer.filter_by_criteria(
-                list(latest_by_symbol.values()),
-                min_accumulation=min_accumulation,
-                below_midpoint=True
-            )
-            
             # Analyze
-            opportunities = self.analyzer.rank_opportunities(filtered, top_n=20)
+            opportunities = self.analyzer.rank_opportunities(stocks_data, top_n=20)
+            for opp in opportunities:
+                opp["data_source"] = "supabase_db"
+                opp["data_date"] = snapshot_date
             
             return {
                 "error": None,
@@ -342,7 +768,9 @@ class ChatbotTools:
                     "min_accumulation": min_accumulation,
                     "below_midpoint": True
                 },
-                "results_count": len(opportunities)
+                "results_count": len(opportunities),
+                "data_source": "supabase_db",
+                "data_date": snapshot_date
             }
         
         except Exception as e:
@@ -372,39 +800,31 @@ class ChatbotTools:
             return {"error": "Database not available", "data": []}
         
         try:
-            response = supabase.table("stock_bars_intraday").select(
-                "symbol, close_price:price, rsi, macd, volume_ratio, "
-                "accumulation_score, distribution_score, support, resistance, "
-                "date, exchange"
-            ).gte("distribution_score", min_distribution).order("date", desc=True).limit(200).execute()
+            # Latest Wyckoff scan data from Supabase (stock_scans_summary)
+            stocks_data, snapshot_date = _fetch_supabase_market_snapshot()
             
-            stocks_data = response.data if response.data else []
+            # Filter by minimum distribution score (selling pressure)
+            stocks_data = [
+                s for s in stocks_data
+                if isinstance(s.get("distribution_score"), (int, float))
+                and s["distribution_score"] >= min_distribution
+            ]
             
             if not stocks_data:
                 return {
                     "error": None,
                     "data": [],
                     "message": "لا توجد أسهم تحقق شرط التصريف المطلوب",
-                    "query_date": datetime.now().isoformat()
+                    "query_date": datetime.now().isoformat(),
+                    "data_source": "supabase_db",
+                    "data_date": snapshot_date
                 }
             
-            # Get latest per symbol
-            latest_by_symbol = {}
-            for stock in stocks_data:
-                sym = stock.get("symbol")
-                date = stock.get("date")
-                
-                if sym not in latest_by_symbol:
-                    latest_by_symbol[sym] = stock
-                else:
-                    if date > latest_by_symbol[sym].get("date"):
-                        latest_by_symbol[sym] = stock
-            
             # Analyze (scores will be lower due to distribution)
-            analysis = self.analyzer.rank_opportunities(
-                list(latest_by_symbol.values()), 
-                top_n=20
-            )
+            analysis = self.analyzer.rank_opportunities(stocks_data, top_n=20)
+            for item in analysis:
+                item["data_source"] = "supabase_db"
+                item["data_date"] = snapshot_date
             
             return {
                 "error": None,
@@ -414,7 +834,9 @@ class ChatbotTools:
                     "min_distribution": min_distribution
                 },
                 "results_count": len(analysis),
-                "warning": "هذه أسهم عليها تصريف — تجنب الشراء"
+                "warning": "هذه أسهم عليها تصريف — تجنب الشراء",
+                "data_source": "supabase_db",
+                "data_date": snapshot_date
             }
         
         except Exception as e:
@@ -441,30 +863,55 @@ class ChatbotTools:
             return {"error": "Database not available", "data": None}
         
         try:
-            # Get latest data for this symbol
-            response = supabase.table("stock_bars_intraday").select(
-                "symbol, close_price:price, rsi, macd, volume_ratio, "
-                "accumulation_score, distribution_score, support, resistance, "
-                "date, exchange, name"
-            ).eq("symbol", symbol.upper()).order("date", desc=True).limit(1).execute()
+            sym = symbol.upper()
             
-            if not response.data:
+            # Resolve the data source mode (realtime vs Supabase)
+            mode = _resolve_data_source_mode()
+            
+            data_source = "supabase_db"
+            stock_data = None
+            
+            if mode == "realtime":
+                # Try to fetch real-time data and compute indicators from OHLCV
+                try:
+                    from api.free_data_provider import fetch_eod_data_free
+                    records = fetch_eod_data_free(sym, period="3mo")
+                    tech = _compute_technicals_from_ohlcv(records)
+                    if tech and tech.get("price"):
+                        stock_data = tech
+                        data_source = "realtime_api"
+                except Exception as rt_error:
+                    print(f"Real-time fetch failed, falling back to Supabase: {rt_error}")
+            
+            if stock_data is None:
+                # Default to Supabase: real snapshot from stock_prices +
+                # stock_scans_summary + stocks
+                stock_data = _fetch_supabase_stock_detail(sym)
+                data_source = "supabase_db"
+            
+            if not stock_data:
                 return {
                     "error": f"No data found for symbol: {symbol}",
                     "data": None,
                     "query_date": datetime.now().isoformat()
                 }
             
-            stock_data = response.data[0]
+            stock_data.setdefault("name", sym)
+            stock_data["symbol"] = sym
             
-            # Run analysis
             analysis = self.analyzer.calculate_weekly_opportunity_score(stock_data)
+            analysis["name"] = stock_data.get("name")
+            analysis["change_pct"] = stock_data.get("change_pct")
+            analysis["data_source"] = data_source
+            analysis["data_date"] = stock_data.get("date")
             
             return {
                 "error": None,
                 "data": analysis,
                 "query_date": datetime.now().isoformat(),
-                "symbol": symbol.upper()
+                "symbol": sym,
+                "data_source": data_source,
+                "data_date": stock_data.get("date")
             }
         
         except Exception as e:
@@ -479,7 +926,7 @@ class ChatbotTools:
         """
         Tool: market_indices
         
-        Get current market indices (EGX30, USD rate, etc.)
+        Get current market indices (EGX30, USD rate, etc.).
         
         Returns:
         - Dictionary with market indices data
@@ -490,28 +937,43 @@ class ChatbotTools:
         try:
             indices = {}
             
-            # Get EGX30
-            egx_response = supabase.table("market_indices").select(
-                "symbol, close, date"
-            ).eq("symbol", "EGX30").order("date", desc=True).limit(1).execute()
+            # Try market_cache table first
+            try:
+                egx_response = supabase.table("market_cache").select(
+                    "symbol, value, date"
+                ).eq("symbol", "EGX30").order("date", desc=True).limit(1).execute()
+                
+                if egx_response.data:
+                    egx_data = egx_response.data[0]
+                    indices["EGX30"] = {
+                        "value": egx_data.get("value"),
+                        "date": egx_data.get("date")
+                    }
+            except Exception as e:
+                print(f"market_cache query failed: {e}")
             
-            if egx_response.data:
-                egx_data = egx_response.data[0]
-                indices["EGX30"] = {
-                    "value": egx_data.get("close"),
-                    "date": egx_data.get("date")
-                }
+            # Try currency_rates table
+            try:
+                usd_response = supabase.table("currency_rates").select(
+                    "currency, rate, date"
+                ).eq("currency", "USD").order("date", desc=True).limit(1).execute()
+                
+                if usd_response.data:
+                    usd_data = usd_response.data[0]
+                    indices["USD_EGP"] = {
+                        "rate": usd_data.get("rate"),
+                        "date": usd_data.get("date")
+                    }
+            except Exception as e:
+                print(f"currency_rates query failed: {e}")
             
-            # Get USD rate
-            usd_response = supabase.table("currency_rates").select(
-                "currency, rate, date"
-            ).eq("currency", "USD").order("date", desc=True).limit(1).execute()
-            
-            if usd_response.data:
-                usd_data = usd_response.data[0]
-                indices["USD_EGP"] = {
-                    "rate": usd_data.get("rate"),
-                    "date": usd_data.get("date")
+            # If no data available, return empty with message
+            if not indices:
+                return {
+                    "error": None,
+                    "data": {},
+                    "message": "لا توجد بيانات للمؤشرات حالياً",
+                    "query_date": datetime.now().isoformat()
                 }
             
             return {
@@ -522,6 +984,101 @@ class ChatbotTools:
         
         except Exception as e:
             print(f"Error in get_market_indices: {e}")
+            return {
+                "error": str(e),
+                "data": {},
+                "query_date": datetime.now().isoformat()
+            }
+    
+    def get_performance_analytics(self, start_date: Optional[str] = None, end_date: Optional[str] = None) -> Dict:
+        """
+        Tool: performance_analytics
+        
+        Get performance metrics and analytics from backtests and bot states.
+        
+        Parameters:
+        - start_date: Optional start date for filtering (ISO format)
+        - end_date: Optional end date for filtering (ISO format)
+        
+        Returns:
+        - Dictionary with performance metrics
+        """
+        if not supabase:
+            return {"error": "Database not available", "data": {}}
+        
+        try:
+            analytics = {}
+            
+            # Get backtest performance data - use only available columns
+            try:
+                backtest_query = supabase.table("backtests").select(
+                    "id, model_name, exchange, start_date, end_date, total_trades, win_rate, "
+                    "net_profit, avg_return_per_trade, created_at"
+                )
+                
+                if start_date:
+                    backtest_query = backtest_query.gte("created_at", start_date)
+                if end_date:
+                    backtest_query = backtest_query.lte("created_at", end_date)
+                
+                backtest_response = backtest_query.order("created_at", desc=True).limit(50).execute()
+                
+                if backtest_response.data:
+                    backtests = backtest_response.data
+                    
+                    # Calculate aggregate metrics
+                    total_trades = sum(bt.get("total_trades", 0) for bt in backtests if bt.get("total_trades"))
+                    avg_win_rate = sum(bt.get("win_rate", 0) for bt in backtests if bt.get("win_rate") is not None) / len(backtests) if backtests else 0
+                    total_profit = sum(bt.get("net_profit", 0) for bt in backtests if bt.get("net_profit") is not None)
+                    
+                    analytics["backtests"] = {
+                        "count": len(backtests),
+                        "total_trades": total_trades,
+                        "avg_win_rate": round(avg_win_rate, 2),
+                        "total_profit": round(total_profit, 2),
+                        "recent": backtests[:5]  # Top 5 recent
+                    }
+            except Exception as e:
+                analytics["backtests_error"] = str(e)
+            
+            # Get bot states for live performance - use only available columns
+            try:
+                bot_response = supabase.table("bot_states").select(
+                    "bot_id, state, updated_at"
+                ).order("updated_at", desc=True).limit(10).execute()
+                
+                if bot_response.data:
+                    live_stats = []
+                    for bot in bot_response.data:
+                        state = bot.get("state", {})
+                        if isinstance(state, dict):
+                            live_stats.append({
+                                "bot_id": bot.get("bot_id"),
+                                "win_rate": state.get("win_rate", 0),
+                                "trades_count": state.get("trades_count", 0),
+                                "total_pnl": state.get("total_pnl", 0),
+                                "open_positions": state.get("total_open_positions", 0)
+                            })
+                    
+                    if live_stats:
+                        avg_live_win_rate = sum(s["win_rate"] for s in live_stats) / len(live_stats)
+                        total_live_trades = sum(s["trades_count"] for s in live_stats)
+                        
+                        analytics["live_performance"] = {
+                            "active_bots": len(live_stats),
+                            "avg_win_rate": round(avg_live_win_rate, 2),
+                            "total_trades": total_live_trades,
+                            "bots": live_stats
+                        }
+            except Exception as e:
+                analytics["live_performance_error"] = str(e)
+            
+            return {
+                "error": None,
+                "data": analytics,
+                "query_date": datetime.now().isoformat()
+            }
+        except Exception as e:
             return {
                 "error": str(e),
                 "data": {},
@@ -639,6 +1196,9 @@ def execute_tool(tool_name: str, arguments: Dict) -> Dict:
     
     elif tool_name == "get_market_indices":
         return tools.get_market_indices(**arguments)
+    
+    elif tool_name == "get_performance_analytics":
+        return tools.get_performance_analytics(**arguments)
     
     else:
         return {

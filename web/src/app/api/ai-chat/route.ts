@@ -117,9 +117,10 @@ function sanitizeUserMessage(text: string): string {
     return stripEnvironmentMetadata(text).replace(/\s{2,}/g, " ").trim();
 }
 
-// The latency_ms column ships with migration 20260813_ai_chat_messages_latency_ms.
-// Until that migration is applied to the live DB, any insert/select mentioning the
-// column fails with a PostgREST schema error — retry without the column so chat
+// The latency_ms / metadata columns ship with migrations
+// 20260813_ai_chat_messages_latency_ms.sql and 20260906_ai_chat_messages_metadata.sql.
+// Until those migrations are applied to the live DB, any insert/select mentioning
+// the columns fails with a PostgREST schema error — retry without the columns so chat
 // logging and the admin history keep working either way.
 function isMissingColumnError(error: any): boolean {
     const text = `${error?.code || ""} ${error?.message || ""} ${error?.details || ""}`;
@@ -131,13 +132,40 @@ async function insertChatMessages(supabase: any, rows: any[]): Promise<void> {
     if (!error) return;
     if (isMissingColumnError(error)) {
         const { error: retryError } = await supabase.from("ai_chat_messages").insert(
-            rows.map((row) => { const { latency_ms, ...rest } = row; return rest; })
+            rows.map((row) => { const { latency_ms, metadata, ...rest } = row; return rest; })
         );
         if (retryError) console.error("Failed to log chat messages to DB:", retryError);
-        else console.warn("[ai-chat] latency_ms column not applied yet — messages logged without latency (run supabase/migrations/20260813_ai_chat_messages_latency_ms.sql)");
+        else console.warn("[ai-chat] latency_ms/metadata columns not applied yet — messages logged without them (run supabase/migrations/20260813_ai_chat_messages_latency_ms.sql and 20260906_ai_chat_messages_metadata.sql)");
     } else {
         console.error("Failed to log chat messages to DB:", error);
     }
+}
+
+/**
+ * Extract data provenance from pipeline tool results so the admin chat tab can
+ * show whether the LLM reply was built from real-time market data or from the
+ * Supabase database, and which data date the decision was based on.
+ */
+function extractProvenanceFromToolResults(results: any[]): Record<string, any> | null {
+    if (!Array.isArray(results) || results.length === 0) return null;
+    let dataSource: string | null = null;
+    let dataDate: string | null = null;
+    const toolSources: Record<string, string> = {};
+    for (const result of results) {
+        if (!result || !result.tool) continue;
+        const source = String(result.source || "unknown");
+        toolSources[result.tool] = source;
+        // TradingView live-session refresh marks the reply as real-time
+        if (source === "live_session" && !dataSource) dataSource = "realtime";
+        const time = String(result.data_time || "");
+        if (time && (!dataDate || time > dataDate)) dataDate = time;
+    }
+    if (!dataSource) dataSource = "supabase";
+    return {
+        data_source: dataSource,
+        data_date: dataDate,
+        tool_sources: toolSources,
+    };
 }
 
 function generateSuggestedButtons(plannerResult: any, sessionState: any): string[] {
@@ -420,6 +448,7 @@ export async function POST(req: NextRequest) {
                         let tokenBuffer = "";
                         let plannerResult: any = null;
                         let liveDataString = "";
+                        let toolsResults: any[] = [];
                         let plannerLatencyMs = 0;
                         let toolsLatencyMs = 0;
                         let responseLatencyMs = 0;
@@ -441,6 +470,7 @@ export async function POST(req: NextRequest) {
                                     break;
                                 case "tools_data":
                                     liveDataString = event.data.formattedText || "";
+                                    toolsResults = Array.isArray(event.data.results) ? event.data.results : [];
                                     toolsLatencyMs = toolsStartTime ? Date.now() - toolsStartTime : 0;
                                     responseStartTime = Date.now();
                                     break;
@@ -491,6 +521,7 @@ export async function POST(req: NextRequest) {
                                     // Save messages to DB
                                     try {
                                         if (activeSessionId) {
+                                            const provenance = extractProvenanceFromToolResults(toolsResults);
                                             await insertChatMessages(supabase, [
                                                 {
                                                     session_id: activeSessionId,
@@ -507,6 +538,7 @@ export async function POST(req: NextRequest) {
                                                     role: "assistant",
                                                     content: replyText,
                                                     latency_ms: streamingTotalLatencyMs,
+                                                    metadata: provenance,
                                                     created_at: new Date().toISOString()
                                                 }
                                             ]);
@@ -649,6 +681,7 @@ export async function POST(req: NextRequest) {
         // Save messages to DB
         try {
             if (activeSessionId) {
+                const provenance = extractProvenanceFromToolResults(pipelineResult?.tools?.results || []);
                 await insertChatMessages(supabase, [
                     {
                         session_id: activeSessionId,
@@ -665,6 +698,7 @@ export async function POST(req: NextRequest) {
                         role: "assistant",
                         content: replyText,
                         latency_ms: totalLatencyMs,
+                        metadata: provenance,
                         created_at: new Date().toISOString()
                     }
                 ]);

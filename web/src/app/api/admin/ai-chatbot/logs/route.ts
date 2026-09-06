@@ -25,7 +25,7 @@ export async function GET(_req: NextRequest) {
             supabase.from("ai_chatbot_logs").select("*").order("created_at", { ascending: false }).limit(1000),
             // 4. Fetch latest structured chat messages ordered descending (newest first)
             supabase.from("ai_chat_messages")
-                .select("id, session_id, user_id, role, content, latency_ms, image_url, created_at")
+                .select("id, session_id, user_id, role, content, latency_ms, image_url, metadata, created_at")
                 .order("created_at", { ascending: false })
                 .limit(5000)
         ]);
@@ -64,6 +64,18 @@ export async function GET(_req: NextRequest) {
                 const userName = getUserLabel(log.user_id, log.user_name);
                 const cleanMessage = sanitizeUiLabel(log.message || "");
                 const cleanReply = sanitizeUiLabel(log.reply || "");
+                
+                // Extract data source from tool_calls if available
+                let dataSource = "unknown";
+                if (log.tool_calls && Array.isArray(log.tool_calls)) {
+                    for (const toolCall of log.tool_calls) {
+                        if (toolCall.result && toolCall.result.data && toolCall.result.data.data_source) {
+                            dataSource = toolCall.result.data.data_source;
+                            break;
+                        }
+                    }
+                }
+                
                 logsMap.set(key, {
                     id: log.id,
                     user_id: log.user_id || userName,
@@ -72,6 +84,7 @@ export async function GET(_req: NextRequest) {
                     message: cleanMessage,
                     reply: cleanReply,
                     created_at: log.created_at,
+                    data_source: dataSource,
                 });
             });
         }
@@ -81,7 +94,7 @@ export async function GET(_req: NextRequest) {
         if (chatMsgsRes.status === "fulfilled") {
             const val: any = chatMsgsRes.value;
             if (val.error) {
-                // Fallback without latency_ms if column doesn't exist
+                // Fallback without latency_ms/metadata if columns don't exist
                 const fallback = await supabase
                     .from("ai_chat_messages")
                     .select("id, session_id, user_id, role, content, image_url, created_at")
@@ -138,6 +151,11 @@ export async function GET(_req: NextRequest) {
                             }
                         }
 
+                        // Data provenance saved by the chat pipeline (migration 20260906)
+                        const meta = assistantMsg?.metadata || null;
+                        const dataSource = meta?.data_source || null;
+                        const dataDate = meta?.data_date || null;
+
                         const effectiveUserId = msg.user_id || (msg.session_id ? `guest_${msg.session_id.slice(0, 8)}` : "guest");
                         const userName = getUserLabel(msg.user_id, msg.user_id ? undefined : `زائر (${msg.session_id?.slice(0, 6) || "عام"})`);
                         const cleanMessage = sanitizeUiLabel(msg.content || "");
@@ -154,6 +172,8 @@ export async function GET(_req: NextRequest) {
                             reply: cleanReply,
                             latency_ms: latencyMs,
                             created_at: msg.created_at,
+                            data_source: dataSource,
+                            data_date: dataDate,
                         });
                     }
                 }
@@ -164,6 +184,7 @@ export async function GET(_req: NextRequest) {
                         const effectiveUserId = msg.user_id || (msg.session_id ? `guest_${msg.session_id.slice(0, 8)}` : "guest");
                         const userName = getUserLabel(msg.user_id, msg.user_id ? undefined : `زائر (${msg.session_id?.slice(0, 6) || "عام"})`);
                         const cleanReply = msg.content ? stripEnvironmentLeak(msg.content) : "";
+                        const meta = msg.metadata || null;
 
                         logsMap.set(`msg_asst_${msg.id}`, {
                             id: msg.id,
@@ -176,6 +197,8 @@ export async function GET(_req: NextRequest) {
                             reply: cleanReply,
                             latency_ms: msg.latency_ms || null,
                             created_at: msg.created_at,
+                            data_source: meta?.data_source || null,
+                            data_date: meta?.data_date || null,
                         });
                     }
                 }

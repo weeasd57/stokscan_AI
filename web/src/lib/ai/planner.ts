@@ -1266,6 +1266,23 @@ Analyze the user request and return a JSON object. You MUST dynamically choose t
 
     const isBestBuy = isBestBuyStockQuestion(message);
     const isMarketSlang = /مين طلع ومين نزل|ايه اللي طلع وايه اللي نزل|ايه اللى طلع وايه اللى نزل|السوق عمل ايه|حالة السوق|صعود وهبوط|gainers and losers|what went up|whole market|where is liquidity|نجم\s+الاسبوع|نجم\s+الأسبوع|القطاع\s+اللي\s+هيطلع|القطاع\s+اللي\s+يرتفع|السهم\s+اللي\s+هيرتفع|السهم\s+اللي\s+يبقي\s+نجم|سيول|سيولة|السيولة|السيوله|قايمه|قائمة|اقوى الاسهم|أقوى الأسهم|افضل الاسهم|أفضل الأسهم|السوق كله|القطاعات|حركة السيولة|توزيع السيولة/i.test(message);
+    
+    // Check for analytics/performance queries
+    const isAnalyticsQuery = /أداء|نجاح|فشل|إحصائيات|win rate|success rate|performance|stats|winrate/i.test(message);
+    
+    if (isAnalyticsQuery) {
+        return {
+            intent: "analytics",
+            confidence: 0.9,
+            entities: { symbols: [], sector: null, wants_table: true },
+            tools: ["get_performance_analytics"],
+            session_update: {
+                current_symbol: session.current_symbol,
+                last_symbols: session.last_symbols || [],
+                summary: message
+            }
+        };
+    }
     const sectorFollowUp = /^(?:اى|أي|ايه|ما هو|ما هي|مين)\s+(?:اكبر|أكبر)\s+(?:سهم|شركة)\s+(?:في|فى|بقطاع|من)\s+(.+)$/i.exec(message.trim())
         || /^(?:اكبر|أكبر)\s+(?:سهم|شركة)\s+(?:في|فى|بقطاع|من)\s+(.+)$/i.exec(message.trim());
     const explicitSymbols = extractSymbolsFromText(message, validSymbols, stockMappings);

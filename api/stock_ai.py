@@ -692,11 +692,11 @@ def _get_market_buy_gate() -> Dict[str, Any]:
 
 def _last_trading_day(today: dt.date) -> dt.date:
     # Very small heuristic (no exchange calendar):
-    # - If weekend, roll back to Friday
-    if today.weekday() == 5:
-        return today - dt.timedelta(days=1)
-    if today.weekday() == 6:
-        return today - dt.timedelta(days=2)
+    # EGX trades Sunday-Thursday (Python weekday(): Monday=0 ... Sunday=6),
+    # so the weekend is Friday (4) and Saturday (5) — roll back to Thursday.
+    if today.weekday() in (4, 5):
+        offset = 1 if today.weekday() == 4 else 2
+        return today - dt.timedelta(days=offset)
     return today
 
 

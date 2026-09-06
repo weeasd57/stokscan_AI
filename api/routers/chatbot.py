@@ -65,26 +65,18 @@ async def chat(request: ChatRequest):
         tool_results = execute_tools_for_intent(intent)
         
         # LAYER 3: Generate Direct Response
-        if has_valid_data(tool_results):
-            direct_response = generate_response_from_intent(intent, tool_results)
-            
-            # LAYER 4: Validate
-            validation = validate_response(user_message, tool_results, direct_response)
-            
-            return ChatResponse(
-                response=direct_response,
-                intent=intent,
-                tool_calls=tool_results,
-                validation=validation
-            )
+        # Always use generate_response_from_intent - it handles empty data gracefully
+        direct_response = generate_response_from_intent(intent, tool_results)
         
-        else:
-            return ChatResponse(
-                response="لا توجد بيانات متاحة حالياً تطابق طلبك.",
-                intent=intent,
-                tool_calls=tool_results,
-                validation={"valid": True, "violations": []}
-            )
+        # LAYER 4: Validate
+        validation = validate_response(user_message, tool_results, direct_response)
+        
+        return ChatResponse(
+            response=direct_response,
+            intent=intent,
+            tool_calls=tool_results,
+            validation=validation
+        )
     
     except Exception as e:
         print(f"Error in chatbot: {e}")
@@ -129,81 +121,20 @@ def execute_tools_for_intent(intent: Dict) -> List[Dict]:
         result = execute_tool("get_market_indices", {})
         return [{"tool": "get_market_indices", "arguments": {}, "result": result}]
     
+    elif intent_type == "analytics":
+        result = execute_tool("get_performance_analytics", {})
+        return [{"tool": "get_performance_analytics", "arguments": {}, "result": result}]
+    
     return []
-    """
-    Analyze user query and determine which tools to call.
-    Simple keyword-based approach (can be enhanced with LLM).
-    """
-    query_lower = user_query.lower()
-    tools = []
-    
-    # Keywords mapping
-    weekly_keywords = ["أسبوع", "قادم", "متوقع", "يرتفع", "فرص", "أفضل"]
-    below_midpoint_keywords = ["تحت", "القيمة", "الوسطية", "رخيص", "منخفض", "تجميع"]
-    distribution_keywords = ["تصريف", "بيع", "هبوط", "نزول"]
-    single_stock_keywords = []  # Will extract symbol if present
-    market_keywords = ["egx", "egx30", "مؤشر", "دولار", "usd"]
-    
-    # Check for specific stock symbol (e.g., CCAP, COMI)
-    import re
-    stock_pattern = r'\b[A-Z]{2,6}\b'
-    potential_symbols = re.findall(stock_pattern, user_query.upper())
-    
-    # Filter out common words
-    excluded = ["EGX", "USD", "RSI", "MACD", "EGP"]
-    stock_symbols = [s for s in potential_symbols if s not in excluded]
-    
-    # Prioritize single stock if mentioned
-    if stock_symbols:
-        for symbol in stock_symbols:
-            tools.append({
-                "name": "get_single_stock_analysis",
-                "arguments": {"symbol": symbol}
-            })
-        return tools  # Return early for single stock queries
-    
-    # Check for market indices
-    if any(keyword in query_lower for keyword in market_keywords):
-        tools.append({
-            "name": "get_market_indices",
-            "arguments": {}
-        })
-    
-    # Check for distribution query
-    if any(keyword in query_lower for keyword in distribution_keywords):
-        tools.append({
-            "name": "get_stocks_with_distribution",
-            "arguments": {"min_distribution": 70.0}
-        })
-    
-    # Check for below midpoint + accumulation
-    elif any(keyword in query_lower for keyword in below_midpoint_keywords):
-        tools.append({
-            "name": "get_stocks_below_midpoint_with_accumulation",
-            "arguments": {"min_accumulation": 70.0}
-        })
-    
-    # Default: weekly opportunities
-    elif any(keyword in query_lower for keyword in weekly_keywords) or not tools:
-        tools.append({
-            "name": "get_weekly_opportunities",
-            "arguments": {"top_n": 5}
-        })
-    
-    return tools
 
 
 def has_valid_data(tool_results: List[Dict]) -> bool:
-    """Check if any tool returned valid data."""
+    """Check if any tool returned valid data or a valid message."""
     for result in tool_results:
         tool_result = result.get("result", {})
+        # If no error, consider it valid (even with empty data - we have formatting functions for that)
         if not tool_result.get("error"):
-            data = tool_result.get("data")
-            if data and (
-                (isinstance(data, list) and len(data) > 0) or
-                (isinstance(data, dict) and len(data) > 0)
-            ):
-                return True
+            return True
     return False
 
 
@@ -223,35 +154,46 @@ def generate_direct_response(user_query: str, tool_results: List[Dict]) -> str:
             continue
         
         data = tool_result.get("data")
-        if not data:
-            continue
+        message = tool_result.get("message", "")
         
-        # Format based on tool type
+        # Format based on tool type - handle empty data with messages
         if tool_name == "get_weekly_opportunities":
-            response_parts.append("📊 **أفضل الفرص المتاحة للأسبوع القادم**\n")
-            response_parts.append(f"(بيانات من قاعدة البيانات - {tool_result.get('query_date', '')})\n")
-            response_parts.append(format_opportunities(data))
+            if data and (isinstance(data, list) and len(data) > 0):
+                response_parts.append("📊 **أفضل الفرص المتاحة للأسبوع القادم**\n")
+                response_parts.append(f"(بيانات من قاعدة البيانات - {tool_result.get('query_date', '')})\n")
+                response_parts.append(format_opportunities(data))
+            else:
+                # Use the formatting function with empty data
+                response_parts.append(format_weekly_opportunities(tool_result))
         
         elif tool_name == "get_stocks_below_midpoint_with_accumulation":
-            response_parts.append("📊 **أسهم تحت القيمة الوسطية مع تجميع**\n")
-            response_parts.append(f"(بيانات من قاعدة البيانات - {tool_result.get('query_date', '')})\n")
-            response_parts.append(format_opportunities(data))
+            if data and (isinstance(data, list) and len(data) > 0):
+                response_parts.append("📊 **أسهم تحت القيمة الوسطية مع تجميع**\n")
+                response_parts.append(f"(بيانات من قاعدة البيانات - {tool_result.get('query_date', '')})\n")
+                response_parts.append(format_opportunities(data))
         
         elif tool_name == "get_stocks_with_distribution":
-            response_parts.append("⚠️ **أسهم عليها تصريف (تجنب الشراء)**\n")
-            response_parts.append(f"(بيانات من قاعدة البيانات - {tool_result.get('query_date', '')})\n")
-            response_parts.append(format_opportunities(data))
+            if data and (isinstance(data, list) and len(data) > 0):
+                response_parts.append("⚠️ **أسهم عليها تصريف (تجنب الشراء)**\n")
+                response_parts.append(f"(بيانات من قاعدة البيانات - {tool_result.get('query_date', '')})\n")
+                response_parts.append(format_opportunities(data))
         
         elif tool_name == "get_single_stock_analysis":
-            response_parts.append(format_single_stock(data))
+            if data:
+                response_parts.append(format_single_stock(data))
         
         elif tool_name == "get_market_indices":
-            response_parts.append(format_market_indices(data))
+            # Always use the formatting function for market indices
+            response_parts.append(format_market_indices(tool_result))
     
     if not response_parts:
-        return "لا توجد بيانات متاحة حالياً."
+        return "لا توجد بيانات متاحة حالياً.\n\n📢 [تابعنا على تليجرام](https://t.me/egxbots/153)"
     
-    return "\n\n".join(response_parts)
+    response_text = "\n\n".join(response_parts)
+    # Don't add telegram link if already present in formatted responses
+    if "📢 [تابعنا على تليجرام]" not in response_text:
+        response_text += "\n\n📢 [تابعنا على تليجرام](https://t.me/egxbots/153)"
+    return response_text
 
 
 def format_opportunities(data: List[Dict]) -> str:
@@ -446,6 +388,16 @@ def generate_response_from_intent(intent: Dict, tool_results: List[Dict]) -> str
     elif intent_type == "market_overview":
         return format_market_indices(tool_results[0]["result"])
     
+    elif intent_type == "telegram_link":
+        return format_telegram_link_response()
+    
+    elif intent_type == "analytics":
+        if tool_results and tool_results[0]:
+            return format_analytics_response(tool_results[0]["result"])
+        else:
+            result = execute_tool("get_performance_analytics", {})
+            return format_analytics_response(result)
+    
     return "لا يمكن معالجة هذا الطلب حالياً."
 
 
@@ -455,10 +407,18 @@ def format_single_stock_analysis(tool_result: Dict) -> str:
         return f"⚠️ {tool_result['error']}"
     
     data = tool_result.get("data")
+    data_source = data.get("data_source", "supabase_db") if data else "supabase_db"
+    data_date = (data.get("data_date") if data else None) or tool_result.get("data_date")
+    query_date = tool_result.get("query_date", "")
+    
+    # Determine source label - only show Real-time for user, hide Supabase
+    source_label = "بيانات لحظية (Real-time)" if data_source == "realtime_api" else "بيانات من قاعدة البيانات (Supabase)"
+    
     if not data:
-        return "لا توجد بيانات لهذا السهم."
+        return f"لا توجد بيانات لهذا السهم.\n\n📢 [تابعنا على تليجرام](https://t.me/egxbots/153)"
     
     symbol = data.get("symbol", "UNKNOWN")
+    stock_name = data.get("name") or ""
     score = data.get("score", 0)
     recommendation = data.get("recommendation", "")
     raw = data.get("raw_data", {})
@@ -466,14 +426,19 @@ def format_single_stock_analysis(tool_result: Dict) -> str:
     risks = data.get("risks", [])
     
     # Build response from data ONLY
-    lines = [
-        f"📊 **تحليل سهم {symbol}**",
-        f"(بيانات من قاعدة البيانات - {tool_result.get('query_date', '')})",
+    header = f"📊 **تحليل سهم {symbol}**" + (f" — {stock_name}" if stock_name else "")
+    lines = [header]
+    
+    lines.append(f"({source_label})")
+    if data_date:
+        lines.append(f"📅 تاريخ البيانات: {data_date}")
+    
+    lines.extend([
         "",
         f"**التقييم:** {recommendation} (نقاط الفرصة: {score})",
         "",
         "**البيانات الفنية المتاحة:**"
-    ]
+    ])
     
     if raw.get("price"):
         lines.append(f"• السعر: {raw['price']:.2f} جنيه")
@@ -510,31 +475,46 @@ def format_single_stock_analysis(tool_result: Dict) -> str:
     
     lines.append("")
     lines.append("ℹ️ *التحليل مبني على البيانات الفنية المتاحة فقط ولا يشكل توصية بالشراء أو البيع.*")
+    lines.append("")
+    lines.append("📢 [تابعنا على تليجرام](https://t.me/egxbots/153)")
     
     return "\n".join(lines)
 
 
 def format_weekly_opportunities(tool_result: Dict) -> str:
-    """Format weekly opportunities screening."""
-    if tool_result.get("error"):
-        return f"⚠️ {tool_result['error']}"
-    
+    """Format weekly opportunities response."""
     data = tool_result.get("data", [])
+    data_source = tool_result.get("data_source", "supabase_db")
+    data_date = tool_result.get("data_date")
+    query_date = tool_result.get("query_date", "")
+    
+    # Determine source label - only show Real-time for user, hide Supabase
+    source_label = "بيانات لحظية (Real-time)" if data_source == "realtime_api" else "بيانات من قاعدة البيانات (Supabase)"
+    
     if not data:
-        return "لا توجد فرص متاحة حالياً."
+        message = tool_result.get("message", "لا توجد فرص متاحة حالياً.")
+        return f"{message}\n\n📢 [تابعنا على تليجرام](https://t.me/egxbots/153)"
     
     lines = [
         "📊 **أفضل الفرص المتاحة للأسبوع القادم**",
-        f"(بيانات من قاعدة البيانات - {tool_result.get('query_date', '')})",
+    ]
+    
+    lines.append(f"({source_label})")
+    if data_date:
+        lines.append(f"📅 تاريخ البيانات: {data_date}")
+    
+    lines.extend([
         f"(تم تحليل {tool_result.get('total_analyzed', 0)} سهم)",
         ""
-    ]
+    ])
     
     for idx, stock in enumerate(data, 1):
         lines.extend(format_stock_item(idx, stock))
         lines.append("")
     
     lines.append("ℹ️ *الترتيب بناءً على نقاط الفرصة المحسوبة من المؤشرات الفنية.*")
+    lines.append("")
+    lines.append("📢 [تابعنا على تليجرام](https://t.me/egxbots/153)")
     
     return "\n".join(lines)
 
@@ -573,21 +553,40 @@ def format_stock_item(index: int, stock: Dict) -> List[str]:
 def format_stock_comparison(tool_results: List[Dict]) -> str:
     """Format comparison between multiple stocks with clear ranking."""
     stocks_data = []
+    data_sources = set()
+    data_dates = []
+    
     for tr in tool_results:
         if not tr["result"].get("error") and tr["result"].get("data"):
             stocks_data.append(tr["result"]["data"])
+            data_sources.add(tr["result"]["data"].get("data_source", "supabase_db"))
+            d = tr["result"].get("data_date") or tr["result"]["data"].get("data_date")
+            if d:
+                data_dates.append(str(d))
     
     if not stocks_data:
         return "لا توجد بيانات متاحة للمقارنة."
+    
+    # Determine source label - only show Real-time for user, hide Supabase
+    has_realtime = "realtime_api" in data_sources
+    source_label = "بيانات لحظية (Real-time)" if has_realtime else "بيانات من قاعدة البيانات (Supabase)"
+    latest_data_date = max(data_dates) if data_dates else None
     
     # Sort by score (highest first)
     stocks_data.sort(key=lambda x: x.get("score", 0), reverse=True)
     
     lines = [
         "📊 **مقارنة الأسهم**",
+    ]
+    
+    lines.append(f"({source_label})")
+    if latest_data_date:
+        lines.append(f"📅 تاريخ البيانات: {latest_data_date}")
+    
+    lines.extend([
         f"(تم تحليل {len(stocks_data)} سهم وترتيبهم حسب قوة الفرصة)",
         ""
-    ]
+    ])
     
     # Show ranked comparison
     for idx, stock in enumerate(stocks_data, 1):
@@ -607,6 +606,8 @@ def format_stock_comparison(tool_results: List[Dict]) -> str:
     
     lines.append("")
     lines.append("ℹ️ *الترتيب بناءً على التحليل الفني فقط - ليس توصية استثمارية*")
+    lines.append("")
+    lines.append("📢 [تابعنا على تليجرام](https://t.me/egxbots/153)")
     
     return "\n".join(lines)
 
@@ -639,7 +640,6 @@ def format_below_midpoint_results(tool_result: Dict) -> str:
     """Format stocks below midpoint with accumulation."""
     lines = [
         "📊 **أسهم تحت القيمة الوسطية مع تجميع**",
-        f"(بيانات من قاعدة البيانات - {tool_result.get('query_date', '')})",
         ""
     ]
     
@@ -651,6 +651,8 @@ def format_below_midpoint_results(tool_result: Dict) -> str:
         lines.extend(format_stock_item(idx, stock))
         lines.append("")
     
+    lines.append("📢 [تابعنا على تليجرام](https://t.me/egxbots/153)")
+    
     return "\n".join(lines)
 
 
@@ -658,7 +660,6 @@ def format_distribution_results(tool_result: Dict) -> str:
     """Format stocks with distribution."""
     lines = [
         "⚠️ **أسهم عليها تصريف (ضغط بيعي)**",
-        f"(بيانات من قاعدة البيانات - {tool_result.get('query_date', '')})",
         "",
         "🚫 **تحذير:** هذه الأسهم تظهر إشارات تصريف — تجنب الشراء",
         ""
@@ -672,16 +673,25 @@ def format_distribution_results(tool_result: Dict) -> str:
         lines.extend(format_stock_item(idx, stock))
         lines.append("")
     
+    lines.append("📢 [تابعنا على تليجرام](https://t.me/egxbots/153)")
+    
     return "\n".join(lines)
 
 
 def format_market_indices(tool_result: Dict) -> str:
     """Format market indices."""
     data = tool_result.get("data", {})
-    if not data:
-        return "لا توجد بيانات للمؤشرات حالياً."
+    message = tool_result.get("message", "")
+    query_date = tool_result.get("query_date", "")
     
-    lines = ["📈 **المؤشرات السوقية**", ""]
+    if not data:
+        return f"{message or 'لا توجد بيانات للمؤشرات حالياً.'}\n\n(تاريخ البيانات: {query_date})\n\n📢 [تابعنا على تليجرام](https://t.me/egxbots/153)"
+    
+    lines = [
+        "📈 **المؤشرات السوقية**",
+        f"(تاريخ البيانات: {query_date})",
+        ""
+    ]
     
     if "EGX30" in data:
         egx = data["EGX30"]
@@ -693,6 +703,68 @@ def format_market_indices(tool_result: Dict) -> str:
         usd = data["USD_EGP"]
         lines.append(f"• **سعر الدولار:** {usd.get('rate', 'N/A')} جنيه")
         lines.append(f"  (آخر تحديث: {usd.get('date', 'N/A')})")
+    
+    lines.append("")
+    lines.append("📢 [تابعنا على تليجرام](https://t.me/egxbots/153)")
+    
+    return "\n".join(lines)
+
+
+def format_telegram_link_response() -> str:
+    """Format Telegram channel link response."""
+    lines = [
+        "📢 **قناة تليجرام الرسمية**",
+        "",
+        "يمكنك الانضمام إلى قناتنا الرسمية على تليجرام لتلقي:",
+        "• التوصيات اليومية للأسهم",
+        "• التقارير الفنية والتحليلات",
+        "• تنبيهات السوق المباشرة",
+        "• الأخبار العاجلة",
+        "",
+        "🔗 [اضغط هنا للانضمام إلى القناة](https://t.me/egxbots/153)",
+        "",
+        "أو قم بزيارة الرابط مباشرة:",
+        "https://t.me/egxbots/153"
+    ]
+    return "\n".join(lines)
+
+
+def format_analytics_response(tool_result: Dict) -> str:
+    """Format performance analytics response."""
+    if tool_result.get("error"):
+        return f"⚠️ {tool_result['error']}"
+    
+    data = tool_result.get("data", {})
+    if not data:
+        return "لا توجد بيانات إحصائية متاحة حالياً."
+    
+    lines = ["📊 **إحصائيات الأداء**", ""]
+    
+    # Backtest analytics
+    if "backtests" in data:
+        bt = data["backtests"]
+        lines.append("📈 **أداء الاختبارات الخلفية (Backtests):**")
+        lines.append(f"• عدد الاختبارات: {bt.get('count', 0)}")
+        lines.append(f"• إجمالي الصفقات: {bt.get('total_trades', 0)}")
+        lines.append(f"• متوسط نسبة النجاح: {bt.get('avg_win_rate', 0):.2f}%")
+        lines.append(f"• إجمالي الربح: {bt.get('total_profit', 0):.2f}")
+        
+        if bt.get('council_improvement_pct', 0) > 0:
+            lines.append(f"• تحسين المجلس (Council): +{bt.get('council_improvement_pct', 0):.2f}%")
+        lines.append("")
+    
+    # Live performance
+    if "live_performance" in data:
+        live = data["live_performance"]
+        lines.append("🤖 **الأداء المباشر (Live Bots):**")
+        lines.append(f"• البوتات النشطة: {live.get('active_bots', 0)}")
+        lines.append(f"• متوسط نسبة النجاح: {live.get('avg_win_rate', 0):.2f}%")
+        lines.append(f"• إجمالي الصفقات: {live.get('total_trades', 0)}")
+        lines.append("")
+    
+    lines.append("ℹ️ *البيانات مستندة إلى الاختبارات الخلفية والأداء المباشر الفعلي.*")
+    lines.append("")
+    lines.append("📢 [تابعنا على تليجرام](https://t.me/egxbots/153)")
     
     return "\n".join(lines)
 
@@ -782,5 +854,7 @@ def has_valid_data(tool_results: List[Dict]) -> bool:
 def analyze_intent(query: str):
     """Analyze user intent for debugging."""
     from api.chatbot_tools import parse_user_intent
+    intent = parse_user_intent(query)
+    return {"query": query, "intent": intent}
     intent = parse_user_intent(query)
     return {"query": query, "intent": intent}
