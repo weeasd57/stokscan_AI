@@ -975,11 +975,23 @@ function formatPortfolioSnapshotResponse(data: any): string {
     const analysis = data?.analysis || {};
     const lines = [positions.length ? `محفظتك فيها ${positions.length} مركز.` : "محفظتك فاضية حالياً."];
     lines.push(`إجمالي قيمة المحفظة: ${Number(totals.equity || 0).toLocaleString("en-US")} ج.م`);
+    lines.push(`إجمالي قيمة الأسهم: ${Number(totals.market_value || 0).toLocaleString("en-US")} ج.م، والتكلفة: ${Number(totals.cost_basis || 0).toLocaleString("en-US")} ج.م`);
+    const totalProfit = Number(totals.profit_value || 0);
+    const totalProfitPct = Number(totals.profit_pct || 0);
+    lines.push(`${totalProfit >= 0 ? "الربح" : "الخسارة"} غير المحققة: ${totalProfit >= 0 ? "+" : ""}${totalProfit.toLocaleString("en-US")} ج.م (${totalProfitPct.toFixed(1)}%)`);
     lines.push(`السيولة: ${Number(data?.cash_balance || 0).toLocaleString("en-US")} ج.م (${Number(analysis.cash_pct || 0).toFixed(1)}%)`);
     lines.push(`أكبر مركز: ${analysis.top_symbol || "لا يوجد"} (${Number(analysis.top_position_pct || 0).toFixed(1)}%)`);
     lines.push(`التنويع: ${analysis.diversification || "غير متاح"}`);
-    for (const position of positions) lines.push(`- ${position.symbol}: ${position.quantity ?? "؟"} سهم، متوسط ${position.entry_price ?? "؟"} ج.م، آخر سعر ${position.last_price ?? "غير متاح"} ج.م`);
+    for (const position of positions) {
+        const quantity = Number(position.quantity || 0);
+        const entry = Number(position.entry_price || 0);
+        const last = Number(position.last_price || 0);
+        const pnl = Number.isFinite(quantity * (last - entry)) ? quantity * (last - entry) : 0;
+        const pnlPct = entry > 0 ? ((last - entry) / entry) * 100 : 0;
+        lines.push(`- ${position.symbol}: ${position.quantity ?? "؟"} سهم، متوسط ${position.entry_price ?? "؟"} ج.م، آخر سعر ${position.last_price ?? "غير متاح"} ج.م، ${pnl >= 0 ? "ربح" : "خسارة"} ${pnl >= 0 ? "+" : ""}${pnl.toLocaleString("en-US")} ج.م (${pnlPct.toFixed(1)}%)`);
+    }
     for (const suggestion of analysis.suggestions || []) lines.push(`⚠️ ${suggestion}`);
+    lines.push("\nأقدر أكمل معاك في واحد من دول: أشرح أكبر خسارة، أقترح تنويع، أو أراجع سهم معين داخل المحفظة. تحب نبدأ بإيه؟");
     return lines.join("\n");
 }
 
