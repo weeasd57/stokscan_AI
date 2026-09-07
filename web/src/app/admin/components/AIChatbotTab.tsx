@@ -472,7 +472,13 @@ export default function AIChatbotTab() {
                                                                     </span>
                                                                     <div className="text-black dark:text-zinc-100">
                                                                         {log.reply && log.reply.trim().length > 0 ? (
-                                                                            <FormattedChatMessage content={log.reply} role="assistant" showSuggestedButtons={false} latencyMs={log.latency_ms} />
+                                                                            <FormattedChatMessage
+                                                                                content={log.reply}
+                                                                                role="assistant"
+                                                                                showSuggestedButtons={false}
+                                                                                latencyMs={log.latency_ms}
+                                                                                tables={Array.isArray(log.tables) ? log.tables : []}
+                                                                            />
                                                                         ) : (
                                                                             <div className="text-zinc-400 dark:text-zinc-500 italic text-[11px] py-1 flex items-center gap-1.5">
                                                                                 <span>⚠️</span>

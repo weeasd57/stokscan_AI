@@ -1,24 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useWatchlist, type SavedSymbol } from "@/contexts/WatchlistContext";
-import { useNotification, type ServiceType } from "@/contexts/NotificationContext";
-import { Loader2, Save, Send, MessageSquare, CheckCircle2, AlertCircle, RefreshCw, Globe, Star, Trash2, Edit3, X, Check, ExternalLink, Target, Shield, Bell, BellOff, Activity, BarChart3, TrendingUp } from "lucide-react";
+import { Loader2, Send, Globe, Star, Trash2, Edit3, X, Check, ExternalLink, User, Wallet, CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
-
-type ProfileRow = {
-  username: string | null;
-  display_name: string | null;
-  telegram_chat_id: string | null;
-  notification_channel: "telegram" | null;
-  default_target_pct: number | string | null;
-  default_stop_pct: number | string | null;
-  custom_ai_rules: string | null;
-};
+import MyPortfolioSection from "./components/MyPortfolioSection";
 
 export default function ProfilePage() {
   const router = useRouter();
@@ -28,197 +18,33 @@ export default function ProfilePage() {
   const isAr = language === "ar";
   const supabase = useMemo(() => createSupabaseBrowserClient(), []);
 
-  const {
-    telegramChatId,
-    notificationChannel,
-    subscriptions,
-    loading: subsLoading,
-    toggling: togglingSubMap,
-    toggleSubscription: contextToggleSubscription,
-    updateNotificationChannel,
-    reloadAll: reloadNotifications,
-  } = useNotification();
-
-  const [profile, setProfile] = useState<ProfileRow | null>(null);
-  const [defaultTelegramChatId, setDefaultTelegramChatId] = useState("");
-  const [defaultTargetPct, setDefaultTargetPct] = useState("10.00");
-  const [defaultStopPct, setDefaultStopPct] = useState("3.50");
-  const [customAiRules, setCustomAiRules] = useState("");
-  const [savingDefaults, setSavingDefaults] = useState(false);
+  const [username, setUsername] = useState<string | null>(null);
+  const [telegramLinked, setTelegramLinked] = useState(false);
   const [editingSymbolId, setEditingSymbolId] = useState<string | null>(null);
   const [watchlistDraft, setWatchlistDraft] = useState({ name: "" });
-
-  // Technical Scanner Alerts states and handlers
-  const [technicalAlerts, setTechnicalAlerts] = useState<any[]>([]);
-  const [loadingAlerts, setLoadingAlerts] = useState(false);
-
-  const fetchTechnicalAlerts = useCallback(async () => {
-    if (!user) return;
-    setLoadingAlerts(true);
-    try {
-      const res = await fetch("/api/scan/alerts");
-      if (res.ok) {
-        const data = await res.json();
-        setTechnicalAlerts(data.alerts || []);
-      }
-    } catch (e) {
-      console.error("Failed to fetch technical alerts:", e);
-    } finally {
-      setLoadingAlerts(false);
-    }
-  }, [user]);
-
-  const toggleAlertActive = async (alertId: string, currentActive: boolean) => {
-    try {
-      const res = await fetch(`/api/scan/alerts/${alertId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ is_active: !currentActive }),
-      });
-      if (res.ok) {
-        toast.success(isAr ? "تم تحديث حالة التنبيه" : "Alert status updated");
-        void fetchTechnicalAlerts();
-      } else {
-        toast.error(isAr ? "فشل تحديث حالة التنبيه" : "Failed to update alert status");
-      }
-    } catch (e) {
-      toast.error(isAr ? "فشل الاتصال بالسيرفر" : "Connection failed");
-    }
-  };
-
-  const deleteAlert = async (alertId: string) => {
-    if (!window.confirm(isAr ? "هل أنت متأكد من حذف هذا التنبيه؟" : "Are you sure you want to delete this alert?")) return;
-    try {
-      const res = await fetch(`/api/scan/alerts/${alertId}`, { method: "DELETE" });
-      if (res.ok) {
-        toast.success(isAr ? "تم حذف التنبيه بنجاح" : "Alert deleted successfully");
-        void fetchTechnicalAlerts();
-      } else {
-        toast.error(isAr ? "فشل حذف التنبيه" : "Failed to delete alert");
-      }
-    } catch (e) {
-      toast.error(isAr ? "فشل الاتصال بالسيرفر" : "Connection failed");
-    }
-  };
-
-  useEffect(() => {
-    if (user) {
-      void fetchTechnicalAlerts();
-    }
-  }, [fetchTechnicalAlerts, user]);
+  const [portfolioVersion, setPortfolioVersion] = useState(0);
 
   useEffect(() => {
     if (!loading && !user) router.replace("/login");
   }, [loading, router, user]);
 
-  useEffect(() => {
-    if (telegramChatId !== null) {
-      setDefaultTelegramChatId(telegramChatId);
-    } else {
-      setDefaultTelegramChatId("");
-    }
-  }, [telegramChatId]);
-
-  const reloadAll = useCallback(async () => {
+  const reloadProfile = useCallback(async () => {
     if (!user) return;
-
     const { data: profileRow } = await supabase
       .from("profiles")
-      .select("username, display_name, telegram_chat_id, notification_channel, default_target_pct, default_stop_pct, custom_ai_rules")
+      .select("username, display_name, telegram_chat_id")
       .eq("id", user.id)
       .maybeSingle();
-
     if (profileRow) {
-      setProfile(profileRow as ProfileRow);
-      setDefaultTargetPct(String((profileRow as any).default_target_pct ?? "10.00"));
-      setDefaultStopPct(String((profileRow as any).default_stop_pct ?? "3.50"));
-      setCustomAiRules((profileRow as any).custom_ai_rules || "");
+      setUsername((profileRow as any).username || (profileRow as any).display_name || null);
+      setTelegramLinked(Boolean((profileRow as any).telegram_chat_id));
     }
   }, [supabase, user]);
 
   useEffect(() => {
     if (!user) return;
-    void reloadAll();
-  }, [reloadAll, user]);
-
-  async function handleChannelToggle(channel: "telegram" | null) {
-    if (!user) return;
-    try {
-      await updateNotificationChannel(channel);
-      toast.success(isAr ? "تم تحديث قناة الإشعارات بنجاح" : "Notification channel updated successfully");
-    } catch (err: any) {
-      console.error("Error updating notification channel:", err);
-      toast.error(isAr ? `فشل تحديث القناة: ${err.message}` : `Failed to update channel: ${err.message}`);
-    }
-  }
-
-  async function saveProfileSettings() {
-    if (!user) return;
-    setSavingDefaults(true);
-    try {
-      const { error } = await supabase
-        .from("profiles")
-        .update({ 
-          telegram_chat_id: defaultTelegramChatId.trim() || null,
-          notification_channel: notificationChannel,
-          default_target_pct: defaultTargetPct ? parseFloat(defaultTargetPct) : 10.00,
-          default_stop_pct: defaultStopPct ? parseFloat(defaultStopPct) : 3.50,
-          custom_ai_rules: customAiRules.trim() || null,
-        })
-        .eq("id", user.id);
-
-      if (error) throw error;
-
-      // Sync bot_subscriptions based on notificationChannel
-      const isEnabled = notificationChannel === "telegram";
-      
-      // Update all existing subscriptions for this user
-      await supabase
-        .from("bot_subscriptions")
-        .update({ notifications_enabled: isEnabled })
-        .eq("user_id", user.id);
-
-      // Create default entries if turning ON and they don't exist yet
-      if (isEnabled) {
-        for (const type of ["stock_score", "technical_scanner", "ai_bot"]) {
-          const { data: existing } = await supabase
-            .from("bot_subscriptions")
-            .select("id")
-            .eq("user_id", user.id)
-            .eq("service_type", type)
-            .maybeSingle();
-
-          if (!existing) {
-            await supabase.from("bot_subscriptions").insert({
-              user_id: user.id,
-              bot_id: type,
-              service_type: type,
-              notifications_enabled: true,
-              created_at: new Date().toISOString(),
-            });
-          }
-        }
-      }
-
-      await reloadAll();
-      await reloadNotifications();
-      toast.success(isAr ? "تم حفظ الإعدادات بنجاح" : "Settings saved successfully");
-    } catch (e: any) {
-      console.error(e);
-      toast.error(isAr ? `فشل حفظ الإعدادات: ${e.message}` : `Failed to save settings: ${e.message}`);
-    } finally {
-      setSavingDefaults(false);
-    }
-  }
-
-  async function toggleSubscription(serviceType: string) {
-    if (!user) return;
-    try {
-      await contextToggleSubscription(serviceType as ServiceType);
-    } catch (e) {
-      console.error("Toggle subscription error:", e);
-    }
-  }
+    void reloadProfile();
+  }, [reloadProfile, user]);
 
   function beginEditWatchlistItem(item: SavedSymbol) {
     setEditingSymbolId(item.id);
@@ -229,7 +55,6 @@ export default function ProfilePage() {
     const ok = await updateSymbol(item.id, {
       name: watchlistDraft.name.trim() || item.symbol,
     });
-
     if (ok) setEditingSymbolId(null);
   }
 
@@ -240,335 +65,120 @@ export default function ProfilePage() {
       </div>
     );
   }
-  
+
   if (!user) return null;
 
   return (
     <div className="neobrutal-layout flex flex-col gap-10 pb-20 max-w-[1600px] mx-auto mt-2 px-4 neobrutal-grid-bg min-h-screen">
+      {/* ── Header ── */}
       <header className="flex flex-col gap-3 relative z-10 pt-4">
         <h1 className="text-4xl sm:text-5xl font-black tracking-tighter text-black dark:text-white uppercase italic drop-shadow-[3px_3px_0px_rgba(0,0,0,1)]">
           {t("nav.profile")}
         </h1>
         <p className="text-sm text-zinc-700 dark:text-zinc-400 font-bold max-w-lg">
-          {isAr ? "إدارة معلومات حسابك وإعدادات إشعارات تليجرام." : "Manage your account details and Telegram alert settings."}
+          {isAr
+            ? "أدر محفظتك، وتابع قناة التليجرام، واضبط قائمة المراقبة من مكان واحد."
+            : "Manage your portfolio, follow our Telegram channel and keep your watchlist in one place."}
         </p>
       </header>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 relative z-10">
-        
-        {/* Account Info Card & AI Settings (Column 1) */}
-        <div className="lg:col-span-1 space-y-6">
-          <div className="neobrutal-card p-6 bg-white dark:bg-zinc-900 border-4 border-black dark:border-white shadow-[6px_6px_0px_rgba(0,0,0,1)] dark:shadow-[6px_6px_0px_rgba(255,255,255,1)] space-y-4">
-            <h2 className="text-xl font-black text-black dark:text-white uppercase tracking-tight border-b-4 border-black dark:border-zinc-800 pb-2">
-              {isAr ? "معلومات الحساب" : "Account Information"}
+      {/* ── My Portfolio (محفظتى) ── */}
+      <MyPortfolioSection
+        key={portfolioVersion}
+        onPortfolioUpdated={() => setPortfolioVersion((v) => v + 1)}
+      />
+
+      {/* ── Account + Telegram ── */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-8 relative z-10">
+        {/* Account info */}
+        <div className="neobrutal-card p-6 bg-white dark:bg-zinc-900 border-4 border-black dark:border-white shadow-[6px_6px_0px_rgba(0,0,0,1)] dark:shadow-[6px_6px_0px_rgba(255,255,255,1)] space-y-4">
+          <div className="flex items-center gap-3 mb-2">
+            <div className="h-10 w-10 border-4 border-black dark:border-white bg-zinc-700 text-white flex items-center justify-center shadow-[3px_3px_0px_rgba(0,0,0,1)] dark:shadow-[3px_3px_0px_rgba(255,255,255,1)]">
+              <User className="h-5 w-5" />
+            </div>
+            <h2 className="text-xl font-black text-black dark:text-white uppercase tracking-tight">
+              {isAr ? "معلومات الحساب" : "Account"}
             </h2>
-            <div className="space-y-4 text-sm font-bold text-zinc-700 dark:text-zinc-300">
+          </div>
+          <div className="space-y-4 text-sm font-bold text-zinc-700 dark:text-zinc-300">
+            {username && (
               <div>
-                <span className="text-zinc-500 uppercase text-[10px] tracking-wider block">{isAr ? "البريد الإلكتروني" : "Email Address"}</span>
-                <span className="text-black dark:text-white font-black">{user.email}</span>
+                <span className="text-zinc-500 uppercase text-[10px] tracking-wider block">{isAr ? "اسم المستخدم" : "Name"}</span>
+                <span className="text-black dark:text-white font-black">{username}</span>
               </div>
+            )}
+            <div>
+              <span className="text-zinc-500 uppercase text-[10px] tracking-wider block">{isAr ? "البريد الإلكتروني" : "Email"}</span>
+              <span className="text-black dark:text-white font-black break-all">{user.email}</span>
+            </div>
+            <div>
+              <span className="text-zinc-500 uppercase text-[10px] tracking-wider block">{isAr ? "حالة الحساب" : "Status"}</span>
+              <span className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400 font-black">
+                <CheckCircle2 className="w-4 h-4" />
+                {isAr ? "نشط" : "Active"}
+              </span>
+            </div>
+            {telegramLinked && (
               <div>
-                <span className="text-zinc-500 uppercase text-[10px] tracking-wider block">{isAr ? "حالة الحساب" : "Account Status"}</span>
-                <span className="text-emerald-600 dark:text-emerald-400 font-black">{isAr ? "نشط" : "Active"}</span>
+                <span className="text-zinc-500 uppercase text-[10px] tracking-wider block">{isAr ? "بوت التليجرام" : "Telegram Bot"}</span>
+                <span className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400 font-black">
+                  <Send className="w-3.5 h-3.5" />
+                  {isAr ? "متصل" : "Linked"}
+                </span>
               </div>
+            )}
+          </div>
+        </div>
+
+        {/* Telegram channel subscribe (simple) */}
+        <section className="neobrutal-card p-6 sm:p-8 space-y-5 bg-white dark:bg-zinc-900 border-4 border-black dark:border-white shadow-[6px_6px_0px_rgba(0,0,0,1)] dark:shadow-[6px_6px_0px_rgba(255,255,255,1)] md:col-span-2">
+          <div className="flex items-center gap-3">
+            <div className="h-10 w-10 border-4 border-black dark:border-white bg-sky-500 text-white flex items-center justify-center shadow-[3px_3px_0px_rgba(0,0,0,1)] dark:shadow-[3px_3px_0px_rgba(255,255,255,1)]">
+              <Send className="h-5 w-5" />
+            </div>
+            <div>
+              <h2 className="text-xl font-black text-black dark:text-white uppercase tracking-tight">
+                {isAr ? "قناة التليجرام" : "Telegram Channel"}
+              </h2>
+              {telegramLinked && (
+                <span className="inline-flex items-center gap-1 text-[10px] font-black text-emerald-600 dark:text-emerald-400">
+                  <CheckCircle2 className="w-3 h-3" />
+                  {isAr ? "بوت التليجرام متصل بحسابك" : "Bot linked to your account"}
+                </span>
+              )}
             </div>
           </div>
 
+          <p className="text-sm font-bold text-zinc-700 dark:text-zinc-300 leading-relaxed">
+            {isAr
+              ? "اشترك في قناة التليجرام لمتابعة التوصيات والتقارير اليومية فور صدورها."
+              : "Subscribe to our Telegram channel to receive daily recommendations and reports the moment they are published."}
+          </p>
 
-        </div>
-
-        {/* Alerts settings (Column 2-3) */}
-        <div className="lg:col-span-2">
-          <section className="neobrutal-card p-6 sm:p-8 space-y-8 relative overflow-hidden bg-white dark:bg-zinc-900 border-4 border-black dark:border-white shadow-[6px_6px_0px_rgba(0,0,0,1)] dark:shadow-[6px_6px_0px_rgba(255,255,255,1)]">
-            <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-600/5 blur-[100px] rounded-full -translate-y-1/2 translate-x-1/2 pointer-events-none" />
-
-            <div className="relative">
-              <h2 className="text-2xl font-black text-black dark:text-white uppercase tracking-tight mb-2">
-                {isAr ? "إعدادات تنبيهات الهاتف" : "Alert Settings"}
-              </h2>
-              <p className="text-xs text-zinc-500 dark:text-zinc-400 font-black uppercase tracking-widest leading-relaxed">
-                {isAr ? "ربط الحساب وتلقي إشارات التداول الفورية مباشرة على هاتفك" : "Link account and receive real-time trading signals directly on your phone"}
-              </p>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 relative border-b-4 border-black dark:border-zinc-800 pb-6">
-              {/* Configuration panel */}
-              <div className="space-y-6">
-                <div className="space-y-3">
-                  <label className="text-[10px] font-black text-black dark:text-white uppercase tracking-[0.2em] ml-1">
-                    {isAr ? "تنبيهات تليجرام" : "Telegram Alerts"}
-                  </label>
-                  
-                  <div className="flex gap-4">
-                    <button
-                      type="button"
-                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleChannelToggle("telegram"); }}
-                      className={`flex-1 h-14 border-4 border-black dark:border-white font-black text-xs uppercase tracking-[0.1em] transition-all flex items-center justify-center gap-2 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] dark:shadow-[3px_3px_0px_0px_rgba(255,255,255,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none ${
-                        notificationChannel === "telegram"
-                          ? "neobrutal-bg-purple text-black font-black"
-                          : "bg-white dark:bg-zinc-950 text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
-                      }`}
-                    >
-                      <Send className="w-4 h-4" />
-                      {isAr ? "تفعيل التنبيهات" : "Enable Telegram"}
-                    </button>
-                    {notificationChannel !== null && (
-                      <button
-                        type="button"
-                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleChannelToggle(null); }}
-                        className="h-14 px-4 border-4 border-black dark:border-white font-black text-xs uppercase tracking-[0.1em] transition-all flex items-center justify-center bg-red-400 hover:bg-red-300 text-black shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] dark:shadow-[3px_3px_0px_0px_rgba(255,255,255,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none"
-                        title="Deselect Channel"
-                      >
-                        {isAr ? "إلغاء التفعيل" : "Disable"}
-                      </button>
-                    )}
-                  </div>
-
-                  {/* Test Channel Button */}
-                  <div className="flex items-center gap-3 mt-4">
-                    <div className={`flex-1 flex items-center gap-1.5 px-3 py-2 border-4 border-black dark:border-white text-[10px] font-black uppercase tracking-widest transition-all shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_0px_rgba(255,255,255,1)] ${
-                      notificationChannel === "telegram"
-                        ? "neobrutal-bg-cyan text-black"
-                        : "bg-zinc-200 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400"
-                    }`}>
-                      <span className={`w-2 h-2 rounded-full ${
-                        notificationChannel === "telegram" ? "bg-black" : "bg-zinc-600"
-                      }`} />
-                      {notificationChannel === "telegram" ? (language === "ar" ? "Telegram مفعّل" : "Telegram Enabled") : (language === "ar" ? "لا يوجد تنبيهات" : "No Alerts")}
-                    </div>
-                  </div>
-                </div>
-
-                {notificationChannel === null && (
-                  <div className="p-6 border-4 border-dashed border-black dark:border-zinc-700 bg-zinc-950/5 dark:bg-zinc-950/20 flex flex-col items-center justify-center gap-3 text-center min-h-[140px]">
-                    <MessageSquare className="w-6 h-6 text-zinc-500" />
-                    <p className="text-xs text-zinc-600 dark:text-zinc-400 font-bold uppercase tracking-wider">
-                      {isAr ? "قم بتفعيل قناة تليجرام لتلقي التنبيهات" : "Enable Telegram to receive alerts"}
-                    </p>
-                  </div>
-                )}
-
-                {notificationChannel === "telegram" && (
-                  <div className="space-y-4 transition-all duration-300">
-                    <div className="p-5 border-4 border-black dark:border-white bg-zinc-50 dark:bg-zinc-950/20 space-y-4 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] dark:shadow-[3px_3px_0px_0px_rgba(255,255,255,1)]">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3 flex-wrap">
-                          <span className="text-[10px] font-black text-zinc-500 uppercase tracking-wider">{isAr ? "الحالة" : "Status"}</span>
-                          {defaultTelegramChatId ? (
-                            <span className="flex items-center gap-1 text-[10px] font-bold text-black bg-emerald-400 px-2.5 py-1 rounded-full border-2 border-black">
-                              <CheckCircle2 className="w-3.5 h-3.5" />
-                              {isAr ? "متصل" : "Linked"}
-                            </span>
-                          ) : (
-                            <span className="flex items-center gap-1 text-[10px] font-bold text-black bg-amber-400 px-2.5 py-1 rounded-full border-2 border-black">
-                              <AlertCircle className="w-3.5 h-3.5" />
-                              {isAr ? "غير متصل" : "Not Linked"}
-                            </span>
-                          )}
-                        </div>
-                        <button
-                          type="button"
-                          onClick={reloadAll}
-                          className="bg-white dark:bg-zinc-800 p-2 text-black dark:text-white border-2 border-black dark:border-white shadow-[1px_1px_0px_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none"
-                          title="Refresh connection status"
-                        >
-                          <RefreshCw className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-
-                      <p className="text-xs text-zinc-700 dark:text-zinc-300 leading-relaxed font-bold">
-                        {isAr 
-                          ? "اشترك في قناة التليجرام لمتابعة التوصيات والتقارير اليومية فور صدورها." 
-                          : "Subscribe to our Telegram Channel to receive daily recommendations and reports instantly."}
-                      </p>
-
-                      <div className="flex flex-col gap-3 w-full">
-                        <a
-                          href="https://t.me/egxbots/153"
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex h-12 w-full items-center justify-center gap-2 border-4 border-black dark:border-white bg-amber-300 dark:bg-amber-400 text-black font-black text-xs uppercase tracking-[0.1em] shadow-[3px_3px_0px_rgba(0,0,0,1)] hover:translate-x-[-2px] hover:translate-y-[-2px] hover:shadow-[4px_4px_0px_rgba(0,0,0,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none"
-                        >
-                          <Send className="w-4 h-4" />
-                          {isAr ? "الانضمام لقناة التليجرام" : "Join Telegram Channel"}
-                        </a>
-                        <a
-                          href="https://t.me/egxbots/153"
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex h-10 w-full items-center justify-center gap-2 border-4 border-black dark:border-white bg-white dark:bg-zinc-800 text-black dark:text-white text-[10px] font-black uppercase tracking-[0.1em] shadow-[2px_2px_0px_rgba(0,0,0,1)] hover:translate-x-[-2px] hover:translate-y-[-2px] hover:shadow-[3px_3px_0px_rgba(0,0,0,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none"
-                        >
-                          <Globe className="w-3.5 h-3.5" />
-                          {isAr ? "افتح تليجرام ويب" : "Open in Telegram Web"}
-                        </a>
-                      </div>
-                      
-                      <div className="space-y-2 pt-3 border-t-4 border-black dark:border-zinc-800">
-                        <label className="text-[10px] font-black text-black dark:text-white uppercase tracking-widest">
-                          {isAr ? "معرف دردشة تليجرام اليدوي (اختياري)" : "Manual Telegram Chat ID (Optional)"}
-                        </label>
-                        <input
-                          type="text"
-                          value={defaultTelegramChatId}
-                          onChange={(e) => setDefaultTelegramChatId(e.target.value)}
-                          placeholder="e.g. 987654321"
-                          className="h-10 w-full border-4 border-black dark:border-white bg-white dark:bg-zinc-950 px-4 text-xs font-black text-black dark:text-white outline-none focus:bg-yellow-50 dark:focus:bg-zinc-800 transition-all font-mono shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_0px_rgba(255,255,255,1)]"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Preview mockup panel */}
-              <div className="p-6 border-4 border-black dark:border-white bg-white dark:bg-zinc-900 text-black dark:text-white flex flex-col justify-between relative overflow-hidden min-h-[300px] shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_0px_var(--brutal-shadow)]">
-                <div className="absolute top-0 left-0 w-32 h-32 bg-indigo-600/5 blur-[50px] rounded-full -translate-x-1/2 -translate-y-1/2 pointer-events-none" />
-                
-                <span className="text-[9px] font-black text-zinc-500 uppercase tracking-[0.2em] ml-1 mb-4 block">Live Alert Preview</span>
-                
-                <div className="flex-1 flex items-center justify-center w-full">
-                  {notificationChannel === "telegram" ? (
-                    <div className="w-full max-w-sm border-4 border-black dark:border-white bg-zinc-950 p-4 space-y-2 relative shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_0px_rgba(255,255,255,1)]">
-                      <div className="flex items-center justify-between pb-2 border-b border-white/5">
-                        <div className="flex items-center gap-2">
-                          <div className="w-6 h-6 rounded-full bg-indigo-600 flex items-center justify-center text-[10px] font-black text-white">🤖</div>
-                          <span className="text-[10px] font-bold text-zinc-300">EGX Bots AI</span>
-                        </div>
-                        <span className="text-[8px] text-zinc-500">now</span>
-                      </div>
-                      <div className="text-[11px] text-zinc-300 font-mono leading-relaxed space-y-1">
-                        <div className="text-emerald-400 font-bold">🟢 NEW BUY SIGNAL</div>
-                        <div>💎 Symbol: <span className="text-white">COMI</span></div>
-                        <div>💰 Entry Price: <span className="text-white">124.50</span></div>
-                        <div>🎯 Target ({defaultTargetPct}%): <span className="text-white">{(124.50 * (1 + parseFloat(defaultTargetPct || "10") / 100)).toFixed(2)}</span></div>
-                        <div>🛡️ Stop Loss ({defaultStopPct}%): <span className="text-white">{(124.50 * (1 - parseFloat(defaultStopPct || "3.5") / 100)).toFixed(2)}</span></div>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="flex flex-col items-center justify-center gap-3 text-center opacity-45">
-                      <div className="w-12 h-12 border-4 border-black dark:border-zinc-650 flex items-center justify-center bg-zinc-100 dark:bg-zinc-800 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_0px_rgba(255,255,255,1)]">
-                        <MessageSquare className="w-6 h-6 text-zinc-500" />
-                      </div>
-                      <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">
-                        {isAr ? "قم بتفعيل الإشعارات لمعاينة التنبيهات" : "Enable alerts to preview message"}
-                      </p>
-                    </div>
-                  )}
-                </div>
-
-                <div className="mt-4 text-[9px] text-zinc-500 text-center font-bold uppercase tracking-wider">
-                  Real-time notification templates render dynamically
-                </div>
-              </div>
-            </div>
-
-            <button
-              onClick={saveProfileSettings}
-              disabled={savingDefaults}
-              className="h-14 w-full neobrutal-btn neobrutal-bg-yellow font-black text-sm uppercase tracking-[0.2em] text-black flex items-center justify-center gap-3 relative overflow-hidden group"
+          <div className="flex flex-col sm:flex-row gap-3 pt-1">
+            <a
+              href="https://t.me/egxbots/153"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex h-12 flex-1 items-center justify-center gap-2 border-4 border-black dark:border-white bg-amber-300 dark:bg-amber-400 text-black font-black text-xs uppercase tracking-[0.1em] shadow-[3px_3px_0px_rgba(0,0,0,1)] hover:-translate-x-0.5 hover:-translate-y-0.5 hover:shadow-[4px_4px_0px_rgba(0,0,0,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all"
             >
-              {savingDefaults ? <Loader2 className="h-5 w-5 animate-spin" /> : <Save className="h-5 w-5 group-hover:scale-110 transition-transform" />}
-              {isAr ? "حفظ الإعدادات" : "Save Settings"}
-            </button>
-          </section>
-        </div>
-
+              <Send className="w-4 h-4 shrink-0" />
+              {isAr ? "الانضمام للقناة" : "Join Channel"}
+            </a>
+            <a
+              href="https://t.me/egxbots/153"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex h-12 flex-1 items-center justify-center gap-2 border-4 border-black dark:border-white bg-white dark:bg-zinc-800 text-black dark:text-white font-black text-xs uppercase tracking-[0.1em] shadow-[2px_2px_0px_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all"
+            >
+              <Globe className="w-4 h-4 shrink-0" />
+              {isAr ? "افتح تليجرام ويب" : "Telegram Web"}
+            </a>
+          </div>
+        </section>
       </div>
 
-      {/* ── Technical Scanner Alerts Manager ── */}
-      <section className="relative z-10 neobrutal-card p-6 sm:p-8 space-y-6 bg-white dark:bg-zinc-900 border-4 border-black dark:border-white shadow-[6px_6px_0px_rgba(0,0,0,1)] dark:shadow-[6px_6px_0px_rgba(255,255,255,1)]">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between border-b-4 border-black dark:border-zinc-800 pb-5">
-          <div>
-            <div className="flex items-center gap-3 mb-2">
-              <div className="h-10 w-10 border-4 border-black dark:border-white bg-cyan-500 text-white flex items-center justify-center shadow-[3px_3px_0px_rgba(0,0,0,1)] dark:shadow-[3px_3px_0px_rgba(255,255,255,1)]">
-                <Activity className="h-5 w-5" />
-              </div>
-              <h2 className="text-2xl font-black text-black dark:text-white uppercase tracking-tight">
-                {isAr ? "إدارة تنبيهات الماسح الفني" : "Technical Scanner Alerts"}
-              </h2>
-            </div>
-            <p className="text-xs text-zinc-600 dark:text-zinc-400 font-black uppercase tracking-widest leading-relaxed">
-              {isAr ? "إدارة التنبيهات المخصصة التي قمت بإنشائها وتفعيلها أو إيقافها أو حذفها" : "Manage custom scanner alerts you created, toggle them on/off, or delete them"}
-            </p>
-          </div>
-          <div className="inline-flex items-center justify-center gap-2 h-10 px-4 border-4 border-black dark:border-white bg-zinc-100 dark:bg-zinc-950 text-black dark:text-white font-black text-xs uppercase tracking-widest shadow-[2px_2px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_rgba(255,255,255,1)]">
-            {technicalAlerts.length} {isAr ? "تنبيه" : "Alerts"}
-          </div>
-        </div>
-
-        {loadingAlerts ? (
-          <div className="flex items-center justify-center py-12">
-            <Loader2 className="w-6 h-6 animate-spin text-cyan-500" />
-          </div>
-        ) : technicalAlerts.length === 0 ? (
-          <div className="min-h-[150px] border-4 border-dashed border-black/40 dark:border-white/30 bg-zinc-50 dark:bg-zinc-950/30 flex flex-col items-center justify-center gap-4 text-center p-8">
-            <Activity className="h-8 w-8 text-zinc-400" />
-            <p className="max-w-md text-sm font-bold text-zinc-600 dark:text-zinc-400">
-              {isAr ? "لا توجد تنبيهات مخصصة نشطة حالياً. يمكنك إنشاء تنبيه جديد من صفحة الماسح الفني." : "No custom scanner alerts found. You can create new alerts from the Technical Scanner page."}
-            </p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-            {technicalAlerts.map((alert) => {
-              const filterKeys = Object.keys(alert.filters || {}).filter(k => alert.filters[k] !== undefined);
-              return (
-                <div key={alert.id} className="border-4 border-black dark:border-white bg-zinc-50 dark:bg-zinc-950/35 p-4 sm:p-5 shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_rgba(255,255,255,1)] flex flex-col justify-between gap-4">
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="min-w-0">
-                      <h3 className="text-base font-black text-black dark:text-white uppercase tracking-tight">{alert.name}</h3>
-                      <div className="mt-2 flex flex-wrap gap-1.5">
-                        {filterKeys.map(k => (
-                          <span key={k} className="border border-black/20 dark:border-white/20 bg-zinc-200 dark:bg-zinc-800 px-1.5 py-0.5 text-[9px] font-mono font-bold text-zinc-600 dark:text-zinc-400 uppercase">
-                            {k.replace(/_/g, " ")}: {String(alert.filters[k])}
-                          </span>
-                        ))}
-                      </div>
-                      
-                      <div className="mt-3 text-[10px] text-zinc-500 font-bold uppercase tracking-wider">
-                        {isAr ? "آخر تشغيل: " : "Last Triggered: "}
-                        <span className="text-zinc-600 dark:text-zinc-300 font-mono">
-                          {alert.last_triggered_at ? new Date(alert.last_triggered_at).toLocaleString() : "Never"}
-                        </span>
-                      </div>
-                      {alert.last_triggered_matches && alert.last_triggered_matches.length > 0 && (
-                        <div className="mt-1 flex flex-wrap gap-1 items-center">
-                          <span className="text-[9px] text-zinc-500 font-black uppercase">{isAr ? "المطابقات:" : "Matches:"}</span>
-                          {alert.last_triggered_matches.slice(0, 5).map((m: string) => (
-                            <span key={m} className="bg-cyan-500/20 text-cyan-600 dark:text-cyan-400 text-[8px] font-black px-1 rounded-sm">{m}</span>
-                          ))}
-                          {alert.last_triggered_matches.length > 5 && (
-                            <span className="text-[8px] text-zinc-400 font-bold">+{alert.last_triggered_matches.length - 5}</span>
-                          )}
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => toggleAlertActive(alert.id, alert.is_active)}
-                        className={`w-10 h-10 flex items-center justify-center border-4 border-black dark:border-white transition-all shadow-[2px_2px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_rgba(255,255,255,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none ${
-                          alert.is_active ? "bg-emerald-400 text-black" : "bg-rose-500 text-white"
-                        }`}
-                        title={alert.is_active ? (isAr ? "إيقاف التنبيه" : "Deactivate") : (isAr ? "تشغيل التنبيه" : "Activate")}
-                      >
-                        {alert.is_active ? <Bell className="w-5 h-5" /> : <BellOff className="w-5 h-5" />}
-                      </button>
-                      <button
-                        onClick={() => deleteAlert(alert.id)}
-                        className="w-10 h-10 flex items-center justify-center border-4 border-black dark:border-white bg-rose-500 hover:bg-rose-600 text-white transition-all shadow-[2px_2px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_rgba(255,255,255,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none"
-                        title={isAr ? "حذف التنبيه" : "Delete Alert"}
-                      >
-                        <Trash2 className="w-5 h-5" />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </section>
-
+      {/* ── Watchlist ── */}
       <section className="relative z-10 neobrutal-card p-6 sm:p-8 space-y-6 bg-white dark:bg-zinc-900 border-4 border-black dark:border-white shadow-[6px_6px_0px_rgba(0,0,0,1)] dark:shadow-[6px_6px_0px_rgba(255,255,255,1)]">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between border-b-4 border-black dark:border-zinc-800 pb-5">
           <div>
@@ -581,7 +191,7 @@ export default function ProfilePage() {
               </h2>
             </div>
             <p className="text-xs text-zinc-600 dark:text-zinc-400 font-black uppercase tracking-widest leading-relaxed">
-              {isAr ? "القائمة الحقيقية المحفوظة على حسابك ويمكن تعديلها من هنا" : "Your real saved symbols, synced to your account and editable here"}
+              {isAr ? "أسهمك المحفوظة — افتح الشارت أو عدّل أو احذف من هنا" : "Your saved symbols — open chart, edit or remove from here"}
             </p>
           </div>
           <div className="inline-flex items-center justify-center gap-2 h-10 px-4 border-4 border-black dark:border-white bg-zinc-100 dark:bg-zinc-950 text-black dark:text-white font-black text-xs uppercase tracking-widest shadow-[2px_2px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_rgba(255,255,255,1)]">
@@ -593,7 +203,7 @@ export default function ProfilePage() {
           <div className="min-h-[180px] border-4 border-dashed border-black/40 dark:border-white/30 bg-zinc-50 dark:bg-zinc-950/30 flex flex-col items-center justify-center gap-4 text-center p-8">
             <Star className="h-8 w-8 text-zinc-400" />
             <p className="max-w-md text-sm font-bold text-zinc-600 dark:text-zinc-400">
-              {isAr ? "لا توجد أسهم محفوظة حتى الآن. افتح صفحة الشارت واضغط النجمة لإضافة سهم لقائمتك." : "No saved symbols yet. Open the chart page and press the star to add a symbol to your list."}
+              {isAr ? "لا توجد أسهم محفوظة حتى الآن. افتح صفحة الشارت واضغط النجمة لإضافة سهم لقائمتك." : "No saved symbols yet. Open the chart page and press the star to add a symbol."}
             </p>
           </div>
         ) : (
@@ -667,7 +277,6 @@ export default function ProfilePage() {
                       )}
                     </div>
                   </div>
-
                 </article>
               );
             })}
