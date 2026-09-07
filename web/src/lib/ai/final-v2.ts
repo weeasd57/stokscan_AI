@@ -2,6 +2,7 @@ import { IntentPlan, VisionContext, ToolResult, FactSnapshot, SessionState } fro
 import { getSyncSymbolOfficialNameMap } from "./planner";
 import { AI_CONFIG } from "./config";
 import { getDeepSeekApiKey, getNvidiaApiKeys } from "./server-secrets";
+import { todayInCairo } from "./cairo-date";
 import { describeDatedFallback, getFairValueFilters, getInvestorGuidanceIntent, isBestBuyStockQuestion, isDailyPriceLimitQuestion, isEarningsDataRequest, isFairValueScanRequest, isTermsDefinitionRequest, isUsageLimitQuestion } from "./intent-policy";
 import { sanitizeReply } from "./sanitizer";
 import { isOtcStock, buildOtcNotice } from "./otc-stocks";
@@ -193,8 +194,16 @@ export function buildV2FinalMessages(
     const sections: string[] = [];
     const guidanceIntent = plan.guidance_intent;
 
-    if (sessionState && (sessionState.investment_budget || sessionState.investment_horizon || sessionState.risk_tolerance || sessionState.preferred_sectors?.length)) {
+    if (sessionState && (sessionState.investment_budget || sessionState.investment_horizon || sessionState.risk_tolerance || sessionState.preferred_sectors?.length || sessionState.experience_level)) {
         sections.push("=== INVESTOR PROFILE & SESSION CONTEXT ===");
+        if (sessionState.experience_level) {
+            const levelMap: Record<string, string> = {
+                beginner: "مبتدئ: استخدم لغة بسيطة ومثالاً قصيراً وعرّف المصطلح عند الحاجة.",
+                intermediate: "متوسط: اذكر الأرقام الأساسية مع شرح مختصر للسبب.",
+                expert: "خبير: اختصر الشرح العام وركز على الأرقام، الفروق، الافتراضات، ومصدر كل نتيجة.",
+            };
+            sections.push(`- مستوى المستخدم: ${levelMap[sessionState.experience_level] || sessionState.experience_level}`);
+        }
         if (sessionState.investment_budget) {
             sections.push(`- الميزانية المتاحة للمستثمر: ${sessionState.investment_budget.toLocaleString("ar-EG")} جنيه مصري`);
         }
@@ -268,6 +277,18 @@ export function buildV2FinalMessages(
             summary: visionContext.user_relevant_summary,
             confidence: visionContext.confidence
         }, null, 2));
+        // Portfolio screenshots: the bot manages the user's holdings — after
+        // analyzing the image it MUST ask whether this is the user's own
+        // portfolio so the next turn can save it upon confirmation.
+        if (visionContext.image_type === "portfolio") {
+            sections.push([
+                "=== PORTFOLIO IMAGE RULE (محفظتى) ===",
+                "هذه صورة محفظة أسهم. حلل الأسهم الظاهرة بإيجاز (الرموز والكميات والأسعار لو ظاهرة)،",
+                "ثم اختم سؤالك الإلزامي بالضبط:",
+                "\"دي محفظتك؟ أأكد حفظها في حسابك عشان تقدر تسألني عنها وتعدلها في أي وقت؟\"",
+                "لا تحفظ أي بيانات من الصورة في حساب المستخدم قبل تأكيده.",
+            ].join("\n"));
+        }
     }
 
     // Recent history is no longer injected into sections; it's passed as actual chat messages below.
@@ -397,6 +418,11 @@ export function buildV2FinalMessages(
     }
 
     sections.push("=== RESPONSE RULES ===");
+    sections.push("=== CONVERSATION TONE ===");
+    sections.push("- كن مساعداً مالياً محادثياً: ابدأ بإجابة السؤال مباشرة، ثم اذكر أقوى دليل رقمي، ثم اسأل سؤال متابعة واحداً فقط إذا كانت معلومة لازمة ناقصة.");
+    sections.push("- للمبتدئ: بسّط المصطلح بمثال قصير ولا تكدّس المؤشرات. للخبير: اختصر التعريفات واذكر القيم والفروق والافتراضات. للمستخدم القلق: اعرض عوامل الخطر بالأرقام ولا تطمئنه بعبارات عامة.");
+    sections.push("- لا تعرض ML Scores إلا إذا كانت موجودة ومرتبطة بالسؤال أو بتحليل السهم؛ لا تكررها في كل رد عام.");
+    sections.push("- كلمة 'طبيعي' مسموحة فقط إذا طلب المستخدم تفسيراً مقارناً للحركة؛ لا تستخدمها كحكم مطمئن بلا دليل.");
     sections.push("- استخدم طلب المستخدم الحالي كأولوية أولى");
     sections.push("- استخدم نية الـ planner كأولوية ثانية");
     sections.push("- اكتب كخبير يتحدث مع المستخدم: ابدأ بالنتيجة، ثم اذكر الدليل الأقوى، ثم وضّح ما لا يمكن الجزم به.");
@@ -521,6 +547,18 @@ export function buildV2FinalMessages(
         sections.push(evidenceEngineBlock);
     }
 
+    const ownedPositions = toolResults
+        .filter(result => result.tool === "manage_portfolio" && Array.isArray(result.data?.positions))
+        .flatMap(result => result.data.positions)
+        .filter((position: any) => position?.symbol);
+    if (ownedPositions.length > 0) {
+        sections.push([
+            "=== OWNED POSITION CONTEXT ===",
+            "هذه مراكز المستخدم الفعلية. عند تحليل سهم موجود هنا، ابدأ بذكر الكمية ومتوسط الشراء واربط الربح/الخطر بسعر التكلفة الفعلي، ولا تتعامل معه كسهم عام فقط.",
+            ...ownedPositions.map((position: any) => `- ${position.symbol}: الكمية=${position.quantity ?? "غير متاح"}، متوسط الشراء=${position.entry_price ?? "غير متاح"}، آخر سعر=${position.last_price ?? "غير متاح"}، قيمة المركز=${position.market_value ?? "غير متاح"}`),
+        ].join("\n"));
+    }
+
     if (correctionPrompt) {
         sections.push("⚠️ SYSTEM CORRECTION ALERT:\n" + correctionPrompt);
     }
@@ -531,7 +569,9 @@ export function buildV2FinalMessages(
         contextText = `...\n\n[تم اقتطاع السياق القديم - تجاوز الحد الأقصى]\n\n` + contextText.slice(-MAX_CONTEXT_CHARS);
     }
 
-    const today = new Date().toISOString().split("T")[0];
+    // The trading-day date shown to the user must be Africa/Cairo local time:
+    // raw UTC can report yesterday between midnight and 02:00/03:00 Cairo.
+    const today = todayInCairo();
 
     const lengthRule = plan.intent === "technical_scan"
         ? "اعرض قائمة الأسهم ونتائج المسح الفني دائمًا في جدول ماركداون (Markdown Table) منسق ومكتمل الأعمدة بدلاً من القوائم المنقطة أو الأسطر الطويلة لتفادي تداخل النصوص واللغات."
@@ -578,7 +618,11 @@ export function buildV2FinalMessages(
     - ثم قدم له ملخصاً وافياً ومفيداً عن نشاط الشركة، وتطوراتها، وأحدث الأخبار المتاحة عنها من نتائج البحث على الويب مع الإشارة للمصادر بصيغة [1] و [2].
 8. ⚠️ شروط الدخول (ACTIONABLE CONDITIONS): فقط عندما يدعمها التحليل الفني والأساسي واضواً. لا تقدّم شروط دخول إذا لم تدعمها البيانات (RSI 40-70، أو السعر قريب من المقاومة، أو سيولة ضعيفة). عندما يكون الاتجاه واضحاً والزخم إيجابياً، قدّم شرطاً تنفيذياً محدداً.
     9. 📋 فصل وضوح: استخراج التوصيات (SEPARATE MARKET VIEW FROM RECOMMENDATION): إذا وجدت platform_recommendation في البيانات، استخرجها في قسم منفصل بعنوان 'توصية سابقة على المنصة'. لا تخلطها مع تحليلك الفني الحالي. إذا كانت التوصية نشطة (ACTIVE_OPEN)، قل 'هذه توصية سابقة لم تمكنها من التنفيذ بعد' ولا تصفها بأنها توصية حالية. إذا كانت CLOSED أو NONE، قل ذلك صراحةً ثم انتقل إلى التحليل الفني الحالي.
-10. 📢 عند عرض توصيات أو إشارات أو إجابة عن اختيار أسهم للاستثمار، أضف في النهاية رابط قناة EGX Bots العامة لمتابعة التنبيهات والتحديثات: https://t.me/egxbots`;
+10. 📢 عند عرض توصيات أو إشارات أو إجابة عن اختيار أسهم للاستثمار، أضف في النهاية رابط قناة EGX Bots العامة لمتابعة التنبيهات والتحديثات: https://t.me/egxbots
+11. 🚫 ممنوع نهائياً اختلاق "قائمة الرموز المسموح بها" أو عبارات مثل "غير موجود في قائمة الرموز المسموح بها". لا توجد قائمة رموز محدودة في النظام؛ اعتمد فقط على البيانات الممررة في السياق (=== ALLOWED SYMBOLS === أو نتائج الأدوات). إذا لم يظهر رمز في تلك القائمة فهذا لا يعني أنه محظور، بل أنه لم يُستخدم في هذا الطلب.
+12. 🏦 قاعدة السيولة والمحفظة: إضافة سهم للمحفظة أو تعديلها مجرد تسجيل (أضف الكمية وسعر الدخول فقط). لا يُشترط وجود سيولة ولا تُخصم السيولة عند الإضافة، ولا تقل أبداً "سيولتك لا تكفي لإضافة السهم" أو ترفض إضافة سهم بسبب صفر/نقص السيولة. السيولة تُستعلم عنها أو تُضاف/تُعدَّل فقط عندما يطلبها المستخدم صراحة.
+13. 🎯 دقة التوصيات المغلقة: لا تدّع أن التوصية "حققت هدفها" أو بلغت سعر الهدف إلا إذا نصّت البيانات الممررة صراحة على ذلك (مثل حالة win/CLOSED مع سعر إغلاق). إذا كان سعر الإغلاق/الخروج أقل من الهدف، اذكر أنها أُغلقت بسعر الخروج الفعلي ولا تقل إن الهدف تحقق. اعرض سعر الدخول وسعر الخروج الفعلي كما هما في البيانات حرفياً، وإذا وجدت تعارضاً بين الهدف وسعر الخروج فاعتمد سعر الخروج الفعلي ولا تُنشئ أرقاماً جديدة. إذا كان وقف الخسارة أعلى من سعر الدخول (بيانات غير منطقية) فلا تتحدث عنه كوقف تنفيذي صحيح.
+14. 📅 "اليوم/النهارده" في سياق السوق تعني جلسة اليوم بتوقيت القاهرة الموضحة في رأس الرسالة. لا تخلط تواريخ الجلسات المختلفة في نفس الرد عند عرض سعر وبيانات من أكثر من مصدر.`;
 
     const messages: { role: string; content: any }[] = [
         { role: "system", content: systemPrompt }
@@ -984,7 +1028,23 @@ export function buildWebSearchResponse(
     return null;
 }
 
-function appendVerifiedWebSources(response: string, toolResults: ToolResult[]): string {
+function appendVerifiedWebSources(response: string, toolResults: ToolResult[], plan?: IntentPlan): string {
+    // Only attach web sources when the plan genuinely asked for the internet /
+    // news. A search triggered as a fallback inside an unrelated stock analysis
+    // (e.g. get_news fallback) previously leaked irrelevant links into replies
+    // about a completely different subject.
+    const tools = plan?.tools || [];
+    const explicitSearch = /(?:ابحث|دور|فتش|بحث|شوف|بص|سيرش|شيك|تشيك|جوجل)\s*(?:في|فى|على|عن)\s*(?:النت|الانترنت|الإنترنت|جوجل|المواقع|الويب|خبر|أخبار|اخبار)/i.test(response)
+        || /(?:من|عبر)\s+(?:النت|الانترنت|الإنترنت)/i.test(response);
+    const webIntent = tools.includes("search_web")
+        || tools.includes("get_news")
+        || tools.includes("get_corporate_actions")
+        || tools.includes("get_fund_info")
+        || tools.includes("get_historical_facts")
+        || tools.length === 0
+        || explicitSearch;
+    if (!webIntent) return response;
+
     const webResults = toolResults.filter(result =>
         result.tool === "search_web" && Array.isArray(result.data?.results) && result.data.results.length > 0
     );
@@ -992,12 +1052,16 @@ function appendVerifiedWebSources(response: string, toolResults: ToolResult[]): 
     const lines = ["", "**مصادر البحث المستخدمة:**"];
     let index = 0;
     for (const result of webResults) {
+        const fallbackFor = result.data?.fallback_for;
+        // A get_news fallback must only be cited when the user actually asked for news.
+        if (fallbackFor === "get_news" && !tools.includes("get_news") && !/(خبر|أخبار|اخبار|اخر التطورات|شو اخبار)/i.test(response)) continue;
         for (const item of result.data.results.slice(0, 8)) {
             index += 1;
             lines.push(`[${index}] ${item.title} (${item.domain})`);
             lines.push(item.url);
         }
     }
+    if (index === 0) return response;
     lines.push("هذه روابط جلبها النظام أثناء الإجابة وقد تتغير محتوياتها لاحقاً.");
     return `${response.trim()}\n${lines.join("\n")}`;
 }
@@ -1220,7 +1284,7 @@ export async function generateV2Response(
     const result = await callResponderLlm(messages, apiKeys, false, requestedModel);
     if (result.response) {
         if (meta) meta.source = "llm";
-        let reply = sanitizeReply(appendVerifiedWebSources(result.response, toolResults));
+        let reply = sanitizeReply(appendVerifiedWebSources(result.response, toolResults, plan));
         // Hybrid: append deterministic scan table after LLM qualitative analysis
         const scanTableHtml = buildDeterministicTechnicalScanResponse(userMessage, plan, toolResults);
         if (scanTableHtml && !reply.includes("|---|")) {
@@ -1340,7 +1404,7 @@ export async function* generateV2Stream(
         try {
             let completeResponse = "";
             for await (const token of result.streamGen) completeResponse += token;
-            let safeResponse = sanitizeReply(appendVerifiedWebSources(completeResponse, toolResults));
+            let safeResponse = sanitizeReply(appendVerifiedWebSources(completeResponse, toolResults, plan));
             // Hybrid: append deterministic scan table after LLM qualitative analysis
             const scanTableMd = buildDeterministicTechnicalScanResponse(userMessage, plan, toolResults);
             if (scanTableMd && !safeResponse.includes("|---|")) {
@@ -2053,8 +2117,8 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
         if (/(انت|إنت|انتا|أنت).{0,12}(مين|موديل|نموذج)|مين انت|مين إنت/i.test(userMessage)) {
             return "أنا مساعد EGX Bots لتحليل بيانات البورصة المصرية. أستخدم نموذج الذكاء الاصطناعي الذي تختاره من واجهة الشات لصياغة الرد، مع الاعتماد على بيانات النظام وأدواته عند تحليل الأسهم.";
         }
-        if (/(ازيك|إزيك|عامل ايه|عامل إيه|اهلا|أهلا|مرحبا|السلام عليكم)/i.test(userMessage)) {
-            return "أهلاً بك. أقدر أساعدك في تحليل سهم، مقارنة سهمين، أخبار الشركات، أو تحليل قطاعات البورصة المصرية باستخدام البيانات المتاحة.";
+        if (/(ازيك|إزيك|عامل ايه|عامل إيه|اهلا|أهلا|هلا|مرحبا|السلام عليكم|سلام|هاي|صباح الخير|صباح الفل|مساء الخير|^hello|^hi|^hey|^heya|^yo|good\s*morning|good\s*evening)/i.test(userMessage)) {
+            return "أهلاً بك 👋 أنا مساعد EGX Bots لتحليل بيانات البورصة المصرية. أقدر أساعدك في: تحليل سهم (اكتب اسمه أو رمزه)، مقارنة سهمين، عرض الأسهم الأقوى سيولة أو الأكثر تجميعاً، متابعة توصيات المنصة، أو إدارة محفظتك (اعرض محفظتي / ضيف سهم / ضيف سيولة). جرب تسألني عن أي حاجة.";
         }
         const decision = /(أبيع|ابيع|ابيعه|أبيعه|بيع|أشتري|اشتري|شراء|احتفظ|أحتفظ|اخرج|أخرج)/i.test(userMessage);
         const isOwnedStockAdviceQuery = /(اشتريت.*نزل|نازل بيا|خسران|اشتريت.*سهم|اشتريت اليوم|اشتريت.*ونزل)/i.test(userMessage);

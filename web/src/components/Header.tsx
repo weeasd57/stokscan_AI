@@ -12,6 +12,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { searchSymbols } from "@/lib/api";
+import PortfolioHeaderChip from "@/components/PortfolioHeaderChip";
 
 const POPULAR_EGX_STOCKS = [
     { symbol: "COMI", name: "Commercial International Bank", exchange: "EGX", country: "Egypt" },
@@ -380,7 +381,9 @@ export default function Header() {
                         </button>
 
                         {user ? (
-                            <div className="relative hidden md:block">
+                            <>
+                                <PortfolioHeaderChip />
+                                <div className="relative hidden md:block">
                                 <button
                                     onClick={() => setAccountMenuOpen(!accountMenuOpen)}
                                     className={`h-9 px-2.5 rounded-xl transition-all ${
@@ -413,6 +416,7 @@ export default function Header() {
                                     </div>
                                 )}
                             </div>
+                            </>
                         ) : (
                             <Link
                                 href="/login"

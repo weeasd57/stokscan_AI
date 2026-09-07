@@ -4,6 +4,10 @@ import { classificationMatchesSector } from "./sector-taxonomy";
 import { searchWeb } from "./web-search";
 import { isEgxSessionOpen, fetchLiveStockIndicators } from "./live-stock-updater";
 import { getCorporateActionsForSymbols, formatCorporateActionsSummary, CORPORATE_ACTIONS_QUERY_PATTERN } from "./corporate-actions";
+import {
+    getPortfolioSnapshot, addPortfolioPosition, updatePortfolioPosition,
+    removePortfolioPosition, sellPortfolioPosition, setPortfolioCash, addPortfolioCash,
+} from "./portfolio-tools";
 
 function normalizeArabic(str: string): string {
     return str
@@ -165,6 +169,68 @@ export async function executeStructuredTools(
         if (!excludedSectors.length) return false;
         return (plan.entities.excluded_sectors || []).some(excluded => classificationMatchesSector(value, excluded));
     };
+
+    // ===== "My Portfolio" (محفظتى) management tool =====
+    // Parses quantities/prices from natural Arabic text and applies the
+    // requested operation against the user's Supabase positions/cash.
+    if (plan.tools.includes("manage_portfolio")) {
+        const operation = (plan.entities as any).portfolio_operation || "view";
+        const fmtMoney = (v: number | null | undefined) => {
+            if (v === null || v === undefined || !Number.isFinite(v)) return "—";
+            return v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        };
+
+        try {
+            if (!userId) {
+                results.push({ tool: "manage_portfolio", source: "portfolio", data_time: now, symbols: [], data_type: "cached", data: { ok: false, message: "محتاج تسجل دخول الأول عشان أدير محفظتك." }, error: "no user" });
+            } else if (operation === "view") {
+                const snapshot = await getPortfolioSnapshot(supabase, userId);
+                results.push({ tool: "manage_portfolio", source: "positions", data_time: now, symbols: snapshot.positions.map((p) => p.symbol), data_type: "cached", data: snapshot });
+            } else if (operation === "cash_set" || operation === "cash_add") {
+                // Absolute "السيولة اللي معايا 50 ألف" vs add/deposit "ضيف 20 ألف
+                // سيولة" — the amount parser tolerates both bare and scaled figures.
+                const amount = parseCashAmountFromArabicText(userMessage) ?? parseMoneyFromArabicText(userMessage);
+                if (amount === null) {
+                    results.push({ tool: "manage_portfolio", source: "portfolio", data_time: now, symbols: [], data_type: "cached", data: { ok: false, message: operation === "cash_add" ? "محتاج قيمة الإيداع بالأرقام — مثلاً: «ضيف 50 ألف سيولة»." : "محتاج قيمة السيولة بالأرقام — مثلاً: «السيولة اللي معايا 50 ألف جنيه»." } });
+                } else {
+                    const res = operation === "cash_add"
+                        ? await addPortfolioCash(supabase, userId, amount)
+                        : await setPortfolioCash(supabase, userId, amount);
+                    results.push({ tool: "manage_portfolio", source: "portfolio", data_time: now, symbols: [], data_type: "cached", data: res });
+                }
+            } else {
+                // add / update / remove / sell need a symbol
+                const targetSymbol = (symbols.length > 0 ? symbols[0] : null) || parseSymbolFromArabicText(userMessage);
+                if (!targetSymbol) {
+                    results.push({ tool: "manage_portfolio", source: "portfolio", data_time: now, symbols: [], data_type: "cached", data: { ok: false, message: "قولي رمز السهم اللي عايز تعدّله في محفظتك (مثلاً: COMI أو EAST)." } });
+                } else {
+                    const quantity = parseQuantityFromArabicText(userMessage);
+                    const price = parseMoneyFromArabicText(userMessage);
+                    let res: { ok: boolean; message: string };
+                    if (operation === "add") {
+                        res = quantity === null
+                            ? { ok: false, message: `محتاج أعرف عدد أسهم ${targetSymbol} — مثلاً: «عندي 200 سهم COMI».` }
+                            : await addPortfolioPosition(supabase, userId, targetSymbol, quantity, price);
+                    } else if (operation === "update") {
+                        res = await updatePortfolioPosition(supabase, userId, targetSymbol, quantity, price);
+                    } else if (operation === "remove") {
+                        res = await removePortfolioPosition(supabase, userId, targetSymbol);
+                    } else {
+                        res = await sellPortfolioPosition(supabase, userId, targetSymbol, quantity, price);
+                    }
+                    results.push({ tool: "manage_portfolio", source: "positions", data_time: now, symbols: [targetSymbol], data_type: "cached", data: res });
+                }
+            }
+        } catch (e: any) {
+            results.push({ tool: "manage_portfolio", source: "portfolio", data_time: now, symbols: [], data_type: "cached", data: { ok: false, message: `حصل خطأ في إدارة المحفظة: ${e?.message || e}` }, error: String(e) });
+        }
+
+        const portfolioMessage = results[results.length - 1]?.data?.message || "";
+        return {
+            results,
+            formattedText: `### إدارة المحفظة\n${portfolioMessage}`,
+        };
+    }
 
     const dataDateQuality = (date: unknown, maxAgeDays: number, requested: string | null = null) => {
         const value = String(date || "").slice(0, 10);
@@ -2531,6 +2597,96 @@ export async function executeStructuredTools(
     }
 
     return { results, formattedText: textParts.join("\n") };
+}
+
+// ===== Arabic text parsing helpers for portfolio management =====
+
+/** Parse "200 سهم" / "200 سهمين" / "كمية 500" / "لـ 300" → quantity. */
+function parseQuantityFromArabicText(text: string): number | null {
+    const v = text.replace(/[٠-٩]/g, d => String("٠١٢٣٤٥٦٧٨٩".indexOf(d)));
+    const patterns = [
+        /(\d[\d,]*)\s*(?:سهم|سهمين|حصه|حصص|share|share?s)/i,
+        /(?:كميه|كمية)\s*[:=]?\s*(\d[\d,]*)/i,
+        /(?:عدد)\s*[:=]?\s*(\d[\d,]*)/i,
+        /(?:الى|إلى|ل|لـ)\s*(\d[\d,]*)\s*(?:سهم)?\s*$/i,
+        // "سهم AMER 200" — number after the symbol and before a price keyword
+        /(?:سهم|حصه|حصص)\s*[A-Z]{2,10}\s+(\d[\d,]*)\s*(?:بسعر|سعر|بـ|ب|جنيه|ج\.م|egp|$)/i,
+        // bare "ضيف AMER 200" — symbol then number followed by optional price marker
+        /(?:ضيف|اضيف|هضيف|اضفت|اشتريت)\s+(?:\S+\s+)?[A-Z]{2,10}\s+(\d[\d,]*)\s*(?:بسعر|سعر|بـ|ب|جنيه|ج\.م|egp|$)/i,
+    ];
+    for (const p of patterns) {
+        const m = v.match(p);
+        if (m) {
+            const n = parseInt(m[1].replace(/,/g, ""), 10);
+            if (Number.isFinite(n)) return n;
+        }
+    }
+    return null;
+}
+
+/** Parse money amounts: "بـ 15.5 جنيه" / "بسعر 20" / "50 ألف" / "1.5 مليون" / "20k". */
+function parseMoneyFromArabicText(text: string): number | null {
+    const v = text.replace(/[٠-٩]/g, d => String("٠١٢٣٤٥٦٧٨٩".indexOf(d)));
+    const toNum = (raw: string, scale: number): number | null => {
+        const n = parseFloat(raw.replace(/,/g, ""));
+        return Number.isFinite(n) ? n * scale : null;
+    };
+    // مليون
+    let m = v.match(/(\d[\d,.]*)\s*(?:مليون|مليونه)/i);
+    if (m) { const n = toNum(m[1], 1_000_000); if (n !== null) return n; }
+    // ألف / ك / k
+    m = v.match(/(\d[\d,.]*)\s*(?:الف|ألف|الفين|k\b)/i);
+    if (m) { const n = toNum(m[1], 1_000); if (n !== null) return n; }
+    // Explicit currency/price wording
+    m = v.match(/(?:بسعر|سعر|بـ|ب|بمبلغ|قيمه|قيمة)\s*(\d[\d,.]*)\s*(?:جنيه|ج\.?م|egp)?/i);
+    if (m) { const n = toNum(m[1], 1); if (n !== null && n > 0) return n; }
+    // Plain number followed by currency
+    m = v.match(/(\d[\d,.]*)\s*(?:جنيه|ج\.?م|egp)/i);
+    if (m) { const n = toNum(m[1], 1); if (n !== null) return n; }
+    return null;
+}
+
+/**
+ * Parse the amount in a cash operation. Unlike parseMoneyFromArabicText this
+ * also catches plain figures near cash keywords ("زود السيولة 5000",
+ * "حط 100 الف في الكاش", "سيولتي دلوقتي 250000").
+ */
+function parseCashAmountFromArabicText(text: string): number | null {
+    const v = text.replace(/[٠-٩]/g, d => String("٠١٢٣٤٥٦٧٨٩".indexOf(d)));
+    const matches: Array<{ value: number; index: number }> = [];
+    const numberPattern = /(\d[\d,.]*)\s*(الف|ألف|الاف|آلاف|مليون|مليونه|k|kilo)?/gi;
+    let m: RegExpExecArray | null;
+    while ((m = numberPattern.exec(v)) !== null) {
+        const raw = m[1].replace(/,/g, "");
+        let value = parseFloat(raw);
+        if (!Number.isFinite(value)) continue;
+        const unit = (m[2] || "").toLowerCase();
+        if (/الف|ألف|الاف|آلاف|k|kilo/.test(unit)) value *= 1000;
+        else if (/مليون|مليونه/.test(unit)) value *= 1_000_000;
+        if (value <= 0) continue;
+        matches.push({ value, index: m.index });
+    }
+    if (matches.length === 0) return null;
+
+    // Prefer a number that sits on the right of an add/deposit verb or a cash
+    // keyword, then fall back to the last numeric figure in the sentence.
+    const verbZone = /(ضيف|اضيف|هضيف|زود|زد|حط|حطي?ت|اودع|ودع|ادخل|اضفت|زودت|حطيت|السيول|سيولتي|سيوله|سيولة|فلوس|كاش|الكاش|عندي|معايا)/i;
+    const verbIndex = v.search(verbZone);
+    let best = matches[matches.length - 1];
+    if (verbIndex >= 0) {
+        const afterVerb = matches.filter(x => x.index >= verbIndex - 2);
+        if (afterVerb.length > 0) best = afterVerb[0];
+    }
+    return Math.round(best.value);
+}
+function parseSymbolFromArabicText(text: string): string | null {
+    // "سهم COMI" / "من EAST" / "symbol: HRHO"
+    const m = text.match(/(?:سهم|من|في|بتاع|symbol)\s*[:\s]?\s*([A-Za-z]{2,10})\b/i);
+    if (m) return m[1].toUpperCase();
+    // Bare Latin ticker (2-10 letters) not part of a longer word
+    const bare = text.match(/\b([A-Za-z]{2,10})\b/);
+    if (bare) return bare[1].toUpperCase();
+    return null;
 }
 
 function formatSnapshotFacts(facts: any): string {

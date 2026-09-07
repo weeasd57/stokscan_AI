@@ -94,6 +94,7 @@ from api.health import router as health_router
 
 app = FastAPI(title="Artoro API", version="1.0.0")
 
+
 def require_internal_admin(request: Request) -> None:
     expected = os.getenv("ADMIN_SECRET_KEY", "").strip()
     provided = request.headers.get("x-admin-key", "").strip()
@@ -259,7 +260,6 @@ async def startup_event():
                 print(f"[SUPPORT_CHAT] Failed to set support webhook: {e}")
 
         else:
-
             print("[SUPPORT_CHAT] Support Bot Webhook mode enabled. Set WEBHOOK_URL to configure webhook.")
 
     except Exception as e:
@@ -281,13 +281,8 @@ async def startup_event():
 
 
         start_intraday_downloader()
-
         from api.intraday_scheduler import start_intraday_scheduler
-
-
-
         start_intraday_scheduler()
-
         print("DEBUG: Intraday Downloader started successfully.")
 
     except Exception as e:
@@ -296,21 +291,9 @@ async def startup_event():
 
 
 
-    # Start Daily Job Scheduler (stock_score + historical similarity)
-
-    try:
-
-        from api.daily_job_scheduler import start_daily_job_scheduler
-
-
-
-        start_daily_job_scheduler()
-
-        print("DEBUG: Daily Job Scheduler started successfully.")
-
-    except Exception as e:
-
-        print(f"DEBUG ERROR: Failed to start Daily Job Scheduler: {e}")
+    # Daily jobs are not started by the API server lifecycle. A dedicated
+    # worker/process may start the scheduler explicitly; its schedule comes
+    # from Supabase market_cache.daily_job_schedule.
 
 
 

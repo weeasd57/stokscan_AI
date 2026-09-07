@@ -26,7 +26,10 @@ _scheduler_lock = threading.Lock()
 
 def _default_scheduler() -> Dict[str, Any]:
     return {
-        "enabled": False,
+        # Intraday freshness is a production requirement. The admin can still
+        # pause it through the existing endpoint, but a fresh deployment must
+        # not silently start with the scheduler disabled.
+        "enabled": True,
         "run_time": DEFAULT_RUN_TIME,
         "timezone": "Africa/Cairo",
         "last_run_date": None,

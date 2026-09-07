@@ -536,11 +536,23 @@ def start_intraday_downloader():
 
 
 def _downloader_worker_loop():
-    print("[INTRADAY DOWNLOADER] Worker loop started. Waiting 45s for app startup...")
-    time.sleep(45)
+    print("[INTRADAY DOWNLOADER] Worker loop started. Waiting 10s for app startup...")
+    time.sleep(10)
     while True:
         try:
             state = load_state()
+            # Keep the existing manual pause/resume control, but automatically
+            # sync during an open EGX session when the state is idle. Previously
+            # the worker only ran after a manual admin toggle, so live bars never
+            # refreshed in production.
+            from datetime import datetime, time as dt_time
+            from zoneinfo import ZoneInfo
+            cairo_now = datetime.now(ZoneInfo("Africa/Cairo"))
+            is_open = cairo_now.weekday() < 5 and dt_time(10, 0) <= cairo_now.time() < dt_time(15, 0)
+            auto_started = is_open and state.get("status") == "idle"
+            if auto_started:
+                state["status"] = "syncing"
+                save_state(state)
             if state.get("status") == "syncing":
                 print("[INTRADAY DOWNLOADER] Running batch sync...")
                 res = run_intraday_sync_batch()

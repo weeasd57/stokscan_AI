@@ -24,4 +24,12 @@ describe("requested investor question routing", () => {
         expect(plan.tools).toEqual([]);
         expect(plan.entities.symbols).toEqual([]);
     });
+
+    test("routes an AMER portfolio add to the mutation tool with the add operation", () => {
+        const plan = buildCompoundDeterministicPlan("ضيف فى محفظتى سهم amer 200 بسعر 45.65", session);
+        expect(plan.intent).toBe("portfolio_management");
+        expect(plan.tools).toEqual(["manage_portfolio"]);
+        expect(plan.entities.symbols).toEqual(["AMER"]);
+        expect(plan.entities.portfolio_operation).toBe("add");
+    });
 });

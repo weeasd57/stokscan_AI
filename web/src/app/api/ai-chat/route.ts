@@ -145,13 +145,17 @@ async function insertChatMessages(supabase: any, rows: any[]): Promise<void> {
  * Extract data provenance from pipeline tool results so the admin chat tab can
  * show whether the LLM reply was built from real-time market data or from the
  * Supabase database, and which data date the decision was based on.
+ * Also carries the Excel tables the customer saw, so the admin tab renders the
+ * exact same view.
  */
-function extractProvenanceFromToolResults(results: any[]): Record<string, any> | null {
-    if (!Array.isArray(results) || results.length === 0) return null;
+function extractProvenanceFromToolResults(results: any[], tables?: any[]): Record<string, any> | null {
+    if (!Array.isArray(results) || results.length === 0) {
+        if (!Array.isArray(tables) || tables.length === 0) return null;
+    }
     let dataSource: string | null = null;
     let dataDate: string | null = null;
     const toolSources: Record<string, string> = {};
-    for (const result of results) {
+    for (const result of results || []) {
         if (!result || !result.tool) continue;
         const source = String(result.source || "unknown");
         toolSources[result.tool] = source;
@@ -161,11 +165,30 @@ function extractProvenanceFromToolResults(results: any[]): Record<string, any> |
         if (time && (!dataDate || time > dataDate)) dataDate = time;
     }
     if (!dataSource) dataSource = "supabase";
-    return {
+    const provenance: Record<string, any> = {
         data_source: dataSource,
         data_date: dataDate,
         tool_sources: toolSources,
     };
+    if (Array.isArray(tables) && tables.length > 0) {
+        // Keep the payload bounded so pathological scans don't bloat the row
+        const MAX_TABLES_BYTES = 256 * 1024;
+        const trimmed = tables.map((t: any) => ({
+            id: String(t?.id ?? `table_${Math.random().toString(36).slice(2, 8)}`),
+            title: String(t?.title ?? ""),
+            headers: Array.isArray(t?.headers) ? t.headers.map(String) : [],
+            rows: Array.isArray(t?.rows) ? t.rows.map((r: any) => (Array.isArray(r) ? r.map((c: any) => String(c ?? "")) : [])) : [],
+            source: String(t?.source ?? ""),
+            data_time: String(t?.data_time ?? ""),
+        }));
+        try {
+            const encoded = JSON.stringify(trimmed);
+            if (encoded.length <= MAX_TABLES_BYTES) {
+                provenance.tables = trimmed;
+            }
+        } catch {}
+    }
+    return provenance;
 }
 
 function generateSuggestedButtons(plannerResult: any, sessionState: any): string[] {
@@ -405,7 +428,7 @@ export async function POST(req: NextRequest) {
                             .eq("session_id", activeSessionId)
                             .eq("user_id", userId)
                             .order("created_at", { ascending: false })
-                            .limit(10);
+                            .limit(30);
 
                         const dbFormattedHistory = Array.isArray(dbHistory)
                             ? dbHistory
@@ -449,6 +472,7 @@ export async function POST(req: NextRequest) {
                         let plannerResult: any = null;
                         let liveDataString = "";
                         let toolsResults: any[] = [];
+                        let streamTables: any[] = [];
                         let plannerLatencyMs = 0;
                         let toolsLatencyMs = 0;
                         let responseLatencyMs = 0;
@@ -475,6 +499,7 @@ export async function POST(req: NextRequest) {
                                     responseStartTime = Date.now();
                                     break;
                                 case "tables":
+                                    streamTables = Array.isArray(event.data) ? event.data : [];
                                     sendEvent({ type: "tables", data: event.data });
                                     break;
                                 case "token":
@@ -521,7 +546,7 @@ export async function POST(req: NextRequest) {
                                     // Save messages to DB
                                     try {
                                         if (activeSessionId) {
-                                            const provenance = extractProvenanceFromToolResults(toolsResults);
+                                            const provenance = extractProvenanceFromToolResults(toolsResults, streamTables);
                                             await insertChatMessages(supabase, [
                                                 {
                                                     session_id: activeSessionId,
@@ -632,7 +657,7 @@ export async function POST(req: NextRequest) {
             .eq("session_id", activeSessionId)
             .eq("user_id", userId)
             .order("created_at", { ascending: false })
-            .limit(10);
+            .limit(30);
 
         const dbFormattedHistory = Array.isArray(dbHistory)
             ? dbHistory
@@ -681,7 +706,7 @@ export async function POST(req: NextRequest) {
         // Save messages to DB
         try {
             if (activeSessionId) {
-                const provenance = extractProvenanceFromToolResults(pipelineResult?.tools?.results || []);
+                const provenance = extractProvenanceFromToolResults(pipelineResult?.tools?.results || [], pipelineResult?.tables || []);
                 await insertChatMessages(supabase, [
                     {
                         session_id: activeSessionId,

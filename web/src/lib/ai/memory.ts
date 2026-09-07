@@ -1,6 +1,6 @@
 import { SessionSummary, FactSnapshot, SessionState } from "./types";
 
-const MAX_HISTORY_MESSAGES = 4;
+const MAX_HISTORY_MESSAGES = 30;
 const MAX_FACT_SNAPSHOTS = 5;
 
 export interface MemoryResult {

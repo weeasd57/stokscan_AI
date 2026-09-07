@@ -1,13 +1,22 @@
 import { VisionContext } from "./types";
 import { getSyncStockMappings } from "./planner";
 
-const VISION_SYSTEM_PROMPT = `Inspect the attached financial image and return compact JSON only: {"image_type":"table","visible_stock_symbols":[],"summary":""}. Put only clearly visible stock ticker codes in visible_stock_symbols. Do not infer, recommend, or copy example tickers.`;
+const VISION_SYSTEM_PROMPT = `Inspect the attached financial or portfolio screenshot and return ONLY valid JSON, with no markdown or commentary.
+Use exactly this shape:
+{"image_type":"portfolio|chart|table|market_depth|unknown","symbols":[{"symbol":"TICKER","name":"","visible_values":{"price":null,"change_pct":null,"quantity":null}}],"technical_observations":[],"market_depth":{"total_bid":null,"total_ask":null,"spread":null},"user_relevant_summary":"","uncertainties":[],"confidence":0}
+Classify a broker holdings screen as portfolio. For every clearly visible holding, extract its ticker, name, unit price, daily change percentage, and share quantity when visible. Use null for unreadable values. Write numbers without thousands separators (50000, never 50,000). Never invent a ticker or number; do not recommend buying or selling. Empty symbols is valid when no symbol is readable.`;
 
 function extractJsonFromResponse(raw: string): any {
     const jsonMatch = raw.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
         try {
             return JSON.parse(jsonMatch[0]);
+        } catch {}
+        // Some vision responses use commas inside numeric values (50,000),
+        // producing invalid JSON. Repair only comma-thousands patterns.
+        try {
+            const repaired = jsonMatch[0].replace(/(\d),(?=\d{3}(?:\D|$))/g, "$1");
+            return JSON.parse(repaired);
         } catch {}
     }
     const symbolCandidates = Array.from(new Set(
@@ -95,8 +104,8 @@ export function validateVisionOutput(data: any): VisionContext | null {
     };
 }
 
-const VISION_TIMEOUT_MS = 12000;
-const MAX_VISION_TOTAL_TIME_MS = 25000;
+const VISION_TIMEOUT_MS = 20000;
+const MAX_VISION_TOTAL_TIME_MS = 24000;
 
 export async function analyzeImage(
     imageUrl: string,
@@ -117,8 +126,7 @@ export async function analyzeImage(
     userContent.push({ type: "image_url", image_url: { url: imageUrl } });
 
     const visionStartTime = Date.now();
-    const analyzeModel = async (model: string): Promise<VisionContext | null> => {
-        const key = apiKeys.length > 1 ? apiKeys[1] : apiKeys[0];
+    const analyzeModel = async (model: string, key: string): Promise<VisionContext | null> => {
         const remaining = MAX_VISION_TOTAL_TIME_MS - (Date.now() - visionStartTime);
         if (!key || remaining <= 0) return null;
         const controller = new AbortController();
@@ -136,7 +144,7 @@ export async function analyzeImage(
                     messages: [
                         { role: "user", content: userContent }
                     ],
-                    max_tokens: 600,
+                    max_tokens: 420,
                     temperature: 0.05
                 })
             });
@@ -161,8 +169,14 @@ export async function analyzeImage(
 
     const candidates: VisionContext[] = [];
     for (const model of visionModels) {
-        const candidate = await analyzeModel(model);
-        if (candidate) candidates.push(candidate);
+        for (const key of apiKeys) {
+            const candidate = await analyzeModel(model, key);
+            if (candidate) {
+                candidates.push(candidate);
+                break;
+            }
+        }
+        if (candidates.length > 0) break;
     }
 
     if (candidates.length > 0) {

@@ -155,6 +155,7 @@ export async function GET(_req: NextRequest) {
                         const meta = assistantMsg?.metadata || null;
                         const dataSource = meta?.data_source || null;
                         const dataDate = meta?.data_date || null;
+                        const tables = Array.isArray(meta?.tables) ? meta.tables : [];
 
                         const effectiveUserId = msg.user_id || (msg.session_id ? `guest_${msg.session_id.slice(0, 8)}` : "guest");
                         const userName = getUserLabel(msg.user_id, msg.user_id ? undefined : `زائر (${msg.session_id?.slice(0, 6) || "عام"})`);
@@ -174,6 +175,7 @@ export async function GET(_req: NextRequest) {
                             created_at: msg.created_at,
                             data_source: dataSource,
                             data_date: dataDate,
+                            tables,
                         });
                     }
                 }
@@ -199,6 +201,7 @@ export async function GET(_req: NextRequest) {
                             created_at: msg.created_at,
                             data_source: meta?.data_source || null,
                             data_date: meta?.data_date || null,
+                            tables: Array.isArray(meta?.tables) ? meta.tables : [],
                         });
                     }
                 }

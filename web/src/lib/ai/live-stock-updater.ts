@@ -9,6 +9,8 @@
  * - Updates Supabase `stock_technical_indicators` (upsert on symbol to maintain 1-row-per-symbol rule)
  */
 
+import { todayInCairo } from "./cairo-date";
+
 interface LiveIndicatorsData {
     symbol: string;
     close: number;
@@ -172,7 +174,10 @@ export async function fetchLiveStockIndicators(
         const d = row.d;
         const cairoTimeStr = getCairoTimeString();
         const isoNow = new Date().toISOString();
-        const dateOnly = isoNow.split("T")[0];
+        // The quote belongs to the Cairo trading session, not the UTC calendar
+        // day. Using ISO UTC here made late-evening Cairo requests write to the
+        // previous session date and appear stale in the admin/client tables.
+        const dateOnly = todayInCairo();
 
         const liveData: LiveIndicatorsData = {
             symbol: cleanSym,
@@ -248,6 +253,44 @@ export async function fetchLiveStockIndicators(
                     egx_ai_score: existingScores?.egx_ai_score ?? null,
                     updated_at: isoNow
                 }, { onConflict: "symbol,exchange,date" });
+
+                // Keep the daily quote table in sync with the intraday quote too.
+                // Portfolio valuation and several client endpoints read
+                // `stock_prices`, while the old updater only refreshed technical
+                // indicators, making the UI appear stale during an open session.
+                const { data: stockRow } = await supabase
+                    .from("stocks")
+                    .select("id")
+                    .eq("symbol", cleanSym)
+                    .limit(1)
+                    .maybeSingle();
+                if (stockRow?.id) {
+                    const quote = {
+                        stock_id: stockRow.id,
+                        symbol: cleanSym,
+                        exchange: "EGX",
+                        date: dateOnly,
+                        open: liveData.open,
+                        high: liveData.high,
+                        low: liveData.low,
+                        close: liveData.close,
+                        volume: liveData.volume,
+                        source: "tradingview_live",
+                    };
+                    const { data: existingQuote } = await supabase
+                        .from("stock_prices")
+                        .select("id")
+                        .eq("symbol", cleanSym)
+                        .eq("exchange", "EGX")
+                        .eq("date", dateOnly)
+                        .limit(1)
+                        .maybeSingle();
+                    if (existingQuote?.id) {
+                        await supabase.from("stock_prices").update(quote).eq("id", existingQuote.id);
+                    } else {
+                        await supabase.from("stock_prices").insert(quote);
+                    }
+                }
             } catch (dbErr) {
                 console.warn(`[LIVE_UPDATER] Supabase upsert failed for ${cleanSym}:`, dbErr);
             }

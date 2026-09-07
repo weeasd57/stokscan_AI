@@ -11,6 +11,96 @@ export function isDailyPriceLimitQuestion(message: string): boolean {
     return /(حدود|الحد الأقصى|الحد الادنى|نسبة الصعود|نسبة الهبوط|حد التداول|الحد اليومي)/i.test(message) && !isUsageLimitQuestion(message);
 }
 
+/**
+ * "My Portfolio" (محفظتى) management intent detection.
+ * Returns the operation the user wants, or null when the message is not about
+ * managing their own portfolio holdings/cash.
+ *
+ * Careful wording: must NOT hijack generic questions like "أوزع محفظتي"
+ * (allocation guidance) — those stay with investor guidance. This detector
+ * targets direct holding management: view/add/edit/remove/sell + cash.
+ */
+export type PortfolioOperation =
+    | "view"        // اعرض/إيه اللي معايا
+    | "add"         // ضيف/عندي X سهم
+    | "update"      // عدل/غيرت العدد
+    | "remove"      // شيل
+    | "sell"        // بعت
+    | "cash_set"    // السيولة اللي معايا كذا / عدل السيولة
+    | "cash_add";   // ضيف/زود/حط مبلغ للسيولة (إيداع)
+
+export function detectPortfolioIntent(message: string): PortfolioOperation | null {
+    const v = normalizeArabicIntent(message);
+
+    // Any explicit portfolio-management keyword?
+    const mentionsPortfolio = /(محفظتي|محفظتى|محفظه|البورتفوليو|portfolio)/i.test(v);
+    // "معايا/عندي" + symbol/quantity phrasing also implies their holdings
+    const holdsPhrasing = /((معايا|عندي|موجود عندي|معي)\s+(?:\d+|[A-Z]{2,10}\b))/i.test(v)
+        || /((بصاصتي|حوزتي|ممتلكاتي))/i.test(v);
+    // Money / cash wording (السيولة/فلوس/كاش/إيداع) also triggers portfolio ops.
+    const mentionsCash = /(سيول|فلوس|كاش|cash|وديعه|وديعة)/i.test(v)
+        && /(?:ضيف|اضيف|هضيف|زود|زد|حط|حطي?ت|اودع|ودع|ادخل\s+سيول|اضفت|زودت|السيول(?:ة|ه)?\s*(?:اللي|بتاعتي|بتاعى|عندي|معايا|دلوقتي|حالي)|سيولتي|عدل\s+السيول|غير\s+السيول|الكاش\s+(?:عندي|بتاعي))/i.test(v);
+    // Direct management verbs over stocks/symbols (بعت/شيل/عدل + سهم/رمز) are
+    // portfolio operations even without the word "محفظة".
+    // Arabic word boundaries via lookaround: \b does not work with Arabic
+    // letters, so verbs embedded inside other words (ابعتلى، يصحح) are ignored.
+    const hasManagementVerb = /(?<![\u0621-\u064A])(?:بعت|شيل|احذف|امسح|عدلت|غيرت|عدل|صحح|ظبط|زود|زد|حط|ضيف|اضيف)(?![\u0621-\u064A])/i.test(v);
+    const mentionsStocks = /(سهم|سهمين|اسهم|حصه|حصص)/i.test(v) || /\b[A-Z]{2,10}\b/.test(message);
+
+    if (!mentionsPortfolio && !holdsPhrasing && !mentionsCash && !(hasManagementVerb && mentionsStocks)) return null;
+
+    // Sell: بعت / بعت منها / خالص بيع
+    if (/(بعت|بيع\s+\d+\s*سهم|بعت\s+كل|خلاص\s+بعت|سجّل\s+بيع|سجل\s+بيع)/i.test(v)) return "sell";
+    // Remove: شيل / احذف
+    if (/(شيل|احذف|حذف|امسح|مسح)/i.test(v) && !/(سيول|فلوس|كاش)/i.test(v)) return "remove";
+    // Cash operations — must run before stock "add": "ضيف/زود 50 ألف سيولة"
+    if (/(سيول|فلوس|كاش|وديعه|وديعة)/i.test(v)) {
+        const hasAmount = /(\d[\d,.]*\s*(الف|ألف|الاف|آلاف|مليون|k|جنيه|ج\.م|egp)?|\d+)/i.test(v);
+        const addVerb = /(ضيف|اضيف|هضيف|زود|زد|حط|حطي?ت|اودع|ودع|ادخل|اضفت|زودت|حطيت)/i.test(v);
+        const setVerb = /(السيول|سيولتي|عندي\s+سيول|معايا\s+سيول|الكاش\s+عندي|عدل\s+السيول|غير\s+السيول)/i.test(v);
+        if (addVerb && hasAmount) return "cash_add";
+        if (hasAmount && setVerb) return "cash_set";
+        if (addVerb || /سيب\s*(?:ها)?(?:فى|في)/i.test(v)) return "cash_add";
+    }
+    // Portfolio analysis / stats asks (تحليل محفظتي / اكبر مركز / نسبة السيولة) → view
+    if (/(?:محفظت|البورتفوليو|portfolio)/i.test(v) && /(?:حلّل|حلل|تحليل|اكبر مركز|أكبر مركز|نسبة السيوله|نسبة السيولة|توزيع|إحصائيات|احصائيات|تقرير)/i.test(v) && !/(سيول|فلوس)\s*(?:ضيف|اضيف|زود|حط)/i.test(v)) return "view";
+    // Add stock: ضيف / عندي 200 سهم
+    if (/(ضيف|اضاف|هضيف|اضيف|اشتري?ت|عندي\s+\d+\s*(?:سهم|سهمين|حصه|حصص)|معايا\s+\d+\s*(?:سهم|سهمين|حصه|حصص))/i.test(v)) return "add";
+    // Update: عدل / غيرت
+    if (/(عدل|عدلت|غيرت|صحح|صححت|ظبط|ظبطت)/i.test(v)) return "update";
+    // View: اعرض / إيه اللي معايا / وضع محفظتي
+    if (/(اعرض|وريني|ايه اللي معايا|ايه اللي معي|وضع|مكون من|شو?ف)/i.test(v)) return "view";
+
+    // Portfolio mentioned with a symbol + count but no explicit verb → add
+    const qtySymbol = /(\d+)\s*(?:سهم|سهمين|حصه|حصص)\s*(?:من|في|بتاع)?\s*([A-Z]{2,10})/i.test(v)
+        || /([A-Z]{2,10})\s*(?:معايا|عندي)\s*(\d+)/i.test(v)
+        || /(عندي|معايا)\s+([A-Z]{2,10})\s+(\d+)\s*(?:سهم)?/i.test(v);
+    if (qtySymbol) return "add";
+
+    // Bare "محفظتي" mention with no other verb → view
+    if (/(محفظتي|محفظتى|portfolio)/i.test(v) && !/(اوزع|وزع|توزيع|ابني|بناء)/i.test(v)) return "view";
+
+    return null;
+}
+
+/**
+ * Confirmation of a pending portfolio-image import.
+ * Matches short affirmative/negative replies to the bot's "هل دي محفظتك؟"
+ * question — e.g. "أيوه", "نعم دي محفظتي", "لأ مش بتاعتي".
+ * Returns true (confirm), false (reject), or null (not a confirmation).
+ */
+export function detectPortfolioConfirmation(message: string): boolean | null {
+    const v = normalizeArabicIntent(message);
+    const gate = /(محفظ|بتاعتي|ايوه|نعم|اكيد|yes|yep|لأ|لا مش|no|^\s*(?:لا|لأ)\s*$)/i.test(v);
+    if (!gate) return null;
+    // NOTE: \b word boundaries don't work with Arabic letters (they are not
+    // \w), so we use a negative lookahead for Arabic letters instead.
+    if (/^(?:لا|لأ|لا مش|لأ مش|no)(?![\u0621-\u064A])/i.test(v.trim())) return false;
+    if (/(مش بتاعتي|مش محفظتي|دي مش محفظتي|لأ دي مش|لا دي مش)/i.test(v)) return false;
+    if (/^(?:ايوه|نعم|اكيد|تمام|yes|yep|ا)(?![\u0621-\u064A])/i.test(v.trim()) || /(بتاعتي|محفظتي دي|دي محفظتي|ايوه دي|نعم دي)/i.test(v)) return true;
+    return null;
+}
+
 export function isEarningsDataRequest(message: string): boolean {
     const norm = normalizeArabicIntent(message);
     if (/(ارباحي|ارباحى|احمي|حمايه|جني|جني\s*ارباح|توزيع\s*سيول|محفظت|سيولتي|تذبذب)/i.test(norm)) return false;

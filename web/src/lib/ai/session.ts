@@ -24,7 +24,8 @@ export async function loadSessionState(supabase: any, sessionId: string, userId:
                 investment_budget: state.investment_budget ?? null,
                 investment_horizon: state.investment_horizon ?? null,
                 risk_tolerance: state.risk_tolerance ?? null,
-                preferred_sectors: Array.isArray(state.preferred_sectors) ? state.preferred_sectors : []
+                preferred_sectors: Array.isArray(state.preferred_sectors) ? state.preferred_sectors : [],
+                experience_level: state.experience_level || null
             };
         }
 
@@ -37,6 +38,24 @@ export async function loadSessionState(supabase: any, sessionId: string, userId:
     } catch (e) {
         console.warn("Failed to load session state from Supabase:", e);
         return { current_symbol: null, last_symbols: [], summary: null, current_sector: null };
+    }
+}
+
+export async function loadPersistentInvestorProfile(supabase: any, userId: string): Promise<Partial<SessionState>> {
+    if (!supabase || !userId) return {};
+    try {
+        const { data } = await supabase
+            .from("ai_chat_facts")
+            .select("facts,created_at")
+            .eq("user_id", userId)
+            .eq("source", "investor_profile")
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+        return data?.facts && typeof data.facts === "object" ? data.facts : {};
+    } catch (error) {
+        console.warn("Failed to load persistent investor profile:", error);
+        return {};
     }
 }
 
@@ -73,6 +92,9 @@ export async function updateSessionSummary(
         open_references: update.open_references || current?.open_references || [],
         last_data_date: update.last_data_date !== undefined ? update.last_data_date : (current?.last_data_date || null),
         last_vision_context: update.last_vision_context !== undefined ? update.last_vision_context : (current?.last_vision_context || null),
+        pending_portfolio_import: update.pending_portfolio_import !== undefined
+            ? update.pending_portfolio_import
+            : (current?.pending_portfolio_import || null),
         updated_at: new Date().toISOString()
     };
     try {
@@ -107,7 +129,8 @@ export async function updateSessionState(
         risk_tolerance: update.risk_tolerance !== undefined ? update.risk_tolerance : current.risk_tolerance,
         preferred_sectors: update.preferred_sectors
             ? Array.from(new Set([...(current.preferred_sectors || []), ...update.preferred_sectors]))
-            : current.preferred_sectors
+            : current.preferred_sectors,
+        experience_level: update.experience_level !== undefined ? update.experience_level : current.experience_level
     };
 
     try {

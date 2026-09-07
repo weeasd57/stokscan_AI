@@ -6,6 +6,7 @@ module.exports = createJestConfig({
     testMatch: [
         "<rootDir>/src/lib/__tests__/chat-live-integration.test.js",
         "<rootDir>/src/lib/__tests__/automation-full-eval.test.js",
+        "<rootDir>/src/lib/__tests__/live-user-scenario.test.js",
     ],
     testTimeout: 60000,
 });

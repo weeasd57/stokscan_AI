@@ -14,6 +14,7 @@ import {
 import { useEffect, useState, useMemo } from "react";
 import { toast } from "sonner";
 import IntradaySyncTab from "./IntradaySyncTab";
+import ClientDataPreview from "./ClientDataPreview";
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts";
 
 interface DataManagerTabProps {
@@ -1277,6 +1278,8 @@ export default function DataManagerTab({
 
 
                             <div className="space-y-8">
+                                <ClientDataPreview />
+
                                 <div className="flex items-center justify-between">
                                     <h3 className="text-sm font-bold text-zinc-400 uppercase tracking-[0.2em] flex items-center gap-2">
                                         <Cloud className="w-4 h-4 text-emerald-400" />

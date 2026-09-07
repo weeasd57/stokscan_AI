@@ -8,6 +8,7 @@ export interface SessionState {
     investment_horizon?: "short_term" | "medium_term" | "long_term" | null;
     risk_tolerance?: "low" | "medium" | "high" | null;
     preferred_sectors?: string[];
+    experience_level?: "beginner" | "intermediate" | "expert" | null;
 }
 
 export interface VisionContext {
@@ -46,6 +47,10 @@ export interface SessionSummary {
     open_references: string[];
     last_data_date: string | null;
     last_vision_context: VisionContext | null;
+    pending_portfolio_import?: {
+        items: Array<{ symbol: string; name?: string; quantity: number | null; price: number | null }>;
+        current_index: number;
+    } | null;
     updated_at: string;
 }
 
@@ -59,7 +64,7 @@ export interface FactSnapshot {
 }
 
 export interface IntentPlan {
-    intent: "image_analysis" | "stock_analysis" | "stock_news" | "levels_analysis" | "risk_analysis" | "sector_analysis" | "comparison" | "historical_recall" | "market_summary" | "accumulation_distribution" | "current_data" | "previous_analysis_comparison" | "follow_up" | "clarification" | "technical_scan" | "general_chat";
+    intent: "image_analysis" | "stock_analysis" | "stock_news" | "levels_analysis" | "risk_analysis" | "sector_analysis" | "comparison" | "historical_recall" | "market_summary" | "accumulation_distribution" | "current_data" | "previous_analysis_comparison" | "follow_up" | "clarification" | "technical_scan" | "portfolio_management" | "general_chat";
     confidence: number;
     guidance_intent?: "onboarding" | "allocation" | "product_comparison" | "product_explainer" | "terms_explainer" | null;
     entities: {
@@ -84,6 +89,7 @@ export interface IntentPlan {
         requested_date?: string | null;
         requested_start_date?: string | null;
         requested_end_date?: string | null;
+        portfolio_operation?: "view" | "add" | "update" | "remove" | "sell" | "cash_set" | "cash_add" | null;
     };
     needs_vision_context: boolean;
     needs_history: boolean;
@@ -147,6 +153,7 @@ export interface PlannerResult {
         recommendation_filter?: "open" | "this_week" | "last_week" | "all" | null;
         excluded_sectors?: string[];
         requested_sectors?: string[];
+        portfolio_operation?: "view" | "add" | "update" | "remove" | "sell" | "cash_set" | "cash_add" | null;
     };
     tools: string[];
     image_summary?: string | null;
