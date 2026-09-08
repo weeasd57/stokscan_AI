@@ -870,28 +870,41 @@ export const AIScannerProvider = ({ children }: { children: ReactNode }) => {
                 const baseSymbol = normalizeSymbolKey(rawSymbol);
                 return [rawSymbol, baseSymbol].filter(Boolean);
             })));
-            const openPositionMap: Record<string, any> = {};
+            const openPositionMap: Record<string, any[]> = {};
 
             if (user && positionSymbols.length > 0) {
                 const { data: positionData, error: positionErr } = await supabase
                     .from("positions")
-                    .select("id,symbol,entry_price,entry_at,target_price,stop_price,status,status_price,metadata,updated_at,added_at")
+                    .select("id,symbol,source,entry_price,entry_at,target_price,stop_price,status,status_price,metadata,updated_at,added_at")
                     .eq("status", "open")
+                    .eq("user_id", user.id)
                     .in("symbol", positionSymbols);
 
                 if (!positionErr && positionData) {
                     positionData.forEach(position => {
-                        openPositionMap[normalizeSymbolKey(position.symbol)] = position;
+                        const key = normalizeSymbolKey(position.symbol);
+                        (openPositionMap[key] = openPositionMap[key] || []).push(position);
                     });
                 }
             }
+
+            const positionMetaOf = (position: any) =>
+                position?.metadata && typeof position.metadata === "object" ? position.metadata : {};
 
             const mapped = (scanData as any[]).map((row: any) => {
                 let tech = row.technical_score || 0;
                 let fund = row.fundamental_score || 0;
                 let sentiment = row.sentiment_score || 0;
-                const openPosition = openPositionMap[normalizeSymbolKey(row.symbol)];
-                const positionMeta = openPosition?.metadata || {};
+                // A position may only override this recommendation's numbers when it
+                // was created from the very same scan batch (source "ai_scanner",
+                // metadata.batch_id === row.batch_id). Personal holdings (chatbot /
+                // watchlist entries carrying the user's own entry price) must never
+                // rewrite the recommendation's entry price or P&L.
+                const openPosition = (openPositionMap[normalizeSymbolKey(row.symbol)] || []).find(p => {
+                    const meta = positionMetaOf(p);
+                    return !!row.batch_id && meta.batch_id === row.batch_id;
+                }) || null;
+                const positionMeta = positionMetaOf(openPosition);
                 const rawPlPct = row.profit_loss_pct != null ? Number(row.profit_loss_pct) : null;
                 const referencePrice = (row.status === "win" || row.status === "loss") && row.exit_price ? Number(row.exit_price) : Number(row.last_close);
                 const recoveredEntryPrice = rawPlPct && rawPlPct !== -100 ? (referencePrice / (1 + rawPlPct / 100)) : Number(row.last_close);
