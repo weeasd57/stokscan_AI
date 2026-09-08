@@ -716,6 +716,8 @@ def _fetch_technical_snapshot(symbol: str, exchange: str) -> dict:
 
 def _send_telegram_adjustment(symbol: str, exchange: str, adjustment: dict):
     """Send adjustment notification via Telegram to public channel topic."""
+    if not _telegram_recommendation_writes_enabled():
+        return False
     try:
         adj_type = adjustment.get("type", "adjustment")
         emoji_map = {
@@ -763,13 +765,46 @@ def _send_telegram_adjustment(symbol: str, exchange: str, adjustment: dict):
         return False
 
 
+def _telegram_recommendation_writes_enabled() -> bool:
+    from api.recommendation_events import telegram_recommendations_read_only
+    return not telegram_recommendations_read_only()
+
+
+def _rollback_recommendation_change(recommendation_id: Any, expected_status: str, old_row: dict, failed_version: Optional[str] = None) -> bool:
+    """Best-effort compensation when lifecycle event persistence fails."""
+    restore = {
+        key: old_row.get(key)
+        for key in (
+            "status", "exit_price", "last_close", "profit_loss_pct", "target_price",
+            "stop_loss", "adjustments", "top_reasons", "features", "updated_at",
+        )
+        if key in old_row
+    }
+    try:
+        result = (
+            supabase.table("scan_results")
+            .update(restore)
+            .eq("id", recommendation_id)
+            .eq("status", expected_status)
+            .eq("updated_at", failed_version or old_row.get("updated_at"))
+            .select("id")
+            .execute()
+        )
+        return bool(getattr(result, "data", None))
+    except Exception as error:
+        print(f"[EVALUATE] Lifecycle compensation failed for {recommendation_id}: {error}")
+        return False
+
+
 def _send_telegram_exit(symbol: str, exchange: str, entry_price: float, exit_price: float, pl_pct: float, status: str, created_at: str = ""):
     """Send exit notification via Telegram to public channel topic."""
+    if not _telegram_recommendation_writes_enabled():
+        return False
     try:
         web_origin = os.getenv("WEB_ORIGIN", "https://egxbots.com").strip().rstrip("/")
-        emoji = "🎉" if status == "win" else "🛡️"
-        status_text_ar = "تحقيق الهدف ✅" if status == "win" else "تفعيل وقف الخسارة"
-        status_text_en = "Target Hit" if status == "win" else "Stop Loss Hit"
+        emoji = "🎉" if status == "win" else ("🧹" if status == "stale" else "🛡️")
+        status_text_ar = "تحقيق الهدف ✅" if status == "win" else ("بيانات قديمة / سهم غير نشط" if status == "stale" else "تفعيل وقف الخسارة")
+        status_text_en = "Target Hit" if status == "win" else ("Stale / Inactive" if status == "stale" else "Stop Loss Hit")
 
         pl_sign = "+" if pl_pct > 0 else ""
 
@@ -804,12 +839,60 @@ def _send_telegram_exit(symbol: str, exchange: str, entry_price: float, exit_pri
         return False
 
 
+def retry_pending_recommendation_telegram_events(limit: int = 10) -> int:
+    """Retry failed recommendation notifications after DB state is durable."""
+    from api.recommendation_events import claim_pending_telegram_events, update_telegram_delivery
+
+    sent = 0
+    for event in claim_pending_telegram_events(supabase, limit=limit):
+        event_id = event.get("id")
+        claim_token = event.get("retry_claim_token")
+        old_values = event.get("old_values") or {}
+        new_values = event.get("new_values") or {}
+        symbol = old_values.get("symbol") or new_values.get("symbol")
+        exchange = old_values.get("exchange") or new_values.get("exchange") or "EGX"
+        if not symbol:
+            update_telegram_delivery(supabase, event_id, success=False, error="Missing symbol in event snapshot", attempts_already_claimed=True, claim_token=claim_token)
+            continue
+
+        event_type = event.get("event_type")
+        if event_type in {"recommendation_closed", "recommendation_stale"}:
+            entry = float(old_values.get("entry_price") or 0)
+            exit_price = float(event.get("price_at_event") or new_values.get("exit_price") or entry)
+            pl_pct = float(new_values.get("profit_loss_pct") or old_values.get("profit_loss_pct") or 0)
+            status = str(new_values.get("status") or ("stale" if event_type == "recommendation_stale" else "loss"))
+            delivered = _send_telegram_exit(symbol, exchange, entry, exit_price, pl_pct, status, old_values.get("created_at", ""))
+        elif event_type == "target_or_stop_adjusted":
+            adjustment_type = str((event.get("new_values") or {}).get("adjustment_type") or "target_raised")
+            adjustment = {
+                "type": adjustment_type,
+                "reason_ar": "إعادة إرسال تحديث التوصية",
+                "old_target": old_values.get("target_price"),
+                "new_target": new_values.get("target_price"),
+                "old_stop": old_values.get("stop_loss"),
+                "new_stop": new_values.get("stop_loss"),
+                "current_price": event.get("price_at_event"),
+                "pl_pct": new_values.get("profit_loss_pct") or old_values.get("profit_loss_pct"),
+            }
+            delivered = _send_telegram_adjustment(symbol, exchange, adjustment)
+        else:
+            update_telegram_delivery(supabase, event_id, success=False, error=f"Unsupported event type: {event_type}", attempts_already_claimed=True, claim_token=claim_token)
+            continue
+
+        update_telegram_delivery(supabase, event_id, success=delivered, error=None if delivered else "Telegram send failed", attempts_already_claimed=True, claim_token=claim_token)
+        sent += int(bool(delivered))
+    return sent
+
+
 def generate_weekly_performance_report(trigger: str = "manual", chat_id: Optional[str] = None):
     """
     Calculate performance statistics for closed recommendations in the last 7 days
     and broadcast the report to all 'stock_score' subscribers (or send to a specific chat_id).
     """
     try:
+        if not _telegram_recommendation_writes_enabled():
+            print("[WEEKLY_REPORT] Telegram recommendation delivery is read-only/disabled.")
+            return
         print("[WEEKLY_REPORT] Starting weekly performance report generation...")
         seven_days_ago = (dt.datetime.utcnow() - dt.timedelta(days=7)).isoformat()
         
@@ -939,6 +1022,9 @@ def _notify_service_subscribers(service_type: str, message: str):
 def _dispatch_similarity_notifications(results: List[Dict[str, Any]]):
     """Format and send daily similarity scan report to the public Telegram channel topic."""
     try:
+        if not _telegram_recommendation_writes_enabled():
+            print("[SIMILARITY_NOTIFY] Telegram recommendation delivery is read-only/disabled.")
+            return
         from api.telegram_bot import get_telegram_bot
         bot = get_telegram_bot()
         if not bot:
@@ -1010,6 +1096,9 @@ def _dispatch_similarity_notifications(results: List[Dict[str, Any]]):
 
 def _notify_central_telegram(message: str, service_type: str = "central"):
     """Send a service-level message to the configured public Telegram topic."""
+    if not _telegram_recommendation_writes_enabled() and service_type not in {"system_digest", "central", "system_log"}:
+        print(f"[CENTRAL_NOTIFY] Blocked {service_type} while recommendation delivery is read-only.")
+        return False
     # Permanently block internal system execution digests/logs and step status reports from Telegram
     if service_type in {"system_digest", "central", "system_log"} or service_type.startswith("step_failure") or "حالة خطوات التشغيل" in message or "ملخص التشغيل اليومي" in message:
         print(f"[CENTRAL_NOTIFY] Blocked internal system digest message ({service_type}) from Telegram by user request.")
@@ -1109,11 +1198,48 @@ def evaluate_old_recommendations():
         if is_delisted_or_stale:
             print(f"[EVALUATE] Closing stale/delisted recommendation for {symbol}.{exchange} — {reason}")
             try:
-                supabase.table("scan_results").update({
+                stale_update = {
                     "status": "stale",
                     "exit_price": latest_close if latest_close > 0 else None,
                     "updated_at": dt.datetime.utcnow().isoformat()
-                }).eq("id", rec["id"]).execute()
+                }
+                stale_result = (
+                    supabase.table("scan_results")
+                    .update(stale_update)
+                    .eq("id", rec["id"])
+                    .eq("status", "open")
+                    .eq("updated_at", rec.get("updated_at"))
+                    .select("id, status")
+                    .execute()
+                )
+                if getattr(stale_result, "data", None):
+                    from api.recommendation_events import record_event, update_telegram_delivery, event_values
+                    event_rec = record_event(
+                        supabase,
+                        rec["id"],
+                        "recommendation_stale",
+                        old_values=event_values(rec),
+                        new_values=stale_update,
+                        price_at_event=latest_close if latest_close > 0 else None,
+                    )
+                    if not event_rec:
+                        _rollback_recommendation_change(rec["id"], "stale", rec, stale_update.get("updated_at"))
+                        continue
+                    delivered = False
+                    if event_rec and event_rec.get("id") and event_rec.get("telegram_status") == "pending" and _telegram_recommendation_writes_enabled():
+                        delivered = _send_telegram_exit(
+                            symbol,
+                            exchange,
+                            entry_price,
+                            latest_close if latest_close > 0 else entry_price,
+                            ((latest_close - entry_price) / entry_price * 100) if entry_price else 0,
+                            "stale",
+                            created_at=created_at_date,
+                        )
+                    if event_rec and event_rec.get("id") and _telegram_recommendation_writes_enabled() and event_rec.get("telegram_status") != "blocked_read_only":
+                        update_telegram_delivery(supabase, event_rec["id"], success=delivered)
+                else:
+                    print(f"[EVALUATE] Stale recommendation {symbol} was already changed; skipping event.")
             except Exception as upd_err:
                 print(f"[EVALUATE] Failed to close stale recommendation for {symbol}: {upd_err}")
             continue
@@ -1134,6 +1260,7 @@ def evaluate_old_recommendations():
         exit_price = None
         found_event = False
         new_adjustments = []
+        update_applied = True
         eps = 0.00001
 
         # ── SMART ADJUSTMENT LOGIC ──
@@ -1417,9 +1544,23 @@ def evaluate_old_recommendations():
                 update_data["adjustments"] = all_adjustments
 
             try:
-                supabase.table("scan_results").update(update_data).eq("id", rec["id"]).execute()
+                normal_update = (
+                    supabase.table("scan_results")
+                    .update(update_data)
+                    .eq("id", rec["id"])
+                    .eq("status", "open")
+                    .eq("updated_at", rec.get("updated_at"))
+                    .select("id, status, updated_at")
+                    .execute()
+                )
+                if not getattr(normal_update, "data", None):
+                    print(f"[EVALUATE] {symbol}: normal update skipped because recommendation changed concurrently.")
+                    update_applied = False
+                    new_adjustments = []
             except Exception as upd_err:
                 print(f"[EVALUATE] Update failed for {symbol}: {upd_err}")
+                update_applied = False
+                new_adjustments = []
         else:
             _now_iso = dt.datetime.utcnow().isoformat()
             update_data = {
@@ -1440,12 +1581,15 @@ def evaluate_old_recommendations():
                     .update(update_data)
                     .eq("id", rec["id"])
                     .eq("status", "open")
+                    .eq("updated_at", rec.get("updated_at"))
                     .select("id, status")
                     .execute()
                 )
                 if not getattr(close_res, "data", None):
                     print(f"[EVALUATE] Recommendation {symbol} ({rec['id']}) already closed/changed by another process — skipping exit event.")
                     found_event = False
+                    update_applied = False
+                    new_adjustments = []
                 else:
                     from api.recommendation_events import record_event, update_telegram_delivery, event_values
                     event_rec = record_event(
@@ -1456,29 +1600,50 @@ def evaluate_old_recommendations():
                         new_values=update_data,
                         price_at_event=exit_price,
                     )
-                    delivered = _send_telegram_exit(symbol, exchange, entry_price, exit_price, pl_pct, status, created_at=created_at_date)
-                    if event_rec and "id" in event_rec:
+                    if not event_rec:
+                        _rollback_recommendation_change(rec["id"], status, rec, update_data.get("updated_at"))
+                        found_event = False
+                        update_applied = False
+                        new_adjustments = []
+                        continue
+                    delivered = False
+                    if event_rec and event_rec.get("id") and event_rec.get("telegram_status") == "pending" and _telegram_recommendation_writes_enabled():
+                        delivered = _send_telegram_exit(symbol, exchange, entry_price, exit_price, pl_pct, status, created_at=created_at_date)
+                    if event_rec and "id" in event_rec and _telegram_recommendation_writes_enabled() and event_rec.get("telegram_status") != "blocked_read_only":
                         update_telegram_delivery(supabase, event_rec["id"], success=delivered)
             except Exception as upd_err:
                 print(f"[EVALUATE] Close update failed for {symbol}: {upd_err}")
                 found_event = False
+                update_applied = False
+                new_adjustments = []
 
         # ── SEND TELEGRAM NOTIFICATIONS FOR ADJUSTMENTS ──
         # FIX: Only send adjustment notifications (e.g. "target raised") if we did
         # NOT close the position in the same run.
-        if not found_event and new_adjustments:
-            from api.recommendation_events import record_event, update_telegram_delivery, event_values
+        if update_applied and not found_event and new_adjustments:
+            from api.recommendation_events import record_event, update_telegram_delivery, invalidate_event, event_values
+            adjustment_event_ids = []
             for adj in new_adjustments:
                 event_rec = record_event(
                     supabase,
                     rec["id"],
                     "target_or_stop_adjusted",
                     old_values=event_values(rec),
-                    new_values=update_data,
+                    new_values={**update_data, "adjustment_type": adj.get("type")},
                     price_at_event=latest_close,
+                    event_identity=adj.get("timestamp") or adj.get("type"),
                 )
-                delivered = _send_telegram_adjustment(symbol, exchange, adj)
-                if event_rec and "id" in event_rec:
+                if not event_rec:
+                    _rollback_recommendation_change(rec["id"], "open", rec, update_data.get("updated_at"))
+                    for created_event_id in adjustment_event_ids:
+                        invalidate_event(supabase, created_event_id, "adjustment batch compensated after partial failure")
+                    update_applied = False
+                    break
+                adjustment_event_ids.append(event_rec["id"])
+                delivered = False
+                if event_rec and event_rec.get("id") and event_rec.get("telegram_status") == "pending" and _telegram_recommendation_writes_enabled():
+                    delivered = _send_telegram_adjustment(symbol, exchange, adj)
+                if event_rec and "id" in event_rec and _telegram_recommendation_writes_enabled() and event_rec.get("telegram_status") != "blocked_read_only":
                     update_telegram_delivery(supabase, event_rec["id"], success=delivered)
 
         print(f"[EVALUATE] {symbol}: status={status}, return={pl_pct:.2f}%, trend={trend_strength}, adjustments={len(new_adjustments)}")
@@ -1621,6 +1786,8 @@ def update_open_portfolio_positions():
 
             # Send Telegram Notification
             try:
+                if not _telegram_recommendation_writes_enabled():
+                    continue
                 from api.telegram_bot import get_telegram_bot
                 bot = get_telegram_bot()
                 
@@ -2096,8 +2263,9 @@ async def generate_daily_recommendations(model_name: Optional[str] = None):
             # Check if there is already an open recommendation for this symbol
             existing = (
                 supabase.table("scan_results")
-                .select("id")
+                .select("id, updated_at")
                 .eq("symbol", symbol)
+                .eq("exchange", exchange)
                 .eq("status", "open")
                 .execute()
             )
@@ -2109,7 +2277,17 @@ async def generate_daily_recommendations(model_name: Optional[str] = None):
                     "features": row_data["features"],
                     "updated_at": row_data["updated_at"]
                 }
-                supabase.table("scan_results").update(update_data).eq("id", rec_id).execute()
+                update_result = (
+                    supabase.table("scan_results")
+                    .update(update_data)
+                    .eq("id", rec_id)
+                    .eq("status", "open")
+                    .eq("updated_at", existing.data[0].get("updated_at"))
+                    .select("id, status")
+                    .execute()
+                )
+                if not getattr(update_result, "data", None):
+                    print(f"[RECOMMENDATIONS] Skipped concurrent update for {symbol}.{exchange}")
                 print(f"[RECOMMENDATIONS] #{i+1} Updated existing open recommendation for {symbol}.{exchange}")
             else:
                 # Avoid hard failure if some DB columns are missing in the remote schema.
@@ -2164,7 +2342,11 @@ async def generate_daily_recommendations(model_name: Optional[str] = None):
             f"👉 [اضغط هنا لفتح المنصة]({web_origin}/scanner/backtests?tab=bots)"
         )
         
-        delivered = _notify_central_telegram("\n".join(msg_lines), "daily_recommendations")
+        delivered = False
+        if _telegram_recommendation_writes_enabled():
+            delivered = _notify_central_telegram("\n".join(msg_lines), "daily_recommendations")
+        else:
+            print("[RECOMMENDATIONS] Telegram recommendation delivery is read-only/disabled.")
         print(f"[RECOMMENDATIONS] {'Delivered' if delivered else 'Failed to deliver'} detailed recommendations for Telegram.")
         
         # Record today's date in market_cache to track sent status
@@ -2674,6 +2856,17 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
         except Exception as e:
             _record_step("evaluate_recommendations", False, str(e)[:200], 0)
             print(f"[EVALUATE] Error: {e}")
+
+        # Retry Telegram notifications only after all recommendation state
+        # updates are durable in Supabase.
+        print("\n>>> STEP 4.1: Retrying failed recommendation notifications...")
+        _start_step("recommendation_telegram_retries", "Retrying failed recommendation Telegram events")
+        try:
+            retry_count = retry_pending_recommendation_telegram_events(limit=10)
+            _record_step("recommendation_telegram_retries", True, f"Retried {retry_count} Telegram events", retry_count)
+        except Exception as e:
+            _record_step("recommendation_telegram_retries", False, str(e)[:200], 0)
+            print(f"[RECOMMENDATION_RETRY] Error: {e}")
 
         # 4.5 Refresh Market Status so Step 5 gate uses today's data, not yesterday's cache
         print("\n>>> STEP 4.5: Refreshing Market Status cache before recommendation gate...")

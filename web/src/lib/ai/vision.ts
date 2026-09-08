@@ -121,8 +121,14 @@ export async function analyzeImage(
         "meta/llama-3.2-11b-vision-instruct"
     ];
 
+    // The extraction system prompt must go in the `system` role, not as a user-content
+    // text part: when embedded alongside the image in the user message, the vision model
+    // (meta/llama-3.2-11b-vision-instruct) replies with descriptive prose instead
+    // of the required JSON, which made every image upload fail analysis. A system role makes
+    // it return parseable JSON.
     const userContent: Array<{ type: string; text?: string; image_url?: { url: string } }> = [];
-    userContent.push({ type: "text", text: `${VISION_SYSTEM_PROMPT}\nUser request: ${userMessage.slice(0, 250) || "Analyze the attached image"}.` });
+    const userText = userMessage.slice(0, 250) || "Analyze the attached image.";
+    userContent.push({ type: "text", text: userText });
     userContent.push({ type: "image_url", image_url: { url: imageUrl } });
 
     const visionStartTime = Date.now();
@@ -142,6 +148,7 @@ export async function analyzeImage(
                 body: JSON.stringify({
                     model,
                     messages: [
+                        { role: "system", content: VISION_SYSTEM_PROMPT },
                         { role: "user", content: userContent }
                     ],
                     max_tokens: 420,

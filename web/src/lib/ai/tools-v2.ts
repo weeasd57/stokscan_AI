@@ -1899,7 +1899,9 @@ export async function executeStructuredTools(
         try {
             const oldestRequest = plan.entities.recommendation_order === "oldest";
             const normMsg = userMessage.toLowerCase().replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").replace(/ى/g, "ي");
-            const recFilter = plan.entities.recommendation_filter || (
+            const recFilter = plan.entities.recommendation_filter === "open_public"
+                ? "open"
+                : plan.entities.recommendation_filter || (
                 /(?:مفتوح|نشط)/i.test(normMsg) ? "open" :
                 /(?:الاسبوع\s+الحال|هذا\s+الاسبوع)/i.test(normMsg) ? "this_week" :
                 /(?:الاسبوع\s+الماضي|الاسبوع\s+اللى\s+فات|الاسبوع\s+السابق)/i.test(normMsg) ? "last_week" : null

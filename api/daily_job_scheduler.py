@@ -30,6 +30,7 @@ _run_history: List[Dict[str, Any]] = []
 _scheduler_lock = threading.RLock()
 _scheduler_thread = None
 _stop_event = threading.Event()
+_last_recommendation_retry_at = 0.0
 
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), "..", "daily_job_config.json")
 
@@ -114,7 +115,7 @@ def _compute_next_run() -> str:
 
 
 def _scheduler_worker():
-    global _scheduler_state
+    global _scheduler_state, _last_recommendation_retry_at
     print("[DAILY-JOB-SCHEDULER] Worker started.")
 
     while not _stop_event.is_set():
@@ -143,6 +144,17 @@ def _scheduler_worker():
             with _scheduler_lock:
                 enabled = _scheduler_state["enabled"]
                 active_days = _scheduler_state.get("active_days", [0, 1, 2, 3, 6])
+
+            # Retry delivery is a separate operational concern from the daily
+            # evaluator. Keep it alive even when the daily job is paused.
+            now_monotonic = time.monotonic()
+            if now_monotonic - _last_recommendation_retry_at >= 60:
+                try:
+                    from api.daily_bot_run import retry_pending_recommendation_telegram_events
+                    retry_pending_recommendation_telegram_events(limit=10)
+                except Exception as retry_err:
+                    print(f"[DAILY-JOB-SCHEDULER] Recommendation retry failed: {retry_err}")
+                _last_recommendation_retry_at = now_monotonic
 
             if not enabled:
                 with _scheduler_lock:

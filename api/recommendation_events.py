@@ -3,18 +3,24 @@
 import os
 import hashlib
 import json
-from datetime import datetime, timezone
+import uuid
+from datetime import datetime, timezone, timedelta
 from typing import Any, Optional, Dict, List
 
 
-def event_key(recommendation_id: Any, event_type: str, event_date: Optional[str] = None) -> str:
-    raw = f"{recommendation_id}:{event_type}:{event_date or datetime.now(timezone.utc).date().isoformat()}"
+def event_key(recommendation_id: Any, event_type: str, event_date: Optional[str] = None, event_identity: Optional[str] = None) -> str:
+    raw = f"{recommendation_id}:{event_type}:{event_date or datetime.now(timezone.utc).date().isoformat()}:{event_identity or ''}"
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
 def _is_read_only() -> bool:
     val = os.getenv("TELEGRAM_RECOMMENDATIONS_READ_ONLY", "false").strip().lower()
     return val not in {"0", "false", "no", "off"}
+
+
+def telegram_recommendations_read_only() -> bool:
+    """Single source of truth for recommendation Telegram delivery mode."""
+    return _is_read_only()
 
 
 def record_event(
@@ -28,9 +34,10 @@ def record_event(
     source: str = "daily_bot",
     event_date: Optional[str] = None,
     initial_status: Optional[str] = None,
+    event_identity: Optional[str] = None,
 ) -> Optional[dict]:
     """Insert one idempotent event; duplicate events return existing record."""
-    key = event_key(recommendation_id, event_type, event_date)
+    key = event_key(recommendation_id, event_type, event_date, event_identity)
     
     if initial_status:
         status = initial_status
@@ -51,13 +58,43 @@ def record_event(
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
     try:
-        result = (
+        existing = (
             supabase.table("recommendation_events")
-            .upsert(payload, on_conflict="idempotency_key")
+            .select("*")
+            .eq("idempotency_key", key)
+            .limit(1)
             .execute()
         )
+        if existing.data:
+            return existing.data[0]
+        try:
+            result = supabase.table("recommendation_events").insert(payload).execute()
+        except Exception as insert_error:
+            # Another evaluator may have inserted the same idempotency key
+            # between the initial read and this insert. Treat that as success
+            # and return the winner's event.
+            raced = (
+                supabase.table("recommendation_events")
+                .select("*")
+                .eq("idempotency_key", key)
+                .limit(1)
+                .execute()
+            )
+            if raced.data:
+                return raced.data[0]
+            raise insert_error
         data = result.data or []
-        return data[0] if data else None
+        if data:
+            return data[0]
+        # A concurrent insert may have won between the read and insert.
+        existing_after_race = (
+            supabase.table("recommendation_events")
+            .select("*")
+            .eq("idempotency_key", key)
+            .limit(1)
+            .execute()
+        )
+        return (existing_after_race.data or [None])[0]
     except Exception as error:
         print(f"[RECOMMENDATION_EVENT] Could not record {event_type} for {recommendation_id}: {error}")
         return None
@@ -69,43 +106,77 @@ def update_telegram_delivery(
     success: bool,
     message_id: Optional[str] = None,
     error: Optional[str] = None,
+    attempts_already_claimed: bool = False,
+    claim_token: Optional[str] = None,
 ) -> bool:
     """Record the result of a Telegram delivery attempt and increment attempts counter."""
     if not event_id:
         return False
+    if _is_read_only():
+        return False
 
     now_iso = datetime.now(timezone.utc).isoformat()
-    try:
-        # Fetch current attempts count
-        current = (
-            supabase.table("recommendation_events")
-            .select("telegram_attempts")
-            .eq("id", event_id)
-            .single()
-            .execute()
-        )
-        attempts = 0
-        if current.data and "telegram_attempts" in current.data:
-            attempts = int(current.data.get("telegram_attempts") or 0)
-    except Exception:
-        attempts = 0
-
     update_payload = {
         "telegram_status": "sent" if success else "failed",
-        "telegram_attempts": attempts + 1,
         "updated_at": now_iso,
+        "retry_claimed_at": None,
     }
+    if not attempts_already_claimed:
+        update_payload["telegram_attempts"] = 1
     if success and message_id:
         update_payload["telegram_message_id"] = str(message_id)
     if not success and error:
         update_payload["last_error"] = str(error)[:500]
+        update_payload["next_retry_at"] = (datetime.now(timezone.utc) + timedelta(minutes=2)).isoformat()
 
     try:
-        supabase.table("recommendation_events").update(update_payload).eq("id", event_id).execute()
-        return True
+        update_query = supabase.table("recommendation_events").update(update_payload).eq("id", event_id)
+        if claim_token:
+            update_query = update_query.eq("retry_claim_token", claim_token)
+            update_query = update_query.gte(
+                "retry_claimed_at",
+                (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat(),
+            )
+        result = update_query.select("id").execute()
+        return bool(result.data)
     except Exception as upd_err:
         print(f"[RECOMMENDATION_EVENT] Failed to update telegram delivery for {event_id}: {upd_err}")
         return False
+
+
+def invalidate_event(supabase: Any, event_id: str, reason: str = "lifecycle compensation") -> bool:
+    """Mark an event as cancelled so a compensated mutation cannot be retried."""
+    if not event_id:
+        return False
+    try:
+        result = (
+            supabase.table("recommendation_events")
+            .update({
+                "telegram_status": "cancelled",
+                "last_error": reason[:500],
+                "retry_claimed_at": None,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            })
+            .eq("id", event_id)
+            .not_.is_("telegram_status", "sent")
+            .select("id")
+            .execute()
+        )
+        return bool(result.data)
+    except Exception as error:
+        print(f"[RECOMMENDATION_EVENT] Could not invalidate {event_id}: {error}")
+        return False
+
+def claim_pending_telegram_events(supabase: Any, limit: int = 10) -> List[Dict[str, Any]]:
+    """Atomically claim retry rows through the database function."""
+    if _is_read_only():
+        return []
+    try:
+        result = supabase.rpc("claim_recommendation_telegram_events", {"p_limit": limit, "p_token": str(uuid.uuid4())}).execute()
+        return result.data or []
+    except Exception as error:
+        print(f"[RECOMMENDATION_EVENT] Claim query failed: {error}")
+        return []
 
 
 def get_pending_telegram_retries(
@@ -123,6 +194,8 @@ def get_pending_telegram_retries(
             .select("id, recommendation_id, event_type, price_at_event, new_values, old_values, telegram_attempts")
             .in_("telegram_status", ["pending", "failed"])
             .lt("telegram_attempts", max_attempts)
+            .is_("retry_claimed_at", "null")
+            .or_("next_retry_at.is.null,next_retry_at.lte." + datetime.now(timezone.utc).isoformat())
             .order("created_at", desc=False)
             .limit(limit)
             .execute()

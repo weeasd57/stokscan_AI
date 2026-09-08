@@ -137,6 +137,12 @@ class CronTriggerRequest(BaseModel):
     exchange: Optional[str] = None
 
 
+class RecommendationReconcileRequest(BaseModel):
+    bot_id: str
+    state_id: int
+    recommendation_id: str
+
+
 class ScheduleRequest(BaseModel):
     cron: str
     startTime: str = "22:30"
@@ -4239,7 +4245,9 @@ def get_telegram_recommendations_status():
 def send_telegram_recommendations():
     try:
         from api.stock_ai import supabase
-        from api.daily_bot_run import _notify_service_subscribers
+        from api.daily_bot_run import _notify_service_subscribers, _telegram_recommendation_writes_enabled
+        if not _telegram_recommendation_writes_enabled():
+            return {"status": "blocked_read_only", "message": "Telegram recommendation delivery is read-only/disabled."}
         
         today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
         recs_res = supabase.table("scan_results").select("symbol, name, last_close, target_price, stop_loss, precision, exchange").eq("status", "open").gte("created_at", today_start).order("precision", desc=True).limit(10).execute()
@@ -4462,6 +4470,9 @@ def get_telegram_dispatch_preview(type: str = "recommendations"):
 def send_telegram_dispatch(payload: dict):
     try:
         from api.telegram_bot import get_telegram_bot
+        from api.daily_bot_run import _telegram_recommendation_writes_enabled
+        if not _telegram_recommendation_writes_enabled():
+            return {"ok": False, "status": "blocked_read_only", "message": "Telegram recommendation delivery is read-only/disabled."}
         bot = get_telegram_bot()
         if not bot:
             raise HTTPException(status_code=503, detail="Telegram bot not initialized")
@@ -5154,6 +5165,81 @@ def delete_article(article_id: str):
         return {"ok": True, "deleted": article_id}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/recommendations/reconciliation")
+def recommendation_reconciliation():
+    """Return unresolved recommendation conflicts and bot-state orphans."""
+    _reload_env()
+    _init_supabase()
+    if not stock_ai.supabase:
+        raise HTTPException(status_code=503, detail="Supabase not initialized")
+    try:
+        conflicts = stock_ai.supabase.table("reconciliation_conflicts").select("*").execute()
+        orphans = stock_ai.supabase.table("reconciliation_orphans").select("*").execute()
+        return {"conflicts": conflicts.data or [], "orphans": orphans.data or []}
+    except Exception as exc:
+        print(f"[ADMIN_RECONCILIATION] Fetch failed: {exc}")
+        raise HTTPException(status_code=500, detail="Could not load reconciliation data")
+
+
+@router.post("/recommendations/reconciliation/bot-state")
+def reconcile_bot_state(req: RecommendationReconcileRequest):
+    """Explicitly link one bot state to one recommendation ID; never guesses."""
+    _reload_env()
+    _init_supabase()
+    if not stock_ai.supabase:
+        raise HTTPException(status_code=503, detail="Supabase not initialized")
+    try:
+        rec = stock_ai.supabase.table("scan_results").select("id, symbol, exchange, status, created_at").eq("id", req.recommendation_id).limit(1).execute()
+        if not rec.data:
+            raise HTTPException(status_code=404, detail="Recommendation not found")
+        if rec.data[0].get("status") != "open":
+            raise HTTPException(status_code=409, detail="Only open recommendations can be reconciled")
+        target_state = (
+            stock_ai.supabase.table("bot_states")
+            .select("id, bot_id, state, recommendation_id")
+            .eq("bot_id", req.bot_id)
+            .eq("id", req.state_id)
+            .execute()
+        )
+        if not target_state.data:
+            raise HTTPException(status_code=404, detail="Bot state not found")
+        if str(target_state.data[0].get("recommendation_id") or "") == str(req.recommendation_id):
+            return {"ok": True, "already_linked": True, "bot_state": target_state.data[0]}
+        state = target_state.data[0].get("state") or {}
+        existing_link = target_state.data[0].get("recommendation_id")
+        if existing_link and str(existing_link) != str(req.recommendation_id):
+            raise HTTPException(status_code=409, detail="Bot state is already linked to another recommendation")
+        state_symbol = str(state.get("symbol") or "").upper() if isinstance(state, dict) else ""
+        state_exchange = str(state.get("exchange") or "").upper() if isinstance(state, dict) else ""
+        keys = set((state.get("pos_state") or {}).keys()) if isinstance(state, dict) and isinstance(state.get("pos_state"), dict) else set()
+        rec_symbol = str(rec.data[0].get("symbol") or "").upper()
+        rec_exchange = str(rec.data[0].get("exchange") or "").upper()
+        symbol_matches = rec_symbol == state_symbol or rec_symbol in {str(key).upper() for key in keys}
+        exchange_matches = not state_exchange or not rec_exchange or state_exchange == rec_exchange
+        if not symbol_matches or not exchange_matches:
+            raise HTTPException(status_code=409, detail="Bot state symbol does not match recommendation")
+        state_time = state.get("saved_at") if isinstance(state, dict) else None
+        if state_time and rec.data[0].get("created_at") and rec.data[0]["created_at"] > state_time:
+            raise HTTPException(status_code=409, detail="Recommendation was created after the bot state")
+        updated = (
+            stock_ai.supabase.table("bot_states")
+            .update({"recommendation_id": req.recommendation_id})
+            .eq("id", req.state_id)
+            .is_("recommendation_id", "null")
+            .select("id, bot_id, recommendation_id, saved_at, created_at")
+            .limit(1)
+            .execute()
+        )
+        if not updated.data:
+            raise HTTPException(status_code=404, detail="Bot state not found")
+        return {"ok": True, "bot_state": updated.data[0]}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        print(f"[ADMIN_RECONCILIATION] Reconcile failed: {exc}")
+        raise HTTPException(status_code=500, detail="Reconciliation operation failed")
 
 
 # ─── Historical Similarity Endpoints (moved to similarity_admin.py) ──────

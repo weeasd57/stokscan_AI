@@ -1572,9 +1572,11 @@ class LiveBot:
                 ("order" in _msg_lower or "CRITICAL" in msg)
                 and "VIRTUAL ORDER filled" not in msg
             ):
-                self.telegram_bridge.send_notification(
-                    f"[INFO] *{self.config.name}*\n`{msg}`"
-                )
+                from api.recommendation_events import telegram_recommendations_read_only
+                if not telegram_recommendations_read_only():
+                    self.telegram_bridge.send_notification(
+                        f"[INFO] *{self.config.name}*\n`{msg}`"
+                    )
 
     def set_telegram_bridge(self, bridge):
         self.telegram_bridge = bridge
@@ -1856,7 +1858,8 @@ class LiveBot:
 
         # 2. Telegram (Existing/Fallback)
         # Even if Cornix Webhook is on, we might still want the TG channel as a log/backup
-        if self.telegram_bridge:
+        from api.recommendation_events import telegram_recommendations_read_only
+        if self.telegram_bridge and not telegram_recommendations_read_only():
             if action.upper() == "SELL":
                 msg = self._format_cornix_close_signal(symbol)
             else:
@@ -1981,7 +1984,8 @@ class LiveBot:
             )
 
         # Generic message test (Telegram only)
-        if has_tg:
+        from api.recommendation_events import telegram_recommendations_read_only
+        if has_tg and not telegram_recommendations_read_only():
             self.telegram_bridge.send_notification(
                 f"🔔 TEST: {notify_type.upper()} notification from {self.config.name}"
             )
@@ -3137,7 +3141,9 @@ class LiveBot:
                     f"━━━━━━━━━━━━━━━\n"
                     f"🤖 Bot: {self.config.name}"
                 )
-                self.telegram_bridge.send_notification(msg)
+                from api.recommendation_events import telegram_recommendations_read_only
+                if not telegram_recommendations_read_only():
+                    self.telegram_bridge.send_notification(msg)
             return True
         except Exception as e:
             self._log(f"Buy failed for {symbol}: {e}")
@@ -3494,7 +3500,8 @@ class LiveBot:
                                 f"🤖 Bot: {bot_name}"
                             )
 
-                        if self.telegram_bridge and telegram_chat_id:
+                        from api.recommendation_events import telegram_recommendations_read_only
+                        if self.telegram_bridge and telegram_chat_id and not telegram_recommendations_read_only():
                             self.telegram_bridge.send_notification(
                                 msg, chat_id=telegram_chat_id
                             )
@@ -3691,7 +3698,8 @@ class LiveBot:
 
                     channel = sub_data.get("notification_channel", "telegram")
 
-                    if self.telegram_bridge and chat_id:
+                    from api.recommendation_events import telegram_recommendations_read_only
+                    if self.telegram_bridge and chat_id and not telegram_recommendations_read_only():
                         self.telegram_bridge.send_notification(msg, chat_id=chat_id)
 
             except Exception as entry_err:

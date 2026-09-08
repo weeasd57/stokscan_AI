@@ -1703,6 +1703,9 @@ def send_test_channel_notification(req: TestNotificationRequest):
     Returns {ok: true, channel, message} or {ok: false, error}.
     """
     _init_supabase()
+    from api.recommendation_events import telegram_recommendations_read_only
+    if telegram_recommendations_read_only():
+        return {"ok": False, "status": "blocked_read_only", "error": "Telegram delivery is read-only/disabled"}
 
     channel = (req.channel or "").lower().strip()
     if channel != "telegram":

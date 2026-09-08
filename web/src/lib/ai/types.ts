@@ -83,7 +83,7 @@ export interface IntentPlan {
         max_dist_score?: number | null;
         min_consecutive_acc_days?: number | null;
         recommendation_order?: "oldest" | "newest" | null;
-        recommendation_filter?: "open" | "this_week" | "last_week" | "all" | null;
+        recommendation_filter?: "open" | "open_public" | "this_week" | "last_week" | "all" | null;
         excluded_sectors?: string[];
         requested_sectors?: string[];
         requested_date?: string | null;
@@ -150,7 +150,7 @@ export interface PlannerResult {
         max_dist_score?: number | null;
         min_consecutive_acc_days?: number | null;
         recommendation_order?: "oldest" | "newest" | null;
-        recommendation_filter?: "open" | "this_week" | "last_week" | "all" | null;
+        recommendation_filter?: "open" | "open_public" | "this_week" | "last_week" | "all" | null;
         excluded_sectors?: string[];
         requested_sectors?: string[];
         portfolio_operation?: "view" | "add" | "update" | "remove" | "sell" | "cash_set" | "cash_add" | null;

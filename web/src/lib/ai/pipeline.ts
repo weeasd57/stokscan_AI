@@ -464,6 +464,21 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
             session_update: { current_symbol: null, last_symbols: [], summary: message }
         };
     }
+    // "Best stocks tomorrow" and the immediate Arabic-name follow-up must
+    // reuse the same verified public recommendation dataset used by the first
+    // answer, instead of falling through to a generic market/fallback plan.
+    const asksTomorrowRecommendations = explicitSymbols.length === 0 && /(?:اقوى|أقوى|افضل|أفضل|شراء|اشترى|أسهم|اسهم).{0,35}(?:غدا|غداً|بكره|بكرة|غدًا)/i.test(normalized);
+    const asksArabicNames = explicitSymbols.length === 0 && /(?:حدد|اكتب|هات|اعرض).{0,25}(?:الاسماء|الأسماء|اسماء|أسماء).{0,15}(?:بالعربى|بالعربي|العربي|العربية)/i.test(normalized);
+    const hasPreviousRecommendationList = /(?:توصي|شراء|افضل\s+سهم|أقوى\s+سهم|أقوى\s+الأسهم|افضل\s+الاسهم|أفضل\s+الأسهم)/i.test(String(sessionState.summary || ""));
+    if (asksTomorrowRecommendations || (asksArabicNames && hasPreviousRecommendationList)) {
+        return {
+            intent: "market_summary",
+            confidence: 1,
+            entities: { symbols: [], sector: null, wants_table: true, timeframe: "current", requested_date: null, scan_direction: null, recommendation_order: "newest", recommendation_filter: "open_public" },
+            tools: ["get_recommendations"],
+            session_update: { current_symbol: null, last_symbols: sessionState.last_symbols, summary: message },
+        } as any;
+    }
     const excludedSectors = extractExcludedSectors(message);
     const referencedSector = extractSectorFromMessage(message) || sessionState.current_sector || extractSectorFromMessage(sessionState.summary || "");
     const sectorNewsFollowUp = /(?:اخبار|أخبار|خبر(?!ه)|عناوين).{0,35}(?:القطاع|قطاع|متعلقه|متعلقة)|(?:القطاع|قطاع).{0,35}(?:اخبار|أخبار|خبر|عناوين)/i.test(normalized);
