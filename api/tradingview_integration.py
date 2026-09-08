@@ -183,6 +183,7 @@ def get_tradingview_exchange(symbol: str) -> str:
 _yahoo_proxy_fail_count = 0
 _YAHOO_PROXY_FAIL_THRESHOLD = 3
 _yahoo_proxy_tripped = False
+_yahoo_proxy_retry_after = 0.0
 
 
 def _try_yahoo_direct_fallback(
@@ -197,7 +198,7 @@ def _try_yahoo_direct_fallback(
     Direct Yahoo Finance API fallback. Fetches the raw JSON from Yahoo Finance
     query API to bypass yfinance JSONDecodeErrors and timezone issues.
     """
-    global _yahoo_proxy_fail_count, _yahoo_proxy_tripped
+    global _yahoo_proxy_fail_count, _yahoo_proxy_tripped, _yahoo_proxy_retry_after
 
     if timeframe.lower() not in ["1d", "1day", "daily"]:
         return False, "Yahoo fallback only supports daily data"
@@ -231,17 +232,19 @@ def _try_yahoo_direct_fallback(
         url = f"https://query1.finance.yahoo.com/v8/finance/chart/{yf_ticker}?range={r_range}&interval=1d"
         
         cf_proxy = os.getenv("CF_PROXY_URL")
-        if cf_proxy and not _yahoo_proxy_tripped:
+        now = time.time()
+        proxy_available = bool(cf_proxy) and (not _yahoo_proxy_tripped or now >= _yahoo_proxy_retry_after)
+        if proxy_available:
             import urllib.parse
             url = f"{cf_proxy}?url={urllib.parse.quote(url)}"
             print(f"Routing Yahoo request through Cloudflare proxy: {cf_proxy}")
-        elif _yahoo_proxy_tripped:
-            print(f"[CIRCUIT BREAKER] Yahoo proxy disabled after {_YAHOO_PROXY_FAIL_THRESHOLD} consecutive failures — skipping proxy for {upper}")
-            return False, f"Yahoo proxy circuit breaker tripped ({_yahoo_proxy_fail_count} consecutive failures)"
+        elif cf_proxy:
+            print(f"[CIRCUIT BREAKER] Yahoo proxy cooldown active — trying direct Yahoo for {upper}")
+            cf_proxy = None
         
         session = _get_yahoo_session()
         try:
-            r = session.get(url, timeout=15)
+            r = session.get(url, timeout=8)
             if r.status_code != 200:
                 print(f"PROXY HTTP ERROR: {r.status_code} - {r.text[:200]}")
                 return False, f"Yahoo API returned HTTP {r.status_code}"
@@ -252,15 +255,34 @@ def _try_yahoo_direct_fallback(
                 return False, "Yahoo API returned empty result"
             # Reset circuit breaker on success
             _yahoo_proxy_fail_count = 0
+            _yahoo_proxy_tripped = False
+            _yahoo_proxy_retry_after = 0.0
         except Exception as e:
             print(f"PROXY EXCEPTION: {str(e)}")
-            # Increment circuit breaker counter
-            if cf_proxy and ("SSL" in str(e) or "ConnectionError" in str(e) or "Max retries" in str(e)):
+            # A proxy failure is transient. Do not disable it for the whole
+            # 284-symbol sync; give it a short cooldown and try Yahoo direct.
+            if cf_proxy and ("SSL" in str(e) or "ConnectionError" in str(e) or "Max retries" in str(e) or "timed out" in str(e).lower()):
                 _yahoo_proxy_fail_count += 1
                 if _yahoo_proxy_fail_count >= _YAHOO_PROXY_FAIL_THRESHOLD:
                     _yahoo_proxy_tripped = True
-                    print(f"[CIRCUIT BREAKER] Yahoo proxy TRIPPED after {_yahoo_proxy_fail_count} consecutive SSL failures — disabling proxy for remaining symbols")
-            return False, f"Yahoo Proxy Exception: {str(e)}"
+                    _yahoo_proxy_retry_after = time.time() + 60
+                    print(f"[CIRCUIT BREAKER] Yahoo proxy cooldown for 60s after {_yahoo_proxy_fail_count} failures")
+            # One direct attempt prevents a temporary Worker/TLS issue from
+            # turning into a failed stock update.
+            if cf_proxy:
+                try:
+                    direct_url = f"https://query1.finance.yahoo.com/v8/finance/chart/{yf_ticker}?range={r_range}&interval=1d"
+                    direct = session.get(direct_url, timeout=8)
+                    direct.raise_for_status()
+                    chart_res = direct.json().get("chart", {}).get("result")
+                    if chart_res:
+                        _yahoo_proxy_fail_count = 0
+                    else:
+                        return False, "Yahoo API returned empty result"
+                except Exception as direct_error:
+                    return False, f"Yahoo proxy/direct request failed: {direct_error}"
+            else:
+                return False, f"Yahoo request failed: {str(e)}"
             
         data = chart_res[0]
         timestamps = data.get("timestamp")
@@ -399,31 +421,6 @@ def fetch_tradingview_prices(
     if is_daily and is_up_to_date and has_enough_history:
         return True, "Already up to date and sufficient history in Cloud"
     
-    # Define EODHD fallback function
-    def try_eodhd_fallback() -> Tuple[bool, str]:
-        api_key = os.getenv("EODHD_API_KEY")
-        if not api_key:
-            return False, "EODHD API key not set"
-        try:
-            from eodhd import APIClient
-            is_daily_tf = timeframe.lower() in ["1d", "1day", "daily"]
-            if is_daily_tf:
-                from api.stock_ai import update_stock_data
-                api_client = APIClient(api_key)
-                ok_eodhd, msg_eodhd = update_stock_data(api_client, upper, source="eodhd", max_days=max_days)
-                return ok_eodhd, msg_eodhd
-            else:
-                from api.intraday_provider import fetch_eodhd_intraday_prices
-                ok_eodhd, msg_eodhd = fetch_eodhd_intraday_prices(
-                    symbol=upper,
-                    timeframe=timeframe,
-                    start_date=start_date,
-                    end_date=end_date
-                )
-                return ok_eodhd, msg_eodhd
-        except Exception as e_err:
-            return False, f"EODHD error: {e_err}"
-
     # Throttle slightly
     try:
         delay = float(os.getenv("TRADINGVIEW_REQUEST_DELAY", "0.3"))
@@ -480,12 +477,7 @@ def fetch_tradingview_prices(
             if ok_fall:
                 return ok_fall, msg_fall
             
-            # Fallback to EODHD
-            ok_eod, msg_eod = try_eodhd_fallback()
-            if ok_eod:
-                return ok_eod, msg_eod
-            
-            return False, f"No data found for {symbol} on {tv_exchange} at {timeframe} (Yahoo fallback: {msg_fall} | EODHD fallback: {msg_eod})"
+            return False, f"No data found for {symbol} on {tv_exchange} at {timeframe} (Yahoo fallback: {msg_fall})"
         
         # Prepare data
         df_new = df.reset_index()
@@ -518,15 +510,6 @@ def fetch_tradingview_prices(
             error_msg += f" (Yahoo fallback: {msg_fall})"
         except Exception:
             pass
-
-        # Try EODHD fallback
-        try:
-            ok_eod, msg_eod = try_eodhd_fallback()
-            if ok_eod:
-                return ok_eod, msg_eod
-            error_msg += f" (EODHD fallback: {msg_eod})"
-        except Exception as eod_err:
-            error_msg += f" (EODHD exception: {eod_err})"
 
         if "symbol not found" in error_msg.lower():
             return False, f"Symbol {base_symbol} not found on {tv_exchange} ({error_msg})"

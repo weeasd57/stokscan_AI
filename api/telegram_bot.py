@@ -828,7 +828,7 @@ class TelegramBot:
             if webhook_url:
                 # ── WEBHOOK MODE (production) ──
                 hook = f"{webhook_url.rstrip('/')}/tg-webhook/{self.token}"
-                self._log(f"Setting webhook to: {hook}")
+                self._log(f"Setting webhook to: {webhook_url.rstrip('/')}/tg-webhook/<redacted>")
                 backoff = 10
                 # Cap at 10 attempts — if HF blocks Telegram, run in outbound-only mode
                 for attempt in range(1, 11):

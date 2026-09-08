@@ -478,6 +478,7 @@ export async function POST(req: NextRequest) {
                         let responseLatencyMs = 0;
                         let toolsStartTime = 0;
                         let responseStartTime = 0;
+                        let firstTokenLatencyMs: number | null = null;
 
                         for await (const event of pipelineStream) {
                             switch (event.type) {
@@ -503,6 +504,7 @@ export async function POST(req: NextRequest) {
                                     sendEvent({ type: "tables", data: event.data });
                                     break;
                                 case "token":
+                                    if (firstTokenLatencyMs === null) firstTokenLatencyMs = Date.now() - totalRequestStartTime;
                                     const rawToken = String(event.data || "");
                                     if (containsEnvironmentMetadata(rawToken) || hasPartialEnvironmentMetadata(rawToken)) break;
                                     fullResponse = stripEnvironmentMetadata(fullResponse + rawToken);
@@ -532,6 +534,7 @@ export async function POST(req: NextRequest) {
                                 case "done":
                                     responseLatencyMs = responseStartTime ? Date.now() - responseStartTime : Math.max(0, Date.now() - totalRequestStartTime - plannerLatencyMs - toolsLatencyMs);
                                     const streamingTotalLatencyMs = Date.now() - totalRequestStartTime;
+                                    console.log(`[AI TELEMETRY DETAIL] Correlation=${correlationId} first_token_ms=${firstTokenLatencyMs ?? "n/a"} planner_ms=${plannerLatencyMs} tools_ms=${toolsLatencyMs} response_ms=${responseLatencyMs} total_ms=${streamingTotalLatencyMs}`);
                                     if (tokenBuffer.length > 0) {
                                         const safeBuffer = stripEnvironmentMetadata(tokenBuffer);
                                         if (safeBuffer && !filterOutputBlocks(safeBuffer) && !containsEnvironmentMetadata(safeBuffer)) sendEvent({ type: "token", content: safeBuffer });

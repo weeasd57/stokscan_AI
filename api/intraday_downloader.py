@@ -91,7 +91,14 @@ def append_scheduler_log(msg: str):
 
 
 def get_last_market_close_date() -> dt.date:
-    last_date = dt.date.today()
+    # Intraday sync must target the current Cairo trading session. The latest
+    # row in stock_prices is a completed daily close and can still be yesterday
+    # while the exchange is open today.
+    try:
+        from zoneinfo import ZoneInfo
+        last_date = dt.datetime.now(ZoneInfo("Africa/Cairo")).date()
+    except Exception:
+        last_date = dt.date.today()
     stock_ai._init_supabase()
     if not stock_ai.supabase:
         return last_date
@@ -549,14 +556,27 @@ def _downloader_worker_loop():
             from zoneinfo import ZoneInfo
             cairo_now = datetime.now(ZoneInfo("Africa/Cairo"))
             is_open = cairo_now.weekday() < 5 and dt_time(10, 0) <= cairo_now.time() < dt_time(15, 0)
-            auto_started = is_open and state.get("status") == "idle"
+            try:
+                session_date = cairo_now.date().isoformat()
+            except Exception:
+                session_date = dt.date.today().isoformat()
+            auto_started = (
+                is_open
+                and state.get("status") == "idle"
+                and state.get("auto_session_date") != session_date
+            )
             if auto_started:
                 state["status"] = "syncing"
+                state["auto_session_date"] = session_date
                 save_state(state)
             if state.get("status") == "syncing":
                 print("[INTRADAY DOWNLOADER] Running batch sync...")
                 res = run_intraday_sync_batch()
                 print("[INTRADAY DOWNLOADER] Batch sync result:", res)
+                if res.get("status") == "idle":
+                    state = load_state()
+                    state["auto_session_date"] = session_date
+                    save_state(state)
         except Exception as e:
             print("[INTRADAY DOWNLOADER] Error in loop:", e)
         time.sleep(300)

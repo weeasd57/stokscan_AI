@@ -12,6 +12,8 @@ export async function GET() {
 
         const { getPortfolioSnapshot } = await import("@/lib/ai/portfolio-tools");
         const snapshot = await getPortfolioSnapshot(supabase, user.id);
+        const { data: planRows } = await supabase.from("subscriptions").select("plan_id,status").eq("user_id", user.id).limit(10);
+        const isPro = (planRows || []).some((row: any) => String(row.plan_id || "").toLowerCase() === "pro" && ["active", "trialing"].includes(String(row.status || "").toLowerCase()));
 
         // Real EGX symbols for the profile-page autocomplete selector
         let marketSymbols: Array<{ symbol: string; name: string | null }> = [];
@@ -26,7 +28,7 @@ export async function GET() {
             console.warn("[api/portfolio] symbols list unavailable:", e);
         }
 
-        return NextResponse.json({ ...snapshot, market_symbols: marketSymbols });
+        return NextResponse.json({ ...snapshot, market_symbols: marketSymbols, portfolio_limit: isPro ? null : 7, is_pro: isPro });
     } catch (e: any) {
         console.error("[api/portfolio] GET error:", e);
         return NextResponse.json({ ok: false, message: e?.message || "Internal error" }, { status: 500 });
@@ -55,6 +57,13 @@ export async function POST(req: NextRequest) {
             case "add":
                 if (!symbol || quantity === null || !Number.isFinite(quantity) || quantity <= 0) {
                     return NextResponse.json({ ok: false, message: "symbol و quantity مطلوبان" }, { status: 400 });
+                }
+                {
+                    const { data: rows } = await supabase.from("positions").select("symbol").eq("user_id", user.id).eq("status", "open");
+                    const { data: planRows } = await supabase.from("subscriptions").select("plan_id,status").eq("user_id", user.id).limit(10);
+                    const isPro = (planRows || []).some((row: any) => String(row.plan_id || "").toLowerCase() === "pro" && ["active", "trialing"].includes(String(row.status || "").toLowerCase()));
+                    const currentSymbols = new Set((rows || []).map((row: any) => String(row.symbol || "").toUpperCase()));
+                    if (!isPro && !currentSymbols.has(symbol) && currentSymbols.size >= 7) return NextResponse.json({ ok: false, message: "الخطة المجانية تسمح بحد أقصى 7 أسهم مختلفة في المحفظة. احذف مركزاً أو قم بالترقية لإضافة سهم آخر." }, { status: 403 });
                 }
                 result = await tools.addPortfolioPosition(supabase, user.id, symbol, quantity, price);
                 break;

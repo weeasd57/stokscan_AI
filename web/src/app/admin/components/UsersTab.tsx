@@ -230,7 +230,8 @@ export default function UsersTab() {
     });
 
     const totalPages = Math.ceil(total / pageSize);
-    const maxGrowthCount = Math.max(...(stats?.signupGrowth?.map(g => g.count) || [1]), 1);
+
+
 
     return (
         <div className="p-4 md:p-6 space-y-6">

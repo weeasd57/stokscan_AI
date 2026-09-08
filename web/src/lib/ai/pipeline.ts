@@ -975,10 +975,13 @@ function formatPortfolioSnapshotResponse(data: any): string {
     const analysis = data?.analysis || {};
     const lines = [positions.length ? `محفظتك فيها ${positions.length} مركز.` : "محفظتك فاضية حالياً."];
     lines.push(`إجمالي قيمة المحفظة: ${Number(totals.equity || 0).toLocaleString("en-US")} ج.م`);
-    lines.push(`إجمالي قيمة الأسهم: ${Number(totals.market_value || 0).toLocaleString("en-US")} ج.م، والتكلفة: ${Number(totals.cost_basis || 0).toLocaleString("en-US")} ج.م`);
-    const totalProfit = Number(totals.profit_value || 0);
-    const totalProfitPct = Number(totals.profit_pct || 0);
-    lines.push(`${totalProfit >= 0 ? "الربح" : "الخسارة"} غير المحققة: ${totalProfit >= 0 ? "+" : ""}${totalProfit.toLocaleString("en-US")} ج.م (${totalProfitPct.toFixed(1)}%)`);
+    const hasCost = totals.cost_basis !== null && totals.cost_basis !== undefined;
+    lines.push(`إجمالي قيمة الأسهم: ${Number(totals.market_value || 0).toLocaleString("en-US")} ج.م، والتكلفة: ${hasCost ? `${Number(totals.cost_basis).toLocaleString("en-US")} ج.م` : "غير مكتملة"}`);
+    const totalProfit = totals.profit_value;
+    const totalProfitPct = totals.profit_pct;
+    lines.push(totalProfit === null || totalProfit === undefined
+        ? "الربح/الخسارة: غير متاح لأن متوسط شراء مركز أو أكثر غير مسجل."
+        : `${totalProfit >= 0 ? "الربح" : "الخسارة"} غير المحققة: ${totalProfit >= 0 ? "+" : ""}${Number(totalProfit).toLocaleString("en-US")} ج.م (${Number(totalProfitPct || 0).toFixed(1)}%)`);
     lines.push(`السيولة: ${Number(data?.cash_balance || 0).toLocaleString("en-US")} ج.م (${Number(analysis.cash_pct || 0).toFixed(1)}%)`);
     lines.push(`أكبر مركز: ${analysis.top_symbol || "لا يوجد"} (${Number(analysis.top_position_pct || 0).toFixed(1)}%)`);
     lines.push(`التنويع: ${analysis.diversification || "غير متاح"}`);
@@ -986,9 +989,11 @@ function formatPortfolioSnapshotResponse(data: any): string {
         const quantity = Number(position.quantity || 0);
         const entry = Number(position.entry_price || 0);
         const last = Number(position.last_price || 0);
-        const pnl = Number.isFinite(quantity * (last - entry)) ? quantity * (last - entry) : 0;
-        const pnlPct = entry > 0 ? ((last - entry) / entry) * 100 : 0;
-        lines.push(`- ${position.symbol}: ${position.quantity ?? "؟"} سهم، متوسط ${position.entry_price ?? "؟"} ج.م، آخر سعر ${position.last_price ?? "غير متاح"} ج.م، ${pnl >= 0 ? "ربح" : "خسارة"} ${pnl >= 0 ? "+" : ""}${pnl.toLocaleString("en-US")} ج.م (${pnlPct.toFixed(1)}%)`);
+        const hasEntry = entry > 0;
+        const pnl = hasEntry && Number.isFinite(quantity * (last - entry)) ? quantity * (last - entry) : null;
+        const pnlPct = hasEntry ? ((last - entry) / entry) * 100 : null;
+        const sourceLabel = position.price_source === "live" ? "لحظي" : position.price_source === "stock_prices" ? "آخر إغلاق" : "غير متاح";
+        lines.push(`- ${position.symbol}: ${position.quantity ?? "؟"} سهم، متوسط ${hasEntry ? `${position.entry_price} ج.م` : "غير مسجل"}، آخر سعر ${position.last_price ?? "غير متاح"} ج.م (${sourceLabel})، ${pnl === null ? "الربح/الخسارة غير متاح" : `${pnl >= 0 ? "ربح" : "خسارة"} ${pnl >= 0 ? "+" : ""}${pnl.toLocaleString("en-US")} ج.م (${pnlPct!.toFixed(1)}%)`}`);
     }
     for (const suggestion of analysis.suggestions || []) lines.push(`⚠️ ${suggestion}`);
     lines.push("\nأقدر أكمل معاك في واحد من دول: أشرح أكبر خسارة، أقترح تنويع، أو أراجع سهم معين داخل المحفظة. تحب نبدأ بإيه؟");
@@ -1308,6 +1313,7 @@ export async function* runPipelineStream(
     requestedModel?: string
 ): AsyncGenerator<{ type: string; data: any }> {
     const deadlineAt = Date.now() + AI_CONFIG.limits.requestDeadlineMs;
+    const pipelineStart = Date.now();
     const ensureBudget = (reserveMs = 0) => {
         if (Date.now() + reserveMs >= deadlineAt) throw new Error("PIPELINE_DEADLINE_EXCEEDED");
     };
@@ -1315,6 +1321,68 @@ export async function* runPipelineStream(
     let vision: VisionContext | null = null;
     let visionError: string | null = null;
     let memory: MemoryResult | null = null;
+
+    // Fast path: portfolio CRUD is deterministic and must not pay the cost of
+    // stock-name warming, memory retrieval, planner LLM work, or final LLM
+    // generation. This is also the path that keeps Vercel Fluid CPU low for
+    // the most common portfolio requests.
+    if (!hasImages) {
+        const directPortfolioOperation = detectPortfolioIntent(userMessage);
+        if (directPortfolioOperation) {
+            const symbols = extractExplicitSymbols(userMessage);
+            const directPlan: IntentPlan = {
+                intent: "portfolio_management",
+                confidence: 1,
+                guidance_intent: null,
+                entities: {
+                    symbols,
+                    sector: null,
+                    timeframe: "current",
+                    reference: null,
+                    portfolio_operation: directPortfolioOperation,
+                    scan_direction: null,
+                    fair_value_direction: null,
+                    require_distribution: false,
+                    require_accumulation: false,
+                    recommendation_order: null,
+                    recommendation_filter: null,
+                    technical_preset: null,
+                    min_acc_score: null,
+                    min_vol_ratio: null,
+                    excluded_sectors: [],
+                    requested_sectors: [],
+                    requested_date: null,
+                    requested_start_date: null,
+                    requested_end_date: null,
+                },
+                needs_vision_context: false,
+                needs_history: false,
+                needs_live_data: false,
+                needs_historical_data: false,
+                tools: ["manage_portfolio"],
+                clarification_needed: false,
+                service_degraded_message: null,
+                unresolved_stock: false,
+                resolved_from: { symbol: null, message_id: null },
+            };
+            yield { type: "status", data: { status: "portfolio", message: "قراءة المحفظة وتنفيذ الطلب..." } };
+            const directTools = await executeStructuredTools(supabase, directPlan, apiKeys, userId, sessionId, userMessage, []);
+            console.log(`[AI TELEMETRY DETAIL] fast_portfolio_tools_ms=${Date.now() - pipelineStart} operation=${directPortfolioOperation}`);
+            const portfolioResult = directTools.results.find(result => result.tool === "manage_portfolio");
+            if (portfolioResult) {
+                const data = portfolioResult.data || {};
+                const response = directPortfolioOperation === "view"
+                    ? formatPortfolioSnapshotResponse(data)
+                    : String(data.message || "تم تنفيذ عملية المحفظة بنجاح.");
+                await persistPipelineSession(sessionState, sessionSummary, directPlan, null, null, sessionId, userId, supabase, false);
+                yield { type: "plan", data: directPlan };
+                yield { type: "tools_data", data: directTools };
+                yield { type: "token", data: response };
+                yield { type: "done", data: { response, session_update: { current_symbol: sessionState.current_symbol, last_symbols: portfolioResult.symbols || sessionState.last_symbols, summary: response }, tables: buildExcelTables(directTools.results, null) } };
+                return;
+            }
+        }
+    }
 
     try {
         // Warm up the Arabic names cache for synchronous extraction later

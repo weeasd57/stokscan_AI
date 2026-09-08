@@ -756,10 +756,11 @@ def _send_telegram_adjustment(symbol: str, exchange: str, adjustment: dict):
         msg += f"━━━━━━━━━━━━━━━━━━━━\n"
         msg += f"🔗 [تحديثات الفكرة على المنصة]({web_origin}/scanner/backtests?tab=bots)"
 
-        _notify_central_telegram(msg, "recommendation_adjustment")
+        return bool(_notify_central_telegram(msg, "recommendation_adjustment"))
 
     except Exception as e:
         print(f"[SMART_EVAL] Telegram notification failed: {e}")
+        return False
 
 
 def _send_telegram_exit(symbol: str, exchange: str, entry_price: float, exit_price: float, pl_pct: float, status: str, created_at: str = ""):
@@ -796,10 +797,11 @@ def _send_telegram_exit(symbol: str, exchange: str, entry_price: float, exit_pri
             f"🔗 [سجل الصفقات الكامل على المنصة]({web_origin}/scanner/backtests?tab=bots)"
         )
 
-        _notify_central_telegram(msg, "recommendation_exit")
+        return bool(_notify_central_telegram(msg, "recommendation_exit"))
 
     except Exception as e:
         print(f"[SMART_EVAL] Telegram exit notification failed for {symbol}: {e}")
+        return False
 
 
 def generate_weekly_performance_report(trigger: str = "manual", chat_id: Optional[str] = None):
@@ -1194,21 +1196,27 @@ def evaluate_old_recommendations():
         )
 
         # ── ACCELERATION BREAKOUT → Maximum target expansion ──
+        # Cap target to max 35% above original entry price to prevent runaway compounding targets
+        max_allowed_target = round(entry_price * 1.35, 2)
+
         # SMART 1: Only raise if no target-raise done in last 3 days (prevents exponential compounding)
         if acceleration_breakout and pl_pct > 2.0 and not recent_target_raise:
-            if target_price:
+            if target_price and target_price < max_allowed_target:
                 old_tp = round(target_price, 2)
-                # SMART 2: Raise target by 20% (was 40% — too aggressive, caused unreachable targets)
-                new_target = round(target_price * 1.20, 2)
-                # Widen stop loss to give room — move to entry+5% if profitable enough
+                new_target = min(round(target_price * 1.15, 2), max_allowed_target)
+                # Widen stop loss to give room — move to entry+5% only if safely below current price
                 if stop_loss and pl_pct > 8.0:
-                    new_stop = round(entry_price * 1.05, 2)  # Lock +5% profit
+                    cand_stop = round(entry_price * 1.05, 2)
+                    if cand_stop < latest_close * 0.95:
+                        new_stop = cand_stop
                 elif stop_loss and pl_pct > 5.0:
-                    new_stop = round(entry_price * 1.02, 2)  # Lock +2%
+                    cand_stop = round(entry_price * 1.02, 2)
+                    if cand_stop < latest_close * 0.95:
+                        new_stop = cand_stop
                 adj = {
                     "type": "acceleration_breakout",
-                    "reason_ar": "تسارع سعري قوي — ADX عالي + سيولة مرتفعة + زخم شرائي — رفع الهدف 20%",
-                    "reason_en": "Acceleration breakout — High ADX + Volume surge + Strong momentum — target raised 20%",
+                    "reason_ar": "تسارع سعري قوي — ADX عالي + سيولة مرتفعة + زخم شرائي — رفع الهدف",
+                    "reason_en": "Acceleration breakout — High ADX + Volume surge + Strong momentum — target raised",
                     "old_target": old_tp,
                     "new_target": new_target,
                     "old_stop": round(stop_loss, 2) if stop_loss else None,
@@ -1225,14 +1233,15 @@ def evaluate_old_recommendations():
                 print(f"[SMART_EVAL] {symbol}: ACCELERATION BREAKOUT → target {old_tp}→{new_target} (ADX={tech['adx']:.0f}, R_VOL={r_vol:.1f}x)")
 
         elif strong_uptrend and pl_pct > 3.0 and not recent_target_raise:
-            # Stock is performing well — raise target by 15% (3-day cooldown prevents compounding)
-            if target_price:
+            # Stock is performing well — raise target by 10% (capped at 35% above entry)
+            if target_price and target_price < max_allowed_target:
                 old_tp = round(target_price, 2)
-                raise_pct = 0.15  # Fixed 15% raise — was 25% for pl>8, too aggressive
-                new_target = round(target_price * (1 + raise_pct), 2)
+                new_target = min(round(target_price * 1.10, 2), max_allowed_target)
                 # Also trail stop loss up to lock profits
                 if stop_loss and pl_pct > 5.0:
-                    new_stop = round(entry_price * 1.02, 2)  # Move SL to +2% from entry
+                    cand_stop = round(entry_price * 1.02, 2)
+                    if cand_stop < latest_close * 0.95:
+                        new_stop = cand_stop
                 adj = {
                     "type": "target_raised",
                     "reason_ar": "السهم في ترند صاعد قوي - رفع الهدف",
@@ -1252,10 +1261,10 @@ def evaluate_old_recommendations():
                 print(f"[SMART_EVAL] {symbol}: UPTREND → target {old_tp}→{new_target}, SL→{new_stop}")
 
         elif breaking_out and pl_pct > 1.0 and not recent_target_raise:
-            # Breaking out — aggressive target raise
-            if target_price:
+            # Breaking out — raise target up to max cap
+            if target_price and target_price < max_allowed_target:
                 old_tp = round(target_price, 2)
-                new_target = round(target_price * 1.20, 2)
+                new_target = min(round(target_price * 1.15, 2), max_allowed_target)
                 adj = {
                     "type": "target_raised",
                     "reason_ar": "اختراق قوي مع زخم شرائي - رفع الهدف",
@@ -1425,19 +1434,52 @@ def evaluate_old_recommendations():
                 update_data["adjustments"] = all_adjustments
 
             try:
-                supabase.table("scan_results").update(update_data).eq("id", rec["id"]).execute()
+                # OPTIMISTIC LOCK: only close if status is still 'open'
+                close_res = (
+                    supabase.table("scan_results")
+                    .update(update_data)
+                    .eq("id", rec["id"])
+                    .eq("status", "open")
+                    .select("id, status")
+                    .execute()
+                )
+                if not getattr(close_res, "data", None):
+                    print(f"[EVALUATE] Recommendation {symbol} ({rec['id']}) already closed/changed by another process — skipping exit event.")
+                    found_event = False
+                else:
+                    from api.recommendation_events import record_event, update_telegram_delivery, event_values
+                    event_rec = record_event(
+                        supabase,
+                        rec["id"],
+                        "recommendation_closed",
+                        old_values=event_values(rec),
+                        new_values=update_data,
+                        price_at_event=exit_price,
+                    )
+                    delivered = _send_telegram_exit(symbol, exchange, entry_price, exit_price, pl_pct, status, created_at=created_at_date)
+                    if event_rec and "id" in event_rec:
+                        update_telegram_delivery(supabase, event_rec["id"], success=delivered)
             except Exception as upd_err:
                 print(f"[EVALUATE] Close update failed for {symbol}: {upd_err}")
+                found_event = False
 
-        # ── SEND TELEGRAM NOTIFICATIONS ──
-        # FIX: Only send adjustment notifications (e.g. "target raised") if we are
-        # NOT closing the position in the same run. Sending both is contradictory.
-        if not found_event:
+        # ── SEND TELEGRAM NOTIFICATIONS FOR ADJUSTMENTS ──
+        # FIX: Only send adjustment notifications (e.g. "target raised") if we did
+        # NOT close the position in the same run.
+        if not found_event and new_adjustments:
+            from api.recommendation_events import record_event, update_telegram_delivery, event_values
             for adj in new_adjustments:
-                _send_telegram_adjustment(symbol, exchange, adj)
-
-        if found_event:
-            _send_telegram_exit(symbol, exchange, entry_price, exit_price, pl_pct, status, created_at=created_at_date)
+                event_rec = record_event(
+                    supabase,
+                    rec["id"],
+                    "target_or_stop_adjusted",
+                    old_values=event_values(rec),
+                    new_values=update_data,
+                    price_at_event=latest_close,
+                )
+                delivered = _send_telegram_adjustment(symbol, exchange, adj)
+                if event_rec and "id" in event_rec:
+                    update_telegram_delivery(supabase, event_rec["id"], success=delivered)
 
         print(f"[EVALUATE] {symbol}: status={status}, return={pl_pct:.2f}%, trend={trend_strength}, adjustments={len(new_adjustments)}")
 

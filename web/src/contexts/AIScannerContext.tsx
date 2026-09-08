@@ -821,15 +821,25 @@ export const AIScannerProvider = ({ children }: { children: ReactNode }) => {
         setRecsLoading(true);
         setRecsError(null);
         try {
-            let query = supabase.from("scan_results").select(
+            let query = supabase.from(isLandingPage ? "current_public_recommendations" : "scan_results").select(
                 "id, batch_id, user_id, symbol, exchange, name, model_name, country, last_close, precision, signal, status, entry_price, target_price, stop_loss, risk_adjusted_return, is_public, created_at, updated_at, exit_price, profit_loss_pct, top_reasons, adjustments, features"
             );
             if (isLandingPage) {
                 query = query.eq("is_public", true);
             }
-            const { data: scanData, error: scanErr } = await query
+            let { data: scanData, error: scanErr } = await query
                 .order("created_at", { ascending: false })
                 .limit(200);
+
+            // The public view is created by the reconciliation migration. Keep
+            // older deployments usable while the migration is being applied.
+            if (scanErr && isLandingPage) {
+                const fallback = await supabase.from("scan_results").select(
+                    "id, batch_id, user_id, symbol, exchange, name, model_name, country, last_close, precision, signal, status, entry_price, target_price, stop_loss, risk_adjusted_return, is_public, created_at, updated_at, exit_price, profit_loss_pct, top_reasons, adjustments, features"
+                ).eq("is_public", true).order("created_at", { ascending: false }).limit(200);
+                scanData = fallback.data;
+                scanErr = fallback.error;
+            }
 
             if (scanErr) throw new Error(scanErr.message);
             if (!scanData || scanData.length === 0) {

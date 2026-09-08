@@ -15,6 +15,7 @@
  * Every function returns a plain object with `ok` + Arabic `message` so the
  * pipeline can hand it to the LLM or render it deterministically.
  */
+import { fetchLiveStockIndicators, isEgxSessionOpen } from "./live-stock-updater";
 
 export interface PortfolioPosition {
     id: string;
@@ -37,14 +38,16 @@ export interface PortfolioSnapshot {
         cost_basis: number | null;
         profit_pct: number | null;
         profit_value: number | null;
+        price_source?: "live" | "stock_prices" | "unavailable";
+        price_updated_at?: string | null;
     }>;
     cash_balance: number;
     totals: {
         positions_count: number;
-        cost_basis: number;
+        cost_basis: number | null;
         market_value: number;
-        profit_value: number;
-        profit_pct: number;
+        profit_value: number | null;
+        profit_pct: number | null;
         equity: number;
     };
     analysis?: {
@@ -54,6 +57,28 @@ export interface PortfolioSnapshot {
         diversification: "منخفض" | "متوسط" | "جيد";
         suggestions: string[];
     };
+}
+
+const FREE_PORTFOLIO_LIMIT = 7;
+
+async function hasActiveProPlan(supabase: any, userId: string): Promise<boolean> {
+    try {
+        const { data } = await supabase.from("subscriptions").select("plan_id,status").eq("user_id", userId).limit(10);
+        return (data || []).some((row: any) => String(row.plan_id || "").toLowerCase() === "pro" && ["active", "trialing"].includes(String(row.status || "").toLowerCase()));
+    } catch {
+        return false;
+    }
+}
+
+async function canAddPortfolioPositions(supabase: any, userId: string, additional: number): Promise<{ ok: boolean; message?: string }> {
+    if (await hasActiveProPlan(supabase, userId)) return { ok: true };
+    const { data, error } = await supabase.from("positions").select("symbol").eq("user_id", userId).eq("status", "open");
+    if (error) return { ok: false, message: "تعذر التحقق من حد الخطة المجانية. حاول مرة أخرى." };
+    const current = new Set((data || []).map((row: any) => String(row.symbol || "").toUpperCase())).size;
+    if (current + additional > FREE_PORTFOLIO_LIMIT) {
+        return { ok: false, message: `الخطة المجانية تسمح بحد أقصى ${FREE_PORTFOLIO_LIMIT} أسهم مختلفة في المحفظة. احذف مركزاً أو قم بالترقية لإضافة أسهم أكثر.` };
+    }
+    return { ok: true };
 }
 
 const num = (value: unknown): number | null => {
@@ -215,23 +240,33 @@ export async function getPortfolioSnapshot(supabase: any, userId: string): Promi
         }
     }
 
+    const liveSession = isEgxSessionOpen();
+    const liveResults = liveSession
+        ? await Promise.all(positions.map(async (pos) => [pos.symbol, await fetchLiveStockIndicators(pos.symbol, supabase)] as const))
+        : [];
+    const liveBySymbol = new Map(liveResults);
     const enriched: PortfolioSnapshot["positions"] = [];
     for (const pos of positions) {
-        const lastPrice = latestPrices.get(pos.symbol) ?? null;
+        const live = liveBySymbol.get(pos.symbol);
+        const lastPrice = live?.success && live.data?.close ? live.data.close : (latestPrices.get(pos.symbol) ?? null);
 
         const qty = pos.quantity;
         const entry = pos.entry_price;
-        const costBasis = qty !== null && entry !== null ? qty * entry : null;
+        // Zero/negative entry prices are legacy incomplete records, not a free
+        // purchase. Keep market value visible but do not fabricate cost/profit.
+        const validEntry = entry !== null && entry > 0;
+        const costBasis = qty !== null && validEntry ? qty * entry : null;
         const marketValue = qty !== null && lastPrice !== null ? qty * lastPrice : null;
         const profitValue = costBasis !== null && marketValue !== null ? marketValue - costBasis : null;
         const profitPct = costBasis && costBasis > 0 && profitValue !== null ? (profitValue / costBasis) * 100 : null;
 
-        enriched.push({ ...pos, last_price: lastPrice, market_value: marketValue, cost_basis: costBasis, profit_pct: profitPct, profit_value: profitValue });
+        enriched.push({ ...pos, last_price: lastPrice, market_value: marketValue, cost_basis: costBasis, profit_pct: profitPct, profit_value: profitValue, price_source: live?.success ? "live" : lastPrice !== null ? "stock_prices" : "unavailable", price_updated_at: live?.data?.updated_at || null });
     }
 
-    const totalCost = enriched.reduce((sum, p) => sum + (p.cost_basis || 0), 0);
+    const hasUnknownCost = enriched.some((p) => p.cost_basis === null);
+    const totalCost = hasUnknownCost ? null : enriched.reduce((sum, p) => sum + (p.cost_basis || 0), 0);
     const totalValue = enriched.reduce((sum, p) => sum + (p.market_value || 0), 0);
-    const totalProfit = totalValue - totalCost;
+    const totalProfit = totalCost === null ? null : totalValue - totalCost;
     const equity = totalValue + cash;
     const topPosition = [...enriched].sort((a, b) => (b.market_value || 0) - (a.market_value || 0))[0];
     const topPositionPct = equity > 0 ? ((topPosition?.market_value || 0) / equity) * 100 : 0;
@@ -254,7 +289,7 @@ export async function getPortfolioSnapshot(supabase: any, userId: string): Promi
             cost_basis: totalCost,
             market_value: totalValue,
             profit_value: totalProfit,
-            profit_pct: totalCost > 0 ? (totalProfit / totalCost) * 100 : 0,
+            profit_pct: totalCost && totalCost > 0 && totalProfit !== null ? (totalProfit / totalCost) * 100 : null,
             equity: totalValue + cash,
         },
         analysis: {
@@ -287,6 +322,10 @@ export async function addPortfolioPosition(
     }
 
     const existing = (await fetchOpenPositions(supabase, userId)).find((p) => p.symbol === sym);
+    if (!existing) {
+        const capacity = await canAddPortfolioPositions(supabase, userId, 1);
+        if (!capacity.ok) return { ok: false, message: capacity.message || "تجاوزت حد المحفظة المجانية." };
+    }
     const name = await fetchStockName(supabase, sym);
 
     if (existing) {
@@ -508,6 +547,10 @@ export async function replacePortfolioFromImage(
 ): Promise<{ ok: boolean; message: string }> {
     if (!items || items.length === 0) {
         return { ok: false, message: "مفيش أسهم واضحة في الصورة." };
+    }
+    const uniqueIncoming = new Set(items.map(item => String(item.symbol || "").trim().toUpperCase()).filter(Boolean));
+    if (!(await hasActiveProPlan(supabase, userId)) && uniqueIncoming.size > FREE_PORTFOLIO_LIMIT) {
+        return { ok: false, message: `الخطة المجانية تسمح بحد أقصى ${FREE_PORTFOLIO_LIMIT} أسهم مختلفة في المحفظة. الصورة تحتوي على ${uniqueIncoming.size} أسهماً.` };
     }
 
     // Close all current open positions

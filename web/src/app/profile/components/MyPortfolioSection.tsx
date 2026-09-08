@@ -35,6 +35,8 @@ type Snapshot = {
         equity: number;
     };
     market_symbols?: Array<{ symbol: string; name: string | null }>;
+    portfolio_limit?: number | null;
+    is_pro?: boolean;
 };
 
 const money = (v: number | null | undefined, digits = 2) => {
@@ -134,6 +136,10 @@ export default function MyPortfolioSection({ onPortfolioUpdated }: { onPortfolio
         const exactMatch = symbolList.find((s) => s.symbol === addSymbol.trim().toUpperCase());
         if (!exactMatch) {
             toast.error(isAr ? `الرمز ${addSymbol} مش موجود في البورصة — اختاره من القائمة` : `${addSymbol} is not listed on EGX — pick from the list`);
+            return;
+        }
+        if (snapshot?.portfolio_limit !== null && snapshot?.portfolio_limit !== undefined && !positions.some((p) => p.symbol === exactMatch.symbol) && positions.length >= snapshot.portfolio_limit) {
+            toast.error(isAr ? `الخطة المجانية تسمح بحد أقصى ${snapshot.portfolio_limit} أسهم مختلفة.` : `The free plan allows up to ${snapshot.portfolio_limit} different stocks.`);
             return;
         }
         const price = addPrice.trim() ? parseFloat(addPrice) : null;

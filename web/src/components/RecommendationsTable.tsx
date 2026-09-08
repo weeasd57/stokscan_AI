@@ -805,9 +805,13 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
             }
         }
 
-        const risk = entryPrice && stopLoss ? Math.abs(entryPrice - stopLoss) : 0;
+        const isTrailingStop = Boolean(entryPrice && stopLoss && stopLoss >= entryPrice);
+        const risk = entryPrice && stopLoss 
+            ? (isTrailingStop ? Math.max(entryPrice * 0.08, 0.01) : Math.max(entryPrice - stopLoss, 0.01))
+            : (entryPrice ? entryPrice * 0.08 : 0);
         const reward = entryPrice && targetPrice ? Math.abs(targetPrice - entryPrice) : 0;
-        const rrRatio = risk > 0 ? (reward / risk) : 0;
+        const rawRr = risk > 0 ? (reward / risk) : 0;
+        const rrRatio = Math.min(rawRr, 8.5);
         const potReturn = currentPrice && targetPrice ? ((targetPrice - currentPrice) / currentPrice) * 100 : 0;
         const changePct = row.change_pct ?? null;
         const lastUpdated = row.updated_at || row.created_at || null;
@@ -980,8 +984,8 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                         <span className={`font-black text-emerald-400`}>{targetPrice ? targetPrice.toFixed(2) : "—"}</span>
                                     </div>
                                     <div className={`flex justify-between gap-4`}>
-                                        <span className={`${d("text-zinc-400", "text-zinc-600")}`}>{isAr ? "وقف الخسارة" : "Stop Loss"}</span>
-                                        <span className={`font-black text-rose-400`}>{stopLoss ? stopLoss.toFixed(2) : "—"}</span>
+                                        <span className={`${d("text-zinc-400", "text-zinc-600")}`}>{isTrailingStop ? (isAr ? "وقف الأرباح" : "Trailing Stop") : (isAr ? "وقف الخسارة" : "Stop Loss")}</span>
+                                        <span className={`font-black ${isTrailingStop ? "text-emerald-400" : "text-rose-400"}`}>{stopLoss ? stopLoss.toFixed(2) : "—"}</span>
                                     </div>
                                     {hasTarget2 && (
                                         <div className="flex justify-between gap-4">
@@ -1178,10 +1182,10 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                         color: "text-amber-400"
                                     }] : []),
                                     { 
-                                        label: isAr ? "وقف الخسارة" : "Stop Loss", 
-                                        subLabel: hasAtr ? (isAr ? "دخول - 1.0x ATR" : "Entry - 1.0x ATR") : undefined,
+                                        label: isTrailingStop ? (isAr ? "وقف حماية الأرباح" : "Trailing Stop") : (isAr ? "وقف الخسارة" : "Stop Loss"), 
+                                        subLabel: isTrailingStop ? (isAr ? "أرباح مؤمنة أعلى من الدخول" : "Profits locked above entry") : (hasAtr ? (isAr ? "دخول - 1.0x ATR" : "Entry - 1.0x ATR") : undefined),
                                         value: stopLoss ? `${stopLoss.toFixed(2)} EGP` : "—", 
-                                        color: "text-rose-400" 
+                                        color: isTrailingStop ? "text-emerald-400" : "text-rose-400" 
                                     },
                                     ...(hasAtr ? [{
                                          label: isAr ? "متوسط المدى الحقيقي (ATR)" : "Average True Range (ATR)",

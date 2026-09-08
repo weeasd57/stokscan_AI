@@ -7,8 +7,8 @@ export const dynamic = "force-dynamic";
 
 export async function GET(_req: NextRequest) {
   try {
-    // const auth = await requireAdmin(_req);
-    // if (auth instanceof Response) return auth;
+    const auth = await requireAdmin(_req);
+    if (auth instanceof Response) return auth;
     const supabase = getSupabaseClient();
 
     // Fetch all profiles to compute analytics
