@@ -376,6 +376,7 @@ export async function POST(req: NextRequest) {
         }
 
         const keysToTry = [
+            process.env.AGENT_ROUTER_API_KEY,
             process.env.OPENROUTER_API_KEY,
             ...getNvidiaApiKeys()
         ].filter((k): k is string => Boolean(k?.trim()));
