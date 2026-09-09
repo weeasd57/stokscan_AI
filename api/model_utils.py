@@ -22,6 +22,31 @@ import numpy as np
 # Path safety
 # ---------------------------------------------------------------------------
 
+# Git-LFS stores large binaries as a small pointer text file. When a repo is
+# cloned without LFS smudge (or LFS fails), pickling that file raises
+# "invalid load key, 'v'" because the content is "version https://git-lfs...".
+_GIT_LFS_POINTER_PREFIX = "version https://git-lfs.github.com/spec/v1"
+
+
+def is_git_lfs_pointer(path_or_fileobj) -> bool:
+    """Return True when a model file is an unresolved git-lfs pointer.
+
+    Reading a small prefix is enough to detect pointer files cheaply without
+    loading a potentially large artifact into memory first.
+    """
+    try:
+        if hasattr(path_or_fileobj, "read"):
+            pos = path_or_fileobj.tell()
+            prefix = path_or_fileobj.read(64)
+            path_or_fileobj.seek(pos)
+        else:
+            with open(path_or_fileobj, "rb") as f:
+                prefix = f.read(64)
+        return prefix.startswith(b"version https://git-lfs.github.com/spec/v1")
+    except Exception:
+        return False
+
+
 def safe_model_path(model_name: str, models_dir: str, allowed_ext=(".pkl", ".bin")) -> str:
     """
     Resolve a user-supplied model name to a path strictly inside models_dir.

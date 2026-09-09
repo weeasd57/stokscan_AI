@@ -16,6 +16,10 @@ sys.path.insert(0, project_root)
 def test_telegram_bot():
     """Test basic Telegram bot functionality."""
     try:
+        from api.recommendation_events import telegram_recommendations_read_only
+        if telegram_recommendations_read_only():
+            print("ℹ️ Telegram is read-only/disabled; no test message was sent")
+            return True
         from api.telegram_bot import get_telegram_bot
         bot = get_telegram_bot()
         

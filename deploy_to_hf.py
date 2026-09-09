@@ -30,6 +30,19 @@ REPO_ID  = "weeasdwee/AI_BOT"
 REPO_TYPE = "space"
 BASE_DIR  = os.path.dirname(os.path.abspath(__file__))
 
+# Model artifacts that MUST be present on the Space for the daily job to
+# generate recommendations. They are gitignored (api/models/*.bin,*.pkl) so
+# git push does NOT carry them, and an unresolved git-lfs pointer breaks
+# pickle with "invalid load key, 'v'". This list ensures they are uploaded
+# explicitly with the rest of the backend code every deploy.
+MODEL_FILES = [
+    "api/models/model_EGX.bin",
+    "api/models/model_EGX.pkl",
+    "api/models/KING.bin",
+    "api/models/KING.pkl",
+    "api/models/The_Council_Validator.bin",
+]
+
 # ─── الملفات المراد رفعها (تلقائياً من Git) ──────────────────────────────────
 import subprocess
 
@@ -98,6 +111,12 @@ FILES_TO_UPLOAD = get_git_changes()
 if not FILES_TO_UPLOAD:
     FILES_TO_UPLOAD = HARDCODED_FILES
 
+# Always include existing model artifacts so the daily job can load them.
+# They are gitignored and therefore never reach the Space via git push.
+for model_rel in MODEL_FILES:
+    if os.path.isfile(os.path.join(BASE_DIR, model_rel.replace("/", os.sep))) and model_rel not in FILES_TO_UPLOAD:
+        FILES_TO_UPLOAD.append(model_rel)
+
 if not HF_TOKEN:
     raise SystemExit("❌ Set HF_TOKEN environment variable first:\n   $env:HF_TOKEN='hf_your_token_here'")
 
@@ -129,7 +148,9 @@ if operations:
             repo_type=REPO_TYPE,
             operations=operations,
             commit_message="deploy: update backend code and binary models",
-            create_pr=True
+            # Default to direct commit to the main branch so changes go live
+            # immediately. Set DEPLOY_AS_PR=1 to create a review PR instead.
+            create_pr=(os.getenv("DEPLOY_AS_PR", "0").strip() in {"1", "true", "yes"}),
         )
         print("✅ Atomic deployment successful! Only 1 commit created.")
     except Exception as e:

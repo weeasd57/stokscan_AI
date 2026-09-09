@@ -85,6 +85,24 @@ symbols_data/*.json
 # Local tool state (never commit)
 .gemini/
 
+# Local dev scratch, debug and inspection scripts (never commit)
+check_*.py
+fix_supabase_columns.py
+get_supabase_keys.py
+run_supabase_migration.py
+scratch_*.py
+test_admin_api.py
+test_chatbot_comprehensive.py
+test_failed_categories.py
+test_single_request.py
+test_results_*.json
+test_token.txt
+img*.jpg
+supabase/.temp/
+web/Continue
+scripts/check_*.py
+scripts/test_*.py
+
 # Temp and Datasets
 threshold_calibration_*.csv
 web/scripts/scratch*

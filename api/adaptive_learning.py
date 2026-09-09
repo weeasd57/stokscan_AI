@@ -2,11 +2,12 @@ import os
 import json
 import numpy as np
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import joblib
 import lightgbm as lgb
 from api import stock_ai
 from api.stock_ai import _init_supabase
+from api.recommendation_events import telegram_recommendations_read_only
 
 class SupabaseWrapper:
     def __getattr__(self, name):
@@ -314,6 +315,7 @@ def update_actuals(exchange="EGX", look_forward_days=20, target_pct=2.0, stop_lo
                     pass
                 
                 is_win = 0
+                exit_price = None
                 entry_idx = loc + 1
                 atr_at_entry = float(atr_series.iloc[entry_idx]) if atr_series is not None and entry_idx < len(atr_series) and np.isfinite(atr_series.iloc[entry_idx]) else 0
                 
@@ -329,21 +331,60 @@ def update_actuals(exchange="EGX", look_forward_days=20, target_pct=2.0, stop_lo
                     # Stop loss hit?
                     if row['low'] <= sl_price:
                         is_win = 0
+                        exit_price = sl_price
                         break
                     # Target hit?
                     if row['high'] >= tp_price:
                         is_win = 1
+                        exit_price = tp_price
                         break
                 
+                exit_price = exit_price if exit_price is not None else float(df.iloc[loc + 1]['open'])
+                status_val = "win" if is_win else "loss"
+                pl_pct = ((exit_price / entry_price) - 1) * 100.0 if entry_price else 0.0
+
                 # Update DB
-                supabase.table("scan_results")\
+                update_result = supabase.table("scan_results")\
                     .update({
-                        "status": "win" if is_win else "loss",
-                        "actual_target": is_win
+                        "status": status_val,
+                        "exit_price": exit_price,
+                        "profit_loss_pct": round(pl_pct, 4),
+                        "actual_target": is_win,
+                        "updated_at": datetime.now(timezone.utc).isoformat(),
                     })\
                     .eq("id", pred['id'])\
+                    .eq("status", "open")\
                     .execute()
                 processed_count += 1
+
+                # Keep Telegram consistent with adaptive-verification closes so a
+                # trade shown as closed on the website is also announced there.
+                if getattr(update_result, "data", None) and not telegram_recommendations_read_only():
+                    try:
+                        from api.recommendation_events import record_event, update_telegram_delivery, event_values
+                        from api.daily_bot_run import _send_telegram_exit
+                        ev = record_event(
+                            supabase,
+                            pred['id'],
+                            "recommendation_closed",
+                            old_values=event_values({"symbol": pred.get("symbol"), "exchange": exchange, "status": "open"}),
+                            new_values={"status": status_val, "exit_price": exit_price, "profit_loss_pct": round(pl_pct, 4)},
+                            price_at_event=exit_price,
+                            source="adaptive_learning",
+                        )
+                        if ev and ev.get("id") and ev.get("telegram_status") == "pending":
+                            delivered = _send_telegram_exit(
+                                pred.get("symbol", ""),
+                                exchange,
+                                entry_price,
+                                exit_price,
+                                pl_pct,
+                                status_val,
+                                created_at=str(pred.get("created_at") or "")[:10],
+                            )
+                            update_telegram_delivery(supabase, ev["id"], success=delivered)
+                    except Exception as ev_err:
+                        _log(f"Telegram close sync failed for {pred.get('symbol')}: {ev_err}", log_cb)
                 
             except Exception:
                 continue

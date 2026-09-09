@@ -92,7 +92,13 @@ from api.health import router as health_router
 
 
 
-app = FastAPI(title="Artoro API", version="1.0.0")
+app = FastAPI(
+    title="Artoro API",
+    version="1.0.0",
+    docs_url=None if os.getenv("DISABLE_PUBLIC_DOCS", "true").strip().lower() not in {"0", "false", "no", "off"} else "/docs",
+    redoc_url=None if os.getenv("DISABLE_PUBLIC_DOCS", "true").strip().lower() not in {"0", "false", "no", "off"} else "/redoc",
+    openapi_url=None if os.getenv("DISABLE_PUBLIC_DOCS", "true").strip().lower() not in {"0", "false", "no", "off"} else "/openapi.json",
+)
 
 
 def require_internal_admin(request: Request) -> None:
@@ -253,7 +259,7 @@ async def startup_event():
 
                 )
 
-                print(f"[SUPPORT_CHAT] Webhook set response: {r.json()}")
+                print("[SUPPORT_CHAT] Webhook set response: OK")
 
             except Exception as e:
 
@@ -291,9 +297,22 @@ async def startup_event():
 
 
 
-    # Daily jobs are not started by the API server lifecycle. A dedicated
-    # worker/process may start the scheduler explicitly; its schedule comes
-    # from Supabase market_cache.daily_job_schedule.
+    # Daily Job Scheduler — starts the daily bot job once per day at the
+    # configured time. Its schedule comes from Supabase market_cache.daily_job_schedule
+    # and it is kept separate from the always-on intraday downloader so one
+    # worker failure does not block the other.
+
+    try:
+
+        from api.daily_job_scheduler import start_daily_job_scheduler
+
+        start_daily_job_scheduler()
+        print("DEBUG: Daily Job Scheduler started successfully.")
+
+    except Exception as e:
+
+        print(f"DEBUG ERROR: Failed to start Daily Job Scheduler: {e}")
+
 
 
 
@@ -395,7 +414,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
 
 
 
-from api.routers import admin, bot, payment, scan_ai, scan_ai_fast, scan_tech, similarity_admin, support, chatbot
+from api.routers import admin, bot, payment, scan_ai, scan_ai_fast, scan_tech, similarity_admin, support, chatbot,kashier
 
 
 
@@ -412,6 +431,8 @@ app.include_router(bot.router, prefix="/ai_bot")
 app.include_router(bot.router, prefix="/bot")  # Compatibility Alias
 
 app.include_router(payment.router)
+
+app.include_router(kashier.router)
 
 app.include_router(similarity_admin.router)
 
@@ -628,15 +649,13 @@ async def tg_set_webhook_from_local(request: Request):
 
                 "ok": support_ok,
 
-                "webhook": support_hook,
+                "webhook": f"{webhook_url.rstrip('/')}/support-tg-webhook/<redacted>",
 
                 "detail": support_detail
 
             }
 
         }
-
-
 
     hook = f"{webhook_url.rstrip('/')}/tg-webhook/{bridge.token}"
 
@@ -662,9 +681,9 @@ async def tg_set_webhook_from_local(request: Request):
 
             return {
 
-                "main_bot": {"ok": True, "webhook": hook, "message": "Webhook set successfully!"},
+                "main_bot": {"ok": True, "webhook": f"{webhook_url.rstrip('/')}/tg-webhook/<redacted>", "message": "Webhook set successfully!"},
 
-                "support_bot": {"ok": support_ok, "webhook": support_hook, "detail": support_detail}
+                "support_bot": {"ok": support_ok, "webhook": f"{webhook_url.rstrip('/')}/support-tg-webhook/<redacted>", "detail": support_detail}
 
             }
 
@@ -672,15 +691,13 @@ async def tg_set_webhook_from_local(request: Request):
 
             "main_bot": {"ok": False, "detail": data},
 
-            "support_bot": {"ok": support_ok, "webhook": support_hook, "detail": support_detail}
+            "support_bot": {"ok": support_ok, "webhook": f"{webhook_url.rstrip('/')}/support-tg-webhook/<redacted>", "detail": support_detail}
 
         }
 
     except Exception as e:
 
         raise HTTPException(status_code=502, detail=str(e))
-
-
 
 
 
@@ -1406,6 +1423,26 @@ def root():
 
     """Simple root page to solve 404 issue from UptimeRobot"""
 
+    docs_enabled = os.getenv("DISABLE_PUBLIC_DOCS", "true").strip().lower() in {"0", "false", "no", "off"}
+
+    endpoints = {
+
+        "health": "/health",
+
+        "predict": "/predict",
+
+        "bot_status": "/bot/status",
+
+        "bot_performance": "/bot/performance",
+
+        "admin": "/admin",
+
+    }
+
+    if docs_enabled:
+
+        endpoints["docs"] = "/docs"
+
     return {
 
         "app": "Artoro API",
@@ -1414,23 +1451,9 @@ def root():
 
         "status": "running",
 
-        "endpoints": {
+        "endpoints": endpoints,
 
-            "health": "/health",
-
-            "predict": "/predict",
-
-            "bot_status": "/bot/status",
-
-            "bot_performance": "/bot/performance",
-
-            "admin": "/admin",
-
-            "docs": "/docs",
-
-        },
-
-        "message": "Welcome to Artoro API! Visit /docs for API documentation.",
+        "message": "Welcome to Artoro API!" + (" Visit /docs for API documentation." if docs_enabled else ""),
 
     }
 

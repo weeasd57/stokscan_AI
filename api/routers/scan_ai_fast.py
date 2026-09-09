@@ -162,6 +162,23 @@ def _load_model(model_name: str, return_raw_prob: bool = False):
 
     if not os.path.exists(model_path):
         raise FileNotFoundError(f"Model file not found: {model_path}")
+
+    # Guard against git-lfs pointer files (missing large binary LFS objects).
+    # These deserialize as a small text pointer and break pickle with
+    # "invalid load key, 'v'" — surface the real cause instead.
+    try:
+        from api.model_utils import is_git_lfs_pointer
+        if is_git_lfs_pointer(model_path):
+            raise FileNotFoundError(
+                f"Model file is an unresolved git-lfs pointer: {model_path}. "
+                "Re-upload the real .bin/.pkl artifact (or run `git lfs pull`) "
+                "before running the scan."
+            )
+    except FileNotFoundError:
+        raise  # do not swallow the unresolved-LFS error we intentionally raised
+    except Exception:
+        pass  # fall through to pickle on non-lfs related issues
+
     with open(model_path, "rb") as f:
         artifact = pickle.load(f)
 
@@ -1029,9 +1046,12 @@ def evaluate_scan(batch_id: str):
 
         updated_count = 0
         for r in results:
-            # We skip results that are already closed (win/loss) if they have an exit_price
-            # However, the user might want a re-evaluation if data changed, so we'll re-evaluate all
-            
+            # Skip results already closed. Re-evaluating a win/loss row would
+            # re-stamp updated_at (pulling it back into the 7-day weekly report)
+            # and re-emit a duplicate Telegram exit notification.
+            if r.get("status") in ("win", "loss"):
+                continue
+
             symbol = r["symbol"]
             exchange = r.get("exchange", "EGX")
             entry_price = float(r["entry_price"]) if r.get("entry_price") else float(r["last_close"])
@@ -1111,6 +1131,41 @@ def evaluate_scan(batch_id: str):
                 "updated_at": datetime.datetime.utcnow().isoformat()
             }).eq("id", r["id"]).execute()
             updated_count += 1
+
+            # Keep Telegram in lockstep with website-initiated evaluations.
+            # Previously this endpoint closed scan_results silently, so the site
+            # showed a closed trade while Telegram never emitted an exit event.
+            if status in ("win", "loss"):
+                try:
+                    from api.recommendation_events import record_event, update_telegram_delivery, event_values
+                    from api.daily_bot_run import _send_telegram_exit, _telegram_recommendation_writes_enabled
+
+                    event_rec = record_event(
+                        sb,
+                        r["id"],
+                        "recommendation_closed",
+                        old_values=event_values({**r, "status": "open"}),
+                        new_values={
+                            "status": status,
+                            "exit_price": exit_price,
+                            "profit_loss_pct": round(pl_pct, 4),
+                        },
+                        price_at_event=exit_price,
+                        source="scan_evaluate_endpoint",
+                    )
+                    if event_rec and event_rec.get("id") and event_rec.get("telegram_status") == "pending" and _telegram_recommendation_writes_enabled():
+                        delivered = _send_telegram_exit(
+                            symbol,
+                            exchange,
+                            entry_price,
+                            exit_price,
+                            pl_pct,
+                            status,
+                            created_at=str(r.get("created_at") or "")[:10],
+                        )
+                        update_telegram_delivery(sb, event_rec["id"], success=delivered)
+                except Exception as event_err:
+                    print(f"Evaluation Telegram sync failed for {symbol}: {event_err}")
 
         return {"count": updated_count, "message": f"Successfully evaluated {updated_count} results chronologically."}
     except Exception as e:

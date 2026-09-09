@@ -30,6 +30,7 @@ def _default_state() -> Dict[str, Any]:
         "provider": "tradingview",
         "sync_days": 180,
         "failed_reasons": {},
+        "symbol_failures": {},
         "last_batch_logs": [],
         "catchup_status": "idle",
         "catchup_last_run": None,
@@ -268,15 +269,25 @@ def _build_sync_queue(
     failed: set,
     catchup_only: bool = False,
     last_close: Optional[dt.date] = None,
+    symbol_failures: Optional[Dict[str, dict]] = None,
 ) -> List[str]:
+    symbol_failures = symbol_failures or {}
+    now_ts = time.time()
+
+    def retry_allowed(sym: str) -> bool:
+        meta = symbol_failures.get(sym) or {}
+        if meta.get("terminal"):
+            return False
+        return float(meta.get("next_retry_at") or 0) <= now_ts
+
     db_completed = set(stats_map.keys())
-    missing = [sym for sym in db_symbols if sym not in db_completed and sym not in failed]
+    missing = [sym for sym in db_symbols if sym not in db_completed and retry_allowed(sym)]
 
     if catchup_only and last_close:
         outdated = [
             sym
             for sym in db_symbols
-            if sym not in failed and symbol_needs_catchup(sym, stats_map, last_close)
+            if retry_allowed(sym) and symbol_needs_catchup(sym, stats_map, last_close)
         ]
         outdated.sort(
             key=lambda s: _parse_last_ts(stats_map.get(s)) or dt.datetime.min.replace(tzinfo=dt.timezone.utc)
@@ -286,11 +297,20 @@ def _build_sync_queue(
     if missing:
         return missing
 
+    if not catchup_only:
+        # Do not continuously re-fetch already-synced symbols. Catch-up mode
+        # is the only path allowed to revisit current-session stale rows.
+        return []
+
     def get_last_ts(sym):
         ts = _parse_last_ts(stats_map.get(sym))
         return ts or dt.datetime.min.replace(tzinfo=dt.timezone.utc)
 
-    completed_syms = [sym for sym in db_symbols if sym in db_completed]
+    completed_syms = [
+        sym for sym in db_symbols
+        if sym in db_completed and retry_allowed(sym)
+        and (not last_close or symbol_needs_catchup(sym, stats_map, last_close))
+    ]
     completed_syms.sort(key=get_last_ts)
     return completed_syms
 
@@ -303,13 +323,14 @@ def _process_symbol_batch(
     last_close: dt.date,
     smart_dates: bool,
     fallback_days: int,
-) -> Tuple[List[str], set, set, Dict[str, str]]:
+) -> Tuple[List[str], set, set, Dict[str, str], Dict[str, dict]]:
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
     processed_logs: List[str] = []
     completed = set(stats_map.keys())
     failed: set = set()
     failed_reasons: Dict[str, str] = {}
+    failure_meta: Dict[str, dict] = {}
 
     def sync_one(sym):
         start_date, end_date = compute_symbol_date_range(
@@ -329,17 +350,44 @@ def _process_symbol_batch(
                     completed.add(sym)
                     failed.discard(sym)
                     failed_reasons.pop(sym, None)
+                    failure_meta[sym] = {"attempts": 0, "terminal": False, "next_retry_at": 0, "kind": "success"}
                     processed_logs.append(f"{sym}: Success - {msg}")
                 else:
                     failed.add(sym)
-                    failed_reasons[sym] = msg
+                    failed_reasons[sym] = msg[:500]
+                    lower = msg.lower()
+                    is_no_data = "no data found" in lower or "no new data" in lower
+                    is_timeout = "timeout" in lower or "timed out" in lower or "gateway" in lower
+                    failure_meta[sym] = {
+                        "reason": msg[:500],
+                        "kind": "no_data" if is_no_data else ("timeout" if is_timeout else "error"),
+                    }
                     processed_logs.append(f"{sym}: Failed - {msg}")
             except Exception as e:
                 failed.add(sym)
                 failed_reasons[sym] = str(e)
+                failure_meta[sym] = {"reason": str(e)[:500], "kind": "error"}
                 processed_logs.append(f"{sym}: Exception - {e}")
 
-    return processed_logs, completed, failed, failed_reasons
+    return processed_logs, completed, failed, failed_reasons, failure_meta
+
+
+def _apply_failure_backoff(meta: Dict[str, dict], failures: Dict[str, dict]) -> None:
+    """Persist bounded per-symbol retry backoff; no-data is terminal after 3 tries."""
+    now = time.time()
+    for sym, failure in failures.items():
+        previous = meta.get(sym) or {}
+        attempts = int(previous.get("attempts") or 0) + 1
+        kind = failure.get("kind", "error")
+        max_attempts = 3 if kind == "no_data" else 6
+        delay = min(3600, 60 * (2 ** min(attempts - 1, 5)))
+        meta[sym] = {
+            "attempts": attempts,
+            "kind": kind,
+            "reason": failure.get("reason", "")[:500],
+            "next_retry_at": now + delay,
+            "terminal": attempts >= max_attempts,
+        }
 
 
 def run_intraday_sync_batch() -> Dict[str, Any]:
@@ -358,10 +406,11 @@ def run_intraday_sync_batch() -> Dict[str, Any]:
     fallback_days = int(state.get("sync_days", 180))
     failed = set(state.get("failed_symbols", []))
     failed_reasons = dict(state.get("failed_reasons", {}))
+    symbol_failures = dict(state.get("symbol_failures", {}))
 
     stats_map = get_intraday_stats_map(timeframe)
     last_close = get_last_market_close_date()
-    remaining = _build_sync_queue(db_symbols, stats_map, failed, catchup_only=False)
+    remaining = _build_sync_queue(db_symbols, stats_map, failed, catchup_only=False, symbol_failures=symbol_failures)
 
     if not remaining:
         state["status"] = "idle"
@@ -369,7 +418,7 @@ def run_intraday_sync_batch() -> Dict[str, Any]:
         return {"status": "idle", "message": "All symbols processed successfully! Sync completed."}
 
     batch = remaining[:batch_size]
-    processed_logs, completed, batch_failed, batch_failed_reasons = _process_symbol_batch(
+    processed_logs, completed, batch_failed, batch_failed_reasons, batch_failure_meta = _process_symbol_batch(
         batch,
         timeframe,
         provider,
@@ -381,11 +430,13 @@ def run_intraday_sync_batch() -> Dict[str, Any]:
 
     failed.update(batch_failed)
     failed_reasons.update(batch_failed_reasons)
+    _apply_failure_backoff(symbol_failures, batch_failure_meta)
 
     timestamp = dt.datetime.now().strftime("%I:%M:%S %p")
     state["completed_symbols"] = sorted(list(completed))
     state["failed_symbols"] = sorted(list(failed))
     state["failed_reasons"] = failed_reasons
+    state["symbol_failures"] = symbol_failures
     state["last_batch_logs"] = [f"[{timestamp}] {log}" for log in processed_logs]
     state["last_run"] = dt.datetime.now().isoformat()
     save_state(state)
@@ -396,7 +447,7 @@ def run_intraday_sync_batch() -> Dict[str, Any]:
         "completed_count": len(completed),
         "failed_count": len(failed),
         "total_count": len(db_symbols),
-        "remaining_count": len(remaining) - len(batch),
+        "remaining_count": len(_build_sync_queue(db_symbols, get_intraday_stats_map(timeframe), failed, symbol_failures=symbol_failures)),
         "provider": provider,
     }
 
@@ -416,11 +467,12 @@ def run_smart_catchup_batch() -> Dict[str, Any]:
     fallback_days = int(state.get("sync_days", 180))
     failed = set(state.get("failed_symbols", []))
     failed_reasons = dict(state.get("failed_reasons", {}))
+    symbol_failures = dict(state.get("symbol_failures", {}))
 
     stats_map = get_intraday_stats_map(timeframe)
     last_close = get_last_market_close_date()
     remaining = _build_sync_queue(
-        db_symbols, stats_map, failed, catchup_only=True, last_close=last_close
+        db_symbols, stats_map, failed, catchup_only=True, last_close=last_close, symbol_failures=symbol_failures
     )
 
     total_needing = len(remaining)
@@ -430,7 +482,7 @@ def run_smart_catchup_batch() -> Dict[str, Any]:
         return {"done": True, "message": "All symbols are up to date.", "remaining": 0}
 
     batch = remaining[:batch_size]
-    processed_logs, completed, batch_failed, batch_failed_reasons = _process_symbol_batch(
+    processed_logs, completed, batch_failed, batch_failed_reasons, batch_failure_meta = _process_symbol_batch(
         batch,
         timeframe,
         provider,
@@ -442,11 +494,13 @@ def run_smart_catchup_batch() -> Dict[str, Any]:
 
     failed.update(batch_failed)
     failed_reasons.update(batch_failed_reasons)
+    _apply_failure_backoff(symbol_failures, batch_failure_meta)
 
     timestamp = dt.datetime.now().strftime("%I:%M:%S %p")
     state["completed_symbols"] = sorted(list(completed))
     state["failed_symbols"] = sorted(list(failed))
     state["failed_reasons"] = failed_reasons
+    state["symbol_failures"] = symbol_failures
     state["last_batch_logs"] = [f"[{timestamp}] [CATCHUP] {log}" for log in processed_logs]
     state["last_run"] = dt.datetime.now().isoformat()
     state["catchup_last_run"] = state["last_run"]

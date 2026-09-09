@@ -16,6 +16,17 @@ from api.opportunity_analyzer import OpportunityAnalyzer
 router = APIRouter(prefix="/chatbot", tags=["chatbot"])
 
 
+def _public_telegram_link() -> str:
+    """Link returned in chatbot footers. Points to the old public channel while
+    the platform is free and only switches to the new group once billing
+    (PAYMENTS_ENABLED) is activated."""
+    try:
+        from api.plan_limits import telegram_public_link
+        return telegram_public_link()
+    except Exception:
+        return "https://t.me/egxbots/153"
+
+
 class ChatMessage(BaseModel):
     role: str  # "user" or "assistant"
     content: str
@@ -187,12 +198,12 @@ def generate_direct_response(user_query: str, tool_results: List[Dict]) -> str:
             response_parts.append(format_market_indices(tool_result))
     
     if not response_parts:
-        return "لا توجد بيانات متاحة حالياً.\n\n📢 [تابعنا على تليجرام](https://t.me/egxbots/153)"
+        return f"لا توجد بيانات متاحة حالياً.\n\n📢 [تابعنا على تليجرام]({_public_telegram_link()})"
     
     response_text = "\n\n".join(response_parts)
     # Don't add telegram link if already present in formatted responses
     if "📢 [تابعنا على تليجرام]" not in response_text:
-        response_text += "\n\n📢 [تابعنا على تليجرام](https://t.me/egxbots/153)"
+        response_text += f"\n\n📢 [تابعنا على تليجرام]({_public_telegram_link()})"
     return response_text
 
 
@@ -415,7 +426,7 @@ def format_single_stock_analysis(tool_result: Dict) -> str:
     source_label = "بيانات لحظية (Real-time)" if data_source == "realtime_api" else "بيانات من قاعدة البيانات (Supabase)"
     
     if not data:
-        return f"لا توجد بيانات لهذا السهم.\n\n📢 [تابعنا على تليجرام](https://t.me/egxbots/153)"
+        return f"لا توجد بيانات لهذا السهم.\n\n📢 [تابعنا على تليجرام]({_public_telegram_link()})"
     
     symbol = data.get("symbol", "UNKNOWN")
     stock_name = data.get("name") or ""
@@ -476,7 +487,7 @@ def format_single_stock_analysis(tool_result: Dict) -> str:
     lines.append("")
     lines.append("ℹ️ *التحليل مبني على البيانات الفنية المتاحة فقط ولا يشكل توصية بالشراء أو البيع.*")
     lines.append("")
-    lines.append("📢 [تابعنا على تليجرام](https://t.me/egxbots/153)")
+    lines.append(f"📢 [تابعنا على تليجرام]({_public_telegram_link()})")
     
     return "\n".join(lines)
 
@@ -493,7 +504,7 @@ def format_weekly_opportunities(tool_result: Dict) -> str:
     
     if not data:
         message = tool_result.get("message", "لا توجد فرص متاحة حالياً.")
-        return f"{message}\n\n📢 [تابعنا على تليجرام](https://t.me/egxbots/153)"
+        return f"{message}\n\n📢 [تابعنا على تليجرام]({_public_telegram_link()})"
     
     lines = [
         "📊 **أفضل الفرص المتاحة للأسبوع القادم**",
@@ -514,7 +525,7 @@ def format_weekly_opportunities(tool_result: Dict) -> str:
     
     lines.append("ℹ️ *الترتيب بناءً على نقاط الفرصة المحسوبة من المؤشرات الفنية.*")
     lines.append("")
-    lines.append("📢 [تابعنا على تليجرام](https://t.me/egxbots/153)")
+    lines.append(f"📢 [تابعنا على تليجرام]({_public_telegram_link()})")
     
     return "\n".join(lines)
 
@@ -607,7 +618,7 @@ def format_stock_comparison(tool_results: List[Dict]) -> str:
     lines.append("")
     lines.append("ℹ️ *الترتيب بناءً على التحليل الفني فقط - ليس توصية استثمارية*")
     lines.append("")
-    lines.append("📢 [تابعنا على تليجرام](https://t.me/egxbots/153)")
+    lines.append(f"📢 [تابعنا على تليجرام]({_public_telegram_link()})")
     
     return "\n".join(lines)
 
@@ -651,7 +662,7 @@ def format_below_midpoint_results(tool_result: Dict) -> str:
         lines.extend(format_stock_item(idx, stock))
         lines.append("")
     
-    lines.append("📢 [تابعنا على تليجرام](https://t.me/egxbots/153)")
+    lines.append(f"📢 [تابعنا على تليجرام]({_public_telegram_link()})")
     
     return "\n".join(lines)
 
@@ -673,7 +684,7 @@ def format_distribution_results(tool_result: Dict) -> str:
         lines.extend(format_stock_item(idx, stock))
         lines.append("")
     
-    lines.append("📢 [تابعنا على تليجرام](https://t.me/egxbots/153)")
+    lines.append(f"📢 [تابعنا على تليجرام]({_public_telegram_link()})")
     
     return "\n".join(lines)
 
@@ -685,7 +696,7 @@ def format_market_indices(tool_result: Dict) -> str:
     query_date = tool_result.get("query_date", "")
     
     if not data:
-        return f"{message or 'لا توجد بيانات للمؤشرات حالياً.'}\n\n(تاريخ البيانات: {query_date})\n\n📢 [تابعنا على تليجرام](https://t.me/egxbots/153)"
+        return f"{message or 'لا توجد بيانات للمؤشرات حالياً.'}\n\n(تاريخ البيانات: {query_date})\n\n📢 [تابعنا على تليجرام]({_public_telegram_link()})"
     
     lines = [
         "📈 **المؤشرات السوقية**",
@@ -705,7 +716,7 @@ def format_market_indices(tool_result: Dict) -> str:
         lines.append(f"  (آخر تحديث: {usd.get('date', 'N/A')})")
     
     lines.append("")
-    lines.append("📢 [تابعنا على تليجرام](https://t.me/egxbots/153)")
+    lines.append(f"📢 [تابعنا على تليجرام]({_public_telegram_link()})")
     
     return "\n".join(lines)
 
@@ -721,10 +732,10 @@ def format_telegram_link_response() -> str:
         "• تنبيهات السوق المباشرة",
         "• الأخبار العاجلة",
         "",
-        "🔗 [اضغط هنا للانضمام إلى القناة](https://t.me/egxbots/153)",
+        f"🔗 [اضغط هنا للانضمام إلى القناة]({_public_telegram_link()})",
         "",
         "أو قم بزيارة الرابط مباشرة:",
-        "https://t.me/egxbots/153"
+        _public_telegram_link()
     ]
     return "\n".join(lines)
 
@@ -764,7 +775,7 @@ def format_analytics_response(tool_result: Dict) -> str:
     
     lines.append("ℹ️ *البيانات مستندة إلى الاختبارات الخلفية والأداء المباشر الفعلي.*")
     lines.append("")
-    lines.append("📢 [تابعنا على تليجرام](https://t.me/egxbots/153)")
+    lines.append(f"📢 [تابعنا على تليجرام]({_public_telegram_link()})")
     
     return "\n".join(lines)
 

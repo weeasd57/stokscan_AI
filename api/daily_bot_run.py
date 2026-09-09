@@ -1111,9 +1111,10 @@ def _notify_central_telegram(message: str, service_type: str = "central"):
             print(f"[CENTRAL_NOTIFY] No Telegram bot instance found for {service_type}.")
             return
 
-        chat_id = os.getenv("TELEGRAM_CHAT_ID") or getattr(bot, "chat_id", None) or "-1002083067817_153"
+        from api.plan_limits import telegram_recommendations_target
+        chat_id = telegram_recommendations_target()
         if str(chat_id).strip() in {"", "-1003699330518"}:
-            chat_id = "-1002083067817_153"
+            chat_id = telegram_recommendations_target()
         delivered = bot.send_notification(message, chat_id=str(chat_id), wait_for_delivery=True)
         print(f"[CENTRAL_NOTIFY] {'Delivered' if delivered else 'Failed'} {service_type} message to {chat_id}")
         return delivered
@@ -1824,8 +1825,10 @@ def update_open_portfolio_positions():
                         bot.send_notification(msg, chat_id=str(telegram_chat_id))
                         print(f"[POSITIONS] Sent exit notification to user {user_id} (chat_id: {telegram_chat_id})")
                     else:
-                        _notify_central_telegram(msg, "portfolio_exit")
-                        print(f"[POSITIONS] No telegram_chat_id found for user {user_id}, sent to central channel")
+                        # Do not mix personal portfolio exits into the public
+                        # recommendation channel. Public Telegram messages and
+                        # weekly reports are sourced exclusively from scan_results.
+                        print(f"[POSITIONS] No telegram_chat_id for user {user_id}; public delivery suppressed")
                 else:
                     print(f"[POSITIONS] Telegram bot not initialized, could not send notification.")
             except Exception as e_notify:
@@ -2225,7 +2228,11 @@ async def generate_daily_recommendations(model_name: Optional[str] = None):
     
     # Take the top 10 speculative stocks
     top_10 = results[:10]
-    
+
+    # Only rows confirmed persisted in scan_results may be published to Telegram.
+    # A recommendation must be readable by the website before it is announced.
+    persisted_recommendations = []
+
     batch_id = str(uuid.uuid4())
     for i, res_item in enumerate(top_10):
         symbol = res_item.get("symbol")
@@ -2288,14 +2295,20 @@ async def generate_daily_recommendations(model_name: Optional[str] = None):
                 )
                 if not getattr(update_result, "data", None):
                     print(f"[RECOMMENDATIONS] Skipped concurrent update for {symbol}.{exchange}")
-                print(f"[RECOMMENDATIONS] #{i+1} Updated existing open recommendation for {symbol}.{exchange}")
+                else:
+                    persisted_recommendations.append(res_item)
+                    print(f"[RECOMMENDATIONS] #{i+1} Updated existing open recommendation for {symbol}.{exchange}")
             else:
                 # Avoid hard failure if some DB columns are missing in the remote schema.
                 safe_row_data = dict(row_data)
                 safe_row_data.pop("top_reasons", None)
                 safe_row_data.pop("features", None)
-                supabase.table("scan_results").insert(safe_row_data).execute()
-                print(f"[RECOMMENDATIONS] #{i+1} Saved {symbol}.{exchange} with target1={row_data['target_price']}, target2={rich_details['target_2']}, risk_adjusted_return={row_data['risk_adjusted_return']:.4f}")
+                insert_result = supabase.table("scan_results").insert(safe_row_data).execute()
+                if getattr(insert_result, "data", None):
+                    persisted_recommendations.append(res_item)
+                    print(f"[RECOMMENDATIONS] #{i+1} Saved {symbol}.{exchange} with target1={row_data['target_price']}, target2={rich_details['target_2']}, risk_adjusted_return={row_data['risk_adjusted_return']:.4f}")
+                else:
+                    print(f"[RECOMMENDATIONS] #{i+1} Save returned no row for {symbol}.{exchange}; not published to Telegram")
         except Exception as ins_err:
             print(f"[RECOMMENDATIONS] Failed to save/update recommendation for {symbol}: {ins_err}")
 
@@ -2310,8 +2323,13 @@ async def generate_daily_recommendations(model_name: Optional[str] = None):
             f"━━━━━━━━━━━━━━━━━━━━\n"
         ]
 
-        # SMART 6 FIX: Send all top 10 (was top 5 — users missed half the recommendations)
-        for idx, r in enumerate(top_10):
+        # Send only recommendations confirmed persisted in scan_results. Never
+        # publish a Telegram row the website cannot read from the database.
+        if not persisted_recommendations:
+            print("[RECOMMENDATIONS] No recommendations persisted to scan_results; skipping Telegram card.")
+            return
+
+        for idx, r in enumerate(persisted_recommendations):
             sym = r.get("symbol")
             ex = r.get("exchange", "EGX")
             ep = float(r.get("last_close" if r.get("last_close") is not None else "entry_price", 0.0))
@@ -2337,7 +2355,7 @@ async def generate_daily_recommendations(model_name: Optional[str] = None):
             )
 
         msg_lines.append(
-            f"📊 *إجمالي التوصيات:* `{len(top_10)}` أسهم\n\n"
+            f"📊 *إجمالي التوصيات:* `{len(persisted_recommendations)}` أسهم\n\n"
             f"🔗 *الرسوم البيانية والتفاصيل الكاملة:*\n"
             f"👉 [اضغط هنا لفتح المنصة]({web_origin}/scanner/backtests?tab=bots)"
         )
@@ -2990,6 +3008,12 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
                                 os.makedirs(os.path.dirname(model_path), exist_ok=True)
                                 new_model_str = new_booster.model_to_string()
                                 if os.path.exists(model_path):
+                                    from api.model_utils import is_git_lfs_pointer
+                                    if is_git_lfs_pointer(model_path):
+                                        raise ValueError(
+                                            f"Existing model at {model_path} is an unresolved git-lfs pointer. "
+                                            "Upload the real artifact before retraining."
+                                        )
                                     data = joblib.load(model_path)
                                     if isinstance(data, dict) and data.get("kind") == "meta_labeling_system":
                                         primary_art = data.get("primary_model") or {}
