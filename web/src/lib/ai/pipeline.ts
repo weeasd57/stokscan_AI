@@ -9,10 +9,11 @@ import { sanitizeReply } from "./sanitizer";
 import { loadSessionState, loadSessionSummary, updateSessionSummary, updateSessionState, loadPersistentInvestorProfile } from "./session";
 import { buildExcelTables, ExcelTable } from "./excel-tables";
 import { AI_CONFIG } from "./config";
-import { normalizeArabicIntent, extractInvestorPreferences, getFairValueFilters, isFairValueScanRequest, getInvestorGuidanceIntent as classifyInvestorGuidance, isDailyPriceLimitQuestion, isEarningsDataRequest, isTermsDefinitionRequest, isUsageLimitQuestion, isBestBuyStockQuestion, detectPortfolioIntent } from "./intent-policy";
+import { normalizeArabicIntent, extractInvestorPreferences, getFairValueFilters, isFairValueScanRequest, getInvestorGuidanceIntent as classifyInvestorGuidance, isDailyPriceLimitQuestion, isEarningsDataRequest, isTermsDefinitionRequest, isUsageLimitQuestion, isBestBuyStockQuestion, detectPortfolioIntent, detectPortfolioConfirmation } from "./intent-policy";
 import { extractExcludedSectorNames, extractMentionedSectorNames } from "./sector-taxonomy";
 import { isOtcStock, buildOtcNotice } from "./otc-stocks";
 import { isEgxSessionOpen } from "./live-stock-updater";
+import { replacePortfolioFromImage } from "./portfolio-tools";
 
 export interface PipelineResult {
     vision: VisionContext | null;
@@ -1348,6 +1349,54 @@ export async function* runPipelineStream(
     let vision: VisionContext | null = null;
     let visionError: string | null = null;
     let memory: MemoryResult | null = null;
+
+    // A confirmation after a portfolio screenshot is an import confirmation,
+    // not a request to view the existing (possibly empty) portfolio.
+    if (!hasImages && sessionSummary?.last_topic === "portfolio") {
+        const confirmation = detectPortfolioConfirmation(userMessage);
+        if (confirmation === true) {
+            const visionItems = sessionSummary.last_vision_context?.symbols || [];
+            const items = visionItems.map(item => ({
+                symbol: item.symbol,
+                name: item.name,
+                quantity: item.visible_values.quantity,
+                price: item.visible_values.price,
+            }));
+            const missing = items.find(item => item.quantity == null || item.quantity <= 0 || item.price == null || item.price <= 0);
+            if (missing) {
+                const pending = {
+                    items,
+                    current_index: items.indexOf(missing),
+                };
+                await updateSessionSummary(supabase, sessionId, userId, {
+                    pending_portfolio_import: pending,
+                    last_topic: "portfolio_import_pending",
+                });
+                const missingParts = [
+                    missing.quantity == null || missing.quantity <= 0 ? "الكمية" : "",
+                    missing.price == null || missing.price <= 0 ? "متوسط الشراء" : "",
+                ].filter(Boolean).join(" و");
+                const response = `تمام، دي محفظتك. محتاج ${missingParts} لسهم ${missing.symbol} أولاً. اكتب مثلاً: ${missing.symbol} 100 سهم بسعر 9.50. بعد إدخال بيانات كل الأسهم هحفظ المحفظة، ومش هحذف أي مركز حالي قبل اكتمال البيانات.`;
+                yield { type: "done", data: {
+                    response,
+                    session_update: { current_symbol: missing.symbol, last_symbols: items.map(item => item.symbol), summary: "بانتظار بيانات كميات ومتوسطات محفظة الصورة" },
+                    tables: [],
+                } };
+                return;
+            }
+            const imported = await replacePortfolioFromImage(supabase, userId, items);
+            await updateSessionSummary(supabase, sessionId, userId, {
+                pending_portfolio_import: null,
+                last_topic: "portfolio",
+            });
+            yield { type: "done", data: {
+                response: imported.message,
+                session_update: { current_symbol: null, last_symbols: items.map(item => item.symbol), summary: imported.message },
+                tables: [],
+            } };
+            return;
+        }
+    }
 
     // Fast path: portfolio CRUD is deterministic and must not pay the cost of
     // stock-name warming, memory retrieval, planner LLM work, or final LLM
