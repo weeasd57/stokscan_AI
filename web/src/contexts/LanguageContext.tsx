@@ -520,6 +520,8 @@ const translations: Record<string, Record<Language, string>> = {
     "footer.blogs": { en: "Market Blogs", ar: "مدونات السوق" },
     "footer.faq": { en: "FAQ", ar: "الأسئلة الشائعة" },
     "footer.disclaimer": { en: "Disclaimer", ar: "إخلاء المسؤولية" },
+    "footer.pricing": { en: "Pricing", ar: "الأسعار" },
+    "footer.refund": { en: "Refund Policy", ar: "سياسة الاسترجاع" },
     "footer.facebook": { en: "Facebook Page", ar: "صفحة فيسبوك" },
     "footer.telegram": { en: "Telegram Channel", ar: "قناة تليجرام" },
     "footer.copyright": {

@@ -6,7 +6,7 @@ import { usePathname, useSearchParams, useRouter } from "next/navigation";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useTheme } from "@/contexts/ThemeContext";
 import {
-    Globe, BarChart2, Brain, Activity, Menu, X, User, ChevronDown,
+    Globe, BarChart2, Brain, Activity, Menu, X, User, ChevronDown, BadgeDollarSign,
     Search, Loader2, Sun, Moon, TrendingUp, Heart
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -221,6 +221,7 @@ export default function Header() {
         { href: "/scanner/technical", label: t("nav.scanner.tech"), icon: <Activity className="w-4 h-4 shrink-0" />, activePath: "/scanner/technical" },
         { href: "/scanner/backtests?tab=similarity", label: t("nav.scanner.similarity"), icon: <TrendingUp className="w-4 h-4 shrink-0" />, activePath: null },
         { href: "/scanner/market", label: t("nav.scanner.market"), icon: <Globe className="w-4 h-4 shrink-0" />, activePath: "/scanner/market" },
+        { href: "/pricing", label: t("nav.pricing"), icon: <BadgeDollarSign className="w-4 h-4 shrink-0" />, activePath: "/pricing", badge: language === "ar" ? "بريميوم" : "PRO" },
     ];
 
     const checkActive = (href: string, activePath: string | null) => {

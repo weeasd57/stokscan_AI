@@ -118,6 +118,9 @@ export async function fetchLiveStockIndicators(
     if (!cleanSym) {
         return { success: false, error: "رمز السهم غير صحيح" };
     }
+    if (!isEgxSessionOpen()) {
+        return { success: false, error: "جلسة EGX مغلقة حالياً؛ سيتم استخدام آخر إغلاق مسجل" };
+    }
 
     const now = Date.now();
 

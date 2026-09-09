@@ -1,12 +1,45 @@
 import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
 import { getSupabaseClient } from "@/lib/supabase/route-data";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { isPro, filterByDelay, planLimits, paymentsEnabled } from "@/lib/ai/plan-gate";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET(req: Request) {
+function paymentsEnabledSafe(): boolean {
+  try {
+    return paymentsEnabled();
+  } catch {
+    return false;
+  }
+}
+
+export async function GET(req: NextRequest) {
   try {
     const supabase = getSupabaseClient();
+
+    // Determine the requesting user (if logged in) so we can apply plan-gated
+    // visibility: subscribers see today's recommendations immediately; free
+    // users only see recommendations older than the configured signal delay.
+    let userIsPro = true; // default: site is free until payments activated
+    let userPlan = "free";
+    try {
+      const userClient = createSupabaseServerClient(req);
+      const { data: authUser } = await userClient.auth.getUser();
+      if (authUser?.user?.id) {
+        const { data: planRows } = await userClient
+          .from("subscriptions")
+          .select("plan_id,status,current_period_end")
+          .eq("user_id", authUser.user.id)
+          .limit(10);
+        userIsPro = isPro(planRows || []);
+        userPlan = userIsPro ? "pro" : "free";
+      }
+    } catch {
+      // Not logged in -> treat as free (delayed) when payments are on.
+      userIsPro = !paymentsEnabledSafe();
+    }
 
     // 1. Fetch latest open AI recommendations
     const { data: recommendations, error: recError } = await supabase
@@ -16,7 +49,7 @@ export async function GET(req: Request) {
       .eq("status", "open")
       .eq("is_public", true)
       .order("created_at", { ascending: false })
-      .limit(10);
+      .limit(50);
 
     if (recError) {
       console.error("Failed to fetch scan results:", recError);
@@ -32,7 +65,25 @@ export async function GET(req: Request) {
       });
     }
 
-    const symbols = recommendations.map((r: any) => r.symbol);
+    // Visibility gate: free (non-subscriber) users only see recommendations
+    // older than the signal-delay window when payments are enabled.
+    const limits = planLimits(userPlan);
+    const visible = userIsPro
+      ? recommendations
+      : filterByDelay(recommendations, limits.signal_delay_days);
+
+    if (visible.length === 0) {
+      return NextResponse.json({
+        signals: [],
+        total_open: 0,
+        buy_count: 0,
+        sell_count: 0,
+        delayed: limits.signal_delay_days,
+        gated: !userIsPro,
+      });
+    }
+
+    const symbols = visible.map((r: any) => r.symbol);
 
     // 2. Fetch latest prices for these symbols from stock_technical_indicators
     // Get the latest technical indicators date first to query the exact row
@@ -82,7 +133,7 @@ export async function GET(req: Request) {
     let sellCount = 0;
     const signals: any[] = [];
 
-    for (const rec of recommendations) {
+    for (const rec of visible) {
       const symbolUpper = rec.symbol.toUpperCase();
       const currentPrice = pricesMap.get(symbolUpper) || Number(rec.entry_price || 0);
 
@@ -135,6 +186,8 @@ export async function GET(req: Request) {
       total_open: signals.length,
       buy_count: buyCount,
       sell_count: sellCount,
+      gated: !userIsPro,
+      signal_delay_days: userIsPro ? 0 : planLimits(userPlan).signal_delay_days,
     });
   } catch (error) {
     console.error("AI Signals API error:", error);

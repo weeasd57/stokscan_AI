@@ -103,6 +103,22 @@ export default function Footer() {
                 </Link>
               </li>
               <li>
+                <Link
+                  href="/pricing"
+                  className="text-sm text-zinc-500 dark:text-zinc-500 light:text-gray-600 hover:text-indigo-400 dark:hover:text-indigo-400 light:hover:text-indigo-600 transition-colors"
+                >
+                  {t("footer.pricing")}
+                </Link>
+              </li>
+              <li>
+                <Link
+                  href="/refund"
+                  className="text-sm text-zinc-500 dark:text-zinc-500 light:text-gray-600 hover:text-indigo-400 dark:hover:text-indigo-400 light:hover:text-indigo-600 transition-colors"
+                >
+                  {t("footer.refund")}
+                </Link>
+              </li>
+              <li>
                 <a
                   href="https://www.facebook.com/profile.php?id=61591573919902"
                   target="_blank"

@@ -12,8 +12,10 @@ export async function GET() {
 
         const { getPortfolioSnapshot } = await import("@/lib/ai/portfolio-tools");
         const snapshot = await getPortfolioSnapshot(supabase, user.id);
-        const { data: planRows } = await supabase.from("subscriptions").select("plan_id,status").eq("user_id", user.id).limit(10);
-        const isPro = (planRows || []).some((row: any) => String(row.plan_id || "").toLowerCase() === "pro" && ["active", "trialing"].includes(String(row.status || "").toLowerCase()));
+        const { data: planRows } = await supabase.from("subscriptions").select("plan_id,status,current_period_end").eq("user_id", user.id).limit(10);
+        const { isPro, planLimits } = await import("@/lib/ai/plan-gate");
+        const pro = isPro(planRows || []);
+        const portfolioLimit = planLimits(pro ? "pro" : "free").portfolio_stocks;
 
         // Real EGX symbols for the profile-page autocomplete selector
         let marketSymbols: Array<{ symbol: string; name: string | null }> = [];
@@ -28,7 +30,7 @@ export async function GET() {
             console.warn("[api/portfolio] symbols list unavailable:", e);
         }
 
-        return NextResponse.json({ ...snapshot, market_symbols: marketSymbols, portfolio_limit: isPro ? null : 7, is_pro: isPro });
+        return NextResponse.json({ ...snapshot, market_symbols: marketSymbols, portfolio_limit: pro ? null : portfolioLimit, is_pro: pro });
     } catch (e: any) {
         console.error("[api/portfolio] GET error:", e);
         return NextResponse.json({ ok: false, message: e?.message || "Internal error" }, { status: 500 });
@@ -60,10 +62,12 @@ export async function POST(req: NextRequest) {
                 }
                 {
                     const { data: rows } = await supabase.from("positions").select("symbol").eq("user_id", user.id).eq("status", "open");
-                    const { data: planRows } = await supabase.from("subscriptions").select("plan_id,status").eq("user_id", user.id).limit(10);
-                    const isPro = (planRows || []).some((row: any) => String(row.plan_id || "").toLowerCase() === "pro" && ["active", "trialing"].includes(String(row.status || "").toLowerCase()));
+                    const { data: planRows } = await supabase.from("subscriptions").select("plan_id,status,current_period_end").eq("user_id", user.id).limit(10);
+                    const { isPro, planLimits } = await import("@/lib/ai/plan-gate");
+                    const pro = isPro(planRows || []);
+                    const limit = planLimits(pro ? "pro" : "free").portfolio_stocks;
                     const currentSymbols = new Set((rows || []).map((row: any) => String(row.symbol || "").toUpperCase()));
-                    if (!isPro && !currentSymbols.has(symbol) && currentSymbols.size >= 7) return NextResponse.json({ ok: false, message: "الخطة المجانية تسمح بحد أقصى 7 أسهم مختلفة في المحفظة. احذف مركزاً أو قم بالترقية لإضافة سهم آخر." }, { status: 403 });
+                    if (!pro && !currentSymbols.has(symbol) && currentSymbols.size >= limit) return NextResponse.json({ ok: false, message: `الخطة المجانية تسمح بحد أقصى ${limit} أسهم مختلفة في المحفظة. احذف مركزاً أو قم بالترقية لإضافة سهم آخر.` }, { status: 403 });
                 }
                 result = await tools.addPortfolioPosition(supabase, user.id, symbol, quantity, price);
                 break;

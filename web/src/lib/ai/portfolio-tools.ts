@@ -16,6 +16,7 @@
  * pipeline can hand it to the LLM or render it deterministically.
  */
 import { fetchLiveStockIndicators, isEgxSessionOpen } from "./live-stock-updater";
+import { isPro, paymentsEnabled } from "./plan-gate";
 
 export interface PortfolioPosition {
     id: string;
@@ -59,12 +60,13 @@ export interface PortfolioSnapshot {
     };
 }
 
-const FREE_PORTFOLIO_LIMIT = 7;
+const FREE_PORTFOLIO_LIMIT = 5;
 
 async function hasActiveProPlan(supabase: any, userId: string): Promise<boolean> {
+    if (!paymentsEnabled()) return true; // site free until PAYMENTS_ENABLED=true
     try {
-        const { data } = await supabase.from("subscriptions").select("plan_id,status").eq("user_id", userId).limit(10);
-        return (data || []).some((row: any) => String(row.plan_id || "").toLowerCase() === "pro" && ["active", "trialing"].includes(String(row.status || "").toLowerCase()));
+        const { data } = await supabase.from("subscriptions").select("plan_id,status,current_period_end").eq("user_id", userId).limit(10);
+        return isPro(data || []);
     } catch {
         return false;
     }
