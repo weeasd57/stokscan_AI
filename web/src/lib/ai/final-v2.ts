@@ -554,10 +554,19 @@ export function buildV2FinalMessages(
     if (ownedPositions.length > 0) {
         sections.push([
             "=== OWNED POSITION CONTEXT ===",
-            "هذه مراكز المستخدم الفعلية. عند تحليل سهم موجود هنا، ابدأ بذكر الكمية ومتوسط الشراء واربط الربح/الخطر بسعر التكلفة الفعلي، ولا تتعامل معه كسهم عام فقط.",
-            ...ownedPositions.map((position: any) => `- ${position.symbol}: الكمية=${position.quantity ?? "غير متاح"}، متوسط الشراء=${position.entry_price ?? "غير متاح"}، آخر سعر=${position.last_price ?? "غير متاح"}، قيمة المركز=${position.market_value ?? "غير متاح"}`),
+            "هذه مراكز المستخدم الفعلية المسجلة في النظام. عند تحليل سهم موجود هنا، ابدأ بذكر الكمية ومتوسط الشراء واربط الربح/الخطر بسعر التكلفة الفعلي، ولا تتعامل معه كسهم عام فقط.",
+            "🚫 قاعدة صارمة لمنع هلوسة المراكز: يُمنع تماماً افتراض أن المستخدم 'خسران' أو 'رابح' في أي سهم إلا إذا توفرت بيانات المركز الفعلية أعلاه. إذا ذكر المستخدم سهماً بدون ظهوره في هذا القسم، تعامل معه على أنه استفسار تحليلي عام فقط.",
+            ...ownedPositions.map((position: any) => `- ${position.symbol}: الكمية=${position.quantity ?? "غير متاح"}، متوسط الشراء=${position.entry_price ?? "غير متاح"}، آخر سعر=${position.last_price ?? "غير متاح"}، قيمة المركز=${position.market_value ?? "غير متاح"}, الربح/الخسارة غير المحققة=${position.unrealized_pnl ?? "غير متاح"}`),
+        ].join("\n"));
+    } else {
+        // No portfolio data — explicitly block any position assumptions
+        sections.push([
+            "=== OWNED POSITION CONTEXT ===",
+            "⚠️ لا توجد بيانات محفظة مسجلة لهذا المستخدم في قاعدة البيانات.",
+            "🚫 قاعدة صارمة: يُمنع تماماً افتراض أن المستخدم يملك أي سهم، أو أنه 'خسران' أو 'رابح' في أي ورقة مالية، أو توجيه النصيحة على أساس مركز مفترض غير موجود في البيانات. إذا ذكر المستخدم سعر شرائه في رسالته، سجّل ذلك كمعلومة من رسالته فقط (وليس من قاعدة البيانات).",
         ].join("\n"));
     }
+
 
     if (correctionPrompt) {
         sections.push("⚠️ SYSTEM CORRECTION ALERT:\n" + correctionPrompt);

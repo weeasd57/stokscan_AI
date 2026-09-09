@@ -54,8 +54,59 @@ const TECHNICAL_EXCLUSIONS = new Set([
     "KING", "EGX", "SCORE", "ML", "LLM", "GPT",
     // Recommendation/platform status words that appear in replies and platform data
     // (ACTIVE_OPEN / PREVIOUS_CLOSED / NONE ...) — must NOT be treated as tickers
-    "OPEN", "CLOSED", "ACTIVE", "NONE", "WIN", "LOSS", "NEW", "ENTRY", "TARGET", "STOP"
+    "OPEN", "CLOSED", "ACTIVE", "NONE", "WIN", "LOSS", "NEW", "ENTRY", "TARGET", "STOP",
+    // ── Common English words that look like EGX tickers (3-6 uppercase letters) ──
+    // These appear in LLM reasoning/chain-of-thought that leaks into the reply,
+    // causing false "suspicious symbol" validator failures (e.g. ASO, UNA, FOR, etc.)
+    "THE", "AND", "FOR", "ARE", "BUT", "NOT", "YOU", "ALL", "CAN", "HER", "WAS", "ONE",
+    "OUR", "OUT", "DAY", "GET", "HAS", "HIM", "HIS", "HOW", "ITS", "MAY", "NOW", "OWN",
+    "SAY", "SHE", "TOO", "USE", "WAY", "WHO", "DID", "LET", "MAN", "OLD", "PUT", "SET",
+    "NEW", "OFF", "OUR", "OWN", "OUT", "SEE", "TWO", "WAR", "LET", "RAN", "LOT",
+    "ALSO", "BEEN", "BOTH", "CAME", "COME", "DOES", "DONE", "DOWN", "EACH", "EVEN",
+    "FROM", "GIVE", "GOOD", "HAVE", "HERE", "JUST", "KNOW", "LIKE", "LOOK", "MADE",
+    "MAKE", "MANY", "MORE", "MOST", "MUCH", "MUST", "NAME", "NEED", "NEXT", "ONLY",
+    "OVER", "PART", "SAME", "SOME", "SUCH", "TAKE", "THAN", "THAT", "THEM", "THEN",
+    "THEY", "THIS", "TIME", "TOOK", "TURN", "USED", "VERY", "WANT", "WEEK", "WENT",
+    "WERE", "WHAT", "WHEN", "WITH", "WORD", "WORK", "YEAR", "YOUR",
+    "ABOUT", "AFTER", "AGAIN", "BELOW", "COULD", "EVERY", "FIRST", "FOUND", "GIVEN",
+    "GOING", "GREAT", "MIGHT", "NEVER", "OFTEN", "OTHER", "PLACE", "POINT", "PRICE",
+    "QUITE", "RANGE", "RATIO", "RIGHT", "SINCE", "SMALL", "STILL", "STOCK", "STUDY",
+    "THERE", "THESE", "THOSE", "THREE", "UNDER", "UNTIL", "UPPER", "USING", "WHERE",
+    "WHICH", "WHILE", "WHOSE", "WOULD", "WRITE", "YEARS",
+    "ABOVE", "AHEAD", "AREAS", "BASED", "BEARS", "BEGIN", "BREAK", "BULLS", "BUYER",
+    "CHART", "CHECK", "CROSS", "DAILY", "DEFER", "DELTA", "ENTRY", "FINAL", "FLASH",
+    "FLOOR", "FORCE", "GAINS", "HOLDS", "INDEX", "INTRA", "LIMIT", "LINES", "LOCAL",
+    "LOWER", "MAJOR", "MINOR", "MIXED", "MODEL", "MONTH", "MOVED", "MULTI", "NOTES",
+    "ORDER", "OUTER", "PHASE", "PIVOT", "PRESS", "PRIME", "PRINT", "PRIOR", "PROBE",
+    "RALLY", "RATES", "READS", "REACH", "REFER", "RESET", "RISKS", "ROUND", "RULES",
+    "SCALE", "SCENE", "SCORE", "SCANS", "SHARP", "SHIFT", "SHORT", "SHOWS", "SIDED",
+    "SIGNS", "SLOPE", "SOLID", "SPACE", "SPEED", "SPLIT", "STAGE", "START", "STATE",
+    "STAYS", "STEEP", "STEPS", "STORE", "TREND", "TURNS", "TWICE", "TYPES", "VALID",
+    "VALUE", "VIEWS", "WATCH", "WEEKS", "WIDER", "YIELD",
+    // Common English 3-letter words that are easily mistaken for EGX symbols
+    "ASO", "UNA", "FOR", "ARE", "THE", "AND", "BUT", "NOT", "YOU", "ALL", "CAN",
+    "HER", "WAS", "HAS", "HIM", "ITS", "MAY", "NOW", "OWN", "SAY", "SHE",
+    "TOO", "USE", "WAY", "WHO", "DID", "GET", "LET", "MAN", "OLD", "PUT", "SET",
+    "SEE", "TWO", "RAN", "LOT", "OFF", "OUR", "OUT", "DAY", "HOW", "HIS", "ONE",
+    // Technical chart terms often written in uppercase in Arabic chatbot responses
+    "FLAT", "LONG", "SIDE", "BEAR", "BULL", "CALL", "CASH", "COPY", "CORE", "COST",
+    "DATE", "DEBT", "DEAL", "DEMO", "DUAL", "EDGE", "EURO", "EVEN", "EXIT", "EXPO",
+    "FADE", "FAIR", "FALL", "FAST", "FLOW", "FULL", "FUND", "GAIN", "HALF", "HEAD",
+    "HEAT", "HIGH", "HULL", "IDLE", "INDI", "INFO", "INIT", "INRE", "INTO", "IRON",
+    "ITEM", "JOIN", "JUST", "KEEP", "LAST", "LEAD", "LEAN", "LEFT", "LINK", "LIST",
+    "LOCK", "LOOP", "LOSS", "LOTS", "MEAN", "MELD", "META", "MILD", "MODE", "MOVE",
+    "NEAR", "NODE", "NORM", "NOTE", "NULL", "ODDS", "OKAY", "ONCE", "OPEN", "OUTS",
+    "PACE", "PAIR", "PAST", "PATH", "PEAK", "PLAN", "PLAY", "PLOT", "PLUG", "PLUS",
+    "POLL", "POOL", "PORT", "POST", "PULL", "PUSH", "REAL", "RANK", "RATE", "READ",
+    "RELY", "REAP", "RICH", "RISE", "RISK", "ROLE", "ROOT", "ROSE", "ROWS", "SAFE",
+    "SELL", "SEND", "SETS", "SHOW", "SKIP", "SLAM", "SLOW", "SNAP", "SOFT", "SORT",
+    "SPAN", "SPOT", "STEP", "STOP", "SLOW", "SWAP", "TAKE", "TANK", "TAPE", "TERM",
+    "TEST", "TEXT", "TICK", "TIER", "TILL", "TIPS", "TOLD", "TOLL", "TONE", "TOOL",
+    "TOPS", "TRAY", "TRIM", "TRIP", "TRUE", "TUNE", "UNIT", "USED", "USER", "VAST",
+    "VOID", "WAIT", "WAKE", "WALK", "WALL", "WAVE", "WEAK", "WENT", "WIDE", "WILL",
+    "WIND", "WINS", "WIPE", "WIRE", "WISE", "WISH", "WITH", "WORD", "WRAP", "ZONE",
 ]);
+
 
 
 // Numbers that represent valid universal time units, day numbers, or standard market parameters
