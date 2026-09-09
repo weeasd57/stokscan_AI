@@ -90,6 +90,7 @@ export interface IntentPlan {
         requested_start_date?: string | null;
         requested_end_date?: string | null;
         portfolio_operation?: "view" | "add" | "update" | "remove" | "sell" | "cash_set" | "cash_add" | null;
+        sharia_filter?: boolean;
     };
     needs_vision_context: boolean;
     needs_history: boolean;
@@ -154,6 +155,7 @@ export interface PlannerResult {
         excluded_sectors?: string[];
         requested_sectors?: string[];
         portfolio_operation?: "view" | "add" | "update" | "remove" | "sell" | "cash_set" | "cash_add" | null;
+        sharia_filter?: boolean;
     };
     tools: string[];
     image_summary?: string | null;

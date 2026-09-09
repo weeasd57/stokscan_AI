@@ -1,4 +1,4 @@
-﻿import { IntentPlan, VisionContext, SessionState, SessionSummary, PlannerResult } from "./types";
+import { IntentPlan, VisionContext, SessionState, SessionSummary, PlannerResult } from "./types";
 import { analyzeImage } from "./vision";
 import { retrieveRelevantMemory, MemoryResult } from "./memory";
 import { getSyncStockMappings, getStocksList, getSyncValidSymbols, loadValidSymbols, isUnresolvedCompanyNameMention, LATIN_TICKER_ALIASES } from "./planner";
@@ -406,27 +406,39 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
         return {
             intent: "portfolio_management",
             confidence: 1,
-            entities: { symbols: extractExplicitSymbols(message), sector: null, wants_table: false, timeframe: "current", requested_date: null, scan_direction: null, portfolio_operation: portfolioOperation },
-            tools: ["manage_portfolio"],
-            session_update: { current_symbol: sessionState.current_symbol, last_symbols: sessionState.last_symbols, summary: message },
-        } as any;
-    }
-    if (/شريع|sharia/i.test(normalizeArabicIntent(message))) {
-        return {
-            intent: "general_chat", confidence: 1,
-            entities: { symbols: [], sector: null, wants_table: false, timeframe: "current", requested_date: null, scan_direction: null },
-            tools: [],
-            session_update: { current_symbol: sessionState.current_symbol, last_symbols: sessionState.last_symbols, summary: message },
-        } as any;
-    }
-    if (/^\s*(?:كمل|كمّل|تابع)\s*[!؟?.]*$/i.test(message)) {
-        return {
-            intent: "general_chat", confidence: 1,
             entities: { symbols: [], sector: null, wants_table: false, timeframe: "current", requested_date: null, scan_direction: null },
             tools: [],
             session_update: { current_symbol: sessionState.current_symbol, last_symbols: sessionState.last_symbols, summary: message }
         };
     }
+    if (/شريع|sharia/i.test(normalizeArabicIntent(message))) {
+        const normalized_sh = normalizeArabicIntent(message);
+        const wantsRecs = /(?:توصي|اشتري|شراء|شري|ادخل|فرص|أسهم|اسهم|أفضل|افضل|ايه|إيه|ترشح|يستاهل|تستاهل)/i.test(normalized_sh);
+        const explicitSymbols_sh = extractExplicitSymbols(message);
+        if (explicitSymbols_sh.length > 0) {
+            return {
+                intent: "stock_analysis", confidence: 1,
+                entities: { symbols: explicitSymbols_sh, sector: null, wants_table: false, timeframe: "current", requested_date: null, scan_direction: null, sharia_filter: true },
+                tools: ["get_stock"],
+                session_update: { current_symbol: explicitSymbols_sh[0], last_symbols: explicitSymbols_sh, summary: message },
+            } as any;
+        }
+        if (wantsRecs) {
+            return {
+                intent: "market_summary", confidence: 1,
+                entities: { symbols: [], sector: null, wants_table: true, timeframe: "current", requested_date: null, scan_direction: null, sharia_filter: true, recommendation_filter: "open_public", recommendation_order: "newest" },
+                tools: ["get_recommendations"],
+                session_update: { current_symbol: null, last_symbols: [], summary: message },
+            } as any;
+        }
+        return {
+            intent: "general_chat", confidence: 1,
+            entities: { symbols: [], sector: null, wants_table: false, timeframe: "current", requested_date: null, scan_direction: null },
+            tools: [],
+            session_update: { current_symbol: sessionState.current_symbol, last_symbols: sessionState.last_symbols, summary: message },
+        } as any;
+    }
+
     if (/^\s*(?:جدع|عاش|تمام|تسلم|شكرا|شكراً|حلو|ممتاز|برافو)\s*[!؟?.]*$/i.test(message)) {
         return {
             intent: "general_chat", confidence: 1,
@@ -1430,8 +1442,25 @@ export async function* runPipelineStream(
             }
 
             yield { type: "vision_result", data: vision };
+            if (vision.image_type === "portfolio") {
+                const visible = vision.symbols.length
+                    ? vision.symbols.map(s => `${s.symbol}${s.visible_values.quantity != null ? ` (${s.visible_values.quantity} سهم)` : ""}`).join("، ")
+                    : "لم أتعرف على رموز أسهم واضحة";
+                yield { type: "done", data: {
+                    response: `حللت الصورة ووجدت: ${visible}. هل دي محفظتك؟ لو أيوه اكتب «دي محفظتي» وسأطلب أي كمية أو متوسط شراء ناقص، ولن أستخدم بيانات قديمة من الجلسة.`,
+                    session_update: { current_symbol: null, last_symbols: vision.symbols.map(s => s.symbol), summary: "تحليل صورة محفظة بانتظار التأكيد" },
+                    tables: [],
+                } };
+                return;
+            }
         } else if (visionError) {
             yield { type: "vision_error", data: visionError };
+            yield { type: "done", data: {
+                response: "الصورة وصلت لكن لم أستطع قراءتها والتحقق منها. لن أستبدلها بتحليل توصيات أو بيانات قديمة. أعد رفع الصورة أو اكتب الرموز والكميات ومتوسط الشراء يدوياً.",
+                session_update: { current_symbol: null, last_symbols: [], summary: "فشل قراءة صورة المستخدم" },
+                tables: [],
+            } };
+            return;
         }
     }
 

@@ -128,8 +128,8 @@ export function validateVisionOutput(data: any): VisionContext | null {
     };
 }
 
-const VISION_TIMEOUT_MS = 20000;
-const MAX_VISION_TOTAL_TIME_MS = 24000;
+const VISION_TIMEOUT_MS = 35000;
+const MAX_VISION_TOTAL_TIME_MS = 38000;
 
 export async function analyzeImage(
     imageUrl: string,
@@ -137,24 +137,17 @@ export async function analyzeImage(
     apiKeys: string[],
     messageId: string
 ): Promise<{ vision: VisionContext | null; error: string | null }> {
-    // NOTE (2026-09-01): both previous NVIDIA vision models reached end-of-life on
-    // 2026-08-26 and now return HTTP 410 — image analysis silently failed for every
-    // upload since then. meta/llama-3.2-11b-vision-instruct is verified working
-    // (~5s per image, well within VISION_TIMEOUT_MS).
+    // NVIDIA meta/llama-3.2-11b-vision-instruct is the only supported vision model.
+    // Previous models reached EOL 2026-08-26 (HTTP 410).
+    // Key env var: NVIDIA_SECONDARY_API_KEY (Production, added Jul 21)
     const visionModels = [
-        "google/gemini-1.5-flash-8b",
-        "google/gemini-1.5-flash",
-        "meta-llama/llama-3.2-11b-vision-instruct"
+        "meta/llama-3.2-11b-vision-instruct"
     ];
 
-    // The extraction system prompt must go in the `system` role, not as a user-content
-    // text part: when embedded alongside the image in the user message, the vision model
-    // (meta/llama-3.2-11b-vision-instruct) replies with descriptive prose instead
-    // of the required JSON, which made every image upload fail analysis. A system role makes
-    // it return parseable JSON.
+    // System prompt goes in `system` role — putting it in the user message causes prose output.
     const userContent: Array<{ type: string; text?: string; image_url?: { url: string } }> = [];
-    const userText = userMessage.slice(0, 250) || "Analyze the attached image.";
-    userContent.push({ type: "text", text: userText });
+    // Send a short, neutral user message so the model focuses on the system prompt instructions.
+    userContent.push({ type: "text", text: "Analyze the attached image and return JSON only." });
     userContent.push({ type: "image_url", image_url: { url: imageUrl } });
 
     const visionStartTime = Date.now();
@@ -164,15 +157,7 @@ export async function analyzeImage(
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), Math.min(VISION_TIMEOUT_MS, remaining));
         try {
-            const isNvidia = model.startsWith("nvidia/") || model.startsWith("meta/");
-            const isGemini = model.startsWith("google/gemini-flash") || model.startsWith("google/gemini-1.5-flash") || model.startsWith("google/gemini-pro");
-            const isOpenRouter = key.startsWith("sk-or-") || key.startsWith("sk-");
-
-            const apiUrl = isOpenRouter 
-                ? "https://openrouter.ai/api/v1/chat/completions" 
-                : "https://integrate.api.nvidia.com/v1/chat/completions";
-
-            const res = await fetch(apiUrl, {
+            const res = await fetch("https://integrate.api.nvidia.com/v1/chat/completions", {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
@@ -185,7 +170,7 @@ export async function analyzeImage(
                         { role: "system", content: VISION_SYSTEM_PROMPT },
                         { role: "user", content: userContent }
                     ],
-                    max_tokens: 420,
+                    max_tokens: 500,
                     temperature: 0.05
                 })
             });
@@ -193,11 +178,12 @@ export async function analyzeImage(
                 console.warn(`Vision model ${model} failed with status ${res.status}`);
                 return null;
             }
-                const json = await res.json();
-                const parsed = extractJsonFromResponse(json.choices?.[0]?.message?.content?.trim() || "");
-                const validated = parsed ? validateVisionOutput(parsed) : null;
-                if (validated) {
-                    validated.message_id = messageId;
+            const json = await res.json();
+            const parsed = extractJsonFromResponse(json.choices?.[0]?.message?.content?.trim() || "");
+            const validated = parsed ? validateVisionOutput(parsed) : null;
+            if (validated) {
+                validated.message_id = messageId;
+
                     return validated;
                 }
         } catch (err: any) {

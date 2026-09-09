@@ -322,6 +322,22 @@ export async function POST(req: NextRequest) {
         
         const userId = user.id;
         const isUnlimited = isUnlimitedChatUser(user);
+        const { paymentsEnabled, planLimits, isPro: gateIsPro } = await import("@/lib/ai/plan-gate");
+        const billingOn = paymentsEnabled();
+        let userMonthlyCap = Number.MAX_SAFE_INTEGER;
+        if (billingOn) {
+            try {
+                const { data: planRows } = await authClient
+                    .from("subscriptions")
+                    .select("plan_id,status,current_period_end")
+                    .eq("user_id", userId)
+                    .limit(10);
+                const pro = gateIsPro(planRows || []);
+                userMonthlyCap = planLimits(pro ? "pro" : "free").chat_messages_per_month;
+            } catch {
+                userMonthlyCap = planLimits("free").chat_messages_per_month;
+            }
+        }
         const body = await req.json();
         const rawMessage = typeof body.message === "string" ? body.message : "";
         const message = sanitizeUserMessage(rawMessage);
@@ -375,11 +391,26 @@ export async function POST(req: NextRequest) {
             limitData = { chat_count: Number(quota.chat_count || 0) };
         }
 
-        const keysToTry = [
-            process.env.AGENT_ROUTER_API_KEY,
-            process.env.OPENROUTER_API_KEY,
-            ...getNvidiaApiKeys()
-        ].filter((k): k is string => Boolean(k?.trim()));
+        // Monthly budget gate. Applied only when PAYMENTS_ENABLED=true; when the
+        // platform is in free mode the cap is unlimited so the site stays free.
+        if (billingOn && !isUnlimited) {
+            const monthStart = new Date();
+            monthStart.setDate(1);
+            monthStart.setHours(0, 0, 0, 0);
+            const { data: monthRows, error: monthErr } = await supabase
+                .from("ai_chat_messages")
+                .select("id", { count: "exact", head: false })
+                .eq("user_id", userId)
+                .gte("created_at", monthStart.toISOString());
+            const monthCount = Array.isArray(monthRows) ? monthRows.length : 0;
+            if (monthErr) {
+                console.warn("[ai-chat] monthly count query failed:", monthErr);
+            } else if (monthCount >= userMonthlyCap) {
+                return NextResponse.json({ detail: `Monthly message limit reached (${userMonthlyCap}). Upgrade to Pro for ${planLimits("pro").chat_messages_per_month} messages/month.` }, { status: 429 });
+            }
+        }
+
+        const keysToTry = getNvidiaApiKeys();
 
         if (!getDeepSeekApiKey() && keysToTry.length === 0) {
             return NextResponse.json({ detail: "AI service not configured" }, { status: 500 });

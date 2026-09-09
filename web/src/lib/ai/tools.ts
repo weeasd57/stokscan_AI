@@ -1,5 +1,7 @@
 import { PlannerResult } from "./types";
 import { AI_CONFIG } from "./config";
+import { isShariaCompliant } from "../shariaStocks";
+
 
 function normalizeArabic(str: string): string {
     return str
@@ -448,6 +450,18 @@ export async function executeTools(supabase: any, plannerResult: PlannerResult, 
                     .limit(limit);
                 recsToUse = fallbackRecs || [];
             }
+
+            // Apply Sharia filter if requested
+            if (plannerResult.entities?.sharia_filter) {
+                const beforeCount = recsToUse.length;
+                recsToUse = recsToUse.filter((r: any) => isShariaCompliant(r.symbol));
+                if (recsToUse.length === 0) {
+                    outputText += `\n⚠️ [ملاحظة المساعد]: تم طلب أسهم الشريعة فقط، لكن لا توجد توصيات نشطة لأسهم متوافقة مع الشريعة الإسلامية في قاعدة البيانات حالياً من أصل ${beforeCount} توصية. يُرجى إخبار المستخدم بذلك صراحةً.\n`;
+                } else {
+                    outputText += `\n📌 [فلتر الشريعة مُفعَّل]: تم تصفية النتائج لتشمل أسهم الشريعة فقط (${recsToUse.length} من أصل ${beforeCount}).\n`;
+                }
+            }
+
 
             if (recsToUse.length > 0) {
                 outputText += `\n🎯 [إشارات وتوصيات تداول البورصة المصرية من قاعدة البيانات - scan_results]:\n`;
