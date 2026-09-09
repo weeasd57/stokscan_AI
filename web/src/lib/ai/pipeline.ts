@@ -1453,6 +1453,16 @@ export async function* runPipelineStream(
                 } };
                 return;
             }
+            // Vision ran but returned unknown type with no symbols → image unreadable
+            if (vision.image_type === "unknown" && vision.symbols.length === 0) {
+                yield { type: "vision_error", data: "vision_unreadable" };
+                yield { type: "done", data: {
+                    response: "الصورة وصلت لكن لم أتمكن من قراءة محتواها بوضوح. جرّب ترفع الصورة مرة تانية بجودة أعلى، أو اكتب رموز الأسهم والكميات ومتوسط الشراء يدوياً وهحللهالك فوراً.",
+                    session_update: { current_symbol: null, last_symbols: [], summary: "تعذّر قراءة الصورة" },
+                    tables: [],
+                } };
+                return;
+            }
         } else if (visionError) {
             yield { type: "vision_error", data: visionError };
             yield { type: "done", data: {
@@ -1463,6 +1473,7 @@ export async function* runPipelineStream(
             return;
         }
     }
+
 
     // ===== STAGE 2: Memory Retrieval =====
     yield { type: "status", data: { status: "memory", message: "استرجاع السياق..." } };

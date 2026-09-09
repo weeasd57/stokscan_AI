@@ -1,33 +1,16 @@
 import { VisionContext } from "./types";
 import { getSyncStockMappings } from "./planner";
 
-const VISION_SYSTEM_PROMPT = `Analyze the attached financial image and return ONLY a valid JSON object. Do not include markdown formatting or commentary.
+const VISION_SYSTEM_PROMPT = `You are a financial image analyzer. Examine the attached image and return ONLY a valid JSON object with no markdown fences, no comments, and no extra text.
 
-The JSON object must EXACTLY follow this structure:
-{
-  "image_type": "portfolio", // Choose EXACTLY ONE of: "portfolio", "chart", "table", "market_depth", or "unknown"
-  "symbols": [
-    {
-      "symbol": "TICKER",
-      "name": "Company Name",
-      "visible_values": {
-        "price": 12.5,
-        "change_pct": 1.2,
-        "quantity": 1000
-      }
-    }
-  ],
-  "technical_observations": [],
-  "market_depth": { "total_bid": null, "total_ask": null, "spread": null },
-  "user_relevant_summary": "Summary of the image contents",
-  "uncertainties": [],
-  "confidence": 0.9
-}
+Use this exact structure — replace placeholder values with real extracted data:
+{"image_type":"unknown","symbols":[],"technical_observations":[],"market_depth":{"total_bid":null,"total_ask":null,"spread":null},"user_relevant_summary":"","uncertainties":[],"confidence":0}
 
-Instructions:
-1. "image_type": Identify if the image is a portfolio (holdings), chart, etc. You MUST pick ONE valid type. If it shows user holdings, pick "portfolio".
-2. "symbols": Extract EVERY visible stock ticker. Look carefully for symbols (usually 3-5 English letters like COMI, ADIB, INEG). If the image is a portfolio, extract the ticker, name, price, daily change, and quantity held. Use null if a value is not visible. Write numbers normally (e.g. 50000).
-3. If no symbols are readable, return an empty array for "symbols".
+Rules:
+- image_type: write exactly one word — portfolio (if it shows broker holdings/positions), chart (candlestick/line), table (price table), market_depth (bid/ask ladder), or unknown.
+- symbols: for each visible stock ticker (2-6 uppercase English letters such as COMI, ADIB, INEG, MCRO), add an entry: {"symbol":"TICKER","name":"Company name or empty","visible_values":{"price":null,"change_pct":null,"quantity":null}}. Fill in numbers you can read; use null for values you cannot read. Write numbers without commas (50000 not 50,000).
+- Never invent a ticker, price, or quantity. If the image text is unreadable, return unknown image_type and empty symbols array.
+- confidence: a number from 0 to 1 reflecting how clearly you could read the image.
 `;
 
 function extractJsonFromResponse(raw: string): any {
