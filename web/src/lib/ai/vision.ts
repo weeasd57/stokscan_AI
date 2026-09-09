@@ -1,10 +1,34 @@
 import { VisionContext } from "./types";
 import { getSyncStockMappings } from "./planner";
 
-const VISION_SYSTEM_PROMPT = `Inspect the attached financial or portfolio screenshot and return ONLY valid JSON, with no markdown or commentary.
-Use exactly this shape:
-{"image_type":"portfolio|chart|table|market_depth|unknown","symbols":[{"symbol":"TICKER","name":"","visible_values":{"price":null,"change_pct":null,"quantity":null}}],"technical_observations":[],"market_depth":{"total_bid":null,"total_ask":null,"spread":null},"user_relevant_summary":"","uncertainties":[],"confidence":0}
-Classify a broker holdings screen as portfolio. For every clearly visible holding, extract its ticker, name, unit price, daily change percentage, and share quantity when visible. Use null for unreadable values. Write numbers without thousands separators (50000, never 50,000). Never invent a ticker or number; do not recommend buying or selling. Empty symbols is valid when no symbol is readable.`;
+const VISION_SYSTEM_PROMPT = `Analyze the attached financial image and return ONLY a valid JSON object. Do not include markdown formatting or commentary.
+
+The JSON object must EXACTLY follow this structure:
+{
+  "image_type": "portfolio", // Choose EXACTLY ONE of: "portfolio", "chart", "table", "market_depth", or "unknown"
+  "symbols": [
+    {
+      "symbol": "TICKER",
+      "name": "Company Name",
+      "visible_values": {
+        "price": 12.5,
+        "change_pct": 1.2,
+        "quantity": 1000
+      }
+    }
+  ],
+  "technical_observations": [],
+  "market_depth": { "total_bid": null, "total_ask": null, "spread": null },
+  "user_relevant_summary": "Summary of the image contents",
+  "uncertainties": [],
+  "confidence": 0.9
+}
+
+Instructions:
+1. "image_type": Identify if the image is a portfolio (holdings), chart, etc. You MUST pick ONE valid type. If it shows user holdings, pick "portfolio".
+2. "symbols": Extract EVERY visible stock ticker. Look carefully for symbols (usually 3-5 English letters like COMI, ADIB, INEG). If the image is a portfolio, extract the ticker, name, price, daily change, and quantity held. Use null if a value is not visible. Write numbers normally (e.g. 50000).
+3. If no symbols are readable, return an empty array for "symbols".
+`;
 
 function extractJsonFromResponse(raw: string): any {
     const jsonMatch = raw.match(/\{[\s\S]*\}/);
@@ -118,7 +142,9 @@ export async function analyzeImage(
     // upload since then. meta/llama-3.2-11b-vision-instruct is verified working
     // (~5s per image, well within VISION_TIMEOUT_MS).
     const visionModels = [
-        "meta/llama-3.2-11b-vision-instruct"
+        "google/gemini-1.5-flash-8b",
+        "google/gemini-1.5-flash",
+        "meta-llama/llama-3.2-11b-vision-instruct"
     ];
 
     // The extraction system prompt must go in the `system` role, not as a user-content
@@ -138,7 +164,15 @@ export async function analyzeImage(
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), Math.min(VISION_TIMEOUT_MS, remaining));
         try {
-                const res = await fetch("https://integrate.api.nvidia.com/v1/chat/completions", {
+            const isNvidia = model.startsWith("nvidia/") || model.startsWith("meta/");
+            const isGemini = model.startsWith("google/gemini-flash") || model.startsWith("google/gemini-1.5-flash") || model.startsWith("google/gemini-pro");
+            const isOpenRouter = key.startsWith("sk-or-") || key.startsWith("sk-");
+
+            const apiUrl = isOpenRouter 
+                ? "https://openrouter.ai/api/v1/chat/completions" 
+                : "https://integrate.api.nvidia.com/v1/chat/completions";
+
+            const res = await fetch(apiUrl, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
@@ -155,10 +189,10 @@ export async function analyzeImage(
                     temperature: 0.05
                 })
             });
-                if (!res.ok) {
-                    console.warn(`Vision model ${model} failed with status ${res.status}`);
-                    return null;
-                }
+            if (!res.ok) {
+                console.warn(`Vision model ${model} failed with status ${res.status}`);
+                return null;
+            }
                 const json = await res.json();
                 const parsed = extractJsonFromResponse(json.choices?.[0]?.message?.content?.trim() || "");
                 const validated = parsed ? validateVisionOutput(parsed) : null;

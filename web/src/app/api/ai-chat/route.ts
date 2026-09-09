@@ -375,7 +375,10 @@ export async function POST(req: NextRequest) {
             limitData = { chat_count: Number(quota.chat_count || 0) };
         }
 
-        const keysToTry = getNvidiaApiKeys();
+        const keysToTry = [
+            process.env.OPENROUTER_API_KEY,
+            ...getNvidiaApiKeys()
+        ].filter((k): k is string => Boolean(k?.trim()));
 
         if (!getDeepSeekApiKey() && keysToTry.length === 0) {
             return NextResponse.json({ detail: "AI service not configured" }, { status: 500 });
