@@ -273,15 +273,17 @@ returns table(country text)
 language sql
 security definer
 as $$
-  with uniq_countries as (
-    select distinct trim(both ' ' from lower(data->>'country')) as country
+  -- Dedup case-insensitively but return the canonical stored casing ("Egypt"),
+  -- never the lowercased form: downstream lookups (JSONB filters, market_cache
+  -- keys, RPC p_country params) are case-sensitive.
+  select min(raw_country) as country
+  from (
+    select trim(both ' ' from data->>'country') as raw_country
     from public.stock_fundamentals
     where data->>'country' is not null
       and trim(both ' ' from data->>'country') <> ''
-  )
-  select country
-  from uniq_countries
-  where country is not null
+  ) t
+  group by lower(raw_country)
   order by country asc;
 $$;
 

@@ -159,6 +159,19 @@ def load_exchanges_list() -> List[Dict[str, Any]]:
 
 @lru_cache(maxsize=64)
 def load_symbols_for_country(country: str) -> List[Dict[str, Any]]:
+    # 0. Normalize country casing against the canonical country summary keys.
+    #    All downstream lookups are case-sensitive (Supabase JSONB filters,
+    #    market_cache keys, local file names), so "egypt" must become "Egypt".
+    try:
+        if country:
+            summary_keys = load_country_summary().keys()
+            for key in summary_keys:
+                if key.lower() == str(country).strip().lower():
+                    country = key
+                    break
+    except Exception:
+        pass
+
     # 1. Try to fetch from Supabase symbols/fundamentals
     try:
         from api.stock_ai import get_supabase_symbols

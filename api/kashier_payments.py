@@ -153,7 +153,7 @@ def verify_webhook_signature(body: dict, signature: Optional[str]) -> bool:
 def _merchant_redirect() -> str:
     """Public return URL (after payment) on the merchant site. READ → the
     PaymentResult page polls /payment/kashier/status using order_ref."""
-    origin = os.getenv("WEB_ORIGIN", "https://egxbots.com").strip().rstrip("/")
+    origin = os.getenv("KASHIER_MERCHANT_REDIRECT_ORIGIN", os.getenv("WEB_ORIGIN", "https://egxbots.com")).strip().rstrip("/")
     return f"{origin}/payment/result?order_ref={{order}}"
 
 

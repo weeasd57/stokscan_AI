@@ -13,6 +13,8 @@ Usage:
 """
 
 import os
+import shutil
+import tempfile
 
 import pandas as pd
 import numpy as np
@@ -45,6 +47,43 @@ def is_git_lfs_pointer(path_or_fileobj) -> bool:
         return prefix.startswith(b"version https://git-lfs.github.com/spec/v1")
     except Exception:
         return False
+
+
+def ensure_real_model_artifact(path: str) -> str:
+    """Replace an unresolved LFS pointer with the real HF Space artifact.
+
+    Hugging Face Spaces can expose an LFS pointer when the runtime checkout
+    skips the LFS smudge step. The public Hub download endpoint still serves
+    the real object, so recover it lazily before deserialization.
+    """
+    if not is_git_lfs_pointer(path):
+        return path
+    repo_id = os.getenv("HF_SPACE_REPO_ID", "weeasdwee/AI_BOT").strip()
+    if not repo_id:
+        return path
+    rel = os.path.relpath(path, os.getcwd()).replace(os.sep, "/")
+    if not rel.startswith("api/models/"):
+        return path
+    try:
+        from huggingface_hub import hf_hub_download
+
+        downloaded = hf_hub_download(
+            repo_id=repo_id,
+            filename=rel,
+            repo_type="space",
+            token=os.getenv("HF_TOKEN") or None,
+            force_download=True,
+        )
+        with tempfile.NamedTemporaryFile(delete=False, dir=os.path.dirname(path)) as tmp:
+            tmp_path = tmp.name
+        shutil.copyfile(downloaded, tmp_path)
+        os.replace(tmp_path, path)
+        if not is_git_lfs_pointer(path):
+            print(f"[MODEL] Recovered LFS artifact from HF: {rel}")
+            return path
+    except Exception as exc:
+        print(f"[MODEL] Failed to recover HF artifact {rel}: {exc}")
+    return path
 
 
 def safe_model_path(model_name: str, models_dir: str, allowed_ext=(".pkl", ".bin")) -> str:

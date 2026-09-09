@@ -1510,7 +1510,17 @@ def get_supabase_countries() -> List[str]:
     try:
         res = supabase.rpc("get_active_countries").execute()
         if res.data:
-            return [r['country'] for r in res.data]
+            countries = [r['country'] for r in res.data if r.get('country')]
+            # Normalize casing against the canonical country summary so
+            # lowercased RPC results (e.g. "egypt") don't poison downstream
+            # case-sensitive lookups.
+            try:
+                from api.symbols_local import load_country_summary
+                canonical = {k.lower(): k for k in load_country_summary().keys()}
+                countries = [canonical.get(c.lower(), c) for c in countries]
+            except Exception:
+                pass
+            return countries
     except Exception as e:
         print(f"Error fetching active countries RPC: {e}")
     return []
@@ -1520,6 +1530,19 @@ def get_supabase_symbols(country: Optional[str] = None) -> List[Dict[str, Any]]:
     """Fetch symbols from Supabase that have price data, ensuring high coverage."""
     _init_supabase()
     if not supabase: return []
+
+    # Normalize country casing: every lookup below is case-sensitive
+    # (get_active_symbols p_country, stock_fundamentals data->>country,
+    # country_to_ex map), and callers may pass e.g. "egypt".
+    if country:
+        try:
+            from api.symbols_local import load_country_summary
+            for key in load_country_summary().keys():
+                if key.lower() == str(country).strip().lower():
+                    country = key
+                    break
+        except Exception:
+            pass
     
     try:
         symbols_map = {}

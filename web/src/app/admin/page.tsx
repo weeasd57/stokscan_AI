@@ -115,9 +115,14 @@ export default function AdminPage() {
         getCountries("local").then(setCountries).finally(() => setCountriesLoading(false));
     }, [unlocked]);
 
-    // Country guard
+    // Country guard (case-insensitive: backend/caches store canonical casing,
+    // but some sources return lowercase names which break case-sensitive lookups)
     useEffect(() => {
-        if (countries.length > 0 && !countries.includes(selectedCountry)) {
+        if (countries.length === 0) return;
+        const canonical = countries.find(c => c.toLowerCase() === selectedCountry.toLowerCase());
+        if (canonical) {
+            if (canonical !== selectedCountry) setSelectedCountry(canonical);
+        } else {
             setSelectedCountry(countries.includes("Egypt") ? "Egypt" : countries[0]);
         }
     }, [countries]);
@@ -171,14 +176,26 @@ export default function AdminPage() {
         setUpdateFundamentals(dataSourcesTab === "funds");
     }, [dataSourcesTab]);
 
-    // Load symbols when country changes (only when unlocked)
+    // Load symbols when country changes (only when unlocked).
+    // Guards against the stale-response race: a slow fetch for a previous
+    // country must never overwrite the results of the current one.
+    const symbolsFetchId = useRef(0);
     useEffect(() => {
         if (!selectedCountry || !unlocked) return;
+        const fetchId = ++symbolsFetchId.current;
         setLoadingSymbols(true);
         searchSymbols("", selectedCountry, 100000, undefined, "local")
-            .then(res => { setSymbols(res); setSelectedSymbols(new Set()); })
-            .catch(console.error)
-            .finally(() => setLoadingSymbols(false));
+            .then(res => {
+                if (fetchId !== symbolsFetchId.current) return;
+                setSymbols(res);
+                setSelectedSymbols(new Set());
+            })
+            .catch(err => {
+                if (fetchId === symbolsFetchId.current) console.error(err);
+            })
+            .finally(() => {
+                if (fetchId === symbolsFetchId.current) setLoadingSymbols(false);
+            });
     }, [selectedCountry, unlocked]);
 
     // Reset page on search or country change

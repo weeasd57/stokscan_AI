@@ -166,18 +166,14 @@ def _load_model(model_name: str, return_raw_prob: bool = False):
     # Guard against git-lfs pointer files (missing large binary LFS objects).
     # These deserialize as a small text pointer and break pickle with
     # "invalid load key, 'v'" — surface the real cause instead.
-    try:
-        from api.model_utils import is_git_lfs_pointer
-        if is_git_lfs_pointer(model_path):
-            raise FileNotFoundError(
-                f"Model file is an unresolved git-lfs pointer: {model_path}. "
-                "Re-upload the real .bin/.pkl artifact (or run `git lfs pull`) "
-                "before running the scan."
-            )
-    except FileNotFoundError:
-        raise  # do not swallow the unresolved-LFS error we intentionally raised
-    except Exception:
-        pass  # fall through to pickle on non-lfs related issues
+    from api.model_utils import ensure_real_model_artifact, is_git_lfs_pointer
+    if is_git_lfs_pointer(model_path):
+        ensure_real_model_artifact(model_path)
+    if is_git_lfs_pointer(model_path):
+        raise FileNotFoundError(
+            f"Model file is an unresolved git-lfs pointer: {model_path}. "
+            "Set HF_SPACE_REPO_ID/HF_TOKEN or upload the real artifact."
+        )
 
     with open(model_path, "rb") as f:
         artifact = pickle.load(f)
