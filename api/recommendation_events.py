@@ -57,6 +57,13 @@ def record_event(
         "telegram_status": status,
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
+    # Older deployments still enforce recommendation_id_legacy_uuid as NOT
+    # NULL. Populate it when the canonical recommendation id is a UUID, while
+    # keeping the newer string identifier as the source of truth.
+    try:
+        payload["recommendation_id_legacy_uuid"] = str(uuid.UUID(str(recommendation_id)))
+    except (ValueError, TypeError, AttributeError):
+        pass
     try:
         existing = (
             supabase.table("recommendation_events")

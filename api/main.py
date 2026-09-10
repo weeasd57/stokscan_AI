@@ -22,6 +22,7 @@ import json
 
 import os
 import re
+import logging
 import hmac
 
 import urllib.request
@@ -100,6 +101,23 @@ app = FastAPI(
     redoc_url=None if os.getenv("DISABLE_PUBLIC_DOCS", "true").strip().lower() not in {"0", "false", "no", "off"} else "/redoc",
     openapi_url=None if os.getenv("DISABLE_PUBLIC_DOCS", "true").strip().lower() not in {"0", "false", "no", "off"} else "/openapi.json",
 )
+
+
+class _TelegramAccessLogRedactor(logging.Filter):
+    """Prevent Uvicorn's own access logger from printing webhook tokens."""
+
+    _pattern = re.compile(r"(/(?:tg-webhook|support-tg-webhook)/)[^\s\"?]+")
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        message = record.getMessage()
+        redacted = self._pattern.sub(r"\1<redacted>", message)
+        if redacted != message:
+            record.msg = redacted
+            record.args = ()
+        return True
+
+
+logging.getLogger("uvicorn.access").addFilter(_TelegramAccessLogRedactor())
 
 
 def require_internal_admin(request: Request) -> None:
