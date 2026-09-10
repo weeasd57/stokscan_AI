@@ -49,6 +49,7 @@ interface NewsStatsProps {
     isAr: boolean;
     search: string;
     dateFilter: string;
+    monthFilter: string;
     selectedSector: string;
     period: string;
     onPeriodChange: (period: string) => void;
@@ -59,7 +60,8 @@ interface NewsStatsProps {
 export default function NewsStats({ 
     isAr, 
     search, 
-    dateFilter, 
+    dateFilter,
+    monthFilter,
     selectedSector,
     period,
     onPeriodChange,
@@ -77,7 +79,7 @@ export default function NewsStats({
     // the period is global and must apply to the open sector chart as well).
     useEffect(() => {
         setActiveSectorName("");
-    }, [search, dateFilter]);
+    }, [search, dateFilter, monthFilter]);
 
     // Keep activeSectorName in sync if parent clears the filter
     useEffect(() => {
@@ -108,6 +110,7 @@ export default function NewsStats({
                 const params = new URLSearchParams();
                 if (search.trim()) params.append("search", search);
                 if (dateFilter) params.append("date", dateFilter);
+                if (monthFilter) params.append("month", monthFilter);
                 if (period) params.append("period", period);
                 
                 const queryStr = params.toString();
@@ -126,7 +129,7 @@ export default function NewsStats({
         };
 
         fetchStats();
-    }, [search, dateFilter, period]);
+    }, [search, dateFilter, monthFilter, period]);
 
     // Fetch the per-stock daily sentiment timeline for the clicked sector over
     // the same period as the Daily Market Sentiment Trend chart.
@@ -142,6 +145,7 @@ export default function NewsStats({
                 const params = new URLSearchParams();
                 if (search.trim()) params.append("search", search);
                 if (dateFilter) params.append("date", dateFilter);
+                if (monthFilter) params.append("month", monthFilter);
                 if (period) params.append("period", period);
                 params.append("sector", activeSectorName);
                 const res = await fetch(`/api/scan/news/stats?${params.toString()}`);
@@ -159,7 +163,7 @@ export default function NewsStats({
         return () => {
             cancelled = true;
         };
-    }, [activeSectorName, search, dateFilter, period]);
+    }, [activeSectorName, search, dateFilter, monthFilter, period]);
 
     if (loading) {
         return (

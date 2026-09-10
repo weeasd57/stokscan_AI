@@ -9,6 +9,7 @@ export interface SessionState {
     risk_tolerance?: "low" | "medium" | "high" | null;
     preferred_sectors?: string[];
     experience_level?: "beginner" | "intermediate" | "expert" | null;
+    persisted?: boolean;
 }
 
 export interface VisionContext {

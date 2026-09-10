@@ -16,6 +16,7 @@ export async function GET(req: Request) {
     const search = url.searchParams.get("search") || "";
     const sentiment = url.searchParams.get("sentiment") || "all";
     const dateFilter = url.searchParams.get("date") || "";
+    const monthFilter = url.searchParams.get("month") || "";
     const sector = url.searchParams.get("sector") || "";
     const period = url.searchParams.get("period") || "";
  
@@ -150,7 +151,12 @@ export async function GET(req: Request) {
 
     // Filter by period range (shared with the charts' period buttons); an
     // explicit exact date always wins over the period range.
-    if (!dateFilter && period) {
+    if (!dateFilter && monthFilter && /^\d{4}-\d{2}$/.test(monthFilter)) {
+      const [year, month] = monthFilter.split("-").map(Number);
+      const start = new Date(Date.UTC(year, month - 1, 1));
+      const end = new Date(Date.UTC(year, month, 1));
+      query = query.gte("date", start.toISOString().split("T")[0]).lt("date", end.toISOString().split("T")[0]);
+    } else if (!dateFilter && period) {
       const d = new Date();
       if (period === "1m") {
         d.setMonth(d.getMonth() - 1);

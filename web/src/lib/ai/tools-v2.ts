@@ -222,7 +222,8 @@ export async function executeStructuredTools(
                 }
             }
         } catch (e: any) {
-            results.push({ tool: "manage_portfolio", source: "portfolio", data_time: now, symbols: [], data_type: "cached", data: { ok: false, message: `حصل خطأ في إدارة المحفظة: ${e?.message || e}` }, error: String(e) });
+            console.error("Portfolio management tool failed:", e);
+            results.push({ tool: "manage_portfolio", source: "portfolio", data_time: now, symbols: [], data_type: "cached", data: { ok: false, message: "حصل خطأ مؤقت في إدارة المحفظة." }, error: "portfolio_tool_failed" });
         }
 
         const portfolioMessage = results[results.length - 1]?.data?.message || "";

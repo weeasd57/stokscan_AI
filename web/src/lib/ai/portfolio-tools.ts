@@ -136,17 +136,18 @@ async function upsertCashBalance(supabase: any, userId: string, value: number): 
     if (error) throw error;
 }
 
-async function recordEvent(supabase: any, userId: string, positionId: string | null, eventType: string, payload: Record<string, any>): Promise<void> {
+async function recordEvent(supabase: any, userId: string, positionId: string | null, eventType: string, payload: Record<string, any>): Promise<boolean> {
     try {
-        await supabase.from("position_events").insert({
+        const { error } = await supabase.from("position_events").insert({
             user_id: userId,
             position_id: positionId,
             event_type: eventType,
             payload,
             event_at: new Date().toISOString(),
         });
+        return !error;
     } catch {
-        // event logging is best-effort
+        return false;
     }
 }
 
@@ -173,8 +174,9 @@ async function symbolExistsInMarket(supabase: any, symbol: string): Promise<bool
             .limit(1);
         return Array.isArray(data) && data.length > 0;
     } catch {
-        // If the check itself fails, don't block the user
-        return true;
+        // Fail closed: a database validation failure must never authorize a
+        // symbol write during a portfolio replacement.
+        return false;
     }
 }
 
@@ -339,7 +341,7 @@ export async function addPortfolioPosition(
             .from("positions")
             .update({ quantity: newQty, entry_price: avgEntry, name: existing.name || name })
             .eq("id", existing.id);
-        if (error) return { ok: false, message: `فشل تحديث السهم: ${error.message}` };
+        if (error) { console.error("Portfolio add update failed:", error); return { ok: false, message: "فشل تحديث السهم مؤقتًا." }; }
         await recordEvent(supabase, userId, existing.id, "portfolio_add", { symbol: sym, quantity, entry_price: entryPrice });
         return { ok: true, message: `تمام ✅ زودت ${quantity} سهم من ${sym} — إجمالي حوزتك الآن ${newQty} سهم بسعر متوسط ${fmt(avgEntry)} ج.م.` };
     }
@@ -353,7 +355,7 @@ export async function addPortfolioPosition(
         status: "open",
         source: "chatbot",
     });
-    if (error) return { ok: false, message: `فشل حفظ السهم: ${error.message}` };
+    if (error) { console.error("Portfolio add insert failed:", error); return { ok: false, message: "فشل حفظ السهم مؤقتًا." }; }
     await recordEvent(supabase, userId, inserted?.id || null, "portfolio_add", { symbol: sym, quantity, entry_price: entryPrice });
     return {
         ok: true,
@@ -391,7 +393,7 @@ export async function updatePortfolioPosition(
     }
 
     const { error } = await supabase.from("positions").update(updates).eq("id", existing.id);
-    if (error) return { ok: false, message: `فشل تعديل السهم: ${error.message}` };
+    if (error) { console.error("Portfolio update failed:", error); return { ok: false, message: "فشل تعديل السهم مؤقتًا." }; }
     await recordEvent(supabase, userId, existing.id, "portfolio_update", { symbol: sym, ...updates });
     return { ok: true, message: `تم ✅ عدلت ${sym}: ${updates.quantity !== undefined ? `العدد بقى ${updates.quantity} سهم` : ""}${updates.quantity !== undefined && updates.entry_price !== undefined ? " و" : ""}${updates.entry_price !== undefined ? `السعر ${fmt(updates.entry_price)} ج.م` : ""}.` };
 }
@@ -423,7 +425,7 @@ export async function removePortfolioPosition(
             .delete()
             .eq("id", existing.id)
             .eq("user_id", userId);
-        if (fallback.error) return { ok: false, message: `فشل حذف السهم: ${error.message}` };
+        if (fallback.error) { console.error("Portfolio remove fallback failed:", fallback.error); return { ok: false, message: "فشل حذف السهم مؤقتًا." }; }
     }
     await recordEvent(supabase, userId, existing.id, "portfolio_remove", { symbol: sym, quantity: existing.quantity });
     return { ok: true, message: `تم ✅ شيلت ${sym} من محفظتك.` };
@@ -484,13 +486,13 @@ export async function sellPortfolioPosition(
                 status_price: price,
             })
             .eq("id", existing.id);
-        if (error) return { ok: false, message: `فشل تسجيل البيع: ${error.message}` };
+        if (error) { console.error("Portfolio sell close failed:", error); return { ok: false, message: "فشل تسجيل البيع مؤقتًا." }; }
     } else {
         const { error } = await supabase
             .from("positions")
             .update({ quantity: (held || 0) - qtyToSell })
             .eq("id", existing.id);
-        if (error) return { ok: false, message: `فشل تسجيل البيع: ${error.message}` };
+        if (error) { console.error("Portfolio sell update failed:", error); return { ok: false, message: "فشل تسجيل البيع مؤقتًا." }; }
     }
 
     const cash = await fetchCashBalance(supabase, userId);
@@ -517,7 +519,8 @@ export async function setPortfolioCash(
         await recordEvent(supabase, userId, null, "portfolio_cash_set", { amount });
         return { ok: true, message: `تم ✅ السيولة في محفظتك الآن ${fmt(amount)} ج.م.` };
     } catch (e: any) {
-        return { ok: false, message: `فشل تحديث السيولة: ${e?.message || e}` };
+        console.error("Portfolio cash update failed:", e);
+        return { ok: false, message: "فشل تحديث السيولة مؤقتًا." };
     }
 }
 
@@ -537,7 +540,8 @@ export async function addPortfolioCash(
         await recordEvent(supabase, userId, null, "portfolio_cash_add", { amount, previous: current, updated });
         return { ok: true, message: `تم ✅ ضفت ${fmt(amount)} ج.م للسيولة — الإجمالي الآن ${fmt(updated)} ج.م.` };
     } catch (e: any) {
-        return { ok: false, message: `فشل إيداع السيولة: ${e?.message || e}` };
+        console.error("Failed to add portfolio cash:", e);
+        return { ok: false, message: "فشل تحديث السيولة مؤقتًا. حاول مرة أخرى." };
     }
 }
 
@@ -555,20 +559,37 @@ export async function replacePortfolioFromImage(
         return { ok: false, message: `الخطة المجانية تسمح بحد أقصى ${FREE_PORTFOLIO_LIMIT} أسهم مختلفة في المحفظة. الصورة تحتوي على ${uniqueIncoming.size} أسهماً.` };
     }
 
-    // Close all current open positions
-    const positions = await fetchOpenPositions(supabase, userId);
-    for (const pos of positions) {
-        await supabase
-            .from("positions")
-            .update({ status: "removed", status_at: new Date().toISOString() })
-            .eq("id", pos.id);
+    const normalizedItems = items.map(item => ({
+        ...item,
+        symbol: String(item.symbol || "").trim().toUpperCase(),
+    }));
+    if (normalizedItems.some(item => !/^[A-Z]{2,6}$/.test(item.symbol))) {
+        return { ok: false, message: "الصورة تحتوي على رمز سهم غير صالح، ولم يتم تعديل المحفظة القديمة." };
+    }
+    const uniqueSymbols = new Set(normalizedItems.map(item => item.symbol));
+    if (uniqueSymbols.size !== normalizedItems.length) {
+        return { ok: false, message: "الصورة تحتوي على سهم مكرر، ولم يتم تعديل المحفظة القديمة." };
+    }
+    if (normalizedItems.some(item => !Number.isFinite(item.quantity) || item.quantity == null || item.quantity <= 0
+        || !Number.isFinite(item.price) || item.price == null || item.price <= 0)) {
+        return { ok: false, message: "الكميات أو أسعار الشراء في الصورة غير صالحة، ولم يتم تعديل المحفظة القديمة." };
     }
 
+    // Validate every symbol before any write. This prevents a partial image
+    // import from replacing the existing portfolio with only some holdings.
+    for (const item of normalizedItems) {
+        if (!(await symbolExistsInMarket(supabase, item.symbol))) {
+            return { ok: false, message: `السهم ${item.symbol} غير موجود في السوق، ولم يتم تعديل المحفظة القديمة.` };
+        }
+    }
+
+    // Insert the replacement first; preserve the old portfolio if insertion
+    // fails. The compensating updates below cover failures during replacement.
+    const positions = await fetchOpenPositions(supabase, userId);
     let added = 0;
-    for (const item of items) {
-        const sym = String(item.symbol || "").trim().toUpperCase();
-        if (!/^[A-Z0-9]{2,10}$/.test(sym)) continue;
-        if (!(await symbolExistsInMarket(supabase, sym))) continue;
+    const insertedIds: string[] = [];
+    for (const item of normalizedItems) {
+        const sym = item.symbol;
         const name = await fetchStockName(supabase, sym);
         const { data: inserted, error } = await insertPositionRow(supabase, {
             user_id: userId,
@@ -579,14 +600,64 @@ export async function replacePortfolioFromImage(
             status: "open",
             source: "chatbot_image",
         });
-        if (!error && inserted) {
-            added++;
-            await recordEvent(supabase, userId, inserted.id, "portfolio_image_import", { symbol: sym, quantity: item.quantity, price: item.price });
+        if (error || !inserted) {
+            let rollbackFailed = false;
+            for (const id of insertedIds) {
+                const rollback = await supabase.from("positions").delete().eq("id", id).eq("user_id", userId);
+                if (rollback.error) rollbackFailed = true;
+            }
+            return { ok: false, message: rollbackFailed
+                ? "حدث خطأ أثناء حفظ الصورة. أوقفنا العملية وتحتاج مراجعة حالة المحفظة من الدعم."
+                : `تعذر حفظ السهم ${sym}، ولم يتم تعديل المحفظة القديمة.` };
+        }
+        added++;
+        insertedIds.push(inserted.id);
+        const eventSaved = await recordEvent(supabase, userId, inserted.id, "portfolio_image_import", { symbol: sym, quantity: item.quantity, price: item.price });
+        if (!eventSaved) {
+            let rollbackFailed = false;
+            for (const id of insertedIds) {
+                const rollback = await supabase.from("positions").delete().eq("id", id).eq("user_id", userId);
+                if (rollback.error) rollbackFailed = true;
+            }
+            return { ok: false, message: rollbackFailed
+                ? "حدث خطأ أثناء تسجيل الاستيراد. أوقفنا العملية وتحتاج مراجعة حالة المحفظة من الدعم."
+                : "تعذر تسجيل عملية الاستيراد بأمان، ولم يتم تعديل المحفظة القديمة." };
         }
     }
 
     if (added === 0) {
         return { ok: false, message: "تعذر حفظ أي سهم من الصورة — اتأكد إن الرموز ظاهرة بوضوح." };
+    }
+    const latestPositions = (await fetchOpenPositions(supabase, userId)).filter(pos => !insertedIds.includes(pos.id));
+    const expectedIds = positions.map(pos => pos.id).sort().join(",");
+    const latestIds = latestPositions.map(pos => pos.id).sort().join(",");
+    if (expectedIds !== latestIds) {
+        for (const id of insertedIds) {
+            await supabase.from("positions").delete().eq("id", id).eq("user_id", userId);
+        }
+        return { ok: false, message: "تغيرت المحفظة أثناء الاستيراد، ولم يتم تعديل المحفظة القديمة." };
+    }
+    const removedIds: string[] = [];
+    for (const pos of positions) {
+        const { error } = await supabase
+            .from("positions")
+            .update({ status: "removed", status_at: new Date().toISOString() })
+            .eq("id", pos.id);
+        if (error) {
+            let rollbackFailed = false;
+            for (const id of insertedIds) {
+                const rollback = await supabase.from("positions").delete().eq("id", id).eq("user_id", userId);
+                if (rollback.error) rollbackFailed = true;
+            }
+            for (const restoredId of removedIds) {
+                const restore = await supabase.from("positions").update({ status: "open", status_at: null }).eq("id", restoredId).eq("user_id", userId);
+                if (restore.error) rollbackFailed = true;
+            }
+            return { ok: false, message: rollbackFailed
+                ? "حدث خطأ أثناء استبدال المحفظة. أوقفنا العملية وتحتاج مراجعة حالة المحفظة من الدعم."
+                : "تعذر استبدال المحفظة بأمان، ولم يتم حذف المحفظة القديمة." };
+        }
+        removedIds.push(pos.id);
     }
     return { ok: true, message: `تم ✅ حفظ محفظتك من الصورة: ${added} سهم ${added === 1 ? "" : ""}اتسجلوا في حسابك.` };
 }

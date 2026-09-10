@@ -14,26 +14,51 @@ Rules:
 `;
 
 function extractJsonFromResponse(raw: string): any {
-    const jsonMatch = raw.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
+    const jsonText = raw.trim();
+    if (jsonText.startsWith("{") && jsonText.endsWith("}")) {
         try {
-            return JSON.parse(jsonMatch[0]);
+            return JSON.parse(jsonText);
         } catch {}
         // Some vision responses use commas inside numeric values (50,000),
         // producing invalid JSON. Repair only comma-thousands patterns.
         try {
-            const repaired = jsonMatch[0].replace(/(\d),(?=\d{3}(?:\D|$))/g, "$1");
+            const repaired = jsonText.replace(/(\d),(?=\d{3}(?:\D|$))/g, "$1");
             return JSON.parse(repaired);
         } catch {}
     }
-    const symbolCandidates = Array.from(new Set(
-        (raw.match(/\b[A-Z]{3,5}\b/g) || [])
-            .filter(symbol => !["JSON", "NULL", "TABLE", "CHART", "PRICE", "SUMMARY", "STOCK"].includes(symbol))
-    ));
-    if (symbolCandidates.length) {
-        return { image_type: "table", visible_stock_symbols: symbolCandidates, summary: "Visible stock symbols extracted from the image." };
-    }
+    // Do not infer tickers from provider prose. A model response is accepted
+    // only when it contains the contracted JSON shape; otherwise the caller
+    // must report a vision failure instead of turning arbitrary prose into
+    // financial data.
     return null;
+}
+
+function isNumberOrNull(value: unknown): boolean {
+    return value === null || (typeof value === "number" && Number.isFinite(value));
+}
+
+function hasValidVisionContract(data: any): boolean {
+    if (!data || typeof data !== "object") return false;
+    if (!["portfolio", "chart", "market_depth", "table", "unknown"].includes(data.image_type)) return false;
+    if (!Array.isArray(data.symbols) || !Array.isArray(data.technical_observations)) return false;
+    if (typeof data.user_relevant_summary !== "string" || !Array.isArray(data.uncertainties)) return false;
+    if (typeof data.confidence !== "number" || !Number.isFinite(data.confidence) || data.confidence < 0 || data.confidence > 1) return false;
+    if (!data.market_depth || typeof data.market_depth !== "object") return false;
+    if (!isNumberOrNull(data.market_depth.total_bid) || !isNumberOrNull(data.market_depth.total_ask) || !isNumberOrNull(data.market_depth.spread)) return false;
+
+    return data.symbols.every((symbol: any) => symbol && typeof symbol.symbol === "string"
+        && /^[A-Z]{2,6}$/.test(symbol.symbol)
+        && typeof symbol.name === "string"
+        && symbol.visible_values && typeof symbol.visible_values === "object"
+        && isNumberOrNull(symbol.visible_values.price)
+        && isNumberOrNull(symbol.visible_values.change_pct)
+        && isNumberOrNull(symbol.visible_values.quantity))
+        && data.technical_observations.every((observation: any) => observation
+            && typeof observation.symbol === "string"
+            && /^[A-Z]{2,6}$/.test(observation.symbol)
+            && typeof observation.indicator === "string"
+            && isNumberOrNull(observation.value)
+            && typeof observation.meaning === "string");
 }
 
 export function validateVisionOutput(data: any): VisionContext | null {
@@ -134,6 +159,22 @@ export async function analyzeImage(
     userContent.push({ type: "image_url", image_url: { url: imageUrl } });
 
     const visionStartTime = Date.now();
+    let lastFailure = "vision_unavailable";
+    const failurePriority: Record<string, number> = {
+        vision_unavailable: 0,
+        vision_request_failed: 1,
+        vision_timeout: 2,
+        vision_invalid_json: 3,
+    };
+    const recordFailure = (failure: string) => {
+        const priority = (value: string) => {
+            if (value.startsWith("vision_http_")) return 4;
+            return failurePriority[value] ?? 0;
+        };
+        const current = priority(lastFailure);
+        const next = priority(failure);
+        if (next >= current) lastFailure = failure;
+    };
     const analyzeModel = async (model: string, key: string): Promise<VisionContext | null> => {
         const remaining = MAX_VISION_TOTAL_TIME_MS - (Date.now() - visionStartTime);
         if (!key || remaining <= 0) return null;
@@ -158,19 +199,27 @@ export async function analyzeImage(
                 })
             });
             if (!res.ok) {
-                console.warn(`Vision model ${model} failed with status ${res.status}`);
+                recordFailure(`vision_http_${res.status}`);
+                console.warn(`[VISION] model=${model} status=${res.status}`);
                 return null;
             }
             const json = await res.json();
-            const parsed = extractJsonFromResponse(json.choices?.[0]?.message?.content?.trim() || "");
-            const validated = parsed ? validateVisionOutput(parsed) : null;
+            const rawContent = json.choices?.[0]?.message?.content?.trim() || "";
+            const parsed = extractJsonFromResponse(rawContent);
+            const hasVisionShape = hasValidVisionContract(parsed);
+            if (!hasVisionShape) {
+                recordFailure("vision_invalid_json");
+                console.warn(`[VISION] model=${model} returned no parseable JSON (chars=${rawContent.length})`);
+            }
+            const validated = hasVisionShape ? validateVisionOutput(parsed) : null;
             if (validated) {
                 validated.message_id = messageId;
 
                     return validated;
                 }
         } catch (err: any) {
-            console.warn(`Vision model ${model} error:`, err.message);
+            recordFailure(err?.name === "AbortError" ? "vision_timeout" : "vision_request_failed");
+            console.warn(`[VISION] model=${model} error=${lastFailure}`);
         } finally {
             clearTimeout(timeoutId);
         }
@@ -240,5 +289,8 @@ export async function analyzeImage(
         return { vision: primary, error: null };
     }
 
-    return { vision: null, error: "فشل تحليل الصورة - جميع موديلات الرؤية لم تنجح" };
+    // Keep provider-specific diagnostics in server logs only. The caller gets
+    // a stable public error category and cannot see model/status internals.
+    console.warn(`[VISION] final_failure=${lastFailure}`);
+    return { vision: null, error: "vision_unavailable" };
 }

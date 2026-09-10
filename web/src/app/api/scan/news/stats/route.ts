@@ -83,6 +83,7 @@ export async function GET(req: Request) {
     const url = new URL(req.url);
     const search = url.searchParams.get("search") || "";
     const dateFilter = url.searchParams.get("date") || "";
+    const monthFilter = url.searchParams.get("month") || "";
     const period = url.searchParams.get("period") || "15d";
     const requestedSector = url.searchParams.get("sector") || "";
 
@@ -116,8 +117,18 @@ export async function GET(req: Request) {
 
     // Determine query date range and limits based on period
     let startDateStr = "";
+    let endDateStr = "";
     let limit = 600;
-    if (period === "1m") {
+    if (monthFilter && /^\d{4}-\d{2}$/.test(monthFilter)) {
+      const [year, month] = monthFilter.split("-").map(Number);
+      const start = new Date(Date.UTC(year, month - 1, 1));
+      const end = new Date(Date.UTC(year, month, 1));
+      startDateStr = start.toISOString().split("T")[0];
+      // The query below uses an inclusive start and exclusive next-month end.
+      // Keep the end separately so month navigation cannot leak adjacent data.
+      endDateStr = end.toISOString().split("T")[0];
+      limit = 5000;
+    } else if (period === "1m") {
       const d = new Date();
       d.setMonth(d.getMonth() - 1);
       startDateStr = d.toISOString().split("T")[0];
@@ -150,6 +161,7 @@ export async function GET(req: Request) {
     } else if (startDateStr) {
       query = query.gte("date", startDateStr);
     }
+    if (monthFilter && endDateStr) query = query.lt("date", endDateStr);
 
     const { data: newsRows, error: newsError } = await query.limit(limit);
 

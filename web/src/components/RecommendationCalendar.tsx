@@ -92,6 +92,17 @@ export default function RecommendationCalendar({
         }
     }, [filterPreset]);
 
+    const selectCalendarMonth = (date: Date) => {
+        const monthStart = new Date(date.getFullYear(), date.getMonth(), 1);
+        const monthEnd = new Date(date.getFullYear(), date.getMonth() + 1, 0);
+        setCurrentDate(monthStart);
+        // Calendar navigation must drive the same range used by the global
+        // statistics, not only the visible grid.
+        setFilterPreset("custom");
+        setCustomFrom(formatYMD(monthStart));
+        setCustomTo(formatYMD(monthEnd));
+    };
+
     // Helpers for Date Formatting
     const formatYMD = (date: Date) => {
         const y = date.getFullYear();
@@ -359,11 +370,11 @@ export default function RecommendationCalendar({
 
     // Navigation Controls
     const prevMonth = () => {
-        setCurrentDate(new Date(year, month - 1, 1));
+        selectCalendarMonth(new Date(year, month - 1, 1));
     };
 
     const nextMonth = () => {
-        setCurrentDate(new Date(year, month + 1, 1));
+        selectCalendarMonth(new Date(year, month + 1, 1));
     };
 
     const todayDateStr = formatYMD(new Date());
@@ -612,7 +623,10 @@ export default function RecommendationCalendar({
                                 {isAr ? <ChevronRight className="w-4 h-4 sm:w-5 sm:h-5" /> : <ChevronLeft className="w-4 h-4 sm:w-5 sm:h-5" />}
                             </button>
                             <button
-                                onClick={() => setCurrentDate(new Date())}
+                                onClick={() => {
+                                    setCurrentDate(new Date());
+                                    setFilterPreset("this_month");
+                                }}
                                 className="px-2 sm:px-3 py-1 sm:py-1.5 rounded-xl bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-[10px] sm:text-xs font-black text-zinc-700 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-200 dark:hover:bg-zinc-800 transition-all"
                             >
                                 {isAr ? "اليوم" : "Today"}

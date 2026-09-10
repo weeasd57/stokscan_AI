@@ -47,6 +47,7 @@ export default function NewsPage() {
     const [sentiment, setSentiment] = useState<string>("all"); // "all", "positive", "negative", "neutral"
     const [sortBy, setSortBy] = useState<string>("newest"); // "newest", "oldest", "highest_sent", "lowest_sent"
     const [dateFilter, setDateFilter] = useState("");
+    const [monthFilter, setMonthFilter] = useState("");
     const [selectedSector, setSelectedSector] = useState<string>("");
     const [period, setPeriod] = useState<string>("15d"); // shared with the stats charts
     const [page, setPage] = useState(1);
@@ -67,8 +68,10 @@ export default function NewsPage() {
             }
             if (dateFilter) {
                 url += `&date=${dateFilter}`;
+            } else if (monthFilter) {
+                url += `&month=${monthFilter}`;
             }
-            if (!dateFilter && period) {
+            if (!dateFilter && !monthFilter && period) {
                 url += `&period=${period}`;
             }
             if (selectedSector) {
@@ -96,7 +99,7 @@ export default function NewsPage() {
         } finally {
             setLoading(false);
         }
-    }, [page, debouncedSearch, sentiment, dateFilter, sortBy, selectedSector, period]);
+    }, [page, debouncedSearch, sentiment, dateFilter, monthFilter, sortBy, selectedSector, period]);
 
     // Handle search input debounce/delay
     useEffect(() => {
@@ -110,7 +113,7 @@ export default function NewsPage() {
     // Reset pagination when date filter or shared period changes
     useEffect(() => {
         setPage(1);
-    }, [dateFilter, period]);
+    }, [dateFilter, monthFilter, period]);
 
     // Trigger fetch when fetchNews callback changes
     useEffect(() => {
@@ -244,6 +247,7 @@ export default function NewsPage() {
                 isAr={isAr} 
                 search={debouncedSearch} 
                 dateFilter={dateFilter} 
+                monthFilter={monthFilter}
                 selectedSector={selectedSector}
                 period={period}
                 onPeriodChange={(p) => {
@@ -251,6 +255,7 @@ export default function NewsPage() {
                     // filters below, so clear any exact-date override.
                     setPeriod(p);
                     setDateFilter("");
+                    setMonthFilter("");
                     setPage(1);
                 }}
                 onSectorSelect={(sector) => {
@@ -295,13 +300,33 @@ export default function NewsPage() {
                     />
                 </div>
 
-                {/* Date Filter */}
+                {/* Month navigation filter */}
+                <div className="lg:col-span-2 relative flex items-center">
+                    <Calendar className="absolute left-3.5 w-4 h-4 text-black/70 dark:text-white/70 pointer-events-none" />
+                    <input
+                        type="month"
+                        value={monthFilter}
+                        onChange={(e) => {
+                            setMonthFilter(e.target.value);
+                            setDateFilter("");
+                            setPage(1);
+                        }}
+                        aria-label={isAr ? "اختيار شهر الإحصائيات" : "Select statistics month"}
+                        className="h-11 w-full rounded-none pl-10 pr-2 text-xs font-black outline-none border-4 border-black bg-white dark:bg-zinc-900 text-black dark:text-white dark:border-white focus:bg-[#FFE600] focus:text-black transition-none shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_0px_rgba(255,255,255,0.4)]"
+                    />
+                </div>
+
+                {/* Exact date filter */}
                 <div className="lg:col-span-3 relative flex items-center">
                     <Calendar className="absolute left-3.5 w-4 h-4 text-black/70 dark:text-white/70 pointer-events-none" />
                     <input
                         type="date"
                         value={dateFilter}
-                        onChange={(e) => setDateFilter(e.target.value)}
+                        onChange={(e) => {
+                            setDateFilter(e.target.value);
+                            setMonthFilter("");
+                            setPage(1);
+                        }}
                         className="h-11 w-full rounded-none pl-10 pr-4 text-xs font-black outline-none border-4 border-black bg-white dark:bg-zinc-900 text-black dark:text-white dark:border-white focus:bg-[#FFE600] focus:text-black transition-none shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_0px_rgba(255,255,255,0.4)]"
                     />
                 </div>

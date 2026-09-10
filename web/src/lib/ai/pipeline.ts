@@ -1368,10 +1368,19 @@ export async function* runPipelineStream(
                     items,
                     current_index: items.indexOf(missing),
                 };
-                await updateSessionSummary(supabase, sessionId, userId, {
+                const summarySaved = await updateSessionSummary(supabase, sessionId, userId, {
                     pending_portfolio_import: pending,
                     last_topic: "portfolio_import_pending",
                 });
+                if (!summarySaved) {
+                    yield { type: "vision_error", data: "portfolio_pending_context_not_saved" };
+                    yield { type: "done", data: {
+                        response: "الصورة مفهومة، لكن تعذر حفظ البيانات الناقصة للجلسة. اكتب الكمية ومتوسط الشراء مرة أخرى مع رموز الأسهم حتى لا أفقد السياق.",
+                        session_update: { current_symbol: missing.symbol, last_symbols: items.map(item => item.symbol), summary: "تعذر حفظ البيانات الناقصة للمحفظة" },
+                        tables: [],
+                    } };
+                    return;
+                }
                 const missingParts = [
                     missing.quantity == null || missing.quantity <= 0 ? "الكمية" : "",
                     missing.price == null || missing.price <= 0 ? "متوسط الشراء" : "",
@@ -1385,10 +1394,28 @@ export async function* runPipelineStream(
                 return;
             }
             const imported = await replacePortfolioFromImage(supabase, userId, items);
-            await updateSessionSummary(supabase, sessionId, userId, {
+            if (!imported.ok) {
+                yield { type: "vision_error", data: "portfolio_import_failed" };
+                yield { type: "done", data: {
+                    response: `${imported.message}\n\nلم أمسح حالة المحفظة المعلقة، ويمكنك إعادة المحاولة بعد تصحيح البيانات.`,
+                    session_update: { current_symbol: null, last_symbols: items.map(item => item.symbol), summary: "فشل حفظ محفظة الصورة" },
+                    tables: [],
+                } };
+                return;
+            }
+            const summarySaved = await updateSessionSummary(supabase, sessionId, userId, {
                 pending_portfolio_import: null,
                 last_topic: "portfolio",
             });
+            if (!summarySaved) {
+                yield { type: "vision_error", data: "portfolio_import_context_not_cleared" };
+                yield { type: "done", data: {
+                    response: `${imported.message}\n\nتم حفظ المحفظة، لكن تعذر تحديث حالة الجلسة. لن أعتبر الاستيراد مكتملًا في الرسائل التالية حتى يتم تحديث الجلسة.`,
+                    session_update: { current_symbol: null, last_symbols: items.map(item => item.symbol), summary: imported.message },
+                    tables: [],
+                } };
+                return;
+            }
             yield { type: "done", data: {
                 response: imported.message,
                 session_update: { current_symbol: null, last_symbols: items.map(item => item.symbol), summary: imported.message },
@@ -1492,6 +1519,27 @@ export async function* runPipelineStream(
 
             yield { type: "vision_result", data: vision };
             if (vision.image_type === "portfolio") {
+                // Persist the extracted holdings before returning the confirmation
+                // prompt. The next user message is a separate request and loads
+                // this summary from Supabase; without this write it sees an empty
+                // portfolio and the confirmation flow loses the image context.
+                const summarySaved = await updateSessionSummary(supabase, sessionId, userId, {
+                    current_symbols: vision.symbols.map(symbol => symbol.symbol),
+                    last_image_symbols: vision.symbols.map(symbol => symbol.symbol),
+                    last_topic: "portfolio",
+                    last_vision_context: vision,
+                    pending_portfolio_import: null,
+                    last_data_date: new Date().toISOString().split("T")[0],
+                });
+                if (!summarySaved) {
+                    yield { type: "vision_error", data: "portfolio_context_not_saved" };
+                    yield { type: "done", data: {
+                        response: "حللت الصورة، لكن تعذر حفظ الأسهم المستخرجة للجلسة. أعد إرسال الصورة مرة أخرى قبل تأكيد المحفظة حتى لا أفقد البيانات.",
+                        session_update: { current_symbol: null, last_symbols: vision.symbols.map(s => s.symbol), summary: "تعذر حفظ سياق صورة المحفظة" },
+                        tables: [],
+                    } };
+                    return;
+                }
                 const visible = vision.symbols.length
                     ? vision.symbols.map(s => `${s.symbol}${s.visible_values.quantity != null ? ` (${s.visible_values.quantity} سهم)` : ""}`).join("، ")
                     : "لم أتعرف على رموز أسهم واضحة";

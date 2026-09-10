@@ -141,6 +141,50 @@ async function insertChatMessages(supabase: any, rows: any[]): Promise<void> {
     }
 }
 
+function classifyChatError(error: unknown): string {
+    const text = String((error as any)?.message || error || "");
+    if (/supabase|postgrest|database|PGRST|23505|42P01/i.test(text)) return "supabase_error";
+    if (/timeout|abort|deadline/i.test(text)) return "timeout";
+    if (/vision|image|nvidia|model/i.test(text)) return "vision_error";
+    if (/quota|limit/i.test(text)) return "quota_error";
+    return "chat_error";
+}
+
+async function recordChatError(
+    supabase: any,
+    input: {
+        sessionId?: string | null;
+        userId: string;
+        clientMessageId?: string | null;
+        correlationId: string;
+        phase: string;
+        error: unknown;
+        latencyMs?: number;
+        imageUrl?: string | null;
+    }
+): Promise<void> {
+    const safeType = classifyChatError(input.error);
+    const safeMessage = "تعذر إكمال الطلب حاليًا. حاول مرة أخرى.";
+    const metadata = { error: true, error_type: safeType, phase: input.phase, correlation_id: input.correlationId };
+    console.error(`[AI CHAT ERROR] correlation=${input.correlationId} phase=${input.phase} type=${safeType}`, input.error);
+    if (!input.sessionId) return;
+    try {
+        await insertChatMessages(supabase, [{
+            session_id: input.sessionId,
+            user_id: input.userId,
+            role: "error",
+            content: `${safeMessage} [${safeType}/${input.phase}/${input.correlationId}]`,
+            client_message_id: null,
+            image_url: input.imageUrl || null,
+            latency_ms: input.latencyMs ?? null,
+            metadata,
+            created_at: new Date().toISOString(),
+        }]);
+    } catch (loggingError) {
+        console.error("Failed to persist chatbot error record:", loggingError);
+    }
+}
+
 /**
  * Extract data provenance from pipeline tool results so the admin chat tab can
  * show whether the LLM reply was built from real-time market data or from the
@@ -309,18 +353,22 @@ async function handleSessionResolution(
 }
 
 export async function POST(req: NextRequest) {
+    const totalRequestStartTime = Date.now();
+    let correlationId = req.headers.get("x-correlation-id")?.slice(0, 128) || crypto.randomUUID();
+    let supabase: any = null;
+    let userId = "";
+    let requestSessionId: string | null = null;
+    let clientMessageId = "";
     try {
-        const totalRequestStartTime = Date.now();
-        const correlationId = req.headers.get("x-correlation-id")?.slice(0, 128) || crypto.randomUUID();
         const authClient = createSupabaseServerClient(req);
-        const supabase = getSupabaseClient();
+        supabase = getSupabaseClient();
 
         const { data: { user }, error: authError } = await authClient.auth.getUser();
         if (authError || !user) {
             return NextResponse.json({ detail: "Unauthorized" }, { status: 401 });
         }
         
-        const userId = user.id;
+        userId = user.id;
         const isUnlimited = isUnlimitedChatUser(user);
         const { paymentsEnabled, planLimits, isPro: gateIsPro } = await import("@/lib/ai/plan-gate");
         const billingOn = paymentsEnabled();
@@ -342,7 +390,7 @@ export async function POST(req: NextRequest) {
         const rawMessage = typeof body.message === "string" ? body.message : "";
         const message = sanitizeUserMessage(rawMessage);
         const { history, image, images, model: userRequestedModel, session_id: inputSessionId, stream } = body;
-        const clientMessageId = typeof body.client_message_id === "string" ? body.client_message_id.trim().slice(0, 128) : "";
+        clientMessageId = typeof body.client_message_id === "string" ? body.client_message_id.trim().slice(0, 128) : "";
 
         const rawImages: string[] = Array.isArray(images) && images.length > 0 
             ? images 
@@ -417,12 +465,14 @@ export async function POST(req: NextRequest) {
         }
 
         const messageId = `msg_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+        requestSessionId = inputSessionId || null;
 
         const acceptHeader = req.headers.get("accept") || "";
         const isStreamingRequested = stream === true || stream === "true" || acceptHeader.includes("text/event-stream");
 
         if (isStreamingRequested) {
             const encoder = new TextEncoder();
+            let streamSessionId: string | null = null;
             const customStream = new ReadableStream({
                 async start(controller) {
                     let streamClosed = false;
@@ -442,6 +492,8 @@ export async function POST(req: NextRequest) {
                         // STEP 1: RESOLVE SESSION ID
                         sendEvent({ type: "status", status: "session", message: "Resolving session..." });
                         const activeSessionId = await handleSessionResolution(supabase, userId, inputSessionId, message, hasImages);
+                        requestSessionId = activeSessionId;
+                        streamSessionId = activeSessionId;
                         sendEvent({ type: "session_id", session_id: activeSessionId });
 
                         let permanentImageUrls: string[] = [];
@@ -613,7 +665,7 @@ export async function POST(req: NextRequest) {
                                     const suggestedButtons = sanitizeSuggestedButtons(generateSuggestedButtons(plannerResult || {}, sessionState));
                                     const optimalModel = selectOptimalModel(plannerResult?.intent || "general_chat", plannerResult?.entities?.symbols?.length || 0, userRequestedModel);
 
-                                    await logAiInteraction(supabase, {
+                                     await logAiInteraction(supabase, {
                                         sessionId: activeSessionId,
                                         userId: userId,
                                         intent: plannerResult?.intent || "general_chat",
@@ -626,8 +678,20 @@ export async function POST(req: NextRequest) {
                                         correlationId,
                                         totalLatencyMs: streamingTotalLatencyMs,
                                         dataSizeChars: liveDataString ? liveDataString.length : 0,
-                                        error: null
-                                    });
+                                         error: null
+                                     });
+                                     if (event.data?.vision_error) {
+                                         await recordChatError(supabase, {
+                                             sessionId: activeSessionId,
+                                             userId,
+                                             clientMessageId,
+                                             correlationId,
+                                             phase: "vision",
+                                             error: event.data.vision_error,
+                                             latencyMs: streamingTotalLatencyMs,
+                                             imageUrl: finalSavedImageUrl,
+                                         });
+                                     }
 
                                     sendEvent({
                                         type: "done",
@@ -653,6 +717,15 @@ export async function POST(req: NextRequest) {
                             console.error("Streaming error:", err);
                         }
                         const internalDetail = String(err?.message || "Streaming failed");
+                        await recordChatError(supabase, {
+                            sessionId: streamSessionId,
+                            userId,
+                            clientMessageId,
+                            correlationId,
+                            phase: "streaming",
+                            error: err,
+                            latencyMs: Date.now() - totalRequestStartTime,
+                        });
                         let friendlyDetail = "تعذر إكمال التحليل حاليًا. يرجى إعادة المحاولة.";
                         if (/PIPELINE_DEADLINE_EXCEEDED|DEADLINE|Timeout|AbortError/i.test(internalDetail)) {
                             friendlyDetail = "استغرق التحليل وقتًا أطول من المتوقع نظرًا لضغط السيرفرات حالياً. يرجى إعادة إرسال السؤال أو تجربة إرساله بدون صورة للحصول على رد فوري.";
@@ -678,6 +751,7 @@ export async function POST(req: NextRequest) {
         // --- NON-STREAMING JSON FALLBACK ---
         console.log(`[BOT STAGE] Starting non-streaming pipeline...`);
         const activeSessionId = await handleSessionResolution(supabase, userId, inputSessionId, message, hasImages);
+        requestSessionId = activeSessionId;
 
         let permanentImageUrls: string[] = [];
         if (hasImages) {
@@ -787,6 +861,18 @@ export async function POST(req: NextRequest) {
             dataSizeChars: pipelineResult.tools?.formattedText?.length || 0,
             error: pipelineResult.vision_error
         });
+        if (pipelineResult.vision_error) {
+            await recordChatError(supabase, {
+                sessionId: activeSessionId,
+                userId,
+                clientMessageId,
+                correlationId,
+                phase: "vision",
+                error: pipelineResult.vision_error,
+                latencyMs: totalLatencyMs,
+                imageUrl: finalSavedImageUrl,
+            });
+        }
 
         return NextResponse.json({
             reply: replyText,
@@ -800,6 +886,17 @@ export async function POST(req: NextRequest) {
 
     } catch (error: any) {
         console.error("Critical Chat API Error:", error);
+        if (supabase && userId) {
+            await recordChatError(supabase, {
+                sessionId: requestSessionId,
+                userId,
+                clientMessageId,
+                correlationId,
+                phase: "critical",
+                error,
+                latencyMs: Date.now() - totalRequestStartTime,
+            });
+        }
         return NextResponse.json({ detail: "Failed to process chat request." }, { status: 500 });
     }
 }
