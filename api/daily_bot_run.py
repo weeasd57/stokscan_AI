@@ -764,7 +764,7 @@ def _send_telegram_adjustment(symbol: str, exchange: str, adjustment: dict):
         msg += f"\n📊 RSI: `{adjustment.get('rsi', '—')}` | ADX: `{adjustment.get('adx', '—')}`\n"
         msg += f"📈 *العائد الحالي:* `{adjustment.get('pl_pct', '—')}`%\n"
         msg += f"━━━━━━━━━━━━━━━━━━━━\n"
-        msg += f"🔗 [تحديثات الفكرة على المنصة]({web_origin}/scanner/backtests?tab=bots)"
+        msg += f"🔗 رابط المنصة: {web_origin}/scanner/backtests?tab=bots\n"
 
         return bool(_notify_central_telegram(msg, "recommendation_adjustment"))
 
@@ -848,7 +848,7 @@ def _send_telegram_exit(symbol: str, exchange: str, entry_price: float, exit_pri
             f"📊 *صافي العائد:* `{pl_sign}{pl_pct:.2f}%`\n"
             f"{duration_line}"
             f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"🔗 [سجل الصفقات الكامل على المنصة]({web_origin}/scanner/backtests?tab=bots)"
+            f"🔗 رابط سجل الصفقات: {web_origin}/scanner/backtests?tab=bots"
         )
 
         return bool(_notify_central_telegram(msg, "recommendation_exit"))
@@ -1006,7 +1006,7 @@ def generate_weekly_performance_report(trigger: str = "manual", chat_id: Optiona
             f"{active_positions_str}\n\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
             f"🔗 *لمتابعة الصفقات والتقارير الفنية الكاملة:*\n"
-            f"👉 [اضغط هنا لفتح المنصة]({web_origin}/scanner/backtests?tab=bots)\n"
+            f"👉 رابط المنصة: {web_origin}/scanner/backtests?tab=bots\n"
         )
         
         # Delivery

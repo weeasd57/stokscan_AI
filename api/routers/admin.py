@@ -4287,7 +4287,7 @@ def send_telegram_recommendations():
         msg_lines.append(
             f"📈 *إجمالي الإشارات الجديدة:* `{len(recs)}` أسهم\n\n"
             f"🔗 *لمتابعة الرسوم البيانية والتفاصيل الكاملة:*\n"
-            f"👉 [اضغط هنا لفتح المنصة]({web_origin}/scanner/backtests?tab=bots)"
+            f"👉 رابط المنصة: {web_origin}/scanner/backtests?tab=bots"
         )
         
         message = "\n".join(msg_lines)
@@ -4361,7 +4361,7 @@ def get_telegram_dispatch_preview(type: str = "recommendations"):
             msg_lines.append(
                 f"📈 *إجمالي الإشارات الجديدة:* `{len(today_recs)}` أسهم\n\n"
                 f"🔗 *لمتابعة الرسوم البيانية والتفاصيل الكاملة:*\n"
-                f"👉 [اضغط هنا لفتح المنصة]({web_origin}/scanner/backtests?tab=bots)"
+                f"👉 رابط المنصة: {web_origin}/scanner/backtests?tab=bots"
             )
             
             return {"preview": "\n".join(msg_lines), "count": len(today_recs)}
@@ -4455,7 +4455,7 @@ def get_telegram_dispatch_preview(type: str = "recommendations"):
                 f"{active_positions_str}\n\n"
                 f"━━━━━━━━━━━━━━━━━━━━\n"
                 f"🔗 *لمتابعة الصفقات والتقارير الفنية الكاملة:*\n"
-                f"👉 [اضغط هنا لفتح المنصة]({web_origin}/scanner/backtests?tab=bots)\n"
+                f"👉 رابط المنصة: {web_origin}/scanner/backtests?tab=bots\n"
             )
             
             return {"preview": msg, "count": total_closed}
