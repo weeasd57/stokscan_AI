@@ -760,6 +760,8 @@ class TelegramBot:
 
         # Set menu button — use WebApp if WEB_ORIGIN is set, otherwise default to commands
         web_origin = os.getenv("WEB_ORIGIN", "").strip().rstrip("/")
+        if "localhost" in web_origin or "127.0.0.1" in web_origin:
+            web_origin = "https://egxbots.com"
         if web_origin and web_origin.startswith("http"):
             result = self._call_api(
                 "setChatMenuButton",

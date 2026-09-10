@@ -1486,16 +1486,18 @@ def get_supabase_inventory() -> List[Dict[str, Any]]:
     return _inventory_cache or []
 
 
-def _get_model_cached(model_path: str):
+def _get_model_cached(model_path: str, return_raw_prob: bool = False):
     now = time.time()
-    entry = _MODEL_CACHE.get(model_path)
+    cache_key = f"{model_path}|raw={bool(return_raw_prob)}"
+    entry = _MODEL_CACHE.get(cache_key)
     if entry and (now - entry.get("ts", 0) < _MODEL_CACHE_TTL_SECONDS):
         return entry.get("model"), entry.get("predictors"), entry.get("is_lgbm_artifact", False)
     return None
 
 
-def _set_model_cache(model_path: str, model: Any, predictors: Optional[List[str]] = None, is_lgbm_artifact: bool = False) -> None:
-    _MODEL_CACHE[model_path] = {
+def _set_model_cache(model_path: str, model: Any, predictors: Optional[List[str]] = None, is_lgbm_artifact: bool = False, return_raw_prob: bool = False) -> None:
+    cache_key = f"{model_path}|raw={bool(return_raw_prob)}"
+    _MODEL_CACHE[cache_key] = {
         "model": model,
         "predictors": predictors,
         "is_lgbm_artifact": is_lgbm_artifact,

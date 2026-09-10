@@ -21,6 +21,7 @@ import io
 import json
 
 import os
+import re
 import hmac
 
 import urllib.request
@@ -120,6 +121,9 @@ async def log_requests(request: Request, call_next):
     start_time = dt.datetime.now()
 
     path = request.url.path
+    # Telegram webhook tokens are credentials, not request identifiers. Never
+    # emit the raw token in HF/Uvicorn access logs.
+    safe_path = re.sub(r"(/(?:tg-webhook|support-tg-webhook)/)[^/]+", r"\1<redacted>", path)
 
     method = request.method
 
@@ -145,7 +149,7 @@ async def log_requests(request: Request, call_next):
 
             print(
 
-                f"[REQ] {method} {path} - {response.status_code} ({duration:.3f}s)",
+                f"[REQ] {method} {safe_path} - {response.status_code} ({duration:.3f}s)",
 
                 flush=True,
 
@@ -394,9 +398,13 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
 
 
 
+    safe_error_path = re.sub(
+        r"(/(?:tg-webhook|support-tg-webhook)/)[^/]+",
+        r"\1<redacted>",
+        request.url.path,
+    )
     print(
-
-        f"Unhandled exception for {request.method} {request.url.path}: {exc}",
+        f"Unhandled exception for {request.method} {safe_error_path}: {exc}",
 
         flush=True,
 
@@ -550,7 +558,7 @@ async def telegram_webhook(
 
         print(
 
-            f"WEBHOOK 403: Token mismatch. Received: {token[:5]}... Expected: {bridge.token[:5]}..."
+            "WEBHOOK 403: Token mismatch. Request rejected without exposing token material."
 
         )
 

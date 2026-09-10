@@ -789,16 +789,27 @@ def _rollback_recommendation_change(recommendation_id: Any, expected_status: str
         if key in old_row
     }
     try:
-        result = (
+        (
             supabase.table("scan_results")
             .update(restore)
             .eq("id", recommendation_id)
             .eq("status", expected_status)
             .eq("updated_at", failed_version or old_row.get("updated_at"))
-            .select("id")
             .execute()
         )
-        return bool(getattr(result, "data", None))
+        verify = (
+            supabase.table("scan_results")
+            .select("id,status,updated_at,status,exit_price,last_close,profit_loss_pct,target_price,stop_loss")
+            .eq("id", recommendation_id)
+            .eq("status", expected_status)
+            .eq("updated_at", restore.get("updated_at"))
+            .execute()
+        )
+        rows = getattr(verify, "data", None) or []
+        if not rows:
+            return False
+        row = rows[0]
+        return all(row.get(key) == restore.get(key) for key in ("status", "updated_at", "exit_price", "last_close", "profit_loss_pct", "target_price", "stop_loss"))
     except Exception as error:
         print(f"[EVALUATE] Lifecycle compensation failed for {recommendation_id}: {error}")
         return False
@@ -1221,10 +1232,10 @@ def evaluate_old_recommendations():
                     .eq("id", rec["id"])
                     .eq("status", "open")
                     .eq("updated_at", rec.get("updated_at"))
-                    .select("id, status")
                     .execute()
                 )
-                if getattr(stale_result, "data", None):
+                stale_verify = supabase.table("scan_results").select("id").eq("id", rec["id"]).eq("status", "stale").eq("updated_at", stale_update["updated_at"]).execute()
+                if getattr(stale_verify, "data", None):
                     from api.recommendation_events import record_event, update_telegram_delivery, event_values
                     event_rec = record_event(
                         supabase,
@@ -1562,10 +1573,10 @@ def evaluate_old_recommendations():
                     .eq("id", rec["id"])
                     .eq("status", "open")
                     .eq("updated_at", rec.get("updated_at"))
-                    .select("id, status, updated_at")
                     .execute()
                 )
-                if not getattr(normal_update, "data", None):
+                normal_verify = supabase.table("scan_results").select("id").eq("id", rec["id"]).eq("status", "open").eq("updated_at", update_data["updated_at"]).execute()
+                if not getattr(normal_verify, "data", None):
                     print(f"[EVALUATE] {symbol}: normal update skipped because recommendation changed concurrently.")
                     update_applied = False
                     new_adjustments = []
@@ -1594,10 +1605,10 @@ def evaluate_old_recommendations():
                     .eq("id", rec["id"])
                     .eq("status", "open")
                     .eq("updated_at", rec.get("updated_at"))
-                    .select("id, status")
                     .execute()
                 )
-                if not getattr(close_res, "data", None):
+                close_verify = supabase.table("scan_results").select("id").eq("id", rec["id"]).eq("status", status).eq("updated_at", update_data["updated_at"]).execute()
+                if not getattr(close_verify, "data", None):
                     print(f"[EVALUATE] Recommendation {symbol} ({rec['id']}) already closed/changed by another process — skipping exit event.")
                     found_event = False
                     update_applied = False
@@ -2301,10 +2312,10 @@ async def generate_daily_recommendations(model_name: Optional[str] = None):
                     .eq("id", rec_id)
                     .eq("status", "open")
                     .eq("updated_at", existing.data[0].get("updated_at"))
-                    .select("id, status")
                     .execute()
                 )
-                if not getattr(update_result, "data", None):
+                update_verify = supabase.table("scan_results").select("id").eq("id", rec_id).eq("status", "open").eq("updated_at", update_data["updated_at"]).execute()
+                if not getattr(update_verify, "data", None):
                     print(f"[RECOMMENDATIONS] Skipped concurrent update for {symbol}.{exchange}")
                 else:
                     persisted_recommendations.append(res_item)

@@ -156,7 +156,7 @@ def _load_model(model_name: str, return_raw_prob: bool = False):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    cached = _get_model_cached(model_path)
+    cached = _get_model_cached(model_path, return_raw_prob=return_raw_prob)
     if cached:
         return cached
 
@@ -315,8 +315,8 @@ def _load_model(model_name: str, return_raw_prob: bool = False):
         except Exception:
             pass
 
-    _set_model_cache(model_path, model, predictors, is_lgbm)
-    return _get_model_cached(model_path)
+    _set_model_cache(model_path, model, predictors, is_lgbm, return_raw_prob=return_raw_prob)
+    return _get_model_cached(model_path, return_raw_prob=return_raw_prob)
 
 
 class _BoosterWrapper:
@@ -403,6 +403,7 @@ def _process_symbol(
     validator: Optional[CouncilValidator] = None,
     sector_returns_df: Optional[pd.DataFrame] = None,
     to_date: Optional[str] = None,
+    return_raw_prob: bool = False,
 ) -> Optional[Dict[str, Any]]:
     """Process a single symbol - called in parallel."""
     try:
@@ -788,7 +789,7 @@ def fast_scan(
                     any_count += 1
             print(f"DEBUG FUND: exchange={ex} fundamentals={len(fmap or {})} with_any={any_count}")
 
-    model_entry = _load_model(model_name)
+    model_entry = _load_model(model_name, return_raw_prob=return_raw_prob)
     if not model_entry:
         raise HTTPException(status_code=400, detail=f"Model '{model_name}' not loaded")
     model, predictors, _ = model_entry
@@ -998,7 +999,7 @@ def fast_scan(
                 _process_symbol, sym, ex, name, df, model, predictors, min_precision,
                 target_pct, stop_loss_pct, look_forward_days, buy_threshold, 
                 fundamentals_map_by_ex.get(ex.upper()), council, market_df, validator,
-                sector_returns_df, to_date
+                sector_returns_df, to_date, return_raw_prob
             ): sym
             for sym, ex, name, df in symbols_to_process
         }
