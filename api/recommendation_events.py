@@ -144,8 +144,24 @@ def update_telegram_delivery(
                 "retry_claimed_at",
                 (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat(),
             )
-        result = update_query.select("id").execute()
-        return bool(result.data)
+        # PostgREST update responses may have no representation. Do not chain
+        # select() after update(), because that fails on the deployed client
+        # and makes a delivered Telegram message look retryable.
+        update_query.execute()
+        verify = (
+            supabase.table("recommendation_events")
+            .select("id,telegram_status,telegram_message_id")
+            .eq("id", event_id)
+            .eq("updated_at", now_iso)
+            .limit(1)
+            .execute()
+        )
+        row = (getattr(verify, "data", None) or [None])[0]
+        if not row:
+            return False
+        return row.get("telegram_status") == update_payload["telegram_status"] and (
+            not success or not message_id or str(row.get("telegram_message_id")) == str(message_id)
+        )
     except Exception as upd_err:
         print(f"[RECOMMENDATION_EVENT] Failed to update telegram delivery for {event_id}: {upd_err}")
         return False
@@ -156,7 +172,7 @@ def invalidate_event(supabase: Any, event_id: str, reason: str = "lifecycle comp
     if not event_id:
         return False
     try:
-        result = (
+        update_query = (
             supabase.table("recommendation_events")
             .update({
                 "telegram_status": "cancelled",
@@ -166,10 +182,11 @@ def invalidate_event(supabase: Any, event_id: str, reason: str = "lifecycle comp
             })
             .eq("id", event_id)
             .not_.is_("telegram_status", "sent")
-            .select("id")
-            .execute()
         )
-        return bool(result.data)
+        update_query.execute()
+        verify = supabase.table("recommendation_events").select("id,telegram_status,updated_at").eq("id", event_id).eq("updated_at", update_payload["updated_at"]).limit(1).execute()
+        row = (getattr(verify, "data", None) or [None])[0]
+        return bool(row and row.get("telegram_status") == "cancelled")
     except Exception as error:
         print(f"[RECOMMENDATION_EVENT] Could not invalidate {event_id}: {error}")
         return False
