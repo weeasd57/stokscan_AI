@@ -180,28 +180,23 @@ export default function RecommendationCalendar({
 
     // General Dynamic Statistics matching selected date filter
     const globalStats = useMemo(() => {
-        let recs = filteredBaseRecs;
-
-        if (dateRangeBoundaries) {
-            const { start, end } = dateRangeBoundaries;
-            recs = recs.filter(r => {
-                const cDate = r.created_at ? new Date(r.created_at) : null;
-                const uDate = r.updated_at ? new Date(r.updated_at) : null;
-                const inCreated = cDate && cDate >= start && cDate <= end;
-                const inClosed = uDate && uDate >= start && uDate <= end && (r.status?.toLowerCase() === "win" || r.status?.toLowerCase() === "loss");
-                return inCreated || inClosed;
-            });
-        }
-
-        const createdCount = recs.length;
-        const closedTrades = recs.filter(r => {
+        const isClosed = (r: any) => {
             const s = (r.status || "").toLowerCase();
             return s === "win" || s === "loss";
-        });
-        const openTrades = recs.filter(r => {
-            const s = (r.status || "").toLowerCase();
-            return s !== "win" && s !== "loss";
-        });
+        };
+        const inRange = (value: unknown) => {
+            if (!dateRangeBoundaries) return true;
+            if (!value) return false;
+            const date = new Date(String(value));
+            return !Number.isNaN(date.getTime()) && date >= dateRangeBoundaries.start && date <= dateRangeBoundaries.end;
+        };
+
+        // Creation and closure are separate events. A June-created signal
+        // closed in July must not become a July-created signal or be counted
+        // twice while navigating calendar months.
+        const createdTrades = filteredBaseRecs.filter(r => inRange(r.created_at));
+        const closedTrades = filteredBaseRecs.filter(r => isClosed(r) && inRange(r.updated_at || r.created_at));
+        const openTrades = createdTrades.filter(r => !isClosed(r));
 
         const wins = closedTrades.filter(r => (r.status || "").toLowerCase() === "win");
         const losses = closedTrades.filter(r => (r.status || "").toLowerCase() === "loss");
@@ -223,7 +218,7 @@ export default function RecommendationCalendar({
         });
 
         return {
-            createdCount,
+            createdCount: createdTrades.length,
             openCount: openTrades.length,
             closedCount: closedTrades.length,
             winCount: wins.length,
@@ -380,7 +375,7 @@ export default function RecommendationCalendar({
     const todayDateStr = formatYMD(new Date());
 
     return (
-        <div className="w-full space-y-4 sm:space-y-6 select-none text-zinc-900 dark:text-zinc-100" dir={isAr ? "rtl" : "ltr"}>
+        <div className="w-full space-y-4 sm:space-y-6 select-text text-zinc-900 dark:text-zinc-100" dir={isAr ? "rtl" : "ltr"}>
             {/* ── HEADER & DASHBOARD STATS BAR ── */}
             <div className="p-3.5 sm:p-5 md:p-6 rounded-2xl bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 shadow-xl dark:shadow-2xl relative overflow-hidden space-y-4 sm:space-y-6">
                 {/* Background ambient glow */}
