@@ -179,6 +179,14 @@ def _should_run_weekly_inventory(trigger: str = "manual") -> bool:
     return cairo_weekday == 6
 
 
+def _should_send_weekly_report(trigger: str = "manual") -> bool:
+    """Weekly Telegram report is scheduled-only and Sunday-only."""
+    if str(trigger or "").strip().lower() != "scheduled":
+        return False
+    cairo_now = dt.datetime.utcnow() + dt.timedelta(hours=2)
+    return cairo_now.weekday() == 6
+
+
 def _filter_active_symbols(symbols_list: List[str]) -> List[str]:
     """
     Dynamically identify and exclude delisted/suspended/stale stocks.
@@ -890,6 +898,9 @@ def generate_weekly_performance_report(trigger: str = "manual", chat_id: Optiona
     and broadcast the report to all 'stock_score' subscribers (or send to a specific chat_id).
     """
     try:
+        if not _should_send_weekly_report(trigger):
+            print(f"[WEEKLY_REPORT] Skipped: scheduled Sunday only (trigger={trigger}).")
+            return
         if not _telegram_recommendation_writes_enabled():
             print("[WEEKLY_REPORT] Telegram recommendation delivery is read-only/disabled.")
             return
@@ -2953,7 +2964,7 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
             print(f"[SIMILARITY] Error: {e}")
 
         # 7. Run Weekly Performance Report (on Sunday)
-        if _should_run_weekly_inventory(trigger):
+        if _should_send_weekly_report(trigger):
             print("\n>>> STEP 7: Running Weekly Performance Report...")
             _start_step("weekly_performance_report", "Generating weekly performance report")
             try:
@@ -2962,6 +2973,8 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
             except Exception as e:
                 _record_step("weekly_performance_report", False, str(e)[:200], 0)
                 print(f"[WEEKLY_REPORT] Error: {e}")
+        else:
+            _record_step("weekly_performance_report", True, "Skipped - scheduled Sunday only", 0)
 
         # 8. Refresh Market Status (EGX30, EGX100, USD/EGP indices) from EODHD
         print("\n>>> STEP 8: Prefetching and refreshing Market Status cache from EODHD...")
