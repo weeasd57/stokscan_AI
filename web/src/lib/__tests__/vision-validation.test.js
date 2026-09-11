@@ -16,4 +16,12 @@ describe('vision output validation', () => {
     const vision = validateVisionOutput(parsed);
     expect(vision.symbols[0].visible_values.price).toBeCloseTo(181.5, 2);
   });
+
+  it('recovers symbols from near-miss payloads rejected by the strict contract', () => {
+    const parsed = extractJsonFromResponse('{"image_type":"TABLE","symbols":[{"symbol":"edfm","visible_values":{"price":"124,569","change_pct":"0.70%"}},{"symbol":"scfm","visible_values":{}}],"technical_observations":null,"confidence":"0.4"}');
+    const vision = validateVisionOutput(parsed);
+    expect(vision.symbols.map(symbol => symbol.symbol)).toEqual(['EDFM', 'SCFM']);
+    expect(vision.image_type).toBe('unknown');
+    expect(vision.symbols[0].visible_values.price).toBe(124569);
+  });
 });

@@ -337,16 +337,24 @@ export async function analyzeImage(
             const rawContent = json.choices?.[0]?.message?.content?.trim() || "";
             const parsed = extractJsonFromResponse(rawContent);
             const hasVisionShape = hasValidVisionContract(parsed);
-            if (!hasVisionShape) {
-                recordFailure("vision_invalid_json");
-                console.warn(`[VISION] model=${model} returned no parseable JSON (chars=${rawContent.length})`);
+            // The strict contract rejects near-miss responses (wrong image_type
+            // spelling, lowercase tickers, missing confidence) even though the
+            // payload still contains real tickers. Fall back to the lenient
+            // normalizer, but only accept it when it recovered actual symbols so
+            // a garbage response still ends in the safe failure path.
+            let validated = hasVisionShape ? validateVisionOutput(parsed) : null;
+            if (!validated && parsed && typeof parsed === "object") {
+                const lenient = validateVisionOutput(parsed);
+                if (lenient && lenient.symbols.length > 0) validated = lenient;
             }
-            const validated = hasVisionShape ? validateVisionOutput(parsed) : null;
-            if (validated) {
+            if (!validated) {
+                recordFailure("vision_invalid_json");
+                const preview = rawContent.replace(/\s+/g, " ").slice(0, 160);
+                console.warn(`[VISION] model=${model} returned no usable JSON (chars=${rawContent.length}) preview=${preview}`);
+            } else {
                 validated.message_id = messageId;
-
-                    return validated;
-                }
+                return validated;
+            }
         } catch (err: any) {
             recordFailure(err?.name === "AbortError" ? "vision_timeout" : "vision_request_failed");
             console.warn(`[VISION] model=${model} error=${lastFailure}`);
