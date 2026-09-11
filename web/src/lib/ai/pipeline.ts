@@ -1,5 +1,5 @@
 import { IntentPlan, VisionContext, SessionState, SessionSummary, PlannerResult } from "./types";
-import { analyzeImage } from "./vision";
+import { analyzeImage, reconcileVisionWithMarket } from "./vision";
 import { retrieveRelevantMemory, MemoryResult } from "./memory";
 import { getSyncStockMappings, getStocksList, getSyncValidSymbols, loadValidSymbols, isUnresolvedCompanyNameMention, LATIN_TICKER_ALIASES } from "./planner";
 import { executeStructuredTools, StructuredToolOutput } from "./tools-v2";
@@ -1510,6 +1510,7 @@ export async function* runPipelineStream(
                 vision.confidence = allVisions.reduce((sum, v) => sum + v.confidence, 0) / allVisions.length;
             }
 
+            vision = await reconcileVisionWithMarket(vision, supabase);
             yield { type: "vision_result", data: vision };
             if (vision.image_type === "portfolio") {
                 // Persist the extracted holdings before returning the confirmation
@@ -2471,6 +2472,7 @@ export async function runPipeline(
                 vision.user_relevant_summary = allVisions.map(v => v.user_relevant_summary).join(" | ");
                 vision.confidence = allVisions.reduce((sum, v) => sum + v.confidence, 0) / allVisions.length;
             }
+            vision = await reconcileVisionWithMarket(vision, supabase);
         }
     }
 

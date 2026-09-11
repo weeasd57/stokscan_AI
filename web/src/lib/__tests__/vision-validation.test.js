@@ -1,4 +1,4 @@
-const { extractJsonFromResponse, validateVisionOutput } = require('../ai/vision');
+const { extractJsonFromResponse, validateVisionOutput, reconcileVisionWithMarket } = require('../ai/vision');
 
 describe('vision output validation', () => {
   it('accepts numeric strings with thousands separators and string nulls', () => {
@@ -23,5 +23,33 @@ describe('vision output validation', () => {
     expect(vision.symbols.map(symbol => symbol.symbol)).toEqual(['EDFM', 'SCFM']);
     expect(vision.image_type).toBe('unknown');
     expect(vision.symbols[0].visible_values.price).toBe(124569);
+  });
+});
+
+describe('vision market reconciliation', () => {
+  it('clears an implausible extracted price and keeps a plausible one', async () => {
+    const vision = {
+      image_type: 'table',
+      symbols: [
+        { symbol: 'EDFM', name: '', visible_values: { price: 124569, change_pct: 0.7, quantity: null } },
+        { symbol: 'MOSC', name: '', visible_values: { price: 311.63, change_pct: 6.51, quantity: null } },
+      ],
+      technical_observations: [],
+      market_depth: { total_bid: null, total_ask: null, spread: null },
+      user_relevant_summary: '',
+      uncertainties: [],
+      confidence: 0.5,
+    };
+    const supabase = {
+      from: () => ({
+        select: () => ({
+          in: () => ({ order: async () => ({ data: [{ symbol: 'EDFM', close: 417.45, date: '2026-09-10' }, { symbol: 'MOSC', close: 315, date: '2026-09-10' }] }) }),
+        }),
+      }),
+    };
+    const result = await reconcileVisionWithMarket(vision, supabase);
+    expect(result.symbols[0].visible_values.price).toBeNull();
+    expect(result.symbols[1].visible_values.price).toBe(311.63);
+    expect(result.uncertainties.length).toBeGreaterThan(0);
   });
 });

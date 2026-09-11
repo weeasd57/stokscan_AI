@@ -262,6 +262,47 @@ export function validateVisionOutput(data: any): VisionContext | null {
 const VISION_TIMEOUT_MS = 26000;
 const MAX_VISION_TOTAL_TIME_MS = 32000;
 
+/**
+ * The vision model frequently reads a broker screenshot's quantity/total column
+ * as if it were the share price (e.g. 124569 for EDFM whose market price is
+ * ~417). Drop any extracted price that is implausible against the latest stored
+ * close so the reply never presents a wrong price as fact.
+ */
+export async function reconcileVisionWithMarket(vision: VisionContext, supabase: any): Promise<VisionContext> {
+    if (!vision || !Array.isArray(vision.symbols) || vision.symbols.length === 0 || !supabase) return vision;
+    const symbols = Array.from(new Set(vision.symbols.map(entry => entry.symbol).filter(Boolean)));
+    if (symbols.length === 0) return vision;
+    try {
+        const { data } = await supabase
+            .from("stock_technical_indicators")
+            .select("symbol, close, date")
+            .in("symbol", symbols)
+            .order("date", { ascending: false });
+        const closeBySymbol = new Map<string, number>();
+        for (const row of data || []) {
+            const sym = String(row.symbol || "").toUpperCase();
+            const close = Number(row.close);
+            if (sym && Number.isFinite(close) && close > 0 && !closeBySymbol.has(sym)) {
+                closeBySymbol.set(sym, close);
+            }
+        }
+        for (const entry of vision.symbols) {
+            const close = closeBySymbol.get(entry.symbol);
+            const price = entry.visible_values?.price;
+            if (close && price != null && Number.isFinite(price)) {
+                const ratio = price / close;
+                if (ratio > 3 || ratio < 0.33) {
+                    entry.visible_values.price = null;
+                    vision.uncertainties.push(`تم تجاهل السعر المقروء لـ ${entry.symbol} (${price}) لعدم تناسقه مع سعر السوق المسجل (${close}).`);
+                }
+            }
+        }
+    } catch {
+        // Best-effort validation only; never block the image flow.
+    }
+    return vision;
+}
+
 export async function analyzeImage(
     imageUrl: string,
     userMessage: string,
