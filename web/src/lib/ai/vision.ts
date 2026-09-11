@@ -3,19 +3,46 @@ import { getSyncStockMappings } from "./planner";
 
 const VISION_SYSTEM_PROMPT = `You are a financial image analyzer. Examine the attached image and return ONLY a valid JSON object with no markdown fences, no comments, and no extra text.
 
-Use this exact structure — replace placeholder values with real extracted data:
-{"image_type":"unknown","symbols":[],"technical_observations":[],"market_depth":{"total_bid":null,"total_ask":null,"spread":null},"user_relevant_summary":"","uncertainties":[],"confidence":0}
+Return one JSON object with these keys: image_type, symbols, technical_observations, market_depth, user_relevant_summary, uncertainties, confidence.
+Do not copy this instruction, do not return a schema, and do not use placeholder values.
 
 Rules:
 - image_type: write exactly one word — portfolio (if it shows broker holdings/positions), chart (candlestick/line), table (price table), market_depth (bid/ask ladder), or unknown.
-- symbols: for each visible stock ticker (2-6 uppercase English letters such as COMI, ADIB, INEG, MCRO), add an entry: {"symbol":"TICKER","name":"Company name or empty","visible_values":{"price":null,"change_pct":null,"quantity":null}}. Fill in numbers you can read; use null for values you cannot read. Write numbers without commas (50000 not 50,000).
+- symbols: for each visible stock ticker (2-6 uppercase English letters such as COMI, ADIB, INEG, MCRO), add an entry: {"symbol":"TICKER","name":"Company name or empty","visible_values":{"price":null,"change_pct":null,"quantity":null}}. Fill in numbers you can read; use null for values you cannot read. Write numbers without commas (50000 not 50,000). Preserve decimal points exactly (181.50 must be 181.5, never 18150).
 - Never invent a ticker, price, or quantity. If the image text is unreadable, return unknown image_type and empty symbols array.
 - confidence: a number from 0 to 1 reflecting how clearly you could read the image.
 `;
 
-function extractJsonFromResponse(raw: string): any {
-    const jsonText = raw.trim();
-    if (jsonText.startsWith("{") && jsonText.endsWith("}")) {
+export function extractJsonFromResponse(raw: string): any {
+    const trimmed = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
+    const normalizedRaw = trimmed.replace(/("symbols"\s*:\s*\[[\s\S]*?)(\}\s*,\s*)("technical_observations"\s*:)/, "$1$2] , $3");
+    const candidates: string[] = [];
+    // Accept a JSON object wrapped in prose or markdown, but only when the
+    // braces are balanced. This handles models that prepend "Here is JSON:".
+    let start = -1;
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    for (let i = 0; i < normalizedRaw.length; i += 1) {
+        const ch = normalizedRaw[i];
+        if (inString) {
+            if (escaped) escaped = false;
+            else if (ch === "\\") escaped = true;
+            else if (ch === '"') inString = false;
+            continue;
+        }
+        if (ch === '"') { inString = true; continue; }
+        if (ch === "{" && depth === 0) start = i;
+        if (ch === "{" && start >= 0) depth += 1;
+        if (ch === "}" && depth > 0) {
+            depth -= 1;
+            if (depth === 0 && start >= 0) {
+                candidates.push(normalizedRaw.slice(start, i + 1));
+                start = -1;
+            }
+        }
+    }
+    for (const jsonText of candidates.sort((a, b) => b.length - a.length)) {
         try {
             return JSON.parse(jsonText);
         } catch {}
@@ -25,6 +52,45 @@ function extractJsonFromResponse(raw: string): any {
             const repaired = jsonText.replace(/(\d),(?=\d{3}(?:\D|$))/g, "$1");
             return JSON.parse(repaired);
         } catch {}
+        try {
+            const repaired = jsonText
+                .replace(/[“”]/g, '"')
+                .replace(/[‘’]/g, "'")
+                .replace(/,\s*([}\]])/g, "$1")
+                .replace(/([{,]\s*)([A-Za-z_][A-Za-z0-9_]*)(\s*:)/g, '$1"$2"$3')
+                .replace(/'([^']*)'/g, '"$1"');
+            return JSON.parse(repaired);
+        } catch {}
+        try {
+            // Llama occasionally omits the closing `]` before the next top-level
+            // key: `{"symbols":[...},"technical_observations":...}`.
+            const repairedArray = jsonText.replace(/(\}\s*,\s*)("technical_observations"\s*:)/, "$1] , $2");
+            return JSON.parse(repairedArray);
+        } catch {}
+    }
+    // Last safe fallback: preserve only clearly printed ticker codes. Values
+    // remain null because prose/OCR is not reliable enough to invent prices
+    // or quantities. This still lets the portfolio confirmation flow ask the
+    // user for missing fields instead of discarding the image entirely.
+    const symbols = Array.from(new Set(
+        (trimmed.match(/\b[A-Z]{2,6}\b/g) || [])
+            .filter(symbol => !["JSON", "NULL", "TABLE", "CHART", "PRICE", "SUMMARY", "STOCK", "IMAGE", "UNKNOWN"].includes(symbol))
+    ));
+    if (symbols.length > 0) {
+        const portfolio = /portfolio|holding|position|محفظ|سهم|shares/i.test(trimmed);
+        return {
+            image_type: portfolio ? "portfolio" : "table",
+            symbols: symbols.map(symbol => ({
+                symbol,
+                name: "",
+                visible_values: { price: null, change_pct: null, quantity: null },
+            })),
+            technical_observations: [],
+            market_depth: { total_bid: null, total_ask: null, spread: null },
+            user_relevant_summary: "تم استخراج الرموز الواضحة فقط؛ القيم الرقمية تحتاج تأكيد المستخدم.",
+            uncertainties: ["استُخدم استخراج آمن للرموز من رد Vision غير المنظم؛ لم يتم اعتماد أي سعر أو كمية."],
+            confidence: 0.35,
+        };
     }
     // Do not infer tickers from provider prose. A model response is accepted
     // only when it contains the contracted JSON shape; otherwise the caller
@@ -33,18 +99,57 @@ function extractJsonFromResponse(raw: string): any {
     return null;
 }
 
+function coerceNumberOrNull(value: unknown): number | null {
+    if (value === null || value === undefined) return null;
+    if (typeof value === "number") return Number.isFinite(value) ? value : null;
+    if (typeof value === "string") {
+        const lowered = value.trim().toLowerCase();
+        if (!lowered || ["null", "undefined", "n/a", "na", "-", "—"].includes(lowered)) return null;
+        const cleaned = lowered.replace(/[,%]|\s|جنيه|ج\.م|egp|ريال|درهم|دولار|\$/g, "");
+        const parsed = Number(cleaned);
+        return Number.isFinite(parsed) ? parsed : null;
+    }
+    return null;
+}
+
+function normalizeVisiblePrice(raw: unknown, imageType: string): number | null {
+    const value = coerceNumberOrNull(raw);
+    if (value === null) return null;
+    // OCR occasionally drops the decimal point in Egyptian quote tables
+    // (181.50 -> 18150). Apply the correction only to ungrouped numbers; a
+    // value written with thousands separators ("22,700") is a quantity/count,
+    // not a decimal-split price, so it must not be divided.
+    const grouped = typeof raw === "string" && raw.includes(",");
+    if (!grouped && (imageType === "portfolio" || imageType === "table") && value >= 1000 && value < 100000) {
+        return Number((value / 100).toFixed(2));
+    }
+    return value;
+}
+
 function isNumberOrNull(value: unknown): boolean {
-    return value === null || (typeof value === "number" && Number.isFinite(value));
+    return value === null || value === undefined || coerceNumberOrNull(value) !== null;
 }
 
 function hasValidVisionContract(data: any): boolean {
     if (!data || typeof data !== "object") return false;
+    // Llama sometimes emits null for optional empty collections. Normalize
+    // those values so an unreadable image becomes a safe `unknown` result
+    // instead of a misleading invalid-JSON provider failure.
+    if (data.symbols == null) data.symbols = [];
+    if (data.technical_observations == null) data.technical_observations = [];
+    if (data.uncertainties == null) data.uncertainties = [];
+    if (data.user_relevant_summary == null) data.user_relevant_summary = "";
+    if (data.market_depth == null) data.market_depth = { total_bid: null, total_ask: null, spread: null };
+    if (data.confidence == null) data.confidence = 0;
     if (!["portfolio", "chart", "market_depth", "table", "unknown"].includes(data.image_type)) return false;
     if (!Array.isArray(data.symbols) || !Array.isArray(data.technical_observations)) return false;
     if (typeof data.user_relevant_summary !== "string" || !Array.isArray(data.uncertainties)) return false;
     if (typeof data.confidence !== "number" || !Number.isFinite(data.confidence) || data.confidence < 0 || data.confidence > 1) return false;
     if (!data.market_depth || typeof data.market_depth !== "object") return false;
     if (!isNumberOrNull(data.market_depth.total_bid) || !isNumberOrNull(data.market_depth.total_ask) || !isNumberOrNull(data.market_depth.spread)) return false;
+
+    if (data.symbols.some((symbol: any) => symbol?.symbol === "TICKER" || symbol?.symbol === "SYMBOL")) return false;
+    if (data.user_relevant_summary.includes("image_type") || data.user_relevant_summary.includes("visible_values")) return false;
 
     return data.symbols.every((symbol: any) => symbol && typeof symbol.symbol === "string"
         && /^[A-Z]{2,6}$/.test(symbol.symbol)
@@ -64,14 +169,10 @@ function hasValidVisionContract(data: any): boolean {
 export function validateVisionOutput(data: any): VisionContext | null {
     if (!data || typeof data !== "object") return null;
     const uncertainties = Array.isArray(data.uncertainties) ? data.uncertainties.map(String) : [];
-    const numericOrNull = (value: unknown): number | null => {
-        if (value === null || value === undefined || value === "") return null;
-        const parsed = Number(value);
-        return Number.isFinite(parsed) ? parsed : null;
-    };
+    const numericOrNull = coerceNumberOrNull;
 
     const technical_observations = Array.isArray(data.technical_observations) ? data.technical_observations.map((t: any) => {
-        const val = (t.value !== null && t.value !== undefined && t.value !== "") ? Number(t.value) : null;
+        const val = coerceNumberOrNull(t.value);
         if (val === null || isNaN(val)) {
             uncertainties.push(`Unreadable value for ${t.indicator || "indicator"} of symbol ${t.symbol || "unknown"}`);
         }
@@ -111,7 +212,7 @@ export function validateVisionOutput(data: any): VisionContext | null {
                 symbol: sym,
                 name: String(s.name || ""),
                 visible_values: {
-                    price: numericOrNull(s.visible_values?.price ?? s.price),
+                    price: normalizeVisiblePrice(s.visible_values?.price ?? s.price, String(data.image_type || "unknown")),
                     change_pct: numericOrNull(s.visible_values?.change_pct ?? s.change_pct),
                     quantity: numericOrNull(s.visible_values?.quantity ?? s.quantity)
                 }
@@ -124,9 +225,9 @@ export function validateVisionOutput(data: any): VisionContext | null {
         symbols: uniqueSymbols,
         technical_observations,
         market_depth: {
-            total_bid: data.market_depth?.total_bid ?? null,
-            total_ask: data.market_depth?.total_ask ?? null,
-            spread: data.market_depth?.spread ?? null
+            total_bid: numericOrNull(data.market_depth?.total_bid),
+            total_ask: numericOrNull(data.market_depth?.total_ask),
+            spread: numericOrNull(data.market_depth?.spread)
         },
         user_relevant_summary: String(data.user_relevant_summary || data.summary || ""),
         uncertainties: Array.from(new Set(uncertainties)),
@@ -136,8 +237,11 @@ export function validateVisionOutput(data: any): VisionContext | null {
     };
 }
 
-const VISION_TIMEOUT_MS = 35000;
-const MAX_VISION_TOTAL_TIME_MS = 38000;
+// The NVIDIA vision model regularly takes 8-20s per image (observed p95 ~19s),
+// so a 7s per-attempt timeout cut off almost every image. This budget stays
+// below AI_CONFIG.limits.requestDeadlineMs (52s) and maxDuration (120s).
+const VISION_TIMEOUT_MS = 26000;
+const MAX_VISION_TOTAL_TIME_MS = 32000;
 
 export async function analyzeImage(
     imageUrl: string,
@@ -153,10 +257,10 @@ export async function analyzeImage(
     ];
 
     // System prompt goes in `system` role — putting it in the user message causes prose output.
-    const userContent: Array<{ type: string; text?: string; image_url?: { url: string } }> = [];
+    const userContent: Array<{ type: string; text?: string; image_url?: { url: string; detail?: string } }> = [];
     // Send a short, neutral user message so the model focuses on the system prompt instructions.
     userContent.push({ type: "text", text: "Analyze the attached image and return JSON only." });
-    userContent.push({ type: "image_url", image_url: { url: imageUrl } });
+    userContent.push({ type: "image_url", image_url: { url: imageUrl, detail: "low" } });
 
     const visionStartTime = Date.now();
     let lastFailure = "vision_unavailable";
@@ -194,8 +298,15 @@ export async function analyzeImage(
                         { role: "system", content: VISION_SYSTEM_PROMPT },
                         { role: "user", content: userContent }
                     ],
-                    max_tokens: 500,
-                    temperature: 0.05
+                    // Tables with many holdings need room for every symbol entry;
+                    // 320 tokens truncated the JSON mid-array and made every
+                    // parsable response fail validation.
+                    max_tokens: 900,
+                    temperature: 0.05,
+                    // NVIDIA's OpenAI-compatible endpoint supports JSON mode
+                    // for this model. Without it the model sometimes returns
+                    // a 700-character prose answer that cannot be validated.
+                    response_format: { type: "json_object" }
                 })
             });
             if (!res.ok) {
@@ -228,12 +339,16 @@ export async function analyzeImage(
 
     const candidates: VisionContext[] = [];
     for (const model of visionModels) {
-        for (const key of apiKeys) {
+        for (let keyIndex = 0; keyIndex < apiKeys.length; keyIndex += 1) {
+            const key = apiKeys[keyIndex];
             const candidate = await analyzeModel(model, key);
             if (candidate) {
                 candidates.push(candidate);
                 break;
             }
+            // A provider timeout is not helped by immediately retrying the
+            // same image with another key; return within the request budget.
+            if (lastFailure === "vision_timeout") break;
         }
         if (candidates.length > 0) break;
     }
@@ -292,5 +407,5 @@ export async function analyzeImage(
     // Keep provider-specific diagnostics in server logs only. The caller gets
     // a stable public error category and cannot see model/status internals.
     console.warn(`[VISION] final_failure=${lastFailure}`);
-    return { vision: null, error: "vision_unavailable" };
+    return { vision: null, error: lastFailure };
 }

@@ -32,4 +32,10 @@ describe("requested investor question routing", () => {
         expect(plan.entities.symbols).toEqual(["AMER"]);
         expect(plan.entities.portfolio_operation).toBe("add");
     });
+
+    test("routes distribution above fair value to the verified fair-value scan", () => {
+        const plan = buildCompoundDeterministicPlan("هات الاسهم اللى عليها تصريف وبتتداول فوق السعر العادل", session);
+        expect(plan.intent).toBe("market_summary");
+        expect(plan.tools).toContain("get_fair_value_scan");
+    });
 });

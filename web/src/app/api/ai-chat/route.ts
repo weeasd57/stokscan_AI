@@ -627,7 +627,13 @@ export async function POST(req: NextRequest) {
                                         if (safeBuffer && !filterOutputBlocks(safeBuffer) && !containsEnvironmentMetadata(safeBuffer)) sendEvent({ type: "token", content: safeBuffer });
                                         tokenBuffer = "";
                                     }
-                                    const replyText = filterOutput(stripEnvironmentMetadata(event.data.response));
+                                     const replyText = filterOutput(stripEnvironmentMetadata(event.data.response));
+                                     const responseMetadata = {
+                                         ...extractProvenanceFromToolResults(toolsResults, streamTables),
+                                         correlation_id: correlationId,
+                                         vision_error: event.data?.vision_error || null,
+                                         response_kind: event.data?.vision_error ? "vision_fallback" : "normal",
+                                     };
                                     if (clientMessageId) await supabase.from("ai_chat_idempotency").update({ status: "completed", response: replyText, updated_at: new Date().toISOString() }).eq("user_id", userId).eq("client_message_id", clientMessageId);
                                     const sessionUpdate = event.data.session_update;
 
@@ -636,7 +642,7 @@ export async function POST(req: NextRequest) {
                                     // Save messages to DB
                                     try {
                                         if (activeSessionId) {
-                                            const provenance = extractProvenanceFromToolResults(toolsResults, streamTables);
+                                             const provenance = responseMetadata;
                                             await insertChatMessages(supabase, [
                                                 {
                                                     session_id: activeSessionId,
@@ -644,7 +650,7 @@ export async function POST(req: NextRequest) {
                                                     role: "user",
                                                     content: sanitizeUserMessage(message || (hasImages ? "📷 [Image attached]" : "")),
                                                     client_message_id: clientMessageId || null,
-                                                    image_url: finalSavedImageUrl,
+                                             image_url: finalSavedImageUrl,
                                                     created_at: new Date().toISOString()
                                                 },
                                                 {
@@ -653,7 +659,7 @@ export async function POST(req: NextRequest) {
                                                     role: "assistant",
                                                     content: replyText,
                                                     latency_ms: streamingTotalLatencyMs,
-                                                    metadata: provenance,
+                                             metadata: provenance,
                                                     created_at: new Date().toISOString()
                                                 }
                                             ]);

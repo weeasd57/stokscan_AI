@@ -149,6 +149,16 @@ export default function RecommendationCalendar({
         return recommendations;
     }, [recommendations, shariaOnly]);
 
+    const viewedMonthCreatedCount = useMemo(() => {
+        const start = new Date(year, month, 1);
+        const end = new Date(year, month + 1, 1);
+        return filteredBaseRecs.filter((recommendation) => {
+            if (!recommendation.created_at) return false;
+            const createdAt = new Date(recommendation.created_at);
+            return !Number.isNaN(createdAt.getTime()) && createdAt >= start && createdAt < end;
+        }).length;
+    }, [filteredBaseRecs, year, month]);
+
     // Compute Date Range Boundaries for Global Statistics Filter
     const dateRangeBoundaries = useMemo(() => {
         const now = new Date();
@@ -605,7 +615,7 @@ export default function RecommendationCalendar({
                                 {currentMonthName} {year}
                             </h3>
                             <span className="text-[10px] sm:text-xs font-bold text-zinc-600 dark:text-zinc-500 bg-zinc-100 dark:bg-zinc-900 px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-lg border border-zinc-200 dark:border-zinc-800">
-                                {filteredBaseRecs.length} {isAr ? "توصية" : "signals"}
+                                {viewedMonthCreatedCount} {isAr ? "توصية في الشهر" : "monthly signals"}
                             </span>
                         </div>
 
