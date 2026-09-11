@@ -9,7 +9,7 @@ import { sanitizeReply } from "./sanitizer";
 import { loadSessionState, loadSessionSummary, updateSessionSummary, updateSessionState, loadPersistentInvestorProfile } from "./session";
 import { buildExcelTables, ExcelTable } from "./excel-tables";
 import { AI_CONFIG } from "./config";
-import { normalizeArabicIntent, extractInvestorPreferences, getFairValueFilters, isFairValueScanRequest, getInvestorGuidanceIntent as classifyInvestorGuidance, isDailyPriceLimitQuestion, isEarningsDataRequest, isTermsDefinitionRequest, isUsageLimitQuestion, isBestBuyStockQuestion, detectPortfolioIntent, detectPortfolioConfirmation } from "./intent-policy";
+import { normalizeArabicIntent, extractInvestorPreferences, getFairValueFilters, isFairValueScanRequest, getInvestorGuidanceIntent as classifyInvestorGuidance, isDailyPriceLimitQuestion, isEarningsDataRequest, isTermsDefinitionRequest, isUsageLimitQuestion, isBestBuyStockQuestion, detectPortfolioIntent, detectPortfolioConfirmation, isPortfolioAnalysisRequest } from "./intent-policy";
 import { extractExcludedSectorNames, extractMentionedSectorNames } from "./sector-taxonomy";
 import { isOtcStock, buildOtcNotice } from "./otc-stocks";
 import { isEgxSessionOpen } from "./live-stock-updater";
@@ -1422,9 +1422,31 @@ export async function* runPipelineStream(
     // stock-name warming, memory retrieval, planner LLM work, or final LLM
     // generation. This is also the path that keeps Vercel Fluid CPU low for
     // the most common portfolio requests.
+    let portfolioAnalysisSymbols: string[] = [];
     if (!hasImages) {
         const directPortfolioOperation = detectPortfolioIntent(userMessage);
-        if (directPortfolioOperation) {
+        const portfolioAnalysis = directPortfolioOperation === "view" && isPortfolioAnalysisRequest(userMessage);
+        if (portfolioAnalysis) {
+            // "حلل محفظتي" must use the same stock-analysis path the user gets
+            // for typing a ticker, once per held symbol, in a single reply.
+            const { data: heldRows } = await supabase
+                .from("positions")
+                .select("symbol,status")
+                .eq("user_id", userId)
+                .eq("status", "open");
+            portfolioAnalysisSymbols = Array.from(new Set(
+                (heldRows || []).map((row: any) => String(row.symbol || "").toUpperCase()).filter(Boolean)
+            ));
+            if (portfolioAnalysisSymbols.length === 0) {
+                yield { type: "done", data: {
+                    response: "محفظتك فاضية حالياً. سجّل أسهمك أولاً (اكتب مثلاً: «ضيف COMI 100 بمتوسط 80») وبعدها أقدر أحللها لك كلها في رد واحد.",
+                    session_update: { current_symbol: sessionState.current_symbol, last_symbols: sessionState.last_symbols, summary: "طلب تحليل محفظة فاضية" },
+                    tables: [],
+                } };
+                return;
+            }
+            await updateSessionSummary(supabase, sessionId, userId, { pending_portfolio_import: null });
+        } else if (directPortfolioOperation) {
             const symbols = extractExplicitSymbols(userMessage);
             const directPlan: IntentPlan = {
                 intent: "portfolio_management",
@@ -1576,8 +1598,28 @@ export async function* runPipelineStream(
     if (!hasImages) await getStocksList();
 
     // ─── Deterministic intent/entity planner ───
-    const plannerResult = buildCompoundDeterministicPlan(userMessage, sessionState)
+    let plannerResult = buildCompoundDeterministicPlan(userMessage, sessionState)
         ?? generalChatPlan(sessionState);
+
+    if (portfolioAnalysisSymbols.length > 0) {
+        // Route every saved holding through the normal stock-analysis tools so
+        // the reply mirrors the per-symbol analysis the user gets manually.
+        plannerResult = {
+            intent: "stock_analysis",
+            confidence: 1,
+            entities: {
+                symbols: portfolioAnalysisSymbols,
+                sector: null,
+                wants_table: true,
+                timeframe: "current",
+                requested_date: null,
+                scan_direction: null,
+                portfolio_operation: "view",
+            },
+            tools: ["manage_portfolio", "get_stock", "get_stock_levels"],
+            session_update: { current_symbol: sessionState.current_symbol, last_symbols: portfolioAnalysisSymbols, summary: userMessage },
+        } as any;
+    }
 
     const prefs = extractInvestorPreferences(userMessage);
     const normalizedPreferenceText = normalizeArabicIntent(userMessage);
@@ -1684,6 +1726,13 @@ export async function* runPipelineStream(
         : fairValueScanRequest
             ? { intent: "market_summary", tools: ["get_fair_value_scan"], replaceTools: true }
             : enforceIntentFromMessage(userMessage, plannerResult.intent, mergedSymbols, sessionState);
+    if (portfolioAnalysisSymbols.length > 0) {
+        // Never let the portfolio fast-path override a full analysis request.
+        enforced.intent = "stock_analysis";
+        enforced.tools = ["manage_portfolio", "get_stock", "get_stock_levels"];
+        enforced.replaceTools = true;
+        mergedSymbols = portfolioAnalysisSymbols.slice();
+    }
     const marketScopedTools = new Set(["get_market", "get_sector_liquidity", "get_sector_list", "get_fair_value_scan", "get_technical_scan", "get_accumulation_stocks", "get_distribution_stocks"]);
     if (explicitSymbols.length === 0 && enforced.tools.some(tool => marketScopedTools.has(tool))) mergedSymbols = [];
     const datedDomainRequest = Boolean(extractRequestedDate(userMessage) || extractRequestedDateRange(userMessage)) && ["stock_analysis", "stock_news", "comparison", "sector_analysis", "accumulation_distribution"].includes(enforced.intent);
@@ -1759,7 +1808,7 @@ export async function* runPipelineStream(
     // intent while merging context (the old symptom was a 20s "financial
     // report" for the simple "اعرض محفظتي" request).
     const directPortfolioOperation = detectPortfolioIntent(userMessage);
-    if (directPortfolioOperation) {
+    if (directPortfolioOperation && portfolioAnalysisSymbols.length === 0) {
         plan.intent = "portfolio_management";
         plan.entities.portfolio_operation = directPortfolioOperation;
         plan.tools = ["manage_portfolio"];
@@ -2479,6 +2528,29 @@ export async function runPipeline(
     if (!hasImages) await getStocksList();
 
     // ─── Deterministic planner runs for text requests ───
+    let portfolioAnalysisSymbols: string[] = [];
+    if (!hasImages && isPortfolioAnalysisRequest(userMessage)) {
+        const { data: heldRows } = await supabase
+            .from("positions")
+            .select("symbol,status")
+            .eq("user_id", userId)
+            .eq("status", "open");
+        portfolioAnalysisSymbols = Array.from(new Set(
+            (heldRows || []).map((row: any) => String(row.symbol || "").toUpperCase()).filter(Boolean)
+        ));
+        if (portfolioAnalysisSymbols.length === 0) {
+            return {
+                vision,
+                memory: null,
+                plan: generalChatPlan(sessionState) as any,
+                tools: { results: [], formattedText: "" },
+                response: "محفظتك فاضية حالياً. سجّل أسهمك أولاً (اكتب مثلاً: «ضيف COMI 100 بمتوسط 80») وبعدها أقدر أحللها لك كلها في رد واحد.",
+                session_update: { current_symbol: sessionState.current_symbol, last_symbols: sessionState.last_symbols, summary: "طلب تحليل محفظة فاضية" },
+                vision_error: visionError,
+                tables: [],
+            };
+        }
+    }
     const deterministicPlan = !hasImages ? buildCompoundDeterministicPlan(userMessage, sessionState) : null;
 
     // Stage 2: Memory is only needed when routing cannot resolve the request.
@@ -2487,9 +2559,27 @@ export async function runPipeline(
     }
 
     // Stage 3: deterministic plan
-    const plannerResult = deterministicPlan
+    let plannerResult = deterministicPlan
         ?? buildCompoundDeterministicPlan(userMessage, sessionState)
         ?? generalChatPlan(sessionState);
+
+    if (portfolioAnalysisSymbols.length > 0) {
+        plannerResult = {
+            intent: "stock_analysis",
+            confidence: 1,
+            entities: {
+                symbols: portfolioAnalysisSymbols,
+                sector: null,
+                wants_table: true,
+                timeframe: "current",
+                requested_date: null,
+                scan_direction: null,
+                portfolio_operation: "view",
+            },
+            tools: ["manage_portfolio", "get_stock", "get_stock_levels"],
+            session_update: { current_symbol: sessionState.current_symbol, last_symbols: portfolioAnalysisSymbols, summary: userMessage },
+        } as any;
+    }
 
     const explicitSymbols = extractExplicitSymbols(userMessage);
     const plannerResolvedSymbols = plannerResult.entities.symbols || [];
@@ -2547,6 +2637,12 @@ export async function runPipeline(
             require_accumulation: plannerResult.entities.require_accumulation
           }
         : enforceIntentFromMessage(userMessage, plannerResult.intent, mergedSymbols, sessionState);
+    if (portfolioAnalysisSymbols.length > 0) {
+        enforced.intent = "stock_analysis";
+        enforced.tools = ["manage_portfolio", "get_stock", "get_stock_levels"];
+        enforced.replaceTools = true;
+        mergedSymbols = portfolioAnalysisSymbols.slice();
+    }
     const marketScopedTools = new Set(["get_market", "get_sector_liquidity", "get_sector_list", "get_fair_value_scan", "get_technical_scan", "get_accumulation_stocks", "get_distribution_stocks"]);
     if (explicitSymbols.length === 0 && enforced.tools.some(tool => marketScopedTools.has(tool))) mergedSymbols = [];
     const datedDomainRequest = Boolean(extractRequestedDate(userMessage) || extractRequestedDateRange(userMessage)) && ["stock_analysis", "stock_news", "comparison", "sector_analysis", "accumulation_distribution"].includes(enforced.intent);

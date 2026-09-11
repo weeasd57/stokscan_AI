@@ -84,6 +84,18 @@ export function detectPortfolioIntent(message: string): PortfolioOperation | nul
 }
 
 /**
+ * True when the user asks for a full per-holding analysis of their portfolio
+ * ("حلل محفظتي") rather than just listing it. Analysis requests must run the
+ * same stock-analysis tools the user gets for typing a ticker manually, once
+ * per held symbol, so they do not have to retype every position daily.
+ */
+export function isPortfolioAnalysisRequest(message: string): boolean {
+    if (!detectPortfolioIntent(message)) return false;
+    const v = normalizeArabicIntent(message);
+    return /(?:حلل|حلّل|تحليل|راجع|مراجعه|مراجعة|قيّم|تقييم)/i.test(v);
+}
+
+/**
  * Confirmation of a pending portfolio-image import.
  * Matches short affirmative/negative replies to the bot's "هل دي محفظتك؟"
  * question — e.g. "أيوه", "نعم دي محفظتي", "لأ مش بتاعتي".

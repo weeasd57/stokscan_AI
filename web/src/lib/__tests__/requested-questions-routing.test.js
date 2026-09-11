@@ -1,4 +1,5 @@
 import { buildCompoundDeterministicPlan } from "../ai/pipeline";
+import { isPortfolioAnalysisRequest } from "../ai/intent-policy";
 
 describe("requested investor question routing", () => {
     const session = { current_symbol: "BIOC", last_symbols: ["BIOC"], summary: "تحليل BIOC" };
@@ -37,5 +38,12 @@ describe("requested investor question routing", () => {
         const plan = buildCompoundDeterministicPlan("هات الاسهم اللى عليها تصريف وبتتداول فوق السعر العادل", session);
         expect(plan.intent).toBe("market_summary");
         expect(plan.tools).toContain("get_fair_value_scan");
+    });
+
+    test("separates portfolio analysis from a plain portfolio view", () => {
+        expect(isPortfolioAnalysisRequest("حلل محفظتي")).toBe(true);
+        expect(isPortfolioAnalysisRequest("تحليل محفظتي وقولي أكبر مركز")).toBe(true);
+        expect(isPortfolioAnalysisRequest("اعرض محفظتي")).toBe(false);
+        expect(isPortfolioAnalysisRequest("حلل COMI")).toBe(false);
     });
 });
