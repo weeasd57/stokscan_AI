@@ -92,6 +92,25 @@ export function extractJsonFromResponse(raw: string): any {
             confidence: 0.35,
         };
     }
+    // Last structured salvage: a malformed JSON response may still contain
+    // explicit `symbol` fields. Preserve only those tickers and discard all
+    // numeric values, so the confirmation flow can ask the user for prices or
+    // quantities instead of losing the entire image.
+    const keyedSymbols = Array.from(new Set(
+        Array.from(trimmed.matchAll(/["']symbol["']\s*:\s*["']([A-Z]{2,6})["']/g), match => match[1].toUpperCase())
+            .filter(symbol => !["TICKER", "SYMBOL", "UNKNOWN"].includes(symbol))
+    ));
+    if (keyedSymbols.length > 0) {
+        return {
+            image_type: /portfolio|holding|position|محفظ|سهم|shares/i.test(trimmed) ? "portfolio" : "table",
+            symbols: keyedSymbols.map(symbol => ({ symbol, name: "", visible_values: { price: null, change_pct: null, quantity: null } })),
+            technical_observations: [],
+            market_depth: { total_bid: null, total_ask: null, spread: null },
+            user_relevant_summary: "تم استخراج رموز الأسهم فقط من رد Vision غير المكتمل؛ القيم الرقمية تحتاج تأكيداً.",
+            uncertainties: ["تم تجاهل الأسعار والكميات لأن رد Vision لم يكن JSON صالحاً بالكامل."],
+            confidence: 0.25,
+        };
+    }
     // Do not infer tickers from provider prose. A model response is accepted
     // only when it contains the contracted JSON shape; otherwise the caller
     // must report a vision failure instead of turning arbitrary prose into

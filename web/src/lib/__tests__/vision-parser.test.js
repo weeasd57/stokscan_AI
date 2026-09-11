@@ -13,6 +13,12 @@ describe('vision parser', () => {
     expect(data.symbols[0].visible_values.price).toBe('124,569');
   });
 
+  it('salvages explicit symbol keys from malformed JSON without numeric guesses', () => {
+    const data = extractJsonFromResponse("{'image_type':'table','symbols':[{'symbol':'EDFM','visible_values':{'price':'124,569'}}, {'symbol':'SCFM'}");
+    expect(data.symbols.map(symbol => symbol.symbol)).toEqual(['EDFM', 'SCFM']);
+    expect(data.symbols[0].visible_values.price).toBeNull();
+  });
+
   it('accepts a JSON object wrapped in prose', () => {
     const data = extractJsonFromResponse('Here is the JSON:\n{"image_type":"table","symbols":[],"technical_observations":[],"market_depth":{"total_bid":null,"total_ask":null,"spread":null},"user_relevant_summary":"ok","uncertainties":[],"confidence":0.5}');
     expect(data.image_type).toBe('table');
