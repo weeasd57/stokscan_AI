@@ -1331,6 +1331,12 @@ describe("Structured table sanitization", () => {
         expect(plan.intent).toBe("sector_analysis");
     });
 
+    it("routes dated sector-count questions to the sector list", () => {
+        const plan = buildDeterministicPlannerResult("عدد قطاعات البورصة المصرية بتاريخ 2026-09-10؟", { current_symbol: null, last_symbols: [], summary: null });
+        expect(plan.tools).toEqual(["get_sector_list"]);
+        expect(plan.entities.requested_date).toBe("2026-09-10");
+    });
+
     it("scopes a singular owned-stock follow-up to the current stock", () => {
         expect(scopeImplicitSingleStockRequest(
             "شريت انهارده ونزل هل في امل انو يطلع حد يفيدني",

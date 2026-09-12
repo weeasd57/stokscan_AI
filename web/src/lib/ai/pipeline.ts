@@ -2117,6 +2117,7 @@ export async function* runPipelineStream(
         plan.needs_live_data = false;
         plan.needs_historical_data = false;
     }
+    Object.assign(plan, applyHybridDomainInvariants(userMessage, plan));
 
     yield { type: "plan", data: plan };
 
