@@ -1325,6 +1325,12 @@ describe("Structured table sanitization", () => {
         expect(oldestPlan.entities.recommendation_order).toBe("oldest");
     });
 
+    it("routes Egyptian Arabic sector-count questions to the sector list", () => {
+        const plan = buildDeterministicPlannerResult("هو فى كام قطاع فى البورصه", { current_symbol: null, last_symbols: [], summary: null });
+        expect(plan.tools).toEqual(["get_sector_list"]);
+        expect(plan.intent).toBe("sector_analysis");
+    });
+
     it("scopes a singular owned-stock follow-up to the current stock", () => {
         expect(scopeImplicitSingleStockRequest(
             "شريت انهارده ونزل هل في امل انو يطلع حد يفيدني",

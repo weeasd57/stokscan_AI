@@ -100,7 +100,7 @@ function applyHybridDomainInvariants(message: string, plan: IntentPlan): IntentP
             : /(?:قطاع|القطاع)\s+(?:ال)?(عقارات|عقاري)/i.test(text)
                 ? "عقارات"
                 : null;
-    if (/(?:عدد|قائمة|قايمه).{0,20}(?:قطاع|قطاعات)/i.test(text)) {
+    if (/(?:عدد|كام|كم|قائمة|قايمه).{0,20}(?:قطاع|قطاعات)/i.test(text)) {
         return { ...plan, intent: "sector_analysis", tools: ["get_sector_list"], entities: { ...plan.entities, symbols: [] } };
     }
     if (/(?:سيول|سيولة).{0,30}(?:قطاع|قطاعات)/i.test(text)) {
@@ -1109,8 +1109,17 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
     const oldestRecommendationRequest = /(اقدم|أقدم).{0,15}(توصيه|توصية|اشاره|إشارة)/i.test(message);
     const marketNewsRequest = /اخبار\s+(?:السوق|البورصه)/i.test(message);
     const requestedDate = temporal.date;
-    const isClearMarketRequest = marketWideRequest || isBestBuyStockQuestion(message) || oldestRecommendationRequest || /(?:(?:أ|ا)عل[ىي]|(?:أ|ا)قو[ىي]|أحسن|احسن|أفضل|افضل|سيول|السيول|السيوله|تجميع|تصريف|القطاعات|قطاعات|حالة السوق|حاله البورصه|حالة البورصة|اداء المؤشر|أداء المؤشر|المؤشر النهارده|السوق عمل|دولار|usd)/i.test(normalized);
+    const isClearMarketRequest = marketWideRequest || isBestBuyStockQuestion(message) || oldestRecommendationRequest || /(?:(?:أ|ا)عل[ىي]|(?:أ|ا)قو[ىي]|أحسن|احسن|أفضل|افضل|سيول|السيول|السيوله|تجميع|تصريف|القطاعات|قطاعات|كام\s+(?:ال)?قطاعات?|كم\s+(?:ال)?قطاعات?|حالة السوق|حاله البورصه|حالة البورصة|اداء المؤشر|أداء المؤشر|المؤشر النهارده|السوق عمل|دولار|usd)/i.test(normalized);
     const isClearStockRequest = symbols.length > 0;
+    if (/(?:كام|كم|عدد).{0,20}(?:قطاع|قطاعات)/i.test(normalized)) {
+        return {
+            intent: "sector_analysis",
+            confidence: 1,
+            entities: { symbols: [], sector: null, wants_table: true, timeframe: temporal.timeframe, requested_date: requestedDate, scan_direction: null },
+            tools: ["get_sector_list"],
+            session_update: { current_symbol: null, last_symbols: [], summary: message },
+        } as any;
+    }
 
     // Day-by-day / closing-price history requests for a named stock or the
     // active session stock ("سعر إقفال X كل يوم من النهارده ولغاية أسبوعين
@@ -1460,7 +1469,7 @@ export function enforceIntentFromMessage(message: string, plannerIntent: string,
         const sector = extractSectorFromMessage(normalized);
         return sector ? { intent: "sector_analysis", tools: ["get_sector_liquidity"], replaceTools: true, sector } : { intent: "market_summary", tools: ["get_sector_liquidity"], replaceTools: true };
     }
-    if (/(قائمه|قايمه|قائمة|هات|جيب|اعرض).{0,20}(القطاعات|قطاعات)/i.test(normalized)) return { intent: "sector_analysis", tools: ["get_sector_list"], replaceTools: true };
+    if (/(?:عدد|كام|كم|قائمه|قايمه|قائمة|هات|جيب|اعرض).{0,20}(?:القطاعات|قطاعات)/i.test(normalized)) return { intent: "sector_analysis", tools: ["get_sector_list"], replaceTools: true };
     if (/(?:ارخص|أرخص)\s*(?:\d{1,2})?\s*(?:ال)?(?:اسهم|الاسهم|أسهم|الأسهم|سهم)/i.test(normalized) && !hasSymbol && !/(?:ارتفاع|صعود|عائد|اداء|أداء|سيول|تداول|خسار|انخفاض|هابط)/i.test(normalized)) return { intent: "market_summary", tools: ["get_price_history"], replaceTools: true };
     if (/(?:(?:أ|ا)عل[ىي]|(?:أ|ا)قو[ىي]).{0,25}(الاسهم|الأسهم|ارتفاع|صعود|اليوم|النهارده|اخر يوم|آخر يوم)/i.test(normalized)) return { intent: "market_summary", tools: ["get_market"], replaceTools: true };
     if (/(حاله|حالة).{0,12}(السوق|البورصه|البورصة)|(?:السوق|البورصه|البورصة).{0,12}(النهارده|اليوم|عامل|حاله|حالة)/i.test(normalized)) return { intent: "market_summary", tools: ["get_market"], replaceTools: true };
