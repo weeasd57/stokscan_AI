@@ -9,6 +9,14 @@ Do not copy this instruction, do not return a schema, and do not use placeholder
 Rules:
 - image_type: write exactly one word — portfolio (if it shows broker holdings/positions), chart (candlestick/line), table (price table), market_depth (bid/ask ladder), or unknown.
 - symbols: for each visible stock ticker (2-6 uppercase English letters such as COMI, ADIB, INEG, MCRO), add an entry: {"symbol":"TICKER","name":"Company name or empty","visible_values":{"price":null,"change_pct":null,"quantity":null}}. Fill in numbers you can read; use null for values you cannot read. Write numbers without commas (50000 not 50,000). Preserve decimal points exactly (181.50 must be 181.5, never 18150).
+- Arabic column mapping (very important):
+  * "الوحدات" or "الكمية" = number of shares → quantity.
+  * "متوسط سعر الوحدات" or "متوسط الشراء" = average purchase price → price.
+  * "القيمة السوقية" (market value) and "القيمة الشرائية" (purchase value) and "المكسب/الخسارة" (profit/loss in money) are NOT price and NOT quantity — ignore them.
+  * "العائد %" (return %) is NOT quantity — put it in change_pct only if it is a small percentage, never in quantity.
+- If the screen lists holdings with only market value and return % (no share count and no average price), return the symbols with price and quantity set to null. Never fill quantity from a percentage.
+- If the screen is a single-stock position detail, use the units as quantity and the average unit price as price.
+- Return each ticker at most once.
 - Never invent a ticker, price, or quantity. If the image text is unreadable, return unknown image_type and empty symbols array.
 - confidence: a number from 0 to 1 reflecting how clearly you could read the image.
 `;
@@ -204,7 +212,7 @@ export function validateVisionOutput(data: any): VisionContext | null {
     }) : [];
 
     const rawSymbols = Array.isArray(data.symbols)
-        ? data.symbols
+        ? data.symbols.map((entry: any) => (typeof entry === "string" ? { symbol: entry } : entry))
         : Array.isArray(data.visible_stock_symbols)
             ? data.visible_stock_symbols.map((symbol: unknown) => ({ symbol }))
             : [];
@@ -225,18 +233,35 @@ export function validateVisionOutput(data: any): VisionContext | null {
             const mapped = stockMappings[lowerSym];
             sym = (Array.isArray(mapped) ? mapped[0] : mapped).toUpperCase();
         }
-        if (sym.length >= 2 && !seenSymbols.has(sym)) {
-            seenSymbols.add(sym);
-            uniqueSymbols.push({
-                symbol: sym,
-                name: String(s.name || ""),
-                visible_values: {
-                    price: normalizeVisiblePrice(s.visible_values?.price ?? s.price, String(data.image_type || "unknown")),
-                    change_pct: numericOrNull(s.visible_values?.change_pct ?? s.change_pct),
-                    quantity: numericOrNull(s.visible_values?.quantity ?? s.quantity)
-                }
-            });
+        if (sym.length < 2) continue;
+        const rawChangePct = numericOrNull(s.visible_values?.change_pct ?? s.change_pct);
+        // EGX circuit breakers make a daily move beyond ±20% impossible; any
+        // larger value is an OCR/column mix-up and must not be presented.
+        const changePct = rawChangePct !== null && Math.abs(rawChangePct) <= 100 ? rawChangePct : null;
+        const columnsUntrustworthy = rawChangePct !== null && changePct === null;
+        if (columnsUntrustworthy && !seenSymbols.has(sym)) {
+            uncertainties.push(`تم تجاهل القيم المقروءة لـ ${sym} (${rawChangePct}%) لأن ترتيب الأعمدة غير منطقي.`);
         }
+        const rawQuantity = numericOrNull(s.visible_values?.quantity ?? s.quantity);
+        const quantity = !columnsUntrustworthy && rawQuantity !== null && rawQuantity > 0 ? rawQuantity : null;
+        const price = normalizeVisiblePrice(s.visible_values?.price ?? s.price, String(data.image_type || "unknown"));
+
+        const existing = uniqueSymbols.find((entry) => entry.symbol === sym);
+        if (existing) {
+            // The model sometimes returns the same ticker several times (e.g. once
+            // per column) — merge so a later entry can supply the units or average
+            // price the first one was missing, instead of discarding it.
+            if (existing.visible_values.quantity === null && quantity !== null) existing.visible_values.quantity = quantity;
+            if (existing.visible_values.price === null && price !== null) existing.visible_values.price = price;
+            if (existing.visible_values.change_pct === null && changePct !== null) existing.visible_values.change_pct = changePct;
+            continue;
+        }
+        seenSymbols.add(sym);
+        uniqueSymbols.push({
+            symbol: sym,
+            name: String(s.name || ""),
+            visible_values: { price, change_pct: changePct, quantity }
+        });
     }
 
     return {
@@ -256,11 +281,11 @@ export function validateVisionOutput(data: any): VisionContext | null {
     };
 }
 
-// The NVIDIA vision model regularly takes 8-20s per image (observed p95 ~19s),
-// so a 7s per-attempt timeout cut off almost every image. This budget stays
-// below AI_CONFIG.limits.requestDeadlineMs (52s) and maxDuration (120s).
-const VISION_TIMEOUT_MS = 26000;
-const MAX_VISION_TOTAL_TIME_MS = 32000;
+// The NVIDIA vision model regularly takes 8-20s per image. Keep one generous
+// attempt per image; a serial retry with another key only doubles latency and
+// Fluid CPU while using the same provider/model endpoint.
+const VISION_TIMEOUT_MS = 30000;
+const MAX_VISION_TOTAL_TIME_MS = 30000;
 
 /**
  * The vision model frequently reads a broker screenshot's quantity/total column
@@ -407,16 +432,15 @@ export async function analyzeImage(
 
     const candidates: VisionContext[] = [];
     for (const model of visionModels) {
-        for (let keyIndex = 0; keyIndex < apiKeys.length; keyIndex += 1) {
-            const key = apiKeys[keyIndex];
+        // Do not serialize a second request after a provider timeout. The
+        // configured keys target the same NVIDIA model and endpoint.
+        const key = apiKeys[0];
+        if (key) {
             const candidate = await analyzeModel(model, key);
             if (candidate) {
                 candidates.push(candidate);
                 break;
             }
-            // A provider timeout is not helped by immediately retrying the
-            // same image with another key; return within the request budget.
-            if (lastFailure === "vision_timeout") break;
         }
         if (candidates.length > 0) break;
     }

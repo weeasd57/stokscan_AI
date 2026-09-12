@@ -453,6 +453,21 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
     }
     const normalized = normalizeArabicIntent(message);
     const explicitSymbols = extractExplicitSymbols(message);
+    // A resistance/support follow-up should always use the session's current
+    // stock. It must run before the generic "X للY" company-name detector,
+    // which used to misread "يطلع للمقاومة" as a company called that phrase.
+    const currentStockLevelFollowUp = explicitSymbols.length === 0
+        && Boolean(sessionState.current_symbol)
+        && /(?:مقاوم|دعم|يطلع|يوصل|ينزل|امتى|امتي|متى|هيوصل|هيرجع)/i.test(normalized);
+    if (currentStockLevelFollowUp) {
+        return {
+            intent: "stock_analysis",
+            confidence: 1,
+            entities: { symbols: [String(sessionState.current_symbol).toUpperCase()], sector: null, wants_table: true, timeframe: "current", requested_date: null, scan_direction: null },
+            tools: ["get_stock", "get_stock_levels"],
+            session_update: { current_symbol: sessionState.current_symbol, last_symbols: sessionState.last_symbols, summary: message },
+        } as any;
+    }
     // A new, market-wide investment request must not inherit the previous
     // stock from the session (for example: "عايز اسهم استثمار لمدة سنة"
     // after an AMER analysis). Route it to recommendations before resolving
@@ -992,6 +1007,7 @@ export function portfolioMissingQuestion(item: { symbol: string; quantity: numbe
 
 function formatPortfolioSnapshotResponse(data: any): string {
     const positions = Array.isArray(data?.positions) ? data.positions : [];
+    const watchPositions = Array.isArray(data?.watch_positions) ? data.watch_positions : [];
     const totals = data?.totals || {};
     const analysis = data?.analysis || {};
     const lines = [positions.length ? `محفظتك فيها ${positions.length} مركز.` : "محفظتك فاضية حالياً."];
@@ -1017,6 +1033,14 @@ function formatPortfolioSnapshotResponse(data: any): string {
         lines.push(`- ${position.symbol}: ${position.quantity ?? "؟"} سهم، متوسط ${hasEntry ? `${position.entry_price} ج.م` : "غير مسجل"}، آخر سعر ${position.last_price ?? "غير متاح"} ج.م (${sourceLabel})، ${pnl === null ? "الربح/الخسارة غير متاح" : `${pnl >= 0 ? "ربح" : "خسارة"} ${pnl >= 0 ? "+" : ""}${pnl.toLocaleString("en-US")} ج.م (${pnlPct!.toFixed(1)}%)`}`);
     }
     for (const suggestion of analysis.suggestions || []) lines.push(`⚠️ ${suggestion}`);
+    if (watchPositions.length > 0) {
+        lines.push("");
+        lines.push(`👁️ أسهم المراقبة من الماسح (${watchPositions.length}) — دي مش ضمن المحفظة لأن الكمية ومتوسط الشراء غير مسجّلين:`);
+        for (const watch of watchPositions) {
+            lines.push(`- ${watch.symbol}${watch.name ? ` (${watch.name})` : ""}${watch.last_price != null ? ` — آخر سعر ${watch.last_price} ج.م` : ""}`);
+        }
+        lines.push("عايز أضيفها لمحفظتك؟ اكتب: «ضيف <الرمز> <الكمية> بمتوسط <السعر>» أو «حلل <الرمز>» لتحليلها أولاً.");
+    }
     lines.push("\nأقدر أكمل معاك في واحد من دول: أشرح أكبر خسارة، أقترح تنويع، أو أراجع سهم معين داخل المحفظة. تحب نبدأ بإيه؟");
     return lines.join("\n");
 }
@@ -1534,7 +1558,13 @@ export async function* runPipelineStream(
 
             vision = await reconcileVisionWithMarket(vision, supabase);
             yield { type: "vision_result", data: vision };
-            if (vision.image_type === "portfolio") {
+            // A portfolio screenshot plus a portfolio word ("محفظتي") must start
+            // the import/confirmation flow even when the model labels the image
+            // as a generic "table"; otherwise the deterministic portfolio
+            // snapshot silently ignores the uploaded image.
+            const portfolioImageIntent = vision.image_type === "portfolio"
+                || (vision.symbols.length > 0 && /(?:محفظ|بورتفوليو|portfolio)/i.test(userMessage));
+            if (portfolioImageIntent) {
                 // Persist the extracted holdings before returning the confirmation
                 // prompt. The next user message is a separate request and loads
                 // this summary from Supabase; without this write it sees an empty
@@ -1701,8 +1731,13 @@ export async function* runPipelineStream(
     // An explicit company-name phrase that resolves to no known symbol ("حلل دلتا للطباعه")
     // must not inherit the previous session symbol — the responder would analyze the WRONG stock.
     const unresolvedNameMatch = userMessage.match(/(?:^|[\s،,])(\S{2,}\s+لل\S{2,})/);
-    const unresolvedStockName = explicitSymbols.length === 0 && unresolvedNameMatch && !vision
-        ? unresolvedNameMatch[1].replace(/[.،,؟?…].*$/, "").trim()
+    const unresolvedCandidate = unresolvedNameMatch ? unresolvedNameMatch[1].replace(/[.،,؟?…].*$/, "").trim() : null;
+    // A follow-up question ("يطلع للمقاومة امتى") matches the "X للY" pattern but
+    // is not a company name and must fall back to the current symbol instead of
+    // returning "لم أجد شركة بهذا الاسم".
+    const looksLikeFollowUpPhrase = unresolvedCandidate !== null && /^(?:يطلع|تطلع|ينزل|تنزل|يوصل|توصل|هيوصل|هيرجع|يرجع|هيبقى|يبقى|هينزل|هيطلع|ممكن|امتى|امتي|ازاي|إزاي|هيحصل|يحصل|هيرتفع|يرتفع|هينخفض|ينخفض)\b/.test(unresolvedCandidate);
+    const unresolvedStockName = explicitSymbols.length === 0 && unresolvedCandidate && !vision && !looksLikeFollowUpPhrase
+        ? unresolvedCandidate
         : null;
     if (unresolvedStockName) mergedSymbols = [];
     // Bare ticker that matches no listed stock ("FTNS") — answer that it is not
@@ -2615,8 +2650,13 @@ export async function runPipeline(
     // An explicit company-name phrase that resolves to no known symbol ("حلل دلتا للطباعه")
     // must not inherit the previous session symbol — the responder would analyze the WRONG stock.
     const unresolvedNameMatch = userMessage.match(/(?:^|[\s،,])(\S{2,}\s+لل\S{2,})/);
-    const unresolvedStockName = explicitSymbols.length === 0 && unresolvedNameMatch && !vision
-        ? unresolvedNameMatch[1].replace(/[.،,؟?…].*$/, "").trim()
+    const unresolvedCandidate = unresolvedNameMatch ? unresolvedNameMatch[1].replace(/[.،,؟?…].*$/, "").trim() : null;
+    // A follow-up question ("يطلع للمقاومة امتى") matches the "X للY" pattern but
+    // is not a company name and must fall back to the current symbol instead of
+    // returning "لم أجد شركة بهذا الاسم".
+    const looksLikeFollowUpPhrase = unresolvedCandidate !== null && /^(?:يطلع|تطلع|ينزل|تنزل|يوصل|توصل|هيوصل|هيرجع|يرجع|هيبقى|يبقى|هينزل|هيطلع|ممكن|امتى|امتي|ازاي|إزاي|هيحصل|يحصل|هيرتفع|يرتفع|هينخفض|ينخفض)\b/.test(unresolvedCandidate);
+    const unresolvedStockName = explicitSymbols.length === 0 && unresolvedCandidate && !vision && !looksLikeFollowUpPhrase
+        ? unresolvedCandidate
         : null;
     if (unresolvedStockName) mergedSymbols = [];
     // Bare ticker that matches no listed stock ("FTNS") — answer that it is not
