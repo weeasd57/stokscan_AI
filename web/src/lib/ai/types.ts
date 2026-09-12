@@ -99,6 +99,7 @@ export interface IntentPlan {
     needs_historical_data: boolean;
     tools: string[];
     clarification_needed: boolean;
+    clarification_options?: string[];
     service_degraded_message?: string | null;
     unresolved_stock?: boolean;
     resolved_from: {
@@ -159,6 +160,8 @@ export interface PlannerResult {
         sharia_filter?: boolean;
     };
     tools: string[];
+    clarification_needed?: boolean;
+    clarification_options?: string[];
     image_summary?: string | null;
     service_degraded_message?: string | null;
     unresolved_stock?: boolean;

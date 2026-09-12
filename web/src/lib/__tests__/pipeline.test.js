@@ -61,8 +61,9 @@ describe("Vision timeout configuration", () => {
         const fs = require("fs");
         const source = fs.readFileSync(require.resolve("../ai/vision"), "utf8");
         expect(source).not.toContain("13s cap");
-        expect(source).toContain("MAX_VISION_TOTAL_TIME_MS = 25000");
+        expect(source).toContain("MAX_VISION_TOTAL_TIME_MS = 50000");
         expect(source).toContain("for (const model of visionModels)");
+        expect(source).toContain("for (const key of usableKeys)");
     });
 });
 

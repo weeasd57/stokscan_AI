@@ -451,7 +451,7 @@ export async function executeStructuredTools(
         const { data: fundamentalsRows } = await supabase.from("stock_fundamentals").select("symbol, data").eq("exchange", "EGX").limit(1000);
         const normalizedTarget = targetSector.toLowerCase().replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").replace(/^ال/, "");
         const terms: Record<string, string[]> = {
-            "بنوك": ["bank", "banking", "finance", "financial"],
+            "بنوك": ["bank", "banking", "بنك", "بنوك"],
             "ادويه": ["pharma", "pharmaceutical", "health technology", "health services", "health"],
             "عقارات": ["real estate", "homebuilding", "consumer durables", "durables", "housing", "development", "construction"],
             "استصلاح اراضي": ["reclamation", "land", "agriculture", "agricultural", "farming", "crop", "استصلاح", "اراضي", "زراعة", "زراعي"],
@@ -465,11 +465,18 @@ export async function executeStructuredTools(
             "سياحه": ["tourism", "travel", "consumer services", "hotel"],
             "اتصالات": ["telecom", "telecommunications", "communications", "technology services"]
         };
-        const searchTerms = terms[normalizedTarget] || [normalizedTarget, targetSector.toLowerCase()];
+        const searchTerms = terms[normalizedTarget]
+            || (normalizedTarget.includes("بنوك") ? terms["بنوك"] : null)
+            || (normalizedTarget.includes("ادويه") || normalizedTarget.includes("صحه") ? terms["ادويه"] : null)
+            || (normalizedTarget.includes("عقارات") ? terms["عقارات"] : null)
+            || [normalizedTarget, targetSector.toLowerCase()];
         return (fundamentalsRows || []).filter((row: any) => {
             const raw = typeof row.data === "string" ? (() => { try { return JSON.parse(row.data); } catch { return {}; } })() : row.data || {};
             const classification = `${raw.sector || raw.Sector || ""} ${raw.industry || raw.Industry || ""} ${raw.sector_ar || raw.SectorAr || ""}`.toLowerCase();
-            return searchTerms.some(term => classification.includes(term));
+            const realEstateClassification = /real estate|realestate|عقارات|عقاري|development|construction|housing|property/i.test(classification);
+            if (normalizedTarget.includes("بنوك") && realEstateClassification) return false;
+            return searchTerms.some(term => classification.includes(term))
+                || (normalizedTarget.includes("بنوك") && /بنك|بنوك|bank|banking/i.test(classification));
         }).map((row: any) => String(row.symbol).toUpperCase());
     };
 
@@ -569,6 +576,11 @@ export async function executeStructuredTools(
                 // current technical signal; a stale signal must not qualify the stock.
                 if (requireDistribution && (!isDistribution || scanAgeDays > 30)) return null;
                 if (requireAccumulation && (!isAccumulation || scanAgeDays > 30)) return null;
+                if (plan.entities.min_acc_score != null && Number(distribution?.acc_score || 0) <= Number(plan.entities.min_acc_score)) return null;
+                if (plan.entities.min_vol_ratio != null) {
+                    const volRatio = Number(row.vol_sma20) > 0 ? Number(row.volume) / Number(row.vol_sma20) : 0;
+                    if (volRatio <= Number(plan.entities.min_vol_ratio)) return null;
+                }
                 return {
                     symbol, close, support, resistance, midpoint,
                     premium_pct: midpoint > 0 ? ((close / midpoint) - 1) * 100 : null,
@@ -589,10 +601,17 @@ export async function executeStructuredTools(
                     ? Number(b.premium_pct) - Number(a.premium_pct)
                     : Number(a.premium_pct) - Number(b.premium_pct))
                 .slice(0, 30);
+            const finalStocks = (requireAccumulation || plan.entities.min_acc_score != null || plan.entities.min_vol_ratio != null)
+                ? stocks.filter((stock: any) => {
+                    const scoreOk = plan.entities.min_acc_score == null || Number(stock.acc_score || 0) > Number(plan.entities.min_acc_score);
+                    const volumeOk = plan.entities.min_vol_ratio == null || Number(stock.vol_ratio || 0) > Number(plan.entities.min_vol_ratio);
+                    return scoreOk && volumeOk;
+                })
+                : stocks;
             const relation = fairValueDirection === "above" ? "above" : "below";
             const source = requireDistribution || requireAccumulation ? "stock_prices+stock_scans_summary" : "stock_prices";
-            results.push({ tool: "get_fair_value_scan", source, data_time: dataDate, symbols: stocks.map((stock: any) => stock.symbol), data_type: requestedDate ? "historical" : "live", data: { metric: `price_${relation}_60_session_midpoint`, direction: fairValueDirection, require_distribution: requireDistribution, require_accumulation: requireAccumulation, excluded_sectors: excludedSectorsList, stocks } });
-            textParts.push(`[مسح التقييم الفني السوقي بتاريخ ${dataDate}]: ${stocks.length} سهم ${fairValueDirection === "above" ? "فوق" : "تحت"} القيمة الوسطية لنطاق 60 جلسة${requireDistribution ? " مع إشارة تصريف" : requireAccumulation ? " مع إشارة تجميع" : ""}.`);
+            results.push({ tool: "get_fair_value_scan", source, data_time: dataDate, symbols: finalStocks.map((stock: any) => stock.symbol), data_type: requestedDate ? "historical" : "live", data: { metric: `price_${relation}_60_session_midpoint`, direction: fairValueDirection, require_distribution: requireDistribution, require_accumulation: requireAccumulation, excluded_sectors: excludedSectorsList, stocks: finalStocks } });
+            textParts.push(`[مسح التقييم الفني السوقي بتاريخ ${dataDate}]: ${finalStocks.length} سهم ${fairValueDirection === "above" ? "فوق" : "تحت"} القيمة الوسطية لنطاق 60 جلسة${requireDistribution ? " مع إشارة تصريف" : requireAccumulation ? " مع إشارة تجميع" : ""}.`);
         } catch (e) {
             console.warn("Error computing fair-value scan:", e);
             results.push({ tool: "get_fair_value_scan", source: "error", data_time: now, symbols: [], data_type: requestedDate ? "historical" : "live", data: { direction: plan.entities.fair_value_direction || "above", require_distribution: Boolean(plan.entities.require_distribution), require_accumulation: Boolean(plan.entities.require_accumulation), stocks: [] }, error: "تعذر إكمال تقاطع بيانات الأسعار والمسح الفني ضمن المهلة." });
@@ -729,6 +748,7 @@ export async function executeStructuredTools(
                     || /(?:ايه|اي|فين|هل في|هل فيه).{0,12}(?:اسهم|أسهم).{0,15}(?:تجميع|تصريف)/i.test(userMessage)
                     || /(?:منطقه|منطقة|فرص)\s+(?:تجميع|تصريف)/i.test(userMessage)
                     || /(?:اسهم|أسهم).{0,10}(?:تجميع|تصريف)/i.test(userMessage);
+                const sectorRequested = Boolean(plan.entities.sector);
                 const scopedSymbols = (compoundMarketScan && asksForMarketWideList) ? [] : symbols.length > 0 ? symbols : await resolveSectorSymbols();
                 const { data: summaryScans } = await summaryQuery;
                 const directionsWithSummary = new Set<"accumulation" | "distribution">();
@@ -764,7 +784,10 @@ export async function executeStructuredTools(
                         const strictAccumulation = direction === "accumulation" && plan.entities.min_acc_score != null;
                         const matchingStocks = todayScans
                             .filter((r: any) => {
-                                if (scopedSymbols.length > 0 && !scopedSymbols.includes(r.symbol)) return false;
+                                 // An explicit sector is a hard scope. If fundamentals cannot
+                                 // resolve it, never fall back to a market-wide scan.
+                                 if (sectorRequested && (scopedSymbols.length === 0 || !scopedSymbols.includes(r.symbol))) return false;
+                                 if (scopedSymbols.length > 0 && !scopedSymbols.includes(r.symbol)) return false;
                                 if (!strictAccumulation) return r.signal === direction || Number(r[scoreField] || 0) >= 50;
                                 return Number(r.acc_score || 0) > Number(plan.entities.min_acc_score)
                                     && Number(r.vol_ratio || 0) > Number(plan.entities.min_vol_ratio)

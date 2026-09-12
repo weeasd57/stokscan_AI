@@ -27,19 +27,21 @@ function resolveReference(
         return { symbol: null, message_id: null, confidence: 0 };
     }
 
-    if (sessionState.current_symbol) {
+    // An image is the freshest explicit reference in the session. Prefer it
+    // over an older typed-stock context when the user says "ده".
+    if (sessionSummary?.last_image_symbols && sessionSummary.last_image_symbols.length > 0) {
         return {
-            symbol: sessionState.current_symbol,
+            symbol: sessionSummary.last_image_symbols[0],
             message_id: null,
             confidence: 0.9
         };
     }
 
-    if (sessionSummary?.last_image_symbols && sessionSummary.last_image_symbols.length > 0) {
+    if (sessionState.current_symbol) {
         return {
-            symbol: sessionSummary.last_image_symbols[0],
+            symbol: sessionState.current_symbol,
             message_id: null,
-            confidence: 0.8
+            confidence: 0.9
         };
     }
 

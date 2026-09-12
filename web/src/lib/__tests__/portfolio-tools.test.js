@@ -144,6 +144,21 @@ describe("Portfolio tools (محفظتى)", () => {
         expect(snap.totals.equity).toBe(15400);
     });
 
+    it("excludes technical-scanner watch entries without a quantity from the portfolio", async () => {
+        const sb = makeSupabaseMock({
+            positions: [
+                { user_id: "user_1", symbol: "AMER", quantity: null, entry_price: 5.24, source: "tech_scanner" },
+                { user_id: "user_1", symbol: "COMI", quantity: 100, entry_price: 80, source: "profile" },
+            ],
+            prices: { COMI: 90 },
+            profile: { cash_balance: 0 },
+        });
+        const snap = await getPortfolioSnapshot(sb, "user_1");
+        expect(snap.positions.map((p) => p.symbol)).toEqual(["COMI"]);
+        expect(snap.totals.positions_count).toBe(1);
+        expect(snap.watch_positions.map((p) => p.symbol)).toEqual(["AMER"]);
+    });
+
     it("adds a new position with quantity and entry price", async () => {
         const sb = makeSupabaseMock({ positions: [], stockNames: { HRHO: "الهرم" } });
         const res = await addPortfolioPosition(sb, "user_1", "HRHO", 300, 15.5);

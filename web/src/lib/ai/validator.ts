@@ -549,7 +549,7 @@ export function validateDeterministicRules(
         // EVIDENCE VERIFIER CHECK 2: Unproven Wyckoff Distribution assertion
         // Negated statements ("لا يوجد عليه تصريف") are honest answers — never flag them.
         // Skip for scan list stocks — they're listed from DB, not hallucinated.
-        const isNegatedClaim = /(?:لا\s+(?:يوجد|توجد|يمكن\s+تأكيد)|مفيش|ليس\s+هناك|غير\s*متاح|لا\s+تتوفر|انعدام)/i.test(sentence);
+        const isNegatedClaim = /(?:لا\s+(?:يوجد|توجد|تتوفر|يمكن\s+تأكيد)|مفيش|ليس\s+هناك|غير\s*(?:متاح|متاحة|مسجل|مسجلة)|لم\s+تتوفر|انعدام)/i.test(sentence);
         // Honest zero-value reporting ("درجة التجميع (acc_score) = 0") states the ABSENCE of a
         // Wyckoff signal — it must not be treated as a directional claim, otherwise truthful
         // answers are rejected and the pipeline falls back to the safe table.
@@ -566,7 +566,7 @@ export function validateDeterministicRules(
         // Exclude: negated/absent claims, Wyckoff-educational context, NONE labels, zero-value reports
         // Skip for scan list stocks — they're listed from DB, not hallucinated.
         const claimsAccumulation = /(?:مرحل[ةه]\s*(?:ال)?تجميع(?:\s*وايكوف)?|درج[ةه]\s*(?:ال)?تجميع|إشار[ةه]\s*تجميع\s*مؤكد[ةه]|تجميع\s*وايكوف|سيولة\s*(?:تجميع|تجميعية|شرائية))/i.test(sentence)
-            && !/(?:NONE|غير\s*متاح|لا\s*تتوفر|ليس\s+هناك|بيانات.*التجميع.*غير|خارج.*مسح)/i.test(sentence);
+            && !/(?:NONE|غير\s*(?:متاح|متاحة|مسجل|مسجلة)|لا\s*(?:تتوفر|توجد|يوجد)|ليس\s+هناك|لم\s+تتوفر|بيانات.*التجميع.*غير|خارج.*مسح)/i.test(sentence);
         const hasAccEvidence = (facts.acc_score != null && Number(facts.acc_score) > 0) || toolResults.some(r => (r.tool === "get_accumulation_stocks" || r.tool === "get_distribution_stocks") && Array.isArray(r.data?.stocks) && r.data.stocks.some((st: any) => String(st.symbol).toUpperCase() === activeSymbol?.toUpperCase() && (Number(st.acc_score) > 0 || String(st.wyckoff_phase).toLowerCase().includes("acc"))));
         if (!skipWyckoffChecks && !isNegatedClaim && !mentionsAccumulationZero && claimsAccumulation && !hasAccEvidence) {
             errors.push(`ادعاء تجميع أو سيولة تجميعية غير مثبت بدليل لسهم ${activeSymbol}: لا تتوفر بيانات مسح Wyckoff/تجميع صريحة — قل إن البيانات غير متاحة بدلاً من الاستنتاج من مؤشرات أخرى.`);
@@ -596,7 +596,7 @@ export function validateDeterministicRules(
         // EVIDENCE VERIFIER CHECK 5: Selling-pressure inference from vol_ratio without distribution evidence
         // A high vol_ratio alone (e.g. 1.69x) must NEVER be interpreted as "ضغط بيعي" or "توزيع"
         // unless dist_score > 0 or wyckoff_phase indicates distribution.
-        const claimsSellingPressure = /(?:سيولة\s*توزيعية|سيولة\s*تصريفية|تصريف\s*بيعي|سيولة\s*تصريف|ضغط\s*تصريفي)/i.test(sentence);
+        const claimsSellingPressure = /(?:سيولة\s*توزيعية|سيولة\s*تصريفية|تصريف\s*بيعي|سيولة\s*تصريف|ضغط\s*(?:تصريفي|بيعي))/i.test(sentence);
         const sentenceMentionsVolRatio = /(?:نسبة\s*الحجم|vol_ratio|نسبة\s*السيولة|حجم\s*التداول|نسبة\s*الحجم)/i.test(sentence) || facts.vol_ratio != null;
         if (!skipWyckoffChecks && !isNegatedClaim && claimsSellingPressure && sentenceMentionsVolRatio && !hasDistEvidence) {
             errors.push(`استنتاج غير مثبت لضغط بيعي من نسبة حجم لسهم ${activeSymbol}: vol_ratio قد يكون عالياً (${facts.vol_ratio ?? "غير متوفر"}) لكنه لا يعني توزيع/تصريف دون دليل توزيع صريح (dist_score أو wyckoff_phase). استخدم مصطلح 'نشط' فقط.`);
@@ -675,13 +675,20 @@ export function validateDeterministicRules(
         const entrySignalWords = /(?:مناسب\s*للدخول|مناسب\s*للشراء|ينصح\s*بالدخول|ينصح\s*بالشراء|إشارة\s*شراء|وقت\s*الدخول)/i;
         const entryMatch = entrySignalWords.exec(sentence);
         if (entryMatch) {
-            const textBeforeMatch = sentence.slice(0, entryMatch.index);
-            const hasNegationBefore = /(?:لا|ليس|غير|لم|لن|مفيش|ما\s+فيش|ليس)\s*|\s+(?:لا|ليس|غير|لم|لن|مفيش)/i.test(textBeforeMatch);
-            if (!hasNegationBefore) {
-                const hasCriteria = /(?:سعر\s*الدخول|هدف|وقف\s*خسارة|مستوى\s*دعم|مستوى\s*مقاومة|RSI|MACD|حجم|زخم|نطاق|سعر\s*افتتاحي|مؤشر)/i;
-                const hasEntryCriteria = hasCriteria.test(sentence) || /(?:إذا|عندما|شرط|متطلب|بشرط|بمجرد|إذا اقترب)/i.test(sentence);
-                if (!hasEntryCriteria) {
-                    errors.push(`إشارة دخول غير مدعومة بمعايير لسهم ${activeSymbol}: "${sentence.slice(0, 80)}..." — يجب توضيح شروط تنفيذية محددة (سعر الدخول، هدف، وقف خسارة، أو مؤشرات فنية).`);
+            // A historical/closed recommendation is evidence to report, not a
+            // new entry signal. Do not reject an otherwise correct stock
+            // analysis just because it quotes "إشارة شراء" from an old trade.
+            const historicalRecommendation = /(?:توصية\s+(?:سابقة|قديمة)|(?:توصية|صفقة).{0,20}(?:مغلقة|مقفلة|closed)|صدرت\s+بتاريخ|أغلقت|حققت\s+(?:هدفها|الهدف)|ضربت\s+(?:وقف|الوقف)|PREVIOUS_CLOSED)/i.test(sentence)
+                && !/(?:الآن|حاليا|حالياً|مفتوحة|نشطة|active_open)/i.test(sentence);
+            if (!historicalRecommendation) {
+                const textBeforeMatch = sentence.slice(0, entryMatch.index);
+                const hasNegationBefore = /(?:لا|ليس|غير|لم|لن|مفيش|ما\s+فيش|ليس)\s*|\s+(?:لا|ليس|غير|لم|لن|مفيش)/i.test(textBeforeMatch);
+                if (!hasNegationBefore) {
+                    const hasCriteria = /(?:سعر\s*الدخول?|هدف|وقف\s*خسارة|مستوى\s*دعم|مستوى\s*مقاومة|RSI|MACD|حجم|زخم|نطاق|سعر\s*افتتاحي|مؤشر)/i;
+                    const hasEntryCriteria = hasCriteria.test(sentence) || /(?:إذا|عندما|شرط|متطلب|بشرط|بمجرد|إذا اقترب)/i.test(sentence);
+                    if (!hasEntryCriteria) {
+                        errors.push(`إشارة دخول غير مدعومة بمعايير لسهم ${activeSymbol}: "${sentence.slice(0, 80)}..." — يجب توضيح شروط تنفيذية محددة (سعر الدخول، هدف، وقف خسارة، أو مؤشرات فنية).`);
+                    }
                 }
             }
         }

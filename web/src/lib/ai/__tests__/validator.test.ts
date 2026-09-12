@@ -1191,6 +1191,12 @@ describe("validator: Evidence Verifier CHECKs 9-11", () => {
     expect(check10Errors.length).toBe(0);
   });
 
+  it("CHECK 10: does not treat a closed historical recommendation as a new entry signal", () => {
+    const reply = "توصية سابقة مغلقة صدرت بتاريخ 2026-07-07 بإشارة شراء من سعر دخول 2.83 جنيه وأغلقت بعائد 106.01%، وليست توصية حالية.";
+    const errors = validateDeterministicRules(reply, diffMlToolResults, "حلل سهم TEST");
+    expect(errors.filter((e) => e.includes("إشارة دخول غير مدعومة")).length).toBe(0);
+  });
+
   it("CHECK 11: rejects 'اتفاق قوي' when ML score diff > 3 points (4.4pt scenario)", () => {
     const reply = "KING AI = 58.3% و EGX AI = 53.9%، الفرق = 4.4 نقطة → اتفاق قوي لسهم TEST.";
     const errors = validateDeterministicRules(

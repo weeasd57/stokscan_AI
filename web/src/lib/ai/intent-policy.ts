@@ -116,7 +116,7 @@ export function detectPortfolioConfirmation(message: string): boolean | null {
 export function isEarningsDataRequest(message: string): boolean {
     const norm = normalizeArabicIntent(message);
     if (/(ارباحي|ارباحى|احمي|حمايه|جني|جني\s*ارباح|توزيع\s*سيول|محفظت|سيولتي|تذبذب)/i.test(norm)) return false;
-    return /(نتائج\s*اعمال|قوائم\s*ماليه|صافي\s*ربح|صافي\s*ارباح|ارباح\s*الشرك|ارباح\s*الربع|ايرادات\s*الشرك|ميزانيه\s*الشرك)/i.test(norm);
+    return /(نتائج\s*اعمال|قوائم\s*ماليه|صافي\s*ربح|صافي\s*ارباح|ارباح\s*(?:الشرك|السهم|سهم|[A-Z]{2,6}|الربع|الشهر|السنه|السنة|العام|كام|قد\s*ايه|كم)|ايرادات\s*الشرك|ميزانيه\s*الشرك)/i.test(norm);
 }
 
 export function getFairValueFilters(message: string): { fair_value_direction: "above" | "below"; require_distribution: boolean; require_accumulation: boolean } {
@@ -155,7 +155,7 @@ export function isTermsDefinitionRequest(message: string): boolean {
 }
 
 export function getInvestorGuidanceIntent(message: string, hasNamedStock = false): InvestorGuidanceIntent | null {
-    if (isBestBuyStockQuestion(message)) return null;
+    if (isBestBuyStockQuestion(message) && !/(?:مش\s*فاهم|مش\s*عارف|ابدأ|اول\s+يوم|مدخراتي|مدخرات|صندوق\s+دخل\s+ثابت|نصف\s*مليون|نص\s*مليون)/i.test(normalizeArabicIntent(message))) return null;
     const normalized = normalizeArabicIntent(message);
     if (isTermsDefinitionRequest(message)) return "terms_explainer";
     const mentionsDefensiveProduct = /(صندوق|صناديق|دخل\s+(?:ال)?ثابت|عائد\s+(?:ال)?يومي|عائد\s+(?:ال)?ثابت|شهاده|وديعه|حساب توفير|سوق المال|money market|cash|cloud|ثاندر|ثندر|thndr)/i.test(normalized);
@@ -166,7 +166,7 @@ export function getInvestorGuidanceIntent(message: string, hasNamedStock = false
     const isSingleStockAdviceRequest = (hasNamedStock && /(اشتريت|نزل بي|نزل بيا|خسران|نازل بيا)/i.test(normalized)) || /(اشتريت.*في.*سهم.*و(?:نزل|خسر))/i.test(normalized);
     if (isSingleStockAdviceRequest) return null;
 
-    if (asksComparison && mentionsDefensiveProduct && (hasNamedStock || /سهم|اسهم|الاسهم/.test(normalized))) return "product_comparison";
+    if (asksComparison && mentionsDefensiveProduct && /سهم|اسهم|الاسهم/.test(normalized)) return "product_comparison";
     if (mentionsDefensiveProduct && asksHowItWorks && !hasNamedStock) return "product_explainer";
     if (asksAllocation && !hasNamedStock) return "allocation";
     if (signalsInexperience && !hasNamedStock) return "onboarding";

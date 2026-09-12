@@ -2,8 +2,8 @@ export const AI_CONFIG = {
   models: {
     planner: {
       text: ["deepseek-chat"],
-      // nvidia/llama-3.1-nemotron-nano-vl-8b-v1 reached end-of-life 2026-08-26 (HTTP 410).
-      vision: ["meta/llama-3.2-11b-vision-instruct"],
+      // DeepSeek Flash supports OpenAI-compatible image_url content.
+      vision: ["deepseek-flash"],
     },
     response: {
       default: "deepseek-chat",
@@ -12,7 +12,7 @@ export const AI_CONFIG = {
         "deepseek-chat",
         "deepseek-reasoner"
       ],
-      vision: ["meta/llama-3.2-11b-vision-instruct"],
+      vision: ["deepseek-flash"],
     },
   },
   limits: {

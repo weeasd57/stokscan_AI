@@ -17,6 +17,12 @@ describe('vision output validation', () => {
     expect(vision.symbols[0].visible_values.price).toBeCloseTo(181.5, 2);
   });
 
+  it('recovers symbols when the model returns a plain string array', () => {
+    const parsed = extractJsonFromResponse('{"image_type":"financial","symbols":["AMER"],"technical_observations":[],"confidence":0.5}');
+    const vision = validateVisionOutput(parsed);
+    expect(vision.symbols.map((symbol) => symbol.symbol)).toEqual(['AMER']);
+  });
+
   it('recovers symbols from near-miss payloads rejected by the strict contract', () => {
     const parsed = extractJsonFromResponse('{"image_type":"TABLE","symbols":[{"symbol":"edfm","visible_values":{"price":"124,569","change_pct":"0.70%"}},{"symbol":"scfm","visible_values":{}}],"technical_observations":null,"confidence":"0.4"}');
     const vision = validateVisionOutput(parsed);

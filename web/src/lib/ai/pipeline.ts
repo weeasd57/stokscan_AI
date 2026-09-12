@@ -14,6 +14,7 @@ import { extractExcludedSectorNames, extractMentionedSectorNames } from "./secto
 import { isOtcStock, buildOtcNotice } from "./otc-stocks";
 import { isEgxSessionOpen } from "./live-stock-updater";
 import { replacePortfolioFromImage } from "./portfolio-tools";
+import { getDeepSeekApiKey } from "./server-secrets";
 
 export interface PipelineResult {
     vision: VisionContext | null;
@@ -31,8 +32,116 @@ export interface PipelineResult {
     tables: ExcelTable[];
 }
 
+const HYBRID_REVIEW_ALLOWED_TOOLS = new Set([
+    "get_stock", "get_stock_levels", "get_news", "get_corporate_actions", "get_market",
+    "get_sector", "get_sector_list", "get_sector_liquidity", "get_accumulation_stocks",
+    "get_distribution_stocks", "get_technical_scan", "get_comparison", "get_recommendations",
+    "get_fair_value_scan", "get_price_history", "search_web",
+]);
+
+async function reviewHybridToolResults(
+    message: string,
+    plan: IntentPlan,
+    results: StructuredToolOutput,
+    sessionState: SessionState,
+): Promise<string[]> {
+    const key = getDeepSeekApiKey();
+    if (!key || plan.clarification_needed || plan.intent === "portfolio_management") return [];
+    const response = await fetch(AI_CONFIG.api.deepseekBaseUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+        body: JSON.stringify({
+            model: "deepseek-chat",
+            temperature: 0,
+            max_tokens: 220,
+            response_format: { type: "json_object" },
+            messages: [
+                { role: "system", content: "أنت مراجع نتائج لأداة تحليل أسهم. أعد JSON فقط بالشكل {\"additional_tools\":[]}. اطلب أدوات إضافية فقط إذا كانت ضرورية للإجابة على السؤال. استخدم أسماء الأدوات المسموحة فقط." },
+                { role: "user", content: JSON.stringify({ message, plan: { intent: plan.intent, entities: plan.entities, tools: plan.tools }, results: results.results, session: sessionState, allowed_tools: Array.from(HYBRID_REVIEW_ALLOWED_TOOLS) }) },
+            ],
+        }),
+    });
+    if (!response.ok) return [];
+    const json: any = await response.json();
+    let parsed: any = {};
+    try { parsed = JSON.parse(json.choices?.[0]?.message?.content || "{}"); } catch { return []; }
+    return Array.from(new Set<string>((Array.isArray(parsed.additional_tools) ? parsed.additional_tools : [])
+        .filter((tool: unknown): tool is string => typeof tool === "string" && HYBRID_REVIEW_ALLOWED_TOOLS.has(tool) && !plan.tools.includes(tool))))
+        .slice(0, 3);
+}
+
+async function executeHybridAdditionalTools(
+    supabase: any,
+    plan: IntentPlan,
+    initial: StructuredToolOutput,
+    additionalTools: string[],
+    apiKeys: string[],
+    userId: string,
+    sessionId: string,
+    message: string,
+    history: Array<{ role: string; content: string }>,
+): Promise<StructuredToolOutput> {
+    if (!additionalTools.length) return initial;
+    const extra = await executeStructuredTools(supabase, { ...plan, tools: additionalTools }, apiKeys, userId, sessionId, message, history);
+    const results = [...initial.results];
+    for (const result of extra.results) {
+        if (!results.some(existing => existing.tool === result.tool)) results.push(result);
+    }
+    return { results, formattedText: [initial.formattedText, extra.formattedText].filter(Boolean).join("\n\n") };
+}
+
+function applyHybridDomainInvariants(message: string, plan: IntentPlan): IntentPlan {
+    const text = normalizeArabicIntent(message);
+    const symbols = plan.entities.symbols || [];
+    const explicitSector = /(?:قطاع|القطاع)\s+(?:ال)?(بنوك|بنك|خدمات مالية)/i.test(text)
+        ? "بنوك"
+        : /(?:قطاع|القطاع)\s+(?:ال)?(ادويه|أدوية|صحه|صحية)/i.test(text)
+            ? "ادويه"
+            : /(?:قطاع|القطاع)\s+(?:ال)?(عقارات|عقاري)/i.test(text)
+                ? "عقارات"
+                : null;
+    if (/(?:عدد|قائمة|قايمه).{0,20}(?:قطاع|قطاعات)/i.test(text)) {
+        return { ...plan, intent: "sector_analysis", tools: ["get_sector_list"], entities: { ...plan.entities, symbols: [] } };
+    }
+    if (/(?:سيول|سيولة).{0,30}(?:قطاع|قطاعات)/i.test(text)) {
+        return { ...plan, intent: "market_summary", tools: ["get_sector_liquidity"], entities: { ...plan.entities, symbols: [] } };
+    }
+    if (symbols.length >= 2 && /(?:قارن|مقارن|مفاضل)/i.test(text)) {
+        const tools = new Set(plan.tools);
+        tools.add("get_comparison");
+        if (/(?:خبر|أخبار|اخبار)/i.test(text)) tools.add("get_news");
+        return { ...plan, intent: "comparison", tools: Array.from(tools) };
+    }
+    if (/(?:تجميع|وايكوف|accumulation)/i.test(text) && plan.entities.sector) {
+        return { ...plan, intent: "accumulation_distribution", tools: ["get_accumulation_stocks"], entities: { ...plan.entities, sector: plan.entities.sector || explicitSector, scan_direction: "accumulation" } };
+    }
+    if (explicitSector && /(?:تجميع|وايكوف|accumulation)/i.test(text)) {
+        return { ...plan, intent: "accumulation_distribution", tools: ["get_accumulation_stocks"], entities: { ...plan.entities, sector: explicitSector, scan_direction: "accumulation" } };
+    }
+    if (plan.tools.includes("get_fair_value_scan") && /(?:تجميع|وايكوف|accumulation)/i.test(text)) {
+        return { ...plan, entities: { ...plan.entities, require_accumulation: true } };
+    }
+    return plan;
+}
+
+function intersectHybridScanResults(tools: StructuredToolOutput, plan: IntentPlan): StructuredToolOutput {
+    const fair = tools.results.find(result => result.tool === "get_fair_value_scan");
+    const accumulation = tools.results.find(result => result.tool === "get_accumulation_stocks");
+    if (!fair || !accumulation) return tools;
+    const fairSymbols = new Set((fair.data?.stocks || []).map((stock: any) => String(stock.symbol || "").toUpperCase()));
+    const filteredStocks = (accumulation.data?.stocks || []).filter((stock: any) => fairSymbols.has(String(stock.symbol || "").toUpperCase()));
+    const filteredRows = (accumulation.data?.scan_rows || []).filter((stock: any) => fairSymbols.has(String(stock.symbol || "").toUpperCase()));
+    accumulation.data = { ...accumulation.data, stocks: filteredStocks, scan_rows: filteredRows, hybrid_intersection: true, fair_value_symbols: Array.from(fairSymbols) };
+    accumulation.symbols = filteredStocks.map((stock: any) => String(stock.symbol).toUpperCase());
+    const fairStocks = (fair.data?.stocks || []).filter((stock: any) => filteredStocks.some((candidate: any) => String(candidate.symbol).toUpperCase() === String(stock.symbol).toUpperCase()));
+    fair.data = { ...fair.data, stocks: fairStocks, hybrid_intersection: true };
+    fair.symbols = fairStocks.map((stock: any) => String(stock.symbol).toUpperCase());
+    return { ...tools, formattedText: `${tools.formattedText}\n[Hybrid intersection: ${filteredStocks.length} stocks]` };
+}
+
 export function sanitizePlannerTools(message: string, tools: string[]): string[] {
-    const explicitlyRequestsRecommendations = isBestBuyStockQuestion(message) || /(?:توصيات|توصيه|توصية|اشارات|إشارات|سجل التوصيات|اقدم توصيه|أقدم توصية|مناسبة للدخول|للدخول فيها|مرشحة|أسهم مرشحة|اسهم كويسة|فرص دخول|للشراء|ترشح|ترشيحات|اشتريها|اشتري|ادخل فيها|تحقق ارباح|تحقق أرباح|فرص شراء|فرص الاستثمار)/i.test(message);
+    if (/(?:ثندر|thndr)/i.test(message)) return tools.filter(tool => tool === "get_market");
+    const explicitlyRequestsRecommendations = isBestBuyStockQuestion(message) || /(?:توصيات|توصيه|توصية|اشارات|إشارات|سجل التوصيات|اقدم توصيه|أقدم توصية|مناسبة للدخول|للدخول فيها|مرشحة|أسهم مرشحة|اسهم كويسة|فرص دخول|للشراء|ترشح|ترشيحات|اشتريها|اشتري|ادخل فيها|تحقق ارباح|تحقق أرباح|فرص شراء)/i.test(message);
     if (explicitlyRequestsRecommendations) return tools;
     return tools.filter(tool => tool !== "get_recommendations" && tool !== "get_signals");
 }
@@ -54,6 +163,50 @@ export function scopeImplicitSingleStockRequest(
 
 function clearsStockContext(plan: { intent: string; tools?: string[]; entities?: { symbols?: string[] }; guidance_intent?: any }): boolean {
     return plan.intent === "sector_analysis" || plan.intent === "technical_scan" || (plan.intent === "accumulation_distribution" && (plan.entities?.symbols?.length || 0) === 0) || (Array.isArray(plan.tools) && (plan.tools.includes("get_recommendations") || plan.tools.includes("get_technical_scan")) && (plan.entities?.symbols?.length || 0) === 0) || (plan.intent === "market_summary" && (plan.entities?.symbols?.length || 0) === 0) || Boolean(plan.guidance_intent);
+}
+
+// ============================================================================
+// Implicit single-stock follow-up detection (shared by planner + pipeline)
+// ----------------------------------------------------------------------------
+// Users refer to the stock discussed in the previous message without naming
+// it again ("طب ممكن يطلع للمقاومة امتى" right after an AALR analysis). Such
+// questions must resolve to the session's current stock and must NEVER be
+// mistaken for a new company name — "يطلع للمقاومة" is a question fragment,
+// not a company. These helpers centralize the logic so the deterministic
+// planner and both pipeline variants cannot drift apart.
+
+// Market/index/scan-scoped wording: the question targets the whole market,
+// a scan, or recommendations — not the session's single stock — so it must
+// not inherit the stock context. Word-boundary aware so suffixed forms stay
+// stock-scoped ("مؤشراته", "توصيته") while whole words stay market-scoped
+// ("المؤشر العام", "توصيات", "الاسهم").
+const MARKET_SCOPE_PATTERN = /(?:^|[^ئ-ي])(?:السوق|البورصه|المؤشر|الدولار|الذهب|الاقتصاد|الاحتياطي|الفايده|الشركات|شركات|القطاع|قطاع|القطاعات|اسهم|الاسهم|متوقع|المتوقع|توصيات|التوصيات|توصيه|مسح|مين|اقوي|افضل|احسن|سعر\s+الصرف)(?:$|[^ئ-ي])|(?:مؤشر|موشر)\s*(?:ال)?(?:تلاتين|ثلاثين|التلاتين|الثلاثين|30|egx)|egx\s*\d+|egx30|market|index|dollar|gold|economy/i;
+
+// Price-action vocabulary that implies a single-stock follow-up: levels,
+// motion, breakout, direction, risk and holding behaviour.
+const STOCK_FOLLOWUP_STRONG_PATTERN = /مقاوم|دعم|تارجت|الهدف|هدفه|هدفها|اهدافه|اهدافها|يكسر|هيكسر|تكسر|كسر|يخترق|هيخترق|اختراق|يعدي|هيعدي|يتخطي|هيتخطي|يتجاوز|هيتجاوز|تجاوز|يطلع|هيطلع|تطلع|طلوع|صعود|يصعد|هيصعد|يرتفع|هيرتفع|ارتفاع|يقفز|هيقفز|ينزل|هينزل|تنزل|نزول|هبوط|يهبط|هيهبط|ينخفض|هينخفض|انخفاض|ينهار|هينهار|انهيار|يوصل|هيوصل|توصل|وصول|يرجع|هيرجع|ترجع|رجوع|يرتد|هيرتد|ارتداد|يكمل|هيكمل|يستمر|هيستمر|استمرار|هيبقى|يبقى|هيفضل|يفضل|يخسر|خساره|خسران|يستفيد|هيستفيد|(?:يقفل|يغلق|هيقفل|هيغلق)\s+(?:فوق|تحت)|(?:اشتري|ابيع|احتفظ|اخرج|اخلص|ادخل|ادخلها|ادخله)(?:\s+\S+){0,2}\s+(?:فيه|فيها|عليه|عليها|به|بها|منه|منها)|resistance|support|target|breakout|break\s+(?:out|down|up)|rebound|pullback|climb|keep\s+going|going\s+(?:up|down)|sell\s+it|buy\s+it|hold\s+it/i;
+
+// Timing questions only count as stock follow-ups when combined with motion.
+const STOCK_FOLLOWUP_TIMING_PATTERN = /امتي|متي|بكره|غدا|بعد\s+كام|كام\s+(?:يوم|اسبوع|شهر|سنه)|الاسبوع\s+الجاي|الشهر\s+الجاي|when\s+will|how\s+long|how\s+many\s+(?:days|weeks|months)/i;
+const STOCK_FOLLOWUP_MOTION_PATTERN = /يصل|هيوصل|يرجع|هيرجع|طلع|هيطلع|نزل|هينزل|وصل|هيكمل|يكمل|drop|rise|fall|climb|reach|rebound|recover|bounce/i;
+
+export function isImplicitStockFollowUp(message: string): boolean {
+    if (!message || !message.trim()) return false;
+    const normalized = normalizeArabicIntent(message);
+    if (MARKET_SCOPE_PATTERN.test(normalized)) return false;
+    if (STOCK_FOLLOWUP_STRONG_PATTERN.test(normalized)) return true;
+    // Pure timing question ("هيوصل امتى؟") still needs a motion verb.
+    return STOCK_FOLLOWUP_TIMING_PATTERN.test(normalized) && STOCK_FOLLOWUP_MOTION_PATTERN.test(normalized);
+}
+
+// Starters of an "X للY" phrase that mark it as a question fragment (verbs in
+// present/future form, modals, question words, motion nouns) rather than a
+// company name. Company names are noun phrases and never start with a verb.
+const QUESTION_FRAGMENT_START_PATTERN = /^(?:هي|ي|ت|ن)?(?:طلع|نزل|وصل|رج|كسر|خترق|عدي|تخطي|تجاوز|ستمر|كمل|بق|فضل|قفز|رتفع|نخفض|هبط|صعد|رتد|خسر|قفل|غلق|حصل|بان|ستني|شتري|حتفظ|خرج|دخل|فلت|سيب|نفع|مكن|زاي|ين|طيح|كمل|خش)|^(?:ممكن|امتي|متي|ازاي|ليه|مين|ايه|هل|طب|لو|بعد|قبل|كام|كده|طيب|قداه|قد\s*ايه|ينفع|اقدر|مقدرش|عايزني|اقدر|الوصول|النزول|الطلوع|الصعود|الكسر|الاختراق|الارتداد|الهبوط|الانخفاض|الارتفاع|الاستمرار|التجاوز|التقاطع|when|will|can|could|should|would|does|is|it|how|what|why|where|who)/i;
+
+export function looksLikeQuestionFragment(candidate: string): boolean {
+    if (!candidate || !candidate.trim()) return false;
+    return QUESTION_FRAGMENT_START_PATTERN.test(normalizeArabicIntent(candidate).trim());
 }
 
 async function saveFactSnapshots(
@@ -131,7 +284,8 @@ export function extractExplicitSymbols(message: string): string[] {
     // These are product/platform labels frequently used in Arabic investor questions,
     const excluded = new Set([
         "EGX", "NEWS", "TODAY", "LAST", "WEEK", "FROM", "BETWEEN", "RSI", "MACD", "VWAP", "CLOUD", "THNDR", "ALSH",
-        "OTC", "BUY", "SELL", "HOLD", "USD", "EGP", "EPS", "ROE", "ROA", "ROI", "NAV", "GDP", "CBE", "FRA", "IPO", "API", "AI"
+        "OTC", "BUY", "SELL", "HOLD", "USD", "EGP", "EPS", "ROE", "ROA", "ROI", "NAV", "GDP", "CBE", "FRA", "IPO", "API", "AI",
+        "WHEN", "WILL", "REACH", "RESISTANCE", "SUPPORT", "IS", "GOING", "TO", "BREAK", "OUT", "IT", "THE", "HOW", "LONG", "CAN", "COULD", "SHOULD"
     ]);
     const latinTokens = message.match(/\b[A-Za-z][A-Za-z0-9]{1,9}\b/g) || [];
 
@@ -142,8 +296,12 @@ export function extractExplicitSymbols(message: string): string[] {
         const upper = token.toUpperCase();
         return LATIN_TICKER_ALIASES[upper] || upper;
     });
+    // Keep an explicitly typed ticker in the plan even when it is not in the
+    // current EGX universe. The pipeline still marks a bare unknown ticker as
+    // unsupported, but retaining it lets level/analysis requests answer about
+    // the exact ticker instead of silently dropping the user's subject.
     const validLatin = knownSymbols.length > 0
-        ? resolvedLatin.filter(token => knownSymbols.includes(token))
+        ? resolvedLatin
         : resolvedLatin;
 
     let matchedSymbols = [...validLatin];
@@ -276,6 +434,13 @@ export function extractSingleStockFromRecentHistory(history: Array<{ role: strin
     const candidates = latestAssistant
         .split("\n")
         .map(line => line.trim().match(/^(?:[-•]\s*)?(?:\d+[.)]\s*)?\**([A-Z]{2,6})\**(?:\s*[:\t|،-]|$)/)?.[1])
+        // Single-stock replies open with "**Company Name (SYMBOL)**" — the
+        // symbol sits mid-line inside parentheses, so the line-start pattern
+        // alone misses it.
+        .concat(
+            Array.from(latestAssistant.matchAll(/\*\*[^*\n]{0,80}\(([A-Z]{2,6})\)\*\*/g)).map(match => match[1]),
+            Array.from(latestAssistant.matchAll(/\*\*([A-Z]{2,6})\*\*(?:\s*[-—:،])/g)).map(match => match[1])
+        )
         .filter((symbol): symbol is string => Boolean(symbol) && !["EGX", "RSI", "MACD", "VWAP", "USD"].includes(symbol || ""));
     const unique = Array.from(new Set(candidates));
     return unique.length === 1 ? unique[0] : null;
@@ -453,19 +618,66 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
     }
     const normalized = normalizeArabicIntent(message);
     const explicitSymbols = extractExplicitSymbols(message);
-    // A resistance/support follow-up should always use the session's current
-    // stock. It must run before the generic "X للY" company-name detector,
-    // which used to misread "يطلع للمقاومة" as a company called that phrase.
-    const currentStockLevelFollowUp = explicitSymbols.length === 0
-        && Boolean(sessionState.current_symbol)
-        && /(?:مقاوم|دعم|يطلع|يوصل|ينزل|امتى|امتي|متى|هيوصل|هيرجع)/i.test(normalized);
-    if (currentStockLevelFollowUp) {
+    const asksOldestRecommendation = /(?:اقدم|أقدم)\s+(?:توصي|توصية|توصيات)/i.test(normalized);
+    if (asksOldestRecommendation && explicitSymbols.length === 0) {
+        return {
+            intent: "historical_recall",
+            confidence: 1,
+            entities: { symbols: [], sector: null, wants_table: true, timeframe: "historical", requested_date: null, scan_direction: null, recommendation_order: "oldest", recommendation_filter: null },
+            tools: ["get_recommendations"],
+            session_update: { current_symbol: null, last_symbols: sessionState.last_symbols, summary: message }
+        } as any;
+    }
+    if (/^\s*كمل\s*[!؟?.]*$/i.test(message)) {
+        return {
+            intent: "general_chat", confidence: 1,
+            entities: { symbols: [], sector: null, wants_table: false, timeframe: "current", requested_date: null, scan_direction: null },
+            tools: [],
+            session_update: { current_symbol: sessionState.current_symbol, last_symbols: sessionState.last_symbols, summary: message }
+        } as any;
+    }
+    const investorGuidance = /(?:قطاع|القطاعات|العقارات|الادويه|الأدوية|الاتصالات)/i.test(normalized)
+        ? null
+        : getInvestorGuidanceIntent(message, explicitSymbols.length > 0);
+    const isEducationFirstGuidance = Boolean(investorGuidance)
+        && /(?:مش\s*فاهم|خبر[ةه]|صندوق\s+دخل\s+ثابت|مقارن[ةه].{0,20}(?:صندوق|سهم)|ازاي\s+ابدا|كيف\s+ابدا)/i.test(normalized)
+        && !/(?:سيول|سيولة|قطاع|الاسهم|اسهم\s+(?:تجميع|تصريف)|توصي)/i.test(normalized);
+    if (isEducationFirstGuidance || (investorGuidance && (!explicitSymbols.length || investorGuidance === "product_comparison"))) {
+        return {
+            intent: "general_chat",
+            confidence: 1,
+            guidance_intent: investorGuidance,
+            entities: { symbols: [], sector: null, wants_table: false, timeframe: "current", requested_date: null, scan_direction: null },
+            tools: [],
+            session_update: { current_symbol: sessionState.current_symbol, last_symbols: sessionState.last_symbols, summary: message }
+        } as any;
+    }
+    if (investorGuidance && /(?:فيهم|منهم|الاتنين|السهمين|واحد\s+فيهم).{0,35}(?:احط|أحط|اوزع|أوزع|ادخل|اشتري|أشتري)/i.test(normalized) && sessionState.last_symbols.length > 0) {
+        return {
+            intent: "comparison", confidence: 1, guidance_intent: "allocation",
+            entities: { symbols: sessionState.last_symbols, sector: null, wants_table: true, timeframe: "current", requested_date: null, scan_direction: null },
+            tools: ["get_stock", "get_stock_levels"],
+            session_update: { current_symbol: sessionState.last_symbols[0], last_symbols: sessionState.last_symbols, summary: message }
+        } as any;
+    }
+    // A follow-up question about price action ("يطلع للمقاومة امتى") must
+    // reuse the session's current stock. It runs before every company-name
+    // detector so a question fragment is never mistaken for a stock name.
+    const followUpSymbol = explicitSymbols.length === 0
+        ? (sessionState.current_symbol || (sessionState.last_symbols || [])[0] || null)
+        : null;
+    // Keep direct level/action questions on the dedicated levels route. The
+    // early context route is only needed for anaphoric timing/projection
+    // questions such as "ممكن يطلع للمقاومة امتى"; later intent rules handle
+    // explicit level requests such as "لو كسر الدعم أعمل ايه".
+    const isAnaphoricTimingFollowUp = /(?:امتي|متي|متى|امتى|when|how\s+long|هيوصل|هيطلع|هينزل|هيرجع|هيكمل|will\s+it|when\s+will|is\s+it|going\s+to|should\s+i)/i.test(normalized);
+    if (followUpSymbol && isImplicitStockFollowUp(message) && isAnaphoricTimingFollowUp) {
         return {
             intent: "stock_analysis",
             confidence: 1,
-            entities: { symbols: [String(sessionState.current_symbol).toUpperCase()], sector: null, wants_table: true, timeframe: "current", requested_date: null, scan_direction: null },
+            entities: { symbols: [String(followUpSymbol).toUpperCase()], sector: null, wants_table: true, timeframe: "current", requested_date: null, scan_direction: null },
             tools: ["get_stock", "get_stock_levels"],
-            session_update: { current_symbol: sessionState.current_symbol, last_symbols: sessionState.last_symbols, summary: message },
+            session_update: { current_symbol: followUpSymbol, last_symbols: sessionState.last_symbols, summary: message },
         } as any;
     }
     // A new, market-wide investment request must not inherit the previous
@@ -787,6 +999,24 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
             confidence: 1,
             entities: { symbols: [], sector: null, wants_table: false, timeframe: "unspecified", requested_date: null, scan_direction: null },
             tools: [],
+            clarification_needed: true,
+            clarification_options: ["أعلى ارتفاع سعري", "أعلى سيولة", "أقوى زخم فني", "أفضل أداء أسبوعي"],
+            session_update: { current_symbol: null, last_symbols: sessionState.last_symbols, summary: message }
+        };
+    }
+    if (
+        explicitSymbols.length === 0
+        && /(?:متوقع|متوقعة|يرتفع|تطلع|يصعد|صعود)/i.test(normalized)
+        && /(?:السهم|الاسهم|الأسهم|قطاع|قطاعات)/i.test(normalized)
+        && !/(?:سيول|سيولة|تجميع|تصريف|زخم|مؤشر|مؤشرات|توصي|توصيات|القيمة|عادلة|اسبوع|أسبوع|اسبوعي|أسبوعي|اليوم|النهارده|جلسة|جلسه)/i.test(normalized)
+    ) {
+        return {
+            intent: "clarification",
+            confidence: 1,
+            entities: { symbols: [], sector: null, wants_table: false, timeframe: "unspecified", requested_date: null, scan_direction: null },
+            tools: [],
+            clarification_needed: true,
+            clarification_options: ["فوق القيمة الفنية", "أسهم عليها تجميع", "أقوى زخم فني", "التوصيات المسجلة", "توقع أسبوعي"],
             session_update: { current_symbol: null, last_symbols: sessionState.last_symbols, summary: message }
         };
     }
@@ -857,8 +1087,8 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
     }
     if (/(كسر|يكسر).{0,12}الدعم|الدعم.{0,12}(اتكسر|انكسر)/i.test(normalized) && symbols.length === 0 && sessionState.current_symbol && !unresolvedCompanyNameMention) symbols.push(sessionState.current_symbol);
     if ((isDailyPriceLimitQuestion(message) || /(?:أ|ا)عل[ىي].{0,15}(?:سعر|قم[هة])/i.test(normalized)) && symbols.length === 0 && sessionState.current_symbol && !unresolvedCompanyNameMention) symbols.push(sessionState.current_symbol);
-    const isGeneralStockFollowUp = /(?:مناسب|استثمار|استثمر|ادخل|شراء|اشتري|فرصه|فرصة|رايك|رأيك|توقعات|وضعه|اخباره|أخباره|حركته|تحليل|مستهدف|اهداف|أهداف|دعم|مقاومه|مقاومة|شهور|سنه|سنة|شهر|اسبوع|أسبوع)/i.test(normalized);
-    if (isGeneralStockFollowUp && symbols.length === 0 && sessionState.current_symbol && !isMarketWideRequest(message) && !isBestBuyStockQuestion(message) && !unresolvedCompanyNameMention) {
+    const isGeneralStockFollowUp = /(?:مناسب|استثمر|ادخل|شراء|اشتري|فرصه|فرصة|رايك|رأيك|توقعات|وضعه|اخباره|أخباره|حركته|تحليل|مستهدف|اهداف|أهداف|دعم|مقاومه|مقاومة|شهور|سنه|سنة|شهر|اسبوع|أسبوع)/i.test(normalized);
+    if (isGeneralStockFollowUp && symbols.length === 0 && sessionState.current_symbol && !isMarketWideRequest(message) && !/(?:قطاع|القطاعات|البنوك|العقارات|الاتصالات|الادويه|الأدوية)/i.test(normalized) && !isBestBuyStockQuestion(message) && !investorGuidance && !unresolvedCompanyNameMention) {
         symbols.push(sessionState.current_symbol);
     }
     const sectorReference = /القطاع\s+(?:ده|دا|هذا)/i.test(normalized) ? sessionState.summary : null;
@@ -870,6 +1100,7 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
     let explicitSector = isMultiSectorOrComparison ? null : extractSectorFromMessage(message);
     if (symbols.length > 0 && !/(قطاع|القطاع)/i.test(normalized)) explicitSector = null;
     const sector = isMultiSectorOrComparison ? null : (knownSectorFollowUp || explicitSector || extractSectorFromMessage(sectorReference || ""));
+    if (isMultiSectorOrComparison) symbols.length = 0;
     const hasExplicitLatinTicker = /(?:^|[^A-Za-z0-9])[A-Za-z][A-Za-z0-9]{1,9}(?=$|[^A-Za-z0-9])/.test(message);
     if (sector && !hasExplicitLatinTicker && symbols.length === 0 && /(قطاع|القطاعات|البنوك|الاتصالات|العقارات|الادويه|الاغذيه|البترول|الطاقه)/i.test(normalized)) symbols.length = 0;
     const isGreeting = /^(?:ازيك|إزيك|عامل ايه|عامل إيه|اهلا|أهلا|مرحبا|السلام عليكم)[؟?،,.!\s]*$/i.test(message.trim()) || /(?:انت|إنت|انتا|أنت).{0,12}(مين|موديل|نموذج)|مين انت|مين إنت/i.test(normalized);
@@ -945,7 +1176,7 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
         };
     }
 
-    if (!sector && !isGreeting && !beginnerPortfolioRequest && !isHistorical && !requestedDate && !isClearMarketRequest && !isClearStockRequest) return null;
+    if (!sector && !isGreeting && !beginnerPortfolioRequest && !investorGuidance && !isHistorical && !requestedDate && !isClearMarketRequest && !isClearStockRequest) return null;
 
     if (oldestRecommendationRequest) {
         return {
@@ -962,7 +1193,7 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
     const comparesSectors = enforced.tools.includes("get_sector_liquidity") && enforced.sector === null;
     const effectiveSector = comparesSectors ? null : explicitSector || knownSectorFollowUp || sectorFollowUp ? sector : null;
     return {
-        intent: isGreeting || beginnerPortfolioRequest ? "general_chat" : marketNewsRequest ? "market_summary" : requestedDate && symbols.length ? "stock_analysis" : isHistorical ? "historical_recall" : explicitSector || knownSectorFollowUp || sectorFollowUp ? "sector_analysis" : enforced.intent,
+        intent: isGreeting || beginnerPortfolioRequest || investorGuidance ? "general_chat" : marketNewsRequest ? "market_summary" : requestedDate && symbols.length ? "stock_analysis" : isHistorical ? "historical_recall" : explicitSector || knownSectorFollowUp || sectorFollowUp ? "sector_analysis" : enforced.intent,
         confidence: 1,
         entities: {
             symbols,
@@ -978,7 +1209,7 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
             recommendation_filter: enforced.recommendation_filter || null,
             requested_sectors: enforced.requested_sectors || [],
         },
-        tools: isGreeting || beginnerPortfolioRequest || (isHistorical && !requestedDate && !marketNewsRequest && !oldestRecommendationRequest) ? [] : marketNewsRequest ? ["get_news"] : knownSectorFollowUp || sectorFollowUp ? ["get_sector"] : enforced.replaceTools ? enforced.tools : explicitSector ? ["get_sector"] : symbols.length ? ["get_stock"] : [],
+        tools: isGreeting || beginnerPortfolioRequest || investorGuidance || (isHistorical && !requestedDate && !marketNewsRequest && !oldestRecommendationRequest) ? [] : marketNewsRequest ? ["get_news"] : knownSectorFollowUp || sectorFollowUp ? ["get_sector"] : enforced.replaceTools ? enforced.tools : explicitSector ? ["get_sector"] : symbols.length ? ["get_stock"] : [],
         session_update: {
             current_symbol: effectiveSector ? null : (symbols[0] || sessionState.current_symbol),
             last_symbols: symbols.length ? symbols : sessionState.last_symbols,
@@ -1178,9 +1409,12 @@ export function enforceIntentFromMessage(message: string, plannerIntent: string,
         return { intent: "accumulation_distribution", tools: [direction === "distribution" ? "get_distribution_stocks" : "get_accumulation_stocks"], replaceTools: true, scan_direction: direction };
     }
     if (hasSymbol && /(?:تجميع|تصريف|وايكوف|wyckoff)/i.test(normalized)) {
+        if (/(?:على|عليه|عليها|للسهم|للسهمين|السهم).{0,20}(?:تجميع|تصريف|وايكوف|wyckoff)|(?:تجميع|تصريف|وايكوف|wyckoff).{0,20}(?:على|عليه|عليها|السهم)/i.test(normalized) && plannerIntent === "market_summary") {
+            return { intent: "accumulation_distribution", tools: [hasDist && !hasAcc ? "get_distribution_stocks" : "get_accumulation_stocks"], replaceTools: true, scan_direction: hasDist && !hasAcc ? "distribution" : "accumulation" };
+        }
         return { 
             intent: "stock_analysis", 
-            tools: ["get_stock", "get_stock_levels", "get_accumulation_stocks"], 
+            tools: [hasDist && !hasAcc ? "get_distribution_stocks" : "get_accumulation_stocks"],
             replaceTools: true 
         };
     }
@@ -1714,6 +1948,26 @@ export async function* runPipelineStream(
     if (mergedSymbols.length === 0 && memory?.resolved_references?.symbol) {
         mergedSymbols.push(memory.resolved_references.symbol);
     }
+    // An implicit follow-up question (see isImplicitStockFollowUp) must resolve
+    // to the session's current stock even when current_symbol is missing from
+    // the passed sessionState (fall back to last_symbols / recent history).
+    // This runs before the "X للY" company-name detector which misread
+    // questions like "ممكن يطلع للمقاومة امتى" as an unknown company.
+    const implicitStockFollowUp = explicitSymbols.length === 0 && isImplicitStockFollowUp(userMessage);
+    if (implicitStockFollowUp && mergedSymbols.length === 0) {
+        const recentSymbol = sessionState.current_symbol
+            || sessionState.last_symbols?.[0]
+            || extractSingleStockFromRecentHistory(history);
+        if (recentSymbol) {
+            mergedSymbols.push(String(recentSymbol).toUpperCase());
+            plannerResult = {
+                ...plannerResult,
+                intent: "stock_analysis",
+                tools: ["get_stock", "get_stock_levels"],
+                entities: { ...plannerResult.entities, symbols: mergedSymbols },
+            } as any;
+        }
+    }
     if (mergedSymbols.length === 0 && sessionState.current_symbol && /(أبيع|ابيع|بيع(?!ه|ها|هم|ين)|أحتفظ|احتفظ|أخرج|اخرج|بكام|بكم|السعر)/i.test(userMessage) && !isBestBuyStockQuestion(userMessage) && !isMarketWideRequest(userMessage) && plannerResult.intent !== "technical_scan") {
         mergedSymbols.push(sessionState.current_symbol);
     }
@@ -1735,7 +1989,8 @@ export async function* runPipelineStream(
     // A follow-up question ("يطلع للمقاومة امتى") matches the "X للY" pattern but
     // is not a company name and must fall back to the current symbol instead of
     // returning "لم أجد شركة بهذا الاسم".
-    const looksLikeFollowUpPhrase = unresolvedCandidate !== null && /^(?:يطلع|تطلع|ينزل|تنزل|يوصل|توصل|هيوصل|هيرجع|يرجع|هيبقى|يبقى|هينزل|هيطلع|ممكن|امتى|امتي|ازاي|إزاي|هيحصل|يحصل|هيرتفع|يرتفع|هينخفض|ينخفض)\b/.test(unresolvedCandidate);
+    const looksLikeFollowUpPhrase = unresolvedCandidate !== null
+        && (looksLikeQuestionFragment(unresolvedCandidate) || isImplicitStockFollowUp(userMessage));
     const unresolvedStockName = explicitSymbols.length === 0 && unresolvedCandidate && !vision && !looksLikeFollowUpPhrase
         ? unresolvedCandidate
         : null;
@@ -1774,7 +2029,9 @@ export async function* runPipelineStream(
     const historicalRequest = needsHistoricalData(enforced.intent, userMessage);
     const effectiveIntent = historicalRequest && !datedDomainRequest ? "historical_recall" : enforced.intent;
 
-    const plannedTools = sanitizePlannerTools(userMessage, enforced.replaceTools
+    const plannedTools = plannerResult.clarification_needed
+        ? []
+        : sanitizePlannerTools(userMessage, enforced.replaceTools
         ? enforced.tools
         : Array.from(new Set([...(plannerResult.tools || []), ...enforced.tools])));
     // Day-by-day change questions need the daily price rows; the compound-command
@@ -1786,7 +2043,7 @@ export async function* runPipelineStream(
         plannedTools.push("get_price_history");
     }
     const isGreetingMsg = /^(?:ازيك|إزيك|عامل ايه|عامل إيه|اهلا|أهلا|مرحبا|السلام عليكم|شكرا|شكرًا|تمام|اوكي|أوكي)[؟?،,.!\s]*$/i.test(userMessage.trim());
-    if (plannedTools.length === 0 && (unrecognizedTicker || unresolvedStockName || (mergedSymbols.length === 0 && !isGreetingMsg && !isTermsDefinitionRequest(userMessage) && userMessage.trim().length >= 2))) {
+    if (!plannerResult.clarification_needed && plannedTools.length === 0 && (unrecognizedTicker || unresolvedStockName || (mergedSymbols.length === 0 && !isGreetingMsg && !isTermsDefinitionRequest(userMessage) && userMessage.trim().length >= 2))) {
         plannedTools.push("search_web");
     }
     const requestedRange = extractRequestedDateRange(userMessage);
@@ -1828,7 +2085,8 @@ export async function* runPipelineStream(
         needs_live_data: needsLiveDataForTools(plannedTools),
         needs_historical_data: historicalRequest,
         tools: plannedTools,
-        clarification_needed: false,
+        clarification_needed: Boolean(plannerResult.clarification_needed),
+        clarification_options: plannerResult.clarification_options || [],
         service_degraded_message: plannerResult.service_degraded_message || null,
         unresolved_stock: Boolean(plannerResult.unresolved_stock),
         resolved_from: {
@@ -1853,6 +2111,23 @@ export async function* runPipelineStream(
 
     yield { type: "plan", data: plan };
 
+    if (plan.clarification_needed) {
+        const response = buildDeterministicResponse(userMessage, plan, []);
+        const safeResponse = response || "اختار المقصود من الخيارات عشان أستخدم الأداة المناسبة.";
+        yield { type: "token", data: safeResponse };
+        await persistPipelineSession(sessionState, sessionSummary, plan, vision, memory, sessionId, userId, supabase, hasImages);
+        yield {
+            type: "done",
+            data: {
+                response: safeResponse,
+                session_update: { current_symbol: sessionState.current_symbol, last_symbols: sessionState.last_symbols, summary: userMessage },
+                suggested_buttons: plan.clarification_options || [],
+                tables: [],
+            }
+        };
+        return;
+    }
+
     // ===== STAGE 4: Tools and Data Fetching =====
     if (plan.needs_live_data || plan.needs_historical_data) {
         const isSingleStockLive = isEgxSessionOpen() && plan.tools.includes("get_stock") && plan.entities.symbols.length > 0;
@@ -1867,10 +2142,13 @@ export async function* runPipelineStream(
         };
     }
     ensureBudget(8000);
-    const tools = await Promise.race([
+    let tools = await Promise.race([
         executeStructuredTools(supabase, plan, apiKeys, userId, sessionId, userMessage, history),
         new Promise<never>((_, reject) => setTimeout(() => reject(new Error("TOOLS_TIMEOUT")), AI_CONFIG.limits.toolsTimeoutMs)),
     ]);
+    const hybridAdditionalTools = await reviewHybridToolResults(userMessage, plan, tools, sessionState);
+    tools = await executeHybridAdditionalTools(supabase, plan, tools, hybridAdditionalTools, apiKeys, userId, sessionId, userMessage, history);
+    tools = intersectHybridScanResults(tools, plan);
     if (plan.intent === "portfolio_management") {
         const portfolioResult = tools.results.find(result => result.tool === "manage_portfolio");
         if (portfolioResult) {
@@ -2025,7 +2303,7 @@ export async function* runPipelineStream(
 
     // Explicit company name that matched no listed stock — say so instead of silently
     // answering about whatever the session previously discussed.
-    if (tools.results.length === 0 && unresolvedStockName) {
+    if (tools.results.length === 0 && unresolvedStockName && plan.entities.symbols.length === 0) {
         const unknownStockResponse = `لم أجد شركة بهذا الاسم («${unresolvedStockName}») في قاعدة بيانات البورصة المصرية المتاحة لي، لذلك لن أحلل سهمًا آخر بدلًا منه. تأكد من كتابة الاسم كما هو معروف في السوق أو اكتب الرمز اللاتيني (مثل AMES أو COMI)، ولو كانت الشركة غير مدرجة في EGX فهي خارج تغطية النظام حاليًا.`;
         yield { type: "token", data: unknownStockResponse };
         await persistPipelineSession(sessionState, sessionSummary, plan, vision, memory, sessionId, userId, supabase, hasImages);
@@ -2633,6 +2911,26 @@ export async function runPipeline(
     if (mergedSymbols.length === 0 && memory?.resolved_references?.symbol) {
         mergedSymbols.push(memory.resolved_references.symbol);
     }
+    // An implicit follow-up question (see isImplicitStockFollowUp) must resolve
+    // to the session's current stock even when current_symbol is missing from
+    // the passed sessionState (fall back to last_symbols / recent history).
+    // This runs before the "X للY" company-name detector which misread
+    // questions like "ممكن يطلع للمقاومة امتى" as an unknown company.
+    const implicitStockFollowUp = explicitSymbols.length === 0 && isImplicitStockFollowUp(userMessage);
+    if (implicitStockFollowUp && mergedSymbols.length === 0) {
+        const recentSymbol = sessionState.current_symbol
+            || sessionState.last_symbols?.[0]
+            || extractSingleStockFromRecentHistory(history);
+        if (recentSymbol) {
+            mergedSymbols.push(String(recentSymbol).toUpperCase());
+            plannerResult = {
+                ...plannerResult,
+                intent: "stock_analysis",
+                tools: ["get_stock", "get_stock_levels"],
+                entities: { ...plannerResult.entities, symbols: mergedSymbols },
+            } as any;
+        }
+    }
     if (mergedSymbols.length === 0 && sessionState.current_symbol && /(أبيع|ابيع|بيع(?!ه|ها|هم|ين)|أحتفظ|احتفظ|أخرج|اخرج|بكام|بكم|السعر)/i.test(userMessage) && !isBestBuyStockQuestion(userMessage) && !isMarketWideRequest(userMessage) && plannerResult.intent !== "technical_scan") {
         mergedSymbols.push(sessionState.current_symbol);
     }
@@ -2654,7 +2952,8 @@ export async function runPipeline(
     // A follow-up question ("يطلع للمقاومة امتى") matches the "X للY" pattern but
     // is not a company name and must fall back to the current symbol instead of
     // returning "لم أجد شركة بهذا الاسم".
-    const looksLikeFollowUpPhrase = unresolvedCandidate !== null && /^(?:يطلع|تطلع|ينزل|تنزل|يوصل|توصل|هيوصل|هيرجع|يرجع|هيبقى|يبقى|هينزل|هيطلع|ممكن|امتى|امتي|ازاي|إزاي|هيحصل|يحصل|هيرتفع|يرتفع|هينخفض|ينخفض)\b/.test(unresolvedCandidate);
+    const looksLikeFollowUpPhrase = unresolvedCandidate !== null
+        && (looksLikeQuestionFragment(unresolvedCandidate) || isImplicitStockFollowUp(userMessage));
     const unresolvedStockName = explicitSymbols.length === 0 && unresolvedCandidate && !vision && !looksLikeFollowUpPhrase
         ? unresolvedCandidate
         : null;
@@ -2701,7 +3000,7 @@ export async function runPipeline(
         plannedTools.push("get_price_history");
     }
     const isGreetingMsg = /^(?:ازيك|إزيك|عامل ايه|عامل إيه|اهلا|أهلا|مرحبا|السلام عليكم|شكرا|شكرًا|تمام|اوكي|أوكي)[؟?،,.!\s]*$/i.test(userMessage.trim());
-    if (plannedTools.length === 0 && (unrecognizedTicker || unresolvedStockName || (mergedSymbols.length === 0 && !isGreetingMsg && !isTermsDefinitionRequest(userMessage) && userMessage.trim().length >= 2))) {
+    if (!plannerResult.clarification_needed && plannedTools.length === 0 && (unrecognizedTicker || unresolvedStockName || (mergedSymbols.length === 0 && !isGreetingMsg && !isTermsDefinitionRequest(userMessage) && userMessage.trim().length >= 2))) {
         plannedTools.push("search_web");
     }
     const requestedRange = extractRequestedDateRange(userMessage);
@@ -2741,7 +3040,8 @@ export async function runPipeline(
         needs_live_data: needsLiveDataForTools(plannedTools),
         needs_historical_data: historicalRequest,
         tools: plannedTools,
-        clarification_needed: false,
+        clarification_needed: Boolean(plannerResult.clarification_needed),
+        clarification_options: plannerResult.clarification_options || [],
         service_degraded_message: plannerResult.service_degraded_message || null,
         unresolved_stock: Boolean(plannerResult.unresolved_stock),
         resolved_from: {
@@ -2749,6 +3049,22 @@ export async function runPipeline(
             message_id: memory?.resolved_references?.message_id || null
         }
     };
+    const invariantPlan = applyHybridDomainInvariants(userMessage, plan);
+    Object.assign(plan, invariantPlan);
+
+    if (plan.clarification_needed) {
+        const response = buildDeterministicResponse(userMessage, plan, []);
+        return {
+            vision,
+            memory,
+            plan,
+            tools: { results: [], formattedText: "" },
+            response: response || "اختار المقصود من الخيارات عشان أستخدم الأداة المناسبة.",
+            session_update: { current_symbol: sessionState.current_symbol, last_symbols: sessionState.last_symbols, summary: userMessage },
+            vision_error: visionError,
+            tables: [],
+        };
+    }
 
     // Stage 4: Tools
     let tools: StructuredToolOutput;
@@ -2757,6 +3073,9 @@ export async function runPipeline(
     } else {
         tools = await executeStructuredTools(supabase, plan, apiKeys, userId, sessionId, userMessage, history);
     }
+    const hybridAdditionalTools = await reviewHybridToolResults(userMessage, plan, tools, sessionState);
+    tools = await executeHybridAdditionalTools(supabase, plan, tools, hybridAdditionalTools, apiKeys, userId, sessionId, userMessage, history);
+    tools = intersectHybridScanResults(tools, plan);
     if (plan.intent === "portfolio_management") {
         const portfolioResult = tools.results.find(result => result.tool === "manage_portfolio");
         if (portfolioResult) {
@@ -2897,7 +3216,7 @@ export async function runPipeline(
     const hasWebResults = tools.results.some(r => r.tool === "search_web" && Array.isArray(r.data?.results) && r.data.results.length > 0);
 
     // Explicit company name that matched no listed stock — say so if web search has no results
-    if (!hasWebResults && tools.results.length === 0 && unresolvedStockName) {
+    if (!hasWebResults && tools.results.length === 0 && unresolvedStockName && plan.entities.symbols.length === 0) {
         const unknownStockResponse = `لم أجد شركة بهذا الاسم («${unresolvedStockName}») في قاعدة بيانات البورصة المصرية المسجلة على المنصة، ولم تسفر نتائج البحث عن معلومات موثقة. تأكد من كتابة الاسم كما هو معروف في السوق أو اكتب الرمز اللاتيني (مثل AMES أو COMI).`;
         const unknownSessionUpdate = {
             current_symbol: null,

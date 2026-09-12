@@ -1,5 +1,7 @@
 import { VisionContext } from "./types";
 import { getSyncStockMappings } from "./planner";
+import { AI_CONFIG } from "./config";
+import { getDeepSeekApiKey, getNvidiaApiKeys } from "./server-secrets";
 
 const VISION_SYSTEM_PROMPT = `You are a financial image analyzer. Examine the attached image and return ONLY a valid JSON object with no markdown fences, no comments, and no extra text.
 
@@ -281,11 +283,12 @@ export function validateVisionOutput(data: any): VisionContext | null {
     };
 }
 
-// The NVIDIA vision model regularly takes 8-20s per image. Keep one generous
-// attempt per image; a serial retry with another key only doubles latency and
-// Fluid CPU while using the same provider/model endpoint.
+// The NVIDIA vision model regularly takes 8-25s per image and the shared
+// endpoint intermittently hangs past the timeout. Keep one 30s attempt, then
+// retry with the remaining configured key for up to 20s more before reporting
+// failure. The total budget stays under the 52s request deadline.
 const VISION_TIMEOUT_MS = 30000;
-const MAX_VISION_TOTAL_TIME_MS = 30000;
+const MAX_VISION_TOTAL_TIME_MS = 50000;
 
 /**
  * The vision model frequently reads a broker screenshot's quantity/total column
@@ -334,12 +337,11 @@ export async function analyzeImage(
     apiKeys: string[],
     messageId: string
 ): Promise<{ vision: VisionContext | null; error: string | null }> {
-    // NVIDIA meta/llama-3.2-11b-vision-instruct is the only supported vision model.
-    // Previous models reached EOL 2026-08-26 (HTTP 410).
-    // Key env var: NVIDIA_SECONDARY_API_KEY (Production, added Jul 21)
-    const visionModels = [
-        "meta/llama-3.2-11b-vision-instruct"
-    ];
+    const deepSeekKey = getDeepSeekApiKey();
+    const nvidiaKeys = getNvidiaApiKeys();
+    const deepSeekVisionModels = AI_CONFIG.models.planner.vision.filter(model => model === "deepseek-flash");
+    const nvidiaVisionModels = ["meta/llama-3.2-11b-vision-instruct"];
+    const visionModels = [...deepSeekVisionModels, ...nvidiaVisionModels];
 
     // System prompt goes in `system` role — putting it in the user message causes prose output.
     const userContent: Array<{ type: string; text?: string; image_url?: { url: string; detail?: string } }> = [];
@@ -364,13 +366,14 @@ export async function analyzeImage(
         const next = priority(failure);
         if (next >= current) lastFailure = failure;
     };
-    const analyzeModel = async (model: string, key: string): Promise<VisionContext | null> => {
+    const analyzeModel = async (provider: "deepseek" | "nvidia", model: string, key: string): Promise<VisionContext | null> => {
         const remaining = MAX_VISION_TOTAL_TIME_MS - (Date.now() - visionStartTime);
         if (!key || remaining <= 0) return null;
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), Math.min(VISION_TIMEOUT_MS, remaining));
         try {
-            const res = await fetch("https://integrate.api.nvidia.com/v1/chat/completions", {
+            const endpoint = provider === "deepseek" ? AI_CONFIG.api.deepseekBaseUrl : AI_CONFIG.api.nvidiaBaseUrl;
+            const res = await fetch(endpoint, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
@@ -391,7 +394,12 @@ export async function analyzeImage(
                     // NVIDIA's OpenAI-compatible endpoint supports JSON mode
                     // for this model. Without it the model sometimes returns
                     // a 700-character prose answer that cannot be validated.
-                    response_format: { type: "json_object" }
+                    response_format: { type: "json_object" },
+                    // Vision extraction is a constrained JSON task. DeepSeek
+                    // Flash may spend the whole output budget on reasoning,
+                    // returning finish_reason=length with empty content unless
+                    // thinking is explicitly disabled.
+                    ...(provider === "deepseek" ? { thinking: { type: "disabled" } } : {})
                 })
             });
             if (!res.ok) {
@@ -431,16 +439,33 @@ export async function analyzeImage(
     };
 
     const candidates: VisionContext[] = [];
+    // Retry the same model with the other configured key after a provider
+    // timeout or HTTP failure. Both keys can hit a congested backend, so the
+    // second attempt is bounded by whatever time remains in the total budget.
+    const usableKeys = apiKeys.filter(Boolean).slice(0, 2);
+    const attempts: Array<{ provider: "deepseek" | "nvidia"; model: string; key: string }> = [];
     for (const model of visionModels) {
-        // Do not serialize a second request after a provider timeout. The
-        // configured keys target the same NVIDIA model and endpoint.
-        const key = apiKeys[0];
-        if (key) {
-            const candidate = await analyzeModel(model, key);
-            if (candidate) {
-                candidates.push(candidate);
-                break;
-            }
+        const keys = model === "deepseek-flash" ? (deepSeekKey ? [deepSeekKey] : []) : nvidiaKeys.slice(0, 2);
+        const provider = model === "deepseek-flash" ? "deepseek" : "nvidia";
+        for (const key of keys) attempts.push({ provider, model, key });
+    }
+    // Preserve caller-supplied fallback keys (normally NVIDIA keys supplied by
+    // the route) after the provider-specific keys. This also keeps retry order
+    // explicit rather than silently dropping a route-level credential.
+    // Legacy fallback shape retained for route-level NVIDIA keys: for (const key of usableKeys)
+    for (const key of usableKeys) {
+        if (!attempts.some(attempt => attempt.key === key)) {
+            attempts.push({ provider: "nvidia", model: nvidiaVisionModels[0], key });
+        }
+    }
+    // `visionModels` documents the complete configured model set; attempts are
+    // ordered separately so DeepSeek is tried before the NVIDIA fallback.
+    for (const attempt of attempts) {
+        if (Date.now() - visionStartTime >= MAX_VISION_TOTAL_TIME_MS) break;
+        const candidate = await analyzeModel(attempt.provider, attempt.model, attempt.key);
+        if (candidate) {
+            candidates.push(candidate);
+            break;
         }
         if (candidates.length > 0) break;
     }

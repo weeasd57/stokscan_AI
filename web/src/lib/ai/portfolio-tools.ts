@@ -43,6 +43,8 @@ export interface PortfolioSnapshot {
         price_updated_at?: string | null;
     }>;
     cash_balance: number;
+    /** Symbols tracked in the Technical Scanner that are not real holdings yet. */
+    watch_positions?: Array<{ symbol: string; name: string | null; last_price: number | null }>;
     totals: {
         positions_count: number;
         cost_basis: number | null;
@@ -74,9 +76,13 @@ async function hasActiveProPlan(supabase: any, userId: string): Promise<boolean>
 
 async function canAddPortfolioPositions(supabase: any, userId: string, additional: number): Promise<{ ok: boolean; message?: string }> {
     if (await hasActiveProPlan(supabase, userId)) return { ok: true };
-    const { data, error } = await supabase.from("positions").select("symbol").eq("user_id", userId).eq("status", "open");
+    const { data, error } = await supabase.from("positions").select("symbol,quantity,source").eq("user_id", userId).eq("status", "open");
     if (error) return { ok: false, message: "تعذر التحقق من حد الخطة المجانية. حاول مرة أخرى." };
-    const current = new Set((data || []).map((row: any) => String(row.symbol || "").toUpperCase())).size;
+    const current = new Set(
+        (data || [])
+            .filter((row: any) => num(row.quantity) !== null && Number(row.quantity) > 0)
+            .map((row: any) => String(row.symbol || "").toUpperCase())
+    ).size;
     if (current + additional > FREE_PORTFOLIO_LIMIT) {
         return { ok: false, message: `الخطة المجانية تسمح بحد أقصى ${FREE_PORTFOLIO_LIMIT} أسهم مختلفة في المحفظة. احذف مركزاً أو قم بالترقية لإضافة أسهم أكثر.` };
     }
@@ -93,8 +99,7 @@ const fmt = (value: number | null | undefined, digits = 2): string => {
     return value.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits });
 };
 
-async function fetchOpenPositions(supabase: any, userId: string): Promise<PortfolioPosition[]> {
-    const { data, error } = await supabase
+async function fetchOpenPositions(supabase: any, userId: string): Promise<PortfolioPosition[]> {    const { data, error } = await supabase
         .from("positions")
         .select("id, symbol, name, quantity, entry_price, entry_at, status, source, added_at")
         .eq("user_id", userId)
@@ -113,6 +118,16 @@ async function fetchOpenPositions(supabase: any, userId: string): Promise<Portfo
         source: row.source || null,
         added_at: row.added_at || null,
     }));
+}
+
+/**
+ * A real portfolio holding must have a recorded quantity. The Technical
+ * Scanner stores "track this stock" entries in the same `positions` table with
+ * `source = "tech_scanner"` and `quantity = null`; those are watch items, not
+ * holdings, and must never appear in "محفظتي" as zero-share positions.
+ */
+function isRealHolding(position: PortfolioPosition): boolean {
+    return position.quantity !== null && position.quantity > 0;
 }
 
 async function fetchCashBalance(supabase: any, userId: string): Promise<number> {
@@ -194,7 +209,9 @@ async function insertPositionRow(supabase: any, row: Record<string, any>): Promi
 
 /** Full portfolio snapshot enriched with the latest close prices. */
 export async function getPortfolioSnapshot(supabase: any, userId: string): Promise<PortfolioSnapshot> {
-    const positions = await fetchOpenPositions(supabase, userId);
+    const allPositions = await fetchOpenPositions(supabase, userId);
+    // Only real holdings (with a recorded quantity) are the user's portfolio.
+    const positions = allPositions.filter(isRealHolding);
     const cash = await fetchCashBalance(supabase, userId);
     const latestPrices = new Map<string, number | null>();
 
@@ -288,6 +305,9 @@ export async function getPortfolioSnapshot(supabase: any, userId: string): Promi
             : `محفظتك فيها ${positions.length} سهم.`,
         positions: enriched,
         cash_balance: cash,
+        watch_positions: allPositions
+            .filter((pos) => !isRealHolding(pos))
+            .map((pos) => ({ symbol: pos.symbol, name: pos.name, last_price: latestPrices.get(pos.symbol) ?? null })),
         totals: {
             positions_count: positions.length,
             cost_basis: totalCost,

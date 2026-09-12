@@ -1262,7 +1262,12 @@ export async function generateV2Response(
         if (meta) meta.source = "deterministic";
         return fastAdvisor;
     }
-    const singleStockAccDistResponse = buildSingleStockAccumulationDistributionResponse(userMessage, plan, toolResults);
+    const hasStockFactsForCompound = plan.entities.symbols.length > 0
+        && toolResults.some(result => result.tool === "get_stock")
+        && toolResults.some(result => result.tool === "get_stock_levels");
+    const singleStockAccDistResponse = hasStockFactsForCompound
+        ? null
+        : buildSingleStockAccumulationDistributionResponse(userMessage, plan, toolResults);
     if (singleStockAccDistResponse) {
         if (meta) meta.source = "deterministic";
         return sanitizeReply(singleStockAccDistResponse);
@@ -1828,10 +1833,25 @@ export function buildSingleStockAccumulationDistributionResponse(
 }
 
 export function buildDeterministicResponse(userMessage: string, plan: IntentPlan, toolResults: ToolResult[], sessionState?: SessionState | null): string | null {
+    if (plan.clarification_needed) {
+        if (plan.clarification_options?.length) {
+            return `السؤال يحتمل أكثر من معنى. اختار المقصود عشان أستخدم الأداة المناسبة: ${plan.clarification_options.join("، ")}.`;
+        }
+        return "اختار المقصود من السؤال عشان أستخدم الأداة المناسبة.";
+    }
     const normMsg = userMessage.toLowerCase().replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").replace(/ى/g, "ي");
     const asksForAdvice = /(?:انصحني|تنصحني|اعمل ايه|أعمل ايه|شاري|شريت|شريته|معايا بسعر|لو معايا|بمتوسط|رايك|رأيك|ايه العمل|ايه الحل)/i.test(normMsg);
     if (asksForAdvice) {
+        const levelDataAvailable = toolResults.some(result => result.tool === "get_stock_levels" && result.data?.support != null);
+        if (levelDataAvailable && /(?:اعمل ايه|أعمل ايه|كسر الدعم|ابيع|بيع|اشتري|شراء)/i.test(normMsg)) {
+            // Let the deterministic level response explain the action instead
+            // of falling through to a generic advice response.
+        } else {
         return null; // Yield to LLM for customized expert response
+        }
+    }
+    if (/^\s*كمل\s*[؟?!.]*\s*$/i.test(userMessage) && toolResults.length === 0) {
+        return "التحليل السابق مكتمل بالبيانات المتاحة حالياً. لو تقصد استكمال نقطة معينة، اكتب اسم السهم أو السؤال المطلوب.";
     }
     if (plan.unresolved_stock && plan.service_degraded_message) {
         return plan.service_degraded_message;
@@ -1848,7 +1868,12 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
     if (bothAccDistRes) return bothAccDistRes;
 
     // Single stock accumulation / distribution
-    const singleStockAccDistRes = buildSingleStockAccumulationDistributionResponse(userMessage, plan, toolResults);
+    const hasStockFactsForCompound = plan.entities.symbols.length > 0
+        && toolResults.some(result => result.tool === "get_stock")
+        && toolResults.some(result => result.tool === "get_stock_levels");
+    const singleStockAccDistRes = hasStockFactsForCompound
+        ? null
+        : buildSingleStockAccumulationDistributionResponse(userMessage, plan, toolResults);
     if (singleStockAccDistRes) return singleStockAccDistRes;
 
     const scan = toolResults.find(result => result.tool === "get_accumulation_stocks" || result.tool === "get_distribution_stocks");
@@ -1905,6 +1930,9 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
 
     if (plan.intent === "clarification" && /(?:اقوى|أقوى)\s+(?:الاسهم|الأسهم)/i.test(userMessage)) {
         return "تقصد أقوى الأسهم بأي معيار: أعلى ارتفاع في آخر جلسة، أعلى سيولة، أقوى زخم فني، أم أفضل أداء خلال أسبوع؟ حدّد المعيار والفترة حتى لا أخلط بين القوة السعرية والسيولة.";
+    }
+    if (plan.intent === "clarification" && plan.clarification_options?.length) {
+        return `السؤال يحتمل أكثر من معنى. اختار المقصود عشان أستخدم الأداة المناسبة: ${plan.clarification_options.join("، ")}.`;
     }
     const levelResults = toolResults.filter(result => result.tool === "get_stock_levels");
     const stockResults = toolResults.filter(result => result.tool === "get_stock" && result.data?.symbol);

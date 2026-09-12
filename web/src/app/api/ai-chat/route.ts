@@ -236,6 +236,9 @@ function extractProvenanceFromToolResults(results: any[], tables?: any[]): Recor
 }
 
 function generateSuggestedButtons(plannerResult: any, sessionState: any): string[] {
+    if (plannerResult?.clarification_needed && Array.isArray(plannerResult?.clarification_options)) {
+        return plannerResult.clarification_options;
+    }
     const isRecQuery = Array.isArray(plannerResult?.tools) && plannerResult.tools.includes("get_recommendations");
     if (isRecQuery) {
         const filter = plannerResult?.entities?.recommendation_filter;

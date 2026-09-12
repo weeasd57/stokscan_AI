@@ -46,4 +46,11 @@ describe("requested investor question routing", () => {
         expect(isPortfolioAnalysisRequest("اعرض محفظتي")).toBe(false);
         expect(isPortfolioAnalysisRequest("حلل COMI")).toBe(false);
     });
+
+    test("resolves a resistance follow-up to the current AMER symbol", () => {
+        const plan = buildCompoundDeterministicPlan("طب ممكن يطلع للمقاومة امتى", { ...session, current_symbol: "AMER" });
+        expect(plan.intent).toBe("stock_analysis");
+        expect(plan.entities.symbols).toEqual(["AMER"]);
+        expect(plan.tools).toContain("get_stock_levels");
+    });
 });
