@@ -15,6 +15,8 @@ _base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 load_dotenv(os.path.join(_base_dir, ".env"))
 load_dotenv(os.path.join(_base_dir, "web", ".env.local"), override=True)
 
+from api.web_origin import get_web_origin
+
 # Configure logging
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
@@ -759,10 +761,8 @@ class TelegramBot:
         self._log(f"Commands registered: {[c['command'] for c in commands]}")
 
         # Set menu button — use WebApp if WEB_ORIGIN is set, otherwise default to commands
-        web_origin = os.getenv("WEB_ORIGIN", "").strip().rstrip("/")
-        if "localhost" in web_origin or "127.0.0.1" in web_origin:
-            web_origin = "https://egxbots.com"
-        if web_origin and web_origin.startswith("http"):
+        web_origin = get_web_origin()
+        if web_origin:
             result = self._call_api(
                 "setChatMenuButton",
                 {

@@ -38,6 +38,7 @@ from api.stock_ai import (
 )
 from api.smart_sync import get_smart_sync
 from api.intraday_downloader import _fetch_egx_symbols
+from api.web_origin import get_web_origin
 
 try:
     from api.adaptive_learning import ActiveLearner, ManualRetrainer
@@ -4256,7 +4257,7 @@ def send_telegram_recommendations():
         if not recs:
             return {"status": "skipped", "message": "No recommendations generated today to send."}
             
-        web_origin = os.getenv("WEB_ORIGIN", "https://egxbots.com").strip().rstrip("/")
+        web_origin = get_web_origin()
         current_date = datetime.now().strftime("%Y-%m-%d")
         
         msg_lines = [
@@ -4332,7 +4333,7 @@ def get_telegram_dispatch_preview(type: str = "recommendations"):
             if not today_recs:
                 today_recs = res.data[:10]
                 
-            web_origin = os.getenv("WEB_ORIGIN", "https://egxbots.com").strip().rstrip("/")
+            web_origin = get_web_origin()
             msg_lines = [
                 f"🚀 *توصيات الذكاء الاصطناعي الجديدة / New AI Recommendations* 🚀",
                 f"📅 *التاريخ:* `{current_date}`",
@@ -4435,7 +4436,7 @@ def get_telegram_dispatch_preview(type: str = "recommendations"):
             start_date_str = (dt.datetime.utcnow() - dt.timedelta(days=7)).strftime("%Y-%m-%d")
             end_date_str = dt.datetime.utcnow().strftime("%Y-%m-%d")
             
-            web_origin = os.getenv("WEB_ORIGIN", "https://egxbots.com").strip().rstrip("/")
+            web_origin = get_web_origin()
             
             msg = (
                 f"📊 *التقرير الأسبوعي للأداء / Weekly Report* 📊\n"

@@ -16,6 +16,7 @@ if _base_dir not in sys.path:
 
 from supabase import create_client
 from api.daily_bot_run import _send_telegram_exit, _notify_central_telegram
+from api.web_origin import get_web_origin
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
@@ -43,7 +44,7 @@ def get_closed_deals():
     return res.data or []
 
 def send_consolidated_summary(deals):
-    web_origin = os.getenv("WEB_ORIGIN", "https://egxbots.com").strip().rstrip("/")
+    web_origin = get_web_origin()
     total_pct = sum(float(d.get("profit_loss_pct", 0.0)) for d in deals)
     
     lines = [

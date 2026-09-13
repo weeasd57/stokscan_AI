@@ -11,6 +11,7 @@ from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 
 from api.stock_ai import _init_supabase, supabase
+from api.web_origin import get_web_origin
 
 router = APIRouter(prefix="/payment", tags=["payment"])
 
@@ -318,7 +319,7 @@ def paymob_webhook_get(request: Request):
     success = query_params.get("success") == "true"
 
     # Redirect back to the frontend pro page with status query parameters
-    web_origin = os.getenv("WEB_ORIGIN", "http://localhost:3000")
+    web_origin = get_web_origin()
     if success:
         return RedirectResponse(url=f"{web_origin}/pro?payment=success")
     else:

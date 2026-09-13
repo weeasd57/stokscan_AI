@@ -41,6 +41,7 @@ from api.smart_sync import get_smart_sync
 from api.intraday_downloader import _fetch_egx_symbols
 from api.routers.scan_ai_fast import fast_scan
 from api.market_status_gate import should_reject_new_buys
+from api.web_origin import get_web_origin
 
 
 def _sync_latest_egx_inventory_from_eodhd() -> Tuple[bool, List[str], str]:
@@ -738,7 +739,7 @@ def _send_telegram_adjustment(symbol: str, exchange: str, adjustment: dict):
             "acceleration_breakout": "🚀⚡",
         }
         emoji = emoji_map.get(adj_type, "📊")
-        web_origin = os.getenv("WEB_ORIGIN", "https://egxbots.com").strip().rstrip("/")
+        web_origin = get_web_origin()
 
         reason_ar = adjustment.get('reason_ar', adj_type)
 
@@ -820,7 +821,7 @@ def _send_telegram_exit(symbol: str, exchange: str, entry_price: float, exit_pri
     if not _telegram_recommendation_writes_enabled():
         return False
     try:
-        web_origin = os.getenv("WEB_ORIGIN", "https://egxbots.com").strip().rstrip("/")
+        web_origin = get_web_origin()
         emoji = "🎉" if status == "win" else ("🧹" if status == "stale" else "🛡️")
         status_text_ar = "تحقيق الهدف ✅" if status == "win" else ("بيانات قديمة / سهم غير نشط" if status == "stale" else "تفعيل وقف الخسارة")
         status_text_en = "Target Hit" if status == "win" else ("Stale / Inactive" if status == "stale" else "Stop Loss Hit")
@@ -985,7 +986,7 @@ def generate_weekly_performance_report(trigger: str = "manual", chat_id: Optiona
         start_date_str = (dt.datetime.utcnow() - dt.timedelta(days=7)).strftime("%Y-%m-%d")
         end_date_str = dt.datetime.utcnow().strftime("%Y-%m-%d")
         
-        web_origin = os.getenv("WEB_ORIGIN", "https://egxbots.com").strip().rstrip("/")
+        web_origin = get_web_origin()
         
         # Build the final message
         msg = (
@@ -1070,7 +1071,7 @@ def _dispatch_similarity_notifications(results: List[Dict[str, Any]]):
 
         # Format message
         current_date = dt.datetime.now().strftime("%Y-%m-%d")
-        web_origin = os.getenv("WEB_ORIGIN", "https://egxbots.com").strip().rstrip("/")
+        web_origin = get_web_origin()
         
         msg_lines = [
             f"🔎 *تقرير تشابه الأنماط التاريخية / Daily Historical Similarity* 🔎",
@@ -2336,7 +2337,7 @@ async def generate_daily_recommendations(model_name: Optional[str] = None):
 
     # Notify Stocks Score subscribers with beautiful detailed summary card
     try:
-        web_origin = os.getenv("WEB_ORIGIN", "https://egxbots.com").strip().rstrip("/")
+        web_origin = get_web_origin()
         current_date = dt.datetime.now().strftime("%Y-%m-%d")
         
         msg_lines = [
