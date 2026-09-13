@@ -263,10 +263,15 @@ export default function IntradaySyncTab() {
         } catch {
             // ignore malformed persisted logs
         }
-        const timer = setInterval(() => {
-            fetchState();
-        }, 8000);
-        return () => clearInterval(timer);
+        const refreshWhenVisible = () => {
+            if (!document.hidden) void fetchState();
+        };
+        document.addEventListener("visibilitychange", refreshWhenVisible);
+        window.addEventListener("focus", refreshWhenVisible);
+        return () => {
+            document.removeEventListener("visibilitychange", refreshWhenVisible);
+            window.removeEventListener("focus", refreshWhenVisible);
+        };
     }, []);
 
     useEffect(() => {

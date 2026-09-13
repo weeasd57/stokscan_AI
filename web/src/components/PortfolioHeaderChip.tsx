@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { Wallet, TrendingUp, TrendingDown } from "lucide-react";
+import { useRealtimeRefresh } from "@/hooks/useRealtimeRefresh";
 
 type Snapshot = {
   ok?: boolean;
@@ -54,13 +55,22 @@ export default function PortfolioHeaderChip() {
     void load();
     const handlePortfolioUpdated = () => { void load(); };
     window.addEventListener("portfolio-updated", handlePortfolioUpdated);
-    const interval = setInterval(load, 60_000);
     return () => {
       cancelled = true;
-      clearInterval(interval);
       window.removeEventListener("portfolio-updated", handlePortfolioUpdated);
     };
   }, [user]);
+
+  useRealtimeRefresh(
+    user ? [{ table: "positions", filter: `user_id=eq.${user.id}` }] : [],
+    async () => {
+      if (user) {
+        const res = await fetch("/api/portfolio", { cache: "no-store" });
+        if (res.ok) setSnapshot(await res.json());
+      }
+    },
+    { enabled: Boolean(user) },
+  );
 
   if (!user) return null;
 

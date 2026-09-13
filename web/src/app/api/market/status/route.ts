@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import { getSupabaseClient, toNumber } from "@/lib/supabase/route-data";
 
 export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 export const revalidate = 120; // 2 min (market status can change intraday)
 
 export async function GET() {

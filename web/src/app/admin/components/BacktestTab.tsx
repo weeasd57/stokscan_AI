@@ -1,12 +1,13 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { Activity, Calendar, Play, TrendingUp, Target, AlertTriangle, CheckCircle2, FileText, Globe, Trash2, Eye, Wallet, EyeOff, History as HistoryIcon, ChevronDown, LineChart, Database, Users, Cpu, ShieldCheck, Zap, Info, Star, Brain } from "lucide-react";
 import * as Switch from "@radix-ui/react-switch";
 import { getLocalModels, type LocalModelMeta, getBacktests, getBacktestTrades, deleteBacktest, updateBacktestVisibility, updateBacktestFavorite, getProductionApiUrl } from "@/lib/api";
 import { useAppState } from "@/contexts/AppStateContext";
 import { toast } from "sonner";
 import ConfirmDialog from "@/components/ConfirmDialog";
+import { useRealtimeRefresh } from "@/hooks/useRealtimeRefresh";
 import { TradeTimeline } from "./TradeTimeline";
 import Egx30MonthlyChart from "./Egx30MonthlyChart";
 import TradingViewChart from "@/components/TradingViewChartDynamic";
@@ -1463,57 +1464,71 @@ export default function BacktestTab() {
     loadHistory();
   }, []);
 
-  // Polling for status updates
-  useEffect(() => {
-    let interval: any;
-    if ((running && currentBacktestId) || (isOptimizing && currentOptId)) {
-      const targetId = activeMainTab === "automation" ? currentOptId : currentBacktestId;
-      interval = setInterval(async () => {
-        try {
-          const baseUrl = getProductionApiUrl() || "/api";
-          const res = await fetch(`${baseUrl}/backtests?admin=true`); // Refresh full history
-          if (!res.ok) return;
-          const data = await res.json();
-          setHistory(data);
+  const activeBacktestId = activeMainTab === "automation" ? currentOptId : currentBacktestId;
+  const backtestRefreshSeq = useRef(0);
+  // Realtime is the primary update path. Until the project's Realtime
+  // publication is enabled for `backtests`, database events never arrive, so a
+  // slow 15s fallback tracks an in-flight task. It permanently disables itself
+  // after the first genuine DB event, proving realtime delivery works.
+  const realtimeEventSeen = useRef(false);
+  const taskInProgress = Boolean((running && currentBacktestId) || (isOptimizing && currentOptId));
 
-          // Find current one
-          const current = data.find((b: any) => b.id === targetId);
-          if (current) {
-            setStatusMsg(current.status_msg);
-            if (current.status === "completed") {
-              if (activeMainTab === "automation") {
-                setIsOptimizing(false);
-                // setCurrentOptId(null);
-                toast.success("Optimization Completed", {
-                  description: `Found best threshold: ${current.meta_threshold}`
-                });
-              } else {
-                setRunning(false);
-                setCurrentBacktestId(null);
-              }
-              setStatusMsg(null);
-              clearInterval(interval);
-            } else if (current.status === "failed") {
-              if (activeMainTab === "automation") {
-                setIsOptimizing(false);
-                setCurrentOptId(null);
-              } else {
-                setRunning(false);
-                setCurrentBacktestId(null);
-              }
-              setStatusMsg(null);
-              setError(current.status_msg || "Task failed");
-              toast.error("Task Failed");
-              clearInterval(interval);
-            }
-          }
-        } catch (err) {
-          console.error("Polling error:", err);
+  const refreshRunningBacktest = useCallback(async () => {
+    if (!activeBacktestId || !taskInProgress) return;
+    const requestSeq = ++backtestRefreshSeq.current;
+    try {
+      const baseUrl = getProductionApiUrl() || "/api";
+      const res = await fetch(`${baseUrl}/backtests?admin=true`);
+      if (!res.ok) return;
+      const data = await res.json();
+      if (requestSeq !== backtestRefreshSeq.current) return;
+      setHistory(data);
+      const current = data.find((item: any) => item.id === activeBacktestId);
+      if (!current) return;
+      setStatusMsg(current.status_msg);
+      if (current.status === "completed") {
+        if (activeMainTab === "automation") {
+          setIsOptimizing(false);
+          toast.success("Optimization Completed", { description: `Found best threshold: ${current.meta_threshold}` });
+        } else {
+          setRunning(false);
+          setCurrentBacktestId(null);
         }
-      }, 3000);
+        setStatusMsg(null);
+      } else if (current.status === "failed") {
+        if (activeMainTab === "automation") {
+          setIsOptimizing(false);
+          setCurrentOptId(null);
+        } else {
+          setRunning(false);
+          setCurrentBacktestId(null);
+        }
+        setStatusMsg(null);
+        setError(current.status_msg || "Task failed");
+        toast.error("Task Failed");
+      }
+    } catch (err) {
+      console.error("Realtime backtest refresh error:", err);
     }
-    return () => clearInterval(interval);
-  }, [running, currentBacktestId, isOptimizing, currentOptId, activeMainTab]);
+  }, [activeBacktestId, taskInProgress, activeMainTab]);
+
+  useRealtimeRefresh(
+    activeBacktestId ? [{ table: "backtests", filter: `id=eq.${activeBacktestId}` }] : [],
+    refreshRunningBacktest,
+    {
+      enabled: Boolean(activeBacktestId && taskInProgress),
+      onDbEvent: () => { realtimeEventSeen.current = true; },
+    },
+  );
+
+  useEffect(() => {
+    if (!taskInProgress || realtimeEventSeen.current) return undefined;
+    const fallback = window.setInterval(() => {
+      if (realtimeEventSeen.current) return;
+      void refreshRunningBacktest();
+    }, 15000);
+    return () => window.clearInterval(fallback);
+  }, [taskInProgress, activeBacktestId, refreshRunningBacktest]);
 
   async function loadHistory() {
     setHistoryLoading(true);

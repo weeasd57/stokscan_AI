@@ -4,6 +4,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 import { scanAiFastWithParams, evaluateScan, getAdminConfig, type ScanAiParams, type ScanResult } from "@/lib/api";
 import type { PredictResponse } from "@/lib/types";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
+import { useRealtimeRefresh, useRefreshOnVisibility } from "@/hooks/useRealtimeRefresh";
 import { useAuth } from "./AuthContext";
 
 type AiScannerState = {
@@ -986,31 +987,16 @@ export const AIScannerProvider = ({ children }: { children: ReactNode }) => {
         }
     }, [supabase, user]);
 
-    // Reconcile the recommendation archive as soon as the backend closes a
-    // position. The polling fallback covers deployments where Supabase Realtime
-    // has not yet been enabled for scan_results.
-    useEffect(() => {
-        const refreshLoadedRecommendations = () => {
-            if (loadedLandingRef.current !== null) {
-                void loadRecommendations(loadedLandingRef.current, true);
-            }
-        };
-
-        const channel = supabase
-            .channel("scanner-recommendations-realtime")
-            .on(
-                "postgres_changes",
-                { event: "*", schema: "public", table: "scan_results" },
-                refreshLoadedRecommendations,
-            )
-            .subscribe();
-
-        const interval = window.setInterval(refreshLoadedRecommendations, 30_000);
-        return () => {
-            window.clearInterval(interval);
-            void supabase.removeChannel(channel);
-        };
-    }, [loadRecommendations, supabase]);
+    useRealtimeRefresh(
+        [{ table: "scan_results", filter: "is_public=eq.true" }],
+        () => {
+            if (loadedLandingRef.current !== null) return loadRecommendations(loadedLandingRef.current, true);
+        },
+        { enabled: Boolean(user) },
+    );
+    useRefreshOnVisibility(() => {
+        if (loadedLandingRef.current !== null) return loadRecommendations(loadedLandingRef.current, true);
+    }, Boolean(user));
 
     const value = useMemo(() => ({
         state,

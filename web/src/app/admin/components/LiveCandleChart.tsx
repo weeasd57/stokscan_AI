@@ -187,15 +187,20 @@ export default function LiveCandleChart({
         }
     }, [symbol, botId]); // Only fetch when symbol/botId changes
 
-    // Polling interval
+    // Refresh when the admin returns to this tab; avoid a continuous timer.
     useEffect(() => {
         if (!autoRefresh || paused) return;
 
-        const interval = setInterval(() => {
-            if (chartRef.current) fetchData();
-        }, 30000); // 30s refresh
+        const refreshWhenVisible = () => {
+            if (!document.hidden && chartRef.current) void fetchData();
+        };
+        document.addEventListener("visibilitychange", refreshWhenVisible);
+        window.addEventListener("focus", refreshWhenVisible);
 
-        return () => clearInterval(interval);
+        return () => {
+            document.removeEventListener("visibilitychange", refreshWhenVisible);
+            window.removeEventListener("focus", refreshWhenVisible);
+        };
     }, [autoRefresh, paused, symbol, botId]);
 
     // Chart initialization and resize handling

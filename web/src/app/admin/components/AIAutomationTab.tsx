@@ -422,16 +422,8 @@ export default function AIAutomationTab({
         };
     }, [learningRate, nEstimators, patience, useEarlyStopping, featurePreset]);
 
-    // Live status via SSE with fallback polling.
+    // Live status via SSE. EventSource reconnects automatically after a transient error.
     useEffect(() => {
-        let pollId: ReturnType<typeof setInterval> | null = null;
-        const startPolling = () => {
-            if (pollId) return;
-            pollId = setInterval(() => {
-                refreshTrainingStatus();
-            }, 2000);
-        };
-
         if (typeof window === "undefined") return () => undefined;
 
         const es = new EventSource("/api/admin/train/stream");
@@ -442,24 +434,16 @@ export default function AIAutomationTab({
                 if (typeof data?.running === "boolean") {
                     setIsTraining(data.running);
                 }
-            } catch {
-                startPolling();
-            }
+            } catch { /* EventSource will reconnect and deliver the next valid event. */ }
         };
         es.onerror = () => {
-            es.close();
-            startPolling();
+            // Do not start a timer here. Native EventSource reconnects automatically.
         };
-
-        if (trainingStatus?.running || isTraining) {
-            startPolling();
-        }
 
         return () => {
             es.close();
-            if (pollId) clearInterval(pollId);
         };
-    }, [trainingStatus?.running, isTraining]);
+    }, []);
 
     const fetchLocalModels = async () => {
         setLoadingLocalModels(true);

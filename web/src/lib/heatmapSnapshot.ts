@@ -8,23 +8,32 @@ type HeatmapRow = {
   name?: string;
 };
 
-type HeatmapFrameSector = {
+type HeatmapSectorStock = {
+  symbol?: string;
+  name?: string;
+  close: number;
+  volume: number;
+  change_pct: number;
+  money_flow: number;
+  weight_in_sector?: number;
+};
+
+type HeatmapSector = {
   sector: string;
   sector_ar: string;
   money_flow: number;
   change_pct: number;
   market_share: number;
   stocks_count: number;
-  stocks: Array<{
-    symbol?: string;
-    name?: string;
-    close: number;
-    volume: number;
-    change_pct: number;
-    money_flow: number;
-    weight_in_sector?: number;
-  }>;
+  stocks: HeatmapSectorStock[];
   sentiment: string;
+};
+
+export type HeatmapSnapshot = {
+  date: string;
+  sectors: HeatmapSector[];
+  total_market_flow: number;
+  updated_at: string;
 };
 
 const SECTOR_AR: Record<string, string> = {
@@ -71,14 +80,12 @@ const getHeatmapSentiment = (changePct: number, flowBias: number): string => {
   return "neutral";
 };
 
-export const buildHeatmapFramesFromRows = (
+/** Builds a single-day sector snapshot from heatmap rows, without any animation frames. */
+export const buildHeatmapSnapshotFromRows = (
   rows: HeatmapRow[] = [],
-  availableDates: Array<string | number | null | undefined> = [],
-): { animationDates: string[]; framesByDate: Record<string, any> } => {
-  const normalizedDates = availableDates.filter((value): value is string | number => value !== null && value !== undefined && value !== "").map((value) => String(value));
-  const frameDates = Array.from(new Set(normalizedDates)).sort((a, b) => a.localeCompare(b));
+  targetDate?: string,
+): HeatmapSnapshot | null => {
   const grouped = new Map<string, HeatmapRow[]>();
-
   for (const row of rows) {
     const date = String(row.date || "").slice(0, 10);
     if (!date) continue;
@@ -86,80 +93,72 @@ export const buildHeatmapFramesFromRows = (
     grouped.get(date)?.push(row);
   }
 
-  const framesByDate: Record<string, any> = {};
-  const animationDates = frameDates.filter((date) => grouped.has(date));
+  const sortedDates = Array.from(grouped.keys()).sort((a, b) => a.localeCompare(b));
+  const wanted = targetDate && grouped.has(targetDate) ? targetDate : sortedDates[sortedDates.length - 1];
+  if (!wanted) return null;
 
-  for (const date of animationDates) {
-    const dateRows = grouped.get(String(date)) || [];
-    const sectorGroups = new Map<string, HeatmapFrameSector>();
-    let totalMarketFlow = 0;
+  const dateRows = grouped.get(wanted) || [];
+  const sectorGroups = new Map<string, HeatmapSector>();
+  let totalMarketFlow = 0;
 
-    for (const row of dateRows) {
-      const close = Number(row.close || 0);
-      const volume = Number(row.volume || 0);
-      if (!close || !volume) continue;
+  for (const row of dateRows) {
+    const close = Number(row.close || 0);
+    const volume = Number(row.volume || 0);
+    if (!close || !volume) continue;
 
-      const moneyFlow = close * volume;
-      const changePct = Number(row.change_pct || 0);
-      const sector = normalizeSector(row.sector);
-      totalMarketFlow += moneyFlow;
+    const moneyFlow = close * volume;
+    const changePct = Number(row.change_pct || 0);
+    const sector = normalizeSector(row.sector);
+    totalMarketFlow += moneyFlow;
 
-      if (!sectorGroups.has(sector)) {
-        sectorGroups.set(sector, {
-          sector,
-          sector_ar: sectorArabic(sector),
-          money_flow: 0,
-          change_pct: 0,
-          market_share: 0,
-          stocks_count: 0,
-          stocks: [],
-          sentiment: "neutral",
-        });
-      }
-
-      const group = sectorGroups.get(sector);
-      if (!group) continue;
-      group.money_flow += moneyFlow;
-      group.stocks_count += 1;
-      group.stocks.push({
-        symbol: row.symbol,
-        name: row.name || row.symbol,
-        close,
-        volume,
-        change_pct: changePct,
-        money_flow: moneyFlow,
+    if (!sectorGroups.has(sector)) {
+      sectorGroups.set(sector, {
+        sector,
+        sector_ar: sectorArabic(sector),
+        money_flow: 0,
+        change_pct: 0,
+        market_share: 0,
+        stocks_count: 0,
+        stocks: [],
+        sentiment: "neutral",
       });
     }
 
-    const sectors = Array.from(sectorGroups.values())
-      .map((sector) => {
-        sector.stocks.sort((a, b) => b.money_flow - a.money_flow);
-        const weightedChange = sector.money_flow > 0
-          ? sector.stocks.reduce((sum, stock) => sum + stock.change_pct * stock.money_flow, 0) / sector.money_flow
-          : 0;
-        sector.change_pct = Number(weightedChange.toFixed(2));
-        sector.market_share = totalMarketFlow > 0 ? Number(((sector.money_flow / totalMarketFlow) * 100).toFixed(2)) : 0;
-        sector.sentiment = getHeatmapSentiment(sector.change_pct, sector.change_pct / 100);
-        sector.stocks = sector.stocks.map((stock) => ({
-          ...stock,
-          weight_in_sector: sector.money_flow > 0 ? (stock.money_flow / sector.money_flow) * 100 : 0,
-        }));
-        return sector;
-      })
-      .sort((a, b) => b.money_flow - a.money_flow);
-
-    framesByDate[date] = {
-      date,
-      sectors,
-      total_market_flow: totalMarketFlow,
-      updated_at: date,
-    };
+    const group = sectorGroups.get(sector);
+    if (!group) continue;
+    group.money_flow += moneyFlow;
+    group.stocks_count += 1;
+    group.stocks.push({
+      symbol: row.symbol,
+      name: row.name || row.symbol,
+      close,
+      volume,
+      change_pct: changePct,
+      money_flow: moneyFlow,
+    });
   }
 
-  return { animationDates, framesByDate };
-};
+  const sectors = Array.from(sectorGroups.values())
+    .map((sector) => {
+      sector.stocks.sort((a, b) => b.money_flow - a.money_flow);
+      const weightedChange = sector.money_flow > 0
+        ? sector.stocks.reduce((sum, stock) => sum + stock.change_pct * stock.money_flow, 0) / sector.money_flow
+        : 0;
+      sector.change_pct = Number(weightedChange.toFixed(2));
+      sector.market_share = totalMarketFlow > 0 ? Number(((sector.money_flow / totalMarketFlow) * 100).toFixed(2)) : 0;
+      sector.sentiment = getHeatmapSentiment(sector.change_pct, sector.change_pct / 100);
+      sector.stocks = sector.stocks.map((stock) => ({
+        ...stock,
+        weight_in_sector: sector.money_flow > 0 ? (stock.money_flow / sector.money_flow) * 100 : 0,
+      }));
+      return sector;
+    })
+    .sort((a, b) => b.money_flow - a.money_flow);
 
-export const getFirstHeatmapFrame = (framesByDate: Record<string, any>, animationDates: string[]) => {
-  const firstDate = animationDates[0];
-  return firstDate ? framesByDate[firstDate] || null : null;
+  return {
+    date: wanted,
+    sectors,
+    total_market_flow: totalMarketFlow,
+    updated_at: wanted,
+  };
 };

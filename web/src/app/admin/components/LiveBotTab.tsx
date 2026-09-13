@@ -576,15 +576,21 @@ export default function LiveBotTab() {
         return direct;
     };
 
-    // Auto-refresh when running (Fixed 3s interval for UI responsiveness)
+    // Status is backend memory state, so refresh on user attention instead of polling.
     useEffect(() => {
-        const interval = setInterval(() => {
+        const refreshWhenVisible = () => {
+            if (document.hidden) return;
             if (status?.status === "running") {
-                fetchStatus(true);
-                fetchPerformance(true);
+                void fetchStatus(true);
+                void fetchPerformance(true);
             }
-        }, 8000); // Increased to 8s for lower load
-        return () => clearInterval(interval);
+        };
+        document.addEventListener("visibilitychange", refreshWhenVisible);
+        window.addEventListener("focus", refreshWhenVisible);
+        return () => {
+            document.removeEventListener("visibilitychange", refreshWhenVisible);
+            window.removeEventListener("focus", refreshWhenVisible);
+        };
     }, [status?.status, selectedBotId]); // Refresh when botId changes as well
 
     // Initial load and refresh on bot switch

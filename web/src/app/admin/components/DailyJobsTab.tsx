@@ -15,6 +15,7 @@ import {
     Send,
 } from "lucide-react";
 import { toast } from "sonner";
+import { useRefreshOnVisibility } from "@/hooks/useRealtimeRefresh";
 
 interface StepLog {
     step: string;
@@ -130,16 +131,7 @@ export default function DailyJobsTab() {
         fetchSchedule();
         fetchLatestSimilarityReport();
         fetchRecsStatus();
-        const interval = setInterval(fetchJobHistory, 15000);
-        const schedInterval = setInterval(fetchSchedule, 30000);
-        const reportInterval = setInterval(fetchLatestSimilarityReport, 30000);
-        const recsInterval = setInterval(() => fetchRecsStatus(true), 30000);
-        return () => {
-            clearInterval(interval);
-            clearInterval(schedInterval);
-            clearInterval(reportInterval);
-            clearInterval(recsInterval);
-        };
+        return undefined;
     }, []);
 
     const fetchJobHistory = async (silent = false) => {
@@ -202,6 +194,17 @@ export default function DailyJobsTab() {
             if (!silent) setLoadingRecs(false);
         }
     };
+
+    // Admin data stays behind the authenticated API. Refresh only when the
+    // operator returns to the tab; do not expose operational rows via Realtime.
+    useRefreshOnVisibility(async () => {
+        await Promise.all([
+            fetchJobHistory(true),
+            fetchSchedule(),
+            fetchLatestSimilarityReport(true),
+            fetchRecsStatus(true),
+        ]);
+    });
 
     const sendRecsTelegram = async () => {
         setSendingRecs(true);
