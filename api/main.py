@@ -104,16 +104,36 @@ app = FastAPI(
 
 
 class _TelegramAccessLogRedactor(logging.Filter):
-    """Prevent Uvicorn's own access logger from printing webhook tokens."""
+    """Prevent Uvicorn's own access logger from printing webhook tokens.
+
+    Uvicorn's ``AccessFormatter`` unpacks ``record.args`` into exactly five
+    fields (client_addr, method, full_path, http_version, status_code). We must
+    therefore redact the token inside the args tuple rather than collapsing the
+    record into a preformatted message, which previously raised
+    ``ValueError: not enough values to unpack (expected 5, got 0)``.
+    """
 
     _pattern = re.compile(r"(/(?:tg-webhook|support-tg-webhook)/)[^\s\"?]+")
 
     def filter(self, record: logging.LogRecord) -> bool:
-        message = record.getMessage()
-        redacted = self._pattern.sub(r"\1<redacted>", message)
-        if redacted != message:
-            record.msg = redacted
-            record.args = ()
+        if isinstance(record.args, tuple):
+            record.args = tuple(
+                self._pattern.sub(r"\1<redacted>", arg) if isinstance(arg, str) else arg
+                for arg in record.args
+            )
+        elif isinstance(record.args, dict):
+            record.args = {
+                key: self._pattern.sub(r"\1<redacted>", value)
+                if isinstance(value, str)
+                else value
+                for key, value in record.args.items()
+            }
+        else:
+            message = record.getMessage()
+            redacted = self._pattern.sub(r"\1<redacted>", message)
+            if redacted != message:
+                record.msg = redacted
+                record.args = ()
         return True
 
 
