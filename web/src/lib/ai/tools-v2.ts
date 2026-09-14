@@ -2639,6 +2639,8 @@ function parseQuantityFromArabicText(text: string): number | null {
         /(?:سهم|حصه|حصص)\s*[A-Z]{2,10}\s+(\d[\d,]*)\s*(?:بسعر|سعر|بـ|ب|جنيه|ج\.م|egp|$)/i,
         // bare "ضيف AMER 200" — symbol then number followed by optional price marker
         /(?:ضيف|اضيف|هضيف|اضفت|اشتريت)\s+(?:\S+\s+)?[A-Z]{2,10}\s+(\d[\d,]*)\s*(?:بسعر|سعر|بـ|ب|جنيه|ج\.م|egp|$)/i,
+        // Multiline/natural phrasing: "ضيف في محفظتي سهم AMER 200 بسعر 45.65".
+        /(?:ضيف|اضيف|هضيف|اضفت|اشتريت)[\s\S]*?\b[A-Z]{2,10}\b\s+(\d[\d,]*)\s*(?=بسعر|سعر|بـ|ب|جنيه|ج\.م|egp|$)/i,
     ];
     for (const p of patterns) {
         const m = v.match(p);
@@ -2663,8 +2665,9 @@ function parseMoneyFromArabicText(text: string): number | null {
     // ألف / ك / k
     m = v.match(/(\d[\d,.]*)\s*(?:الف|ألف|الفين|k\b)/i);
     if (m) { const n = toNum(m[1], 1_000); if (n !== null) return n; }
-    // Explicit currency/price wording
-    m = v.match(/(?:بسعر|سعر|بـ|ب|بمبلغ|قيمه|قيمة)\s*(\d[\d,.]*)\s*(?:جنيه|ج\.?م|egp)?/i);
+    // Explicit currency/price wording ("بمتوسط" — the bot's own ask example
+    // uses "بمتوسط 45.65", so the user's reply must parse).
+    m = v.match(/(?:بسعر|سعر|بـ|ب|بمبلغ|بمتوسط|متوسط|قيمه|قيمة)\s*(\d[\d,.]*)\s*(?:جنيه|ج\.?م|egp)?/i);
     if (m) { const n = toNum(m[1], 1); if (n !== null && n > 0) return n; }
     // Plain number followed by currency
     m = v.match(/(\d[\d,.]*)\s*(?:جنيه|ج\.?م|egp)/i);

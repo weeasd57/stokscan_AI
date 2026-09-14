@@ -44,8 +44,12 @@ export function detectPortfolioIntent(message: string): PortfolioOperation | nul
     // portfolio operations even without the word "محفظة".
     // Arabic word boundaries via lookaround: \b does not work with Arabic
     // letters, so verbs embedded inside other words (ابعتلى، يصحح) are ignored.
-    const hasManagementVerb = /(?<![\u0621-\u064A])(?:بعت|شيل|احذف|امسح|عدلت|غيرت|عدل|صحح|ظبط|زود|زد|حط|ضيف|اضيف)(?![\u0621-\u064A])/i.test(v);
-    const mentionsStocks = /(سهم|سهمين|اسهم|حصه|حصص)/i.test(v) || /\b[A-Z]{2,10}\b/.test(message);
+    // A single attached object pronoun (ضيفه، شيلها، حطلي، بعتها) is allowed —
+    // day-14 live chat showed "ضيفه معانا السهم ده" failing this gate.
+    const hasManagementVerb = /(?<![\u0621-\u064A])(?:بعت|شيل|احذف|امسح|عدلت|غيرت|عدل|صحح|ظبط|زود|زد|حط|ضيف|اضيف)(?:ه|ها|لي|نا|هم|وا)?(?![\u0621-\u064A])/i.test(v);
+    // Fund units count too: "ضيف وثيقة أدون" / "بعت صندوق كسب" — EGX funds are
+    // traded as وثائق صناديق and users call them "وثيقة"/"صندوق", not "سهم".
+    const mentionsStocks = /(سهم|سهمين|اسهم|حصه|حصص|وثائق|وثيق[ةه]|صندوق|صناديق)/i.test(v) || /\b[A-Z]{2,10}\b/.test(message);
 
     if (!mentionsPortfolio && !holdsPhrasing && !mentionsCash && !(hasManagementVerb && mentionsStocks)) return null;
 

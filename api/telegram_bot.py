@@ -31,6 +31,10 @@ class TelegramBot:
     _DIRECT_API = "https://api.telegram.org"
     DEFAULT_CHANNEL_ID = "-1002083067817"
     DEFAULT_THREAD_ID = 153
+    # VIP mirror channel (https://t.me/egxbots_vip): every message delivered to
+    # the free channel is copied here as well. Override with the
+    # TELEGRAM_VIP_CHANNEL_ID env var; set it to an empty value to disable.
+    VIP_CHANNEL_ID = (os.getenv("TELEGRAM_VIP_CHANNEL_ID") or "-1003906516349").strip()
     LEGACY_BAD_CHAT_IDS = {"-1003699330518", "8805346788"}
     MAX_MESSAGE_LENGTH = 3900
 
@@ -122,13 +126,38 @@ class TelegramBot:
             self._log(f"Invalid target chat ID: {chat_id}")
             return None
 
-    def _is_public_channel_target(self, target: Any) -> bool:
+    def _channel_root(self, target: Any) -> str:
+        """Return the bare chat ID of a target, stripping any topic suffix."""
         target_str = str(target).strip()
         if "_" in target_str:
             target_str = target_str.split("_", 1)[0]
         if target_str in self.LEGACY_BAD_CHAT_IDS:
             target_str = self.DEFAULT_CHANNEL_ID
-        return target_str == self.DEFAULT_CHANNEL_ID
+        return target_str
+
+    def _is_public_channel_target(self, target: Any) -> bool:
+        target_str = self._channel_root(target)
+        if target_str == self.DEFAULT_CHANNEL_ID:
+            return True
+        return bool(self.VIP_CHANNEL_ID) and target_str == self.VIP_CHANNEL_ID
+
+    def _vip_mirror_enabled(self) -> bool:
+        """Mirroring is on only when a valid VIP channel is configured."""
+        vip = self.VIP_CHANNEL_ID
+        return bool(vip) and vip not in self.LEGACY_BAD_CHAT_IDS and vip != self.DEFAULT_CHANNEL_ID
+
+    def _append_vip_mirror(self, targets: list) -> list:
+        """Copy any free-channel delivery to the VIP mirror channel.
+
+        The VIP target is appended last so the free channel is always served
+        first; a mirror failure must never block or fail the main delivery.
+        """
+        if not self._vip_mirror_enabled():
+            return targets
+        if any(self._channel_root(t) == self.DEFAULT_CHANNEL_ID for t in targets):
+            if self.VIP_CHANNEL_ID not in targets:
+                targets.append(self.VIP_CHANNEL_ID)
+        return targets
 
     def _split_message(self, text: str) -> list[str]:
         """Split long Telegram messages without cutting a line in half."""
@@ -262,9 +291,11 @@ class TelegramBot:
         Returns ``True`` only when the request was accepted by Telegram in
         synchronous mode, or when all message chunks were queued successfully.
         """
-        targets = set()
+        targets = []
         if chat_id:
-            targets.add(str(chat_id).strip())
+            primary = str(chat_id).strip()
+            if primary:
+                targets.append(primary)
         else:
             # 1. Global chat_id (admin channel)
             if self.bot_instance and getattr(
@@ -272,11 +303,16 @@ class TelegramBot:
             ):
                 self.chat_id = self.bot_instance.config.telegram_chat_id
             if self.chat_id:
-                targets.add(str(self.chat_id).strip())
+                fallback = str(self.chat_id).strip()
+                if fallback:
+                    targets.append(fallback)
 
         # 2. Subscribers chat IDs (Now handled dynamically with custom TP/SL inside live_bot.py)
         # We only send the central admin-formatted logs/notifications to the admin chat
         pass
+
+        # Mirror free-channel deliveries to the VIP channel (appended last).
+        targets = self._append_vip_mirror(targets)
 
         # Send to all unique target chat IDs
         if not targets or not self.token:
@@ -285,7 +321,9 @@ class TelegramBot:
 
         queued = 0
         queue = self._channel_queue if any(self._is_public_channel_target(t) for t in targets) else self._queue
+        vip_mirror = self.VIP_CHANNEL_ID if self._vip_mirror_enabled() else None
         for target in targets:
+            is_mirror = bool(vip_mirror and target == vip_mirror)
             payload = self._build_send_payload(message, target, message_thread_id)
             if payload:
                 # Render the Markdown formatting (*bold*, `code`) instead of showing
@@ -300,6 +338,13 @@ class TelegramBot:
                         result = self._call_api("sendMessage", chunk_payload)
                         if not result.get("ok"):
                             desc = str(result.get("description", "")).lower()
+                            if is_mirror:
+                                # A VIP mirror failure must never fail the main
+                                # channel delivery — log it and keep going.
+                                self._log(
+                                    f"VIP mirror delivery failed for {target}: {result.get('description', result)}"
+                                )
+                                break
                             if "forbidden" in desc or result.get("error_code") in {400, 403}:
                                 self._mark_blocked_target(target)
                             else:
@@ -350,6 +395,16 @@ class TelegramBot:
         queue = self._channel_queue if self._is_public_channel_target(chat_id) else self._queue
         queue.append(payload)
         self._log(f"Queued keyboard message to {payload['chat_id']} (thread: {payload.get('message_thread_id')})")
+
+        # Mirror free-channel keyboard messages to the VIP channel.
+        if self._vip_mirror_enabled() and self._channel_root(chat_id) == self.DEFAULT_CHANNEL_ID:
+            vip_payload = self._build_send_payload(text, self.VIP_CHANNEL_ID, message_thread_id)
+            if vip_payload:
+                vip_payload["reply_markup"] = {"inline_keyboard": buttons}
+                if parse_mode:
+                    vip_payload["parse_mode"] = parse_mode
+                self._channel_queue.append(vip_payload)
+                self._log(f"Queued VIP mirror keyboard message to {self.VIP_CHANNEL_ID}")
 
     def _sender_loop(self):
         """Background loop: drain the queue whenever the network is up."""

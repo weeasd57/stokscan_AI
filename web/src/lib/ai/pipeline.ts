@@ -13,7 +13,7 @@ import { normalizeArabicIntent, extractInvestorPreferences, getFairValueFilters,
 import { extractExcludedSectorNames, extractMentionedSectorNames } from "./sector-taxonomy";
 import { isOtcStock, buildOtcNotice } from "./otc-stocks";
 import { isEgxSessionOpen } from "./live-stock-updater";
-import { replacePortfolioFromImage } from "./portfolio-tools";
+import { replacePortfolioFromImage, checkPortfolioImportCapacity } from "./portfolio-tools";
 import { getDeepSeekApiKey } from "./server-secrets";
 
 export interface PipelineResult {
@@ -1231,11 +1231,20 @@ export function parsePortfolioAnswer(message: string, item: { symbol: string; qu
     const nums = Array.from(message.replace(/[٠-٩]/g, d => String("٠١٢٣٤٥٦٧٨٩".indexOf(d))).matchAll(/\d+(?:[.,]\d+)?/g)).map(m => Number(m[0].replace(/,/g, ""))).filter(Number.isFinite);
     let quantity = item.quantity;
     let price = item.price;
-    if (quantity === null && nums.length > 0 && /سهم|كمي|عدد|معايا|امتلك/i.test(message)) quantity = nums[0];
+    const onlyQuantityMissing = quantity === null && price !== null;
+    const onlyPriceMissing = price === null && quantity !== null;
+    if (quantity === null && nums.length > 0 && (
+        /سهم|كمي|عدد|معايا|امتلك/i.test(message)
+        // The bot explicitly asks for a number, so accept the concise reply
+        // "200 بسعر 45.65" without requiring the user to repeat "سهم".
+        || /^(?:\s*\d[\d,.]*\s*)(?:بسعر|سعر|بمتوسط|متوسط)/i.test(message)
+        || (onlyQuantityMissing && nums.length === 1)
+    )) quantity = nums[0];
     if (price === null) {
         const match = message.match(/(?:متوسط|شراء|بسعر|سعر)[^\d]*(\d+(?:[.,]\d+)?)/i);
         if (match) price = Number(match[1].replace(/,/g, ""));
         else if (nums.length > 1) price = nums[1];
+        else if (onlyPriceMissing && nums.length === 1) price = nums[0];
     }
     return { ...item, quantity, price };
 }
@@ -1243,6 +1252,34 @@ export function parsePortfolioAnswer(message: string, item: { symbol: string; qu
 export function portfolioMissingQuestion(item: { symbol: string; quantity: number | null; price: number | null }): string {
     const missing = [item.quantity === null ? "الكمية" : "", item.price === null ? "متوسط سعر الشراء" : ""].filter(Boolean).join(" و");
     return `عشان أسجل ${item.symbol} صح في محفظتك، محتاج ${missing}. اكتب مثلاً: «200 سهم بمتوسط 45.65 جنيه». متوسط السعر هو متوسط تكلفة الشراء، مش السعر الحالي.`;
+}
+
+/**
+ * Track the conversational portfolio-edit state after a manage_portfolio tool
+ * run. When the tool asked for the symbol, or for the quantity of a known
+ * symbol, the user's next short reply should complete that same operation.
+ * Any other outcome clears the state so unrelated messages are never hijacked.
+ */
+async function persistPortfolioAwaitingState(
+    supabase: any,
+    sessionId: string,
+    userId: string,
+    operation: string,
+    data: any,
+): Promise<void> {
+    if (!sessionId) return;
+    let next: { operation: "add" | "update" | "remove" | "sell"; symbol: string | null } | null = null;
+    if (data && data.ok === false && typeof data.message === "string") {
+        const op: "add" | "update" | "remove" | "sell" | null =
+            operation === "add" || operation === "update" || operation === "remove" || operation === "sell" ? operation : null;
+        const quantityAsk = data.message.match(/محتاج أعرف عدد أسهم ([A-Z0-9]+)/);
+        if (op && quantityAsk) {
+            next = { operation: op, symbol: quantityAsk[1] };
+        } else if (op && /رمز السهم اللي عايز/.test(data.message)) {
+            next = { operation: op, symbol: null };
+        }
+    }
+    await updateSessionSummary(supabase, sessionId, userId, { portfolio_add_awaiting: next });
 }
 
 function formatPortfolioSnapshotResponse(data: any): string {
@@ -1610,18 +1647,117 @@ export async function* runPipelineStream(
     let visionError: string | null = null;
     let memory: MemoryResult | null = null;
 
+    // Continue a confirmed screenshot import conversationally. The previous
+    // implementation persisted this state but never consumed the next answer,
+    // so the user could provide the missing quantity/average price without the
+    // position ever being written.
+    const pendingImport = sessionSummary?.pending_portfolio_import;
+    if (!hasImages && pendingImport?.items?.length) {
+        if (/(?:^|\s)(?:الغاء|إلغاء|الغي|ألغي|مش عايز|سيبها|cancel)(?:$|\s)/i.test(userMessage.trim())) {
+            await updateSessionSummary(supabase, sessionId, userId, {
+                pending_portfolio_import: null,
+                last_topic: "portfolio",
+            });
+            const response = "تم إلغاء استيراد صورة المحفظة، ولم أغيّر مراكزك الحالية.";
+            yield { type: "done", data: {
+                response,
+                session_update: { current_symbol: null, last_symbols: sessionState.last_symbols, summary: response },
+                tables: [],
+            } };
+            return;
+        }
+        const index = Math.min(Math.max(pendingImport.current_index || 0, 0), pendingImport.items.length - 1);
+        const updatedItem = parsePortfolioAnswer(userMessage, pendingImport.items[index]);
+        const items = pendingImport.items.map((item, itemIndex) => itemIndex === index ? updatedItem : item);
+        const nextMissingIndex = items.findIndex(item =>
+            item.quantity == null || item.quantity <= 0 || item.price == null || item.price <= 0
+        );
+
+        if (nextMissingIndex >= 0) {
+            const nextItem = items[nextMissingIndex];
+            const saved = await updateSessionSummary(supabase, sessionId, userId, {
+                pending_portfolio_import: { items, current_index: nextMissingIndex },
+                last_topic: "portfolio_import_pending",
+            });
+            const response = saved
+                ? portfolioMissingQuestion(nextItem)
+                : "فهمت البيانات، لكن تعذر حفظ حالة الاستيراد. اكتب الرمز والكمية ومتوسط الشراء معاً مرة أخرى.";
+            yield { type: "done", data: {
+                response,
+                session_update: { current_symbol: nextItem.symbol, last_symbols: items.map(item => item.symbol), summary: response },
+                tables: [],
+            } };
+            return;
+        }
+
+        const imported = await replacePortfolioFromImage(supabase, userId, items);
+        if (!imported.ok) {
+            yield { type: "done", data: {
+                response: imported.message,
+                session_update: { current_symbol: null, last_symbols: items.map(item => item.symbol), summary: imported.message },
+                tables: [],
+            } };
+            return;
+        }
+        await updateSessionSummary(supabase, sessionId, userId, {
+            pending_portfolio_import: null,
+            // "portfolio_imported" (not "portfolio") so a later bare "ايوه"
+            // in another context cannot silently re-run the import; an
+            // explicit "دى محفظتى" still works via the vision-context path.
+            last_topic: "portfolio_imported",
+            current_symbols: items.map(item => item.symbol),
+        });
+        yield { type: "done", data: {
+            response: `${imported.message}\n\nسجلت الكميات ومتوسطات الشراء من البيانات التي أكّدتها. تقدر تقول «حلل محفظتي» عشان أراجع كل مركز بالأرقام الحالية.`,
+            session_update: { current_symbol: null, last_symbols: items.map(item => item.symbol), summary: imported.message },
+            tables: [],
+        } };
+        return;
+    }
+
     // A confirmation after a portfolio screenshot is an import confirmation,
-    // not a request to view the existing (possibly empty) portfolio.
-    if (!hasImages && sessionSummary?.last_topic === "portfolio") {
+    // not a request to view the existing (possibly empty) portfolio. The
+    // classic path is last_topic === "portfolio" (image was identified as a
+    // portfolio). A follow-up like "دى محفظتى" after ANY analyzed image with
+    // symbols must also start the import — day-14 live chat showed the user
+    // confirming a table-classified screenshot and getting "محفظتك فاضية".
+    const visionContextSymbols = sessionSummary?.last_vision_context?.symbols || [];
+    const explicitPortfolioConfirmation = visionContextSymbols.length > 0
+        && /(محفظ|بتاعتي)/i.test(normalizeArabicIntent(userMessage));
+    if (!hasImages && (sessionSummary?.last_topic === "portfolio" || explicitPortfolioConfirmation)) {
         const confirmation = detectPortfolioConfirmation(userMessage);
+        if (confirmation === false) {
+            // "لأ مش بتاعتي" — clear the stale image context so a later bare
+            // "ايوه" cannot resurrect an import the user rejected.
+            await updateSessionSummary(supabase, sessionId, userId, {
+                last_vision_context: null,
+                last_image_symbols: [],
+                last_topic: null,
+            });
+        }
         if (confirmation === true) {
-            const visionItems = sessionSummary.last_vision_context?.symbols || [];
+            const visionItems = visionContextSymbols;
             const items = visionItems.map(item => ({
                 symbol: item.symbol,
                 name: item.name,
                 quantity: item.visible_values.quantity,
                 price: item.visible_values.price,
             }));
+            // Reject a plan-limit breach up-front instead of asking the user
+            // for every missing quantity/price and failing at the final save.
+            const capacity = await checkPortfolioImportCapacity(supabase, userId, items.map(item => item.symbol));
+            if (!capacity.ok) {
+                await updateSessionSummary(supabase, sessionId, userId, {
+                    pending_portfolio_import: null,
+                    last_topic: "portfolio",
+                });
+                yield { type: "done", data: {
+                    response: capacity.message,
+                    session_update: { current_symbol: null, last_symbols: items.map(item => item.symbol), summary: capacity.message },
+                    tables: [],
+                } };
+                return;
+            }
             const missing = items.find(item => item.quantity == null || item.quantity <= 0 || item.price == null || item.price <= 0);
             if (missing) {
                 const pending = {
@@ -1665,7 +1801,7 @@ export async function* runPipelineStream(
             }
             const summarySaved = await updateSessionSummary(supabase, sessionId, userId, {
                 pending_portfolio_import: null,
-                last_topic: "portfolio",
+                last_topic: "portfolio_imported",
             });
             if (!summarySaved) {
                 yield { type: "vision_error", data: "portfolio_import_context_not_cleared" };
@@ -1691,7 +1827,35 @@ export async function* runPipelineStream(
     // the most common portfolio requests.
     let portfolioAnalysisSymbols: string[] = [];
     if (!hasImages) {
-        const directPortfolioOperation = detectPortfolioIntent(userMessage);
+        let directPortfolioOperation = detectPortfolioIntent(userMessage);
+        let effectivePortfolioMessage = userMessage;
+        // Conversational completion: the bot previously asked for the symbol
+        // (or the quantity/price of a known symbol) and the user's short reply
+        // should complete that operation. Day-14 live chat: "ضيفه معانا السهم
+        // ده" → "قولي رمز السهم" → "ادون وثيقة" must ADD KASABF, not run a
+        // fresh analysis. Any explicit new portfolio command or a long/analytic
+        // reply cancels the pending state instead.
+        const awaitingPortfolioInput = sessionSummary?.portfolio_add_awaiting;
+        if (!directPortfolioOperation && awaitingPortfolioInput) {
+            const isBarePortfolioReply = userMessage.trim().split(/\s+/).length <= 5
+                && !/[؟?]/.test(userMessage)
+                && !/(حلل|تحليل|اخبار|أخبار|رايك|رأيك|مقارن|قارن|اعرض|وريني|توصي|توقع|فين|كام|كم |علاقه|علاقة)/i.test(userMessage);
+            const replySymbols = isBarePortfolioReply ? extractExplicitSymbols(userMessage) : [];
+            const opVerbs: Record<string, string> = { add: "ضيف", update: "عدل", remove: "شيل", sell: "بعت" };
+            const opVerb = opVerbs[awaitingPortfolioInput.operation] || "ضيف";
+            if (awaitingPortfolioInput.symbol && isBarePortfolioReply) {
+                // Quantity/price reply for the remembered symbol. A bare number
+                // is the quantity the bot just asked for.
+                const bareNumber = /^[\d\s.,]+$/.test(userMessage.trim());
+                effectivePortfolioMessage = `${opVerb} سهم ${awaitingPortfolioInput.symbol} ${userMessage.trim()}${bareNumber ? " سهم" : ""} في محفظتي`;
+                directPortfolioOperation = awaitingPortfolioInput.operation;
+            } else if (replySymbols.length > 0) {
+                effectivePortfolioMessage = `${opVerb} ${userMessage.trim()} في محفظتي`;
+                directPortfolioOperation = awaitingPortfolioInput.operation;
+            } else {
+                await updateSessionSummary(supabase, sessionId, userId, { portfolio_add_awaiting: null });
+            }
+        }
         const portfolioAnalysis = directPortfolioOperation === "view" && isPortfolioAnalysisRequest(userMessage);
         if (portfolioAnalysis) {
             // "حلل محفظتي" must use the same stock-analysis path the user gets
@@ -1714,7 +1878,7 @@ export async function* runPipelineStream(
             }
             await updateSessionSummary(supabase, sessionId, userId, { pending_portfolio_import: null });
         } else if (directPortfolioOperation) {
-            const symbols = extractExplicitSymbols(userMessage);
+            const symbols = extractExplicitSymbols(effectivePortfolioMessage);
             const directPlan: IntentPlan = {
                 intent: "portfolio_management",
                 confidence: 1,
@@ -1751,7 +1915,7 @@ export async function* runPipelineStream(
                 resolved_from: { symbol: null, message_id: null },
             };
             yield { type: "status", data: { status: "portfolio", message: "قراءة المحفظة وتنفيذ الطلب..." } };
-            const directTools = await executeStructuredTools(supabase, directPlan, apiKeys, userId, sessionId, userMessage, []);
+            const directTools = await executeStructuredTools(supabase, directPlan, apiKeys, userId, sessionId, effectivePortfolioMessage, []);
             console.log(`[AI TELEMETRY DETAIL] fast_portfolio_tools_ms=${Date.now() - pipelineStart} operation=${directPortfolioOperation}`);
             const portfolioResult = directTools.results.find(result => result.tool === "manage_portfolio");
             if (portfolioResult) {
@@ -1760,6 +1924,7 @@ export async function* runPipelineStream(
                     ? formatPortfolioSnapshotResponse(data)
                     : String(data.message || "تم تنفيذ عملية المحفظة بنجاح.");
                 await persistPipelineSession(sessionState, sessionSummary, directPlan, null, null, sessionId, userId, supabase, false);
+                await persistPortfolioAwaitingState(supabase, sessionId, userId, directPortfolioOperation, data);
                 yield { type: "plan", data: directPlan };
                 yield { type: "tools_data", data: directTools };
                 yield { type: "token", data: response };
@@ -1848,6 +2013,17 @@ export async function* runPipelineStream(
                     tables: [],
                 } };
                 return;
+            }
+            // Non-portfolio image (chart/table) with symbols: persist the
+            // extracted symbols so a later "دى محفظتى" reply can still start
+            // the import flow. Day-14 live chat lost this context because the
+            // screenshot was classified as a comparison table and nothing was
+            // saved, so the user's confirmation got "محفظتك فاضية".
+            if (vision.symbols.length > 0) {
+                await updateSessionSummary(supabase, sessionId, userId, {
+                    last_image_symbols: vision.symbols.map(symbol => symbol.symbol),
+                    last_vision_context: vision,
+                });
             }
         } else if (visionError) {
             yield { type: "vision_error", data: visionError };
@@ -2168,6 +2344,7 @@ export async function* runPipelineStream(
                 : String(data.message || "تم تنفيذ عملية المحفظة بنجاح.");
             yield { type: "token", data: response };
             await persistPipelineSession(sessionState, sessionSummary, plan, vision, memory, sessionId, userId, supabase, hasImages);
+            await persistPortfolioAwaitingState(supabase, sessionId, userId, String(plan.entities.portfolio_operation || ""), data);
             yield { type: "done", data: { response, session_update: { current_symbol: sessionState.current_symbol, last_symbols: portfolioResult.symbols || sessionState.last_symbols, summary: response }, tables: buildExcelTables(tools.results, vision) } };
             return;
         }
@@ -3092,6 +3269,7 @@ export async function runPipeline(
             const response = plan.entities.portfolio_operation === "view"
                 ? formatPortfolioSnapshotResponse(portfolioResult.data)
                 : String(portfolioResult.data?.message || "تم تنفيذ عملية المحفظة بنجاح.");
+            await persistPortfolioAwaitingState(supabase, sessionId, userId, String(plan.entities.portfolio_operation || ""), portfolioResult.data || {});
             return { vision, memory, plan, tools, response, session_update: { current_symbol: sessionState.current_symbol, last_symbols: portfolioResult.symbols || sessionState.last_symbols, summary: response }, vision_error: visionError, tables: buildExcelTables(tools.results, vision) };
         }
     }

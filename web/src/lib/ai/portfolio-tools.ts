@@ -565,6 +565,23 @@ export async function addPortfolioCash(
     }
 }
 
+/**
+ * Pre-check the plan capacity for a screenshot import. Called when the user
+ * confirms the portfolio so the plan-limit rejection happens BEFORE the bot
+ * asks the user to type quantities and average prices for every holding.
+ */
+export async function checkPortfolioImportCapacity(
+    supabase: any,
+    userId: string,
+    symbols: string[],
+): Promise<{ ok: boolean; message: string }> {
+    const uniqueIncoming = new Set(symbols.map(symbol => String(symbol || "").trim().toUpperCase()).filter(Boolean));
+    if (!(await hasActiveProPlan(supabase, userId)) && uniqueIncoming.size > FREE_PORTFOLIO_LIMIT) {
+        return { ok: false, message: `الخطة المجانية تسمح بحد أقصى ${FREE_PORTFOLIO_LIMIT} أسهم مختلفة في المحفظة. الصورة تحتوي على ${uniqueIncoming.size} أسهماً. سجّل أهم ${FREE_PORTFOLIO_LIMIT} أسهم عندك يدوياً (مثلاً: «ضيف COMI 100 بمتوسط 80»)، أو فعّل Pro لإدارة محفظة أكبر.` };
+    }
+    return { ok: true, message: "" };
+}
+
 /** Replace the whole portfolio from a confirmed screenshot (chatbot flow). */
 export async function replacePortfolioFromImage(
     supabase: any,
@@ -574,10 +591,8 @@ export async function replacePortfolioFromImage(
     if (!items || items.length === 0) {
         return { ok: false, message: "مفيش أسهم واضحة في الصورة." };
     }
-    const uniqueIncoming = new Set(items.map(item => String(item.symbol || "").trim().toUpperCase()).filter(Boolean));
-    if (!(await hasActiveProPlan(supabase, userId)) && uniqueIncoming.size > FREE_PORTFOLIO_LIMIT) {
-        return { ok: false, message: `الخطة المجانية تسمح بحد أقصى ${FREE_PORTFOLIO_LIMIT} أسهم مختلفة في المحفظة. الصورة تحتوي على ${uniqueIncoming.size} أسهماً.` };
-    }
+    const capacity = await checkPortfolioImportCapacity(supabase, userId, items.map(item => item.symbol));
+    if (!capacity.ok) return capacity;
 
     const normalizedItems = items.map(item => ({
         ...item,

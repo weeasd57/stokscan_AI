@@ -52,6 +52,15 @@ export interface SessionSummary {
         items: Array<{ symbol: string; name?: string; quantity: number | null; price: number | null }>;
         current_index: number;
     } | null;
+    /**
+     * Conversational portfolio edit state: the bot asked for the symbol (or the
+     * quantity/price of a known symbol) and the user's next short reply should
+     * complete that operation instead of being treated as a fresh query.
+     */
+    portfolio_add_awaiting?: {
+        operation: "add" | "update" | "remove" | "sell";
+        symbol: string | null;
+    } | null;
     updated_at: string;
 }
 

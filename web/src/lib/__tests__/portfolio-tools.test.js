@@ -171,6 +171,14 @@ describe("Portfolio tools (محفظتى)", () => {
         expect(row.status).toBe("open");
     });
 
+    it("adds AMER without requiring cash and parses the real symbol", async () => {
+        const sb = makeSupabaseMock({ positions: [], profile: { cash_balance: 0 }, stockNames: { AMER: "عامر جروب" } });
+        const res = await addPortfolioPosition(sb, "user_1", "AMER", 200, 45.65);
+        expect(res.ok).toBe(true);
+        expect(sb._state.profile.cash_balance).toBe(0);
+        expect(sb._state.positions[0]).toMatchObject({ symbol: "AMER", quantity: 200, entry_price: 45.65 });
+    });
+
     it("rejects invalid symbols and non-positive quantities", async () => {
         const sb = makeSupabaseMock({ positions: [] });
         expect((await addPortfolioPosition(sb, "u", "TOOLONGSYMBOL", 10, 1)).ok).toBe(false);
@@ -311,12 +319,27 @@ describe("Portfolio image conversation helpers", () => {
         });
     });
 
+    it("understands a concise follow-up without repeating the word shares", () => {
+        const item = { symbol: "AMER", quantity: null, price: null };
+        expect(parsePortfolioAnswer("200 بسعر 45.65", item)).toMatchObject({ quantity: 200, price: 45.65 });
+    });
+
     it("fills one missing value without overwriting a value read from the image", () => {
         const item = { symbol: "AMER", quantity: 50, price: null };
         expect(parsePortfolioAnswer("متوسط الشراء 5.75", item)).toMatchObject({
             quantity: 50,
             price: 5.75,
         });
+    });
+
+    it("accepts one bare number when only the quantity is missing", () => {
+        const item = { symbol: "AMER", quantity: null, price: 5.75 };
+        expect(parsePortfolioAnswer("200", item)).toMatchObject({ quantity: 200, price: 5.75 });
+    });
+
+    it("accepts one bare number when only the average price is missing", () => {
+        const item = { symbol: "AMER", quantity: 200, price: null };
+        expect(parsePortfolioAnswer("5.75", item)).toMatchObject({ quantity: 200, price: 5.75 });
     });
 });
 
@@ -339,5 +362,51 @@ describe("Portfolio confirmation detection (detectPortfolioConfirmation)", () =>
     it("returns null for unrelated messages", () => {
         expect(detectPortfolioConfirmation("حلل سهم COMI")).toBeNull();
         expect(detectPortfolioConfirmation("إيه أخبار البورصة؟")).toBeNull();
+    });
+});
+
+describe("Arabic fund name resolution (ادون وثيقة / KASABF / KORA)", () => {
+    const { extractExplicitSymbols } = require("../ai/pipeline");
+
+    it("resolves the day-14 fund query to KASABF in both word orders", () => {
+        expect(extractExplicitSymbols("ادون وثيقة")).toEqual(["KASABF"]);
+        expect(extractExplicitSymbols("وثيقة ادون")).toEqual(["KASABF"]);
+        expect(extractExplicitSymbols("وثائق صندوق استثمار اودن")).toEqual(["KASABF"]);
+        expect(extractExplicitSymbols("صندوق كسب")).toEqual(["KASABF"]);
+        expect(extractExplicitSymbols("كساب")).toEqual(["KASABF"]);
+    });
+
+    it("resolves the letter-swapped spelling ادون and the asset manager to ODIN", () => {
+        expect(extractExplicitSymbols("ادون")).toEqual(["ODIN"]);
+        expect(extractExplicitSymbols("اودن")).toEqual(["ODIN"]);
+    });
+
+    it("keeps a bare fund name a non-portfolio query (consumed by the awaiting state instead)", () => {
+        const { detectPortfolioIntent } = require("../ai/intent-policy");
+        expect(detectPortfolioIntent("ادون وثيقة")).toBeNull();
+    });
+
+    it("maps near-miss Latin tickers and the Arabic KORA name to listed symbols", () => {
+        expect(extractExplicitSymbols("Kasab")).toEqual(["KASABF"]);
+        expect(extractExplicitSymbols("KorRa")).toEqual(["KORA"]);
+        expect(extractExplicitSymbols("سهم قرة")).toEqual(["KORA"]);
+    });
+});
+
+describe("Portfolio intent with attached pronouns and fund wording", () => {
+    const { detectPortfolioIntent } = require("../ai/intent-policy");
+
+    it("detects ضيفه with the attached object pronoun (day-14 message)", () => {
+        expect(detectPortfolioIntent("ضيفه معانا السهم ده")).toBe("add");
+    });
+
+    it("detects fund-unit wording as stock portfolio operations", () => {
+        expect(detectPortfolioIntent("ضيف وثيقة ادون 100")).toBe("add");
+        expect(detectPortfolioIntent("بعت صندوق كسب")).toBe("sell");
+    });
+
+    it("still ignores non-portfolio sentences that merely mention funds", () => {
+        expect(detectPortfolioIntent("أفضل الصناديق في البورصة")).toBeNull();
+        expect(detectPortfolioIntent("تحليل سهم COMI")).toBeNull();
     });
 });

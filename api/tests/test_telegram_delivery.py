@@ -13,8 +13,39 @@ class TelegramDeliveryTests(unittest.TestCase):
     def test_channel_queue_isolated_from_subscriber_queue(self):
         self.assertTrue(self.bot.send_notification("subscriber", chat_id="12345"))
         self.assertTrue(self.bot.send_notification("channel", chat_id="-1002083067817_153"))
+        # Subscriber sends are never mirrored.
         self.assertEqual(len(self.bot._queue), 1)
+        # Channel sends mirror to the VIP channel: free channel + VIP copy.
+        self.assertEqual(len(self.bot._channel_queue), 2)
+        self.assertEqual(self.bot._channel_queue[0]["chat_id"], -1002083067817)
+        self.assertEqual(self.bot._channel_queue[1]["chat_id"], -1003906516349)
+
+    def test_free_channel_messages_are_mirrored_to_vip_channel(self):
+        self.assertTrue(self.bot.send_notification("mirror me", chat_id="-1002083067817_153"))
+        mirrored = [p for p in self.bot._channel_queue if p.get("chat_id") == -1003906516349]
+        self.assertEqual(len(mirrored), 1)
+        self.assertEqual(mirrored[0]["text"], "mirror me")
+        # The VIP mirror must not inherit the free channel's forum topic.
+        self.assertNotIn("message_thread_id", mirrored[0])
+
+    def test_direct_vip_sends_are_not_duplicated(self):
+        self.assertTrue(self.bot.send_notification("direct", chat_id="-1003906516349"))
         self.assertEqual(len(self.bot._channel_queue), 1)
+
+    def test_vip_mirror_can_be_disabled_via_env(self):
+        with patch.object(TelegramBot, "VIP_CHANNEL_ID", ""):
+            self.assertTrue(self.bot.send_notification("no mirror", chat_id="-1002083067817_153"))
+        self.assertEqual(len(self.bot._channel_queue), 1)
+        self.assertEqual(self.bot._channel_queue[0]["chat_id"], -1002083067817)
+
+    def test_vip_mirror_failure_does_not_fail_main_delivery(self):
+        responses = [
+            {"ok": True},   # free channel chunk
+            {"ok": False, "description": "Forbidden: bot is not a member of the channel chat"},  # VIP mirror
+        ]
+        with patch.object(self.bot, "_call_api", side_effect=responses):
+            delivered = self.bot.send_notification("still fine", chat_id="-1002083067817_153", wait_for_delivery=True)
+        self.assertTrue(delivered)
 
     def test_long_messages_are_split_for_telegram_limit(self):
         with patch.object(self.bot, "_call_api", return_value={"ok": True}) as call_api:

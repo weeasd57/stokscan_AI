@@ -118,6 +118,9 @@ export async function updateSessionSummary(
         pending_portfolio_import: update.pending_portfolio_import !== undefined
             ? update.pending_portfolio_import
             : (current?.pending_portfolio_import || null),
+        portfolio_add_awaiting: update.portfolio_add_awaiting !== undefined
+            ? update.portfolio_add_awaiting
+            : (current?.portfolio_add_awaiting || null),
         updated_at: new Date().toISOString()
     };
     try {

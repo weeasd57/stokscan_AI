@@ -35,7 +35,19 @@ const ARABIC_STOCK_MAPPINGS: Record<string, string | string[]> = {
     "مطاحن الإسكندرية": "AFMC", "مطاحن الاسكندرية": "AFMC",
     "مطاحن اسكندرية": "AFMC", "المطاحن": "AFMC",
 
-    // ── AJWA  أجواء ─────────────────────────────────────────
+    // ── KASABF  وثائق صندوق استثمار أودن (كسب) ──────────────
+    // The fund has no name in the stocks table, so users type its colloquial
+    // name "أدون وثيقة" / "وثيقة أدون" (day-14 live chat). "أدون" is the
+    // common letter-swapped spelling of أودن.
+    "وثائق صندوق استثمار أودن": "KASABF", "وثائق صندوق استثمار ادون": "KASABF",
+    "صندوق استثمار أودن": "KASABF", "صندوق استثمار ادون": "KASABF",
+    "وثائق صندوق أودن": "KASABF", "وثائق صندوق ادون": "KASABF",
+    "صندوق أودن": "KASABF", "صندوق ادون": "KASABF",
+    "وثائق أودن": "KASABF", "وثيقة أودن": "KASABF", "أودن وثيقة": "KASABF", "أودن وثائق": "KASABF",
+    "وثائق أدون": "KASABF", "وثيقة أدون": "KASABF", "أدون وثيقة": "KASABF", "أدون وثائق": "KASABF",
+    "صندوق كسب": "KASABF", "وثائق كسب": "KASABF", "وثيقة كسب": "KASABF",
+    "كساب": "KASABF", "كساب للاستثمار الصناعي": "KASABF",
+
     "أجواء للصناعات الغذائية": "AJWA", "اجواء للصناعات الغذائية": "AJWA",
 
     // ── AMER  عامر جروب ─────────────────────────────────────
@@ -310,7 +322,7 @@ const ARABIC_STOCK_MAPPINGS: Record<string, string | string[]> = {
     "النيل لحليج الاقطان": "NCGC", "النيل لحليج الأقطان": "NCGC",
     "شمال الصعيد": "NEDA", "شمال الصعيد للتنمية": "NEDA", "نيوداب": "NEDA",
     "أكتوبر فارما": "OCPH", "اكتوبر فارما": "OCPH",
-    "أودن": "ODIN", "اودن": "ODIN", "أودن للاستثمار": "ODIN",
+    "أودن": "ODIN", "اودن": "ODIN", "أودن للاستثمار": "ODIN", "أدون": "ODIN", "ادون": "ODIN", "أودن للاستثمارات المالية": "ODIN",
     "أوراسكوم المالي": "OFH", "اوراسكوم المالي": "OFH", "او اف اتش": "OFH",
     "أوراسكوم للاستثمار": "OIH", "اوراسكوم للاستثمار": "OIH", "اوراسكوم هولدنج": "OIH",
     "أوراسكوم كونستراكشون": "ORAS",
@@ -713,6 +725,10 @@ export const LATIN_TICKER_ALIASES: Record<string, string> = {
     "IICC": "IEEC",
     "IEOC": "IEEC",
     "IICE": "IEEC",
+    // Users type the fund's short name or the TradingView display name; map
+    // both to the DB tickers (day-14 live chat: "Kasab" and "KorRa").
+    "KASAB": "KASABF",
+    "KORRA": "KORA",
 };
 
 export function correctStockSymbol(symbol: string, validSymbols: string[]): string {
