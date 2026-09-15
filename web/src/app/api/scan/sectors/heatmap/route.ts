@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getSupabaseClient } from "@/lib/supabase/route-data";
 
 export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
+export const revalidate = 60;
 
 const PAGE_SIZE = 1000;
 
@@ -71,7 +71,10 @@ export async function GET(req: Request) {
       new Set<string>((latestDates || []).map((row: any) => String(row.date || "")).filter(Boolean))
     ).slice(0, 90);
     if (availableDates.length === 0) {
-      return NextResponse.json({ rows: [], available_dates: [] }, { headers: { "Cache-Control": "no-store" } });
+      return NextResponse.json(
+        { rows: [], available_dates: [] },
+        { headers: { "Cache-Control": "public, s-maxage=60, stale-while-revalidate=120" } }
+      );
     }
 
     let effectiveDate = selectedDate;
@@ -152,7 +155,7 @@ export async function GET(req: Request) {
         range_end: toDate,
         range_dates: rangeDates,
       },
-      { headers: { "Cache-Control": "no-store" } }
+      { headers: { "Cache-Control": "public, s-maxage=60, stale-while-revalidate=120" } }
     );
   } catch (error) {
     console.error("Heatmap API error:", error);

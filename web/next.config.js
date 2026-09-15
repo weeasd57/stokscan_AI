@@ -6,6 +6,22 @@ const nextConfig = {
     defaultLocale: 'en',
     localeDetection: false,
   },
+  async redirects() {
+    return [
+      {
+        source: '/ar/:path*',
+        destination: '/:path*',
+        permanent: true,
+        locale: false,
+      },
+      {
+        source: '/en/:path*',
+        destination: '/:path*',
+        permanent: true,
+        locale: false,
+      },
+    ];
+  },
   async rewrites() {
     console.log("Using Python Path:", process.env.PYTHON_PATH || "Default System Python");
     // Rewrites must target the Python backend only — never the Next.js origin.

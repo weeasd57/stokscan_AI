@@ -26,14 +26,9 @@ export async function middleware(request: NextRequest) {
   return NextResponse.next();
 }
 
-// The ngrok-skip-browser-warning header is injected client-side by the global
-// fetch wrapper in src/app/providers.tsx for every relative request, so the
-// middleware no longer needs to run on all API traffic. Keeping the matcher
-// narrow avoids paying edge middleware execution on every request.
+// All redirects (/ar/*, /en/*) are now handled at zero CPU cost by next.config.js redirects.
+// The x-admin-key header is already injected server-side by /api/admin/[...path]/route.ts.
+// Keeping the matcher empty avoids paying Edge Middleware execution on any request.
 export const config = {
-  matcher: [
-    "/api/admin/:path*",
-    "/ar/:path*",
-    "/en/:path*",
-  ],
+  matcher: [],
 };

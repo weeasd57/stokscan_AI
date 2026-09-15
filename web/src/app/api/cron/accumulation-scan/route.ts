@@ -1,4 +1,4 @@
-﻿import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
 /**
  * Vercel Cron Job — يتشغل يومياً 13:00 UTC (16:00 Cairo) أحد-خميس
@@ -6,7 +6,7 @@
  * ويحدث جدول stock_scans_summary في Supabase
  */
 export const dynamic = "force-dynamic";
-export const maxDuration = 300; // 5 minutes max
+export const maxDuration = 60; // Vercel Hobby plan limit (max 60s)
 
 export async function GET(req: NextRequest) {
     // حماية: فقط Vercel Cron أو طلبات مصرح بها
@@ -34,7 +34,7 @@ export async function GET(req: NextRequest) {
                 "Content-Type": "application/json",
                 "X-Cron-Secret": cronSecret || "",
             },
-            signal: AbortSignal.timeout(270_000),
+            signal: AbortSignal.timeout(55_000),
         });
 
         if (!response.ok) {
