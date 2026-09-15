@@ -107,6 +107,41 @@ def parse_args():
     )
     return parser.parse_args()
 
+def _trigger_website_revalidation():
+    """Trigger on-demand Vercel CDN cache revalidation so the site reflects latest daily data immediately."""
+    try:
+        import urllib.request
+        import json
+
+        base_url = (
+            os.getenv("NEXT_PUBLIC_SITE_URL")
+            or os.getenv("WEBSITE_URL")
+            or "https://egxbots.com"
+        ).rstrip("/")
+
+        secret = (
+            os.getenv("REVALIDATE_SECRET")
+            or os.getenv("ADMIN_SECRET_KEY")
+            or os.getenv("CRON_SECRET")
+        )
+        if not secret:
+            logger.warning("⚠️  Cannot revalidate website cache: No secret configured (ADMIN_SECRET_KEY / REVALIDATE_SECRET)")
+            return
+
+        revalidate_url = f"{base_url}/api/revalidate?secret={secret}"
+        req = urllib.request.Request(revalidate_url, method="POST")
+        req.add_header("User-Agent", "EGX-Daily-Bot/1.0")
+
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            if resp.status == 200:
+                logger.info(f"✅ Website cache revalidated successfully: {data.get('revalidated')}")
+            else:
+                logger.warning(f"⚠️  Website revalidation returned status {resp.status}: {data}")
+    except Exception as e:
+        logger.warning(f"⚠️  Website cache revalidation skipped or failed: {e}")
+
+
 # ── Main ────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     args = parse_args()
@@ -136,6 +171,10 @@ if __name__ == "__main__":
             logger.info("✅ Market cache refreshed successfully")
         except Exception as e:
             logger.error(f"❌ Failed to refresh market cache: {e}", exc_info=True)
+
+        # Revalidate Vercel edge cache on-demand
+        _trigger_website_revalidation()
+
         _flush_telegram_queue(timeout=10)
         sys.exit(0)
 
