@@ -12,6 +12,7 @@ import asyncio
 import json
 import uuid
 import urllib.request
+import urllib.parse
 import pandas as pd
 import numpy as np
 from typing import List, Dict, Any, Tuple, Optional, Set
@@ -723,9 +724,42 @@ def _fetch_technical_snapshot(symbol: str, exchange: str) -> dict:
     return {"rsi": 50, "adx": 25, "ema_50": 0, "ema_200": 0, "volume": 0, "change_pct": 0, "macd": 0, "macd_signal": 0, "vol_sma20": 0}
 
 
-def _send_telegram_adjustment(symbol: str, exchange: str, adjustment: dict):
+def _telegram_delivery_project_allowed() -> bool:
+    """Only the configured production Supabase project may publish recommendations."""
+    expected_ref = os.getenv("TELEGRAM_RECOMMENDATIONS_PROJECT_REF", "gfcmaxbtscmizsakarvc").strip().lower()
+    supabase_url = (os.getenv("SUPABASE_URL") or os.getenv("NEXT_PUBLIC_SUPABASE_URL") or "").strip().lower()
+    if not expected_ref or not supabase_url:
+        return False
+    try:
+        return urllib.parse.urlparse(supabase_url).hostname == f"{expected_ref}.supabase.co"
+    except ValueError:
+        return False
+
+
+def _has_valid_telegram_event_claim(event_client: Any, event_id: Optional[str], claim_token: Optional[str], allowed_types: Set[str]) -> bool:
+    if not _telegram_delivery_project_allowed():
+        print("[TELEGRAM] Recommendation send blocked: Supabase project is not the configured production project.")
+        return False
+    from api.recommendation_events import verify_event_delivery_claim
+    valid = verify_event_delivery_claim(event_client, event_id, claim_token, allowed_types)
+    if not valid:
+        print(f"[TELEGRAM] Recommendation send blocked: invalid or missing durable event claim ({event_id}).")
+    return valid
+
+
+def _send_telegram_adjustment(
+    symbol: str,
+    exchange: str,
+    adjustment: dict,
+    *,
+    event_id: Optional[str] = None,
+    claim_token: Optional[str] = None,
+    event_client: Any = None,
+):
     """Send adjustment notification via Telegram to public channel topic."""
     if not _telegram_recommendation_writes_enabled():
+        return False
+    if not _has_valid_telegram_event_claim(event_client, event_id, claim_token, {"target_or_stop_adjusted"}):
         return False
     try:
         adj_type = adjustment.get("type", "adjustment")
@@ -816,9 +850,23 @@ def _rollback_recommendation_change(recommendation_id: Any, expected_status: str
         return False
 
 
-def _send_telegram_exit(symbol: str, exchange: str, entry_price: float, exit_price: float, pl_pct: float, status: str, created_at: str = ""):
+def _send_telegram_exit(
+    symbol: str,
+    exchange: str,
+    entry_price: float,
+    exit_price: float,
+    pl_pct: float,
+    status: str,
+    created_at: str = "",
+    *,
+    event_id: Optional[str] = None,
+    claim_token: Optional[str] = None,
+    event_client: Any = None,
+):
     """Send exit notification via Telegram to public channel topic."""
     if not _telegram_recommendation_writes_enabled():
+        return False
+    if not _has_valid_telegram_event_claim(event_client, event_id, claim_token, {"recommendation_closed", "recommendation_stale"}):
         return False
     try:
         web_origin = get_web_origin()
@@ -881,7 +929,10 @@ def retry_pending_recommendation_telegram_events(limit: int = 10) -> int:
             exit_price = float(event.get("price_at_event") or new_values.get("exit_price") or entry)
             pl_pct = float(new_values.get("profit_loss_pct") or old_values.get("profit_loss_pct") or 0)
             status = str(new_values.get("status") or ("stale" if event_type == "recommendation_stale" else "loss"))
-            delivered = _send_telegram_exit(symbol, exchange, entry, exit_price, pl_pct, status, old_values.get("created_at", ""))
+            delivered = _send_telegram_exit(
+                symbol, exchange, entry, exit_price, pl_pct, status, old_values.get("created_at", ""),
+                event_id=event_id, claim_token=claim_token, event_client=supabase,
+            )
         elif event_type == "target_or_stop_adjusted":
             adjustment_type = str((event.get("new_values") or {}).get("adjustment_type") or "target_raised")
             adjustment = {
@@ -894,7 +945,10 @@ def retry_pending_recommendation_telegram_events(limit: int = 10) -> int:
                 "current_price": event.get("price_at_event"),
                 "pl_pct": new_values.get("profit_loss_pct") or old_values.get("profit_loss_pct"),
             }
-            delivered = _send_telegram_adjustment(symbol, exchange, adjustment)
+            delivered = _send_telegram_adjustment(
+                symbol, exchange, adjustment,
+                event_id=event_id, claim_token=claim_token, event_client=supabase,
+            )
         else:
             update_telegram_delivery(supabase, event_id, success=False, error=f"Unsupported event type: {event_type}", attempts_already_claimed=True, claim_token=claim_token)
             continue
@@ -1260,6 +1314,9 @@ def evaluate_old_recommendations():
                                 ((latest_close - entry_price) / entry_price * 100) if entry_price else 0,
                                 "stale",
                                 created_at=created_at_date,
+                                event_id=event_rec["id"],
+                                claim_token=claim_token,
+                                event_client=supabase,
                             )
                             update_telegram_delivery(supabase, event_rec["id"], success=delivered, claim_token=claim_token)
                 else:
@@ -1633,7 +1690,11 @@ def evaluate_old_recommendations():
                     if event_rec and event_rec.get("id") and _telegram_recommendation_writes_enabled():
                         claim_token = claim_event_delivery(supabase, event_rec["id"])
                         if claim_token:
-                            delivered = _send_telegram_exit(symbol, exchange, entry_price, exit_price, pl_pct, status, created_at=created_at_date)
+                            delivered = _send_telegram_exit(
+                                symbol, exchange, entry_price, exit_price, pl_pct, status,
+                                created_at=created_at_date, event_id=event_rec["id"],
+                                claim_token=claim_token, event_client=supabase,
+                            )
                             update_telegram_delivery(supabase, event_rec["id"], success=delivered, claim_token=claim_token)
             except Exception as upd_err:
                 print(f"[EVALUATE] Close update failed for {symbol}: {upd_err}")
@@ -1666,7 +1727,10 @@ def evaluate_old_recommendations():
                 adjustment_event_ids.append(event_rec["id"])
                 claim_token = claim_event_delivery(supabase, event_rec["id"]) if _telegram_recommendation_writes_enabled() else None
                 if claim_token:
-                    delivered = _send_telegram_adjustment(symbol, exchange, adj)
+                    delivered = _send_telegram_adjustment(
+                        symbol, exchange, adj, event_id=event_rec["id"],
+                        claim_token=claim_token, event_client=supabase,
+                    )
                     update_telegram_delivery(supabase, event_rec["id"], success=delivered, claim_token=claim_token)
 
         print(f"[EVALUATE] {symbol}: status={status}, return={pl_pct:.2f}%, trend={trend_strength}, adjustments={len(new_adjustments)}")

@@ -1170,6 +1170,9 @@ def evaluate_scan(batch_id: str):
                                 pl_pct,
                                 status,
                                 created_at=str(r.get("created_at") or "")[:10],
+                                event_id=event_rec["id"],
+                                claim_token=claim_token,
+                                event_client=sb,
                             )
                             update_telegram_delivery(sb, event_rec["id"], success=delivered, claim_token=claim_token)
                 except Exception as event_err:

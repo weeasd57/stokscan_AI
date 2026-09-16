@@ -194,8 +194,6 @@ def claim_event_delivery(supabase: Any, event_id: Optional[str]) -> Optional[str
             .is_("retry_claimed_at", "null")
             .execute()
         )
-        # Do not trust the update response representation; confirm the token we
-        # wrote is the one persisted, which only the winner can observe.
         verify = (
             supabase.table("recommendation_events")
             .select("id")
@@ -210,24 +208,61 @@ def claim_event_delivery(supabase: Any, event_id: Optional[str]) -> Optional[str
         return None
 
 
+def verify_event_delivery_claim(
+    supabase: Any,
+    event_id: Optional[str],
+    claim_token: Optional[str],
+    allowed_event_types: Optional[set[str]] = None,
+) -> bool:
+    """Fail closed unless a recent delivery lease exists for a durable event.
+
+    Telegram formatting helpers are imported by jobs, API routes, and tests.  A
+    caller must therefore prove that the message belongs to an event persisted
+    and claimed in ``recommendation_events`` before any network send is allowed.
+    """
+    if not supabase or not event_id or not claim_token or _is_read_only():
+        return False
+    try:
+        result = (
+            supabase.table("recommendation_events")
+            .select("id,event_type,telegram_status,retry_claim_token,retry_claimed_at")
+            .eq("id", event_id)
+            .eq("retry_claim_token", claim_token)
+            .gte(
+                "retry_claimed_at",
+                (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat(),
+            )
+            .limit(1)
+            .execute()
+        )
+        row = (getattr(result, "data", None) or [None])[0]
+        if not row or row.get("telegram_status") not in {"pending", "failed"}:
+            return False
+        return not allowed_event_types or row.get("event_type") in allowed_event_types
+    except Exception as error:
+        print(f"[RECOMMENDATION_EVENT] Could not verify Telegram claim for {event_id}: {error}")
+        return False
+
+
 def invalidate_event(supabase: Any, event_id: str, reason: str = "lifecycle compensation") -> bool:
     """Mark an event as cancelled so a compensated mutation cannot be retried."""
     if not event_id:
         return False
     try:
+        updated_at = datetime.now(timezone.utc).isoformat()
         update_query = (
             supabase.table("recommendation_events")
             .update({
                 "telegram_status": "cancelled",
                 "last_error": reason[:500],
                 "retry_claimed_at": None,
-                "updated_at": datetime.now(timezone.utc).isoformat(),
+                "updated_at": updated_at,
             })
             .eq("id", event_id)
             .not_.is_("telegram_status", "sent")
         )
         update_query.execute()
-        verify = supabase.table("recommendation_events").select("id,telegram_status,updated_at").eq("id", event_id).eq("updated_at", update_payload["updated_at"]).limit(1).execute()
+        verify = supabase.table("recommendation_events").select("id,telegram_status,updated_at").eq("id", event_id).eq("updated_at", updated_at).limit(1).execute()
         row = (getattr(verify, "data", None) or [None])[0]
         return bool(row and row.get("telegram_status") == "cancelled")
     except Exception as error:

@@ -383,6 +383,9 @@ def update_actuals(exchange="EGX", look_forward_days=20, target_pct=2.0, stop_lo
                                     pl_pct,
                                     status_val,
                                     created_at=str(pred.get("created_at") or "")[:10],
+                                    event_id=ev["id"],
+                                    claim_token=claim_token,
+                                    event_client=supabase,
                                 )
                                 update_telegram_delivery(supabase, ev["id"], success=delivered, claim_token=claim_token)
                     except Exception as ev_err:

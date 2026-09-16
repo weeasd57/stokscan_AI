@@ -8,10 +8,16 @@ both read ``telegram_status == 'pending'`` and each sent the same message.
 import os
 import sys
 from unittest.mock import patch
+import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from api.recommendation_events import claim_event_delivery, update_telegram_delivery
+from api.recommendation_events import claim_event_delivery, update_telegram_delivery, verify_event_delivery_claim
+
+
+@pytest.fixture(autouse=True)
+def _telegram_writes_enabled(monkeypatch):
+    monkeypatch.setenv("TELEGRAM_RECOMMENDATIONS_READ_ONLY", "false")
 
 
 class _FakeResponse:
@@ -85,6 +91,7 @@ class _FakeSupabase:
 def _pending_event():
     return [{
         "id": "evt-1",
+        "event_type": "recommendation_closed",
         "telegram_status": "pending",
         "retry_claimed_at": None,
         "retry_claim_token": None,
@@ -125,3 +132,19 @@ class TestDeliveryBookkeepingClearsClaim:
         assert update_telegram_delivery(db, "evt-1", success=True, claim_token=token)
         assert db.rows[0]["telegram_status"] == "sent"
         assert db.rows[0]["retry_claimed_at"] is None
+
+
+class TestVerifyEventDeliveryClaim:
+    def test_claimed_durable_event_is_valid(self):
+        db = _FakeSupabase(_pending_event())
+        token = claim_event_delivery(db, "evt-1")
+        assert verify_event_delivery_claim(db, "evt-1", token, {"recommendation_closed"})
+
+    def test_wrong_event_type_is_rejected(self):
+        db = _FakeSupabase(_pending_event())
+        token = claim_event_delivery(db, "evt-1")
+        assert not verify_event_delivery_claim(db, "evt-1", token, {"target_or_stop_adjusted"})
+
+    def test_missing_claim_is_rejected(self):
+        db = _FakeSupabase(_pending_event())
+        assert not verify_event_delivery_claim(db, "evt-1", None, {"recommendation_closed"})

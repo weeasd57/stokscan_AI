@@ -37,6 +37,14 @@ interface RecommendationCalendarProps {
     onSelectStock?: (stock: any) => void;
 }
 
+interface RecommendationEvent {
+    id: string;
+    recommendation_id: string;
+    event_type: "recommendation_closed" | "recommendation_stale" | "target_or_stop_adjusted";
+    occurred_at: string;
+    [key: string]: any;
+}
+
 export default function RecommendationCalendar({
     recommendations = [],
     loading = false,
@@ -63,7 +71,35 @@ export default function RecommendationCalendar({
 
     // Selected Day Modal State
     const [selectedDayDateStr, setSelectedDayDateStr] = useState<string | null>(null);
-    const [dayModalFilter, setDayModalFilter] = useState<"all" | "created" | "closed">("all");
+    const [dayModalFilter, setDayModalFilter] = useState<"all" | "created" | "closed" | "adjusted">("all");
+    const [sentEvents, setSentEvents] = useState<RecommendationEvent[]>([]);
+    const [trackedRecommendationIds, setTrackedRecommendationIds] = useState<string[]>([]);
+    const [eventsUnavailable, setEventsUnavailable] = useState(false);
+
+    useEffect(() => {
+        const controller = new AbortController();
+        fetch("/api/recommendations/events?limit=1000", {
+            cache: "no-store",
+            signal: controller.signal,
+        })
+            .then(async response => {
+                if (!response.ok) throw new Error(`events endpoint returned ${response.status}`);
+                return response.json();
+            })
+            .then(payload => {
+                setSentEvents(Array.isArray(payload?.events) ? payload.events : []);
+                setTrackedRecommendationIds(
+                    Array.isArray(payload?.tracked_recommendation_ids)
+                        ? payload.tracked_recommendation_ids.map(String)
+                        : [],
+                );
+                setEventsUnavailable(false);
+            })
+            .catch(error => {
+                if (error?.name !== "AbortError") setEventsUnavailable(true);
+            });
+        return () => controller.abort();
+    }, []);
 
     // View Mode: Calendar vs Agenda List
     const [viewMode, setViewMode] = useState<"calendar" | "agenda">("calendar");
@@ -149,6 +185,47 @@ export default function RecommendationCalendar({
         return recommendations;
     }, [recommendations, shariaOnly]);
 
+    const filteredSentEvents = useMemo(
+        () => shariaOnly ? sentEvents.filter(event => isShariaCompliant(event.symbol)) : sentEvents,
+        [sentEvents, shariaOnly],
+    );
+
+    const closureTimeline = useMemo(() => {
+        const eventRecommendationIds = new Set(trackedRecommendationIds);
+        const fromEvents = filteredSentEvents
+            .filter(event => event.event_type === "recommendation_closed" || event.event_type === "recommendation_stale")
+            .map(event => ({
+                ...event,
+                id: event.recommendation_id,
+                _timelineKey: `event:${event.id}`,
+                _calendarEventAt: event.occurred_at,
+                _eventType: event.event_type,
+            }));
+        const legacy = filteredBaseRecs
+            .filter(row => ["win", "loss"].includes(String(row.status || "").toLowerCase()))
+            .filter(row => !eventRecommendationIds.has(String(row.id)))
+            .map(row => ({
+                ...row,
+                _timelineKey: `legacy-close:${row.id}`,
+                _calendarEventAt: row.updated_at || row.created_at,
+                _eventType: "legacy_closed",
+            }));
+        return [...fromEvents, ...legacy];
+    }, [filteredBaseRecs, filteredSentEvents, trackedRecommendationIds]);
+
+    const adjustmentTimeline = useMemo(
+        () => filteredSentEvents
+            .filter(event => event.event_type === "target_or_stop_adjusted")
+            .map(event => ({
+                ...event,
+                id: event.recommendation_id,
+                _timelineKey: `event:${event.id}`,
+                _calendarEventAt: event.occurred_at,
+                _eventType: event.event_type,
+            })),
+        [filteredSentEvents],
+    );
+
     const viewedMonthCreatedCount = useMemo(() => {
         const start = new Date(year, month, 1);
         const end = new Date(year, month + 1, 1);
@@ -205,7 +282,7 @@ export default function RecommendationCalendar({
         // closed in July must not become a July-created signal or be counted
         // twice while navigating calendar months.
         const createdTrades = filteredBaseRecs.filter(r => inRange(r.created_at));
-        const closedTrades = filteredBaseRecs.filter(r => isClosed(r) && inRange(r.updated_at || r.created_at));
+        const closedTrades = closureTimeline.filter(r => isClosed(r) && inRange(r._calendarEventAt));
         const openTrades = createdTrades.filter(r => !isClosed(r));
 
         const wins = closedTrades.filter(r => (r.status || "").toLowerCase() === "win");
@@ -239,13 +316,14 @@ export default function RecommendationCalendar({
             bestTrade,
             worstTrade
         };
-    }, [filteredBaseRecs, dateRangeBoundaries]);
+    }, [filteredBaseRecs, closureTimeline, dateRangeBoundaries]);
 
     // Group recommendations by day string YYYY-MM-DD
     const dayMap = useMemo(() => {
         const map = new Map<string, {
             created: any[];
             closed: any[];
+            adjusted: any[];
             wins: any[];
             losses: any[];
             netProfitPct: number;
@@ -256,18 +334,20 @@ export default function RecommendationCalendar({
             const createdYmd = parseYMD(r.created_at);
             if (createdYmd) {
                 if (!map.has(createdYmd)) {
-                    map.set(createdYmd, { created: [], closed: [], wins: [], losses: [], netProfitPct: 0 });
+                    map.set(createdYmd, { created: [], closed: [], adjusted: [], wins: [], losses: [], netProfitPct: 0 });
                 }
                 map.get(createdYmd)!.created.push(r);
             }
 
-            // Closed on date
+        });
+
+        closureTimeline.forEach(r => {
             const statusLower = (r.status || "").toLowerCase();
             if (statusLower === "win" || statusLower === "loss") {
-                const closedYmd = parseYMD(r.updated_at || r.created_at);
+                const closedYmd = parseYMD(r._calendarEventAt);
                 if (closedYmd) {
                     if (!map.has(closedYmd)) {
-                        map.set(closedYmd, { created: [], closed: [], wins: [], losses: [], netProfitPct: 0 });
+                        map.set(closedYmd, { created: [], closed: [], adjusted: [], wins: [], losses: [], netProfitPct: 0 });
                     }
                     const entry = map.get(closedYmd)!;
                     entry.closed.push(r);
@@ -280,8 +360,17 @@ export default function RecommendationCalendar({
             }
         });
 
+        adjustmentTimeline.forEach(r => {
+            const adjustedYmd = parseYMD(r._calendarEventAt);
+            if (!adjustedYmd) return;
+            if (!map.has(adjustedYmd)) {
+                map.set(adjustedYmd, { created: [], closed: [], adjusted: [], wins: [], losses: [], netProfitPct: 0 });
+            }
+            map.get(adjustedYmd)!.adjusted.push(r);
+        });
+
         return map;
-    }, [filteredBaseRecs]);
+    }, [filteredBaseRecs, closureTimeline, adjustmentTimeline]);
 
     // Generate Calendar Grid Days for current month
     const calendarDays = useMemo(() => {
@@ -336,15 +425,15 @@ export default function RecommendationCalendar({
     // Selected Day Data for Modal
     const selectedDayData = useMemo(() => {
         if (!selectedDayDateStr) return null;
-        const data = dayMap.get(selectedDayDateStr) || { created: [], closed: [], wins: [], losses: [], netProfitPct: 0 };
+        const data = dayMap.get(selectedDayDateStr) || { created: [], closed: [], adjusted: [], wins: [], losses: [], netProfitPct: 0 };
         
         // Merge created & closed for day view (deduplicated by id)
         const allMap = new Map<string, any>();
-        data.created.forEach(item => allMap.set(item.id, { ...item, _isCreatedToday: true }));
+        data.created.forEach(item => allMap.set(`created:${item.id}`, { ...item, _isCreatedToday: true, _timelineKey: `created:${item.id}` }));
         data.closed.forEach(item => {
-            const existing = allMap.get(item.id);
-            allMap.set(item.id, { ...(existing || item), _isClosedToday: true });
+            allMap.set(item._timelineKey, { ...item, _isClosedToday: true });
         });
+        data.adjusted.forEach(item => allMap.set(item._timelineKey, { ...item, _isAdjustedToday: true }));
 
         const allList = Array.from(allMap.values());
 
@@ -354,6 +443,8 @@ export default function RecommendationCalendar({
             filteredList = allList.filter(item => item._isCreatedToday);
         } else if (dayModalFilter === "closed") {
             filteredList = allList.filter(item => item._isClosedToday);
+        } else if (dayModalFilter === "adjusted") {
+            filteredList = allList.filter(item => item._isAdjustedToday);
         }
 
         const closedCount = data.closed.length;
@@ -386,6 +477,13 @@ export default function RecommendationCalendar({
 
     return (
         <div className="w-full space-y-4 sm:space-y-6 select-text text-zinc-900 dark:text-zinc-100" dir={isAr ? "rtl" : "ltr"}>
+            {eventsUnavailable && (
+                <div className="rounded-xl border border-amber-300/70 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
+                    {isAr
+                        ? "تعذر تحميل سجل الإرسال الموثق؛ تُعرض الإغلاقات القديمة مؤقتاً من بيانات التوصيات."
+                        : "Verified delivery history is unavailable; legacy recommendation data is shown temporarily."}
+                </div>
+            )}
             {/* ── HEADER & DASHBOARD STATS BAR ── */}
             <div className="p-3.5 sm:p-5 md:p-6 rounded-2xl bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 shadow-xl dark:shadow-2xl relative overflow-hidden space-y-4 sm:space-y-6">
                 {/* Background ambient glow */}
@@ -662,6 +760,7 @@ export default function RecommendationCalendar({
                             const dayInfo = dayMap.get(cell.dateStr);
                             const hasCreated = dayInfo && dayInfo.created.length > 0;
                             const hasClosed = dayInfo && dayInfo.closed.length > 0;
+                            const hasAdjusted = dayInfo && dayInfo.adjusted.length > 0;
                             const isToday = cell.dateStr === todayDateStr;
                             const isSelected = cell.dateStr === selectedDayDateStr;
 
@@ -713,6 +812,11 @@ export default function RecommendationCalendar({
                                                     {dayInfo.closed.length}🏁
                                                 </span>
                                             )}
+                                            {hasAdjusted && (
+                                                <span className="text-[8px] sm:text-[9px] md:text-[10px] font-black text-sky-700 dark:text-sky-400 bg-sky-500/10 border border-sky-500/20 px-0.5 sm:px-1 rounded" title={`${dayInfo.adjusted.length} ${isAr ? "تحديث توصية" : "adjustments"}`}>
+                                                    {dayInfo.adjusted.length}🔧
+                                                </span>
+                                            )}
                                         </div>
                                     </div>
 
@@ -735,6 +839,13 @@ export default function RecommendationCalendar({
                                         <div className="my-auto text-center">
                                             <span className="text-[8px] sm:text-[9px] font-bold text-amber-600/90 dark:text-amber-400/80 block truncate">
                                                 {dayInfo.created.length} {isAr ? "نشطة" : "Active"}
+                                            </span>
+                                        </div>
+                                    )}
+                                    {cell.isCurrentMonth && hasAdjusted && !hasClosed && !hasCreated && (
+                                        <div className="my-auto text-center">
+                                            <span className="text-[8px] sm:text-[9px] font-bold text-sky-600 dark:text-sky-400 block truncate">
+                                                {dayInfo.adjusted.length} {isAr ? "تحديث" : "Updated"}
                                             </span>
                                         </div>
                                     )}
@@ -924,6 +1035,16 @@ export default function RecommendationCalendar({
                                 >
                                     {isAr ? "المغلقة" : "Closed"} ({selectedDayData.data.closed.length})
                                 </button>
+                                <button
+                                    onClick={() => setDayModalFilter("adjusted")}
+                                    className={`px-2.5 sm:px-3 py-1 rounded-lg transition-all whitespace-nowrap ${
+                                        dayModalFilter === "adjusted"
+                                            ? "bg-sky-100 dark:bg-sky-500/20 text-sky-700 dark:text-sky-400 border border-sky-300 dark:border-sky-500/30 font-black"
+                                            : "text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white"
+                                    }`}
+                                >
+                                    {isAr ? "التحديثات" : "Updates"} ({selectedDayData.data.adjusted.length})
+                                </button>
                             </div>
                         </div>
 
@@ -939,10 +1060,11 @@ export default function RecommendationCalendar({
                                     const isWin = statusLower === "win";
                                     const isLoss = statusLower === "loss";
                                     const isClosed = isWin || isLoss;
+                                    const isAdjustment = item._isAdjustedToday;
 
                                     return (
                                         <div
-                                            key={item.id}
+                                            key={item._timelineKey || item.id}
                                             onClick={() => {
                                                 if (onSelectStock) onSelectStock(item);
                                             }}
@@ -968,6 +1090,11 @@ export default function RecommendationCalendar({
                                                         }`}>
                                                             {item.signal === "BUY" ? (isAr ? "شراء" : "BUY") : (isAr ? "بيع" : "SELL")}
                                                         </span>
+                                                        {isAdjustment && (
+                                                            <span className="px-1.5 sm:px-2 py-0.5 rounded text-[9px] sm:text-[10px] font-black bg-sky-500/10 text-sky-700 dark:text-sky-400 border border-sky-500/20">
+                                                                {isAr ? "تحديث مُرسل 🔧" : "Sent update 🔧"}
+                                                            </span>
+                                                        )}
                                                     </div>
                                                     <div className="text-[11px] sm:text-xs text-zinc-500 dark:text-zinc-400 font-medium truncate max-w-[170px] sm:max-w-[200px]" title={item.name}>
                                                         {item.name}
@@ -1001,6 +1128,14 @@ export default function RecommendationCalendar({
                                                         }`}>
                                                             {isWin ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}
                                                             {item.profit_loss_pct != null ? `${item.profit_loss_pct > 0 ? "+" : ""}${Number(item.profit_loss_pct).toFixed(1)}%` : (isWin ? (isAr ? "ربح" : "Win") : (isAr ? "خسارة" : "Loss"))}
+                                                        </span>
+                                                    ) : isAdjustment ? (
+                                                        <span className="text-sky-600 dark:text-sky-400 font-bold text-[11px] sm:text-xs">
+                                                            {item.old_target != null && item.new_target != null
+                                                                ? `${Number(item.old_target).toFixed(2)} → ${Number(item.new_target).toFixed(2)}`
+                                                                : item.old_stop != null && item.new_stop != null
+                                                                    ? `${Number(item.old_stop).toFixed(2)} → ${Number(item.new_stop).toFixed(2)}`
+                                                                    : (isAr ? "تم التحديث" : "Updated")}
                                                         </span>
                                                     ) : (
                                                         <span className="text-amber-600 dark:text-amber-400 font-bold text-[11px] sm:text-xs">{isAr ? "نشطة 🎯" : "Active 🎯"}</span>
