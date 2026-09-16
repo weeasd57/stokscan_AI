@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSupabaseClient, toNumber } from "@/lib/supabase/route-data";
+import { DAILY_CACHE_TAGS } from "@/lib/cache/daily";
 
 export const runtime = "nodejs";
 export const revalidate = 86400; // 24 hours (cleared instantly on-demand via /api/revalidate)
@@ -26,6 +27,7 @@ export async function GET(req: Request) {
     return NextResponse.json(results, {
       headers: {
         "Cache-Control": "public, s-maxage=86400, stale-while-revalidate=86400",
+        "Vercel-Cache-Tag": DAILY_CACHE_TAGS.recommendations,
       },
     });
   } catch (error) {

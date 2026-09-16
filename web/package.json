@@ -23,6 +23,7 @@
     "@supabase/ssr": "^0.6.1",
     "@supabase/supabase-js": "^2.49.1",
     "@vercel/analytics": "^2.0.1",
+    "@vercel/functions": "^3.9.8",
     "apexcharts": "^5.3.6",
     "axios": "^1.7.9",
     "class-variance-authority": "^0.7.1",

@@ -47,6 +47,39 @@ class TelegramDeliveryTests(unittest.TestCase):
             delivered = self.bot.send_notification("still fine", chat_id="-1002083067817_153", wait_for_delivery=True)
         self.assertTrue(delivered)
 
+    def test_sync_delivery_records_free_and_vip_message_receipts(self):
+        responses = [
+            {"ok": True, "result": {"message_id": 101}},
+            {"ok": True, "result": {"message_id": 202}},
+        ]
+        with patch.object(self.bot, "_call_api", side_effect=responses):
+            delivered = self.bot.send_notification(
+                "tracked", chat_id="-1002083067817_153", wait_for_delivery=True
+            )
+        self.assertTrue(delivered)
+        self.assertEqual(
+            self.bot.get_last_delivery_receipts(),
+            [
+                {"chat_id": -1002083067817, "message_id": 101, "message_thread_id": 153},
+                {"chat_id": -1003906516349, "message_id": 202},
+            ],
+        )
+
+    def test_sync_delivery_retries_invalid_markdown_as_plain_text(self):
+        responses = [
+            {"ok": False, "description": "Bad Request: can't parse entities"},
+            {"ok": True, "result": {"message_id": 303}},
+        ]
+        with patch.object(TelegramBot, "VIP_CHANNEL_ID", ""), patch.object(
+            self.bot, "_call_api", side_effect=responses
+        ) as call_api:
+            delivered = self.bot.send_notification(
+                "*broken_[markdown]", chat_id="-1002083067817_153", wait_for_delivery=True
+            )
+        self.assertTrue(delivered)
+        self.assertEqual(call_api.call_args_list[1].args[1]["text"], "brokenmarkdown")
+        self.assertEqual(self.bot.get_last_delivery_receipts()[0]["message_id"], 303)
+
     def test_long_messages_are_split_for_telegram_limit(self):
         with patch.object(self.bot, "_call_api", return_value={"ok": True}) as call_api:
             delivered = self.bot.send_notification(

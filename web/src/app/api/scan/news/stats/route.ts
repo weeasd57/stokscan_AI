@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSupabaseClient, toNumber } from "@/lib/supabase/route-data";
+import { DAILY_CACHE_TAGS, dailyCacheHeaders } from "@/lib/cache/daily";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -77,6 +78,7 @@ function getNormalizedSector(sectorStr: string): SectorInfo {
 let symbolToSectorCache: Record<string, SectorInfo> | null = null;
 let lastCacheTime = 0;
 const CACHE_TTL = 30 * 60 * 1000; // 30 minutes
+const PUBLIC_CACHE_HEADERS = dailyCacheHeaders(DAILY_CACHE_TAGS.news);
 
 export async function GET(req: Request) {
   try {
@@ -315,7 +317,7 @@ export async function GET(req: Request) {
       sectors: sectorStats,
       timeline: timelineStats,
       sectorTimeline
-    });
+    }, { headers: PUBLIC_CACHE_HEADERS });
 
   } catch (error: any) {
     console.error("Error in news stats route:", error);

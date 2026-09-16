@@ -79,7 +79,6 @@ export default function RecommendationCalendar({
     useEffect(() => {
         const controller = new AbortController();
         fetch("/api/recommendations/events?limit=1000", {
-            cache: "no-store",
             signal: controller.signal,
         })
             .then(async response => {

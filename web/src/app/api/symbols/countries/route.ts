@@ -1,8 +1,15 @@
 import { NextResponse } from "next/server";
 import { getSupabaseClient } from "@/lib/supabase/route-data";
+import { DAILY_CACHE_TAGS } from "@/lib/cache/daily";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+const PUBLIC_CACHE_HEADERS = {
+  "Cache-Control": "public, max-age=300",
+  "Vercel-CDN-Cache-Control": "public, s-maxage=3600, stale-while-revalidate=86400",
+  "Vercel-Cache-Tag": DAILY_CACHE_TAGS.symbols,
+};
 
 function getBackendBaseUrl() {
   return (
@@ -37,7 +44,7 @@ export async function GET(req: Request) {
       if (contentType.includes("application/json")) {
         const data = await backendRes.json();
         if (Array.isArray(data?.countries) && data.countries.length > 0) {
-          return NextResponse.json({ countries: data.countries });
+          return NextResponse.json({ countries: data.countries }, { headers: PUBLIC_CACHE_HEADERS });
         }
       }
     }
@@ -63,7 +70,7 @@ export async function GET(req: Request) {
         ),
       ];
       if (countries.length > 0) {
-        return NextResponse.json({ countries: countries.sort() });
+        return NextResponse.json({ countries: countries.sort() }, { headers: PUBLIC_CACHE_HEADERS });
       }
     }
   } catch (error) {
@@ -79,12 +86,12 @@ export async function GET(req: Request) {
     if (!error && Array.isArray(data)) {
       const countries = data.map((r: any) => r.country).filter(Boolean);
       if (countries.length > 0) {
-        return NextResponse.json({ countries });
+        return NextResponse.json({ countries }, { headers: PUBLIC_CACHE_HEADERS });
       }
     }
   } catch (error) {
     console.error("countries RPC fallback error:", error);
   }
 
-  return NextResponse.json({ countries: ["Egypt"] });
+  return NextResponse.json({ countries: ["Egypt"] }, { headers: PUBLIC_CACHE_HEADERS });
 }

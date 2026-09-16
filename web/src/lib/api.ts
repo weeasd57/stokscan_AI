@@ -605,7 +605,7 @@ export async function searchSymbols(
 
   async function doFetch(url: string) {
 
-    return await fetch(url, { cache: "no-store", signal });
+    return await fetch(url, { signal });
 
   }
 
@@ -665,7 +665,7 @@ export async function getSyncedSymbols(country?: string, source?: "supabase" | "
 
   async function doFetch(url: string) {
 
-    return await fetch(url, { cache: "no-store" });
+    return await fetch(url);
 
   }
 

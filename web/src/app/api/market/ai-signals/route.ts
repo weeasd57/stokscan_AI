@@ -18,27 +18,36 @@ function paymentsEnabledSafe(): boolean {
 export async function GET(req: NextRequest) {
   try {
     const supabase = getSupabaseClient();
+    const billingEnabled = paymentsEnabledSafe();
+    const responseHeaders: Record<string, string> = billingEnabled
+      ? { "Cache-Control": "private, no-store" }
+      : {
+          "Cache-Control": "public, max-age=30",
+          "Vercel-CDN-Cache-Control": "public, s-maxage=120, stale-while-revalidate=300",
+        };
 
     // Determine the requesting user (if logged in) so we can apply plan-gated
     // visibility: subscribers see today's recommendations immediately; free
     // users only see recommendations older than the configured signal delay.
-    let userIsPro = true; // default: site is free until payments activated
+    let userIsPro = !billingEnabled; // the route is shared/cacheable while billing is disabled
     let userPlan = "free";
-    try {
-      const userClient = createSupabaseServerClient(req);
-      const { data: authUser } = await userClient.auth.getUser();
-      if (authUser?.user?.id) {
-        const { data: planRows } = await userClient
-          .from("subscriptions")
-          .select("plan_id,status,current_period_end")
-          .eq("user_id", authUser.user.id)
-          .limit(10);
-        userIsPro = isPro(planRows || []);
-        userPlan = userIsPro ? "pro" : "free";
+    if (billingEnabled) {
+      try {
+        const userClient = createSupabaseServerClient(req);
+        const { data: authUser } = await userClient.auth.getUser();
+        if (authUser?.user?.id) {
+          const { data: planRows } = await userClient
+            .from("subscriptions")
+            .select("plan_id,status,current_period_end")
+            .eq("user_id", authUser.user.id)
+            .limit(10);
+          userIsPro = isPro(planRows || []);
+          userPlan = userIsPro ? "pro" : "free";
+        }
+      } catch {
+        // Not logged in -> treat as free (delayed) when payments are on.
+        userIsPro = false;
       }
-    } catch {
-      // Not logged in -> treat as free (delayed) when payments are on.
-      userIsPro = !paymentsEnabledSafe();
     }
 
     // 1. Fetch latest open AI recommendations
@@ -62,7 +71,7 @@ export async function GET(req: NextRequest) {
         total_open: 0,
         buy_count: 0,
         sell_count: 0,
-      });
+      }, { headers: responseHeaders });
     }
 
     // Visibility gate: free (non-subscriber) users only see recommendations
@@ -80,7 +89,7 @@ export async function GET(req: NextRequest) {
         sell_count: 0,
         delayed: limits.signal_delay_days,
         gated: !userIsPro,
-      });
+      }, { headers: responseHeaders });
     }
 
     const symbols = visible.map((r: any) => r.symbol);
@@ -114,16 +123,21 @@ export async function GET(req: NextRequest) {
     // Fallback: if some symbols are missing or date failed, check stock_prices latest close
     const missingSymbols = symbols.filter((s: any) => !pricesMap.has(s.toUpperCase()));
     if (missingSymbols.length > 0) {
-      for (const sym of missingSymbols) {
-        const { data: latestPrice } = await supabase
-          .from("stock_prices")
-          .select("close")
-          .eq("symbol", sym)
-          .order("date", { ascending: false })
-          .limit(1);
+      const uniqueMissing = [...new Set(missingSymbols.map((symbol: any) => String(symbol).toUpperCase()))];
+      const fallbackLimit = Math.min(Math.max(uniqueMissing.length * 30, 300), 2000);
+      const { data: fallbackPrices } = await supabase
+        .from("stock_prices")
+        .select("symbol,close,date")
+        .in("symbol", uniqueMissing)
+        .order("date", { ascending: false })
+        .limit(fallbackLimit);
 
-        if (latestPrice && latestPrice.length > 0) {
-          pricesMap.set(sym.toUpperCase(), Number(latestPrice[0].close || 0));
+      if (fallbackPrices) {
+        for (const row of fallbackPrices) {
+          const symbol = String(row.symbol || "").toUpperCase();
+          if (symbol && !pricesMap.has(symbol)) {
+            pricesMap.set(symbol, Number(row.close || 0));
+          }
         }
       }
     }
@@ -188,7 +202,7 @@ export async function GET(req: NextRequest) {
       sell_count: sellCount,
       gated: !userIsPro,
       signal_delay_days: userIsPro ? 0 : planLimits(userPlan).signal_delay_days,
-    });
+    }, { headers: responseHeaders });
   } catch (error) {
     console.error("AI Signals API error:", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

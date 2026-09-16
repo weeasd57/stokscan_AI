@@ -61,6 +61,9 @@ class TelegramBot:
         self._net_ok = False  # last-known network status
         self._polling = False  # True when using long-polling
         self._poll_offset = 0  # getUpdates offset
+        # Synchronous recommendation sends expose Telegram acknowledgements so
+        # lifecycle events can retain the exact posts created in each channel.
+        self._delivery_context = threading.local()
         self._load_chat_id()
 
     # ── helpers ──────────────────────────────────────────────────────
@@ -291,6 +294,7 @@ class TelegramBot:
         Returns ``True`` only when the request was accepted by Telegram in
         synchronous mode, or when all message chunks were queued successfully.
         """
+        self._delivery_context.receipts = []
         targets = []
         if chat_id:
             primary = str(chat_id).strip()
@@ -338,6 +342,20 @@ class TelegramBot:
                         result = self._call_api("sendMessage", chunk_payload)
                         if not result.get("ok"):
                             desc = str(result.get("description", "")).lower()
+                            if ("can't parse" in desc or "parse_mode" in desc or "entities" in desc) and chunk_payload.get("parse_mode"):
+                                plain_payload = dict(chunk_payload)
+                                plain_payload.pop("parse_mode", None)
+                                plain_payload["text"] = (
+                                    str(plain_payload.get("text", ""))
+                                    .replace("*", "")
+                                    .replace("`", "")
+                                    .replace("_", "")
+                                    .replace("[", "")
+                                    .replace("]", "")
+                                )
+                                result = self._call_api("sendMessage", plain_payload)
+                        if not result.get("ok"):
+                            desc = str(result.get("description", "")).lower()
                             if is_mirror:
                                 # A VIP mirror failure must never fail the main
                                 # channel delivery — log it and keep going.
@@ -358,6 +376,7 @@ class TelegramBot:
                                     queue.append(retry_payload)
                             self._log(f"Immediate delivery failed for {target}: {result.get('description', result)}")
                             return False
+                        self._record_delivery_receipt(result, chunk_payload)
                     else:
                         queue.append(chunk_payload)
                     queued += 1
@@ -365,6 +384,30 @@ class TelegramBot:
             f"{'Delivered' if wait_for_delivery else 'Queued'} notification to {queued} message(s) ({len(self._channel_queue) + len(self._queue)} queued)"
         )
         return queued > 0
+
+    def _record_delivery_receipt(self, result: dict, payload: dict) -> None:
+        message = result.get("result") if isinstance(result, dict) else None
+        message_id = message.get("message_id") if isinstance(message, dict) else None
+        if message_id is None:
+            return
+        receipt = {
+            "chat_id": payload.get("chat_id"),
+            "message_id": message_id,
+        }
+        if payload.get("message_thread_id") is not None:
+            receipt["message_thread_id"] = payload.get("message_thread_id")
+        receipts = getattr(self._delivery_context, "receipts", None)
+        if receipts is None:
+            receipts = []
+            self._delivery_context.receipts = receipts
+        receipts.append(receipt)
+
+    def get_last_delivery_receipts(self) -> list[dict]:
+        """Return a defensive copy of acknowledgements from the latest sync send."""
+        return [
+            dict(receipt)
+            for receipt in getattr(self._delivery_context, "receipts", [])
+        ]
 
     def send_message_with_keyboard(
         self,

@@ -1,8 +1,11 @@
 import { NextResponse } from "next/server";
 import { getSupabaseClient } from "@/lib/supabase/route-data";
+import { DAILY_CACHE_TAGS, dailyCacheHeaders } from "@/lib/cache/daily";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+const PUBLIC_CACHE_HEADERS = dailyCacheHeaders(DAILY_CACHE_TAGS.market);
 
 export async function GET(req: Request) {
   try {
@@ -163,7 +166,7 @@ export async function GET(req: Request) {
       top_losers: topLosers,
       date: latestDate,
       total_stocks: totalStocks,
-    });
+    }, { headers: PUBLIC_CACHE_HEADERS });
   } catch (error) {
     console.error("Breadth API error:", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

@@ -133,6 +133,23 @@ class TestDeliveryBookkeepingClearsClaim:
         assert db.rows[0]["telegram_status"] == "sent"
         assert db.rows[0]["retry_claimed_at"] is None
 
+    def test_success_persists_all_channel_receipts(self):
+        class _Outcome:
+            receipts = [
+                {"chat_id": -1002083067817, "message_id": 101, "message_thread_id": 153},
+                {"chat_id": -1003906516349, "message_id": 202},
+            ]
+
+            def __bool__(self):
+                return True
+
+        db = _FakeSupabase(_pending_event())
+        token = claim_event_delivery(db, "evt-1")
+        assert update_telegram_delivery(db, "evt-1", success=_Outcome(), claim_token=token)
+        stored = db.rows[0]["telegram_message_id"]
+        assert '"message_id":101' in stored
+        assert '"message_id":202' in stored
+
 
 class TestVerifyEventDeliveryClaim:
     def test_claimed_durable_event_is_valid(self):

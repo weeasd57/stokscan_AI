@@ -801,7 +801,7 @@ def _send_telegram_adjustment(
         msg += f"━━━━━━━━━━━━━━━━━━━━\n"
         msg += f"🔗 رابط المنصة: {web_origin}/scanner/backtests?tab=bots\n"
 
-        return bool(_notify_central_telegram(msg, "recommendation_adjustment"))
+        return _notify_central_telegram(msg, "recommendation_adjustment")
 
     except Exception as e:
         print(f"[SMART_EVAL] Telegram notification failed: {e}")
@@ -900,7 +900,7 @@ def _send_telegram_exit(
             f"🔗 رابط سجل الصفقات: {web_origin}/scanner/backtests?tab=bots"
         )
 
-        return bool(_notify_central_telegram(msg, "recommendation_exit"))
+        return _notify_central_telegram(msg, "recommendation_exit")
 
     except Exception as e:
         print(f"[SMART_EVAL] Telegram exit notification failed for {symbol}: {e}")
@@ -1171,6 +1171,17 @@ def _dispatch_similarity_notifications(results: List[Dict[str, Any]]):
         print(f"[SIMILARITY_NOTIFY] Error: {e}")
 
 
+class TelegramNotificationOutcome:
+    """Boolean-compatible delivery result with Telegram post receipts."""
+
+    def __init__(self, delivered: bool, receipts: Optional[List[dict]] = None):
+        self.delivered = bool(delivered)
+        self.receipts = receipts or []
+
+    def __bool__(self) -> bool:
+        return self.delivered
+
+
 def _notify_central_telegram(message: str, service_type: str = "central"):
     """Send a service-level message to the configured public Telegram topic."""
     if not _telegram_recommendation_writes_enabled() and service_type not in {"system_digest", "central", "system_log"}:
@@ -1194,7 +1205,8 @@ def _notify_central_telegram(message: str, service_type: str = "central"):
             chat_id = telegram_recommendations_target()
         delivered = bot.send_notification(message, chat_id=str(chat_id), wait_for_delivery=True)
         print(f"[CENTRAL_NOTIFY] {'Delivered' if delivered else 'Failed'} {service_type} message to {chat_id}")
-        return delivered
+        receipts = bot.get_last_delivery_receipts() if delivered else []
+        return TelegramNotificationOutcome(delivered, receipts)
     except Exception as e:
         print(f"[CENTRAL_NOTIFY] {service_type} notification error: {e}")
 
@@ -3177,6 +3189,12 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
             _record_step("accumulation_scan", False, str(e_scan)[:300])
 
         _persist_job("completed")
+        try:
+            from api.cache_invalidation import invalidate_daily_cache
+
+            invalidate_daily_cache(steps_log)
+        except Exception as e_cache:
+            print(f"[CACHE] Daily cache invalidation skipped: {e_cache}")
         print(f"\n--- Daily Bot Run Job Completed: {dt.datetime.now()} ---")
 
     except Exception as e:

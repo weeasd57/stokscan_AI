@@ -10,6 +10,11 @@ const PUBLIC_EVENT_TYPES = [
   "target_or_stop_adjusted",
 ];
 
+const PUBLIC_CACHE_HEADERS = {
+  "Cache-Control": "public, max-age=30",
+  "Vercel-CDN-Cache-Control": "public, s-maxage=60, stale-while-revalidate=300",
+};
+
 function numeric(value: unknown): number | null {
   if (value === null || value === undefined || value === "") return null;
   const parsed = Number(value);
@@ -35,7 +40,7 @@ export async function GET(request: NextRequest) {
     if (!recommendationIds.length) {
       return NextResponse.json(
         { events: [], tracked_recommendation_ids: [] },
-        { headers: { "Cache-Control": "private, no-store" } },
+        { headers: PUBLIC_CACHE_HEADERS },
       );
     }
 
@@ -90,7 +95,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(
       { events: sanitized, tracked_recommendation_ids: trackedRecommendationIds },
-      { headers: { "Cache-Control": "private, no-store" } },
+      { headers: PUBLIC_CACHE_HEADERS },
     );
   } catch (error) {
     console.error("[RECOMMENDATION_EVENTS_API] Failed to load sent events", error);

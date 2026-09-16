@@ -1245,7 +1245,7 @@ export default function MarketClient() {
                 params.set("single_date", date);
                 params.set("date", date);
             }
-            const res = await fetch(`/api/scan/sectors/heatmap?${params.toString()}`, { cache: "no-store" });
+            const res = await fetch(`/api/scan/sectors/heatmap?${params.toString()}`);
             if (!res.ok) {
                 throw new Error(`Failed to load heatmap data (Status ${res.status})`);
             }

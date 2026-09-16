@@ -1,8 +1,14 @@
 import { NextResponse } from "next/server";
 import { getSupabaseClient } from "@/lib/supabase/route-data";
+import { DAILY_CACHE_TAGS, withDailyTag } from "@/lib/cache/daily";
 
 export const runtime = "nodejs";
 export const revalidate = 86400; // 24 hours
+
+const PUBLIC_CACHE_HEADERS = withDailyTag(
+  { "Cache-Control": "public, s-maxage=86400, stale-while-revalidate=86400" },
+  DAILY_CACHE_TAGS.market,
+);
 
 const PAGE_SIZE = 1000;
 
@@ -73,7 +79,7 @@ export async function GET(req: Request) {
     if (availableDates.length === 0) {
       return NextResponse.json(
         { rows: [], available_dates: [] },
-        { headers: { "Cache-Control": "public, s-maxage=86400, stale-while-revalidate=86400" } }
+        { headers: PUBLIC_CACHE_HEADERS }
       );
     }
 
@@ -155,7 +161,7 @@ export async function GET(req: Request) {
         range_end: toDate,
         range_dates: rangeDates,
       },
-      { headers: { "Cache-Control": "public, s-maxage=86400, stale-while-revalidate=86400" } }
+      { headers: PUBLIC_CACHE_HEADERS }
     );
   } catch (error) {
     console.error("Heatmap API error:", error);

@@ -30,7 +30,10 @@ export async function GET(req: Request) {
           ? JSON.parse(data.payload)
           : data.payload;
       return NextResponse.json({ ...payload, computed_at: data.computed_at }, {
-        headers: { 'Cache-Control': 'public, s-maxage=3600, stale-while-revalidate=86400' }
+        headers: {
+          "Cache-Control": "public, max-age=300",
+          "Vercel-CDN-Cache-Control": "public, s-maxage=3600, stale-while-revalidate=86400",
+        }
       });
     }
 
@@ -43,7 +46,7 @@ export async function GET(req: Request) {
       rating: "Low Protection",
       chart_data: [],
       insights: "Macro-correlation data is not yet available. It will be computed during the next daily update.",
-    });
+    }, { headers: { "Vercel-CDN-Cache-Control": "public, s-maxage=300, stale-while-revalidate=900" } });
   } catch (error: any) {
     console.error("Macro-correlation data error:", error);
     return NextResponse.json(
@@ -56,7 +59,7 @@ export async function GET(req: Request) {
         chart_data: [],
         insights: "Macro-correlation data is currently unavailable.",
       },
-      { status: 200 }
+      { status: 200, headers: { "Vercel-CDN-Cache-Control": "public, s-maxage=60, stale-while-revalidate=120" } }
     );
   }
 }

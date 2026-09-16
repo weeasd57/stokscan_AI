@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSupabaseClient, toNumber } from "@/lib/supabase/route-data";
+import { DAILY_CACHE_TAGS, dailyCacheHeaders } from "@/lib/cache/daily";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -7,6 +8,7 @@ export const dynamic = "force-dynamic";
 let symbolToSectorCache: Record<string, { ar: string; en: string }> | null = null;
 let lastCacheTime = 0;
 const CACHE_TTL = 30 * 60 * 1000; // 30 minutes
+const PUBLIC_CACHE_HEADERS = dailyCacheHeaders(DAILY_CACHE_TAGS.news);
 
 export async function GET(req: Request) {
   try {
@@ -192,7 +194,10 @@ export async function GET(req: Request) {
 
     if (error) {
       console.error("news fetch error:", error);
-      return NextResponse.json({ data: [], total: 0 });
+      return NextResponse.json(
+        { data: [], total: 0 },
+        { headers: { "Cache-Control": "private, no-store" } },
+      );
     }
 
     const items = (data || []).map((row: Record<string, unknown>) => {
@@ -212,9 +217,15 @@ export async function GET(req: Request) {
       };
     });
 
-    return NextResponse.json({ data: items, total: count || 0 });
+    return NextResponse.json(
+      { data: items, total: count || 0 },
+      { headers: PUBLIC_CACHE_HEADERS },
+    );
   } catch (error) {
     console.error("news route error:", error);
-    return NextResponse.json({ data: [], total: 0 });
+    return NextResponse.json(
+      { data: [], total: 0 },
+      { headers: { "Cache-Control": "private, no-store" } },
+    );
   }
 }

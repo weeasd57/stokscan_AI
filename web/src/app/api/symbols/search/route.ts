@@ -21,6 +21,12 @@ export async function GET(req: NextRequest) {
   const country = url.searchParams.get("country");
   const exchange = url.searchParams.get("exchange")?.toLowerCase();
   const limit = Math.min(Number(url.searchParams.get("limit") || 25), 100000);
+  const responseHeaders = {
+    "Cache-Control": "public, max-age=30",
+    "Vercel-CDN-Cache-Control": limit > 1000
+      ? "public, s-maxage=60, stale-while-revalidate=120"
+      : "public, s-maxage=600, stale-while-revalidate=1800",
+  };
 
   // 1. Prefer the Python backend. It honors source=local (local symbols
   //    inventory), the full limit (the admin Data Manager requests 100000),
@@ -41,7 +47,7 @@ export async function GET(req: NextRequest) {
       if (contentType.includes("application/json")) {
         const data = await backendRes.json();
         if (Array.isArray(data?.results)) {
-          return NextResponse.json({ results: data.results });
+          return NextResponse.json({ results: data.results }, { headers: responseHeaders });
         }
       }
     }
@@ -139,7 +145,7 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    return NextResponse.json({ results });
+    return NextResponse.json({ results }, { headers: responseHeaders });
   } catch (err) {
     console.error("Symbols search error:", err);
     return NextResponse.json({ results: [] });

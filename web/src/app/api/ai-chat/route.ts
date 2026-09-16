@@ -557,7 +557,11 @@ export async function POST(req: NextRequest) {
                             userRequestedModel
                         );
 
-                        let fullResponse = "";
+                        // Keep only a bounded rolling window for safety checks.
+                        // Re-scanning the entire accumulated answer for every
+                        // streamed token makes long replies O(n²) in CPU time.
+                        let outputSafetyWindow = "";
+                        let streamBlocked = false;
                         let tokenBuffer = "";
                         let plannerResult: any = null;
                         let liveDataString = "";
@@ -594,14 +598,18 @@ export async function POST(req: NextRequest) {
                                     sendEvent({ type: "tables", data: event.data });
                                     break;
                                 case "token":
+                                    if (streamBlocked) break;
                                     if (firstTokenLatencyMs === null) firstTokenLatencyMs = Date.now() - totalRequestStartTime;
                                     const rawToken = String(event.data || "");
                                     if (containsEnvironmentMetadata(rawToken) || hasPartialEnvironmentMetadata(rawToken)) break;
-                                    fullResponse = stripEnvironmentMetadata(fullResponse + rawToken);
-                                    if (filterOutputBlocks(fullResponse)) {
-                                        fullResponse = "أنا أداة تحليلية ذكية، ولا يمكنني تقديم نصائح مالية أو توصيات شراء مباشرة. يمكنك مراجعة تقييم الأسهم في صفحة الماسح الذكي لمساعدتك في اتخاذ القرار.";
+                                    outputSafetyWindow = stripEnvironmentMetadata(
+                                        (outputSafetyWindow + rawToken).slice(-8192)
+                                    );
+                                    if (filterOutputBlocks(outputSafetyWindow)) {
+                                        const blockedResponse = "أنا أداة تحليلية ذكية، ولا يمكنني تقديم نصائح مالية أو توصيات شراء مباشرة. يمكنك مراجعة تقييم الأسهم في صفحة الماسح الذكي لمساعدتك في اتخاذ القرار.";
+                                        streamBlocked = true;
                                         tokenBuffer = "";
-                                        sendEvent({ type: "token", content: fullResponse });
+                                        sendEvent({ type: "token", content: blockedResponse });
                                         // Complete through the normal done path so quota,
                                         // idempotency and message history are persisted.
                                         break;

@@ -24,7 +24,7 @@ export async function GET() {
           reject_buys: false,
           updated_at: new Date().toISOString(),
         },
-        { status: 200 }
+        { status: 200, headers: { "Vercel-CDN-Cache-Control": "public, s-maxage=60, stale-while-revalidate=120" } }
       );
     }
 
@@ -61,7 +61,10 @@ export async function GET() {
     }
 
     return NextResponse.json(safePayload, {
-      headers: { 'Cache-Control': 'public, s-maxage=120, stale-while-revalidate=300' }
+      headers: {
+        "Cache-Control": "public, max-age=30",
+        "Vercel-CDN-Cache-Control": "public, s-maxage=120, stale-while-revalidate=300",
+      }
     });
   } catch (error) {
     console.error("market status error:", error);
@@ -75,7 +78,7 @@ export async function GET() {
         reject_buys: false,
         updated_at: new Date().toISOString(),
       },
-      { status: 200 }
+      { status: 200, headers: { "Vercel-CDN-Cache-Control": "public, s-maxage=60, stale-while-revalidate=120" } }
     );
   }
 }

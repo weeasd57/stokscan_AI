@@ -110,7 +110,7 @@ def record_event(
 def update_telegram_delivery(
     supabase: Any,
     event_id: str,
-    success: bool,
+    success: Any,
     message_id: Optional[str] = None,
     error: Optional[str] = None,
     attempts_already_claimed: bool = False,
@@ -122,17 +122,23 @@ def update_telegram_delivery(
     if _is_read_only():
         return False
 
+    success_flag = bool(success)
+    if success_flag and not message_id:
+        receipts = getattr(success, "receipts", None)
+        if receipts:
+            message_id = json.dumps(receipts, separators=(",", ":"), ensure_ascii=False)
+
     now_iso = datetime.now(timezone.utc).isoformat()
     update_payload = {
-        "telegram_status": "sent" if success else "failed",
+        "telegram_status": "sent" if success_flag else "failed",
         "updated_at": now_iso,
         "retry_claimed_at": None,
     }
     if not attempts_already_claimed:
         update_payload["telegram_attempts"] = 1
-    if success and message_id:
+    if success_flag and message_id:
         update_payload["telegram_message_id"] = str(message_id)
-    if not success and error:
+    if not success_flag and error:
         update_payload["last_error"] = str(error)[:500]
         update_payload["next_retry_at"] = (datetime.now(timezone.utc) + timedelta(minutes=2)).isoformat()
 
@@ -160,7 +166,7 @@ def update_telegram_delivery(
         if not row:
             return False
         return row.get("telegram_status") == update_payload["telegram_status"] and (
-            not success or not message_id or str(row.get("telegram_message_id")) == str(message_id)
+            not success_flag or not message_id or str(row.get("telegram_message_id")) == str(message_id)
         )
     except Exception as upd_err:
         print(f"[RECOMMENDATION_EVENT] Failed to update telegram delivery for {event_id}: {upd_err}")

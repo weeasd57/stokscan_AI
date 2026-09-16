@@ -166,7 +166,7 @@ export default function Header() {
             } finally {
                 setSearching(false);
             }
-        }, 200);
+        }, 350);
 
         return () => clearTimeout(delayDebounce);
     }, [searchQuery]);

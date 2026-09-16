@@ -1,8 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseClient } from "@/lib/supabase/route-data";
+import { DAILY_CACHE_TAGS } from "@/lib/cache/daily";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+const PUBLIC_CACHE_HEADERS = {
+  "Cache-Control": "public, max-age=60",
+  "Vercel-CDN-Cache-Control": "public, s-maxage=900, stale-while-revalidate=3600",
+  "Vercel-Cache-Tag": DAILY_CACHE_TAGS.symbols,
+};
 
 export async function GET(req: NextRequest) {
   try {
@@ -40,7 +47,7 @@ export async function GET(req: NextRequest) {
       hasLocal: true,
     }));
 
-    return NextResponse.json({ results });
+    return NextResponse.json({ results }, { headers: PUBLIC_CACHE_HEADERS });
   } catch (err) {
     console.error("Symbols synced error:", err);
     return NextResponse.json({ results: [] });

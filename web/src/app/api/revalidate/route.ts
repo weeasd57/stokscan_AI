@@ -1,5 +1,7 @@
 ﻿import { NextRequest, NextResponse } from "next/server";
 import { revalidatePath, revalidateTag } from "next/cache";
+import { invalidateByTag } from "@vercel/functions";
+import { DAILY_CACHE_TAG_VALUES } from "@/lib/cache/daily";
 
 export const runtime = "nodejs";
 
@@ -32,14 +34,27 @@ async function handleRevalidate(req: NextRequest) {
     );
   }
 
-  const path = searchParams.get("path");
-  const tag = searchParams.get("tag");
+  const body = req.method === "POST"
+    ? await req.json().catch(() => ({} as Record<string, unknown>))
+    : {};
+  const path = searchParams.get("path") || (typeof body.path === "string" ? body.path : null);
+  const requestedTags = [
+    ...searchParams.getAll("tag"),
+    ...(Array.isArray(body.tags) ? body.tags.filter((tag: unknown): tag is string => typeof tag === "string") : []),
+    ...(typeof body.tag === "string" ? [body.tag] : []),
+  ];
+  const tags = [...new Set(requestedTags.map((tag) => tag.trim()).filter(Boolean))];
   const revalidated: string[] = [];
+  const cdnInvalidated: string[] = [];
 
   try {
-    if (tag) {
-      revalidateTag(tag);
-      revalidated.push(`tag:${tag}`);
+    if (tags.length > 0) {
+      for (const tag of tags) {
+        revalidateTag(tag);
+        revalidated.push(`tag:${tag}`);
+      }
+      await invalidateByTag(tags);
+      cdnInvalidated.push(...tags);
     }
 
     if (path) {
@@ -50,18 +65,21 @@ async function handleRevalidate(req: NextRequest) {
         revalidatePath(path);
         revalidated.push(path);
       }
-    } else if (!tag) {
+    } else {
       // Default: purge cache across all pages, layout and major data endpoints
       revalidatePath("/", "layout");
       revalidatePath("/");
       revalidatePath("/scanner/market");
       revalidated.push("layout", "home", "market");
+      await invalidateByTag(DAILY_CACHE_TAG_VALUES);
+      cdnInvalidated.push(...DAILY_CACHE_TAG_VALUES);
     }
 
     return NextResponse.json({
       ok: true,
       message: "Cache successfully revalidated",
       revalidated,
+      cdn_invalidated: cdnInvalidated,
       timestamp: new Date().toISOString(),
     });
   } catch (err: any) {
