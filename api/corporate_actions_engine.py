@@ -23,7 +23,13 @@ import hashlib
 import datetime as dt
 from typing import List, Dict, Any, Optional, Tuple
 
-from api.news_sentiment_engine import fetch_google_news, analyze_sentiment
+from api.news_sentiment_engine import (
+    fetch_google_news,
+    analyze_sentiment,
+    is_relevant_news,
+    is_unrelated_news,
+    parse_pub_date,
+)
 
 # ---------------------------------------------------------------------------
 # Arabic normalization (same conventions as the rest of the codebase)
@@ -251,10 +257,15 @@ def process_news_list_for_corporate_actions(
     news_items: List[Dict[str, Any]],
     supabase=None,
     origin: str = "scheduler",
+    company_name: str = "",
 ) -> int:
     """
     Classify an already-fetched news list and store corporate actions.
     Returns the number of stored actions (0 when nothing matched or on failure).
+
+    Every headline is relevance-checked against the symbol first: a generic
+    article returned by the RSS query (e.g. "EGX approves Edita's capital
+    increase") must never be stored as an action for unrelated symbols.
     """
     try:
         if supabase is None:
@@ -266,7 +277,10 @@ def process_news_list_for_corporate_actions(
 
         saved = 0
         for item in news_items:
-            classification = classify_corporate_action(item.get("title", ""))
+            title = item.get("title", "")
+            if not is_relevant_news(title, symbol, company_name) or is_unrelated_news(title):
+                continue
+            classification = classify_corporate_action(title)
             if not classification:
                 continue
             try:
@@ -298,7 +312,7 @@ def fetch_corporate_action_news(symbol: str, company_name: str = "", days_back: 
     ]
 
     items: Dict[str, Dict[str, Any]] = {}
-    cutoff = dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=days_back)
+    cutoff_date = dt.date.today() - dt.timedelta(days=days_back)
 
     for query in queries:
         try:
@@ -321,17 +335,17 @@ def fetch_corporate_action_news(symbol: str, company_name: str = "", days_back: 
                 title = title_el.text or ""
                 link = link_el.text or ""
                 pub_str = pub_el.text if pub_el is not None else None
-                try:
-                    published = email.utils.parsedate_to_datetime(pub_str)
-                    if published < cutoff:
-                        continue
-                except Exception:
-                    published = None
+                # parse_pub_date returns a date so it compares safely with
+                # cutoff_date (a datetime raises TypeError and silently kept
+                # undated items before).
+                published = parse_pub_date(pub_str)
+                if published is not None and published < cutoff_date:
+                    continue
                 if link not in items:
                     items[link] = {
                         "title": title,
                         "link": link,
-                        "published": published.date().isoformat() if published else None,
+                        "published": published.isoformat() if published else None,
                         "source": source_el.text if source_el is not None else "Google News",
                     }
         except Exception as e:
@@ -358,17 +372,17 @@ def process_exchange_corporate_actions(exchange: str, symbols: List[str], days_b
         return False, 0
 
     # Company names improve recall (many headlines use the Arabic company name)
+    # and are required for the relevance check that keeps generic market
+    # articles from being stored as actions for unrelated symbols.
     name_map: Dict[str, str] = {}
+    subject_map: Dict[str, str] = {}
     try:
-        clean_symbols = [s.split(".")[0].upper() for s in symbols]
-        res = (
-            supabase.table("stocks")
-            .select("symbol, name, name_ar")
-            .in_("symbol", clean_symbols)
-            .execute()
-        )
-        for row in res.data or []:
-            name_map[row["symbol"].upper()] = row.get("name_ar") or row.get("name") or ""
+        from api.news_sentiment_engine import load_company_names
+        aliases = load_company_names(supabase)
+        for sym, names in aliases.items():
+            name_map[sym] = ", ".join(names)
+            arabic = [n for n in names if any("\u0600" <= ch <= "\u06FF" for ch in n)]
+            subject_map[sym] = max(arabic, key=len) if arabic else (names[0] if names else "")
     except Exception:
         pass
 
@@ -378,10 +392,14 @@ def process_exchange_corporate_actions(exchange: str, symbols: List[str], days_b
         try:
             clean_sym = symbol.split(".")[0].upper()
             news = fetch_corporate_action_news(
-                symbol, name_map.get(clean_sym, ""), days_back=days_back
+                symbol, subject_map.get(clean_sym, ""), days_back=days_back
             )
             saved_total += process_news_list_for_corporate_actions(
-                clean_sym, exchange, news, supabase=supabase
+                clean_sym,
+                exchange,
+                news,
+                supabase=supabase,
+                company_name=name_map.get(clean_sym, ""),
             )
             time.sleep(0.3)
         except Exception as e:

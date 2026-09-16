@@ -27,6 +27,13 @@ from api.news_sentiment_engine import (
     NEGATION_TOKENS,
     NEGATION_WINDOW,
     FINANCIAL_LEXICON,
+    is_relevant_news,
+    is_unrelated_news,
+    parse_pub_date,
+    get_symbol_search_terms,
+    _normalize_arabic,
+    _name_match_tokens,
+    GENERIC_NAME_TOKENS,
 )
 
 
@@ -318,6 +325,105 @@ class TestRegexHelpers:
         assert "ارباح" in FINANCIAL_LEXICON["positive"]
         assert "خسائر" in FINANCIAL_LEXICON["negative"]
         assert "خسارة" in FINANCIAL_LEXICON["negative"]
+
+
+class TestRelevanceMatching:
+    """Headline relevance: ticker tokens, Arabic names, and generic-word guards."""
+
+    def test_ticker_matches_as_whole_token(self):
+        assert is_relevant_news("COMI reports record profit", "COMI") is True
+        assert is_relevant_news("EGX:COMI closes higher", "COMI") is True
+
+    def test_ticker_does_not_match_inside_words(self):
+        # Regression: substring matching made "COMI" match "COMING"
+        assert is_relevant_news("COMING soon: new listing", "COMI") is False
+
+    def test_arabic_company_name_without_ticker(self):
+        # The day-14 production case: Arabic-only headline for AMER
+        title = "عامر جروب توافق على إعادة هيكلة إيه إن سي للتنمية السياحية بغرض تداولها في البورصة"
+        assert is_relevant_news(title, "AMER", "Amer Group Holding عامر, عامر جروب") is True
+
+    def test_arabic_short_distinctive_token(self):
+        # KORA's Arabic name token "قرة" is only 3 chars but is the only marker
+        title = "أخبار سهم قرة لمشروعات الطاقة والاستثمار - معلومات مباشر"
+        assert is_relevant_news(title, "KORA", "KORRA ENERGIE قرة للطاقة") is True
+
+    def test_arabic_alef_variants(self):
+        # "أبو ظبي" in the DB vs "أبوظبي" in the headline
+        assert is_relevant_news("«أبوظبي الإسلامي» يحصد جائزة أفضل مصرف إسلامي", "ADIB", "Abu Dhabi Islamic Bank-Egypt ابو ظبي") is True
+
+    def test_generic_token_alone_does_not_match(self):
+        # "جروب" must not match every company ending in "جروب"
+        assert is_relevant_news("طلعت مصطفى جروب تعلن نتائج أعمالها", "AMER", "Amer Group Holding عامر, عامر جروب") is False
+        # "المصرية" alone must not match every Egyptian company
+        assert is_relevant_news("المصرية للمنتجعات السياحية تعلن نتائجها", "ETEL", "Telecom Egypt المصرية للاتصالات") is False
+
+    def test_distinctive_token_still_matches(self):
+        assert is_relevant_news("المصرية للاتصالات تعلن توزيعات", "ETEL", "Telecom Egypt المصرية للاتصالات") is True
+
+    def test_ambiguous_sector_word_alone_does_not_match(self):
+        # "قطر للطاقة" must not match TAQA Arabia ("طاقة عربية") by the bare
+        # sector word, while the company's own name phrase still matches.
+        assert is_relevant_news(
+            "مؤسس القلعة المصرية: 420 مليون دولار صفقة الاستحواذ على حصة قطر للطاقة",
+            "TAQA",
+            "Taqa Arabia طاقة عربية",
+        ) is False
+        assert is_relevant_news("طاقة عربية تعلن نتائج أعمالها", "TAQA", "Taqa Arabia طاقة عربية") is True
+
+    def test_latin_phrase_does_not_match_inside_domains(self):
+        # "TAQA Arabia" must not match "cnbcarabia.com" in the headline source
+        title = "مؤسس ورئيس القلعة المصرية لـ CNBC عربية: صفقة الاستحواذ على حصة قطر للطاقة - cnbcarabia.com"
+        assert is_relevant_news(title, "TAQA", "TAQA Arabia") is False
+        assert is_relevant_news("TAQA Arabia reports higher profit", "TAQA", "TAQA Arabia") is True
+
+    def test_unrelated_market_news_is_not_relevant(self):
+        assert is_relevant_news("البورصة المصرية تغلق مرتفعة 1%", "AMER", "Amer Group Holding عامر جروب") is False
+
+    def test_unrelated_news_filter(self):
+        assert is_unrelated_news("الأهلي يفوز على الزمالك في مباراة كرة القدم") is True
+        assert is_unrelated_news("شركة تعلن أرباحاً قياسية") is False
+
+    def test_normalize_arabic_variants(self):
+        assert _normalize_arabic("أودن") == _normalize_arabic("اودن")
+        assert _normalize_arabic("قرة") == _normalize_arabic("قره")
+        assert _normalize_arabic("  شركة   كذا  ") == "شركه كذا"
+
+    def test_name_match_tokens_filters_generic_words(self):
+        tokens = _name_match_tokens("Amer Group Holding عامر, عامر جروب")
+        assert "عامر" in tokens
+        assert "amer" in tokens
+        assert "جروب" not in tokens
+        assert "holding" not in tokens
+        assert all(t not in GENERIC_NAME_TOKENS for t in tokens)
+
+    def test_symbol_search_terms_keep_trailing_s_variant(self):
+        assert get_symbol_search_terms("COMI") == ["COMI"]
+        # Funds/companies ending in S also expose the base ticker (SCTS -> SCT)
+        assert "SCT" in get_symbol_search_terms("SCTS")
+
+
+class TestPubDateParsing:
+    """RSS pubDate parsing must yield dates (regression: datetime/date TypeError)."""
+
+    def test_returns_date_not_datetime(self):
+        import datetime as _dt
+        parsed = parse_pub_date("Mon, 14 Sep 2026 08:11:22 GMT")
+        assert parsed == _dt.date(2026, 9, 14)
+        assert not isinstance(parsed, _dt.datetime)
+
+    def test_date_is_comparable_with_another_date(self):
+        import datetime as _dt
+        parsed = parse_pub_date("Mon, 14 Sep 2026 08:11:22 GMT")
+        cutoff = _dt.date(2026, 9, 8)
+        # This comparison raised TypeError before the fix.
+        assert (parsed < cutoff) is False
+        assert (parse_pub_date("Mon, 01 Sep 2026 08:11:22 GMT") < cutoff) is True
+
+    def test_invalid_input_returns_none(self):
+        assert parse_pub_date("") is None
+        assert parse_pub_date("not a date") is None
+        assert parse_pub_date(None) is None
 
 
 if __name__ == "__main__":

@@ -4,6 +4,7 @@ import { classificationMatchesSector } from "./sector-taxonomy";
 import { searchWeb } from "./web-search";
 import { isEgxSessionOpen, fetchLiveStockIndicators } from "./live-stock-updater";
 import { getCorporateActionsForSymbols, formatCorporateActionsSummary, CORPORATE_ACTIONS_QUERY_PATTERN } from "./corporate-actions";
+import { isRelevantNews } from "./news-relevance";
 import {
     getPortfolioSnapshot, addPortfolioPosition, updatePortfolioPosition,
     removePortfolioPosition, sellPortfolioPosition, setPortfolioCash, addPortfolioCash,
@@ -16,28 +17,6 @@ function normalizeArabic(str: string): string {
         .replace(/ى/g, "ي")
         .replace(/ؤ/g, "و")
         .toLowerCase();
-}
-
-const UNRELATED_NEWS_KEYWORDS = [
-    "زمالك", "أهلي", "كرة", "كره", "مباراة", "دوري", "كأس",
-    "كابلات", "مقاولون", "سيارة", "سيارات", "عقاري", "عقارات",
-    "أسمنت", "اسمنت", "بترول", "غاز", "بتروكيماويات",
-    "صفحة", "أبراج", "عالم المال"
-];
-
-function isRelevantNews(title: string, symbol: string, companyName: string): boolean {
-    if (!title) return false;
-    const t = title.toLowerCase();
-    const sym = symbol.toLowerCase();
-    const name = (companyName || "").toLowerCase();
-    const nameTokens = name.split(/\s+/).filter(token => token.length > 3);
-    const hasSymbol = sym.length >= 3 && t.includes(sym);
-    const hasName = nameTokens.some(token => t.includes(token));
-    const hasUnrelated = UNRELATED_NEWS_KEYWORDS.some(k => t.includes(k));
-    const hasGenericMarket = /egx|بورصة|بورصة مصر|البورصة المصرية|egypt exchange/.test(t);
-    if (hasUnrelated) return false;
-    if (hasSymbol || hasName) return true;
-    return false;
 }
 
 export function formatRecDuration(dateStr: string): string {

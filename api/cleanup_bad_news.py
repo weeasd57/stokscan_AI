@@ -16,7 +16,12 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from dotenv import load_dotenv
 from api.stock_ai import _init_supabase, supabase
-from api.news_sentiment_engine import is_relevant_news, is_unrelated_news, get_symbol_search_terms
+from api.news_sentiment_engine import (
+    is_relevant_news,
+    is_unrelated_news,
+    get_symbol_search_terms,
+    load_company_names,
+)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--force", action="store_true", help="Skip confirmation prompt")
@@ -31,9 +36,7 @@ if not supabase:
     sys.exit(1)
 
 print("[CLEANUP] Loading stock symbol->name map...")
-stocks_res = supabase.table("stocks").select("symbol, name").execute()
-stocks = stocks_res.data or []
-name_map = {row["symbol"].upper(): (row.get("name") or "") for row in stocks}
+name_map = load_company_names(supabase)
 print(f"[CLEANUP] Loaded {len(name_map)} stocks")
 
 print("[CLEANUP] Fetching stock_news_sentiment rows with news_count > 0...")
@@ -43,7 +46,7 @@ offset = 0
 while True:
     res = (
         supabase.table("stock_news_sentiment")
-        .select("symbol, exchange, date, news_count, headlines, sources")
+        .select("symbol, exchange, date, news_count, sentiment_score, negative_flag, positive_flag, headlines, sources")
         .gt("news_count", 0)
         .order("date", desc=True)
         .range(offset, offset + page_size - 1)
@@ -61,7 +64,7 @@ bad_rows = []
 clean_rows = []
 for row in all_news:
     sym = (row.get("symbol") or "").upper()
-    name = name_map.get(sym, "") or ""
+    name = " ".join(name_map.get(sym) or [])
     headlines = row.get("headlines") or []
     if not isinstance(headlines, list):
         headlines = []
@@ -76,13 +79,18 @@ for row in all_news:
             "removed": len(headlines) - len(valid_headlines),
             "removed_headlines": [hl for hl in headlines if hl not in valid_headlines][:3],
         })
+        # When every headline is removed the row must not keep stale sources or
+        # a sentiment score computed from headlines that are no longer present.
         clean_rows.append({
             "symbol": sym,
             "exchange": row.get("exchange"),
             "date": row.get("date"),
             "news_count": len(valid_headlines),
             "headlines": valid_headlines,
-            "sources": row.get("sources") or [],
+            "sources": row.get("sources") if valid_headlines else [],
+            "sentiment_score": row.get("sentiment_score", 0) if valid_headlines else 0,
+            "negative_flag": row.get("negative_flag", 0) if valid_headlines else 0,
+            "positive_flag": row.get("positive_flag", 0) if valid_headlines else 0,
         })
 
 print(f"[CLEANUP] Rows with bad headlines: {len(bad_rows)}")
@@ -107,6 +115,9 @@ def update_row(row: dict) -> bool:
                 "news_count": row["news_count"],
                 "headlines": row["headlines"],
                 "sources": row["sources"],
+                "sentiment_score": row.get("sentiment_score", 0),
+                "negative_flag": row.get("negative_flag", 0),
+                "positive_flag": row.get("positive_flag", 0),
             }) \
             .eq("symbol", row["symbol"]) \
             .eq("exchange", row["exchange"]) \

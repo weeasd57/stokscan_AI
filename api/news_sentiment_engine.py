@@ -70,19 +70,130 @@ def get_symbol_search_terms(symbol: str) -> List[str]:
     return list(dict.fromkeys(terms))
 
 
+_TASHKEEL_RE = re.compile(r"[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED]")
+
+
+def _normalize_arabic(text: str) -> str:
+    """Normalize Arabic spelling variants so news text can be matched reliably.
+
+    Handles hamza forms, ta-marbuta, alif-maqsura, tatweel, tashkeel and
+    irregular whitespace (EGX news outlets write the same company name in
+    several ways: "أودن"/"اودن", "أبو ظبي"/"أبوظبي", "قرة"/"قره").
+    """
+    out = _TASHKEEL_RE.sub("", str(text or ""))
+    out = out.replace("ـ", "")
+    for src, dst in (("أ", "ا"), ("إ", "ا"), ("آ", "ا"), ("ٱ", "ا"),
+                     ("ة", "ه"), ("ى", "ي"), ("ؤ", "و"), ("ئ", "ي")):
+        out = out.replace(src, dst)
+    return re.sub(r"\s+", " ", out).strip().lower()
+
+
+# Generic structural words that appear in many EGX company names. On their own
+# they must never be treated as identifying tokens, otherwise "جروب" would
+# match every "… جروب" headline and "المصرية" would match hundreds of companies.
+GENERIC_NAME_TOKENS = {
+    # Arabic legal/structure words
+    "جروب", "مجموعه", "القابضه", "قابضه", "هولدنج", "هولدينج",
+    "مصر", "مصري", "المصري", "مصريه", "المصريه",
+    "للاستثمار", "للاستثمارات", "استثمار", "استثمارات", "الاستثمار", "الاستثمارات",
+    "للتنميه", "تنميه", "التنميه", "للتنميه والتعمير",
+    "القاهره", "قاهره", "الجيزه", "الاسكندريه", "اسكندريه",
+    "العربيه", "عربي", "العربي", "الدوليه", "دولي", "الدولي",
+    "القوميه", "قومي", "القومي", "العالميه", "العالمي",
+    "الوطنيه", "وطنيه", "الوطني", "بنك", "البنك",
+    "شمال", "جنوب", "شرق", "غرب", "الشرقيه", "الغربيه",
+    "للصناعات", "الصناعيه", "صناعيه", "للتجاره", "تجاريه",
+    "الماليه", "ماليه", "الاسلامي", "الاسلاميه",
+    "الزراعيه", "زراعيه", "الغذائيه", "غذائيه",
+    "العقاريه", "العقاري", "التعمير", "للتعمير",
+    "المقاولات", "للمقاولات", "الطبيه", "طبيه", "الادويه",
+    "الخدمات", "للخدمات", "الحديد", "الصلب", "والصلب", "الورق",
+    "التنميه", "التنميه والاستثمار", "ومخابز", "مطاحن", "دواجن",
+    # Latin legal/structure words
+    "holding", "holdings", "group", "company", "co", "corp", "inc", "ltd", "plc",
+    "sae", "egypt", "egyptian", "bank", "for", "and", "the", "general",
+    "investment", "investments", "financial", "industrial", "industries",
+    "development", "international", "national", "egx", "stock",
+}
+
+
+# Sector words that appear inside legitimate company names but are far too
+# common on their own ("طاقة" matches "قطر للطاقة", "غاز" matches any gas story).
+# They are still allowed as part of a multi-word name phrase ("طاقة عربية",
+# "غاز مصر"), just never as a single-token match.
+AMBIGUOUS_SINGLE_TOKENS = {
+    "طاقه", "غاز", "بترول", "سياحه", "سياحيه", "زراعه", "زراعي",
+    "اسمنت", "حديد", "ادويه", "دواجن", "مطاحن", "فنادق", "منتجعات",
+}
+
+
+def _name_match_tokens(company_name: str) -> List[str]:
+    """Distinctive tokens of a company name (generic words and short noise removed)."""
+    tokens: List[str] = []
+    for raw in re.split(r"[\s,،|/()\[\]{}\-–—.:;!؟?'\"]+", _normalize_arabic(company_name)):
+        token = raw.strip()
+        if len(token) < 3 or token in GENERIC_NAME_TOKENS or token in AMBIGUOUS_SINGLE_TOKENS:
+            continue
+        tokens.append(token)
+    return list(dict.fromkeys(tokens))
+
+
 def is_relevant_news(title: str, symbol: str, company_name: str = "") -> bool:
+    """True when the headline is about the requested symbol/company.
+
+    Matching order:
+      1. Latin ticker as a whole token ("COMI" never matches "COMING").
+      2. The full company name as a normalized phrase (handles "أبو ظبي").
+      3. A distinctive company-name token ("عامر" for AMER, "قره" for KORA)
+         matched with Arabic prefix/suffix tolerance ("الطاقة" ↔ "للطاقة").
+    """
     if not title or not symbol:
         return False
-    t = title.lower()
+
+    norm_title = _normalize_arabic(title)
     sym = symbol.split(".")[0].upper().strip()
-    terms = get_symbol_search_terms(sym)
-    for term in terms:
-        if len(term) >= 3 and term.lower() in t:
+
+    for term in get_symbol_search_terms(sym):
+        if len(term) >= 3 and re.search(
+            rf"(?<![a-z0-9]){re.escape(term.lower())}(?![a-z0-9])", norm_title
+        ):
             return True
-    name = (company_name or "").lower()
-    name_tokens = [token for token in name.split() if len(token) > 3]
-    if name_tokens and any(token in t for token in name_tokens):
-        return True
+
+    norm_name = _normalize_arabic(company_name)
+    if not norm_name:
+        return False
+
+    # Consecutive-token phrases match space/squash variants: "ابو ظبي" must match
+    # "أبوظبي" in the headline even when the name also has the Latin legal name.
+    # Windows made only of generic words ("بنك مصر") are ignored on purpose.
+    squashed_title = norm_title.replace(" ", "")
+    name_words = [w for w in re.split(r"[\s,،|/()\[\]{}\-–—.:;!؟?'\"]+", norm_name) if w]
+    for size in (3, 2, 1):
+        for start in range(0, max(0, len(name_words) - size + 1)):
+            chunk = name_words[start:start + size]
+            # A window made only of generic words ("المصرية", "بنك مصر") must
+            # never be enough on its own, otherwise every Egyptian company matches.
+            if all(word in GENERIC_NAME_TOKENS for word in chunk):
+                continue
+            phrase = "".join(chunk)
+            if len(phrase) < 6:
+                continue
+            # Latin phrases need word boundaries ("arabia" must not match the
+            # domain "cnbcarabia.com"); Arabic phrases use the squashed compare
+            # because outlets vary spacing and attached prefixes.
+            if re.fullmatch(r"[a-z0-9]+", phrase):
+                if re.search(rf"\b{re.escape(phrase)}\b", norm_title):
+                    return True
+            elif phrase in squashed_title:
+                return True
+
+    for token in _name_match_tokens(company_name):
+        if _is_arabic(token):
+            if _build_keyword_pattern(token).search(norm_title):
+                return True
+        elif re.search(rf"\b{re.escape(token)}\b", norm_title):
+            return True
+
     return False
 
 
@@ -100,11 +211,6 @@ def is_unrelated_news(title: str) -> bool:
         return False
     t = title.lower()
     return any(re.search(p, t) for p in UNRELEVANT_NEWS_PATTERNS)
-
-
-def _is_arabic(text: str) -> bool:
-    """Check if a term contains Arabic characters."""
-    return any('\u0600' <= ch <= '\u06FF' for ch in text)
 
 
 def _build_keyword_pattern(keyword: str) -> re.Pattern:
@@ -188,23 +294,57 @@ _NEGATIVE_PATTERNS: Dict[str, Tuple[re.Pattern, float]] = {
     kw: (_build_keyword_pattern(kw), wt) for kw, wt in FINANCIAL_LEXICON["negative"].items()
 }
 
-def fetch_google_news(symbol: str, days_back: int = 3) -> List[Dict[str, Any]]:
+def parse_pub_date(pub_str: str):
+    """Parse an RSS pubDate into a ``datetime.date``.
+
+    Always returns a *date* (never a datetime) so callers can compare it with
+    another date directly. Comparing a datetime against a date raises TypeError,
+    which previously aborted every item and produced silent zero-news runs.
+    """
+    try:
+        parsed = email.utils.parsedate_to_datetime(str(pub_str or ""))
+    except Exception:
+        return None
+    if parsed is None:
+        return None
+    if isinstance(parsed, dt.datetime):
+        return parsed.date()
+    return parsed
+
+
+def fetch_google_news(
+    symbol: str,
+    days_back: int = 3,
+    company_names: List[str] = None,
+) -> List[Dict[str, Any]]:
     """
     Fetches news from Google News RSS using both Arabic and English queries.
     Uses standard xml.etree.ElementTree and urllib.
     Returns only headlines relevant to the requested symbol/company.
+
+    ``company_names`` must include the Arabic company name(s) when available:
+    most Egyptian outlets publish the Arabic name and never the Latin ticker,
+    so without them Arabic coverage is silently dropped.
     """
     clean_sym = symbol.split(".")[0].upper()
-    
+    names = [str(n).strip() for n in (company_names or []) if str(n or "").strip()]
+    company_name = ", ".join(names)
+
     # We combine Arabic and English search queries for maximum local market coverage
     queries = [
         f"{clean_sym} البورصة المصرية",
-        f"{clean_sym} stock EGX"
+        f"{clean_sym} stock EGX",
     ]
-    
+    # Prefer the most specific Arabic alias (longest) for the name query.
+    arabic_aliases = [n for n in names if _is_arabic(n)]
+    if arabic_aliases:
+        primary_arabic = max(arabic_aliases, key=len)
+        queries.append(f"{primary_arabic} البورصة المصرية")
+
     news_items = {}
     cutoff_date = dt.date.today() - dt.timedelta(days=days_back)
-    
+    raw_item_count = 0
+
     for query in queries:
         try:
             encoded_query = urllib.parse.quote(query)
@@ -212,50 +352,60 @@ def fetch_google_news(symbol: str, days_back: int = 3) -> List[Dict[str, Any]]:
             hl = "ar" if "البورصة" in query else "en"
             gl = "EG"
             url = f"https://news.google.com/rss/search?q={encoded_query}&hl={hl}&gl={gl}&ceid={gl}:{hl}"
-            
+
             req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
             with urllib.request.urlopen(req, timeout=12) as response:
                 xml_data = response.read()
-                
+
             root = ET.fromstring(xml_data)
-            
+
             for item in root.findall(".//item"):
                 title_elem = item.find("title")
                 link_elem = item.find("link")
                 pub_elem = item.find("pubDate")
                 source_elem = item.find("source")
-                
+
                 if title_elem is None or link_elem is None or pub_elem is None:
                     continue
-                    
+
                 title = title_elem.text
                 link = link_elem.text
                 pub_str = pub_elem.text
                 source = source_elem.text if source_elem is not None else "Google News"
-                
+                raw_item_count += 1
+
                 try:
-                    pub_dt = email.utils.parsedate_to_datetime(pub_str)
-                    if pub_dt < cutoff_date:
+                    # parse_pub_date always yields a date so it can be compared
+                    # with cutoff_date safely (a raw datetime raises TypeError,
+                    # which used to be swallowed and silently produced zero news).
+                    pub_date = parse_pub_date(pub_str)
+                    if pub_date is None or pub_date < cutoff_date:
                         continue
-                        
+
                     # Deduplicate by link
                     if link not in news_items:
                         news_items[link] = {
                             "title": title,
                             "link": link,
-                            "published": pub_dt.date().isoformat(),
+                            "published": pub_date.isoformat(),
                             "source": source
                         }
                 except Exception:
                     continue
         except Exception as e:
             print(f"[NEWS_ENGINE] Error fetching news query '{query}': {e}")
-            
+
     # Keep only headlines that are relevant to the requested symbol
     relevant_items = [
         item for item in news_items.values()
-        if is_relevant_news(item["title"], clean_sym) and not is_unrelated_news(item["title"])
+        if is_relevant_news(item["title"], clean_sym, company_name)
+        and not is_unrelated_news(item["title"])
     ]
+    if raw_item_count > 0 and not relevant_items:
+        print(
+            f"[NEWS_ENGINE] {clean_sym}: {raw_item_count} RSS items but 0 matched "
+            f"symbol/name (names={names or 'none'})"
+        )
     return relevant_items
 
 def analyze_sentiment(news_list: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -335,28 +485,82 @@ def analyze_sentiment(news_list: List[Dict[str, Any]]) -> Dict[str, Any]:
         "sources": list({n.get("source", "Unknown") for n in news_list})
     }
 
-def process_exchange_news(exchange: str, symbols: List[str]) -> Tuple[bool, int]:
+def load_company_names(supabase_client=None) -> Dict[str, List[str]]:
+    """symbol -> company name aliases (Latin name + Arabic aliases from stocks).
+
+    Arabic aliases are required because Egyptian outlets publish Arabic names
+    only; without them the symbol query returns nothing usable.
+    """
+    out: Dict[str, List[str]] = {}
+    try:
+        client = supabase_client
+        if client is None:
+            import api.stock_ai as stock_ai
+            stock_ai._init_supabase()
+            client = stock_ai.supabase
+        if not client:
+            return out
+        res = client.table("stocks").select("symbol,name,name_ar").execute()
+        for row in res.data or []:
+            sym = str(row.get("symbol") or "").upper().strip()
+            if not sym:
+                continue
+            aliases: List[str] = []
+            if row.get("name"):
+                aliases.append(str(row["name"]).strip())
+            for part in re.split(r"[,،|/]", str(row.get("name_ar") or "")):
+                part = part.strip()
+                if part:
+                    aliases.append(part)
+            deduped = list(dict.fromkeys(a for a in aliases if a))
+            if deduped:
+                out[sym] = deduped
+    except Exception as e:
+        print(f"[NEWS_ENGINE] Could not load company names: {e}")
+    return out
+
+
+def process_exchange_news(
+    exchange: str,
+    symbols: List[str],
+    name_map: Dict[str, List[str]] = None,
+) -> Tuple[bool, int]:
     """
     Fetches, analyzes, and saves news sentiment for symbols to Supabase.
+
+    Returns ``(found_any_news, symbols_with_news)``. Callers use the count to
+    detect a silent coverage failure — previously a run that fetched nothing
+    still looked successful because empty rows were written for every symbol.
     """
     import api.stock_ai as stock_ai
     stock_ai._init_supabase()
-    
+
     if not stock_ai.supabase:
         print("[NEWS_ENGINE] Supabase not initialized. Skipping save.")
         return False, 0
-        
+
     today_str = dt.date.today().isoformat()
     processed_count = 0
+    symbols_with_news = 0
+    total_headlines = 0
+
+    if name_map is None:
+        name_map = load_company_names(stock_ai.supabase)
+    print(f"[NEWS_ENGINE] Loaded company names for {len(name_map)} symbols")
     
     print(f"[NEWS_ENGINE] Processing news for {len(symbols)} symbols in {exchange}...")
     
     for symbol in symbols:
         try:
+            clean_symbol = symbol.split(".")[0].upper()
+            aliases = name_map.get(clean_symbol, [])
             # 1. Fetch news
-            news = fetch_google_news(symbol, days_back=3)
+            news = fetch_google_news(symbol, days_back=3, company_names=aliases)
             # 2. Analyze
             sentiment = analyze_sentiment(news)
+            if sentiment["news_count"] > 0:
+                symbols_with_news += 1
+                total_headlines += sentiment["news_count"]
 
             # 2.5 Classify corporate actions from the SAME fetched news
             # (rights issues, splits, dividends, bonus shares, ...) — no
@@ -365,7 +569,11 @@ def process_exchange_news(exchange: str, symbols: List[str]) -> Tuple[bool, int]
                 from api.corporate_actions_engine import process_news_list_for_corporate_actions
                 clean_ca_sym = symbol.split(".")[0].upper()
                 ca_saved = process_news_list_for_corporate_actions(
-                    clean_ca_sym, exchange, news, supabase=stock_ai.supabase
+                    clean_ca_sym,
+                    exchange,
+                    news,
+                    supabase=stock_ai.supabase,
+                    company_name=", ".join(aliases),
                 )
                 if ca_saved:
                     print(f"[NEWS_ENGINE] Stored {ca_saved} corporate action(s) for {clean_ca_sym}")
@@ -374,7 +582,7 @@ def process_exchange_news(exchange: str, symbols: List[str]) -> Tuple[bool, int]
 
             # 3. Save to Supabase (upsert based on symbol and date)
             payload = {
-                "symbol": symbol.split(".")[0].upper(),
+                "symbol": clean_symbol,
                 "exchange": exchange,
                 "date": today_str,
                 "sentiment_score": sentiment["sentiment_score"],
@@ -393,5 +601,8 @@ def process_exchange_news(exchange: str, symbols: List[str]) -> Tuple[bool, int]
         except Exception as e:
             print(f"[NEWS_ENGINE] Error processing news for {symbol}: {e}")
             
-    print(f"[NEWS_ENGINE] Successfully processed and stored news sentiment for {processed_count} symbols.")
-    return True, processed_count
+    print(
+        f"[NEWS_ENGINE] Saved {processed_count} rows for {exchange}; "
+        f"{symbols_with_news} symbols had news ({total_headlines} headlines total)."
+    )
+    return symbols_with_news > 0, symbols_with_news

@@ -158,7 +158,12 @@ def _worker():
                     _state["last_run_status"] = "completed" if ok else "failed"
                     _state["last_count"] = count
 
-                print(f"[NEWS-SCHEDULER] Done — {count} symbols processed, ok={ok}")
+                if ok:
+                    print(f"[NEWS-SCHEDULER] Done — {count} symbols had news, ok={ok}")
+                else:
+                    # A run that stores only empty rows is a coverage failure, not
+                    # success: surface it so RSS/filtering regressions are visible.
+                    print(f"[NEWS-SCHEDULER] FAILED — 0 symbols had news (ok=False). Check Google News RSS access and name matching.")
                 # Sleep 6 minutes to skip past the 5-minute fire window
                 time.sleep(360)
                 continue

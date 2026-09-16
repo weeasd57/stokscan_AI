@@ -1,6 +1,7 @@
 import { PlannerResult } from "./types";
 import { AI_CONFIG } from "./config";
 import { isShariaCompliant } from "../shariaStocks";
+import { isRelevantNews } from "./news-relevance";
 
 
 function normalizeArabic(str: string): string {
@@ -10,26 +11,6 @@ function normalizeArabic(str: string): string {
         .replace(/ى/g, "ي")
         .replace(/ؤ/g, "و")
         .toLowerCase();
-}
-
-const UNRELATED_NEWS_KEYWORDS = [
-    "زمالك", "أهلي", "كرة", "كره", "مباراة", "دوري", "كأس",
-    "كابلات", "مقاولون", "سيارة", "سيارات", "عقاري", "عقارات",
-    "أسمنت", "اسمنت", "بترول", "غاز", "بتروكيماويات",
-    "صفحة", "أبراج", "عالم المال"
-];
-
-function isRelevantNews(title: string, symbol: string, companyName: string): boolean {
-    if (!title) return false;
-    const t = title.toLowerCase();
-    const sym = symbol.toLowerCase();
-    const name = (companyName || "").toLowerCase();
-    const nameTokens = name.split(/\s+/).filter(token => token.length > 3);
-    const hasSymbol = sym.length >= 3 && t.includes(sym);
-    const hasName = nameTokens.some(token => t.includes(token));
-    const hasUnrelated = UNRELATED_NEWS_KEYWORDS.some(k => t.includes(k));
-    if (hasUnrelated) return false;
-    return hasSymbol || hasName;
 }
 
 function getLevenshteinDistance(a: string, b: string): number {
