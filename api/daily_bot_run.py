@@ -1237,7 +1237,7 @@ def evaluate_old_recommendations():
                 )
                 stale_verify = supabase.table("scan_results").select("id").eq("id", rec["id"]).eq("status", "stale").eq("updated_at", stale_update["updated_at"]).execute()
                 if getattr(stale_verify, "data", None):
-                    from api.recommendation_events import record_event, update_telegram_delivery, event_values
+                    from api.recommendation_events import record_event, update_telegram_delivery, claim_event_delivery, event_values
                     event_rec = record_event(
                         supabase,
                         rec["id"],
@@ -1249,19 +1249,19 @@ def evaluate_old_recommendations():
                     if not event_rec:
                         _rollback_recommendation_change(rec["id"], "stale", rec, stale_update.get("updated_at"))
                         continue
-                    delivered = False
-                    if event_rec and event_rec.get("id") and event_rec.get("telegram_status") == "pending" and _telegram_recommendation_writes_enabled():
-                        delivered = _send_telegram_exit(
-                            symbol,
-                            exchange,
-                            entry_price,
-                            latest_close if latest_close > 0 else entry_price,
-                            ((latest_close - entry_price) / entry_price * 100) if entry_price else 0,
-                            "stale",
-                            created_at=created_at_date,
-                        )
-                    if event_rec and event_rec.get("id") and _telegram_recommendation_writes_enabled() and event_rec.get("telegram_status") != "blocked_read_only":
-                        update_telegram_delivery(supabase, event_rec["id"], success=delivered)
+                    if event_rec and event_rec.get("id") and _telegram_recommendation_writes_enabled():
+                        claim_token = claim_event_delivery(supabase, event_rec["id"])
+                        if claim_token:
+                            delivered = _send_telegram_exit(
+                                symbol,
+                                exchange,
+                                entry_price,
+                                latest_close if latest_close > 0 else entry_price,
+                                ((latest_close - entry_price) / entry_price * 100) if entry_price else 0,
+                                "stale",
+                                created_at=created_at_date,
+                            )
+                            update_telegram_delivery(supabase, event_rec["id"], success=delivered, claim_token=claim_token)
                 else:
                     print(f"[EVALUATE] Stale recommendation {symbol} was already changed; skipping event.")
             except Exception as upd_err:
@@ -1615,7 +1615,7 @@ def evaluate_old_recommendations():
                     update_applied = False
                     new_adjustments = []
                 else:
-                    from api.recommendation_events import record_event, update_telegram_delivery, event_values
+                    from api.recommendation_events import record_event, update_telegram_delivery, claim_event_delivery, event_values
                     event_rec = record_event(
                         supabase,
                         rec["id"],
@@ -1630,11 +1630,11 @@ def evaluate_old_recommendations():
                         update_applied = False
                         new_adjustments = []
                         continue
-                    delivered = False
-                    if event_rec and event_rec.get("id") and event_rec.get("telegram_status") == "pending" and _telegram_recommendation_writes_enabled():
-                        delivered = _send_telegram_exit(symbol, exchange, entry_price, exit_price, pl_pct, status, created_at=created_at_date)
-                    if event_rec and "id" in event_rec and _telegram_recommendation_writes_enabled() and event_rec.get("telegram_status") != "blocked_read_only":
-                        update_telegram_delivery(supabase, event_rec["id"], success=delivered)
+                    if event_rec and event_rec.get("id") and _telegram_recommendation_writes_enabled():
+                        claim_token = claim_event_delivery(supabase, event_rec["id"])
+                        if claim_token:
+                            delivered = _send_telegram_exit(symbol, exchange, entry_price, exit_price, pl_pct, status, created_at=created_at_date)
+                            update_telegram_delivery(supabase, event_rec["id"], success=delivered, claim_token=claim_token)
             except Exception as upd_err:
                 print(f"[EVALUATE] Close update failed for {symbol}: {upd_err}")
                 found_event = False
@@ -1645,7 +1645,7 @@ def evaluate_old_recommendations():
         # FIX: Only send adjustment notifications (e.g. "target raised") if we did
         # NOT close the position in the same run.
         if update_applied and not found_event and new_adjustments:
-            from api.recommendation_events import record_event, update_telegram_delivery, invalidate_event, event_values
+            from api.recommendation_events import record_event, update_telegram_delivery, invalidate_event, claim_event_delivery, event_values
             adjustment_event_ids = []
             for adj in new_adjustments:
                 event_rec = record_event(
@@ -1664,11 +1664,10 @@ def evaluate_old_recommendations():
                     update_applied = False
                     break
                 adjustment_event_ids.append(event_rec["id"])
-                delivered = False
-                if event_rec and event_rec.get("id") and event_rec.get("telegram_status") == "pending" and _telegram_recommendation_writes_enabled():
+                claim_token = claim_event_delivery(supabase, event_rec["id"]) if _telegram_recommendation_writes_enabled() else None
+                if claim_token:
                     delivered = _send_telegram_adjustment(symbol, exchange, adj)
-                if event_rec and "id" in event_rec and _telegram_recommendation_writes_enabled() and event_rec.get("telegram_status") != "blocked_read_only":
-                    update_telegram_delivery(supabase, event_rec["id"], success=delivered)
+                    update_telegram_delivery(supabase, event_rec["id"], success=delivered, claim_token=claim_token)
 
         print(f"[EVALUATE] {symbol}: status={status}, return={pl_pct:.2f}%, trend={trend_strength}, adjustments={len(new_adjustments)}")
 

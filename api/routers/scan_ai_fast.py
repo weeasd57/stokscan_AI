@@ -1120,13 +1120,22 @@ def evaluate_scan(batch_id: str):
                 exit_price = current_price
                 pl_pct = ((current_price - entry_price) / entry_price) * 100
 
-            # 5. Update Supabase
-            sb.table("scan_results").update({
-                "exit_price": exit_price,
-                "profit_loss_pct": round(pl_pct, 4),
-                "status": status,
-                "updated_at": datetime.datetime.utcnow().isoformat()
-            }).eq("id", r["id"]).execute()
+            # 5. Update Supabase — only close a row that is still open so two
+            # concurrent evaluations cannot both emit an exit event.
+            close_res = (
+                sb.table("scan_results").update({
+                    "exit_price": exit_price,
+                    "profit_loss_pct": round(pl_pct, 4),
+                    "status": status,
+                    "updated_at": datetime.datetime.utcnow().isoformat()
+                })
+                .eq("id", r["id"])
+                .eq("status", "open")
+                .execute()
+            )
+            if not getattr(close_res, "data", None):
+                print(f"[EVALUATE] {symbol}: status changed concurrently; skipping exit event.")
+                continue
             updated_count += 1
 
             # Keep Telegram in lockstep with website-initiated evaluations.
@@ -1134,7 +1143,7 @@ def evaluate_scan(batch_id: str):
             # showed a closed trade while Telegram never emitted an exit event.
             if status in ("win", "loss"):
                 try:
-                    from api.recommendation_events import record_event, update_telegram_delivery, event_values
+                    from api.recommendation_events import record_event, update_telegram_delivery, claim_event_delivery, event_values
                     from api.daily_bot_run import _send_telegram_exit, _telegram_recommendation_writes_enabled
 
                     event_rec = record_event(
@@ -1150,17 +1159,19 @@ def evaluate_scan(batch_id: str):
                         price_at_event=exit_price,
                         source="scan_evaluate_endpoint",
                     )
-                    if event_rec and event_rec.get("id") and event_rec.get("telegram_status") == "pending" and _telegram_recommendation_writes_enabled():
-                        delivered = _send_telegram_exit(
-                            symbol,
-                            exchange,
-                            entry_price,
-                            exit_price,
-                            pl_pct,
-                            status,
-                            created_at=str(r.get("created_at") or "")[:10],
-                        )
-                        update_telegram_delivery(sb, event_rec["id"], success=delivered)
+                    if event_rec and event_rec.get("id") and _telegram_recommendation_writes_enabled():
+                        claim_token = claim_event_delivery(sb, event_rec["id"])
+                        if claim_token:
+                            delivered = _send_telegram_exit(
+                                symbol,
+                                exchange,
+                                entry_price,
+                                exit_price,
+                                pl_pct,
+                                status,
+                                created_at=str(r.get("created_at") or "")[:10],
+                            )
+                            update_telegram_delivery(sb, event_rec["id"], success=delivered, claim_token=claim_token)
                 except Exception as event_err:
                     print(f"Evaluation Telegram sync failed for {symbol}: {event_err}")
 

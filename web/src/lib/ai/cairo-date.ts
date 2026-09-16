@@ -48,6 +48,7 @@ export function isEgxSessionOpen(date: Date = new Date()): boolean {
     const fridayOrSaturday = weekday === "fri" || weekday === "sat";
     if (fridayOrSaturday) return false;
     const minutes = hour * 60 + minute;
-    // EGX cash session: 10:00–14:30 Cairo (10:00–15:00 with the extension).
-    return minutes >= 10 * 60 && minutes < 15 * 60;
+    // EGX cash session: 10:00–14:30 Cairo. Keep this single source of truth
+    // shared by the chat, portfolio, and live updater paths.
+    return minutes >= 10 * 60 && minutes <= 14 * 60 + 30;
 }

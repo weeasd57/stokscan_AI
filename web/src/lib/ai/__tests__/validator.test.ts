@@ -26,6 +26,56 @@ const aalrToolResults = [
 ];
 
 describe("validator deterministic rules & semantic verification", () => {
+  it("rejects presenting a 60-session midpoint scan as fundamental fair value", () => {
+    const toolResults = [{
+      tool: "get_fair_value_scan",
+      data: {
+        metric: "price_below_60_session_midpoint",
+        stocks: [{ symbol: "COMI", close: 90, midpoint: 100, premium_pct: -10 }],
+      },
+    }];
+
+    const errors = validateDeterministicRules(
+      "COMI من الأسهم الأقل من القيمة العادلة بخصم 10%.",
+      toolResults,
+      "هات الأسهم الأقل من القيمة العادلة",
+      "market_summary",
+    );
+
+    expect(errors.some(error => error.includes("منتصف نطاق 60 جلسة"))).toBe(true);
+    expect(validateDeterministicRules(
+      "COMI يتداول تحت القيمة الوسطية الفنية لنطاق 60 جلسة بنسبة 10%، وهذا مقياس فني لا قيمة عادلة مالية.",
+      toolResults,
+      "هات الأسهم الأقل من القيمة العادلة",
+      "market_summary",
+    )).toEqual([]);
+  });
+
+  it("does not replace a nearby price with another symbol's close", () => {
+    const fixed = autoFixNumbers(
+      "AAA السعر الحالي 100 جنيه\nBBB السعر الحالي 102 جنيه",
+      [
+        { data: { symbol: "AAA", price: 100 } },
+        { data: { symbol: "BBB", price: 102 } },
+      ],
+    );
+    expect(fixed).toContain("AAA السعر الحالي 100 جنيه");
+    expect(fixed).toContain("BBB السعر الحالي 102 جنيه");
+  });
+
+  it("preserves 100.4 without inventing a correction and validates tolerated rounding", () => {
+    const reply = "AAA السعر الحالي 100.4 جنيه\nBBB السعر الحالي 102 جنيه";
+    const facts = [
+      { data: { symbol: "AAA", price: 100 } },
+      { data: { symbol: "BBB", price: 102 } },
+    ];
+    const fixed = autoFixNumbers(reply, facts);
+    expect(fixed).toBe(reply);
+    expect(validateResponse(fixed, JSON.stringify(facts), ["AAA", "BBB"], facts).isValid).toBe(true);
+    const incorrect = reply.replace("100.4", "107.4");
+    expect(autoFixNumbers(incorrect, facts)).toBe(incorrect);
+    expect(validateDeterministicRules(incorrect, facts).some(e => e.includes("تضارب في سعر"))).toBe(true);
+  });
   it("extracts Arabic-Indic numerals correctly", () => {
     const numbers = extractNumbers("داخل من ١٠.٨٦ بسعر ٧.٢٣");
     expect(numbers).toContain(10.86);
@@ -73,6 +123,45 @@ describe("validator deterministic rules & semantic verification", () => {
     expect(errors).toEqual([]);
   });
 
+  it("distinguishes an RSI threshold from the reported RSI value", () => {
+    const errors = validateDeterministicRules(
+      "سهم SPMD يسجل RSI عند 78.8235، فوق مستوى 70 ودخل منطقة التشبع الشرائي.",
+      [{ data: { symbol: "SPMD", rsi_14: 78.8235 } }],
+      "حلل SPMD",
+    );
+    expect(errors).toEqual([]);
+  });
+
+  it("accepts a historical buy signal that states its entry price", () => {
+    const errors = validateDeterministicRules(
+      "KWIN: إشارة شراء من سعر دخول 95.97 جنيه.",
+      [{ tool: "get_recommendations", data: [{ symbol: "KWIN", entry_price: 95.97 }] }],
+      "هات أقدم توصية عندك",
+    );
+    expect(errors).toEqual([]);
+  });
+
+  it("does not assign every metric in a multi-stock sentence to its first symbol", () => {
+    const errors = validateDeterministicRules(
+      "MPCO مقاومته 2.92 جنيه، بينما TANM مقاومته 8.50 جنيه.",
+      [
+        { data: { symbol: "MPCO", resistance: 2.92 } },
+        { data: { symbol: "TANM", resistance: 8.5 } },
+      ],
+      "قارن MPCO وTANM",
+    );
+    expect(errors).toEqual([]);
+  });
+
+  it("does not treat a negated strong-agreement phrase as a strong-agreement claim", () => {
+    const errors = validateDeterministicRules(
+      "HRHO: لا يوجد اتفاق قوي بين النموذجين.",
+      [{ data: { symbol: "HRHO", king_ai_score: 0.42, egx_ai_score: 0.61 } }],
+      "حلل HRHO",
+    );
+    expect(errors).toEqual([]);
+  });
+
   it("does not flag non-RSI numbers (>100) inside an RSI sentence", () => {
     const reply =
       "مؤشر RSI يظهر تشبع شرائي لسهم AALR الذي يتداول قرب 310 جنيه.";
@@ -106,11 +195,12 @@ describe("validator deterministic rules & semantic verification", () => {
     expect(isVerifiableDerivedMetric(93.45, facts)).toBe(false);
   });
 
-  it("safely auto-fixes exact current price rounding when strictly bound", () => {
+  it("preserves a rounded current price and validates it without rewriting", () => {
     const reply = "السعر الحالي هو 120.7 جنيه لسهم AMES.";
     const amesFacts = [{ data: { symbol: "AMES", price: 120.78 } }];
     const fixed = autoFixNumbers(reply, amesFacts);
-    expect(fixed).toContain("120.78");
+    expect(fixed).toBe(reply);
+    expect(validateDeterministicRules(fixed, amesFacts)).toEqual([]);
   });
 
   it("validateResponse passes a fully correct reply with derived percentages", () => {
@@ -928,15 +1018,99 @@ describe("validator: Metric value matching for MACD, vol_ratio, ML scores", () =
 });
 
 describe("validator: autoFixNumbers derived metrics", () => {
-  it("fixes derived percentage from support", () => {
+  const dailyFacts = [
+    { data: { symbol: "AAA", price: 102, support: 100, change_pct: 1.25 } },
+    { data: { symbol: "BBB", price: 103, support: 100, change_pct: -0.75 } },
+  ];
+
+  it.each([
+    "AAA ارتفع 1.25% اليوم، ويبتعد 2.00% عن الدعم.",
+    "AAA صعد اليوم بنسبة 1.25%، BBB تراجع اليوم بنسبة 0.75%.",
+    "AAA ارتفع ١٫٢٥٪ اليوم، والدعم ١٠٠ جنيه.",
+    "AAA ارتفع نحو ۱٫۲۵٪ اليوم، والدعم ۱۰۰ جنيه.",
+    "ارتفع نحو 1.25 بالمائة والسعر الحالي 102 جنيه.",
+  ])("preserves day-change and support-distance percentages: %s", reply => {
+    expect(autoFixNumbers(reply, dailyFacts)).toBe(reply);
+    expect(autoFixNumbers(reply, [...dailyFacts].reverse())).toBe(reply);
+    expect(autoFixNumbers(reply, [dailyFacts[0]])).toBe(reply);
+  });
+
+  it.each([
+    "AAA السعر الحالي 102 جنيه والدعم 100 جنيه والمقاومة 103 جنيه.",
+    "AAA السعر الحالي 102 جنيه BBB السعر الحالي 103 جنيه",
+    "السعر الحالي 102 جنيه لسهم AAA والسعر الحالي 103 جنيه لسهم BBB",
+    "AAA أغلق عند 100.4 جنيه بتاريخ 2026-09-14 والسعر الحالي 102 جنيه بتاريخ 2026-09-15.",
+    "السعر الحالي 100.4 جنيه بتاريخ 2026-09-14.",
+    "| المعيار | AAA | BBB |\n| السعر الحالي | 102.00 | 103.00 |",
+  ])("does not rewrite prices across metrics, symbols, or dates: %s", reply => {
+    expect(autoFixNumbers(reply, dailyFacts)).toBe(reply);
+    expect(autoFixNumbers(reply, [...dailyFacts].reverse())).toBe(reply);
+  });
+
+  it("preserves coexisting intraday and dated closes in either tool order", () => {
+    const facts = [
+      { data_time: "2026-09-15", data: { symbol: "AAA", price: 102 } },
+      { data_time: "2026-09-14", data: { symbol: "AAA", close: 100.4 } },
+    ];
+    const reply = "AAA السعر الحالي 102 جنيه، وأغلق عند 100.4 جنيه بتاريخ 2026-09-14.";
+    for (const ordered of [facts, [...facts].reverse()]) {
+      expect(autoFixNumbers(reply, ordered)).toBe(reply);
+      expect(validateDeterministicRules(reply, ordered)).toEqual([]);
+    }
+  });
+
+  it("validates explicit signed daily changes against change_pct, not support distance", () => {
+    const reply = "AAA ارتفع اليوم بنسبة 1.25%.\nBBB تراجع اليوم بنسبة 0.75%.";
+    expect(validateDeterministicRules(reply, dailyFacts)).toEqual([]);
+    for (const incorrect of [
+      "AAA ارتفع اليوم بنسبة 2%.",
+      "AAA التغير اليومي -1.25%.",
+      "AAA نسبة التغير 102%.",
+      "BBB ارتفع اليوم بنسبة 0.75%.",
+      "AAA التغير اليومي ٢٪.",
+    ]) {
+      expect(autoFixNumbers(incorrect, dailyFacts)).toBe(incorrect);
+      const result = validateResponse(incorrect, JSON.stringify(dailyFacts), ["AAA", "BBB"], dailyFacts);
+      expect(result.deterministicErrors.some(e => e.includes("التغير اليومي"))).toBe(true);
+      expect(result.isValid).toBe(false);
+    }
+  });
+
+  it("does not validate support distance as a daily change", () => {
+    expect(validateDeterministicRules("AAA يبتعد 2% عن الدعم.", dailyFacts)).toEqual([]);
+  });
+
+  it.each([
+    "AAA السعر الحالي 175 جنيه.", // BBB's price must not validate AAA's price.
+    "AAA السعر الحالي 80 جنيه.", // AAA's RSI is not its price.
+    "AAA مؤشر RSI عند 50.", // A generic indicator threshold is not the actual RSI.
+  ])("rejects a typed claim matching an unrelated fact: %s", reply => {
+    const facts = [
+      { data: { symbol: "AAA", price: 100, rsi_14: 80 } },
+      { data: { symbol: "BBB", price: 175 } },
+    ];
+    expect(autoFixNumbers(reply, facts)).toBe(reply);
+    expect(validateDeterministicRules(reply, facts).some(e => e.includes("تضارب"))).toBe(true);
+  });
+
+  it("validates table cells by symbol column and rejects swapped prices", () => {
+    const facts = [
+      { data: { symbol: "AAA", price: 100 } },
+      { data: { symbol: "BBB", price: 175 } },
+    ];
+    const header = "| المعيار | AAA | BBB |\n|---|---|---|\n";
+    expect(validateDeterministicRules(header + "| السعر | السعر الحالي 100 جنيه | السعر الحالي 175 جنيه |", facts)).toEqual([]);
+    expect(validateDeterministicRules(header + "| السعر | السعر الحالي 175 جنيه | السعر الحالي 100 جنيه |", facts)).toHaveLength(2);
+  });
+
+  it("does not rewrite a derived percentage from support", () => {
     const reply = "السهم ارتفع حوالي 7.59% من مستوى الدعم.";
     const facts = [{ data: { symbol: "TEST", price: 310, support: 288.54 } }];
     const fixed = autoFixNumbers(reply, facts);
-    // ((310 - 288.54) / 288.54) * 100 = 7.4376% ≈ 7.44%
-    expect(fixed).toContain("7.44");
+    expect(fixed).toBe(reply);
   });
 
-  it("fixes derived percentage from resistance", () => {
+  it("preserves a derived percentage from resistance including formatting", () => {
     const reply = "السهم انخفض حوالي 5.00% من مستوى المقاومة.";
     const facts = [
       { data: { symbol: "TEST", price: 310, resistance: 326.32 } },

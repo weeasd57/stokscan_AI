@@ -935,8 +935,8 @@ export default function HomePage() {
                                 const mainHeadline = headlines[0] || (isAr ? `تحديث فني لسهم ${item.symbol}` : `Technical update for ${item.symbol}`);
                                 const sources = item.sources || [];
                                 const mainSource = sources[0] || "EGX Bots AI";
-                                const isPositive = item.sentiment_score > 0.05;
-                                const isNegative = item.sentiment_score < -0.05;
+                                const isPositive = item.sentiment_score > 0.15;
+                                const isNegative = item.sentiment_score < -0.15;
                                 
                                 return (
                                     <div 

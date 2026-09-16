@@ -361,7 +361,7 @@ def update_actuals(exchange="EGX", look_forward_days=20, target_pct=2.0, stop_lo
                 # trade shown as closed on the website is also announced there.
                 if getattr(update_result, "data", None) and not telegram_recommendations_read_only():
                     try:
-                        from api.recommendation_events import record_event, update_telegram_delivery, event_values
+                        from api.recommendation_events import record_event, update_telegram_delivery, claim_event_delivery, event_values
                         from api.daily_bot_run import _send_telegram_exit
                         ev = record_event(
                             supabase,
@@ -372,17 +372,19 @@ def update_actuals(exchange="EGX", look_forward_days=20, target_pct=2.0, stop_lo
                             price_at_event=exit_price,
                             source="adaptive_learning",
                         )
-                        if ev and ev.get("id") and ev.get("telegram_status") == "pending":
-                            delivered = _send_telegram_exit(
-                                pred.get("symbol", ""),
-                                exchange,
-                                entry_price,
-                                exit_price,
-                                pl_pct,
-                                status_val,
-                                created_at=str(pred.get("created_at") or "")[:10],
-                            )
-                            update_telegram_delivery(supabase, ev["id"], success=delivered)
+                        if ev and ev.get("id"):
+                            claim_token = claim_event_delivery(supabase, ev["id"])
+                            if claim_token:
+                                delivered = _send_telegram_exit(
+                                    pred.get("symbol", ""),
+                                    exchange,
+                                    entry_price,
+                                    exit_price,
+                                    pl_pct,
+                                    status_val,
+                                    created_at=str(pred.get("created_at") or "")[:10],
+                                )
+                                update_telegram_delivery(supabase, ev["id"], success=delivered, claim_token=claim_token)
                     except Exception as ev_err:
                         _log(f"Telegram close sync failed for {pred.get('symbol')}: {ev_err}", log_cb)
                 

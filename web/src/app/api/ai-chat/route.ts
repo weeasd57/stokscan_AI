@@ -600,12 +600,11 @@ export async function POST(req: NextRequest) {
                                     fullResponse = stripEnvironmentMetadata(fullResponse + rawToken);
                                     if (filterOutputBlocks(fullResponse)) {
                                         fullResponse = "أنا أداة تحليلية ذكية، ولا يمكنني تقديم نصائح مالية أو توصيات شراء مباشرة. يمكنك مراجعة تقييم الأسهم في صفحة الماسح الذكي لمساعدتك في اتخاذ القرار.";
-                                        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "token", content: fullResponse })}\n\n`));
-                                        controller.enqueue(encoder.encode("data: [DONE]\n\n"));
-                                        streamClosed = true;
-                                        clearInterval(heartbeat);
-                                        controller.close();
-                                        return;
+                                        tokenBuffer = "";
+                                        sendEvent({ type: "token", content: fullResponse });
+                                        // Complete through the normal done path so quota,
+                                        // idempotency and message history are persisted.
+                                        break;
                                     }
                                     tokenBuffer = stripEnvironmentMetadata(tokenBuffer + rawToken);
                                     if (hasPartialEnvironmentMetadata(tokenBuffer)) {

@@ -170,7 +170,7 @@ export function getInvestorGuidanceIntent(message: string, hasNamedStock = false
     const isSingleStockAdviceRequest = (hasNamedStock && /(اشتريت|نزل بي|نزل بيا|خسران|نازل بيا)/i.test(normalized)) || /(اشتريت.*في.*سهم.*و(?:نزل|خسر))/i.test(normalized);
     if (isSingleStockAdviceRequest) return null;
 
-    if (asksComparison && mentionsDefensiveProduct && /سهم|اسهم|الاسهم/.test(normalized)) return "product_comparison";
+    if (asksComparison && mentionsDefensiveProduct && (hasNamedStock || /سهم|اسهم|الاسهم/.test(normalized))) return "product_comparison";
     if (mentionsDefensiveProduct && asksHowItWorks && !hasNamedStock) return "product_explainer";
     if (asksAllocation && !hasNamedStock) return "allocation";
     if (signalsInexperience && !hasNamedStock) return "onboarding";

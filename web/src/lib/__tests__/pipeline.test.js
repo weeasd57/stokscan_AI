@@ -1337,6 +1337,12 @@ describe("Structured table sanitization", () => {
         expect(plan.entities.requested_date).toBe("2026-09-10");
     });
 
+    it("routes Arabic-numeral date follow-ups to the current stock", () => {
+        const plan = buildDeterministicPlannerResult("النهاردة ١٥\\٩", { current_symbol: "AMER", last_symbols: ["AMER"], summary: null });
+        expect(plan.entities.symbols).toEqual(["AMER"]);
+        expect(plan.tools).toContain("get_stock");
+    });
+
     it("scopes a singular owned-stock follow-up to the current stock", () => {
         expect(scopeImplicitSingleStockRequest(
             "شريت انهارده ونزل هل في امل انو يطلع حد يفيدني",

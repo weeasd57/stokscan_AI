@@ -167,6 +167,49 @@ def update_telegram_delivery(
         return False
 
 
+def claim_event_delivery(supabase: Any, event_id: Optional[str]) -> Optional[str]:
+    """Atomically claim a pending event so exactly one worker sends its Telegram message.
+
+    The inline evaluator (daily job / website / adaptive learning) and the
+    background retry loop both run against the same event row. Without a claim,
+    both can read ``telegram_status == 'pending'`` and each send the same message,
+    producing duplicate Telegram posts. This writes the same retry lease that
+    ``claim_recommendation_telegram_events`` honors, so the loser of the race
+    skips delivery. Returns the claim token on success, otherwise ``None``.
+    """
+    if not event_id or _is_read_only():
+        return None
+    token = str(uuid.uuid4())
+    now_iso = datetime.now(timezone.utc).isoformat()
+    try:
+        (
+            supabase.table("recommendation_events")
+            .update({
+                "retry_claimed_at": now_iso,
+                "retry_claim_token": token,
+                "updated_at": now_iso,
+            })
+            .eq("id", event_id)
+            .eq("telegram_status", "pending")
+            .is_("retry_claimed_at", "null")
+            .execute()
+        )
+        # Do not trust the update response representation; confirm the token we
+        # wrote is the one persisted, which only the winner can observe.
+        verify = (
+            supabase.table("recommendation_events")
+            .select("id")
+            .eq("id", event_id)
+            .eq("retry_claim_token", token)
+            .limit(1)
+            .execute()
+        )
+        return token if getattr(verify, "data", None) else None
+    except Exception as error:
+        print(f"[RECOMMENDATION_EVENT] Could not claim Telegram delivery for {event_id}: {error}")
+        return None
+
+
 def invalidate_event(supabase: Any, event_id: str, reason: str = "lifecycle compensation") -> bool:
     """Mark an event as cancelled so a compensated mutation cannot be retried."""
     if not event_id:

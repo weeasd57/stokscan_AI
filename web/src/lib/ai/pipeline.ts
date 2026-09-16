@@ -1,9 +1,9 @@
 import { IntentPlan, VisionContext, SessionState, SessionSummary, PlannerResult } from "./types";
 import { analyzeImage, reconcileVisionWithMarket } from "./vision";
 import { retrieveRelevantMemory, MemoryResult } from "./memory";
-import { getSyncStockMappings, getStocksList, getSyncValidSymbols, loadValidSymbols, isUnresolvedCompanyNameMention, LATIN_TICKER_ALIASES } from "./planner";
+import { getSyncStockMappings, getStocksList, getSyncValidSymbols, loadValidSymbols, isUnresolvedCompanyNameMention, LATIN_TICKER_ALIASES, runPlanner } from "./planner";
 import { executeStructuredTools, StructuredToolOutput } from "./tools-v2";
-import { buildDeterministicResponse, generateV2Response, generateV2Stream, getResponderCooldownMs } from "./final-v2";
+import { buildDeterministicResponse, generateV2Response, generateV2Stream, getResponderCooldownMs, normalizeStockFreshnessLanguage } from "./final-v2";
 import { validateResponse, autoFixNumbers } from "./validator";
 import { sanitizeReply } from "./sanitizer";
 import { loadSessionState, loadSessionSummary, updateSessionSummary, updateSessionState, loadPersistentInvestorProfile } from "./session";
@@ -15,6 +15,8 @@ import { isOtcStock, buildOtcNotice } from "./otc-stocks";
 import { isEgxSessionOpen } from "./live-stock-updater";
 import { replacePortfolioFromImage, checkPortfolioImportCapacity } from "./portfolio-tools";
 import { getDeepSeekApiKey } from "./server-secrets";
+import { createExecutionScope, awaitExecution, executionFetch, executionSupabase, getExecutionSignal, remainingExecutionMs, withExecutionTimeout } from "./execution";
+import { attachEvidenceContract } from "./evidence";
 
 export interface PipelineResult {
     vision: VisionContext | null;
@@ -46,25 +48,36 @@ async function reviewHybridToolResults(
     sessionState: SessionState,
 ): Promise<string[]> {
     const key = getDeepSeekApiKey();
-    if (!key || plan.clarification_needed || plan.intent === "portfolio_management") return [];
-    const response = await fetch(AI_CONFIG.api.deepseekBaseUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
-        body: JSON.stringify({
-            model: "deepseek-chat",
-            temperature: 0,
-            max_tokens: 220,
-            response_format: { type: "json_object" },
-            messages: [
-                { role: "system", content: "أنت مراجع نتائج لأداة تحليل أسهم. أعد JSON فقط بالشكل {\"additional_tools\":[]}. اطلب أدوات إضافية فقط إذا كانت ضرورية للإجابة على السؤال. استخدم أسماء الأدوات المسموحة فقط." },
-                { role: "user", content: JSON.stringify({ message, plan: { intent: plan.intent, entities: plan.entities, tools: plan.tools }, results: results.results, session: sessionState, allowed_tools: Array.from(HYBRID_REVIEW_ALLOWED_TOOLS) }) },
-            ],
-        }),
-    });
-    if (!response.ok) return [];
-    const json: any = await response.json();
+    if (!key || plan.clarification_needed || plan.intent === "portfolio_management" || remainingExecutionMs() < 18000) return [];
+    let response: Response;
     let parsed: any = {};
-    try { parsed = JSON.parse(json.choices?.[0]?.message?.content || "{}"); } catch { return []; }
+    const reviewController = new AbortController();
+    const reviewTimeout = setTimeout(() => reviewController.abort(new Error("HYBRID_REVIEW_TIMEOUT")), Math.min(8000, Math.max(1, remainingExecutionMs())));
+    try {
+        response = await executionFetch(AI_CONFIG.api.deepseekBaseUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+            signal: reviewController.signal,
+            body: JSON.stringify({
+                model: "deepseek-chat",
+                temperature: 0,
+                max_tokens: 220,
+                response_format: { type: "json_object" },
+                messages: [
+                    { role: "system", content: "أنت مراجع نتائج لأداة تحليل أسهم. أعد JSON فقط بالشكل {\"additional_tools\":[]}. اطلب أدوات إضافية فقط إذا كانت ضرورية للإجابة على السؤال. استخدم أسماء الأدوات المسموحة فقط." },
+                    { role: "user", content: JSON.stringify({ message, plan: { intent: plan.intent, entities: plan.entities, tools: plan.tools }, results: results.results, session: sessionState, allowed_tools: Array.from(HYBRID_REVIEW_ALLOWED_TOOLS) }) },
+                ],
+            }),
+        });
+        if (!response.ok) return [];
+        const json: any = await awaitExecution(response.json(), reviewController.signal);
+        parsed = JSON.parse(json.choices?.[0]?.message?.content || "{}");
+    } catch (error) {
+        console.warn("[HYBRID_REVIEW] timed out or failed:", error);
+        return [];
+    } finally {
+        clearTimeout(reviewTimeout);
+    }
     return Array.from(new Set<string>((Array.isArray(parsed.additional_tools) ? parsed.additional_tools : [])
         .filter((tool: unknown): tool is string => typeof tool === "string" && HYBRID_REVIEW_ALLOWED_TOOLS.has(tool) && !plan.tools.includes(tool))))
         .slice(0, 3);
@@ -81,8 +94,23 @@ async function executeHybridAdditionalTools(
     message: string,
     history: Array<{ role: string; content: string }>,
 ): Promise<StructuredToolOutput> {
-    if (!additionalTools.length) return initial;
-    const extra = await executeStructuredTools(supabase, { ...plan, tools: additionalTools }, apiKeys, userId, sessionId, message, history);
+    const toolBudget = Math.min(15000, remainingExecutionMs() - 12000);
+    if (!additionalTools.length || toolBudget < 1000) return initial;
+    let extra: StructuredToolOutput;
+    try {
+        extra = await withExecutionTimeout(toolBudget, () => executeStructuredTools(
+            supabase,
+            { ...plan, tools: additionalTools },
+            apiKeys,
+            userId,
+            sessionId,
+            message,
+            history,
+        ));
+    } catch (error) {
+        console.warn("[HYBRID_TOOLS] additional tools failed:", error);
+        return initial;
+    }
     const results = [...initial.results];
     for (const result of extra.results) {
         if (!results.some(existing => existing.tool === result.tool)) results.push(result);
@@ -113,10 +141,10 @@ function applyHybridDomainInvariants(message: string, plan: IntentPlan): IntentP
         return { ...plan, intent: "comparison", tools: Array.from(tools) };
     }
     if (/(?:تجميع|وايكوف|accumulation)/i.test(text) && plan.entities.sector) {
-        return { ...plan, intent: "accumulation_distribution", tools: ["get_accumulation_stocks"], entities: { ...plan.entities, sector: plan.entities.sector || explicitSector, scan_direction: "accumulation" } };
+        return { ...plan, intent: "accumulation_distribution", tools: Array.from(new Set([...plan.tools, "get_accumulation_stocks"])), entities: { ...plan.entities, sector: plan.entities.sector || explicitSector, scan_direction: "accumulation" } };
     }
     if (explicitSector && /(?:تجميع|وايكوف|accumulation)/i.test(text)) {
-        return { ...plan, intent: "accumulation_distribution", tools: ["get_accumulation_stocks"], entities: { ...plan.entities, sector: explicitSector, scan_direction: "accumulation" } };
+        return { ...plan, intent: "accumulation_distribution", tools: Array.from(new Set([...plan.tools, "get_accumulation_stocks"])), entities: { ...plan.entities, sector: explicitSector, scan_direction: "accumulation" } };
     }
     if (plan.tools.includes("get_fair_value_scan") && /(?:تجميع|وايكوف|accumulation)/i.test(text)) {
         return { ...plan, entities: { ...plan.entities, require_accumulation: true } };
@@ -296,13 +324,16 @@ export function extractExplicitSymbols(message: string): string[] {
         const upper = token.toUpperCase();
         return LATIN_TICKER_ALIASES[upper] || upper;
     });
-    // Keep an explicitly typed ticker in the plan even when it is not in the
-    // current EGX universe. The pipeline still marks a bare unknown ticker as
-    // unsupported, but retaining it lets level/analysis requests answer about
-    // the exact ticker instead of silently dropping the user's subject.
+    // Only listed symbols/known aliases are entities. Ordinary English sector
+    // names such as "Process Industries" must never become fake tickers. If
+    // the symbol universe is not loaded yet, accept only tokens the user typed
+    // in ticker form (all caps); unknown tickers are handled explicitly later.
+    const knownSet = new Set(knownSymbols.map(symbol => String(symbol).toUpperCase()));
     const validLatin = knownSymbols.length > 0
-        ? resolvedLatin
-        : resolvedLatin;
+        ? resolvedLatin.filter((symbol, index) => knownSet.has(symbol)
+            || knownSet.has(LATIN_TICKER_ALIASES[symbol] || "")
+            || latinTokens[index] === latinTokens[index].toUpperCase())
+        : resolvedLatin.filter((_, index) => latinTokens[index] === latinTokens[index].toUpperCase());
 
     let matchedSymbols = [...validLatin];
 
@@ -447,7 +478,7 @@ export function extractSingleStockFromRecentHistory(history: Array<{ role: strin
 }
 
 export function extractRequestedDate(message: string, refDate: Date = new Date()): string | null {
-    const normalized = message.toLowerCase();
+    const normalized = message.toLowerCase().replace(/[٠-٩]/g, digit => String("٠١٢٣٤٥٦٧٨٩".indexOf(digit)));
 
     // Relative dates
     if (/(?:اول|أول)\s*(?:امبارح|امس|أمس)/i.test(normalized)) {
@@ -460,7 +491,7 @@ export function extractRequestedDate(message: string, refDate: Date = new Date()
         d.setDate(d.getDate() - 1);
         return d.toISOString().slice(0, 10);
     }
-    if (/(?:النهارده|النهاردة|اليوم)/i.test(normalized) && /(?:بتاريخ|تاريخ|جلسة|جلسه|مسح|بيانات)/i.test(normalized)) {
+    if (/(?:النهارده|النهاردة|اليوم)/i.test(normalized) && (/(?:بتاريخ|تاريخ|جلسة|جلسه|مسح|بيانات)/i.test(normalized) || /\d{1,2}\s*[\\/-]\s*\d{1,2}/.test(normalized))) {
         const d = new Date(refDate);
         return d.toISOString().slice(0, 10);
     }
@@ -475,7 +506,7 @@ export function extractRequestedDate(message: string, refDate: Date = new Date()
             return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
         }
     }
-    const match = message.match(/(?:^|\s)(\d{1,2})[\/-](\d{1,2})(?:[\/-](\d{4}))?(?:\s|$|[؟?])/);
+    const match = normalized.match(/(?:^|\s)(\d{1,2})[\/-](\d{1,2})(?:[\/-](\d{4}))?(?:\s|$|[؟?])/);
     if (match) {
         const day = Number(match[1]);
         const month = Number(match[2]);
@@ -618,6 +649,18 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
     }
     const normalized = normalizeArabicIntent(message);
     const explicitSymbols = extractExplicitSymbols(message);
+    const directGroupAllocation = /(?:فيهم|منهم|الاتنين|السهمين|واحد\s+فيهم)/i.test(normalized)
+        && /(?:احط|أحط|اوزع|أوزع|ادخل|اشتري|أشتري)/i.test(normalized)
+        && sessionState.last_symbols.length > 1;
+    if (directGroupAllocation) {
+        const groupSymbols = sessionState.last_symbols.slice(0, 5);
+        return {
+            intent: "comparison", confidence: 1, guidance_intent: "allocation",
+            entities: { symbols: groupSymbols, sector: null, wants_table: true, timeframe: "current", requested_date: null, scan_direction: null },
+            tools: ["get_stock", "get_stock_levels"],
+            session_update: { current_symbol: groupSymbols[0], last_symbols: groupSymbols, summary: message }
+        } as any;
+    }
     const asksOldestRecommendation = /(?:اقدم|أقدم)\s+(?:توصي|توصية|توصيات)/i.test(normalized);
     if (asksOldestRecommendation && explicitSymbols.length === 0) {
         return {
@@ -639,6 +682,27 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
     const investorGuidance = /(?:قطاع|القطاعات|العقارات|الادويه|الأدوية|الاتصالات)/i.test(normalized)
         ? null
         : getInvestorGuidanceIntent(message, explicitSymbols.length > 0);
+    const hasGuidanceGroupReference = Boolean(investorGuidance)
+        && /(?:فيهم|منهم|الاتنين|السهمين|واحد\s+فيهم)/i.test(normalized)
+        && /(?:احط|أحط|اوزع|أوزع|ادخل|اشتري|أشتري)/i.test(normalized)
+        && sessionState.last_symbols.length > 1;
+    if (hasGuidanceGroupReference) {
+        const groupSymbols = sessionState.last_symbols.slice(0, 5);
+        return {
+            intent: "comparison", confidence: 1, guidance_intent: "allocation",
+            entities: { symbols: groupSymbols, sector: null, wants_table: true, timeframe: "current", requested_date: null, scan_direction: null },
+            tools: ["get_stock", "get_stock_levels"],
+            session_update: { current_symbol: groupSymbols[0], last_symbols: groupSymbols, summary: message }
+        } as any;
+    }
+    if (investorGuidance && /تجميع|accumulation/i.test(normalized)) {
+        return {
+            intent: "general_chat", confidence: 1, guidance_intent: investorGuidance,
+            entities: { symbols: [], sector: null, wants_table: true, timeframe: "current", requested_date: null, scan_direction: "accumulation" },
+            tools: ["get_accumulation_stocks"],
+            session_update: { current_symbol: null, last_symbols: sessionState.last_symbols, summary: message }
+        } as any;
+    }
     const isEducationFirstGuidance = Boolean(investorGuidance)
         && /(?:مش\s*فاهم|خبر[ةه]|صندوق\s+دخل\s+ثابت|مقارن[ةه].{0,20}(?:صندوق|سهم)|ازاي\s+ابدا|كيف\s+ابدا)/i.test(normalized)
         && !/(?:سيول|سيولة|قطاع|الاسهم|اسهم\s+(?:تجميع|تصريف)|توصي)/i.test(normalized);
@@ -708,7 +772,7 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
             intent: "market_summary",
             confidence: 1,
             entities: { symbols: [], sector: null, wants_table: true, timeframe: "current", requested_date: null, scan_direction: null, recommendation_order: "newest", recommendation_filter: "open_public" },
-            tools: ["get_recommendations"],
+            tools: asksTomorrowRecommendations ? ["get_recommendations", "get_fair_value_scan"] : ["get_recommendations"],
             session_update: { current_symbol: null, last_symbols: sessionState.last_symbols, summary: message },
         } as any;
     }
@@ -807,11 +871,12 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
 
     // Single stock accumulation / distribution query (e.g. "هل سهم فوري عليه تجميع ولا تصريف؟" or "تجميع COMI")
     if (explicitSymbols.length > 0 && /(?:تجميع|تصريف|وايكوف|wyckoff)/i.test(normalized)) {
+        const scanDirection = /تصريف|distribution/i.test(normalized) ? "distribution" : "accumulation";
         return {
-            intent: "stock_analysis",
+            intent: "accumulation_distribution",
             confidence: 1,
-            entities: { symbols: explicitSymbols, sector: null, wants_table: true, timeframe: "current", requested_date: null, scan_direction: /تصريف/i.test(normalized) ? "distribution" : "accumulation" },
-            tools: ["get_stock", "get_stock_levels", "get_accumulation_stocks"],
+            entities: { symbols: explicitSymbols, sector: null, wants_table: true, timeframe: "current", requested_date: null, scan_direction: scanDirection },
+            tools: [scanDirection === "distribution" ? "get_distribution_stocks" : "get_accumulation_stocks"],
             session_update: { current_symbol: explicitSymbols[0], last_symbols: explicitSymbols, summary: message }
         };
     }
@@ -1109,6 +1174,8 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
     const oldestRecommendationRequest = /(اقدم|أقدم).{0,15}(توصيه|توصية|اشاره|إشارة)/i.test(message);
     const marketNewsRequest = /اخبار\s+(?:السوق|البورصه)/i.test(message);
     const requestedDate = temporal.date;
+    const dateOnlyFollowUp = Boolean(requestedDate && symbols.length === 0 && sessionState.current_symbol && !marketWideRequest && !unresolvedCompanyNameMention);
+    if (dateOnlyFollowUp) symbols.push(sessionState.current_symbol!);
     const isClearMarketRequest = marketWideRequest || isBestBuyStockQuestion(message) || oldestRecommendationRequest || /(?:(?:أ|ا)عل[ىي]|(?:أ|ا)قو[ىي]|أحسن|احسن|أفضل|افضل|سيول|السيول|السيوله|تجميع|تصريف|القطاعات|قطاعات|كام\s+(?:ال)?قطاعات?|كم\s+(?:ال)?قطاعات?|حالة السوق|حاله البورصه|حالة البورصة|اداء المؤشر|أداء المؤشر|المؤشر النهارده|السوق عمل|دولار|usd)/i.test(normalized);
     const isClearStockRequest = symbols.length > 0;
     if (/(?:كام|كم|عدد).{0,20}(?:قطاع|قطاعات)/i.test(normalized)) {
@@ -1118,6 +1185,15 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
             entities: { symbols: [], sector: null, wants_table: true, timeframe: temporal.timeframe, requested_date: requestedDate, scan_direction: null },
             tools: ["get_sector_list"],
             session_update: { current_symbol: null, last_symbols: [], summary: message },
+        } as any;
+    }
+    if (dateOnlyFollowUp) {
+        return {
+            intent: "stock_analysis",
+            confidence: 1,
+            entities: { symbols, sector: null, wants_table: false, timeframe: "historical", requested_date: requestedDate, scan_direction: null },
+            tools: ["get_stock", "get_stock_levels"],
+            session_update: { current_symbol: symbols[0], last_symbols: symbols, summary: message },
         } as any;
     }
 
@@ -1624,7 +1700,50 @@ export function buildTopMoversResponse(tools: StructuredToolOutput): string | nu
     ].join("\n");
 }
 
+export interface PipelineOptions {
+    signal?: AbortSignal;
+    timeoutMs?: number;
+    mockToolsResults?: StructuredToolOutput;
+}
+
 export async function* runPipelineStream(
+    userMessage: string, images: string[], sessionState: SessionState,
+    sessionSummary: SessionSummary | null, history: Array<{ role: string; content: string }>,
+    supabase: any, apiKeys: string[], userId: string, sessionId: string, messageId: string,
+    requestedModel?: string, options: PipelineOptions = {},
+): AsyncGenerator<{ type: string; data: any }> {
+    const scope = createExecutionScope(options.timeoutMs ?? AI_CONFIG.limits.requestDeadlineMs, options.signal);
+    const core = runPipelineCore(userMessage, images, sessionState, sessionSummary, history,
+        executionSupabase(supabase), apiKeys, userId, sessionId, messageId, requestedModel, options);
+    try {
+        while (true) {
+            const next = await scope.run(() => awaitExecution(core.next()));
+            if (next.done) return;
+            // Publish only the canonical, validated response. A persistence error
+            // or interrupted provider must never append an error to partial text.
+            if (next.value.type === "token") continue;
+            if (next.value.type === "done") {
+                yield { type: "token", data: next.value.data.response };
+                yield next.value;
+                return;
+            }
+            yield next.value;
+        }
+    } catch (error) {
+        if (options.signal?.aborted) return;
+        const response = "تعذر إكمال التحليل في الوقت المتاح. جرّب إعادة السؤال؛ لم أعرض رداً جزئياً أو أستبدل سؤالك ببيانات سهم سابق.";
+        yield { type: "token", data: response };
+        yield { type: "done", data: { response, degraded: true,
+            session_update: { current_symbol: sessionState.current_symbol, last_symbols: sessionState.last_symbols, summary: sessionState.summary },
+            tables: [] } };
+    } finally {
+        scope.dispose();
+        // Do not wait forever for a non-cooperative third-party promise.
+        void core.return(undefined).catch(() => {});
+    }
+}
+
+async function* runPipelineCore(
     userMessage: string,
     images: string[],
     sessionState: SessionState,
@@ -1635,9 +1754,10 @@ export async function* runPipelineStream(
     userId: string,
     sessionId: string,
     messageId: string,
-    requestedModel?: string
+    requestedModel?: string,
+    options: PipelineOptions = {},
 ): AsyncGenerator<{ type: string; data: any }> {
-    const deadlineAt = Date.now() + AI_CONFIG.limits.requestDeadlineMs;
+    const deadlineAt = Date.now() + Math.min(AI_CONFIG.limits.requestDeadlineMs, remainingExecutionMs());
     const pipelineStart = Date.now();
     const ensureBudget = (reserveMs = 0) => {
         if (Date.now() + reserveMs >= deadlineAt) throw new Error("PIPELINE_DEADLINE_EXCEEDED");
@@ -2041,14 +2161,36 @@ export async function* runPipelineStream(
     // ===== STAGE 2: Memory Retrieval =====
     yield { type: "status", data: { status: "memory", message: "استرجاع السياق..." } };
     memory = await retrieveRelevantMemory(userMessage, sessionSummary, sessionState, history, supabase, userId, sessionId);
+    yield { type: "memory_result", data: memory };
 
     // ===== STAGE 3: Intent / Entity Planner =====
     yield { type: "status", data: { status: "planner", message: "تحليل النية وتخطيط الأدوات..." } };
     if (!hasImages) await getStocksList();
 
-    // ─── Deterministic intent/entity planner ───
-    let plannerResult = buildCompoundDeterministicPlan(userMessage, sessionState)
-        ?? generalChatPlan(sessionState);
+    // ─── Hybrid intent/entity planner ───
+    // Deterministic routes remain policy guards for known financial actions.
+    // Ambiguous/new phrasings are delegated to the semantic planner instead of
+    // being forced into a regex fallback that silently reuses an old symbol.
+    const deterministicPlannerResult = buildCompoundDeterministicPlan(userMessage, sessionState);
+    let plannerResult = deterministicPlannerResult ?? generalChatPlan(sessionState);
+    const greetingOnly = /^(?:ازيك|إزيك|عامل ايه|عامل إيه|اهلا|أهلا|مرحبا|السلام عليكم|شكرا|شكرًا|تمام|اوكي|أوكي)[؟?،,.!\s]*$/i.test(userMessage.trim());
+    const canUseSemanticPlanner = !hasImages
+        && portfolioAnalysisSymbols.length === 0
+        && !options.mockToolsResults
+        && !greetingOnly
+        && !deterministicPlannerResult
+        && Boolean(apiKeys.length > 0 || getDeepSeekApiKey());
+    if (canUseSemanticPlanner) {
+        try {
+            const semanticPlan = await withExecutionTimeout(
+                Math.min(7000, Math.max(1000, remainingExecutionMs() - 1000)),
+                () => runPlanner(userMessage, [], sessionState, history, apiKeys, vision),
+            );
+            if (semanticPlan.confidence >= 0.6) plannerResult = semanticPlan;
+        } catch (error) {
+            console.warn("[PLANNER] semantic routing unavailable; using safe deterministic fallback:", error);
+        }
+    }
 
     if (portfolioAnalysisSymbols.length > 0) {
         // Route every saved holding through the normal stock-analysis tools so
@@ -2130,7 +2272,10 @@ export async function* runPipelineStream(
         const recentSymbol = extractSingleStockFromRecentHistory(history);
         if (recentSymbol) mergedSymbols.push(recentSymbol);
     }
-    if (mergedSymbols.length === 0 && memory?.resolved_references?.symbol) {
+    // A remembered symbol is not a default subject. Reuse it only when the
+    // new message is linguistically a stock follow-up; unrelated market,
+    // sector, recommendation, or general questions must start unscoped.
+    if (mergedSymbols.length === 0 && memory?.resolved_references?.symbol && isImplicitStockFollowUp(userMessage)) {
         mergedSymbols.push(memory.resolved_references.symbol);
     }
     // An implicit follow-up question (see isImplicitStockFollowUp) must resolve
@@ -2188,7 +2333,17 @@ export async function* runPipelineStream(
     if ((isMarketWideRequest(userMessage) || broadScanRequest || (isBestBuyStockQuestion(userMessage) && !isSingleStockRecFollowUp) || plannerResult.intent === "technical_scan" || plannerResult.intent === "accumulation_distribution") && !compoundRequest && extractExplicitSymbols(userMessage).length === 0) mergedSymbols = [];
     if (plannerResult.entities.sector && extractExplicitSymbols(userMessage).length === 0) mergedSymbols = [];
     const fairValueScanRequest = isFairValueScanRequest(userMessage);
-    const enforced: ReturnType<typeof enforceIntentFromMessage> = compoundRequest
+    const dateOnlyFollowUp = Boolean(
+        extractRequestedDate(userMessage)
+        && mergedSymbols.length === 0
+        && sessionState.current_symbol
+        && !isMarketWideRequest(userMessage)
+        && !unresolvedStockName
+    );
+    if (dateOnlyFollowUp) mergedSymbols = [sessionState.current_symbol!];
+    const enforced: ReturnType<typeof enforceIntentFromMessage> = dateOnlyFollowUp
+        ? { intent: "stock_analysis", tools: ["get_stock", "get_stock_levels"], replaceTools: true }
+        : compoundRequest
         ? { 
             intent: plannerResult.intent, 
             tools: plannerResult.tools || [], 
@@ -2248,7 +2403,7 @@ export async function* runPipelineStream(
             symbols: mergedSymbols,
             sector: comparesSectors || (excludedSectors.length > 0 && plannedTools.includes("get_sector_liquidity")) ? null : enforced.sector || plannerResult.entities.sector || null,
             timeframe: extractTemporalContext(userMessage).timeframe,
-            reference: memory?.resolved_references?.symbol ? "last_image" : null
+            reference: implicitStockFollowUp && memory?.resolved_references?.symbol ? "last_stock" : null
             ,scan_direction: enforced.scan_direction || plannerResult.entities.scan_direction || null
             ,fair_value_direction: enforced.fair_value_direction || plannerResult.entities.fair_value_direction || null
             ,require_distribution: Boolean(enforced.require_distribution || plannerResult.entities.require_distribution)
@@ -2258,6 +2413,10 @@ export async function* runPipelineStream(
             ,technical_preset: plannerResult.entities.technical_preset || null
             ,min_acc_score: plannerResult.entities.min_acc_score ?? null
             ,min_vol_ratio: plannerResult.entities.min_vol_ratio ?? null
+            ,max_dist_score: plannerResult.entities.max_dist_score ?? null
+            ,min_consecutive_acc_days: plannerResult.entities.min_consecutive_acc_days ?? null
+            ,wants_table: plannerResult.entities.wants_table
+            ,sharia_filter: plannerResult.entities.sharia_filter
             ,excluded_sectors: Array.from(new Set([...excludedSectors, ...plannerExcludedSectors]))
             ,requested_sectors: enforced.requested_sectors || plannerResult.entities.requested_sectors || []
             ,requested_date: extractRequestedDate(userMessage) || null
@@ -2266,7 +2425,7 @@ export async function* runPipelineStream(
              ,portfolio_operation: plannerResult.entities.portfolio_operation || null
          },
         needs_vision_context: hasImages && !!vision,
-        needs_history: memory?.resolved_references?.symbol !== null || plannerResult.intent === "general_chat",
+        needs_history: Boolean(implicitStockFollowUp && memory?.resolved_references?.symbol) || plannerResult.intent === "general_chat",
         needs_live_data: needsLiveDataForTools(plannedTools),
         needs_historical_data: historicalRequest,
         tools: plannedTools,
@@ -2275,8 +2434,8 @@ export async function* runPipelineStream(
         service_degraded_message: plannerResult.service_degraded_message || null,
         unresolved_stock: Boolean(plannerResult.unresolved_stock),
         resolved_from: {
-            symbol: memory?.resolved_references?.symbol || null,
-            message_id: memory?.resolved_references?.message_id || null
+            symbol: implicitStockFollowUp ? memory?.resolved_references?.symbol || null : null,
+            message_id: implicitStockFollowUp ? memory?.resolved_references?.message_id || null : null
         }
     };
 
@@ -2328,13 +2487,11 @@ export async function* runPipelineStream(
         };
     }
     ensureBudget(8000);
-    let tools = await Promise.race([
-        executeStructuredTools(supabase, plan, apiKeys, userId, sessionId, userMessage, history),
-        new Promise<never>((_, reject) => setTimeout(() => reject(new Error("TOOLS_TIMEOUT")), AI_CONFIG.limits.toolsTimeoutMs)),
-    ]);
-    const hybridAdditionalTools = await reviewHybridToolResults(userMessage, plan, tools, sessionState);
+    let tools = options.mockToolsResults ?? await withExecutionTimeout(AI_CONFIG.limits.toolsTimeoutMs,
+        () => executeStructuredTools(supabase, plan, apiKeys, userId, sessionId, userMessage, history));
+    const hybridAdditionalTools = options.mockToolsResults ? [] : await reviewHybridToolResults(userMessage, plan, tools, sessionState);
     tools = await executeHybridAdditionalTools(supabase, plan, tools, hybridAdditionalTools, apiKeys, userId, sessionId, userMessage, history);
-    tools = intersectHybridScanResults(tools, plan);
+    tools = attachEvidenceContract(intersectHybridScanResults(tools, plan));
     if (plan.intent === "portfolio_management") {
         const portfolioResult = tools.results.find(result => result.tool === "manage_portfolio");
         if (portfolioResult) {
@@ -2349,20 +2506,22 @@ export async function* runPipelineStream(
             return;
         }
     }
-    // Apply custom user filters if present in message (e.g. "أعلى من 75", "يومين")
+    // Only interpret a numeric bound when attached to its metric. A price,
+    // holding period, or volume bound must not become a Wyckoff-score filter.
     if (userMessage) {
-        const scoreMatch = userMessage.match(/(?:أعلى|اكثر|أكبر|اكبر|فوق).{1,10}?(\d{2,3})/i) || userMessage.match(/(\d{2,3}).{1,10}?(?:فأكثر|فاكثر)/i);
-        const minScore = scoreMatch ? parseInt(scoreMatch[1] || scoreMatch[2] || "0", 10) : 0;
-        
-        const volMatch = userMessage.match(/(?:نسبة الحجم|سيوله|سيولة).{1,15}?(?:أكبر|اعلى|أعلى).{1,10}?(\d+(?:\.\d+)?)/i);
+        const filterMessage = normalizeArabicIntent(userMessage);
+        const volMatch = filterMessage.match(/(?:نسبه\s+الحجم|الحجم\s+النسبي|حجم\s+نسبي|vol(?:ume)?\s*ratio)\s*(?:اعلي|اكبر|اكثر|فوق|>)\s*(?:من\s*)?(\d+(?:\.\d+)?)/i);
         const minVol = volMatch ? parseFloat(volMatch[1]) : 0;
-        
-        const daysMatch = userMessage.match(/(?:يومين)/i) ? 2 : (userMessage.match(/(?:أيام|ايام).{1,10}?(\d+)/i) ? parseInt(userMessage.match(/(?:أيام|ايام).{1,10}?(\d+)/i)![1], 10) : 0);
         
         tools.results.forEach(res => {
             if (res.tool === "get_accumulation_stocks" || res.tool === "get_distribution_stocks") {
                 const scoreField = res.tool === "get_accumulation_stocks" ? "acc_score" : "dist_score";
                 const daysField = res.tool === "get_accumulation_stocks" ? "consecutive_acc_days" : "consecutive_dist_days";
+                const metric = res.tool === "get_accumulation_stocks" ? "تجميع" : "تصريف";
+                const scoreMatch = filterMessage.match(new RegExp(`(?:درجه\\s+(?:ال)?${metric}|${metric}|${scoreField})\\s*(?:اعلي|اكبر|اكثر|فوق|>)\\s*(?:من\\s*)?(\\d+(?:\\.\\d+)?)`, "i"));
+                const minScore = scoreMatch ? Number(scoreMatch[1]) : 0;
+                const consecutive = filterMessage.match(new RegExp(`(?:ال)?${metric}\\s*(?:متتالي\\s*)?(?:لـ?\\s*)?(يومين|\\d+\\s*(?:ايام|يوم))`, "i"));
+                const daysMatch = consecutive?.[1] === "يومين" ? 2 : consecutive ? parseInt(consecutive[1], 10) : 0;
                 
                 const filterFn = (s: any) => {
                     let pass = true;
@@ -2384,6 +2543,19 @@ export async function* runPipelineStream(
                         return !!row;
                     });
                 }
+                const performance = res.data?.performance;
+                if (Array.isArray(performance?.details)) {
+                    const symbols = new Set((res.data.stocks || []).map((s: any) => String(s.symbol).toUpperCase()));
+                    const details = performance.details.filter((row: any) => symbols.has(String(row.symbol).toUpperCase()));
+                    res.data.performance = {
+                        ...performance, details, total_evaluated: details.length,
+                        missing_prices: symbols.size - details.length,
+                        rising_count: details.filter((row: any) => row.return_pct > 0).length,
+                        falling_count: details.filter((row: any) => row.return_pct < 0).length,
+                        flat_count: details.filter((row: any) => row.return_pct === 0).length,
+                    };
+                }
+                if (res.availability === "available" && res.data?.stocks?.length === 0) res.availability = "empty";
             }
         });
     }
@@ -2456,12 +2628,20 @@ export async function* runPipelineStream(
         }
     }
 
+    const scanResults = tools.results.filter(r => r.tool === "get_accumulation_stocks" || r.tool === "get_distribution_stocks");
+    const scanFailed = scanResults.some(r => r.availability === "failed" || r.error);
+    const scanMissing = scanResults.some(r => r.source === "empty" || r.data?.coverage === "missing");
+    scanStale ||= scanResults.some(r => r.availability === "stale");
     const deterministicDomainResponse = emptyScanResult
-        ? scanStale
-            ? `آخر مسح ${directionAr} مسجل في قاعدة البيانات بتاريخ ${scanDate || "غير محدد"} (أقدم من 7 أيام)، ولم يسجل هذا المسح أي أسهم في منطقة ${directionAr}. يتم تحديث بيانات المسح بشكل دوري.`
-            : plan.entities.min_acc_score != null || plan.entities.min_vol_ratio != null || plan.entities.min_consecutive_acc_days != null
+        ? scanFailed
+            ? "تعذر جلب بيانات المسح حالياً. لا يمكنني استنتاج وجود أو غياب التجميع والتصريف من فشل الاتصال بمصدر البيانات."
+            : scanMissing
+                ? "لا تتوفر بيانات مسح كافية للنطاق أو الفترة المطلوبة. نقص البيانات لا يعني عدم وجود تجميع أو تصريف في السوق."
+                : scanStale
+            ? `آخر مسح ${directionAr} متاح بتاريخ ${scanDate || "غير محدد"} قديم؛ لا يكفي للحكم على حالة السوق الحالية.`
+            : plan.entities.min_acc_score != null || plan.entities.min_vol_ratio != null || plan.entities.max_dist_score != null || plan.entities.min_consecutive_acc_days != null
                 ? `عذراً، لم أجد أي أسهم تطابق الشروط التي حددتها حالياً. يمكنك محاولة تخفيف الشروط (مثل تقليل درجة ${directionAr} المطلوبة أو نسبة الحجم) للحصول على نتائج.`
-                : `حالياً لا توجد أسهم في منطقة ${directionAr} واضحة بناءً على أحدث بيانات المسح المتاحة (بتاريخ ${scanDate || "اليوم"}). هذا يعني أن السوق قد لا يمر بمرحلة ${directionAr} مؤسسي واضحة في الوقت الحالي.`
+                : `لم تظهر أسهم مطابقة لمعايير ${directionAr} ضمن بيانات المسح المتاحة بتاريخ ${scanDate || "غير محدد"}. هذه نتيجة العينة والمعايير المستخدمة، وليست حكماً على السوق كله.`
         : null;
 
     const deterministicResponse = deterministicDomainResponse;
@@ -2531,26 +2711,14 @@ export async function* runPipelineStream(
     let correctionPrompt: string | undefined = undefined;
     let finalReply = "";
 
-    // ⛔ Phrases that should stop further streaming output (usually disclaimers at the end)
-    const STREAM_STOP_PHRASES = [
-        "📌 إدارة المخاطر",
-        "إدارة المخاطر:",
-    ];
-
-    // ⚠️ Phrases that should be skipped/suppressed, but allow the rest of the stream to continue
-    const STREAM_SKIP_PHRASES = [
-        "البيانات الحية المتاحة، هذه مقارنة فنية",
-        "الأسهم الموضحة بالجدول أعلاه",
-        "مرحباً بكم في هذا المقال",
-        "مرحبا بكم في هذا المقال",
-    ];
-
     const responderMeta: { source?: "llm" | "deterministic"; degraded?: boolean } = {};
 
 while (attempts < maxAttempts) {
+        if (remainingExecutionMs() < 5000) {
+            finalReply = buildSafeFallbackResponse(tools.results, plan);
+            break;
+        }
         let currentResponse = "";
-        let pendingModelText = "";
-        let streamStopped = false;
 
         responderMeta.source = undefined;
         responderMeta.degraded = false;
@@ -2567,39 +2735,9 @@ while (attempts < maxAttempts) {
         );
 
         for await (const chunk of stream) {
-            if (streamStopped) break;
-            pendingModelText += chunk;
-            const lines = pendingModelText.split("\n");
-            pendingModelText = lines.pop() || "";
-            for (const line of lines) {
-                if (streamStopped) break;
-                // Deterministic replies or table-requested queries preserve their markdown tables
-                if (isMarkdownTableLine(line) && responderMeta.source !== "deterministic" && !plan.entities.wants_table && !/(جدول|قايمه|قائمة|ترتيب|table|list)/i.test(userMessage)) continue;
-
-                // Stop if matching stop phrases
-                if (STREAM_STOP_PHRASES.some(phrase => line.includes(phrase))) {
-                    streamStopped = true;
-                    break;
-                }
-
-                // Skip if matching skip phrases
-                if (STREAM_SKIP_PHRASES.some(phrase => line.includes(phrase))) {
-                    continue;
-                }
-
-                let cleanLine = line.replace(/^(?:من خلال التحليل الفني|من خلال تحليل البيانات|بناءً على البيانات المتاحة|بناء على البيانات المتاحة)[،:\s]+/gi, "");
-
-                currentResponse += `${cleanLine}\n`;
-            }
-        }
-
-        if (!streamStopped && pendingModelText && (!isMarkdownTableLine(pendingModelText) || responderMeta.source === "deterministic" || plan.entities.wants_table || /(جدول|قايمه|قائمة|ترتيب|table|list)/i.test(userMessage))) {
-            const shouldStop = STREAM_STOP_PHRASES.some(phrase => pendingModelText.includes(phrase));
-            const shouldSkip = STREAM_SKIP_PHRASES.some(phrase => pendingModelText.includes(phrase));
-            if (!shouldStop && !shouldSkip) {
-                const cleanText = pendingModelText.replace(/^(?:من خلال التحليل الفني|من خلال تحليل البيانات|بناءً على البيانات المتاحة|بناء على البيانات المتاحة)[،:\s]+/gi, "");
-                currentResponse += cleanText;
-            }
+            // Preserve all answer sections and tables for validation. Removing
+            // whole lines based on presentation phrases can delete requested facts.
+            currentResponse += chunk;
         }
 
         currentResponse = currentResponse.trim();
@@ -2616,12 +2754,22 @@ while (attempts < maxAttempts) {
             // Wait out short per-minute rate-limit windows so the retry can recover
             // a natural reply; long storms (daily quota etc.) fail fast with the template.
             const cooldownMs = getResponderCooldownMs();
-            if (cooldownMs > 45_000) {
+            if (cooldownMs + 5500 >= remainingExecutionMs()) {
                 console.warn("[VALIDATOR] Degraded fallback with long provider cooldown — serving deterministic reply");
                 finalReply = currentResponse;
                 break;
             }
-            if (cooldownMs > 0) await new Promise(r => setTimeout(r, cooldownMs + 500));
+            if (cooldownMs > 0) {
+                const waitMs = cooldownMs + 500;
+                const signal = getExecutionSignal();
+                await new Promise<void>((resolve, reject) => {
+                    const cleanup = () => signal?.removeEventListener("abort", abort);
+                    const timer = setTimeout(() => { cleanup(); resolve(); }, waitMs);
+                    const abort = () => { clearTimeout(timer); cleanup(); reject(signal?.reason || new Error("EXECUTION_ABORTED")); };
+                    signal?.addEventListener("abort", abort, { once: true });
+                    if (signal?.aborted) abort();
+                });
+            }
             attempts++;
             continue;
         }
@@ -2637,7 +2785,12 @@ while (attempts < maxAttempts) {
         // If it is the last attempt and still invalid, fall back to safe response
         if (attempts === maxAttempts - 1) {
             console.warn(`[VALIDATOR] Attempt ${attempts + 1} failed validation! Reached max retries. Using safe fallback.`);
-            finalReply = buildSafeFallbackResponse(tools.results, plan);
+            // Preserve the user's exact intent when the model exhausts its
+            // validation retries. The intent-aware deterministic renderer can
+            // answer questions such as daily limits and period highs from the
+            // same verified tool facts; the generic table is only a last resort.
+            finalReply = buildDeterministicResponse(userMessage, plan, tools.results, sessionState)
+                || buildSafeFallbackResponse(tools.results, plan);
             break;
         }
 
@@ -2697,7 +2850,7 @@ while (attempts < maxAttempts) {
         attempts++;
     }
 
-    let fullResponse = sanitizeReply(finalReply);
+    let fullResponse = normalizeStockFreshnessLanguage(sanitizeReply(finalReply), tools.results);
 
     // 🛡️ Final safety net: if the reply is not an Arabic answer (e.g. leaked
     // English chain-of-thought survived all attempts), use the safe Arabic fallback.
@@ -2705,7 +2858,10 @@ while (attempts < maxAttempts) {
     const finalAsciiChars = (fullResponse.match(/[A-Za-z]/g) || []).length;
     if (finalArabicChars < 40 || finalAsciiChars > finalArabicChars) {
         console.warn("[VALIDATOR] Final reply lacks Arabic content — using safe fallback");
-        fullResponse = sanitizeReply(buildSafeFallbackResponse(tools.results, plan));
+        fullResponse = sanitizeReply(
+            buildDeterministicResponse(userMessage, plan, tools.results, sessionState)
+            || buildSafeFallbackResponse(tools.results, plan)
+        );
     }
 
     // Now stream the final, verified response to the client
@@ -2729,10 +2885,10 @@ while (attempts < maxAttempts) {
         });
     }
 
-    const finalSymbols = Array.from(allSymbols).filter(Boolean);
+    const finalSymbols = clearsStockContext(plan) ? [] : Array.from(allSymbols).filter(Boolean);
     const sessionUpdate = {
         current_symbol: clearsStockContext(plan) ? null : (finalSymbols[0] || sessionState.current_symbol),
-        last_symbols: Array.from(new Set([...finalSymbols, ...(sessionState.last_symbols || [])])).slice(0, 15),
+        last_symbols: clearsStockContext(plan) ? [] : Array.from(new Set([...finalSymbols, ...(sessionState.last_symbols || [])])).slice(0, 15),
         summary: userMessage || (hasImages ? "تحليل صورة" : null),
         current_sector: plan.entities.sector || sessionState.current_sector || null
     };
@@ -2743,14 +2899,35 @@ while (attempts < maxAttempts) {
         current_symbols: finalSymbols,
         last_data_date: new Date().toISOString().split("T")[0]
     };
-    if (vision) {
+if (vision) {
         summaryUpdate.last_image_symbols = vision.symbols.map(s => s.symbol);
         summaryUpdate.last_vision_context = vision;
         summaryUpdate.last_topic = vision.image_type;
+    } else if (finalSymbols.length > 0 || clearsStockContext(plan)) {
+        // A newer explicit text symbol supersedes an older image reference.
+        summaryUpdate.last_image_symbols = [];
     }
-    if (memory?.resolved_references?.symbol) {
+    // Record the newest explicit symbol reference (image or text) for "ده".
+    if (vision?.symbols?.length) {
+        summaryUpdate.last_reference_symbol = vision.symbols[0]?.symbol;
+        summaryUpdate.last_reference_source = "image";
+        summaryUpdate.last_reference_at = new Date().toISOString();
+    } else if (finalSymbols.length > 0) {
+        summaryUpdate.last_reference_symbol = finalSymbols[0];
+        summaryUpdate.last_reference_source = "text";
+        summaryUpdate.last_reference_at = new Date().toISOString();
+    }
+    if (clearsStockContext(plan)) {
+        summaryUpdate.open_references = [];
+        summaryUpdate.last_reference_symbol = null;
+        summaryUpdate.last_reference_source = null;
+        summaryUpdate.last_reference_at = null;
+        summaryUpdate.last_image_symbols = [];
+        summaryUpdate.last_vision_context = null;
+    } else if (memory?.resolved_references?.symbol) {
         summaryUpdate.open_references = [memory.resolved_references.symbol];
     }
+    await updateSessionSummary(supabase, sessionId, userId, summaryUpdate);
     yield { type: "done", data: { response: fullResponse, session_update: sessionUpdate, tables } };
     } catch (err: any) {
         console.error("Pipeline stream error caught:", err);
@@ -2807,8 +2984,11 @@ function hasMeaningfulData(result: ToolResult): boolean {
             if (r.tool === "get_stock" && r.data?.symbol) {
                 hasContent = true;
                 const d = r.data;
-                lines.push(`📊 **بيانات التداول اللحظية لـ ${d.symbol}:**`);
-                lines.push(`  • السعر الحالي: ${d.price} جنيه`);
+                const isLive = r.data_type === "live" && d.is_live_intraday;
+                lines.push(`📊 **${isLive ? "بيانات التداول اللحظية" : "أحدث بيانات التداول المسجلة"} لـ ${d.symbol}:**`);
+                lines.push(isLive
+                    ? `  • السعر اللحظي: ${d.price} جنيه`
+                    : `  • آخر إغلاق مسجل: ${d.price} جنيه بتاريخ ${String(r.data_time || "غير محدد").slice(0, 10)}`);
                 lines.push(`  • نسبة التغير: ${d.change_pct}`);
                 if (d.rsi_14 !== undefined && d.rsi_14 !== null) lines.push(`  • مؤشر RSI: ${d.rsi_14}`);
                 if (d.macd_signal !== undefined && d.macd_signal !== null) lines.push(`  • مؤشر MACD: ${d.macd_signal}`);
@@ -2832,7 +3012,7 @@ function hasMeaningfulData(result: ToolResult): boolean {
                 lines.push(`📊 **ترتيب الأسهم حسب ${metricName} (${d.period_label || d.period_type || "الفترة المحددة"}):**`);
                 // Markdown table rows survive the sanitizer's English-CoT filter; plain
                 // numbered lists with English symbols get dropped line-by-line.
-                lines.push(`| # | الرمز | الشركة | السعر الحالي | سعر بداية الفترة | ${metricCol} |`);
+                lines.push(`| # | الرمز | الشركة | آخر سعر متاح | سعر بداية الفترة | ${metricCol} |`);
                 lines.push(`| :---: | :--- | :--- | :---: | :---: | :---: |`);
                 d.market_period_ranking.slice(0, 10).forEach((s: any, idx: number) => {
                     const metricVal = d.wants_liquidity
@@ -2886,8 +3066,9 @@ function hasMeaningfulData(result: ToolResult): boolean {
             if (r.tool === "get_fair_value_scan" && Array.isArray(r.data?.stocks) && r.data.stocks.length > 0) {
                 hasContent = true;
                 const d = r.data;
-                const relAr = d.direction === "above" ? "أعلى من قيمتها العادلة" : "أقل من قيمتها العادلة";
-                lines.push(`⚖️ **أسهم تتداول ${relAr} (الانحراف عن منتصف مدى 60 جلسة):**`);
+                const relAr = d.direction === "above" ? "فوق القيمة الوسطية" : "تحت القيمة الوسطية";
+                const condition = d.require_distribution ? " وتحقق إشارة تصريف" : d.require_accumulation ? " وتحقق إشارة تجميع" : "";
+                lines.push(`⚖️ **أسهم تتداول ${relAr} لنطاق 60 جلسة${condition} (مقياس فني لا قيمة عادلة مالية):**`);
                 lines.push(`| # | الرمز | السعر | الدعم | المقاومة | الانحراف |`);
                 lines.push(`| :---: | :--- | :---: | :---: | :---: | :---: |`);
                 d.stocks.slice(0, 10).forEach((s: any, idx: number) => {
@@ -2915,7 +3096,7 @@ function hasMeaningfulData(result: ToolResult): boolean {
             if (r.tool === "get_comparison" && Array.isArray(r.data?.comparisons) && r.data.comparisons.length > 0) {
                 hasContent = true;
                 lines.push(`⚖️ **مقارنة فنية مباشرة بين الأسهم المطلوبة:**`);
-                lines.push(`| الرمز | السعر الحالي | التغير | مؤشر RSI | مؤشر MACD | نسبة الحجم | الدعم | المقاومة |`);
+                lines.push(`| الرمز | آخر سعر متاح | التغير | مؤشر RSI | مؤشر MACD | نسبة الحجم | الدعم | المقاومة |`);
                 lines.push(`| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |`);
                 r.data.comparisons.forEach((s: any) => {
                     const priceStr = s.price != null ? `${s.price} ج.م` : "غير متاح";
@@ -2995,567 +3176,34 @@ export async function runPipeline(
     sessionId: string,
     messageId: string,
     requestedModel?: string,
-    testConfig?: { mockToolsResults?: StructuredToolOutput }
+    testConfig?: PipelineOptions
 ): Promise<PipelineResult> {
-    const hasImages = images.length > 0;
-    let vision: VisionContext | null = null;
-    let visionError: string | null = null;
-    let memory: MemoryResult | null = null;
-
-    // Stage 1: Vision (multi-image)
-    if (hasImages) {
-        const allVisions: VisionContext[] = [];
-        for (const img of images) {
-            const visionResult = await analyzeImage(img, userMessage, apiKeys, messageId);
-            if (visionResult.vision) allVisions.push(visionResult.vision);
-            if (visionResult.error && !visionError) visionError = visionResult.error;
-        }
-
-        if (allVisions.length > 0) {
-            vision = allVisions[0];
-            if (allVisions.length > 1) {
-                vision.symbols = Array.from(
-                    new Map(allVisions.flatMap(v => v.symbols).map(s => [s.symbol.toUpperCase(), s])).values()
-                );
-                vision.technical_observations = allVisions.flatMap(v => v.technical_observations);
-                vision.user_relevant_summary = allVisions.map(v => v.user_relevant_summary).join(" | ");
-                vision.confidence = allVisions.reduce((sum, v) => sum + v.confidence, 0) / allVisions.length;
-            }
-            vision = await reconcileVisionWithMarket(vision, supabase);
-        }
-    }
-
-    if (!hasImages) await getStocksList();
-
-    // ─── Deterministic planner runs for text requests ───
-    let portfolioAnalysisSymbols: string[] = [];
-    if (!hasImages && isPortfolioAnalysisRequest(userMessage)) {
-        const { data: heldRows } = await supabase
-            .from("positions")
-            .select("symbol,status")
-            .eq("user_id", userId)
-            .eq("status", "open");
-        portfolioAnalysisSymbols = Array.from(new Set(
-            (heldRows || []).map((row: any) => String(row.symbol || "").toUpperCase()).filter(Boolean)
-        ));
-        if (portfolioAnalysisSymbols.length === 0) {
-            return {
-                vision,
-                memory: null,
-                plan: generalChatPlan(sessionState) as any,
-                tools: { results: [], formattedText: "" },
-                response: "محفظتك فاضية حالياً. سجّل أسهمك أولاً (اكتب مثلاً: «ضيف COMI 100 بمتوسط 80») وبعدها أقدر أحللها لك كلها في رد واحد.",
-                session_update: { current_symbol: sessionState.current_symbol, last_symbols: sessionState.last_symbols, summary: "طلب تحليل محفظة فاضية" },
-                vision_error: visionError,
-                tables: [],
-            };
-        }
-    }
-    const deterministicPlan = !hasImages ? buildCompoundDeterministicPlan(userMessage, sessionState) : null;
-
-    // Stage 2: Memory is only needed when routing cannot resolve the request.
-    if (!deterministicPlan || deterministicPlan.intent === "historical_recall") {
-        memory = await retrieveRelevantMemory(userMessage, sessionSummary, sessionState, history, supabase, userId, sessionId);
-    }
-
-    // Stage 3: deterministic plan
-    let plannerResult = deterministicPlan
-        ?? buildCompoundDeterministicPlan(userMessage, sessionState)
-        ?? generalChatPlan(sessionState);
-
-    if (portfolioAnalysisSymbols.length > 0) {
-        plannerResult = {
-            intent: "stock_analysis",
-            confidence: 1,
-            entities: {
-                symbols: portfolioAnalysisSymbols,
-                sector: null,
-                wants_table: true,
-                timeframe: "current",
-                requested_date: null,
-                scan_direction: null,
-                portfolio_operation: "view",
-            },
-            tools: ["manage_portfolio", "get_stock", "get_stock_levels"],
-            session_update: { current_symbol: sessionState.current_symbol, last_symbols: portfolioAnalysisSymbols, summary: userMessage },
-        } as any;
-    }
-
-    const explicitSymbols = extractExplicitSymbols(userMessage);
-    const plannerResolvedSymbols = plannerResult.entities.symbols || [];
-    const unionSymbols = explicitSymbols.length > 0
-        ? Array.from(new Set([...explicitSymbols, ...plannerResolvedSymbols]))
-        : plannerResolvedSymbols;
-    let mergedSymbols = mergeVisionSymbols(unionSymbols, vision, explicitSymbols.length);
-    mergedSymbols = clearsStockContext(plannerResult) 
-        ? explicitSymbols 
-        : scopeImplicitSingleStockRequest(userMessage, explicitSymbols, mergedSymbols, sessionState.current_symbol, memory?.resolved_references?.symbol || null);
-    const riskFollowUp = /(يخسر|خسار|يهبط|ينزل).{0,30}(تاني|اكتر|أكتر|اكثر|أكثر|%|في الميه|فى الميه)|(?:ممكن|هل).{0,20}(يخسر|يهبط|ينزل)/i.test(userMessage);
-    if (riskFollowUp && mergedSymbols.length === 0) {
-        const recentSymbol = extractSingleStockFromRecentHistory(history);
-        if (recentSymbol) mergedSymbols.push(recentSymbol);
-    }
-    if (mergedSymbols.length === 0 && memory?.resolved_references?.symbol) {
-        mergedSymbols.push(memory.resolved_references.symbol);
-    }
-    // An implicit follow-up question (see isImplicitStockFollowUp) must resolve
-    // to the session's current stock even when current_symbol is missing from
-    // the passed sessionState (fall back to last_symbols / recent history).
-    // This runs before the "X للY" company-name detector which misread
-    // questions like "ممكن يطلع للمقاومة امتى" as an unknown company.
-    const implicitStockFollowUp = explicitSymbols.length === 0 && isImplicitStockFollowUp(userMessage);
-    if (implicitStockFollowUp && mergedSymbols.length === 0) {
-        const recentSymbol = sessionState.current_symbol
-            || sessionState.last_symbols?.[0]
-            || extractSingleStockFromRecentHistory(history);
-        if (recentSymbol) {
-            mergedSymbols.push(String(recentSymbol).toUpperCase());
-            plannerResult = {
-                ...plannerResult,
-                intent: "stock_analysis",
-                tools: ["get_stock", "get_stock_levels"],
-                entities: { ...plannerResult.entities, symbols: mergedSymbols },
-            } as any;
-        }
-    }
-    if (mergedSymbols.length === 0 && sessionState.current_symbol && /(أبيع|ابيع|بيع(?!ه|ها|هم|ين)|أحتفظ|احتفظ|أخرج|اخرج|بكام|بكم|السعر)/i.test(userMessage) && !isBestBuyStockQuestion(userMessage) && !isMarketWideRequest(userMessage) && plannerResult.intent !== "technical_scan") {
-        mergedSymbols.push(sessionState.current_symbol);
-    }
-    if (mergedSymbols.length === 0 && sessionState.current_symbol && /(اخباره|أخباره|هات\s+اخبار|هات\s+أخبار|خبره)/i.test(userMessage)) mergedSymbols.push(sessionState.current_symbol);
-    if (mergedSymbols.length === 0 && sessionState.current_symbol && /(يخسر|خسار|يهبط|ينزل).{0,30}(تاني|اكتر|أكتر|اكثر|أكثر|%|في الميه|فى الميه)|(?:ممكن|هل).{0,20}(يخسر|يهبط|ينزل)/i.test(userMessage)) {
-        mergedSymbols.push(sessionState.current_symbol);
-    }
-    const isSingleStockRecFollowUp = Boolean(sessionState.current_symbol) && /(?:^|[^\u0621-\u064A])(ده|دا|دي|هذا|السهم ده|السهم دا|السهم دي|هاته|هاتها|اخباره|أخباره|خبره|الاتنين|السهمين|عليه|فيه|ليه|عليها|فيها|ليها|عنه|عنها|به|بها|معاه|معاها|هو|هي)(?:$|[^\u0621-\u064A])/i.test(normalizeArabicIntent(userMessage)) && /(?:توصي[اإ]?\s*ت|توصي[ةه])/i.test(normalizeArabicIntent(userMessage));
-    if (mergedSymbols.length === 0 && sessionState.current_symbol && (
-        /(عليه|عليها|فيه|فيها|ليه|ليها|له|لها|عنه|عنها|به|بها|معاه|معاها|هو|هي|ده|دي|هذا|هذه|تجميع|تصريف|تحليل|مؤشر|مؤشرات|دعم|مقاومة|مقاومه|توصي)/i.test(userMessage) ||
-        userMessage.trim().split(/\s+/).length <= 3
-    ) && !isMarketWideRequest(userMessage) && (!isBestBuyStockQuestion(userMessage) || isSingleStockRecFollowUp) && plannerResult.intent !== "technical_scan") {
-        mergedSymbols.push(sessionState.current_symbol);
-    }
-    // An explicit company-name phrase that resolves to no known symbol ("حلل دلتا للطباعه")
-    // must not inherit the previous session symbol — the responder would analyze the WRONG stock.
-    const unresolvedNameMatch = userMessage.match(/(?:^|[\s،,])(\S{2,}\s+لل\S{2,})/);
-    const unresolvedCandidate = unresolvedNameMatch ? unresolvedNameMatch[1].replace(/[.،,؟?…].*$/, "").trim() : null;
-    // A follow-up question ("يطلع للمقاومة امتى") matches the "X للY" pattern but
-    // is not a company name and must fall back to the current symbol instead of
-    // returning "لم أجد شركة بهذا الاسم".
-    const looksLikeFollowUpPhrase = unresolvedCandidate !== null
-        && (looksLikeQuestionFragment(unresolvedCandidate) || isImplicitStockFollowUp(userMessage));
-    const unresolvedStockName = explicitSymbols.length === 0 && unresolvedCandidate && !vision && !looksLikeFollowUpPhrase
-        ? unresolvedCandidate
-        : null;
-    if (unresolvedStockName) mergedSymbols = [];
-    // Bare ticker that matches no listed stock ("FTNS") — answer that it is not
-    // covered instead of running empty tools and serving a degraded fallback.
-    const unrecognizedTicker = !vision && explicitSymbols.length === 0
-        && /^[A-Za-z]{2,6}[؟?\s.]*$/.test(userMessage.trim());
-    const compoundRequest = splitChatCommands(userMessage).length > 1;
-    if ((isMarketWideRequest(userMessage) || (isBestBuyStockQuestion(userMessage) && !isSingleStockRecFollowUp) || plannerResult.intent === "technical_scan" || plannerResult.intent === "accumulation_distribution") && !compoundRequest && extractExplicitSymbols(userMessage).length === 0) mergedSymbols = [];
-    if (plannerResult.entities.sector && extractExplicitSymbols(userMessage).length === 0) mergedSymbols = [];
-    const enforced: ReturnType<typeof enforceIntentFromMessage> = compoundRequest
-        ? { 
-            intent: plannerResult.intent, 
-            tools: plannerResult.tools || [], 
-            replaceTools: true, 
-            scan_direction: plannerResult.entities.scan_direction || undefined,
-            fair_value_direction: plannerResult.entities.fair_value_direction || undefined,
-            require_distribution: plannerResult.entities.require_distribution,
-            require_accumulation: plannerResult.entities.require_accumulation
-          }
-        : enforceIntentFromMessage(userMessage, plannerResult.intent, mergedSymbols, sessionState);
-    if (portfolioAnalysisSymbols.length > 0) {
-        enforced.intent = "stock_analysis";
-        enforced.tools = ["manage_portfolio", "get_stock", "get_stock_levels"];
-        enforced.replaceTools = true;
-        mergedSymbols = portfolioAnalysisSymbols.slice();
-    }
-    const marketScopedTools = new Set(["get_market", "get_sector_liquidity", "get_sector_list", "get_fair_value_scan", "get_technical_scan", "get_accumulation_stocks", "get_distribution_stocks"]);
-    if (explicitSymbols.length === 0 && enforced.tools.some(tool => marketScopedTools.has(tool))) mergedSymbols = [];
-    const datedDomainRequest = Boolean(extractRequestedDate(userMessage) || extractRequestedDateRange(userMessage)) && ["stock_analysis", "stock_news", "comparison", "sector_analysis", "accumulation_distribution"].includes(enforced.intent);
-    const historicalRequest = needsHistoricalData(enforced.intent, userMessage);
-    const effectiveIntent = historicalRequest && !datedDomainRequest ? "historical_recall" : enforced.intent;
-
-    const plannedTools = sanitizePlannerTools(userMessage, enforced.replaceTools
-        ? enforced.tools
-        : Array.from(new Set([...(plannerResult.tools || []), ...enforced.tools])));
-    // Day-by-day change questions need the daily price rows; the compound-command
-    // path above can bypass enforceIntentFromMessage and the planner sometimes
-    // omits get_price_history, so re-add it here.
-    if (!plannedTools.includes("get_price_history")
-        && mergedSymbols.length > 0
-        && /يوم\s*بـ?\s*يوم|التغير\s*اليومي|تغير\s*يومي|سعر\s*كل\s*يوم|أداء\s*يومي|(?:اخر|آخر)\s*(?:اسبوع|أسبوع|ايام|أيام|جلسات).{0,30}(?:تغير|نسب)/i.test(userMessage)) {
-        plannedTools.push("get_price_history");
-    }
-    const isGreetingMsg = /^(?:ازيك|إزيك|عامل ايه|عامل إيه|اهلا|أهلا|مرحبا|السلام عليكم|شكرا|شكرًا|تمام|اوكي|أوكي)[؟?،,.!\s]*$/i.test(userMessage.trim());
-    if (!plannerResult.clarification_needed && plannedTools.length === 0 && (unrecognizedTicker || unresolvedStockName || (mergedSymbols.length === 0 && !isGreetingMsg && !isTermsDefinitionRequest(userMessage) && userMessage.trim().length >= 2))) {
-        plannedTools.push("search_web");
-    }
-    const requestedRange = extractRequestedDateRange(userMessage);
-    let guidanceIntent = plannerResult.guidance_intent || getInvestorGuidanceIntent(userMessage, mergedSymbols.length > 0);
-    if (mergedSymbols.length > 0 && guidanceIntent !== "product_comparison") {
-        guidanceIntent = null;
-    }
-    const excludedSectors = extractExcludedSectors(userMessage);
-    const plannerExcludedSectors = plannerResult.entities.excluded_sectors || [];
-    const comparesSectors = plannedTools.includes("get_sector_liquidity") && enforced.sector === null;
-    const plan: IntentPlan = {
-        intent: mapIntent(effectiveIntent),
-        confidence: plannerResult.confidence || 0.8,
-        guidance_intent: guidanceIntent,
-        entities: {
-            symbols: mergedSymbols,
-            sector: comparesSectors || (excludedSectors.length > 0 && plannedTools.includes("get_sector_liquidity")) ? null : enforced.sector || plannerResult.entities.sector || null,
-            timeframe: extractTemporalContext(userMessage).timeframe,
-            reference: memory?.resolved_references?.symbol ? "last_image" : null
-            ,scan_direction: enforced.scan_direction || plannerResult.entities.scan_direction || null
-            ,fair_value_direction: enforced.fair_value_direction || plannerResult.entities.fair_value_direction || null
-            ,require_distribution: Boolean(enforced.require_distribution || plannerResult.entities.require_distribution)
-            ,require_accumulation: Boolean(enforced.require_accumulation || plannerResult.entities.require_accumulation)
-            ,recommendation_order: enforced.recommendation_order || plannerResult.entities.recommendation_order || null
-            ,recommendation_filter: enforced.recommendation_filter || plannerResult.entities.recommendation_filter || null
-            ,technical_preset: plannerResult.entities.technical_preset || null
-            ,min_acc_score: plannerResult.entities.min_acc_score ?? null
-            ,min_vol_ratio: plannerResult.entities.min_vol_ratio ?? null
-            ,excluded_sectors: Array.from(new Set([...excludedSectors, ...plannerExcludedSectors]))
-            ,requested_sectors: enforced.requested_sectors || plannerResult.entities.requested_sectors || []
-            ,requested_date: extractRequestedDate(userMessage) || null
-            ,requested_start_date: requestedRange?.start || null
-            ,requested_end_date: requestedRange?.end || null
+    const result: PipelineResult = {
+        vision: null, memory: null, vision_error: null, tools: { results: [], formattedText: "" },
+        plan: {
+            intent: "general_chat", confidence: 0,
+            entities: { symbols: [], sector: null, timeframe: "unspecified", reference: null },
+            needs_vision_context: false, needs_history: false, needs_live_data: false,
+            needs_historical_data: false, tools: [], clarification_needed: false,
+            resolved_from: { symbol: null, message_id: null },
         },
-        needs_vision_context: hasImages && !!vision,
-        needs_history: memory?.resolved_references?.symbol !== null || plannerResult.intent === "general_chat",
-        needs_live_data: needsLiveDataForTools(plannedTools),
-        needs_historical_data: historicalRequest,
-        tools: plannedTools,
-        clarification_needed: Boolean(plannerResult.clarification_needed),
-        clarification_options: plannerResult.clarification_options || [],
-        service_degraded_message: plannerResult.service_degraded_message || null,
-        unresolved_stock: Boolean(plannerResult.unresolved_stock),
-        resolved_from: {
-            symbol: memory?.resolved_references?.symbol || null,
-            message_id: memory?.resolved_references?.message_id || null
-        }
+        response: "", tables: [],
+        session_update: { current_symbol: sessionState.current_symbol, last_symbols: sessionState.last_symbols, summary: sessionState.summary },
     };
-    const invariantPlan = applyHybridDomainInvariants(userMessage, plan);
-    Object.assign(plan, invariantPlan);
-
-    if (plan.clarification_needed) {
-        const response = buildDeterministicResponse(userMessage, plan, []);
-        return {
-            vision,
-            memory,
-            plan,
-            tools: { results: [], formattedText: "" },
-            response: response || "اختار المقصود من الخيارات عشان أستخدم الأداة المناسبة.",
-            session_update: { current_symbol: sessionState.current_symbol, last_symbols: sessionState.last_symbols, summary: userMessage },
-            vision_error: visionError,
-            tables: [],
-        };
-    }
-
-    // Stage 4: Tools
-    let tools: StructuredToolOutput;
-    if (testConfig?.mockToolsResults) {
-        tools = testConfig.mockToolsResults;
-    } else {
-        tools = await executeStructuredTools(supabase, plan, apiKeys, userId, sessionId, userMessage, history);
-    }
-    const hybridAdditionalTools = await reviewHybridToolResults(userMessage, plan, tools, sessionState);
-    tools = await executeHybridAdditionalTools(supabase, plan, tools, hybridAdditionalTools, apiKeys, userId, sessionId, userMessage, history);
-    tools = intersectHybridScanResults(tools, plan);
-    if (plan.intent === "portfolio_management") {
-        const portfolioResult = tools.results.find(result => result.tool === "manage_portfolio");
-        if (portfolioResult) {
-            const response = plan.entities.portfolio_operation === "view"
-                ? formatPortfolioSnapshotResponse(portfolioResult.data)
-                : String(portfolioResult.data?.message || "تم تنفيذ عملية المحفظة بنجاح.");
-            await persistPortfolioAwaitingState(supabase, sessionId, userId, String(plan.entities.portfolio_operation || ""), portfolioResult.data || {});
-            return { vision, memory, plan, tools, response, session_update: { current_symbol: sessionState.current_symbol, last_symbols: portfolioResult.symbols || sessionState.last_symbols, summary: response }, vision_error: visionError, tables: buildExcelTables(tools.results, vision) };
+    for await (const event of runPipelineStream(userMessage, images, sessionState, sessionSummary,
+        history, supabase, apiKeys, userId, sessionId, messageId, requestedModel, testConfig)) {
+        if (event.type === "plan") result.plan = event.data;
+        else if (event.type === "vision_result") result.vision = event.data;
+        else if (event.type === "vision_error") result.vision_error = event.data;
+        else if (event.type === "memory_result") result.memory = event.data;
+        else if (event.type === "tools_data") result.tools = event.data;
+        else if (event.type === "done") {
+            result.response = event.data.response;
+            result.session_update = event.data.session_update ?? result.session_update;
+            result.tables = event.data.tables ?? [];
         }
     }
-    
-    // Apply custom user filters if present in message (e.g. "أعلى من 75", "يومين")
-    if (userMessage) {
-        const scoreMatch = userMessage.match(/(?:أعلى|اكثر|أكبر|اكبر|فوق).{1,10}?(\d{2,3})/i) || userMessage.match(/(\d{2,3}).{1,10}?(?:فأكثر|فاكثر)/i);
-        const minScore = scoreMatch ? parseInt(scoreMatch[1] || scoreMatch[2] || "0", 10) : 0;
-        
-        const volMatch = userMessage.match(/(?:نسبة الحجم|سيوله|سيولة).{1,15}?(?:أكبر|اعلى|أعلى).{1,10}?(\d+(?:\.\d+)?)/i);
-        const minVol = volMatch ? parseFloat(volMatch[1]) : 0;
-        
-        const daysMatch = userMessage.match(/(?:يومين)/i) ? 2 : (userMessage.match(/(?:أيام|ايام).{1,10}?(\d+)/i) ? parseInt(userMessage.match(/(?:أيام|ايام).{1,10}?(\d+)/i)![1], 10) : 0);
-        
-        tools.results.forEach(res => {
-            if (res.tool === "get_accumulation_stocks" || res.tool === "get_distribution_stocks") {
-                const scoreField = res.tool === "get_accumulation_stocks" ? "acc_score" : "dist_score";
-                const daysField = res.tool === "get_accumulation_stocks" ? "consecutive_acc_days" : "consecutive_dist_days";
-                
-                const filterFn = (s: any) => {
-                    let pass = true;
-                    if (minScore > 0 && Number(s[scoreField] || 0) <= minScore) pass = false;
-                    if (minVol > 0 && Number(s.vol_ratio || 0) <= minVol) pass = false;
-                    if (daysMatch > 0 && Number(s[daysField] || 0) < daysMatch) pass = false;
-                    return pass;
-                };
-
-                if (Array.isArray(res.data?.stocks)) {
-                    res.data.stocks = res.data.stocks.filter(filterFn);
-                }
-                if (Array.isArray(res.data?.scan_rows)) {
-                    res.data.scan_rows = res.data.scan_rows.filter(filterFn);
-                }
-                if (Array.isArray(res.symbols)) {
-                    res.symbols = res.symbols.filter((sym: string) => {
-                        const row = (res.data?.stocks || []).find((s: any) => String(s.symbol).toUpperCase() === String(sym).toUpperCase());
-                        return !!row;
-                    });
-                }
-            }
-        });
-    }
-
-    const tables = buildExcelTables(tools.results, vision);
-
-    await saveFactSnapshots(supabase, userId, sessionId, tools, vision, messageId);
-
-    // Stage 5: Response
-    const topMoversRequest = /(أعلى|اعلى|أقوى|اقوى).{0,25}(الأسهم|اسهم|ارتفاع|صعود|النهارده|اليوم|اخر يوم|آخر يوم|جلسه|جلسة)/i.test(userMessage);
-    const deterministicLiquidityResponse = topMoversRequest
-        ? buildTopMoversResponse(tools)
-        : plan.intent === "market_summary" && plan.entities.symbols.length === 0
-        && !plan.tools.includes("get_fair_value_scan")
-        && !plan.entities.scan_direction
-        ? buildMarketLiquidityResponse(tools)
-        : null;
-    const scopedMemory = plan.needs_historical_data || plan.entities.reference
-        ? memory?.relevant_snapshots || []
-        : [];
-    const isAnalyticalQueryRegex = /(سبب|ليه|لماذا|ازاي|إزاي|تفسير|سر|ينزل|يهبط|يطلع|صعود|هبوط|فرص|أحسن|احسن|افضل|أفضل|توقعات|متوقع|مقارن|قارن|حالة|حالتها|رايك|رأيك|توجيه|تجميع|تصريف|تحليل|شراء|بيع|مناسب|مكمل|مستمر|جلسه|جلسة|غدا|غداً|اشترى|اشتري|اشتريت|خسران|نازل|عادله|عادلة|تقييم|قيمته|تسوى|تساوي|أهداف|اهداف|احتفاظ|خروج|دخول|بيجمع|ينطلق|مؤشر|مؤشرات|اخبار|أخبار|إيه|ايه|هل|فين|مين|مسح|شروط|\?|؟)/i;
-    const isAnalyticalQuery = isAnalyticalQueryRegex.test(userMessage) || userMessage.trim().split(/\s+/).length > 4;
-    const hasScanTool = tools.results.some(res => res.tool === "get_accumulation_stocks" || res.tool === "get_distribution_stocks");
-    const isMarketWideScan = hasScanTool && mergedSymbols.length === 0;
-
-    // Check if scan filters resulted in 0 stocks on a market-wide scan to prevent LLM hallucinations
-    let emptyScanResult = false;
-    let scanStale = false;
-    let scanDate: string | null = null;
-    const hasAccTool = tools.results.some(r => r.tool === "get_accumulation_stocks");
-    const hasDistTool = tools.results.some(r => r.tool === "get_distribution_stocks");
-    const isBothScans = hasAccTool && hasDistTool;
-    const directionAr = isBothScans ? "تجميع وتصريف" : (plan.entities.scan_direction === "distribution" ? "تصريف" : "تجميع");
-
-    if (isMarketWideScan) {
-        if (isBothScans) {
-            // When both accumulation and distribution are requested, buildBothAccumulationDistributionResponse
-            // handles presentation. Only flag as empty scan if BOTH tools return 0 stocks.
-            const accRes = tools.results.find(r => r.tool === "get_accumulation_stocks");
-            const distRes = tools.results.find(r => r.tool === "get_distribution_stocks");
-            const accEmpty = !Array.isArray(accRes?.data?.stocks) || accRes.data.stocks.length === 0;
-            const distEmpty = !Array.isArray(distRes?.data?.stocks) || distRes.data.stocks.length === 0;
-            if (accEmpty && distEmpty) {
-                emptyScanResult = true;
-                if (accRes?.data?.date) scanDate = String(accRes.data.date);
-                else if (distRes?.data?.date) scanDate = String(distRes.data.date);
-            }
-        } else {
-            const targetTool = plan.entities.scan_direction === "distribution" ? "get_distribution_stocks" : "get_accumulation_stocks";
-            const targetRes = tools.results.find(r => r.tool === targetTool) || tools.results.find(r => r.tool === "get_accumulation_stocks" || r.tool === "get_distribution_stocks");
-            if (targetRes && Array.isArray(targetRes.data?.stocks) && targetRes.data.stocks.length === 0) {
-                emptyScanResult = true;
-                if (targetRes.data?.validation && !targetRes.data.validation.ok) scanStale = true;
-                if (targetRes.data?.date) scanDate = String(targetRes.data.date);
-            }
-        }
-    }
-
-    const deterministicDomainResponse = emptyScanResult
-        ? scanStale
-            ? `آخر مسح ${directionAr} مسجل في قاعدة البيانات بتاريخ ${scanDate || "غير محدد"} (أقدم من 7 أيام)، ولم يسجل هذا المسح أي أسهم في منطقة ${directionAr}. يتم تحديث بيانات المسح بشكل دوري.`
-            : plan.entities.min_acc_score != null || plan.entities.min_vol_ratio != null || plan.entities.min_consecutive_acc_days != null
-                ? `عذراً، لم أجد أي أسهم تطابق الشروط التي حددتها حالياً. يمكنك محاولة تخفيف الشروط (مثل تقليل درجة ${directionAr} المطلوبة أو نسبة الحجم) للحصول على نتائج.`
-                : `حالياً لا توجد أسهم في منطقة ${directionAr} واضحة بناءً على أحدث بيانات المسح المتاحة (بتاريخ ${scanDate || "اليوم"}). هذا يعني أن السوق قد لا يمر بمرحلة ${directionAr} مؤسسي واضحة في الوقت الحالي.`
-        : null;
-
-    // Earnings data requests have no backing data source (tools: []) — bypass the LLM entirely
-    // with a clear deterministic answer instead of risking a validation failure / empty fallback.
-    if (tools.results.length === 0 && isEarningsDataRequest(userMessage)) {
-        const earningsResponse = plan.entities.symbols.length > 0
-            ? `لا تتوفر لدي حالياً بيانات أرباح موثقة للفترة المطلوبة للسهم ${plan.entities.symbols.join("، ")}. لذلك لن أستبدل سؤال الأرباح بالسعر أو RSI. يمكنني تحليل السعر فنياً، أو عرض الأرباح عند إضافة مصدر قوائم مالية مؤرخ للنظام.`
-            : "لا تتوفر لدي حالياً بيانات أرباح موثقة للشركات في قاعدة البيانات. يمكنني تحليل السعر والسيولة والتجميع والتصريف فنياً، أو عرض الأرباح عند إضافة مصدر قوائم مالية مؤرخ للنظام.";
-        const earningsSymbols = plan.entities.symbols || [];
-        const earningsSessionUpdate = {
-            current_symbol: earningsSymbols[0] || sessionState.current_symbol,
-            last_symbols: Array.from(new Set([...earningsSymbols, ...(sessionState.last_symbols || [])])).slice(0, 15),
-            summary: userMessage,
-            current_sector: plan.entities.sector || sessionState.current_sector || null
-        };
-        await updateSessionState(supabase, sessionId, userId, earningsSessionUpdate);
-        return {
-            vision,
-            memory,
-            plan,
-            tools,
-            response: earningsResponse,
-            session_update: earningsSessionUpdate,
-            vision_error: visionError,
-            tables
-        };
-    }
-
-    const hasWebResults = tools.results.some(r => r.tool === "search_web" && Array.isArray(r.data?.results) && r.data.results.length > 0);
-
-    // Explicit company name that matched no listed stock — say so if web search has no results
-    if (!hasWebResults && tools.results.length === 0 && unresolvedStockName && plan.entities.symbols.length === 0) {
-        const unknownStockResponse = `لم أجد شركة بهذا الاسم («${unresolvedStockName}») في قاعدة بيانات البورصة المصرية المسجلة على المنصة، ولم تسفر نتائج البحث عن معلومات موثقة. تأكد من كتابة الاسم كما هو معروف في السوق أو اكتب الرمز اللاتيني (مثل AMES أو COMI).`;
-        const unknownSessionUpdate = {
-            current_symbol: null,
-            last_symbols: sessionState.last_symbols || [],
-            summary: userMessage,
-            current_sector: plan.entities.sector || sessionState.current_sector || null
-        };
-        await updateSessionState(supabase, sessionId, userId, unknownSessionUpdate);
-        return {
-            vision,
-            memory,
-            plan,
-            tools,
-            response: unknownStockResponse,
-            session_update: unknownSessionUpdate,
-            vision_error: visionError,
-            tables
-        };
-    }
-
-    // Bare ticker matching no listed stock — say it is not covered if web search has no results
-    if (!hasWebResults && unrecognizedTicker) {
-        const ticker = userMessage.trim().replace(/[؟?\s.]+$/, "").toUpperCase();
-        const uncoveredResponse = `الرمز ${ticker} غير مسجل في قاعدة بيانات الأسهم الرئيسية للبورصة المصرية على المنصة حالياً، ولم تتوفر نتائج بحث موثقة عنه. تأكد من كتابة الرمز بشكل صحيح (مثل COMI أو DGTZ)، أو اكتب اسم الشركة بالعربي وسأبحث عنها.`;
-        const uncoveredSessionUpdate = {
-            current_symbol: null,
-            last_symbols: sessionState.last_symbols || [],
-            summary: userMessage,
-            current_sector: sessionState.current_sector || null
-        };
-        await updateSessionState(supabase, sessionId, userId, uncoveredSessionUpdate);
-        return {
-            vision,
-            memory,
-            plan,
-            tools,
-            response: uncoveredResponse,
-            session_update: uncoveredSessionUpdate,
-            vision_error: visionError,
-            tables
-        };
-    }
-
-    const responderMetaNs: { source?: "llm" | "deterministic"; degraded?: boolean } = {};
-const generatedLlmReply = deterministicDomainResponse || await generateV2Response(
-        userMessage, plan, vision, tools.results,
-        scopedMemory,
-        memory?.recent_messages || [],
-        memory?.resolved_references || { symbol: null, message_id: null, confidence: 0 },
-        apiKeys,
-        requestedModel,
-        sessionState,
-        undefined,
-        responderMetaNs
-    );
-    const genericFailure = /^(?:عذراً، )?لم أتمكن من إنشاء الرد/.test(generatedLlmReply || "");
-    // Leaked English chain-of-thought leaves no usable Arabic answer — treat as failure.
-    const replyArabicChars = ((generatedLlmReply || "").match(/[\u0600-\u06FF]/g) || []).length;
-    const replyAsciiChars = ((generatedLlmReply || "").match(/[A-Za-z]/g) || []).length;
-    const nonArabicReply = responderMetaNs.source !== "deterministic" && (replyArabicChars < 40 || replyAsciiChars > replyArabicChars);
-    let response = (genericFailure || nonArabicReply)
-        ? (topMoversRequest ? buildTopMoversResponse(tools) : buildMarketLiquidityResponse(tools))
-            || buildDeterministicResponse(userMessage, plan, tools.results)
-            || generatedLlmReply
-        : generatedLlmReply;
-
-    // One corrective LLM attempt when the first reply was unusable (CoT leak etc.),
-    // or when all providers failed and a degraded template was served — the retry
-    // recovers natural replies after short per-minute rate-limit windows expire.
-    let skipCorrectiveRetry = false;
-    if (responderMetaNs.degraded) {
-        const cooldownMs = getResponderCooldownMs();
-        if (cooldownMs > 45_000) {
-            console.warn("[Pipeline] Degraded fallback with long provider cooldown — skipping corrective retry");
-            skipCorrectiveRetry = true;
-        } else if (cooldownMs > 0) {
-            await new Promise(r => setTimeout(r, cooldownMs + 500));
-        }
-    }
-    if (!skipCorrectiveRetry && (genericFailure || nonArabicReply || responderMetaNs.degraded)) {
-        console.warn("[Pipeline] Non-stream reply unusable — one corrective LLM attempt");
-        let retryText = "";
-        const retryMeta: { source?: "llm" | "deterministic"; degraded?: boolean } = {};
-        try {
-            const retryStream = generateV2Stream(
-                userMessage, plan, vision, tools.results,
-                scopedMemory,
-                memory?.recent_messages || [],
-                memory?.resolved_references || { symbol: null, message_id: null, confidence: 0 },
-                apiKeys,
-                requestedModel,
-                sessionState,
-                "مهم جداً: أكتب الرد باللغة العربية فقط، بدون أي تفكير أو عبارات إنجليزية، وأجب مباشرة على سؤال المستخدم باستخدام البيانات المرفقة.",
-                retryMeta
-            );
-            for await (const chunk of retryStream) retryText += chunk;
-            retryText = retryText.trim();
-        } catch (retryErr: any) {
-            console.warn(`[Pipeline] Corrective attempt failed: ${retryErr?.message || retryErr}`);
-        }
-        const retryArabic = (retryText.match(/[\u0600-\u06FF]/g) || []).length;
-        const retryAscii = (retryText.match(/[A-Za-z]/g) || []).length;
-        if (retryMeta.source === "llm" && retryArabic >= 40 && retryAscii <= retryArabic) {
-            response = retryText;
-        }
-    }
-
-    const allSymbols = new Set<string>();
-    if (plan.entities.symbols) plan.entities.symbols.forEach(s => allSymbols.add(s));
-    if (vision?.symbols) vision.symbols.forEach(s => allSymbols.add(s.symbol));
-    if (Array.isArray(tools.results)) {
-        tools.results.forEach(res => {
-            if (Array.isArray(res.symbols)) {
-                res.symbols.forEach((s: string) => allSymbols.add(s));
-            }
-        });
-    }
-
-    const finalSymbols = Array.from(allSymbols).filter(Boolean);
-    const sessionUpdate = {
-        current_symbol: clearsStockContext(plan) ? null : (finalSymbols[0] || sessionState.current_symbol),
-        last_symbols: clearsStockContext(plan) ? finalSymbols : Array.from(new Set([...finalSymbols, ...(sessionState.last_symbols || [])])).slice(0, 15),
-        summary: userMessage || (hasImages ? "تحليل صورة" : null),
-        current_sector: plan.entities.sector || sessionState.current_sector || null
-    };
-
-    await updateSessionState(supabase, sessionId, userId, sessionUpdate);
-    const summaryUpdate: Partial<SessionSummary> = {
-        current_symbols: finalSymbols,
-        last_data_date: new Date().toISOString().split("T")[0]
-    };
-    if (vision) {
-        summaryUpdate.last_image_symbols = vision.symbols.map(s => s.symbol);
-        summaryUpdate.last_vision_context = vision;
-        summaryUpdate.last_topic = vision.image_type;
-    }
-    if (memory?.resolved_references?.symbol) {
-        summaryUpdate.open_references = [memory.resolved_references.symbol];
-    }
-    await updateSessionSummary(supabase, sessionId, userId, summaryUpdate);
-
-    return {
-        vision,
-        memory,
-        plan,
-        tools,
-        response,
-        session_update: sessionUpdate,
-        vision_error: visionError,
-        tables
-    };
+    return result;
 }
 
 async function persistPipelineSession(
@@ -3572,18 +3220,32 @@ async function persistPipelineSession(
     const symbols = plan.entities.symbols || [];
     const sessionUpdate = {
         current_symbol: clearsStockContext(plan) ? null : (symbols[0] || sessionState.current_symbol),
-        last_symbols: Array.from(new Set([...symbols, ...(sessionState.last_symbols || [])])).slice(0, 15),
+        last_symbols: clearsStockContext(plan) ? [] : Array.from(new Set([...symbols, ...(sessionState.last_symbols || [])])).slice(0, 15),
         summary: hasImages ? "تحليل صورة" : sessionState.summary,
         current_sector: plan.entities.sector || sessionState.current_sector || null
     };
     await updateSessionState(supabase, sessionId, userId, sessionUpdate);
+    const clearsContext = clearsStockContext(plan);
     await updateSessionSummary(supabase, sessionId, userId, {
         current_symbols: symbols,
-        last_image_symbols: vision?.symbols.map(symbol => symbol.symbol) || sessionSummary?.last_image_symbols || [],
+        last_image_symbols: clearsContext ? [] : vision?.symbols.map(symbol => symbol.symbol) || (symbols.length > 0 ? [] : sessionSummary?.last_image_symbols || []),
         last_topic: vision?.image_type || sessionSummary?.last_topic || null,
-        open_references: memory?.resolved_references?.symbol ? [memory.resolved_references.symbol] : sessionSummary?.open_references || [],
+        open_references: clearsContext ? [] : memory?.resolved_references?.symbol ? [memory.resolved_references.symbol] : sessionSummary?.open_references || [],
         last_data_date: new Date().toISOString().split("T")[0],
-        last_vision_context: vision || sessionSummary?.last_vision_context || null
+        last_vision_context: clearsContext ? null : vision || sessionSummary?.last_vision_context || null,
+        ...(clearsContext ? {
+            last_reference_symbol: null,
+            last_reference_source: null,
+            last_reference_at: null,
+        } : vision?.symbols?.length ? {
+            last_reference_symbol: vision.symbols[0]?.symbol,
+            last_reference_source: "image" as const,
+            last_reference_at: new Date().toISOString(),
+        } : symbols.length > 0 ? {
+            last_reference_symbol: symbols[0],
+            last_reference_source: "text" as const,
+            last_reference_at: new Date().toISOString(),
+        } : {})
     });
 }
 

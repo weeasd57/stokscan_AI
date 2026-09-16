@@ -140,13 +140,27 @@ export async function GET(req: Request) {
     // Apply range pagination
     query = query.range(offset, offset + limit - 1);
 
+    // Server-side sort: newest (default), oldest, highest_sent, lowest_sent
+    const sort = url.searchParams.get("sort") || "newest";
+    if (sort === "oldest") {
+      query = query.order("date", { ascending: true });
+    } else if (sort === "highest_sent") {
+      query = query.order("sentiment_score", { ascending: false });
+    } else if (sort === "lowest_sent") {
+      query = query.order("sentiment_score", { ascending: true });
+    } else {
+      query = query.order("date", { ascending: false });
+    }
+
     // Derive sentiment from score — no sentiment_label column
+    // Use 0.15 threshold to match UI badges and FastAPI /scan/news
+    const THRESH = 0.15;
     if (sentiment === "positive") {
-      query = query.gt("sentiment_score", 0.1);
+      query = query.gt("sentiment_score", THRESH);
     } else if (sentiment === "negative") {
-      query = query.lt("sentiment_score", -0.1);
+      query = query.lt("sentiment_score", -THRESH);
     } else if (sentiment === "neutral") {
-      query = query.gte("sentiment_score", -0.1).lte("sentiment_score", 0.1);
+      query = query.gte("sentiment_score", -THRESH).lte("sentiment_score", THRESH);
     }
 
     // Filter by period range (shared with the charts' period buttons); an

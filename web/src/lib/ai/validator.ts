@@ -126,9 +126,10 @@ const ALLOWED_GENERIC_NUMBERS = new Set([
 /**
  * Extracts all uppercase words of length 3-6 or mapped Arabic stock names that represent stock tickers.
  */
-export function extractSymbols(text: string): string[] {
+export function extractSymbols(text: string, knownSymbols: string[] = []): string[] {
     const matches = text.match(/\b[A-Z]{3,6}\b/g) || [];
-    const valid = Array.from(new Set(matches)).filter(sym => !TECHNICAL_EXCLUSIONS.has(sym));
+    // Supplied facts take precedence over the generic English/technical-word filter.
+    const valid = Array.from(new Set(matches)).filter(sym => knownSymbols.includes(sym) || !TECHNICAL_EXCLUSIONS.has(sym));
     if (valid.length > 0) return valid;
 
     try {
@@ -167,6 +168,30 @@ export function extractNumbers(text: string): number[] {
  */
 export function splitSentences(text: string): string[] {
     return text.split(/(?<!\d)\.(?!\d)|[\n؟?!؛،,]|(?:^|\s)و(?:\s|$)/).map(s => s.trim()).filter(Boolean);
+}
+
+/** Preserve explicit stock-column ownership before splitting table cells into clauses. */
+function contextualSentences(text: string, knownSymbols: string[]): { sentence: string; symbol?: string | null }[] {
+    const result: { sentence: string; symbol?: string | null }[] = [];
+    let tableSymbols: (string | null)[] | null = null;
+    for (const line of text.split("\n")) {
+        if (!line.trim().startsWith("|")) {
+            tableSymbols = null;
+            result.push(...splitSentences(line).map(sentence => ({ sentence })));
+            continue;
+        }
+        const cells = line.trim().replace(/^\||\|$/g, "").split("|").map(cell => cell.trim());
+        if (cells.every(cell => /^:?-+:?$/.test(cell))) continue;
+        const headerSymbols = cells.map(cell => knownSymbols.includes(cell.replace(/\*/g, "")) ? cell.replace(/\*/g, "") : null);
+        if (headerSymbols.some(Boolean) && cells.every((cell, i) => i === 0 || headerSymbols[i])) {
+            tableSymbols = headerSymbols;
+            continue;
+        }
+        cells.forEach((cell, i) => {
+            result.push(...splitSentences(cell).map(sentence => ({ sentence, symbol: tableSymbols?.[i] ?? null })));
+        });
+    }
+    return result;
 }
 
 /**
@@ -414,20 +439,37 @@ export function isVerifiableCrossSymbolMetric(val: number, factsBySymbol: Record
  * Extracts typed semantic claims from a sentence for a target symbol.
  */
 export function extractSentenceClaims(sentence: string, activeSymbol: string, facts: Record<string, any>): SemanticClaim[] {
+    sentence = sentence.replace(/[٠-٩]/g, d => String("٠١٢٣٤٥٦٧٨٩".indexOf(d)))
+        .replace(/[۰-۹]/g, d => String("۰۱۲۳۴۵۶۷۸۹".indexOf(d))).replace(/٫/g, ".");
     const claims: SemanticClaim[] = [];
     const numbers = extractNumbers(sentence);
     if (numbers.length === 0) return claims;
 
     const percentMatches = new Set((sentence.match(/(?:[%٪]\s*[-+]?\d+(?:[.٫]\d+)?|[-+]?\d+(?:[.٫]\d+)?\s*[%٪])/g) || [])
-        .map(m => Number(m.replace(/[\s%٪+]/g, "").replace("٫", "."))));
+        .map(m => Math.abs(Number(m.replace(/[\s%٪+]/g, "").replace("٫", ".")))));
+
+    // Only explicit daily changes: a distance from support/resistance is a different
+    // metric, and an unspecified historical move cannot use today's change_pct.
+    const dailyChangePattern = /(?:التغير\s*اليومي|نسبة\s*(?:التغير|تغير)|(?:ارتفع|صعد|انخفض|هبط|تراجع)\s*اليوم)\s*(?:بنسبة|بمقدار|حوالي|نحو|[:：=])*\s*([+-]?\d+(?:\.\d+)?)\s*(?:[%٪]|بالمائة)/gi;
+    let dailyChange;
+    while ((dailyChange = dailyChangePattern.exec(sentence)) !== null) {
+        const value = Number(dailyChange[1]);
+        const falling = /انخفض|هبط|تراجع/.test(dailyChange[0]);
+        claims.push({ type: "change_pct", value: falling ? -Math.abs(value) : value, symbol: activeSymbol, rawText: dailyChange[0], sentence });
+    }
 
     for (const num of numbers) {
         const isPercent = percentMatches.has(num);
+        if (claims.some(c => c.type === "change_pct" && Math.abs(c.value) === num)) continue;
         const escapedNum = String(num).replace(".", "\\.");
 
         // A. RSI Claims: "RSI عند 54.31", "مؤشر القوة النسبية 54.31"
+        const numberMatch = new RegExp(`\\b${escapedNum}\\b`).exec(sentence);
+        const numberPrefix = numberMatch ? sentence.slice(Math.max(0, numberMatch.index - 24), numberMatch.index) : "";
+        const isStandardRsiThreshold = [30, 40, 50, 60, 70, 80].includes(num)
+            && /(?:فوق|تحت|مستوى|حد|عتبة|منطقة)\s*$/i.test(numberPrefix);
         const isRsiSpecific = new RegExp(`(?:rsi|قوة نسبية|قوه نسبيه)[^0-9\\n]{0,25}?\\b${escapedNum}\\b`, "i").test(sentence);
-        if (isRsiSpecific && num <= 100 && !isPercent) {
+        if (isRsiSpecific && !isStandardRsiThreshold && num <= 100 && !isPercent) {
             claims.push({ type: "rsi", value: num, symbol: activeSymbol, rawText: String(num), sentence });
             continue;
         }
@@ -504,8 +546,21 @@ export function validateDeterministicRules(
 ): string[] {
     const errors: string[] = [];
     const userNumbers = userMessage ? extractNumbers(userMessage) : [];
-    const sentences = splitSentences(replyText);
     const factsBySymbol = buildFactsBySymbol(toolResults);
+    const sentences = contextualSentences(replyText, Object.keys(factsBySymbol));
+
+    // The fair-value scan is deliberately a technical 60-session midpoint
+    // screen, not a fundamental valuation model. Reject wording that presents
+    // the midpoint itself as a company's intrinsic/fair value; otherwise the
+    // responder can turn a relative price-position metric into financial advice.
+    const hasTechnicalMidpointScan = toolResults.some(r =>
+        r.tool === "get_fair_value_scan"
+        && (String(r.data?.metric || "").includes("60_session_midpoint") || Array.isArray(r.data?.stocks))
+    );
+    const mislabelsMidpointAsFairValue = /(?:الأسهم\s+)?(?:الأقل|الأعلى|أبعد|الأبعد|أقرب|الأقرب|فوق|تحت|خصم(?:اً|ا)?\s+من).{0,24}(?:القيم[ةه]\s+العادل[ةه]|قيمت(?:ه|ها)\s+العادل[ةه])/i.test(replyText);
+    if (hasTechnicalMidpointScan && mislabelsMidpointAsFairValue) {
+        errors.push("وصف منتصف نطاق 60 جلسة بأنه قيمة عادلة مالية غير صحيح؛ استخدم «القيمة الوسطية الفنية للنطاق» واذكر أنه مقياس فني فقط.");
+    }
 
     // When the intent is a market-wide scan list (accumulation_distribution), symbols that appear
     // in the scan results are listed BECAUSE they belong to that direction — checking them again
@@ -520,13 +575,22 @@ export function validateDeterministicRules(
         });
     }
 
-    let activeSymbol: string | null = null;
+    const knownSymbols = Object.keys(factsBySymbol);
+    let activeSymbol: string | null = knownSymbols.length === 1 ? knownSymbols[0] : null;
 
-    for (const sentence of sentences) {
-        const symbols = extractSymbols(sentence);
+    for (const { sentence, symbol } of sentences) {
+        if (symbol !== undefined) activeSymbol = symbol;
+        const symbols = extractSymbols(sentence, knownSymbols);
         if (symbols.length > 0) {
             activeSymbol = symbols[0];
         }
+
+        // A prose comparison may mention several stocks and several metrics in
+        // one sentence. Assigning every number to the first ticker creates false
+        // conflicts (for example TANM's resistance checked against MPCO). The
+        // global symbol/number checks still verify that every value came from
+        // tool evidence, so skip only the ambiguous per-symbol semantic pass.
+        if (symbols.length > 1) continue;
         
         if (!activeSymbol || !factsBySymbol[activeSymbol]) continue;
         const facts = factsBySymbol[activeSymbol];
@@ -555,7 +619,7 @@ export function validateDeterministicRules(
         // answers are rejected and the pipeline falls back to the safe table.
         const mentionsAccumulationZero = /(?:تجميع|تجميعية)[^.\n]{0,30}?(?:صفر|\b0(?!\.\d))/i.test(sentence);
         const mentionsDistributionZero = /(?:تصريف|تصريفية|توزيع)[^.\n]{0,30}?(?:صفر|\b0(?!\.\d))/i.test(sentence);
-        const claimsDistribution = /(?:مرحل[ةه]\s*تصريف(?:\s*وايكوف)?|إشار[ةه]\s*تصريف\s*مؤكد[ةه]|درج[ةه]\s*(?:ال)?تصريف|تصريف\s*وايكوف|سيولة\s*(?:توزيع|توزيعية|تصريف|تصريفية|بيعية))/i.test(sentence) && !/(?:توزيعات\s*أرباح|توزيع\s*نقدي|أرباح)/i.test(sentence);
+        const claimsDistribution = /(?:مرحل[ةه]\s*تصريف(?:\s*وايكوف)?|إشار[ةه]\s*تصريف\s*مؤكد[ةه]|درج[ةه]\s*(?:ال)?تصريف|تصريف\s*وايكوف|ضغط\s*(?:بيعي|تصريفي)|سيولة\s*(?:توزيع|توزيعية|تصريف|تصريفية|بيعية))/i.test(sentence) && !/(?:توزيعات\s*أرباح|توزيع\s*نقدي|أرباح)/i.test(sentence);
         const hasDistEvidence = (facts.dist_score != null && Number(facts.dist_score) > 0) || toolResults.some(r => (r.tool === "get_distribution_stocks" || r.tool === "get_accumulation_stocks") && Array.isArray(r.data?.stocks) && r.data.stocks.some((st: any) => String(st.symbol).toUpperCase() === activeSymbol?.toUpperCase() && (Number(st.dist_score) > 0 || String(st.wyckoff_phase).toLowerCase().includes("dist") || String(st.wyckoff_phase).toLowerCase().includes("mark"))));
         if (!skipWyckoffChecks && !isNegatedClaim && !mentionsDistributionZero && claimsDistribution && !hasDistEvidence) {
             errors.push(`ادعاء تصريف أو سيولة توزيعية غير مثبت بدليل لسهم ${activeSymbol}: لا تتوفر بيانات مسح Wyckoff/تصريف صريحة — قل إن البيانات غير متاحة بدلاً من الاستنتاج من مؤشرات أخرى.`);
@@ -565,7 +629,7 @@ export function validateDeterministicRules(
         // EVIDENCE VERIFIER CHECK 3: Unproven Wyckoff Accumulation assertion
         // Exclude: negated/absent claims, Wyckoff-educational context, NONE labels, zero-value reports
         // Skip for scan list stocks — they're listed from DB, not hallucinated.
-        const claimsAccumulation = /(?:مرحل[ةه]\s*(?:ال)?تجميع(?:\s*وايكوف)?|درج[ةه]\s*(?:ال)?تجميع|إشار[ةه]\s*تجميع\s*مؤكد[ةه]|تجميع\s*وايكوف|سيولة\s*(?:تجميع|تجميعية|شرائية))/i.test(sentence)
+        const claimsAccumulation = /(?:مرحل[ةه]\s*(?:ال)?تجميع(?:\s*وايكوف)?|درج[ةه]\s*(?:ال)?تجميع|إشار[ةه]\s*تجميع\s*مؤكد[ةه]|تجميع\s*وايكوف|(?:نشاط|ضغط)\s*شرائي|سيولة\s*(?:تجميع|تجميعية|شرائية))/i.test(sentence)
             && !/(?:NONE|غير\s*(?:متاح|متاحة|مسجل|مسجلة)|لا\s*(?:تتوفر|توجد|يوجد)|ليس\s+هناك|لم\s+تتوفر|بيانات.*التجميع.*غير|خارج.*مسح)/i.test(sentence);
         const hasAccEvidence = (facts.acc_score != null && Number(facts.acc_score) > 0) || toolResults.some(r => (r.tool === "get_accumulation_stocks" || r.tool === "get_distribution_stocks") && Array.isArray(r.data?.stocks) && r.data.stocks.some((st: any) => String(st.symbol).toUpperCase() === activeSymbol?.toUpperCase() && (Number(st.acc_score) > 0 || String(st.wyckoff_phase).toLowerCase().includes("acc"))));
         if (!skipWyckoffChecks && !isNegatedClaim && !mentionsAccumulationZero && claimsAccumulation && !hasAccEvidence) {
@@ -574,7 +638,7 @@ export function validateDeterministicRules(
 
         // EVIDENCE VERIFIER CHECK 4: Phase conflict between claim and actual Wyckoff data
         // Skip for scan list stocks — the DB already confirmed their direction.
-        const hasPhaseConflict = !skipWyckoffChecks && toolResults.some(r => {
+        const hasPhaseConflict = !skipWyckoffChecks && !isNegatedClaim && toolResults.some(r => {
             if (r.source === "performance_evaluator" || r.data_type === "historical") return false;
             if (!Array.isArray(r.data?.stocks)) return false;
             return r.data.stocks.some((st: any) => {
@@ -684,7 +748,7 @@ export function validateDeterministicRules(
                 const textBeforeMatch = sentence.slice(0, entryMatch.index);
                 const hasNegationBefore = /(?:لا|ليس|غير|لم|لن|مفيش|ما\s+فيش|ليس)\s*|\s+(?:لا|ليس|غير|لم|لن|مفيش)/i.test(textBeforeMatch);
                 if (!hasNegationBefore) {
-                    const hasCriteria = /(?:سعر\s*الدخول?|هدف|وقف\s*خسارة|مستوى\s*دعم|مستوى\s*مقاومة|RSI|MACD|حجم|زخم|نطاق|سعر\s*افتتاحي|مؤشر)/i;
+                    const hasCriteria = /(?:سعر\s*(?:ال)?دخول|هدف|وقف\s*خسارة|مستوى\s*دعم|مستوى\s*مقاومة|RSI|MACD|حجم|زخم|نطاق|سعر\s*افتتاحي|مؤشر)/i;
                     const hasEntryCriteria = hasCriteria.test(sentence) || /(?:إذا|عندما|شرط|متطلب|بشرط|بمجرد|إذا اقترب)/i.test(sentence);
                     if (!hasEntryCriteria) {
                         errors.push(`إشارة دخول غير مدعومة بمعايير لسهم ${activeSymbol}: "${sentence.slice(0, 80)}..." — يجب توضيح شروط تنفيذية محددة (سعر الدخول، هدف، وقف خسارة، أو مؤشرات فنية).`);
@@ -701,7 +765,8 @@ export function validateDeterministicRules(
         if (kingScore != null && egxScore != null) {
             const diffPoints = Math.abs(Number(kingScore) - Number(egxScore)) * 100;
             const sameDirection = (kingScore > 0.5 && egxScore > 0.5) || (kingScore < 0.5 && egxScore < 0.5);
-            const claimsStrongAgreement = /اتفاق\s*قوي|strong\s*agreement/i.test(sentence);
+            const hasNegatedStrongAgreement = /(?:لا\s*(?:يوجد|يوجدش)?|ليس|مفيش|ما\s*فيش|بدون|دون|غياب)\s*.{0,18}اتفاق\s*قوي/i.test(sentence);
+            const claimsStrongAgreement = /اتفاق\s*قوي|strong\s*agreement/i.test(sentence) && !hasNegatedStrongAgreement;
             const claimsWeakAgreement = /(?:اتفاق\s*ضعيف|اتفاق\s*منخفض\s*جدا|اختلاف\s*كبير|اختلاف\s*متوسط|اختلاف\s*ضيق)/i.test(sentence);
             const claimsMediumAgreement = /اتفاق\s*متوسط/i.test(sentence);
             if (claimsStrongAgreement && diffPoints > 3) {
@@ -724,19 +789,15 @@ export function validateDeterministicRules(
         for (const claim of claims) {
             if (userNumbers.includes(claim.value)) continue;
 
-            // Universal Multi-Symbol Fact Exemption:
-            // If the number matches the price, support, resistance, RSI, or level of ANY queried symbol in factsBySymbol,
-            // it is a verified true data point and should never be penalized as a mismatch for another symbol.
-            const isExactAnyCoreFact = Object.values(factsBySymbol).some((f: any) => {
-                return (f.price != null && (Math.abs(claim.value - f.price) <= 0.05 || (f.price > 0 && Math.abs(claim.value - f.price) / f.price <= 0.02))) ||
-                    (f.support != null && (Math.abs(claim.value - f.support) <= 0.05 || (f.support > 0 && Math.abs(claim.value - f.support) / f.support <= 0.02))) ||
-                    (f.resistance != null && (Math.abs(claim.value - f.resistance) <= 0.05 || (f.resistance > 0 && Math.abs(claim.value - f.resistance) / f.resistance <= 0.02))) ||
-                    (f.rsi != null && (Math.abs(claim.value - f.rsi) <= 0.51 || (f.rsi > 0 && Math.abs(claim.value - f.rsi) / f.rsi <= 0.01)));
-            });
-
-            if (isExactAnyCoreFact) continue;
-
+            // Typed claims must match this symbol AND this metric, not an unrelated
+            // number elsewhere in the source or the generic calendar/indicator list.
             switch (claim.type) {
+                case "change_pct": {
+                    if (!Number.isFinite(facts.change_pct) || Math.abs(claim.value - facts.change_pct) > 0.15 + 1e-9) {
+                        errors.push(`تضارب في نسبة التغير اليومي لسهم ${activeSymbol}: القيمة المسجلة هي ${facts.change_pct ?? "غير متاحة"} ولكن الرد يحتوي على ${claim.value}%.`);
+                    }
+                    break;
+                }
                 case "current_price": {
                     if (facts.price != null) {
                         // Accept a match against ANY reported price (live intraday or latest EOD
@@ -749,7 +810,7 @@ export function validateDeterministicRules(
                             Math.abs(claim.value - price) <= 0.05 + 1e-9 ||
                             (price > 0 && Math.abs(claim.value - price) / price <= 0.02)
                         );
-                        if (!isMatch && !ALLOWED_GENERIC_NUMBERS.has(claim.value)) {
+                        if (!isMatch) {
                             errors.push(`تضارب في سعر سهم ${activeSymbol}: السعر الفعلي هو ${facts.price} ولكن الرد يحتوي على ${claim.value}.`);
                         }
                     }
@@ -759,7 +820,7 @@ export function validateDeterministicRules(
                     if (facts.rsi != null) {
                         const rsi = facts.rsi;
                         const isMatch = Math.abs(claim.value - rsi) <= 0.51 || (rsi > 0 && Math.abs(claim.value - rsi) / rsi <= 0.01);
-                        if (!isMatch && !ALLOWED_GENERIC_NUMBERS.has(claim.value)) {
+                        if (!isMatch) {
                             errors.push(`تضارب في قيمة RSI لسهم ${activeSymbol}: القيمة الفعلية هي ${rsi} ولكن الرد يحتوي على ${claim.value}.`);
                         }
                     }
@@ -804,43 +865,12 @@ export function validateDeterministicRules(
 }
 
 /**
- * Performs safe, context-bound inline repairs ONLY when an unambiguous factual field
- * (e.g. current_price) has a minor decimal rounding discrepancy.
+ * Compatibility hook: never rewrite numeric claims from tool facts. Proximity cannot
+ * establish the symbol, metric or date a number describes. Keep even near-matches
+ * unchanged and let validation accept legitimate rounding or report a mismatch.
  */
-export function autoFixNumbers(replyText: string, toolResults: any[]): string {
-    const factsBySymbol = buildFactsBySymbol(toolResults);
-    let fixed = replyText;
-
-    for (const [, facts] of Object.entries(factsBySymbol)) {
-        if (facts.price != null && Number.isFinite(facts.price)) {
-            const price = Number(facts.price);
-            const strictPricePattern = new RegExp(`((?:السعر الحالي|سعر الإغلاق|سعر الاغلاق|أغلق عند|اغلق عند|يتداول عند|تداول عند)(?:\\s+هو|\\s+يسجل|\\s+يبلغ)?\\s*[:：]?\\s*)(\\d+(?:\\.\\d+)?)(?=\\s*جنيه|\\s*EGP|\\s*\\n|\\s*،|\\s*\\.|$)`, "gi");
-            fixed = fixed.replace(strictPricePattern, (match, prefix, valStr) => {
-                const val = parseFloat(valStr);
-                if (Math.abs(val - price) > 0 && Math.abs(val - price) <= price * 0.03) {
-                    return `${prefix}${price}`;
-                }
-                return match;
-            });
-            
-            // P1: Fix derived percentage from support
-            if (facts.support != null && Number.isFinite(facts.support)) {
-                const support = Number(facts.support);
-                if (support > 0 && price > support) {
-                    const derivedPct = ((price - support) / support * 100);
-                    const strictPctPattern = new RegExp(`((?:ارتفع|صعد|يبتعد|بنسبة|نحو)\\s+(?:حوالي|نحو|بمقدار)?\\s*)([0-9]+(?:\\.[0-9]+)?)(?=\\s*(?:%|بالمائة))`, "gi");
-                    fixed = fixed.replace(strictPctPattern, (match, prefix, valStr) => {
-                        const val = parseFloat(valStr);
-                        if (Math.abs(val - derivedPct) > 0 && Math.abs(val - derivedPct) <= 2.5) {
-                            return `${prefix}${derivedPct.toFixed(2)}`;
-                        }
-                        return match;
-                    });
-                }
-            }
-        }
-    }
-    return fixed;
+export function autoFixNumbers(replyText: string, _toolResults: any[]): string {
+    return replyText;
 }
 
 /**

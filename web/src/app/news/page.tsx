@@ -58,7 +58,7 @@ export default function NewsPage() {
         setLoading(true);
         try {
             const offset = (page - 1) * limit;
-            let url = `/api/scan/news?limit=${limit}&offset=${offset}`;
+            let url = `/api/scan/news?limit=${limit}&offset=${offset}&sort=${sortBy}`;
             
             if (debouncedSearch.trim()) {
                 url += `&search=${encodeURIComponent(debouncedSearch)}`;
@@ -81,19 +81,9 @@ export default function NewsPage() {
             const res = await fetch(url);
             const result = await res.json();
             
-            let sortedData = result.data || [];
-            
-            // Client side sorting for sentiment scores and dates if needed
-            if (sortBy === "oldest") {
-                sortedData = [...sortedData].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-            } else if (sortBy === "highest_sent") {
-                sortedData = [...sortedData].sort((a, b) => b.sentiment_score - a.sentiment_score);
-            } else if (sortBy === "lowest_sent") {
-                sortedData = [...sortedData].sort((a, b) => a.sentiment_score - b.sentiment_score);
-            }
-            
-            setNews(sortedData);
-            setTotalCount(result.count || 0);
+            // Server handles sorting; use data as-is
+            setNews(result.data || []);
+            setTotalCount(result.total || 0);
         } catch (err) {
             console.error("Error fetching news:", err);
         } finally {

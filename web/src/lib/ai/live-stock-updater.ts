@@ -6,10 +6,12 @@
  * - Fetches real-time price & pre-calculated indicators via TradingView scanner in <700ms
  * - Bounded 3-second timeout with 1 attempt only
  * - 5-minute in-memory cache to prevent redundant fetches
- * - Updates Supabase `stock_technical_indicators` (upsert on symbol to maintain 1-row-per-symbol rule)
+ * - Updates daily quote/indicator rows keyed by symbol, exchange and date
  */
 
-import { todayInCairo } from "./cairo-date";
+import { todayInCairo, isEgxSessionOpen as isCairoEgxSessionOpen } from "./cairo-date";
+import { executionFetch } from "./execution";
+import { isLiveUnsupportedSymbol, liveTickerCandidates, liveUnsupportedNotice } from "./live-coverage";
 
 interface LiveIndicatorsData {
     symbol: string;
@@ -39,6 +41,9 @@ interface LiveIndicatorsData {
 interface CacheEntry {
     data: LiveIndicatorsData;
     timestamp: number;
+    persisted?: boolean;
+    daily_persisted?: boolean;
+    persistence_error?: string;
 }
 
 // 5-minute in-memory cache per symbol
@@ -54,38 +59,7 @@ const FAIL_COOLDOWN_MS = 60 * 1000; // 1 minute cooldown on failure
  * Trading hours: Sunday (0) through Thursday (4), 10:00 AM to 2:30 PM Cairo Time (Africa/Cairo).
  */
 export function isEgxSessionOpen(overrideDate?: Date): boolean {
-    const now = overrideDate || new Date();
-    
-    // Convert to Cairo time
-    const cairoFormatter = new Intl.DateTimeFormat("en-US", {
-        timeZone: "Africa/Cairo",
-        weekday: "short",
-        hour: "numeric",
-        minute: "numeric",
-        hour12: false
-    });
-
-    const parts = cairoFormatter.formatToParts(now);
-    let weekday = "";
-    let hour = 0;
-    let minute = 0;
-
-    for (const part of parts) {
-        if (part.type === "weekday") weekday = part.value.toLowerCase();
-        if (part.type === "hour") hour = parseInt(part.value, 10);
-        if (part.type === "minute") minute = parseInt(part.value, 10);
-    }
-
-    // EGX is closed on Friday (Fri) and Saturday (Sat)
-    const isTradingDay = ["sun", "mon", "tue", "wed", "thu"].includes(weekday);
-    if (!isTradingDay) return false;
-
-    // Trading session: 10:00 to 14:30
-    const timeInMinutes = hour * 60 + minute;
-    const sessionStart = 10 * 60;       // 10:00 AM
-    const sessionEnd = 14 * 60 + 30;    // 02:30 PM
-
-    return timeInMinutes >= sessionStart && timeInMinutes <= sessionEnd;
+    return isCairoEgxSessionOpen(overrideDate);
 }
 
 /**
@@ -113,10 +87,21 @@ export async function fetchLiveStockIndicators(
     data?: LiveIndicatorsData;
     error?: string;
     from_cache?: boolean;
+    unsupported?: boolean;
+    persisted?: boolean;
+    daily_persisted?: boolean;
+    persistence_error?: string;
 }> {
     const cleanSym = symbol.trim().toUpperCase().replace(/^(EGX:|CA:)/, "");
     if (!cleanSym) {
         return { success: false, error: "رمز السهم غير صحيح" };
+    }
+
+    // Fund certificates are listed but have no live quote feed. Mark them as
+    // unsupported coverage instead of a transient failure so the answer says
+    // "no live data for this instrument" rather than "temporarily unavailable".
+    if (isLiveUnsupportedSymbol(cleanSym)) {
+        return { success: false, unsupported: true, error: liveUnsupportedNotice(cleanSym) };
     }
     if (!isEgxSessionOpen()) {
         return { success: false, error: "جلسة EGX مغلقة حالياً؛ سيتم استخدام آخر إغلاق مسجل" };
@@ -127,7 +112,9 @@ export async function fetchLiveStockIndicators(
     // 1. Check in-memory cache (5-minute TTL)
     const cached = LIVE_STOCK_CACHE.get(cleanSym);
     if (cached && (now - cached.timestamp < CACHE_TTL_MS)) {
-        return { success: true, data: cached.data, from_cache: true };
+        return { success: true, data: cached.data, from_cache: true,
+            persisted: cached.persisted, daily_persisted: cached.daily_persisted,
+            persistence_error: cached.persistence_error };
     }
 
     // 2. Check failure cooldown (don't retry failed ticker within 1 minute)
@@ -136,45 +123,64 @@ export async function fetchLiveStockIndicators(
         return { success: false, error: "محاولة التحديث معلقة مؤقتاً لتجنب تكرار الطلبات" };
     }
 
-    // 3. Perform TradingView scanner fetch with 3.0s timeout
-    const tvTicker = `EGX:${cleanSym}`;
-    const payload = {
-        symbols: { tickers: [tvTicker], query: { types: [] } },
-        columns: [
-            "name", "close", "change", "change_abs", "high", "low", "open", "volume",
-            "RSI", "MACD.macd", "MACD.signal", "EMA50", "EMA200", "SMA50", "SMA200",
-            "BB.upper", "BB.lower", "Stoch.K", "Stoch.D", "Value.Traded"
-        ]
-    };
+    // 3. Perform TradingView scanner fetch with 3.0s timeout.
+    // Candidates cover ticker aliases for symbols the scanner matches
+    // differently from their EGX symbol.
+    const candidates = liveTickerCandidates(cleanSym);
+    let row: any = null;
 
     try {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 3000);
 
-        const res = await fetch("https://scanner.tradingview.com/egypt/scan", {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-            },
-            body: JSON.stringify(payload),
-            signal: controller.signal
-        });
-        clearTimeout(timeoutId);
+        try {
+            for (const candidate of candidates) {
+                const payload = {
+                    symbols: { tickers: [`EGX:${candidate}`], query: { types: [] } },
+                    columns: [
+                        "name", "close", "change", "change_abs", "high", "low", "open", "volume",
+                        "RSI", "MACD.macd", "MACD.signal", "EMA50", "EMA200", "SMA50", "SMA200",
+                        "BB.upper", "BB.lower", "Stoch.K", "Stoch.D", "Value.Traded"
+                    ]
+                };
 
-        if (!res.ok) {
-            FAILED_REFRESH_ATTEMPTS.set(cleanSym, now);
-            return { success: false, error: `TradingView HTTP ${res.status}` };
+                const res = await executionFetch("https://scanner.tradingview.com/egypt/scan", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                    },
+                    body: JSON.stringify(payload),
+                    signal: controller.signal
+                });
+
+                if (!res.ok) {
+                    FAILED_REFRESH_ATTEMPTS.set(cleanSym, now);
+                    return { success: false, error: `TradingView HTTP ${res.status}` };
+                }
+
+                const json = await res.json();
+                const candidateRow = json.data?.[0];
+                if (candidateRow && Array.isArray(candidateRow.d)) {
+                    row = candidateRow;
+                    break;
+                }
+            }
+        } finally {
+            clearTimeout(timeoutId);
         }
 
-        const json = await res.json();
-        const row = json.data?.[0];
-        if (!row || !Array.isArray(row.d)) {
+        if (!row) {
             FAILED_REFRESH_ATTEMPTS.set(cleanSym, now);
+            console.warn(`[LIVE_UPDATER] no live feed for ${cleanSym}; candidates=${candidates.join(",")}`);
             return { success: false, error: "لا توجد بيانات متاحة لهذا الرمز في الجلسة المباشرة" };
         }
 
         const d = row.d;
+        if (d[1] == null || !Number.isFinite(Number(d[1])) || Number(d[1]) <= 0) {
+            FAILED_REFRESH_ATTEMPTS.set(cleanSym, now);
+            return { success: false, error: "مصدر الأسعار لم يرجع سعراً صالحاً لهذا الرمز" };
+        }
         const cairoTimeStr = getCairoTimeString();
         const isoNow = new Date().toISOString();
         // The quote belongs to the Cairo trading session, not the UTC calendar
@@ -207,31 +213,22 @@ export async function fetchLiveStockIndicators(
             cairo_time_str: cairoTimeStr
         };
 
-        // Cache in memory
-        LIVE_STOCK_CACHE.set(cleanSym, { data: liveData, timestamp: now });
         FAILED_REFRESH_ATTEMPTS.delete(cleanSym);
 
-        // 4. Update Supabase asynchronously/safely if client provided
+        // 4. Update Supabase asynchronously/safely if client provided.
+        // The deployed tables are not identical to the old local schema:
+        // stock_technical_indicators is keyed by symbol/exchange/date, while
+        // stock_prices is keyed by symbol/exchange/date and has no source/id
+        // columns. Track both writes explicitly so callers can observe a
+        // partial persistence failure without losing the usable live quote.
+        let technicalPersisted = false;
+        let dailyPersisted = false;
+        let persistenceError: string | undefined;
         if (supabase && liveData.close > 0) {
             try {
-                // Preserve existing AI ML scores (king/egx) — the upsert replaces the
-                // single snapshot row per symbol, and dropping these columns would wipe
-                // the ML scores until the next daily job re-computes them.
-                let existingScores: { king_ai_score: number | null; egx_ai_score: number | null } | null = null;
-                try {
-                    const { data: existingRow } = await supabase
-                        .from("stock_technical_indicators")
-                        .select("king_ai_score, egx_ai_score")
-                        .eq("symbol", cleanSym)
-                        .eq("exchange", "EGX")
-                        .limit(1)
-                        .maybeSingle();
-                    if (existingRow) existingScores = existingRow;
-                } catch (readErr) {
-                    console.warn(`[LIVE_UPDATER] Score preservation read failed for ${cleanSym}:`, readErr);
-                }
-
-                await supabase.from("stock_technical_indicators").upsert({
+                // Omit model scores: an intraday quote must not overwrite the
+                // daily job's scores or copy a score from a different date.
+                const { error: technicalError } = await supabase.from("stock_technical_indicators").upsert({
                     symbol: cleanSym,
                     exchange: "EGX",
                     date: dateOnly,
@@ -252,24 +249,16 @@ export async function fetchLiveStockIndicators(
                     bb_lower: liveData.bb_lower,
                     stoch_k: liveData.stoch_k,
                     stoch_d: liveData.stoch_d,
-                    king_ai_score: existingScores?.king_ai_score ?? null,
-                    egx_ai_score: existingScores?.egx_ai_score ?? null,
-                    updated_at: isoNow
+                    calculated_at: isoNow,
                 }, { onConflict: "symbol,exchange,date" });
+                technicalPersisted = !technicalError;
+                if (technicalError) persistenceError = technicalError.message || String(technicalError);
 
                 // Keep the daily quote table in sync with the intraday quote too.
                 // Portfolio valuation and several client endpoints read
                 // `stock_prices`, while the old updater only refreshed technical
                 // indicators, making the UI appear stale during an open session.
-                const { data: stockRow } = await supabase
-                    .from("stocks")
-                    .select("id")
-                    .eq("symbol", cleanSym)
-                    .limit(1)
-                    .maybeSingle();
-                if (stockRow?.id) {
-                    const quote = {
-                        stock_id: stockRow.id,
+                const quote = {
                         symbol: cleanSym,
                         exchange: "EGX",
                         date: dateOnly,
@@ -278,28 +267,36 @@ export async function fetchLiveStockIndicators(
                         low: liveData.low,
                         close: liveData.close,
                         volume: liveData.volume,
-                        source: "tradingview_live",
-                    };
-                    const { data: existingQuote } = await supabase
-                        .from("stock_prices")
-                        .select("id")
-                        .eq("symbol", cleanSym)
-                        .eq("exchange", "EGX")
-                        .eq("date", dateOnly)
-                        .limit(1)
-                        .maybeSingle();
-                    if (existingQuote?.id) {
-                        await supabase.from("stock_prices").update(quote).eq("id", existingQuote.id);
-                    } else {
-                        await supabase.from("stock_prices").insert(quote);
-                    }
-                }
+                        updated_at: isoNow,
+                };
+                const { error: quoteError } = await supabase.from("stock_prices").upsert(quote, { onConflict: "symbol,exchange,date" });
+                dailyPersisted = !quoteError;
+                if (quoteError) persistenceError = [persistenceError, quoteError.message || String(quoteError)].filter(Boolean).join("; ");
             } catch (dbErr) {
+                const dbError = dbErr as any;
+                persistenceError = dbError?.message || String(dbError);
                 console.warn(`[LIVE_UPDATER] Supabase upsert failed for ${cleanSym}:`, dbErr);
             }
         }
 
-        return { success: true, data: liveData, from_cache: false };
+        const persisted = supabase ? technicalPersisted && dailyPersisted : undefined;
+        // A failed write must remain observable on a cache hit. Keep its cache
+        // window short so a later request retries instead of hiding the failure.
+        LIVE_STOCK_CACHE.set(cleanSym, {
+            data: liveData,
+            timestamp: persisted === false ? now - CACHE_TTL_MS + FAIL_COOLDOWN_MS : now,
+            persisted,
+            daily_persisted: supabase ? dailyPersisted : undefined,
+            persistence_error: persistenceError,
+        });
+        return {
+            success: true,
+            data: liveData,
+            from_cache: false,
+            persisted,
+            daily_persisted: supabase ? dailyPersisted : undefined,
+            persistence_error: persistenceError,
+        };
     } catch (err: any) {
         FAILED_REFRESH_ATTEMPTS.set(cleanSym, now);
         const errMsg = err?.name === "AbortError" ? "انتهت مهلة جلب السعر المباشر (3 ثوانٍ)" : (err?.message || "فشل الاتصال");

@@ -115,6 +115,9 @@ export async function updateSessionSummary(
         open_references: update.open_references || current?.open_references || [],
         last_data_date: update.last_data_date !== undefined ? update.last_data_date : (current?.last_data_date || null),
         last_vision_context: update.last_vision_context !== undefined ? update.last_vision_context : (current?.last_vision_context || null),
+        last_reference_symbol: update.last_reference_symbol !== undefined ? update.last_reference_symbol : (current?.last_reference_symbol || null),
+        last_reference_source: update.last_reference_source !== undefined ? update.last_reference_source : (current?.last_reference_source || null),
+        last_reference_at: update.last_reference_at !== undefined ? update.last_reference_at : (current?.last_reference_at || null),
         pending_portfolio_import: update.pending_portfolio_import !== undefined
             ? update.pending_portfolio_import
             : (current?.pending_portfolio_import || null),
@@ -154,8 +157,8 @@ export async function updateSessionState(
     if (current.persisted === false) return current;
     const updated: SessionState = {
         current_symbol: update.current_symbol !== undefined ? update.current_symbol : current.current_symbol,
-        last_symbols: update.last_symbols 
-            ? Array.from(new Set([...update.last_symbols, ...(current.last_symbols || [])])).slice(0, 15) 
+        last_symbols: update.last_symbols !== undefined
+            ? Array.from(new Set(update.last_symbols)).slice(0, 15)
             : current.last_symbols,
         summary: update.summary !== undefined ? update.summary : current.summary,
         current_sector: update.current_sector !== undefined ? update.current_sector : current.current_sector,

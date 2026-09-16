@@ -5,10 +5,21 @@ import { getDeepSeekApiKey, getNvidiaApiKeys } from "./server-secrets";
 import { todayInCairo } from "./cairo-date";
 import { describeDatedFallback, getFairValueFilters, getInvestorGuidanceIntent, isBestBuyStockQuestion, isDailyPriceLimitQuestion, isEarningsDataRequest, isFairValueScanRequest, isTermsDefinitionRequest, isUsageLimitQuestion } from "./intent-policy";
 import { sanitizeReply } from "./sanitizer";
+import { executionFetch } from "./execution";
 import { isOtcStock, buildOtcNotice } from "./otc-stocks";
 import { buildComparisonMatrix } from "./comparison-matrix";
 
 const MAX_CONTEXT_CHARS = 30000;
+
+function isLiveStockResult(result: ToolResult | undefined): boolean {
+    return Boolean(result?.data_type === "live" && result?.data?.is_live_intraday);
+}
+
+function stockPriceLabel(result: ToolResult, value: unknown = result.data?.price): string {
+    if (isLiveStockResult(result)) return `السعر اللحظي ${value} جنيه`;
+    const date = result.data_time ? ` بتاريخ ${String(result.data_time).slice(0, 10)}` : "";
+    return `آخر إغلاق مسجل ${value} جنيه${date}`;
+}
 
 
 
@@ -45,7 +56,8 @@ export function buildEvidenceEnginePromptBlock(toolResults: ToolResult[]): strin
     const lines: string[] = ["=== STRICT EVIDENCE CONTEXT (FACTS, DERIVED & AVAILABLE EVIDENCE) ==="];
 
     for (const sym of symbolsToProcess) {
-        const stockData = stockResults.find(r => String(r.data?.symbol).toUpperCase() === sym)?.data;
+        const stockResult = stockResults.find(r => String(r.data?.symbol).toUpperCase() === sym);
+        const stockData = stockResult?.data;
         const lvlData = levelResults.find(l => String(l.data?.symbol || l.symbols?.[0] || "").toUpperCase() === sym)?.data;
         
         let scanStock: any = null;
@@ -64,7 +76,9 @@ export function buildEvidenceEnginePromptBlock(toolResults: ToolResult[]): strin
 
         lines.push(`\n📌 STOCK: ${sym}`);
         lines.push(`FACTS:`);
-        lines.push(`  - price: ${stockData?.price ?? stockData?.close ?? scanStock?.price ?? scanStock?.close ?? "NOT_PROVIDED"} ← [CURRENT PRICE — جنيه — use ONLY this as السعر الحالي]`);
+        lines.push(`  - company_name: ${stockData?.name ?? scanStock?.name ?? "NOT_PROVIDED"} ← [استخدم هذا الاسم فقط، أو اذكر الرمز وحده]`);
+        lines.push(`  - price: ${stockData?.price ?? stockData?.close ?? scanStock?.price ?? scanStock?.close ?? "NOT_PROVIDED"}`);
+        lines.push(`  - price_status: ${isLiveStockResult(stockResult) ? "LIVE_INTRADAY (يجوز وصفه بالسعر اللحظي)" : `LAST_RECORDED_CLOSE (ليس سعراً لحظياً؛ اذكر التاريخ ${stockResult?.data_time || "غير محدد"})`}`);
         lines.push(`  - change_pct: ${stockData?.change_pct ?? scanStock?.change_pct ?? "NOT_PROVIDED"}`);
         lines.push(`  - rsi_14: ${stockData?.rsi_14 ?? scanStock?.rsi_14 ?? "NOT_PROVIDED"} ← [RSI مقياس 0-100 فقط — لا تقل RSI إلا بهذا الرقم]`);
         lines.push(`  - vol_ratio: ${stockData?.vol_ratio ?? scanStock?.vol_ratio ?? "NOT_PROVIDED"}`);
@@ -516,6 +530,7 @@ export function buildV2FinalMessages(
     sections.push("       - يجب أن تكتب حرفياً باللغة العربية: 'بيانات [اسم المؤشر] غير متوفرة حالياً لهذا السهم في قاعدة البيانات'.");
     sections.push("    3. التزم بالتماسك المنطقي التام؛ يمنع التناقض في نفس الرد (مثل القول بأن السهم في مرحلة تجميع صاعدة ثم القول في نفس الفقرة بأنه في مرحلة تصريف). طابق كلامك مع إشارات التجميع والتصريف الفعلية الواردة في البيانات.");
     sections.push("    4. 📅 قاعدة توضيح تواريخ المؤشرات: إذا كانت هناك بيانات أو مؤشرات لنفس السهم من تواريخ مختلفة (مثل السعر اللحظي مقابل مسح Wyckoff من تاريخ سابق): يجب عليك كتابة تاريخ كل مؤشر بوضوح بجانبه (مثال: 'مؤشر RSI يبلغ قيمته الفلانية (في تاريخ كذا)، بينما كان قيمته الأخرى في تاريخ المسح الفلاني')؛ يمنع تماماً دمج أو سرد قيم مختلفة لنفس المؤشر دون توضيح التواريخ المرتبطة بكل قيمة بشكل واضح ودقيق.");
+    sections.push("    5. إذا ذكر المستخدم سعراً مختلفاً عن السعر المسجل، لا تقل إنه مخطئ ولا تستخدم صيغة 'مش X'. اذكر آخر سعر مسجل مع تاريخه ومصدره، ووضح صراحةً أن السعر اللحظي قد يختلف أو أنه غير متاح حالياً.");
     sections.push("  • عندما يسألك المستخدم عن التجميع والتصريف (Accumulation/Distribution) لسهم معين:");
     sections.push("    1. يجب أن تبحث عن أداة get_accumulation_stocks أو get_distribution_stocks في البيانات وتستخرج منها درجة التجميع (acc_score) ودرجة التصريف (dist_score) ومرحلة Wyckoff (wyckoff_phase) وأيام التجميع/التصريف.");
     sections.push("    2. اشرح النتيجة بوضوح مستنداً لتلك الأرقام والتواريخ. صيغة الإجابة الصحيحة: 'بناءً على مسح Wyckoff بتاريخ [X]: درجة التجميع (acc_score) = [قيمة acc_score]، درجة التصريف (dist_score) = [قيمة dist_score]، المرحلة: [wyckoff_phase]، أيام التجميع المتتالية: [عدد الأيام]'.");
@@ -612,7 +627,7 @@ export function buildV2FinalMessages(
 5. قواعد عرض تقييمات نماذج الذكاء الاصطناعي (ML Scores):
    - يمتلك النظام تقييمين يعتمدان على الذكاء الاصطناعي وتعلم الآلة لكل سهم: KING AI Score و EGX AI Score (يتم تمثيلهما كنسبة مئوية، مثلاً 58.3% أو 0.0% أو غير متوفر).
    - يجب عليك في نهاية تحليلك لأي سهم، وبعد ذكر رأيك الفني والمالي التقليدي، أن تضيف فقرة مستقلة تمامًا في نهاية الرد بعنوان "**الرأي الإحصائي للذكاء الاصطناعي (ML Scores)**".
-   - اذكر فيها بوضوح تقييم KING AI ونموذج EGX AI للسهم وفسرهما للعميل. وضح أن النسبة تمثل درجة ثقة الموديل في إيجابية الاتجاه فنيًا (النسب المرتفعة تشير لفرص قوية والنسب القريبة من الصفر تعني تجنب السهم تمامًا فنيًا).
+    - اذكر فيها بوضوح تقييم KING AI ونموذج EGX AI للسهم وفسرهما للعميل. وضح أن النسبة تمثل درجة ثقة الموديل في إيجابية الاتجاه وفق تعريف النموذج، وليست توصية مستقلة بالشراء أو التجنب. لا تستنتج قراراً من النقطة وحدها، واربطها دائماً ببقية الأدلة الفنية والمالية.
    - 📊 قاعدة فارق نقاط ML (ML Score Delta): عند مقارنة سهمين أو أكثر، يجب أن تذكر الفرق الدقيق بين نقاط KING AI و EGX AI لكل أزواج الأسهم (مثال: 'الموديل الأول يتفوق على الموديل الثاني بفارق نقاط معين'). إذا كان الفرق ≤ 1.0 نقطة، صرّح صراحة أن الفرق 'ضيق / غير إحصائيًا ولا يلزم دلالة ضعيفة' ولا يُعتبر فرقاً معنوياً. لا تقل أبداً 'تفوق كبير' أو 'ميزة واضحة' إذا كان الفرق ≤ 1.0 نقطة.
     - 📊 قاعدة توافق النماذج (Model Consensus): عند عرض ML Scores، أضف قسماً 'رأي النماذات' يحتوي على:
       • تفسير كل نموذج بناءاً على النسبة: 70%+ = 'إيجابي قوي'، 55-70% = 'إيجابي متوسط'، 45-55% = 'محايد'، 30-45% = 'متحفظ'، <30% = 'سلبي'.
@@ -692,7 +707,7 @@ async function callNvidiaApi(
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
         try {
-            const res = await fetch(AI_CONFIG.api.nvidiaBaseUrl, {
+            const res = await executionFetch(AI_CONFIG.api.nvidiaBaseUrl, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
@@ -709,9 +724,8 @@ async function callNvidiaApi(
                     ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {})
                 })
             });
-            clearTimeout(timeoutId);
-
             if (!res.ok && res.status === 429) {
+                clearTimeout(timeoutId);
                 const errData: any = await res.json().catch(() => null);
                 const retryAfter = Number(errData?.retry_after_seconds || errData?.error?.retry_after_seconds) || 30;
                 setKeyCooldown(key, retryAfter + 5);
@@ -720,13 +734,16 @@ async function callNvidiaApi(
                 continue;
             }
             if (res.ok) {
-                if (stream) return { response: null, streamGen: parseSseStream(res) };
+                if (stream) return { response: null, streamGen: parseSseStreamWithTimeout(res, controller, timeoutId) };
                 const data = await res.json();
+                clearTimeout(timeoutId);
                 const reply = data.choices?.[0]?.message?.content?.trim();
                 if (reply) return { response: reply };
+                clearTimeout(timeoutId);
                 keyIndex++;
             } else {
                 console.warn(`[Responder] NVIDIA HTTP ${res.status} (key ${keyIndex + 1}/${orderedKeys.length})`);
+                clearTimeout(timeoutId);
                 keyIndex++;
             }
         } catch (err: any) {
@@ -752,7 +769,7 @@ async function callDeepSeekApi(
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
     try {
         const maxTokens = modelName === "deepseek-reasoner" ? 4000 : AI_CONFIG.limits.responseMaxTokens;
-        const res = await fetch(AI_CONFIG.api.deepseekBaseUrl, {
+        const res = await executionFetch(AI_CONFIG.api.deepseekBaseUrl, {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
@@ -767,15 +784,16 @@ async function callDeepSeekApi(
                 stream
             })
         });
-        clearTimeout(timeoutId);
 
         if (res.ok) {
-            if (stream) return { response: null, streamGen: parseSseStream(res) };
+            if (stream) return { response: null, streamGen: parseSseStreamWithTimeout(res, controller, timeoutId) };
             const data = await res.json();
+            clearTimeout(timeoutId);
             const reply = data.choices?.[0]?.message?.content?.trim();
             if (reply) return { response: reply };
         } else {
             console.warn(`[Responder] DeepSeek HTTP ${res.status}`);
+            clearTimeout(timeoutId);
         }
     } catch (err: any) {
         clearTimeout(timeoutId);
@@ -876,34 +894,64 @@ async function* parseSseStream(res: Response): AsyncGenerator<string, void, unkn
     const decoder = new TextDecoder();
     let buffer = "";
     let providerDone = false;
+    const parseLine = (line: string): string => {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith("data:")) return "";
+        const dataStr = trimmed.slice(5).trimStart();
+        if (dataStr === "[DONE]") {
+            providerDone = true;
+            return "";
+        }
+        // Malformed provider data is an incomplete answer, not an event that
+        // can be silently dropped from a financial response.
+        const parsed = JSON.parse(dataStr);
+        if (parsed.error) throw new Error("provider stream returned an error");
+        const choice = parsed.choices?.[0];
+        if (choice?.finish_reason) {
+            if (choice.finish_reason !== "stop") {
+                throw new Error(`provider response incomplete: ${choice.finish_reason}`);
+            }
+            providerDone = true;
+        }
+        return typeof choice?.delta?.content === "string" ? choice.delta.content : "";
+    };
     try {
         while (true) {
             const { done, value } = await reader.read();
-            if (done) break;
+            if (done) {
+                buffer += decoder.decode();
+                if (buffer.trim()) {
+                    const token = parseLine(buffer);
+                    if (token) yield token;
+                }
+                break;
+            }
             buffer += decoder.decode(value, { stream: true });
             const lines = buffer.split("\n");
             buffer = lines.pop() || "";
             for (const line of lines) {
-                const trimmed = line.trim();
-                if (trimmed.startsWith("data: ")) {
-                    const dataStr = trimmed.slice(6);
-                    if (dataStr === "[DONE]") {
-                        providerDone = true;
-                        break;
-                    }
-                    try {
-                        const parsed = JSON.parse(dataStr);
-                        if (parsed.choices?.[0]?.finish_reason) providerDone = true;
-                        const token = parsed.choices?.[0]?.delta?.content || "";
-                        if (token) yield token;
-                    } catch {}
-                }
+                const token = parseLine(line);
+                if (token) yield token;
+                if (providerDone) break;
             }
             if (providerDone) break;
         }
         if (!providerDone) throw new Error("stream ended before provider completion marker");
     } finally {
         reader.releaseLock();
+    }
+}
+
+async function* parseSseStreamWithTimeout(
+    res: Response,
+    controller: AbortController,
+    timeoutId: ReturnType<typeof setTimeout>,
+): AsyncGenerator<string, void, unknown> {
+    try {
+        yield* parseSseStream(res);
+    } finally {
+        clearTimeout(timeoutId);
+        if (!controller.signal.aborted) controller.abort();
     }
 }
 
@@ -1103,9 +1151,9 @@ export function buildYtdMarketRankingResponse(
     }
 
     const displayedStocks = ranking.slice(0, requestedLimit);
-    const endDate = ytdResult.data.end_date || "2026-08-13";
-    const startPeriod = ytdResult.data.start_period || (isWtd ? "بداية الأسبوع" : isMtd ? "بداية الشهر" : "2026-01-04");
-    const periodName = isWtd ? `من بداية الأسبوع (${startPeriod})` : isMtd ? `من بداية الشهر (${startPeriod})` : "من بداية العام 2026 (YTD)";
+    const endDate = ytdResult.data.end_date || ytdResult.data_time || "غير محدد";
+    const startPeriod = ytdResult.data.start_period || (isWtd ? "بداية الأسبوع" : isMtd ? "بداية الشهر" : "بداية العام");
+    const periodName = isWtd ? `من بداية الأسبوع (${startPeriod})` : isMtd ? `من بداية الشهر (${startPeriod})` : `من بداية العام (${startPeriod})`;
 
     const wantsLiquidity = ytdResult.data.wants_liquidity || /(?:سيول|تداول|حجم)/i.test(userMessage);
     const wantsLowest = ytdResult.data.wants_lowest || /(?:اقل|أقل|ارخص|أرخص|ادنى|أدنى)/i.test(userMessage);
@@ -1119,7 +1167,7 @@ export function buildYtdMarketRankingResponse(
     const lines: string[] = [
         `إليك قائمة ${orderWord} ${displayedStocks.length} سهماً من حيث ${metricWord} بالبورصة المصرية ${periodName} حتى جلسة ${endDate}، مرتبة ${wantsLowest ? "تصاعدياً" : "تنازلياً"}:`,
         "",
-        `| # | الرمز | اسم الشركة | السعر الحالي | ${startPriceCol} | ${colName} |`,
+        `| # | الرمز | اسم الشركة | آخر سعر متاح | ${startPriceCol} | ${colName} |`,
         "| :--- | :--- | :--- | :--- | :--- | :--- |"
     ];
 
@@ -1314,11 +1362,57 @@ export async function generateV2Response(
     return appendLiveSessionNotices(detReply, toolResults);
 }
 
-function appendLiveSessionNotices(reply: string, toolResults: ToolResult[]): string {
+export function normalizeStockFreshnessLanguage(reply: string, toolResults: ToolResult[]): string {
+    const hasTechnicalMidpointScan = toolResults.some(result => result.tool === "get_fair_value_scan");
+    if (hasTechnicalMidpointScan) {
+        // Last-resort terminology guard. This tool compares price with the
+        // midpoint of a 60-session range; it does not calculate intrinsic value.
+        reply = reply
+            .replace(/قيمته\s+العادلة/g, "القيمة الوسطية الفنية لنطاقه")
+            .replace(/قيمتها\s+العادلة/g, "القيمة الوسطية الفنية لنطاقها")
+            .replace(/القيمة\s+العادلة/g, "القيمة الوسطية الفنية للنطاق")
+            .replace(/القيمه\s+العادله/g, "القيمة الوسطية الفنية للنطاق");
+    }
     const stockResults = toolResults.filter(r => r.tool === "get_stock" && r.data?.symbol);
+    const hasVerifiedLivePrice = stockResults.some(result => isLiveStockResult(result));
+    const hasRecordedPriceEvidence = toolResults.some(result =>
+        ["get_stock", "get_stock_levels", "get_price_history", "get_comparison", "get_fair_value_scan"].includes(result.tool)
+        && result.data_type !== "live"
+        && result.data != null
+    );
+    if ((stockResults.length > 0 || hasRecordedPriceEvidence) && !hasVerifiedLivePrice) {
+        return reply
+            .replace(/السعر الحالي/g, "آخر إغلاق مسجل")
+            .replace(/بيانات حية/g, "أحدث البيانات المتاحة");
+    }
+    return reply;
+}
+
+function appendLiveSessionNotices(reply: string, toolResults: ToolResult[]): string {
+    reply = normalizeStockFreshnessLanguage(reply, toolResults);
+    const stockResults = toolResults.filter(r => r.tool === "get_stock" && r.data?.symbol);
+    const stalePriceNotes = stockResults
+        .filter(result => !isLiveStockResult(result) && result.data?.price != null)
+        .map(result => `${String(result.data.symbol).toUpperCase()}: آخر إغلاق مسجل ${result.data.price} جنيه${result.data_time ? ` بتاريخ ${String(result.data_time).slice(0, 10)}` : ""}`);
+    if (stalePriceNotes.length > 0 && !reply.includes("آخر إغلاق مسجل")) {
+        reply += `\n\n> ℹ️ **حالة السعر:** ${stalePriceNotes.join("؛ ")}، وليس سعراً لحظياً.`;
+    }
     const hasLiveFailed = stockResults.some(r => r.data?.live_refresh_failed === true);
+    const unsupportedSymbols = stockResults
+        .filter(r => r.data?.live_refresh_unsupported === true)
+        .map(r => String(r.data?.symbol || "").toUpperCase())
+        .filter(Boolean);
+    if (unsupportedSymbols.length > 0 && !reply.includes("التحديث اللحظي غير مدعوم")) {
+        reply += `\n\n> ℹ️ **ملاحظة مصدر البيانات:** التحديث اللحظي غير مدعوم حالياً للأداة/الورقة ${Array.from(new Set(unsupportedSymbols)).join("، ")}. الأرقام المعروضة هي آخر بيانات مسجلة ومؤرخة وليست سعراً مباشراً من الجلسة.`;
+    }
     if (hasLiveFailed && !reply.includes("تعذر جلب السعر المباشر")) {
-        return reply + "\n\n> ⚠️ **ملاحظة:** تم إجراء محاولة لتحديث بيانات السهم لحظياً من جلسة التداول، ولكن تعذر جلب السعر المباشر حالياً بسبب بطء الاستجابة. تم الاعتماد على آخر إغلاق رسمي مسجل. سيتم تحديث جميع البيانات تلقائياً بعد إغلاق الجلسة بساعة، أو يمكنك المحاولة لاحقاً.";
+        reply += "\n\n> ⚠️ **ملاحظة:** تم إجراء محاولة لتحديث بيانات السهم لحظياً من جلسة التداول، ولكن تعذر جلب السعر المباشر حالياً بسبب بطء الاستجابة. تم الاعتماد على آخر إغلاق رسمي مسجل. يمكنك المحاولة لاحقاً.";
+    }
+    const hasLivePersistenceFailure = stockResults.some(
+        r => r.data?.is_live_intraday === true && r.data?.live_persisted === false
+    );
+    if (hasLivePersistenceFailure && !reply.includes("تعذر حفظ التحديث")) {
+        reply += "\n\n> ⚠️ تم جلب السعر من مصدر التداول، لكن تعذر حفظ التحديث حالياً. السعر المعروض يخص وقت الجلب الموضح، وقد تعرض الصفحات الأخرى بيانات أقدم حتى تنجح المزامنة.";
     }
     return reply;
 }
@@ -1757,7 +1851,9 @@ export function buildBothAccumulationDistributionResponse(
             lines.push(`| ${idx + 1} | **${s.symbol}** | ${s.name || s.symbol} | ${s.acc_score}/100 | ${vol} | ${wyckoff} |`);
         });
     } else {
-        lines.push(`- لا توجد أسهم تجميع مسجلة بدرجات مرتفعة اليوم.`);
+        lines.push(accScan.availability === "failed" || accScan.source === "empty"
+            ? "- بيانات مسح التجميع غير متاحة للنطاق المطلوب؛ لا يمكن الحكم على غياب التجميع."
+            : `- لا توجد أسهم مطابقة لمعايير التجميع في المسح المؤرخ ${accScan.data_time}.`);
     }
 
     lines.push(`\n🔴 **أهم أسهم التصريف والضغط البيعي (Distribution):**\n`);
@@ -1770,7 +1866,9 @@ export function buildBothAccumulationDistributionResponse(
             lines.push(`| ${idx + 1} | **${s.symbol}** | ${s.name || s.symbol} | ${s.dist_score}/100 | ${vol} | ${wyckoff} |`);
         });
     } else {
-        lines.push(`- لا توجد أسهم تصريف حاد مسجلة اليوم.`);
+        lines.push(distScan.availability === "failed" || distScan.source === "empty"
+            ? "- بيانات مسح التصريف غير متاحة للنطاق المطلوب؛ لا يمكن الحكم على غياب التصريف."
+            : `- لا توجد أسهم مطابقة لمعايير التصريف في المسح المؤرخ ${distScan.data_time}.`);
     }
 
     lines.push(`\n⚠️ *البيانات وصفية مستخرجة من تتبع السيولة المؤسسية ونموذج وايكوف وليست توصية شراء أو بيع.*`);
@@ -1785,14 +1883,49 @@ export function buildSingleStockAccumulationDistributionResponse(
     const normMsg = userMessage.toLowerCase().replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").replace(/ى/g, "ي");
     if (!/(?:تجميع|تصريف|وايكوف|wyckoff)/i.test(normMsg)) return null;
 
+    const requestedSymbol = plan.entities.symbols?.[0]?.toUpperCase();
     const singleStock = toolResults.find(result => result.tool === "get_stock" && result.data?.symbol);
-    if (!singleStock?.data) return null;
+    const scanResult = toolResults.find(result => result.tool === "get_accumulation_stocks" || result.tool === "get_distribution_stocks");
+    const scanRows = Array.isArray(scanResult?.data?.scan_rows)
+        ? scanResult.data.scan_rows
+        : Array.isArray(scanResult?.data?.stocks) ? scanResult.data.stocks : [];
+    const requestedRows = (plan.entities.symbols || [])
+        .map(symbol => scanRows.find((row: any) => String(row.symbol || "").toUpperCase() === String(symbol).toUpperCase()))
+        .filter(Boolean);
+    if (!singleStock?.data && requestedRows.length > 0) {
+        const asksDistribution = plan.entities.scan_direction === "distribution" || /تصريف|distribution/i.test(normMsg);
+        const date = String(scanResult?.data_time || scanResult?.data?.date || "غير محدد").slice(0, 10);
+        return requestedRows.map((row: any) => {
+            const acc = Number(row.acc_score || 0);
+            const dist = Number(row.dist_score || 0);
+            const requestedSignalPresent = asksDistribution
+                ? (row.signal === "distribution" || dist >= 50)
+                : (row.signal === "accumulation" || row.signal === "strong_accumulation" || acc >= 50);
+            const verdict = asksDistribution
+                ? requestedSignalPresent
+                    ? `نعم، توجد إشارة التصريف في أحدث مسح مؤرخ ${date}.`
+                    : `لا، أحدث مسح لا يسجل التصريف على السهم بتاريخ ${date}.`
+                : requestedSignalPresent
+                    ? `نعم، توجد إشارة التجميع في أحدث مسح مؤرخ ${date}.`
+                    : `لا، أحدث مسح لا يسجل التجميع؛ والقراءة الأقوى حالياً هي ${dist > acc ? "التصريف" : "حالة محايدة"} بتاريخ ${date}.`;
+            return [
+                `### ${row.symbol} (${row.name || row.symbol})`,
+                verdict,
+                `- درجة التجميع: **${acc}/100**`,
+                `- درجة التصريف: **${dist}/100**`,
+                `- مرحلة وايكوف: **${row.wyckoff_phase || "غير محدد"}**`,
+                `- حجم التداول النسبي: **${row.vol_ratio ?? "غير متوفر"}x**`,
+            ].join("\n");
+        }).join("\n\n") + "\n\n⚠️ هذه قراءة وصفية للمسح وليست توصية شراء أو بيع.";
+    }
+    const scanRow = scanRows.find((row: any) => !requestedSymbol || String(row.symbol || "").toUpperCase() === requestedSymbol);
+    if (!singleStock?.data && !scanRow) return null;
 
-    const data = singleStock.data;
+    const data = singleStock?.data || scanRow;
     const wyckoff = data.wyckoff_phase || "غير محدد";
     const accScore = data.acc_score != null ? `${data.acc_score}/100` : "غير متوفر";
     const distScore = data.dist_score != null ? `${data.dist_score}/100` : "غير متوفر";
-    const price = data.price ?? "N/A";
+    const price = data.price ?? data.close ?? null;
     const change = data.change_pct ?? "N/A";
     const rsi = data.rsi_14 ?? "N/A";
     const volRatio = data.vol_ratio ?? "1.00x";
@@ -1810,25 +1943,30 @@ export function buildSingleStockAccumulationDistributionResponse(
         verdict = `حالة وايكوف المسجلة للسهم: **${wyckoff}**.`;
     }
 
-    const priceLine = data.is_live_intraday
-        ? `- السعر اللحظي (مباشر من الجلسة): **${price} ج.م** (${change}) 🟢 *(محدث ${data.live_update_time})*`
-        : `- السعر الحالي: **${price} ج.م** (${change})`;
+    const priceLine = price == null
+        ? null
+        : singleStock && isLiveStockResult(singleStock)
+            ? `- السعر اللحظي (مباشر من الجلسة): **${price} ج.م** (${change}) 🟢 *(محدث ${data.live_update_time})*`
+            : `- آخر إغلاق مسجل: **${price} ج.م** (${change}) بتاريخ **${String(singleStock?.data_time || scanResult?.data_time || "غير محدد").slice(0, 10)}**`;
 
     const failNotice = data.live_refresh_failed
-        ? `\n\n> ⚠️ **ملاحظة:** تم إجراء محاولة لتحديث بيانات السهم لحظياً من جلسة التداول، ولكن تعذر جلب السعر المباشر حالياً بسبب بطء الاستجابة. تم الاعتماد على آخر إغلاق رسمي مسجل. سيتم تحديث جميع البيانات تلقائياً بعد إغلاق الجلسة بساعة، أو يمكنك المحاولة لاحقاً.`
+        ? `\n\n> ⚠️ **ملاحظة:** تعذر جلب السعر المباشر حالياً، لذلك تم الاعتماد على آخر إغلاق رسمي مسجل.`
+        : "";
+    const unsupportedNotice = data.live_refresh_unsupported
+        ? `\n\n> ℹ️ **ملاحظة مصدر البيانات:** التحديث اللحظي غير مدعوم حالياً لهذه الأداة؛ الأرقام المعروضة هي آخر بيانات مسجلة ومؤرخة.`
         : "";
 
     return [
         `### تحليل التجميع والتصريف لسهم ${data.symbol} (${data.name || data.symbol}):\n`,
         `${verdict}\n`,
         `**المؤشرات الفنية والسيولة:**`,
-        priceLine,
+        ...(priceLine ? [priceLine] : []),
         `- مرحلة وايكوف (Wyckoff): **${wyckoff}**`,
         `- درجة التجميع (Accumulation Score): **${accScore}**`,
         `- درجة التصريف (Distribution Score): **${distScore}**`,
         `- حجم التداول النسبي: **${volRatio}** من المتوسط`,
         `- مؤشر القوة النسبية (RSI): **${rsi}**`,
-        `\n⚠️ *هذه البيانات وصفية لرصد السيولة المؤسسية وليست توصية مباشرة بالشراء أو البيع.*${failNotice}`
+        `\n⚠️ *هذه البيانات وصفية لرصد السيولة المؤسسية وليست توصية مباشرة بالشراء أو البيع.*${failNotice}${unsupportedNotice}`
     ].join("\n");
 }
 
@@ -1837,7 +1975,7 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
         if (plan.clarification_options?.length) {
             return `السؤال يحتمل أكثر من معنى. اختار المقصود عشان أستخدم الأداة المناسبة: ${plan.clarification_options.join("، ")}.`;
         }
-        return "اختار المقصود من السؤال عشان أستخدم الأداة المناسبة.";
+        return "السؤال محتاج تحديد: بأي معيار تريد النتيجة—الارتفاع، السيولة، الزخم الفني، أم الأداء خلال فترة معينة؟";
     }
     const normMsg = userMessage.toLowerCase().replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").replace(/ى/g, "ي");
     const asksForAdvice = /(?:انصحني|تنصحني|اعمل ايه|أعمل ايه|شاري|شريت|شريته|معايا بسعر|لو معايا|بمتوسط|رايك|رأيك|ايه العمل|ايه الحل)/i.test(normMsg);
@@ -2122,6 +2260,9 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
         }
         if (parts.length) return Array.from(new Set(parts)).join("\n");
     }
+    if (/\bCLOUD\b/i.test(userMessage) && /(قارن|مقارن|مقارنة|سهم|سعر|تحليل|اخبار|أخبار)/i.test(userMessage)) {
+        return "CLOUD المذكور كمنتج ادخاري داخل تطبيق Thndr ليس رمز سهم EGX موثقاً في قاعدة بيانات الأسهم، لذلك لا تصح مقارنته فنياً بسهم COMI. يمكن مقارنة العائد والسيولة والمخاطر والرسوم بين المنتج وصندوق دخل ثابت، أو مقارنة COMI بسهم بورصة آخر.";
+    }
     if (plan.intent === "general_chat" && toolResults.length === 0) {
         if (/^\s*(?:كمل|كمّل|تابع)\s*[!؟?.]*$/i.test(userMessage)) {
             return "التحليل السابق مكتمل في الملخص والجدول. لن أكرر بيانات سهم واحد أو أضيف تفاصيل غير موثقة؛ اذكر اسم السهم أو المؤشر المطلوب إذا أردت نقطة محددة.";
@@ -2157,6 +2298,7 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
         if (/(ازيك|إزيك|عامل ايه|عامل إيه|اهلا|أهلا|هلا|مرحبا|السلام عليكم|سلام|هاي|صباح الخير|صباح الفل|مساء الخير|^hello|^hi|^hey|^heya|^yo|good\s*morning|good\s*evening)/i.test(userMessage)) {
             return "أهلاً بك 👋 أنا مساعد EGX Bots لتحليل بيانات البورصة المصرية. أقدر أساعدك في: تحليل سهم (اكتب اسمه أو رمزه)، مقارنة سهمين، عرض الأسهم الأقوى سيولة أو الأكثر تجميعاً، متابعة توصيات المنصة، أو إدارة محفظتك (اعرض محفظتي / ضيف سهم / ضيف سيولة). جرب تسألني عن أي حاجة.";
         }
+        if (getInvestorGuidanceIntent(userMessage, (plan.entities.symbols?.length || 0) > 0)) return null;
         const decision = /(أبيع|ابيع|ابيعه|أبيعه|بيع|أشتري|اشتري|شراء|احتفظ|أحتفظ|اخرج|أخرج)/i.test(userMessage);
         const isOwnedStockAdviceQuery = /(اشتريت.*نزل|نازل بيا|خسران|اشتريت.*سهم|اشتريت اليوم|اشتريت.*ونزل)/i.test(userMessage);
         if (decision || isOwnedStockAdviceQuery) {
@@ -2173,10 +2315,6 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
         }
         return null;
     }
-    if (/\bCLOUD\b/i.test(userMessage) && /(قارن|مقارن|مقارنة|سهم|سعر|تحليل|اخبار|أخبار)/i.test(userMessage)) {
-        return "CLOUD المذكور كمنتج ادخاري داخل تطبيق Thndr ليس رمز سهم EGX موثقاً في قاعدة بيانات الأسهم، لذلك لا تصح مقارنته فنياً بسهم COMI. يمكن مقارنة العائد والسيولة والمخاطر والرسوم بين المنتج وصندوق دخل ثابت، أو مقارنة COMI بسهم بورصة آخر.";
-    }
-
     if (/(سبب|ليه|لماذا).{0,20}(هبوط|يهبط|نزل|ينزل)/i.test(userMessage) && stockResults.length > 0) {
         const data = stockResults[0].data;
         const levelData = levelResults.find(result => String(result.data?.symbol || result.symbols[0]).toUpperCase() === String(data.symbol).toUpperCase())?.data || {};
@@ -2230,7 +2368,7 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
             "هذه إشارات فنية تاريخية مسجلة بالنظام وليست توصيات جديدة.",
             `تم تقييم ${evaluated.length} من ${rows.length} إشارة مقابل آخر سعر متاح: ${profitable} رابحة غير محققة و${evaluated.length - profitable} خاسرة غير محققة.`,
             average == null ? "لا يتوفر سعر حالي كافٍ لحساب العائد." : `متوسط العائد الحسابي غير الموزون: ${average >= 0 ? "+" : ""}${average.toFixed(2)}%. لا يشمل عمولات أو أوزان المحفظة.`,
-            ...rows.slice(0, 10).map((row: any) => row.return_pct == null ? `- ${row.symbol}: السعر الحالي غير متاح.` : `- ${row.symbol}: الدخول ${row.entry_price}، الحالي ${row.current_price}، العائد ${row.return_pct >= 0 ? "+" : ""}${Number(row.return_pct).toFixed(2)}%، ${row.status}.`),
+            ...rows.slice(0, 10).map((row: any) => row.return_pct == null ? `- ${row.symbol}: آخر سعر متاح غير موجود.` : `- ${row.symbol}: الدخول ${row.entry_price}، آخر سعر متاح ${row.current_price}، العائد ${row.return_pct >= 0 ? "+" : ""}${Number(row.return_pct).toFixed(2)}%، ${row.status}.`),
             "بلوغ الهدف أو وقف الخسارة يحتاج بيانات أسعار تغطي الفترة كاملة؛ العائد هنا مقارنة بآخر سعر متاح فقط."
         ].join("\n");
     }
@@ -2291,7 +2429,7 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
         const scanDirection = compoundScan?.tool === "get_distribution_stocks" ? "التصريف" : "التجميع";
         const lines = stockData.map(result => {
             const data = result.data;
-            return `- ${data.symbol}: السعر الحالي ${data.price} جنيه، التغير ${data.change_pct}، RSI ${data.rsi_14}، MACD ${data.macd_signal}، نسبة الحجم ${data.vol_ratio}.`;
+            return `- ${data.symbol}: ${stockPriceLabel(result)}، التغير ${data.change_pct}، RSI ${data.rsi_14}، MACD ${data.macd_signal}، نسبة الحجم ${data.vol_ratio}.`;
         });
         const levelSymbol = levelData?.symbol || levels?.symbols?.[0] || stockData[0]?.data?.symbol;
         return [
@@ -2617,7 +2755,7 @@ function buildTechnicalValuationLines(stockResults: ToolResult[], levelResults: 
         const midpoint = (support + resistance) / 2;
         const position = resistance === support ? 50 : ((price - support) / (resistance - support)) * 100;
         return [
-            `${symbol}: نطاق التقييم الفني المرجعي ${support.toFixed(2)} إلى ${resistance.toFixed(2)} جنيه، والقيمة الوسطية الحسابية ${midpoint.toFixed(2)} جنيه؛ السعر الحالي عند ${Math.max(0, Math.min(100, position)).toFixed(1)}% من النطاق.`,
+            `${symbol}: نطاق التقييم الفني المرجعي ${support.toFixed(2)} إلى ${resistance.toFixed(2)} جنيه، والقيمة الوسطية الحسابية ${midpoint.toFixed(2)} جنيه؛ ${stockPriceLabel(result, price)} ويقع عند ${Math.max(0, Math.min(100, position)).toFixed(1)}% من النطاق.`,
             "هذا ليس قيمة عادلة مالية أو توصية؛ القيمة الجوهرية تحتاج أرباحاً وتدفقات نقدية ومكررات قطاع موثقة، ولا يتم اختراعها من RSI أو MACD."
         ];
     });

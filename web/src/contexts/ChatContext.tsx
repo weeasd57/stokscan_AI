@@ -110,10 +110,9 @@ function saveStoredMessagesSync(sessionId: string, msgs: ChatMessage[]) {
 }
 
 function stripMarkdownTables(text: string): string {
-    return text
-        .replace(/(?:^|\u000A)###?[^\u000A]*\u000A\|[^\u000A]+\|\u000A\|[\s:\-|]+\|(?:\u000A\|[^\u000A]+\|)*/g, "")
-        .replace(/\n{3,}/g, "\n\n")
-        .trim();
+    // Generated tables can contain requested facts absent from the tool's
+    // structured table. Never delete them merely because of their formatting.
+    return text.replace(/\n{3,}/g, "\n\n").trim();
 }
 
 function cleanChatText(text: string): string {
@@ -622,7 +621,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
                     if (trimmed.startsWith("data:")) {
                         const dataStr = trimmed.slice(5).trim();
                         if (dataStr === "[DONE]") {
-                            receivedDone = true;
+                            // The transport marker alone does not carry the canonical
+                            // answer, tables or quota; require the JSON done event.
                             continue;
                         }
 

@@ -36,7 +36,7 @@ def _default_state() -> Dict[str, Any]:
         "catchup_last_run": None,
         "catchup_progress": {"processed": 0, "total": 0, "remaining": 0},
         "scheduler": {
-            "enabled": False,
+            "enabled": True,
             "run_time": "15:45",
             "timezone": "Africa/Cairo",
             "last_run_date": None,
@@ -94,30 +94,13 @@ def append_scheduler_log(msg: str):
 def get_last_market_close_date() -> dt.date:
     # Intraday sync must target the current Cairo trading session. The latest
     # row in stock_prices is a completed daily close and can still be yesterday
-    # while the exchange is open today.
+    # while the exchange is open today; using that row as the end date would
+    # permanently skip the current session.
     try:
         from zoneinfo import ZoneInfo
-        last_date = dt.datetime.now(ZoneInfo("Africa/Cairo")).date()
+        return dt.datetime.now(ZoneInfo("Africa/Cairo")).date()
     except Exception:
-        last_date = dt.date.today()
-    stock_ai._init_supabase()
-    if not stock_ai.supabase:
-        return last_date
-    try:
-        last_daily = (
-            stock_ai.supabase.table("stock_prices")
-            .select("date")
-            .eq("exchange", "EGX")
-            .order("date", desc=True)
-            .limit(1)
-            .execute()
-        )
-        if last_daily.data:
-            last_date_str = last_daily.data[0]["date"]
-            last_date = dt.datetime.strptime(last_date_str, "%Y-%m-%d").date()
-    except Exception as e:
-        print(f"[INTRADAY] Failed to query last market close: {e}")
-    return last_date
+        return dt.date.today()
 
 
 def get_intraday_stats_map(timeframe: str) -> Dict[str, dict]:

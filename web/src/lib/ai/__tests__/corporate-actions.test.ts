@@ -1,5 +1,9 @@
 // Corporate Actions module tests — classifier, formatting, and graceful degradation
 import { classifyCorporateAction, formatCorporateActionsSummary, getCorporateActionsForSymbols, CorporateActionsResult } from "../corporate-actions";
+import { searchWeb } from "../web-search";
+
+jest.mock("../web-search", () => ({ searchWeb: jest.fn().mockResolvedValue([]) }));
+jest.mock("../execution", () => ({ getExecutionSignal: () => undefined }));
 
 describe("classifyCorporateAction", () => {
     it("classifies rights issues (Arabic)", () => {
@@ -58,13 +62,15 @@ describe("getCorporateActionsForSymbols", () => {
                 if (table === "corporate_actions") {
                     return {
                         select: () => ({
-                            in: () => ({
-                                gte: () => ({
-                                    order: () => ({
-                                        limit: async () => ({ data: dbRows, error: dbError })
-                                    })
-                                })
-                            })
+                            in: () => {
+                                const query = {
+                                    gte: () => query,
+                                    or: () => query,
+                                    order: () => query,
+                                    limit: async () => ({ data: dbRows, error: dbError }),
+                                };
+                                return query;
+                            }
                         }),
                         upsert: async () => ({ error: upsertError })
                     };
@@ -81,7 +87,7 @@ describe("getCorporateActionsForSymbols", () => {
         };
     }
 
-    it("returns database rows without web search when the symbol is covered", async () => {
+    it("returns database rows but does not infer search freshness from a recent article", async () => {
         const row = {
             symbol: "COMI", exchange: "EGX", action_type: "dividend", title: "توزيعات كومي",
             action_date: null, published_at: new Date().toISOString(), url: "https://x.com/1",
@@ -92,6 +98,7 @@ describe("getCorporateActionsForSymbols", () => {
         expect(result.fromDatabase).toBe(1);
         expect(result.fromWeb).toBe(0);
         expect(result.items[0].action_type).toBe("dividend");
+        expect(searchWeb).toHaveBeenCalledTimes(1);
     });
 
     it("degrades gracefully when the table is missing (DB error)", async () => {

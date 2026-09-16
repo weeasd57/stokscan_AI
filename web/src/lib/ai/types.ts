@@ -48,6 +48,14 @@ export interface SessionSummary {
     open_references: string[];
     last_data_date: string | null;
     last_vision_context: VisionContext | null;
+    /**
+     * Newest explicit reference in the session, regardless of source. Written
+     * on every turn that introduces a symbol (image or text) so "ده" resolves
+     * to the most recent reference instead of always the last image.
+     */
+    last_reference_symbol?: string | null;
+    last_reference_source?: "image" | "text" | null;
+    last_reference_at?: string | null;
     pending_portfolio_import?: {
         items: Array<{ symbol: string; name?: string; quantity: number | null; price: number | null }>;
         current_index: number;
@@ -70,7 +78,7 @@ export interface FactSnapshot {
     symbols: string[];
     as_of: string;
     facts: Record<string, any>;
-    data_type: "live" | "historical" | "image-derived";
+    data_type: "live" | "historical" | "image-derived" | "user-provided";
 }
 
 export interface IntentPlan {
@@ -126,6 +134,30 @@ export interface ToolResult {
     data_type: "live" | "cached" | "historical" | "image-derived";
     data: any;
     error?: string;
+    evidence?: Evidence[];
+    /** Whether the tool could actually cover this request. */
+    availability?: ToolAvailability;
+}
+
+/** Uniform coverage state every tool result exposes to the responder. */
+export type ToolAvailability =
+    | "available"       // tool returned usable data
+    | "partial"         // some fields missing but the answer is still supported
+    | "stale"           // only archived data, no live refresh
+    | "unsupported"     // instrument/parameter has no data source by design
+    | "failed"          // transient error (network/provider/unexpected)
+    | "empty";          // source responded but matched nothing
+
+export interface Evidence {
+    id?: string;
+    source: string;
+    url?: string | null;
+    title?: string | null;
+    as_of: string | null;
+    fetched_at: string;
+    freshness: "live" | "fresh" | "stale" | "unknown";
+    confidence?: number | null;
+    claim?: string | null;
 }
 
 export interface PipelineContext {

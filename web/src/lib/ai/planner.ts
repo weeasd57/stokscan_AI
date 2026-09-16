@@ -497,6 +497,7 @@ import { AI_CONFIG } from "./config";
 import { getDeepSeekApiKey } from "./server-secrets";
 import { isBestBuyStockQuestion, isTermsDefinitionRequest } from "./intent-policy";
 import { createHash } from "crypto";
+import { executionFetch } from "./execution";
 import { getSupabaseClient } from "@/lib/supabase/route-data";
 
 let cachedStocks: Array<{ symbol: string; name: string; name_ar?: string | null }> | null = null;
@@ -929,6 +930,10 @@ Analyze the user request and return a JSON object. You MUST dynamically choose t
     "sector": "Arabic Sector Name", // e.g. "بنوك", "عقارات". Null if none.
     "wants_table": false, // Set to true if user wants a table
     "scan_direction": null, // Set to "accumulation" or "distribution" if requested, else null
+    "min_acc_score": null, // Numeric STRICT lower bound for accumulation score, only if requested
+    "min_vol_ratio": null, // Numeric STRICT lower bound for RELATIVE volume, never a cash amount
+    "max_dist_score": null, // Numeric inclusive upper bound for distribution score; 0 means no distribution
+    "min_consecutive_acc_days": null, // Numeric inclusive lower bound for consecutive accumulation days, not holding period
     "technical_preset": null, // Set to "macd_cross" | "rsi_oversold" | "volume_breakout" | "sma_200_breakout" | "smart_money_flow" | "rsi_bullish_divergence" | "bearish_divergence_alert" if asking for a technical scan, else null
     "timeframe": null
   },
@@ -977,14 +982,15 @@ Analyze the user request and return a JSON object. You MUST dynamically choose t
         await Promise.all(imageList.map(async (imgUrl) => {
             for (const key of apiKeys) {
                 for (const modelName of plannerModels) {
+                    let timeoutId: ReturnType<typeof setTimeout> | undefined;
                     try {
                         const controller = new AbortController();
-                        const timeoutId = setTimeout(() => controller.abort(), 25000);
+                        timeoutId = setTimeout(() => controller.abort(), 25000);
                         const singleUserContent = [
                             { type: "text", text: userPromptText },
                             { type: "image_url", image_url: { url: imgUrl } }
                         ];
-                        const res = await fetch("https://integrate.api.nvidia.com/v1/chat/completions", {
+                        const res = await executionFetch("https://integrate.api.nvidia.com/v1/chat/completions", {
                             method: "POST",
                             headers: {
                                 "Content-Type": "application/json",
@@ -1001,7 +1007,6 @@ Analyze the user request and return a JSON object. You MUST dynamically choose t
                                 temperature: 0.05
                             })
                         });
-                        clearTimeout(timeoutId);
                         if (res.ok) {
                             const json = await res.json();
                             const rawContent = json.choices?.[0]?.message?.content?.trim() || "";
@@ -1018,7 +1023,9 @@ Analyze the user request and return a JSON object. You MUST dynamically choose t
                                 return; // success for this image
                             }
                         }
-                    } catch {}
+                    } catch {} finally {
+                        if (timeoutId) clearTimeout(timeoutId);
+                    }
                 }
             }
         }));
@@ -1055,11 +1062,12 @@ Analyze the user request and return a JSON object. You MUST dynamically choose t
         const maxKeys = isDeepSeek ? 1 : Math.min(apiKeys.length, maxKeysPerModel);
         while (keyIndex < maxKeys && plannerAttempts < maxPlannerAttempts) {
             const key = isDeepSeek ? "" : apiKeys[keyIndex];
+            let timeoutId: ReturnType<typeof setTimeout> | undefined;
             try {
                 plannerAttempts += 1;
                 const controller = new AbortController();
                 const timeoutMs = isDeepSeek ? 4000 : (hasImages ? 15000 : 2500);
-                const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+                timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
                 const reqBody: any = {
                     model: modelName,
@@ -1088,7 +1096,7 @@ Analyze the user request and return a JSON object. You MUST dynamically choose t
                     ? deepseekKey
                     : key;
 
-                const res = await fetch(targetUrl, {
+                const res = await executionFetch(targetUrl, {
                     method: "POST",
                     headers: {
                         "Content-Type": "application/json",
@@ -1097,8 +1105,6 @@ Analyze the user request and return a JSON object. You MUST dynamically choose t
                     signal: controller.signal,
                     body: JSON.stringify(reqBody)
                 });
-
-                clearTimeout(timeoutId);
 
                 if (res.ok) {
                     const json = await res.json();
@@ -1239,7 +1245,11 @@ Analyze the user request and return a JSON object. You MUST dynamically choose t
                                 sector: parsed.entities?.sector || null,
                                 wants_table: Boolean(parsed.entities?.wants_table || isAggregateTableRequest || hasImages) && finalIntent !== "general_chat",
                                 scan_direction: parsed.entities?.scan_direction || null,
-                                technical_preset: parsed.entities?.technical_preset || null
+                                technical_preset: parsed.entities?.technical_preset || null,
+                                min_acc_score: typeof parsed.entities?.min_acc_score === "number" && Number.isFinite(parsed.entities.min_acc_score) && parsed.entities.min_acc_score >= 0 && parsed.entities.min_acc_score <= 100 ? parsed.entities.min_acc_score : null,
+                                min_vol_ratio: typeof parsed.entities?.min_vol_ratio === "number" && Number.isFinite(parsed.entities.min_vol_ratio) && parsed.entities.min_vol_ratio >= 0 ? parsed.entities.min_vol_ratio : null,
+                                max_dist_score: typeof parsed.entities?.max_dist_score === "number" && Number.isFinite(parsed.entities.max_dist_score) && parsed.entities.max_dist_score >= 0 && parsed.entities.max_dist_score <= 100 ? parsed.entities.max_dist_score : null,
+                                min_consecutive_acc_days: Number.isInteger(parsed.entities?.min_consecutive_acc_days) && parsed.entities.min_consecutive_acc_days >= 0 ? parsed.entities.min_consecutive_acc_days : null
                             },
                             tools: Array.from(new Set(toolsList)),
                             image_summary: imageSummary,
@@ -1275,6 +1285,8 @@ Analyze the user request and return a JSON object. You MUST dynamically choose t
             } catch (e: any) {
                 console.warn(`Planner model ${modelName} attempt warning:`, e);
                 keyIndex++;
+            } finally {
+                if (timeoutId) clearTimeout(timeoutId);
             }
         }
         keyIndex = 0;
@@ -1310,11 +1322,12 @@ Analyze the user request and return a JSON object. You MUST dynamically choose t
     const englishWords = (message.match(/[a-zA-Z]{3,6}/g) || []).map(w => w.toUpperCase());
     const hasUnknownEnglishStock = englishWords.some(w => !COMMON_TECHNICAL_WORDS.has(w) && !validSymbols.includes(w) && !w.startsWith("EGX"));
 
+    // Provider failure must never silently turn an unrelated question into an
+    // analysis of the previous stock. Only symbols explicitly present in the
+    // current message are safe in this fallback.
     const fallbackSymbols = (hasImages || isMarketSlang || hasUnknownEnglishStock || unresolvedCompanyNameFallback)
         ? []
-        : (explicitSymbols.length > 0
-            ? explicitSymbols
-            : (session.last_symbols?.length ? session.last_symbols : (session.current_symbol ? [correctStockSymbol(session.current_symbol, validSymbols)] : [])));
+        : explicitSymbols;
 
     if (isBestBuy) {
         // If asking for a general recommendation without explicitly naming a stock or group pronoun (فيهم/منهم),

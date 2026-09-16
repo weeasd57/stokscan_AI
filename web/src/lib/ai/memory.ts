@@ -27,8 +27,19 @@ function resolveReference(
         return { symbol: null, message_id: null, confidence: 0 };
     }
 
-    // An image is the freshest explicit reference in the session. Prefer it
-    // over an older typed-stock context when the user says "ده".
+    // `last_reference_symbol` is set on every turn (image or text) and always
+    // points to the newest explicit reference in the conversation order — prefer
+    // it unconditionally over the image-only fallback below.
+    if (sessionSummary?.last_reference_symbol) {
+        return {
+            symbol: sessionSummary.last_reference_symbol,
+            message_id: null,
+            confidence: 0.9
+        };
+    }
+
+    // Fall back to the latest image-imported symbols when no text reference
+    // has been recorded yet.
     if (sessionSummary?.last_image_symbols && sessionSummary.last_image_symbols.length > 0) {
         return {
             symbol: sessionSummary.last_image_symbols[0],

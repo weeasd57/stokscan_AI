@@ -2,6 +2,7 @@ import { VisionContext } from "./types";
 import { getSyncStockMappings } from "./planner";
 import { AI_CONFIG } from "./config";
 import { getDeepSeekApiKey, getNvidiaApiKeys } from "./server-secrets";
+import { executionFetch } from "./execution";
 
 const VISION_SYSTEM_PROMPT = `You are a financial image analyzer. Examine the attached image and return ONLY a valid JSON object with no markdown fences, no comments, and no extra text.
 
@@ -373,7 +374,7 @@ export async function analyzeImage(
         const timeoutId = setTimeout(() => controller.abort(), Math.min(VISION_TIMEOUT_MS, remaining));
         try {
             const endpoint = provider === "deepseek" ? AI_CONFIG.api.deepseekBaseUrl : AI_CONFIG.api.nvidiaBaseUrl;
-            const res = await fetch(endpoint, {
+            const res = await executionFetch(endpoint, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",

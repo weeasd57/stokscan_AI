@@ -120,7 +120,7 @@ export default function Footer() {
               </li>
               <li>
                 <a
-                  href="https://www.facebook.com/profile.php?id=61591573919902"
+                  href="https://www.facebook.com/egxbots"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-sm text-zinc-500 dark:text-zinc-500 light:text-gray-600 hover:text-indigo-400 dark:hover:text-indigo-400 light:hover:text-indigo-600 transition-colors"

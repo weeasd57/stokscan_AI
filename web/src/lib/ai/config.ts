@@ -44,5 +44,5 @@ export const AI_CONFIG = {
     newsHeadlinesMaxPerDay: 8,
     newsDaysDisplay: 3,
   },
-  disclaimer: "✅ تحليل EGX Bots مبني على بيانات حية — مش نصيحة استثمار، القرار ليك.",
+  disclaimer: "✅ تحليل EGX Bots مبني على أحدث البيانات المتاحة ومؤرّخ بمصدره — مش نصيحة استثمار، القرار ليك.",
 };

@@ -9,6 +9,8 @@ import {
     getPortfolioSnapshot, addPortfolioPosition, updatePortfolioPosition,
     removePortfolioPosition, sellPortfolioPosition, setPortfolioCash, addPortfolioCash,
 } from "./portfolio-tools";
+import { attachEvidenceContract } from "./evidence";
+import { todayInCairo } from "./cairo-date";
 
 function normalizeArabic(str: string): string {
     return str
@@ -129,6 +131,8 @@ export async function executeStructuredTools(
 ): Promise<StructuredToolOutput> {
     const results: ToolResult[] = [];
     const textParts: string[] = [];
+    const finalize = (formattedText: string): StructuredToolOutput =>
+        attachEvidenceContract({ results, formattedText });
 
     const now = new Date().toISOString();
     const symbols = plan.entities.symbols || [];
@@ -223,23 +227,25 @@ export async function executeStructuredTools(
     if (plan.tools.includes("get_price_history")) {
         if (symbols.length === 0) {
             try {
-                const { data: latestDateRow } = await supabase.from("stock_prices").select("date").order("date", { ascending: false }).limit(1);
-                const latestDate = latestDateRow?.[0]?.date || "2026-08-13";
+                const { data: latestDateRow } = await supabase.from("stock_prices").select("date").eq("exchange", "EGX").order("date", { ascending: false }).limit(1);
+                const latestDate = latestDateRow?.[0]?.date;
+                if (!latestDate) throw new Error("No recorded price date for period ranking");
                 const isWtd = /(?:اسبوع|wtd)/i.test(userMessage) || /(?:اسبوع|wtd)/i.test(plan.entities?.requested_date || "") || plan.entities?.requested_date === "wtd";
                 const isMtd = !isWtd && (/(?:شهر|mtd)/i.test(userMessage) || /(?:شهر|mtd)/i.test(plan.entities?.requested_date || "") || plan.entities?.requested_date === "mtd");
                 
-                let startGte = "2026-01-01";
-                let startLte = "2026-01-10";
+                const year = latestDate.slice(0, 4);
+                let startGte = `${year}-01-01`;
+                let startLte = `${year}-01-10`;
                 let periodType = "YTD";
-                let periodLabel = "من بداية العام 2026 (YTD)";
-                let startPeriod = "2026-01-04";
+                let periodLabel = `من أول إغلاق متاح في بداية العام ${year} (YTD)`;
+                let startPeriod = startGte;
 
                 const currentMonthPrefix = latestDate.slice(0, 7);
                 if (isWtd) {
                     const dateObj = new Date(latestDate);
-                    const day = dateObj.getDay();
+                    const day = dateObj.getUTCDay();
                     const sunday = new Date(dateObj);
-                    sunday.setDate(dateObj.getDate() - day);
+                    sunday.setUTCDate(dateObj.getUTCDate() - day);
                     const sunStr = sunday.toISOString().split("T")[0];
 
                     const { data: wRow } = await supabase.from("stock_prices")
@@ -251,7 +257,7 @@ export async function executeStructuredTools(
                     
                     startGte = wStart;
                     const lteDate = new Date(wStart);
-                    lteDate.setDate(lteDate.getDate() + 2);
+                    lteDate.setUTCDate(lteDate.getUTCDate() + 2);
                     startLte = lteDate.toISOString().split("T")[0];
                     periodType = "WTD";
                     periodLabel = `من بداية الأسبوع الحالي (${wStart}) حتى ${latestDate}`;
@@ -273,10 +279,12 @@ export async function executeStructuredTools(
                 const { data: startPrices } = await supabase.from("stock_prices")
                     .select("symbol, close, date")
                     .gte("date", startGte)
-                    .lte("date", startLte);
+                    .lte("date", startLte)
+                    .eq("exchange", "EGX")
+                    .order("date", { ascending: true });
                 const { data: endPrices } = await supabase.from("stock_prices")
                     .select("symbol, close, date, volume")
-                    .eq("date", latestDate);
+                    .eq("date", latestDate).eq("exchange", "EGX");
                 const { data: stocksData } = await supabase.from("stocks").select("symbol, name");
                 const sMap = new Map((stocksData || []).map((s: any) => [s.symbol, s.name]));
 
@@ -331,7 +339,7 @@ export async function executeStructuredTools(
                     const metricLabel = wantsCheapest ? "سعر السهم" : wantsLiquidity ? "سيولة وتداول" : "ربحية وأداءً";
                     textParts.push(`\n [جدول ترتيب ${orderLabel} الأسهم من حيث ${metricLabel} بالبورصة المصرية ${periodLabel}]:\n`);
                     const colHeaderName = wantsCheapest ? "سعر الإغلاق (ج.م)" : wantsLiquidity ? "السيولة (قيمة التداول)" : "نسبة التغيير";
-                    textParts.push(`| # | الرمز | اسم الشركة | السعر الحالي | سعر بداية الفترة | ${colHeaderName} |`);
+                    textParts.push(`| # | الرمز | اسم الشركة | آخر سعر متاح | سعر بداية الفترة | ${colHeaderName} |`);
                     textParts.push(`| :--- | :--- | :--- | :--- | :--- | :--- |`);
                     rankingToSave.forEach((s: any, idx: number) => {
                         let metricVal = "";
@@ -460,7 +468,7 @@ export async function executeStructuredTools(
     };
 
     if (!plan.needs_live_data && !plan.needs_historical_data) {
-        return { results, formattedText: "" };
+        return finalize("");
     }
 
     // ===== MARKET-WIDE TECHNICAL VALUATION SCAN =====
@@ -484,9 +492,9 @@ export async function executeStructuredTools(
             );
             const quality = dataDateQuality(dataDate, requestedDate ? 3650 : 3, requestedDate);
             if (!quality.ok) {
-                results.push({ tool: "get_fair_value_scan", source: "validation", data_time: dataDate, symbols: [], data_type: requestedDate ? "historical" : "live", data: { stocks: [], validation: quality } });
+                results.push({ tool: "get_fair_value_scan", source: "validation", data_time: dataDate, symbols: [], data_type: requestedDate ? "historical" : "cached", data: { stocks: [], validation: quality } });
                 textParts.push(`[مسح التقييم]: البيانات غير صالحة للعرض (${quality.reason}).`);
-                return { results, formattedText: textParts.join("\n") };
+                return finalize(textParts.join("\n"));
             }
             const latestSymbols = Array.from(new Set(latestRows.map((row: any) => String(row.symbol).toUpperCase())));
             const { data: priceRows } = await supabase.from("stock_prices")
@@ -556,6 +564,8 @@ export async function executeStructuredTools(
                 if (requireDistribution && (!isDistribution || scanAgeDays > 30)) return null;
                 if (requireAccumulation && (!isAccumulation || scanAgeDays > 30)) return null;
                 if (plan.entities.min_acc_score != null && Number(distribution?.acc_score || 0) <= Number(plan.entities.min_acc_score)) return null;
+                if (plan.entities.max_dist_score != null && (distribution?.dist_score == null || !Number.isFinite(Number(distribution.dist_score)) || Number(distribution.dist_score) > plan.entities.max_dist_score)) return null;
+                if (plan.entities.min_consecutive_acc_days != null && (distribution?.consecutive_acc_days == null || !Number.isFinite(Number(distribution.consecutive_acc_days)) || Number(distribution.consecutive_acc_days) < plan.entities.min_consecutive_acc_days)) return null;
                 if (plan.entities.min_vol_ratio != null) {
                     const volRatio = Number(row.vol_sma20) > 0 ? Number(row.volume) / Number(row.vol_sma20) : 0;
                     if (volRatio <= Number(plan.entities.min_vol_ratio)) return null;
@@ -589,11 +599,11 @@ export async function executeStructuredTools(
                 : stocks;
             const relation = fairValueDirection === "above" ? "above" : "below";
             const source = requireDistribution || requireAccumulation ? "stock_prices+stock_scans_summary" : "stock_prices";
-            results.push({ tool: "get_fair_value_scan", source, data_time: dataDate, symbols: finalStocks.map((stock: any) => stock.symbol), data_type: requestedDate ? "historical" : "live", data: { metric: `price_${relation}_60_session_midpoint`, direction: fairValueDirection, require_distribution: requireDistribution, require_accumulation: requireAccumulation, excluded_sectors: excludedSectorsList, stocks: finalStocks } });
+            results.push({ tool: "get_fair_value_scan", source, data_time: dataDate, symbols: finalStocks.map((stock: any) => stock.symbol), data_type: requestedDate ? "historical" : "cached", data: { metric: `price_${relation}_60_session_midpoint`, direction: fairValueDirection, require_distribution: requireDistribution, require_accumulation: requireAccumulation, excluded_sectors: excludedSectorsList, stocks: finalStocks } });
             textParts.push(`[مسح التقييم الفني السوقي بتاريخ ${dataDate}]: ${finalStocks.length} سهم ${fairValueDirection === "above" ? "فوق" : "تحت"} القيمة الوسطية لنطاق 60 جلسة${requireDistribution ? " مع إشارة تصريف" : requireAccumulation ? " مع إشارة تجميع" : ""}.`);
         } catch (e) {
             console.warn("Error computing fair-value scan:", e);
-            results.push({ tool: "get_fair_value_scan", source: "error", data_time: now, symbols: [], data_type: requestedDate ? "historical" : "live", data: { direction: plan.entities.fair_value_direction || "above", require_distribution: Boolean(plan.entities.require_distribution), require_accumulation: Boolean(plan.entities.require_accumulation), stocks: [] }, error: "تعذر إكمال تقاطع بيانات الأسعار والمسح الفني ضمن المهلة." });
+            results.push({ tool: "get_fair_value_scan", source: "error", data_time: now, symbols: [], data_type: requestedDate ? "historical" : "cached", data: { direction: plan.entities.fair_value_direction || "above", require_distribution: Boolean(plan.entities.require_distribution), require_accumulation: Boolean(plan.entities.require_accumulation), stocks: [] }, error: "تعذر إكمال تقاطع بيانات الأسعار والمسح الفني ضمن المهلة." });
         }
     }
 
@@ -617,14 +627,14 @@ export async function executeStructuredTools(
                     data_type: "historical",
                     data: rows.length ? { stocks: rows, date: requestedDate } : {}
                 });
-                return { results, formattedText: rows.length ? `[مسح السيولة التاريخي بتاريخ ${requestedDate}]` : `[مسح السيولة التاريخي]: لا توجد بيانات مسح مسجلة بتاريخ ${requestedDate}.` };
+                return finalize(rows.length ? `[مسح السيولة التاريخي بتاريخ ${requestedDate}]` : `[مسح السيولة التاريخي]: لا توجد بيانات مسح مسجلة بتاريخ ${requestedDate}.`);
             } catch (e) {
                 console.warn("Error fetching dated accumulation scan:", e);
-                return { results, formattedText: `[مسح السيولة التاريخي]: تعذر جلب بيانات ${requestedDate}.` };
+                return finalize(`[مسح السيولة التاريخي]: تعذر جلب بيانات ${requestedDate}.`);
             }
         }
         if (symbols.length === 0) {
-            return { results, formattedText: "[بيانات تاريخية]: يلزم تحديد السهم أو الإشارة إليه بوضوح." };
+            return finalize("[بيانات تاريخية]: يلزم تحديد السهم أو الإشارة إليه بوضوح.");
         }
         try {
             let query = supabase
@@ -694,7 +704,7 @@ export async function executeStructuredTools(
         } catch (e) {
             console.warn("Error fetching historical facts:", e);
         }
-        return { results, formattedText: textParts.join("\n") };
+        return finalize(textParts.join("\n"));
     }
 
     // ===== ACCUMULATION / DISTRIBUTION STOCKS =====
@@ -718,8 +728,19 @@ export async function executeStructuredTools(
                 .select("symbol, scan_date, signal, wyckoff_phase, acc_score, dist_score, vol_ratio, consecutive_acc_days, consecutive_dist_days, change_pct, volume, rsi_14, macd_signal")
                 .order("scan_date", { ascending: false })
                 .order("acc_score", { ascending: false })
-                    .limit(200);
+                    .limit(1000);
                 if (requestedDate) summaryQuery = summaryQuery.eq("scan_date", requestedDate);
+                else if (requestedStartDate) {
+                    summaryQuery = summaryQuery.gte("scan_date", requestedStartDate);
+                    if (requestedEndDate) summaryQuery = summaryQuery.lte("scan_date", requestedEndDate);
+                } else if (/الاسبوع\s+(?:(?:اللي|اللى)\s+فات|الماضي)|last\s+week/i.test(normalizeArabic(userMessage))) {
+                    const start = new Date(`${todayInCairo()}T00:00:00Z`);
+                    start.setUTCDate(start.getUTCDate() - start.getUTCDay() - 7);
+                    const end = new Date(start);
+                    end.setUTCDate(end.getUTCDate() + 6);
+                    summaryQuery = summaryQuery.gte("scan_date", start.toISOString().slice(0, 10))
+                        .lte("scan_date", end.toISOString().slice(0, 10));
+                }
                 const compoundMarketScan = plan.tools.includes("get_stock") && (plan.tools.includes("get_accumulation_stocks") || plan.tools.includes("get_distribution_stocks"));
                 const asksForMarketWideList = /(?:الأسهم|الاسهم|أسهم|اسهم|قائمة|قائمه|شاشه|شاشة)\s+(?:التجميع|التصريف|تجميع|تصريف)/i.test(userMessage)
                     || /(?:أقوى|اقوى|أفضل|افضل|أعلى|اعلى|أرخص|ارخص)\s+(?:الأسهم|الاسهم|أسهم|اسهم)/i.test(userMessage)
@@ -729,8 +750,9 @@ export async function executeStructuredTools(
                     || /(?:اسهم|أسهم).{0,10}(?:تجميع|تصريف)/i.test(userMessage);
                 const sectorRequested = Boolean(plan.entities.sector);
                 const scopedSymbols = (compoundMarketScan && asksForMarketWideList) ? [] : symbols.length > 0 ? symbols : await resolveSectorSymbols();
-                const { data: summaryScans } = await summaryQuery;
-                const directionsWithSummary = new Set<"accumulation" | "distribution">();
+                if (scopedSymbols.length > 0) summaryQuery = summaryQuery.in("symbol", scopedSymbols);
+                const { data: summaryScans, error: summaryError } = await summaryQuery;
+                if (summaryError) throw summaryError;
 
             if (summaryScans && summaryScans.length > 0) {
                 const maxDate = requestedDate || summaryScans[0].scan_date;
@@ -760,18 +782,45 @@ export async function executeStructuredTools(
                         const directionAr = direction === "distribution" ? "التصريف" : "التجميع";
                         const currentScanTool = direction === "distribution" ? "get_distribution_stocks" : "get_accumulation_stocks";
 
-                        const strictAccumulation = direction === "accumulation" && plan.entities.min_acc_score != null;
+                        if (isStale && !requestedDate && !requestedStartDate && symbols.length > 0) {
+                            results.push({
+                                tool: currentScanTool,
+                                source: "validation",
+                                data_time: maxDate,
+                                symbols: symbols.map(symbol => symbol.toUpperCase()),
+                                data_type: "historical",
+                                availability: "stale",
+                                data: {
+                                    stocks: [],
+                                    scan_rows: [],
+                                    date: maxDate,
+                                    direction,
+                                    validation: scanQuality,
+                                    stale_served: false,
+                                },
+                            });
+                            textParts.push(`[مسح ${directionAr}]: آخر مسح للسهم مؤرخ ${maxDate} وقديم؛ لم أقدمه كإشارة حالية.`);
+                            continue;
+                        }
+
                         const matchingStocks = todayScans
                             .filter((r: any) => {
                                  // An explicit sector is a hard scope. If fundamentals cannot
                                  // resolve it, never fall back to a market-wide scan.
                                  if (sectorRequested && (scopedSymbols.length === 0 || !scopedSymbols.includes(r.symbol))) return false;
                                  if (scopedSymbols.length > 0 && !scopedSymbols.includes(r.symbol)) return false;
-                                if (!strictAccumulation) return r.signal === direction || Number(r[scoreField] || 0) >= 50;
-                                return Number(r.acc_score || 0) > Number(plan.entities.min_acc_score)
-                                    && Number(r.vol_ratio || 0) > Number(plan.entities.min_vol_ratio)
-                                    && Number(r.dist_score || 0) <= Number(plan.entities.max_dist_score)
-                                    && Number(r.consecutive_acc_days || 0) >= Number(plan.entities.min_consecutive_acc_days);
+                                // A question about a named stock asks for its
+                                // recorded scores even when it does not pass the
+                                // market-wide >=50 screener threshold.
+                                const namedStock = symbols.length > 0 && scopedSymbols.includes(r.symbol);
+                                const hasScoreThreshold = direction === "accumulation" && plan.entities.min_acc_score != null;
+                                if (!namedStock && !hasScoreThreshold && r.signal !== direction && Number(r[scoreField] || 0) < 50) return false;
+                                const matches = (field: string, threshold: number | null | undefined, compare: (value: number, bound: number) => boolean) =>
+                                    threshold == null || (r[field] != null && Number.isFinite(Number(r[field])) && compare(Number(r[field]), threshold));
+                                return matches("acc_score", plan.entities.min_acc_score, (v, b) => v > b)
+                                    && matches("vol_ratio", plan.entities.min_vol_ratio, (v, b) => v > b)
+                                    && matches("dist_score", plan.entities.max_dist_score, (v, b) => v <= b)
+                                    && matches("consecutive_acc_days", plan.entities.min_consecutive_acc_days, (v, b) => v >= b);
                             })
                             .sort((a: any, b: any) => Number(b[scoreField] || 0) - Number(a[scoreField] || 0));
 
@@ -785,225 +834,78 @@ export async function executeStructuredTools(
 
                         const staleNote = isStale ? ` (أحدث مسح مسجل — يُرجى الإشارة للتاريخ)` : "";
                         if (displayedStocks.length > 0) {
-                            directionsWithSummary.add(direction);
                             textParts.push(`\n [بيانات مسح ${directionAr} بتاريخ ${maxDate}${staleNote}]:\n`);
                             displayedStocks.forEach((r: any, idx: number) => {
                                 const name = stocksMap.get(r.symbol) || r.symbol;
-                                const changeStr = Number(r.change_pct || 0) >= 0 ? `+${Number(r.change_pct).toFixed(2)}%` : `${Number(r.change_pct).toFixed(2)}%`;
+                                const changeStr = r.change_pct == null ? "غير متاح" : `${Number(r.change_pct) >= 0 ? "+" : ""}${Number(r.change_pct).toFixed(2)}%`;
                                 const consecutiveDays = Number(r[consecutiveField] || 0);
                                 const consecStr = consecutiveDays > 1 ? ` | ${directionAr} لـ ${consecutiveDays} أيام متتالية` : "";
-                                const accScoreStr = r.acc_score != null ? `${r.acc_score}` : "0";
-                                const distScoreStr = r.dist_score != null ? `${r.dist_score}` : "0";
+                                const accScoreStr = r.acc_score != null ? `${r.acc_score}` : "غير متاحة";
+                                const distScoreStr = r.dist_score != null ? `${r.dist_score}` : "غير متاحة";
                                 textParts.push(`• ${idx + 1}. سهم ${r.symbol} (${name}): درجة التجميع (acc_score) = ${accScoreStr}/100 | درجة التصريف (dist_score) = ${distScoreStr}/100 | نسبة الحجم = ${r.vol_ratio}x | التغير = ${changeStr}${consecStr} | Wyckoff: ${r.wyckoff_phase || "N/A"}`);
                             });
-                            results.push({
-                                tool: currentScanTool,
-                                source: "stock_scans_summary",
-                                data_time: maxDate,
-                                symbols: displayedStocks.map((r: any) => r.symbol),
-                                data_type: isStale ? "historical" : (requestedDate ? "historical" : "live"),
-                                data: { stocks: stocksWithNames, scan_rows: stocksWithNames, date: maxDate, direction, stale_served: isStale }
-                            });
                         }
-                    }
-                }
-
-                // ── Multi-Period & Performance Evaluation (Yesterday + Last Week + Win/Loss Rate) ──
-                const asksForPerformance = /(?:نسبة\s*(?:نجاح|خسارة)|نسبه\s*(?:نجاح|خساره)|معدل\s*(?:النجاح|الخسارة|نجاح|خسارة)|أداء\s*(?:المسح|التجميع|التصريف|التوصيات)|اداء\s*(?:المسح|التجميع|التصريف|التوصيات)|احصائيات\s*النجاح|إحصائيات\s*النجاح|كام\s*في\s*المية\s*(?:نجاح|نجحت)|كم\s*نسبة\s*نجاح)/i.test(userMessage);
-                const asksForLastWeek = /(?:الاسبوع|الأسبوع)\s+(?:اللي|اللى)\s+(?:فات|الماضي)|last\s+week/i.test(userMessage) || Boolean(plan.entities.requested_start_date && !requestedDate);
-
-                if (asksForLastWeek || asksForPerformance) {
-                    const historicalScanDate = "2026-08-17";
-                    const { data: pastScans } = await supabase
-                        .from("stock_scans_summary")
-                        .select("symbol, scan_date, signal, wyckoff_phase, acc_score, dist_score, vol_ratio, change_pct")
-                        .eq("scan_date", historicalScanDate)
-                        .order("acc_score", { ascending: false });
-
-                    if (pastScans && pastScans.length > 0) {
-                        const pastAccStocks = pastScans.filter((r: any) => r.signal === "accumulation" || Number(r.acc_score || 0) >= 50);
-                        if (pastAccStocks.length > 0) {
-                            const pastSymbols = pastAccStocks.map((r: any) => r.symbol);
-
-                            const { data: pastPrices } = await supabase
-                                .from("stock_prices")
-                                .select("symbol, date, close")
-                                .in("symbol", pastSymbols)
-                                .in("date", [historicalScanDate, "2026-08-19"]);
-
-                            const pastPriceMap = new Map<string, number>();
-                            const latestPriceMap = new Map<string, number>();
-                            (pastPrices || []).forEach((p: any) => {
-                                if (p.date === historicalScanDate) pastPriceMap.set(p.symbol, Number(p.close));
-                                if (p.date === "2026-08-19") latestPriceMap.set(p.symbol, Number(p.close));
-                            });
-
-                            let successCount = 0;
-                            let lossCount = 0;
-                            let flatCount = 0;
-                            const evalList: any[] = [];
-
-                            pastAccStocks.forEach((r: any) => {
-                                const startP = pastPriceMap.get(r.symbol);
-                                const endP = latestPriceMap.get(r.symbol);
-                                if (startP && endP) {
-                                    const retPct = ((endP - startP) / startP) * 100;
-                                    let outcome = "ثبات";
-                                    if (retPct > 0.1) { outcome = "نجاح (صعود)"; successCount++; }
-                                    else if (retPct < -0.1) { outcome = "خسارة (تراجع)"; lossCount++; }
-                                    else { flatCount++; }
-                                    evalList.push({ symbol: r.symbol, scan_price: startP, latest_price: endP, return_pct: retPct, outcome });
-                                }
-                            });
-
-                            const totalEval = evalList.length;
-                            const successRatePct = totalEval > 0 ? ((successCount / totalEval) * 100).toFixed(1) : "0.0";
-                            const lossRatePct = totalEval > 0 ? ((lossCount / totalEval) * 100).toFixed(1) : "0.0";
-
-                            textParts.push(`\n [بيانات مسح التجميع للأسبوع الماضي بتاريخ ${historicalScanDate}]:\n`);
-                            const stocksMapLocal = new Map<string, string>();
-                            pastAccStocks.slice(0, 15).forEach((r: any, idx: number) => {
-                                const name = stocksMapLocal.get(r.symbol) || r.symbol;
-                                textParts.push(`• ${idx + 1}. سهم ${r.symbol} (${name}): درجة التجميع = ${r.acc_score} | Wyckoff: ${r.wyckoff_phase}`);
-                            });
-
-                            if (asksForPerformance && totalEval > 0) {
-                                textParts.push(`\n [تقييم نسبة نجاح وخسارة إشارات التجميع بتاريخ ${historicalScanDate} حتى جلسة 2026-08-19]:\n`);
-                                textParts.push(`• إجمالي الإشارات التي تم تقييمها: ${totalEval} سهم`);
-                                textParts.push(`• الإشارات الناجحة (صعود): ${successCount} أسهم بنسبة ${successRatePct}%`);
-                                textParts.push(`• الإشارات الخاسرة (تراجع): ${lossCount} أسهم بنسبة ${lossRatePct}%`);
-                                textParts.push(`• الإشارات المستقرة (ثبات): ${flatCount} أسهم`);
-                                textParts.push(`\nتفاصيل الأداء الفعلي لأسهم الأسبوع الماضي:`);
-                                evalList.forEach((e: any) => {
-                                    const signStr = e.return_pct >= 0 ? `+${e.return_pct.toFixed(2)}%` : `${e.return_pct.toFixed(2)}%`;
-                                    textParts.push(`• ${e.symbol}: سعر المسح (${historicalScanDate}) = ${e.scan_price} جم $\\rightarrow$ السعر الحالي (2026-08-19) = ${e.latest_price} جم (${signStr}) | النتيجة: ${e.outcome}`);
-                                });
-                            }
-
-                            results.push({
-                                tool: "get_accumulation_stocks",
-                                source: "performance_evaluator",
-                                data_time: historicalScanDate,
-                                symbols: pastSymbols,
-                                data_type: "historical",
-                                data: {
-                                    historical_scan_date: historicalScanDate,
-                                    stocks: pastAccStocks,
-                                    performance: {
-                                        total_evaluated: totalEval,
-                                        success_count: successCount,
-                                        success_rate_pct: Number(successRatePct),
-                                        loss_count: lossCount,
-                                        loss_rate_pct: Number(lossRatePct),
-                                        flat_count: flatCount,
-                                        details: evalList
-                                    }
-                                }
-                            });
-                        }
-                    }
-                }
-            }
-
-            const directionsNeedingFallback = scanDirections.filter(d => !directionsWithSummary.has(d));
-            if (directionsNeedingFallback.length > 0) {
-                // Fallback: compute from stock_technical_indicators for directions missing summary data
-                let technicalQuery = supabase
-                    .from("stock_technical_indicators")
-                    .select("symbol, change_pct, volume, vol_sma20, r_vol, rsi_14, macd, macd_signal, macd_histogram, close, sma_20, date, rsi_divergence, macd_divergence, stoch_divergence, king_ai_score, egx_ai_score")
-                    .order("date", { ascending: false })
-                    .limit(500);
-                if (requestedDate) technicalQuery = technicalQuery.eq("date", requestedDate);
-                if (scopedSymbols.length > 0) technicalQuery = technicalQuery.in("symbol", scopedSymbols);
-                else if (symbols.length > 0) technicalQuery = technicalQuery.in("symbol", symbols);
-                const { data: latestTechs } = await technicalQuery;
-
-                if (latestTechs && latestTechs.length > 0) {
-                    const maxDate = latestTechs[0].date;
-                    const todayTechs = latestTechs.filter((r: any) => r.date === maxDate);
-
-                    const symbolsList = Array.from(new Set(todayTechs.map((r: any) => r.symbol)));
-                    const { data: stocksDataFb } = await supabase
-                        .from("stocks")
-                        .select("symbol, name")
-                        .in("symbol", symbolsList);
-                    const stocksMap = new Map<string, string>();
-                    (stocksDataFb || []).forEach((s: any) => {
-                        if (s?.symbol) stocksMap.set(s.symbol, s.name || s.symbol);
-                    });
-
-                    for (const fallbackDirection of directionsNeedingFallback) {
-                        const fallbackScoreField = fallbackDirection === "distribution" ? "dist_score" : "acc_score";
-                        const fallbackDirectionAr = fallbackDirection === "distribution" ? "التصريف" : "التجميع";
-                        const fallbackScanTool = fallbackDirection === "distribution" ? "get_distribution_stocks" : "get_accumulation_stocks";
-
-                        const computedStocks = todayTechs.map((t: any) => {
-                            const rvol = t.r_vol || (t.vol_sma20 && Number(t.vol_sma20) > 0 ? Number(t.volume || 0) / Number(t.vol_sma20) : 1);
-                            let score = 50;
-                            if (fallbackDirection === "accumulation") {
-                                if (rvol >= 1.5) score += 20;
-                                else if (rvol >= 1.2) score += 15;
-                                else if (rvol >= 0.9) score += 10;
-                                if (t.rsi_14 >= 45 && t.rsi_14 <= 68) score += 15;
-                                else if (t.rsi_14 >= 40 && t.rsi_14 < 45) score += 8;
-                                if (t.macd && t.macd_signal && t.macd >= t.macd_signal) score += 10;
-                                if (t.close >= (t.sma_20 || 0)) score += 10;
-                                if (t.rsi_divergence === "BULLISH" || t.macd_divergence === "BULLISH") score += 8;
-                            } else {
-                                if (t.rsi_14 >= 70) score += 20;
-                                else if (t.rsi_14 >= 65) score += 12;
-                                if (t.rsi_divergence === "BEARISH" || t.macd_divergence === "BEARISH" || t.stoch_divergence === "BEARISH") score += 15;
-                                if (t.macd && t.macd_signal && t.macd < t.macd_signal) score += 10;
-                                if (rvol >= 1.2 && Number(t.change_pct) < 0) score += 15;
-                                else if (rvol >= 1.2) score += 8;
-                            }
-                            const finalScore = Math.min(score, 98);
-                            return {
-                                symbol: t.symbol,
-                                name: stocksMap.get(t.symbol) || t.symbol,
-                                scan_date: maxDate,
-                                signal: fallbackDirection,
-                                wyckoff_phase: fallbackDirection === "accumulation" ? "Accumulation" : "Distribution",
-                                [fallbackScoreField]: finalScore,
-                                acc_score: fallbackDirection === "accumulation" ? finalScore : 0,
-                                dist_score: fallbackDirection === "distribution" ? finalScore : 0,
-                                vol_ratio: Number(rvol).toFixed(2),
-                                change_pct: t.change_pct != null ? Number(t.change_pct).toFixed(2) : "0.00",
-                                rsi_14: t.rsi_14 != null ? Number(t.rsi_14).toFixed(2) : null,
-                                close: t.close,
-                                consecutive_acc_days: fallbackDirection === "accumulation" ? 1 : 0,
-                                consecutive_dist_days: fallbackDirection === "distribution" ? 1 : 0,
-                                king_ai_score: t.king_ai_score != null ? Number(t.king_ai_score).toFixed(4) : null,
-                                egx_ai_score: t.egx_ai_score != null ? Number(t.egx_ai_score).toFixed(4) : null,
-                            };
+                        results.push({
+                            tool: currentScanTool,
+                            source: "stock_scans_summary",
+                            data_time: maxDate,
+                            symbols: displayedStocks.map((r: any) => r.symbol),
+                            data_type: isStale || requestedDate || requestedStartDate ? "historical" : "cached",
+                            availability: isStale ? "stale" : stocksWithNames.length ? "available" : "empty",
+                            data: { stocks: stocksWithNames, scan_rows: stocksWithNames, date: maxDate, direction, stale_served: isStale, coverage: "recorded_snapshot" }
                         });
+                    }
+                }
 
-                        const filteredStocks = computedStocks
-                            .filter((s: any) => symbols.length > 0 ? true : Number(s[fallbackScoreField]) >= 65)
-                            .sort((a: any, b: any) => Number(b[fallbackScoreField]) - Number(a[fallbackScoreField]) || Number(b.vol_ratio) - Number(a.vol_ratio));
-
-                        const displayedStocks = symbols.length > 0 ? filteredStocks : filteredStocks.slice(0, requestedCount || 15);
-
-                        if (displayedStocks.length > 0) {
-                            textParts.push(`\n [بيانات مسح ${fallbackDirectionAr} بالاستناد إلى المؤشرات الفنية والسيولة بتاريخ ${maxDate}]:\n`);
-                            displayedStocks.forEach((r: any, idx: number) => {
-                                const changeStr = Number(r.change_pct || 0) >= 0 ? `+${r.change_pct}%` : `${r.change_pct}%`;
-                                const kingStr = r.king_ai_score != null ? ` | KING AI: ${(Number(r.king_ai_score) * 100).toFixed(1)}%` : "";
-                                const egxStr = r.egx_ai_score != null ? ` | EGX AI: ${(Number(r.egx_ai_score) * 100).toFixed(1)}%` : "";
-                                textParts.push(`• ${idx + 1}. سهم ${r.symbol} (${r.name}): درجة ${fallbackDirectionAr} = ${r[fallbackScoreField]}/100 | نسبة الحجم = ${r.vol_ratio}x | RSI = ${r.rsi_14 || "N/A"} | التغير = ${changeStr}${kingStr}${egxStr}`);
+                // Evaluate an actual dated snapshot against a recorded closing
+                // date. No fixed dates or inferred target/stop-loss outcomes.
+                const asksForPerformance = /نسب[ةه].{0,8}(?:نجاح|خسار)|معدل.{0,8}(?:نجاح|خسار)|[اأ]داء.{0,10}(?:المسح|التجميع|التصريف)/i.test(userMessage);
+                if (asksForPerformance) {
+                    const rangeEnd = requestedEndDate || requestedDate || todayInCairo();
+                    const { data: endDateRows, error: endDateError } = await supabase.from("stock_prices")
+                        .select("date").eq("exchange", "EGX").lte("date", rangeEnd)
+                        .order("date", { ascending: false }).limit(1);
+                    const endDate = endDateRows?.[0]?.date;
+                    const snapshotDate = maxDate;
+                    if (endDateError) throw endDateError;
+                    if (endDate && endDate > snapshotDate) {
+                        const evaluatedSymbols = Array.from(new Set(todayScans.map((r: any) => String(r.symbol))));
+                        const { data: evaluationPrices, error: pricesError } = await supabase.from("stock_prices")
+                            .select("symbol,date,close").eq("exchange", "EGX").in("symbol", evaluatedSymbols)
+                            .in("date", [snapshotDate, endDate]);
+                        if (pricesError) throw pricesError;
+                        const pricesByDate = new Map<string, number>((evaluationPrices || [])
+                            .filter((r: any) => r.close != null && Number.isFinite(Number(r.close)) && Number(r.close) > 0)
+                            .map((r: any) => [r.symbol + "|" + r.date, Number(r.close)]));
+                        for (const result of results.filter(r => scanDirections.some(d => r.tool === (d === "distribution" ? "get_distribution_stocks" : "get_accumulation_stocks")))) {
+                            const rows = (result.data?.stocks || []).flatMap((stock: any) => {
+                                const first = pricesByDate.get(stock.symbol + "|" + snapshotDate);
+                                const last = pricesByDate.get(stock.symbol + "|" + endDate);
+                                if (first == null || last == null) return [];
+                                return [{ symbol: stock.symbol, scan_price: first, latest_price: last, return_pct: (last - first) / first * 100 }];
                             });
-                            results.push({
-                                tool: fallbackScanTool,
-                                source: "stock_technical_indicators",
-                                data_time: maxDate,
-                                symbols: displayedStocks.map((r: any) => r.symbol),
-                                data_type: requestedDate ? "historical" : "live",
-                                data: { stocks: displayedStocks, scan_rows: displayedStocks, date: maxDate, direction: fallbackDirection }
-                            });
+                            result.data.performance = {
+                                start_date: snapshotDate, end_date: endDate, total_evaluated: rows.length,
+                                missing_prices: (result.data?.stocks || []).length - rows.length,
+                                rising_count: rows.filter((r: any) => r.return_pct > 0).length,
+                                falling_count: rows.filter((r: any) => r.return_pct < 0).length,
+                                flat_count: rows.filter((r: any) => r.return_pct === 0).length,
+                                details: rows,
+                                note: "مقارنة إغلاقين فقط، وليست نسبة تحقق أهداف أو وقف خسارة ولا عائداً بعد التكاليف.",
+                            };
+                        }
+                    } else {
+                        textParts.push("لا توجد جلسة لاحقة موثقة ضمن الفترة المطلوبة لتقييم أداء المسح؛ لا يمكن حساب نسبة نجاح منه.");
+                        for (const result of results.filter(r => r.tool === "get_accumulation_stocks" || r.tool === "get_distribution_stocks")) {
+                            result.data.performance = { available: false, reason: "no_later_session_in_requested_period" };
                         }
                     }
                 }
             }
+
+            // Only the recorded scan can establish Wyckoff direction/scores.
+            // Missing coverage remains empty; RSI/volume must not manufacture
+            // accumulation or distribution evidence for the validator.
 
             // Ensure every requested direction emits a ToolResult object
             for (const dir of scanDirections) {
@@ -1012,6 +914,7 @@ export async function executeStructuredTools(
                     results.push({
                         tool: targetTool,
                         source: "empty",
+                        availability: "empty",
                         data_time: requestedDate || now,
                         symbols,
                         data_type: requestedDate ? "historical" : "live",
@@ -1020,13 +923,22 @@ export async function executeStructuredTools(
                             scan_rows: [],
                             date: requestedDate,
                             direction: dir,
-                            message: `No ${dir} stocks found.`
+                            coverage: "missing",
+                            message: `No recorded scan coverage for ${dir} in the requested scope.`
                         }
                     });
                 }
             }
         } catch (e) {
             console.warn("Error fetching accumulation stocks:", e);
+            for (const dir of scanDirections) {
+                const targetTool = dir === "distribution" ? "get_distribution_stocks" : "get_accumulation_stocks";
+                if (!results.some(r => r.tool === targetTool)) {
+                    results.push({ tool: targetTool, source: "stock_scans_summary", data_time: now, symbols,
+                        data_type: "cached", availability: "failed", error: "scan_fetch_failed",
+                        data: { stocks: [], scan_rows: [], direction: dir, coverage: "failed" } });
+                }
+            }
         }
     }
 
@@ -1266,11 +1178,13 @@ export async function executeStructuredTools(
                 if (r.data?.symbol) techsMap.set(r.data.symbol.toUpperCase(), r.data);
             });
 
-            // Live on-demand intraday refresh during open EGX trading hours (Sun-Thu 10:00 AM - 2:30 PM Cairo time)
-            const liveRefreshedMap = new Map<string, { data?: any; success: boolean; error?: string; from_cache?: boolean }>();
+            // Always ask the live capability layer for a small symbol set. It
+            // exits locally when the market is closed, and—critically—can mark
+            // instruments whose live feed is unsupported even outside session.
+            const liveRefreshedMap = new Map<string, { data?: any; success: boolean; error?: string; from_cache?: boolean; unsupported?: boolean; persisted?: boolean; daily_persisted?: boolean; persistence_error?: string }>();
             const sessionIsOpen = isEgxSessionOpen();
 
-            if (sessionIsOpen && symbols.length > 0 && symbols.length <= 5) {
+            if (!requestedDate && !requestedStartDate && symbols.length > 0 && symbols.length <= 5) {
                 await Promise.all(symbols.map(async (sym) => {
                     const upperSym = sym.toUpperCase();
                     try {
@@ -1299,10 +1213,11 @@ export async function executeStructuredTools(
                                 bb_lower: ld.bb_lower ?? existingTech.bb_lower,
                                 stoch_k: ld.stoch_k ?? existingTech.stoch_k,
                                 stoch_d: ld.stoch_d ?? existingTech.stoch_d,
-                                volume: ld.volume || existingTech.volume,
+                                volume: ld.volume ?? existingTech.volume,
                                 date: ld.updated_at.split("T")[0],
                                 is_live_intraday: true,
-                                live_update_time: ld.cairo_time_str
+                                live_update_time: ld.cairo_time_str,
+                                live_updated_at: ld.updated_at,
                             });
                         }
                     } catch (e: any) {
@@ -1337,7 +1252,7 @@ export async function executeStructuredTools(
             });
 
             if (pricesMap.size > 0 || techsMap.size > 0) {
-                textParts.push(`\n [بيانات السوق الحالية - ${now.split("T")[0]}]:\n`);
+                textParts.push(`\n [أحدث بيانات سوق متاحة - ${now.split("T")[0]}]:\n`);
                 symbols.forEach(sym => {
                     const upperSym = sym.toUpperCase();
                     const price = pricesMap.get(upperSym);
@@ -1351,6 +1266,10 @@ export async function executeStructuredTools(
                         const priceData = price as any;
                         const techData = tech as any;
                         const closePrice = techData?.close ?? priceData?.close ?? "N/A";
+                        const priceDate = techData?.date || priceData?.date || null;
+                        const priceLabel = techData?.is_live_intraday
+                            ? `السعر الحالي = ${closePrice}`
+                            : `آخر إغلاق مسجل = ${closePrice} بتاريخ ${priceDate || "غير محدد"}`;
                         const changeStr = techData && typeof techData.change_pct === "number"
                             ? `${techData.change_pct >= 0 ? "+" : ""}${techData.change_pct.toFixed(2)}%`
                             : "N/A";
@@ -1359,8 +1278,8 @@ export async function executeStructuredTools(
                         const macdSignal = techData?.macd_signal != null ? Number(techData.macd_signal).toFixed(4) : "N/A";
                         const vol = techData?.volume ?? priceData?.volume ?? null;
                         const volSma20 = techData?.vol_sma20 ?? null;
-                        let volRatioStr = "1.00x";
-                        let volRatioNum: number | null = 1;
+                        let volRatioStr = "غير متاح";
+                        let volRatioNum: number | null = null;
                         if (vol !== null && volSma20 !== null && Number(volSma20) > 0) {
                             const ratio = Number(vol) / Number(volSma20);
                             volRatioStr = `${ratio.toFixed(2)}x`;
@@ -1459,17 +1378,18 @@ export async function executeStructuredTools(
                             };
                         }
 
-                        textParts.push(`• ${sym} (${stockData?.name || sym}): السعر = ${closePrice} ج.م${liveStatusStr}, التغير = ${changeStr}, RSI = ${rsi}, MACD = ${macdMain}, MACD Signal = ${macdSignal}, SMA 50 = ${sma50}, EMA 50 = ${ema50}, SMA 200 = ${sma200}, EMA 200 = ${ema200}, Bollinger Upper = ${bbUpper}, Bollinger Lower = ${bbLower}, Stochastic %K = ${stochK}, Stochastic %D = ${stochD}, نسبة السيولة = ${volRatioStr}${wyckoffStr}${accScoreStr}${distScoreStr}, تقييم نموذج KING AI = ${kingScore}, تقييم نموذج EGX AI = ${egxScore}\n  [موقف توصيات المنصة لسهم ${sym}]: ${recInfoText}`);
+                        textParts.push(`• ${sym} (${stockData?.name || sym}): ${priceLabel} ج.م${liveStatusStr}, التغير = ${changeStr}, RSI = ${rsi}, MACD = ${macdMain}, MACD Signal = ${macdSignal}, SMA 50 = ${sma50}, EMA 50 = ${ema50}, SMA 200 = ${sma200}, EMA 200 = ${ema200}, Bollinger Upper = ${bbUpper}, Bollinger Lower = ${bbLower}, Stochastic %K = ${stochK}, Stochastic %D = ${stochD}, نسبة السيولة = ${volRatioStr}${wyckoffStr}${accScoreStr}${distScoreStr}, تقييم نموذج KING AI = ${kingScore}, تقييم نموذج EGX AI = ${egxScore}\n  [موقف توصيات المنصة لسهم ${sym}]: ${recInfoText}`);
 
                         const isLive = Boolean(techData?.is_live_intraday);
-                        const liveFailed = Boolean(sessionIsOpen && liveInfo && !liveInfo.success);
+                        const liveFailed = Boolean(sessionIsOpen && liveInfo && !liveInfo.success && !liveInfo.unsupported);
 
                         results.push({
                             tool: "get_stock",
+                            availability: liveInfo?.unsupported && (price || tech) ? "partial" : liveInfo?.unsupported ? "unsupported" : liveFailed ? "stale" : isLive ? "available" : price || tech ? "stale" : "empty",
                             source: isLive ? "live_session" : "database",
-                            data_time: isLive ? (techData?.live_update_time || now) : (priceData?.date || techData?.date || now),
+                            data_time: isLive ? (techData?.live_updated_at || now) : (priceData?.date || techData?.date || now),
                             symbols: [upperSym],
-                            data_type: isLive ? "live" : "cached",
+                            data_type: isLive ? "live" : "historical",
                             data: {
                                 symbol: upperSym,
                                 name: stockData?.name || upperSym,
@@ -1497,7 +1417,11 @@ export async function executeStructuredTools(
                                 is_live_intraday: isLive,
                                 live_update_time: techData?.live_update_time || null,
                                 live_refresh_failed: liveFailed,
+                                live_refresh_unsupported: Boolean(liveInfo?.unsupported),
                                 live_refresh_error: liveInfo?.error || null,
+                                live_persisted: liveInfo?.persisted ?? null,
+                                live_daily_persisted: liveInfo?.daily_persisted ?? null,
+                                live_persistence_error: liveInfo?.persistence_error || null,
                                 session_open: sessionIsOpen,
                                 king_ai_score: techData?.king_ai_score ?? null,
                                 egx_ai_score: techData?.egx_ai_score ?? null,
@@ -1541,12 +1465,14 @@ export async function executeStructuredTools(
                 textParts.push(formatCorporateActionsSummary(caResult));
                 results.push({
                     tool: "get_corporate_actions",
-                    source: caResult.fromWeb > 0 ? "database+web" : "database",
+                    source: caResult.fromWeb > 0 ? "database+web" : caResult.fromCache ? "database+web_cache" : "database",
                     data_time: now,
                     symbols: caResult.symbolsCovered,
                     data_type: "live",
+                    availability: caResult.failedSymbols?.length ? "partial" : "available",
                     data: {
                         corporate_actions: caResult.items,
+                        failed_symbols: caResult.failedSymbols || [],
                         counts: {
                             total: caResult.items.length,
                             from_database: caResult.fromDatabase,
@@ -1566,7 +1492,15 @@ export async function executeStructuredTools(
                         );
                     });
             } else if (caMentioned) {
-                textParts.push(`\n [أحداث مالية]: لا توجد أحداث مالية (اكتتاب/توزيعات/تجزئة/منح) مسجلة أو متاحة حالياً للأسهم ${symbols.join("، ")} بعد فحص قاعدة البيانات والبحث الحي.\n`);
+                const failed = Boolean(caResult.failedSymbols?.length);
+                textParts.push(failed
+                    ? `\n [أحداث مالية]: تعذر استكمال البحث للأسهم ${caResult.failedSymbols!.join("، ")}؛ غياب النتائج لا يؤكد عدم وجود أحداث مالية.\n`
+                    : `\n [أحداث مالية]: لم يُعثر على أحداث مالية ضمن المصادر والفترة التي تم فحصها للأسهم ${symbols.join("، ")}.\n`);
+                results.push({ tool: "get_corporate_actions", source: "database+web", data_time: now,
+                    symbols, data_type: "cached", availability: failed ? "failed" : "empty",
+                    data: { corporate_actions: [], failed_symbols: caResult.failedSymbols || [] },
+                    ...(failed ? { error: "corporate_actions_lookup_incomplete" } : {}),
+                });
             }
         } catch (e) {
             console.warn("Error fetching corporate actions:", e);
@@ -1981,7 +1915,7 @@ export async function executeStructuredTools(
                                 : "لا توجد توصيات مطابقة للشروط حالياً.";
                     results.push({ tool: "get_recommendations", source: "validation", data_time: now, symbols: [], data_type: "historical", data: [], error: noRecMsg });
                     textParts.push(`[توصيات المنصة]: ${noRecMsg}`);
-                    return { results, formattedText: textParts.join("\n") };
+                    return finalize(textParts.join("\n"));
                 }
 
                 const filterTitle = recFilter === "open" ? "التوصيات المفتوحة الحالية" : recFilter === "this_week" ? "توصيات الأسبوع الحالي" : recFilter === "last_week" ? "توصيات الأسبوع الماضي" : "إشارات وتوصيات التداول";
@@ -2234,7 +2168,7 @@ export async function executeStructuredTools(
             } else if (distance_from_support_pct <= 2.5) {
                 trading_zone = "عند منطقة الدعم تماماً";
             } else if (position_pct <= 25) {
-                trading_zone = "فوق مستوى الدعم وقريب منه (منطقة دعم تجميعية)";
+                trading_zone = "فوق مستوى الدعم وقريب منه (منطقة دعم فنية)";
             } else if (close > resistance) {
                 trading_zone = "فوق مستوى المقاومة (تم اختراق المقاومة صعوداً)";
             } else if (distance_from_resistance_pct <= 2.5) {
@@ -2601,7 +2535,7 @@ export async function executeStructuredTools(
         }
     }
 
-    return { results, formattedText: textParts.join("\n") };
+    return finalize(textParts.join("\n"));
 }
 
 // ===== Arabic text parsing helpers for portfolio management =====

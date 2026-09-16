@@ -32,7 +32,7 @@ const cases = [
     ["الموديل", "انتا موديل ايه", "general_chat", [], []],
     ["تاريخ", "تحليل AMES يوم 2026-07-10", "stock_analysis", ["AMES"], ["get_stock", "get_stock_levels"]],
     ["سيولة سهم", "حلل سيوله ELSH", "stock_analysis", ["ELSH"], ["get_stock"]],
-    ["مخاطر", "ممكن EITP يخسر اكتر من 8%", "risk_analysis", ["EITP"], ["get_stock", "get_distribution_stocks"]],
+    ["مخاطر", "ممكن EITP يخسر اكتر من 8%", "risk_analysis", ["EITP"], ["get_stock", "get_stock_levels", "get_distribution_stocks"]],
     ["أخبار سوق", "اخبار السوق ل 5/7", "market_summary", [], ["get_news"]],
 ];
 
