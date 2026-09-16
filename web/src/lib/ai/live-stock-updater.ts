@@ -12,6 +12,7 @@
 import { todayInCairo, isEgxSessionOpen as isCairoEgxSessionOpen } from "./cairo-date";
 import { executionFetch } from "./execution";
 import { isLiveUnsupportedSymbol, liveTickerCandidates, liveUnsupportedNotice } from "./live-coverage";
+import { isDailySyncComplete, shouldPreferLiveBeforeSync } from "./sync-gate";
 
 interface LiveIndicatorsData {
     symbol: string;
@@ -103,7 +104,10 @@ export async function fetchLiveStockIndicators(
     if (isLiveUnsupportedSymbol(cleanSym)) {
         return { success: false, unsupported: true, error: liveUnsupportedNotice(cleanSym) };
     }
-    if (!isEgxSessionOpen()) {
+    // Market close alone is not enough to switch to Supabase. Keep the live
+    // source during the post-close sync window until today's daily job has
+    // completed successfully and the current session date is present.
+    if (!isEgxSessionOpen() && (!shouldPreferLiveBeforeSync() || await isDailySyncComplete(supabase))) {
         return { success: false, error: "جلسة EGX مغلقة حالياً؛ سيتم استخدام آخر إغلاق مسجل" };
     }
 
