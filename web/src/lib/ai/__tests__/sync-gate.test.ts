@@ -3,6 +3,8 @@ import { isDailySyncComplete, shouldPreferLiveBeforeSync } from "../sync-gate";
 
 describe("daily sync source gate", () => {
     it("keeps live preference during the post-close sync window", () => {
+        expect(shouldPreferLiveBeforeSync(new Date("2026-09-16T08:30:00+03:00"))).toBe(false);
+        expect(shouldPreferLiveBeforeSync(new Date("2026-09-16T11:00:00+03:00"))).toBe(true);
         expect(shouldPreferLiveBeforeSync(new Date("2026-09-16T15:30:00+03:00"))).toBe(true);
         expect(shouldPreferLiveBeforeSync(new Date("2026-09-16T18:01:00+03:00"))).toBe(false);
     });
@@ -47,5 +49,12 @@ describe("daily sync source gate", () => {
             ? { select: () => ({ eq: () => ({ eq: () => ({ order: () => ({ limit: async () => ({ data: [{ status: "completed", completed_at: "2026-09-16T17:45:00Z", steps: [{ name: "sync_prices", status: "success" }] }] }) }) }) }) }) }
             : { select: () => ({ eq: () => ({ order: () => ({ limit: async () => ({ data: [{ date: "2026-09-16" }] }) }) }) }) });
         expect(await isDailySyncComplete({ from })).toBe(false);
+    });
+
+    it("rejects yesterday's completed job during today's session even if stock prices match yesterday", async () => {
+        const from = jest.fn((table: string) => table === "daily_job_runs"
+            ? { select: () => ({ eq: () => ({ eq: () => ({ order: () => ({ limit: async () => ({ data: [{ status: "completed", completed_at: "2026-09-15T17:45:00Z", steps: [{ name: "sync_prices", status: "started" }, { name: "sync_prices", status: "success" }] }] }) }) }) }) }) }
+            : { select: () => ({ eq: () => ({ order: () => ({ limit: async () => ({ data: [{ date: "2026-09-15" }] }) }) }) }) });
+        expect(await isDailySyncComplete({ from }, "2026-09-16")).toBe(false);
     });
 });

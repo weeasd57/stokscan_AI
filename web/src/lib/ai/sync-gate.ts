@@ -1,3 +1,5 @@
+import { todayInCairo } from "./cairo-date";
+
 function cairoDate(value: unknown): string | null {
     if (!value) return null;
     const date = new Date(String(value));
@@ -9,7 +11,7 @@ function cairoDate(value: unknown): string | null {
  * Supabase is authoritative only after the daily job actually completed and
  * wrote the current session's daily prices. The clock alone is not evidence.
  */
-export async function isDailySyncComplete(supabase: any): Promise<boolean> {
+export async function isDailySyncComplete(supabase: any, expectedDate?: string): Promise<boolean> {
     if (!supabase) return false;
     try {
         const jobQuery = await supabase
@@ -36,6 +38,11 @@ export async function isDailySyncComplete(supabase: any): Promise<boolean> {
 
         const runDate = cairoDate(job.completed_at || job.started_at);
         if (!runDate) return false;
+
+        // Daily sync is only complete if the completed job matches the target session date
+        const targetDate = expectedDate || todayInCairo();
+        if (targetDate && runDate !== targetDate) return false;
+
         const latestQuery = await supabase
             .from("stock_prices")
             .select("date")
@@ -62,5 +69,6 @@ export function shouldPreferLiveBeforeSync(now = new Date()): boolean {
     const weekday = parts.weekday;
     if (weekday === "Fri" || weekday === "Sat") return false;
     const minutes = Number(parts.hour) * 60 + Number(parts.minute);
-    return minutes <= 18 * 60;
+    return minutes >= 10 * 60 && minutes <= 18 * 60;
 }
+
