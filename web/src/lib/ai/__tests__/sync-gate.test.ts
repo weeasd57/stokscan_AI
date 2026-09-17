@@ -20,7 +20,7 @@ describe("daily sync source gate", () => {
                 select: () => ({ eq: () => ({ order: () => ({ limit: async () => ({ data: [{ date: "2026-09-16" }] }) }) }) }),
             };
         });
-        expect(await isDailySyncComplete({ from })).toBe(true);
+        expect(await isDailySyncComplete({ from }, "2026-09-16")).toBe(true);
     });
 
     it("rejects a completed job whose price snapshot is stale", async () => {

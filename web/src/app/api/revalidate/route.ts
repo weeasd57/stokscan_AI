@@ -65,7 +65,7 @@ async function handleRevalidate(req: NextRequest) {
         revalidatePath(path);
         revalidated.push(path);
       }
-    } else {
+    } else if (tags.length === 0) {
       // Default: purge cache across all pages, layout and major data endpoints
       revalidatePath("/", "layout");
       revalidatePath("/");

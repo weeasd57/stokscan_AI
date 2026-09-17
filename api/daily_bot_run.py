@@ -2118,6 +2118,58 @@ def generate_arabic_rationale(result: dict) -> dict:
     }
 
 
+def _build_daily_recommendations_message(
+    recommendations: List[Dict[str, Any]],
+    current_date: str,
+    web_origin: str,
+    *,
+    title: str = "توصيات الذكاء الاصطناعي الجديدة",
+) -> str:
+    """Render a daily card from canonical ``scan_results`` rows only."""
+    msg_lines = [
+        f"🤖 *{title}*",
+        f"📅 {current_date} | 🇪🇬 البورصة المصرية",
+        "━━━━━━━━━━━━━━━━━━━━\n",
+    ]
+
+    for idx, row in enumerate(recommendations):
+        symbol = row.get("symbol")
+        entry_price = float(row.get("entry_price") or 0.0)
+        target_price = float(row.get("target_price") or 0.0)
+        stop_loss = float(row.get("stop_loss") or 0.0)
+        rich_details = row.get("top_reasons")
+        if isinstance(rich_details, str):
+            try:
+                rich_details = json.loads(rich_details)
+            except (TypeError, ValueError):
+                rich_details = None
+        stored_target_2 = rich_details.get("target_2") if isinstance(rich_details, dict) else None
+        target_2 = float(stored_target_2) if stored_target_2 is not None else round(target_price * 1.10, 2)
+        score = max(0, min(round(float(row.get("precision") or 0.5) * 10), 10))
+        name = row.get("name") or symbol
+
+        target_1_pct = ((target_price / entry_price - 1) * 100) if entry_price > 0 else 0.0
+        target_2_pct = ((target_2 / entry_price - 1) * 100) if entry_price > 0 else 0.0
+        stop_pct = ((stop_loss / entry_price - 1) * 100) if entry_price > 0 else 0.0
+        score_bar = "▰" * score + "▱" * (10 - score)
+
+        msg_lines.append(
+            f"🔥 *{idx+1}. {symbol}* — {name}\n"
+            f"💰 الدخول: `{entry_price:.2f}` EGP\n"
+            f"🎯 هدف 1: `{target_price:.2f}` (`{target_1_pct:+.1f}%`) ← 🚀 هدف 2: `{target_2:.2f}` (`{target_2_pct:+.1f}%`)\n"
+            f"🛑 الوقف: `{stop_loss:.2f}` (`{stop_pct:+.1f}%`)\n"
+            f"⭐ `{score_bar}` `{score}/10`\n"
+            "━━━━━━━━━━━━━━━━━━━━"
+        )
+
+    msg_lines.append(
+        f"📊 *إجمالي التوصيات الجديدة:* `{len(recommendations)}` أسهم\n\n"
+        "🔗 *الرسوم البيانية والتفاصيل الكاملة:*\n"
+        f"👉 [اضغط هنا لفتح المنصة]({web_origin}/scanner/backtests?tab=bots)"
+    )
+    return "\n".join(msg_lines)
+
+
 async def generate_daily_recommendations(model_name: Optional[str] = None):
     """
     Run fast_scan ML model for Egypt, select the top 10 speculative stocks,
@@ -2327,9 +2379,11 @@ async def generate_daily_recommendations(model_name: Optional[str] = None):
     # Take the top 10 speculative stocks
     top_10 = results[:10]
 
-    # Only rows confirmed persisted in scan_results may be published to Telegram.
-    # A recommendation must be readable by the website before it is announced.
-    persisted_recommendations = []
+    # Only recommendations inserted by this run are new recommendations. Existing
+    # open rows may receive refreshed model scores, but they must not be announced
+    # again with the scanner candidate's temporary entry/target/stop values.
+    inserted_count = 0
+    refreshed_existing_count = 0
 
     batch_id = str(uuid.uuid4())
     for i, res_item in enumerate(top_10):
@@ -2394,73 +2448,87 @@ async def generate_daily_recommendations(model_name: Optional[str] = None):
                 if not getattr(update_verify, "data", None):
                     print(f"[RECOMMENDATIONS] Skipped concurrent update for {symbol}.{exchange}")
                 else:
-                    persisted_recommendations.append(res_item)
+                    refreshed_existing_count += 1
                     print(f"[RECOMMENDATIONS] #{i+1} Updated existing open recommendation for {symbol}.{exchange}")
             else:
-                # Avoid hard failure if some DB columns are missing in the remote schema.
-                safe_row_data = dict(row_data)
-                safe_row_data.pop("top_reasons", None)
-                safe_row_data.pop("features", None)
-                insert_result = supabase.table("scan_results").insert(safe_row_data).execute()
+                # Persist the complete recommendation snapshot so the website and
+                # Telegram share the same rationale and second target. Retain the
+                # legacy fallback only for deployments missing the JSONB columns.
+                try:
+                    insert_result = supabase.table("scan_results").insert(row_data).execute()
+                except Exception as full_insert_error:
+                    insert_error_text = str(full_insert_error).lower()
+                    missing_json_columns = (
+                        ("top_reasons" in insert_error_text or "features" in insert_error_text)
+                        and (
+                            "column" in insert_error_text
+                            or "schema cache" in insert_error_text
+                            or "does not exist" in insert_error_text
+                        )
+                    )
+                    if not missing_json_columns:
+                        raise
+                    print(
+                        f"[RECOMMENDATIONS] Full insert failed for {symbol}.{exchange}; "
+                        f"retrying legacy columns only: {full_insert_error}"
+                    )
+                    safe_row_data = dict(row_data)
+                    safe_row_data.pop("top_reasons", None)
+                    safe_row_data.pop("features", None)
+                    insert_result = supabase.table("scan_results").insert(safe_row_data).execute()
                 if getattr(insert_result, "data", None):
-                    persisted_recommendations.append(res_item)
+                    inserted_count += 1
                     print(f"[RECOMMENDATIONS] #{i+1} Saved {symbol}.{exchange} with target1={row_data['target_price']}, target2={rich_details['target_2']}, risk_adjusted_return={row_data['risk_adjusted_return']:.4f}")
                 else:
                     print(f"[RECOMMENDATIONS] #{i+1} Save returned no row for {symbol}.{exchange}; not published to Telegram")
         except Exception as ins_err:
             print(f"[RECOMMENDATIONS] Failed to save/update recommendation for {symbol}: {ins_err}")
 
+    # Re-read the rows created by this batch from the canonical table. Telegram
+    # must use the exact same persisted snapshot that the website reads.
+    persisted_recommendations = []
+    if inserted_count:
+        try:
+            persisted_res = (
+                supabase.table("scan_results")
+                .select(
+                    "id,batch_id,symbol,exchange,name,entry_price,target_price,"
+                    "stop_loss,last_close,precision,status,created_at,top_reasons"
+                )
+                .eq("batch_id", batch_id)
+                .eq("status", "open")
+                .order("created_at")
+                .execute()
+            )
+            persisted_recommendations = persisted_res.data or []
+        except Exception as read_err:
+            print(f"[RECOMMENDATIONS] Could not re-read newly persisted recommendations: {read_err}")
+
+    print(
+        f"[RECOMMENDATIONS] Batch result: {len(persisted_recommendations)} new rows ready for publication, "
+        f"{refreshed_existing_count} existing open rows refreshed."
+    )
+
     # Notify Stocks Score subscribers with beautiful detailed summary card
     try:
         web_origin = get_web_origin()
         current_date = dt.datetime.now().strftime("%Y-%m-%d")
-        
-        msg_lines = [
-            f"🤖 *توصيات الذكاء الاصطناعي اليومية*",
-            f"📅 {current_date} | 🇪🇬 البورصة المصرية",
-            f"━━━━━━━━━━━━━━━━━━━━\n"
-        ]
 
         # Send only recommendations confirmed persisted in scan_results. Never
         # publish a Telegram row the website cannot read from the database.
         if not persisted_recommendations:
-            print("[RECOMMENDATIONS] No recommendations persisted to scan_results; skipping Telegram card.")
-            return
+            print("[RECOMMENDATIONS] No new recommendations persisted to scan_results; skipping Telegram card.")
+            return 0
 
-        for idx, r in enumerate(persisted_recommendations):
-            sym = r.get("symbol")
-            ex = r.get("exchange", "EGX")
-            ep = float(r.get("last_close" if r.get("last_close") is not None else "entry_price", 0.0))
-            tp = float(r.get("target_price", 0.0))
-            sl = float(r.get("stop_loss", 0.0))
-            tp2 = round(tp * 1.10, 2)
-            score = round(float(r.get("precision", 0.5)) * 10)
-            name = r.get("name", sym)
-
-            tp1_pct = ((tp / ep - 1) * 100) if ep > 0 else 0.0
-            tp2_pct = ((tp2 / ep - 1) * 100) if ep > 0 else 0.0
-            sl_pct = ((sl / ep - 1) * 100) if ep > 0 else 0.0
-            score = max(0, min(score, 10))
-            score_bar = "▰" * score + "▱" * (10 - score)
-
-            msg_lines.append(
-                f"🔥 *{idx+1}. {sym}* — {name}\n"
-                f"💰 الدخول: `{ep:.2f}` EGP\n"
-                f"🎯 هدف 1: `{tp:.2f}` (`{tp1_pct:+.1f}%`) ← 🚀 هدف 2: `{tp2:.2f}` (`{tp2_pct:+.1f}%`)\n"
-                f"🛑 الوقف: `{sl:.2f}` (`{sl_pct:+.1f}%`)\n"
-                f"⭐ `{score_bar}` `{score}/10`\n"
-                f"━━━━━━━━━━━━━━━━━━━━"
-            )
-
-        msg_lines.append(
-            f"📊 *إجمالي التوصيات:* `{len(persisted_recommendations)}` أسهم\n\n"
-            f"🔗 *الرسوم البيانية والتفاصيل الكاملة:*\n"
-            f"👉 [اضغط هنا لفتح المنصة]({web_origin}/scanner/backtests?tab=bots)"
+        telegram_message = _build_daily_recommendations_message(
+            persisted_recommendations,
+            current_date,
+            web_origin,
         )
         
         delivered = False
         if _telegram_recommendation_writes_enabled():
-            delivered = _notify_central_telegram("\n".join(msg_lines), "daily_recommendations")
+            delivered = _notify_central_telegram(telegram_message, "daily_recommendations")
         else:
             print("[RECOMMENDATIONS] Telegram recommendation delivery is read-only/disabled.")
         print(f"[RECOMMENDATIONS] {'Delivered' if delivered else 'Failed to deliver'} detailed recommendations for Telegram.")
@@ -2473,8 +2541,19 @@ async def generate_daily_recommendations(model_name: Optional[str] = None):
             cache_res = supabase.table("market_cache").select("payload").eq("cache_key", "telegram_recommendations_sent").maybe_single().execute()
             existing_payload = getattr(cache_res, "data", None) if cache_res is not None else None
             payload = existing_payload.get("payload") if isinstance(existing_payload, dict) and existing_payload.get("payload") else {"sent_dates": [], "queued_dates": []}
-            if delivered and current_date not in payload.get("sent_dates", []):
-                payload.setdefault("sent_dates", []).append(current_date)
+            if delivered:
+                if current_date not in payload.get("sent_dates", []):
+                    payload.setdefault("sent_dates", []).append(current_date)
+                deliveries = payload.setdefault("deliveries", {})
+                if not isinstance(deliveries, dict):
+                    deliveries = {}
+                    payload["deliveries"] = deliveries
+                deliveries[current_date] = {
+                    "batch_id": batch_id,
+                    "recommendation_ids": [str(row.get("id")) for row in persisted_recommendations if row.get("id")],
+                    "symbols": [str(row.get("symbol")) for row in persisted_recommendations if row.get("symbol")],
+                    "receipts": getattr(delivered, "receipts", []) or [],
+                }
                 supabase.table("market_cache").upsert({
                     "cache_key": "telegram_recommendations_sent",
                     "country": "Egypt",
@@ -2487,7 +2566,7 @@ async def generate_daily_recommendations(model_name: Optional[str] = None):
     except Exception as e:
         print(f"[RECOMMENDATIONS] Telegram notify error: {e}")
 
-    return len(top_10)
+    return len(persisted_recommendations)
 
 
 def _refresh_market_status_cache():

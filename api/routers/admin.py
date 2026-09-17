@@ -5,9 +5,10 @@ import time
 import uuid
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Tuple
+from zoneinfo import ZoneInfo
 
 import joblib
 import numpy as np
@@ -4246,65 +4247,65 @@ def get_telegram_recommendations_status():
 def send_telegram_recommendations():
     try:
         from api.stock_ai import supabase
-        from api.daily_bot_run import _notify_service_subscribers, _telegram_recommendation_writes_enabled
+        from api.daily_bot_run import (
+            _build_daily_recommendations_message,
+            _notify_central_telegram,
+            _telegram_recommendation_writes_enabled,
+        )
         if not _telegram_recommendation_writes_enabled():
             return {"status": "blocked_read_only", "message": "Telegram recommendation delivery is read-only/disabled."}
-        
-        today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
-        recs_res = supabase.table("scan_results").select("symbol, name, last_close, target_price, stop_loss, precision, exchange").eq("status", "open").gte("created_at", today_start).order("precision", desc=True).limit(10).execute()
+
+        cairo_now = datetime.now(ZoneInfo("Africa/Cairo"))
+        today_start = cairo_now.replace(hour=0, minute=0, second=0, microsecond=0)
+        tomorrow_start = today_start + timedelta(days=1)
+        recs_res = (
+            supabase.table("scan_results")
+            .select("id,batch_id,symbol,exchange,name,entry_price,target_price,stop_loss,last_close,precision,status,created_at,top_reasons")
+            .eq("status", "open")
+            .gte("created_at", today_start.astimezone(timezone.utc).isoformat())
+            .lt("created_at", tomorrow_start.astimezone(timezone.utc).isoformat())
+            .order("created_at")
+            .limit(10)
+            .execute()
+        )
         
         recs = recs_res.data or []
         if not recs:
             return {"status": "skipped", "message": "No recommendations generated today to send."}
             
         web_origin = get_web_origin()
-        current_date = datetime.now().strftime("%Y-%m-%d")
-        
-        msg_lines = [
-            f"🚀 *توصيات الذكاء الاصطناعي الجديدة / New AI Recommendations* 🚀",
-            f"📅 *التاريخ:* `{current_date}`",
-            f"━━━━━━━━━━━━━━━━━━━━\n"
-        ]
-        
-        for idx, r in enumerate(recs):
-            sym = r.get("symbol")
-            ex = r.get("exchange", "EGX")
-            ep = float(r.get("last_close" if r.get("last_close") is not None else "entry_price", 0.0))
-            tp = float(r.get("target_price", 0.0))
-            sl = float(r.get("stop_loss", 0.0))
-            tp2 = round(tp * 1.10, 2)
-            score = round(float(r.get("precision", 0.5)) * 10)
-            name = r.get("name", sym)
-            
-            msg_lines.append(
-                f"🔥 *#{idx+1} {sym}.{ex}* | {name}\n"
-                f"▪️ *الدخول المقترح:* `{ep:.2f}` EGP\n"
-                f"▪️ *الهدف الأول:* `{tp:.2f}` | *الهدف الثاني:* `{tp2:.2f}`\n"
-                f"▪️ *وقف الخسارة:* `{sl:.2f}`\n"
-                f"▪️ *تقييم الزخم (Score):* `{score}/10` ⚡\n"
-                f"━━━━━━━━━━━━━━━━━━━━"
-            )
-            
-        msg_lines.append(
-            f"📈 *إجمالي الإشارات الجديدة:* `{len(recs)}` أسهم\n\n"
-            f"🔗 *لمتابعة الرسوم البيانية والتفاصيل الكاملة:*\n"
-            f"👉 رابط المنصة: {web_origin}/scanner/backtests?tab=bots"
+        current_date = cairo_now.strftime("%Y-%m-%d")
+        message = _build_daily_recommendations_message(
+            recs,
+            current_date,
+            web_origin,
         )
-        
-        message = "\n".join(msg_lines)
-        _notify_service_subscribers("stock_score", message)
+        delivered = _notify_central_telegram(message, "daily_recommendations_manual")
+        if not delivered:
+            return {"status": "failed", "message": "Telegram did not confirm delivery."}
         
         # Update the cache
         cache_res = supabase.table("market_cache").select("payload").eq("cache_key", "telegram_recommendations_sent").maybe_single().execute()
         payload = cache_res.data["payload"] if (cache_res.data and cache_res.data.get("payload")) else {"sent_dates": []}
         if current_date not in payload.get("sent_dates", []):
             payload.setdefault("sent_dates", []).append(current_date)
-            supabase.table("market_cache").upsert({
-                "cache_key": "telegram_recommendations_sent",
-                "country": "Egypt",
-                "payload": payload,
-                "computed_at": datetime.utcnow().isoformat()
-            }).execute()
+        deliveries = payload.setdefault("deliveries", {})
+        if not isinstance(deliveries, dict):
+            deliveries = {}
+            payload["deliveries"] = deliveries
+        deliveries[current_date] = {
+            "batch_id": recs[0].get("batch_id") if recs else None,
+            "recommendation_ids": [str(row.get("id")) for row in recs if row.get("id")],
+            "symbols": [str(row.get("symbol")) for row in recs if row.get("symbol")],
+            "receipts": getattr(delivered, "receipts", []) or [],
+            "manual": True,
+        }
+        supabase.table("market_cache").upsert({
+            "cache_key": "telegram_recommendations_sent",
+            "country": "Egypt",
+            "payload": payload,
+            "computed_at": datetime.now(timezone.utc).isoformat()
+        }).execute()
             
         return {"status": "success", "message": "Recommendations sent to subscribers successfully."}
     except Exception as e:
@@ -4320,52 +4321,33 @@ def get_telegram_dispatch_preview(type: str = "recommendations"):
         from api.stock_ai import supabase
         
         if type == "recommendations":
-            # Fetch recommendations from scan_results where status = 'open'
-            current_date = dt.datetime.now().strftime("%Y-%m-%d")
-            res = supabase.table("scan_results") \
-                .select("*") \
-                .eq("status", "open") \
-                .order("precision", desc=True) \
+            from api.daily_bot_run import _build_daily_recommendations_message
+
+            cairo_now = dt.datetime.now(ZoneInfo("Africa/Cairo"))
+            today_start = cairo_now.replace(hour=0, minute=0, second=0, microsecond=0)
+            tomorrow_start = today_start + dt.timedelta(days=1)
+            current_date = cairo_now.strftime("%Y-%m-%d")
+            res = (
+                supabase.table("scan_results")
+                .select("id,batch_id,symbol,exchange,name,entry_price,target_price,stop_loss,last_close,precision,status,created_at,top_reasons")
+                .eq("status", "open")
+                .gte("created_at", today_start.astimezone(timezone.utc).isoformat())
+                .lt("created_at", tomorrow_start.astimezone(timezone.utc).isoformat())
+                .order("created_at")
+                .limit(10)
                 .execute()
-            
-            # Filter today's recommendations, fallback to top 10 if none
-            today_recs = [r for r in res.data if r.get("created_at", "").startswith(current_date)]
-            if not today_recs:
-                today_recs = res.data[:10]
-                
-            web_origin = get_web_origin()
-            msg_lines = [
-                f"🚀 *توصيات الذكاء الاصطناعي الجديدة / New AI Recommendations* 🚀",
-                f"📅 *التاريخ:* `{current_date}`",
-                f"━━━━━━━━━━━━━━━━━━━━\n"
-            ]
-            
-            for idx, r in enumerate(today_recs):
-                sym = r.get("symbol")
-                ex = r.get("exchange", "EGX")
-                ep = float(r.get("entry_price", r.get("last_close", 0.0)) or 0.0)
-                tp = float(r.get("target_price", 0.0) or 0.0)
-                sl = float(r.get("stop_loss", 0.0) or 0.0)
-                tp2 = round(tp * 1.10, 2)
-                score = round(float(r.get("precision", 0.5) or 0.5) * 10)
-                name = r.get("name", sym)
-                
-                msg_lines.append(
-                    f"🔥 *#{idx+1} {sym}.{ex}* | {name}\n"
-                    f"▪️ *الدخول المقترح:* `{ep:.2f}` EGP\n"
-                    f"▪️ *الهدف الأول:* `{tp:.2f}` | *الهدف الثاني:* `{tp2:.2f}`\n"
-                    f"▪️ *وقف الخسارة:* `{sl:.2f}`\n"
-                    f"▪️ *تقييم الزخم (Score):* `{score}/10` ⚡\n"
-                    f"━━━━━━━━━━━━━━━━━━━━"
-                )
-                
-            msg_lines.append(
-                f"📈 *إجمالي الإشارات الجديدة:* `{len(today_recs)}` أسهم\n\n"
-                f"🔗 *لمتابعة الرسوم البيانية والتفاصيل الكاملة:*\n"
-                f"👉 رابط المنصة: {web_origin}/scanner/backtests?tab=bots"
             )
-            
-            return {"preview": "\n".join(msg_lines), "count": len(today_recs)}
+            today_recs = res.data or []
+            if not today_recs:
+                return {"preview": "لا توجد توصيات جديدة محفوظة اليوم.", "count": 0}
+
+            web_origin = get_web_origin()
+            preview = _build_daily_recommendations_message(
+                today_recs,
+                current_date,
+                web_origin,
+            )
+            return {"preview": preview, "count": len(today_recs)}
             
         elif type == "weekly_report":
             import datetime as dt

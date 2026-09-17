@@ -225,6 +225,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
     const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
     const [shariaOnly, setShariaOnly] = useState(false);
     const [currentPage, setCurrentPage] = useState(1);
+    const [calendarRefreshToken, setCalendarRefreshToken] = useState(0);
     const itemsPerPage = 20;
 
     // Share card state
@@ -299,6 +300,11 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
     // Load recommendations from context
     useEffect(() => {
         loadRecommendations(isLandingPage);
+    }, [loadRecommendations, isLandingPage]);
+
+    const refreshRecommendationData = useCallback(async () => {
+        await loadRecommendations(isLandingPage, true);
+        setCalendarRefreshToken(value => value + 1);
     }, [loadRecommendations, isLandingPage]);
 
     // Outdated warning retry logic
@@ -1800,7 +1806,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                         </div>
                         {limit === Infinity && (
                             <button
-                                onClick={() => loadRecommendations(isLandingPage)}
+                                onClick={refreshRecommendationData}
                                 disabled={recsLoading}
                                 className="h-10 px-4 border-2 border-black dark:border-white bg-white dark:bg-zinc-900 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-black dark:text-white font-bold uppercase text-xs flex items-center gap-2 shadow-[2px_2px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_rgba(255,255,255,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all duration-100"
                             >
@@ -1830,7 +1836,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                     </div>
                     {limit === Infinity && (
                         <button
-                            onClick={() => loadRecommendations(isLandingPage)}
+                            onClick={refreshRecommendationData}
                             className="underline font-black uppercase tracking-wider"
                         >
                             {translate("retryBtn")}
@@ -1960,6 +1966,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                 <RecommendationCalendar
                     recommendations={recommendations}
                     loading={recsLoading}
+                    refreshToken={calendarRefreshToken}
                     onSelectStock={handleStockClick}
                 />
             ) : (

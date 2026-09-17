@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 import {
     Calendar as CalendarIcon,
@@ -30,10 +30,12 @@ import StockLogo from "./StockLogo";
 import { isShariaCompliant } from "@/lib/shariaStocks";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useTheme } from "@/contexts/ThemeContext";
+import { useRealtimeRefresh } from "@/hooks/useRealtimeRefresh";
 
 interface RecommendationCalendarProps {
     recommendations: any[];
     loading?: boolean;
+    refreshToken?: number;
     onSelectStock?: (stock: any) => void;
 }
 
@@ -48,6 +50,7 @@ interface RecommendationEvent {
 export default function RecommendationCalendar({
     recommendations = [],
     loading = false,
+    refreshToken = 0,
     onSelectStock
 }: RecommendationCalendarProps) {
     const { language } = useLanguage();
@@ -76,29 +79,40 @@ export default function RecommendationCalendar({
     const [trackedRecommendationIds, setTrackedRecommendationIds] = useState<string[]>([]);
     const [eventsUnavailable, setEventsUnavailable] = useState(false);
 
+    const loadSentEvents = useCallback(async (signal?: AbortSignal) => {
+        try {
+            const response = await fetch("/api/recommendations/events?limit=1000", {
+                signal,
+                cache: "no-store",
+            });
+            if (!response.ok) throw new Error(`events endpoint returned ${response.status}`);
+            const payload = await response.json();
+            setSentEvents(Array.isArray(payload?.events) ? payload.events : []);
+            setTrackedRecommendationIds(
+                Array.isArray(payload?.tracked_recommendation_ids)
+                    ? payload.tracked_recommendation_ids.map(String)
+                    : [],
+            );
+            setEventsUnavailable(false);
+        } catch (error: any) {
+            if (error?.name !== "AbortError") setEventsUnavailable(true);
+        }
+    }, []);
+
     useEffect(() => {
         const controller = new AbortController();
-        fetch("/api/recommendations/events?limit=1000", {
-            signal: controller.signal,
-        })
-            .then(async response => {
-                if (!response.ok) throw new Error(`events endpoint returned ${response.status}`);
-                return response.json();
-            })
-            .then(payload => {
-                setSentEvents(Array.isArray(payload?.events) ? payload.events : []);
-                setTrackedRecommendationIds(
-                    Array.isArray(payload?.tracked_recommendation_ids)
-                        ? payload.tracked_recommendation_ids.map(String)
-                        : [],
-                );
-                setEventsUnavailable(false);
-            })
-            .catch(error => {
-                if (error?.name !== "AbortError") setEventsUnavailable(true);
-            });
+        void loadSentEvents(controller.signal);
         return () => controller.abort();
-    }, []);
+    }, [loadSentEvents, refreshToken]);
+
+    useRealtimeRefresh(
+        [
+            { table: "recommendation_events" },
+            { table: "scan_results", filter: "is_public=eq.true" },
+        ],
+        () => loadSentEvents(),
+        { enabled: true, debounceMs: 500 },
+    );
 
     // View Mode: Calendar vs Agenda List
     const [viewMode, setViewMode] = useState<"calendar" | "agenda">("calendar");

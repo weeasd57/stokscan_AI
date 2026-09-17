@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseServiceClient } from "@/lib/supabase/route-data";
+import { DAILY_CACHE_TAGS, withDailyTag } from "@/lib/cache/daily";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -10,10 +11,10 @@ const PUBLIC_EVENT_TYPES = [
   "target_or_stop_adjusted",
 ];
 
-const PUBLIC_CACHE_HEADERS = {
+const PUBLIC_CACHE_HEADERS = withDailyTag({
   "Cache-Control": "public, max-age=30",
   "Vercel-CDN-Cache-Control": "public, s-maxage=60, stale-while-revalidate=300",
-};
+}, DAILY_CACHE_TAGS.recommendations);
 
 function numeric(value: unknown): number | null {
   if (value === null || value === undefined || value === "") return null;
