@@ -61,16 +61,95 @@ def _save_config():
 _load_config()
 
 
+def _js_days_to_python(days: Any) -> List[int]:
+    """Admin UI uses Sun=0 while Python's datetime uses Mon=0."""
+    if not isinstance(days, list):
+        return list(_scheduler_state.get("active_days", [0, 1, 2, 3, 6]))
+    return sorted({(int(day) - 1) % 7 for day in days if isinstance(day, (int, float)) and 0 <= int(day) <= 6})
+
+
+def _python_days_to_js(days: Any) -> List[int]:
+    if not isinstance(days, list):
+        return []
+    return sorted({(int(day) + 1) % 7 for day in days if isinstance(day, (int, float)) and 0 <= int(day) <= 6})
+
+
+def _schedule_payload() -> Dict[str, Any]:
+    return {
+        "enabled": bool(_scheduler_state["enabled"]),
+        "run_time": _scheduler_state["run_time"],
+        "active_days": _python_days_to_js(_scheduler_state["active_days"]),
+        "model_filter": _scheduler_state.get("model_filter", "adaptive"),
+    }
+
+
+def _apply_persisted_schedule(payload: Dict[str, Any]) -> None:
+    if not isinstance(payload, dict):
+        return
+    with _scheduler_lock:
+        if isinstance(payload.get("enabled"), bool):
+            _scheduler_state["enabled"] = payload["enabled"]
+        if isinstance(payload.get("run_time"), str):
+            _scheduler_state["run_time"] = payload["run_time"]
+        if isinstance(payload.get("active_days"), list):
+            _scheduler_state["active_days"] = _js_days_to_python(payload["active_days"])
+        if isinstance(payload.get("model_filter"), str):
+            _scheduler_state["model_filter"] = payload["model_filter"]
+
+
+def _hydrate_config_from_supabase() -> None:
+    """Read schedule once at process start; the worker never polls settings."""
+    try:
+        from api.stock_ai import _init_supabase, supabase
+        _init_supabase()
+        if not supabase:
+            return
+        res = (
+            supabase.table("market_cache")
+            .select("payload")
+            .eq("cache_key", "daily_job_schedule")
+            .maybe_single()
+            .execute()
+        )
+        payload = (res.data or {}).get("payload")
+        if isinstance(payload, dict):
+            _apply_persisted_schedule(payload)
+            _save_config()
+            print("[DAILY-JOB-SCHEDULER] Loaded schedule once from Supabase.")
+    except Exception as exc:
+        print(f"[DAILY-JOB-SCHEDULER] Startup config load failed: {exc}")
+
+
 def get_scheduler_state() -> Dict[str, Any]:
     with _scheduler_lock:
-        return dict(_scheduler_state, run_history=list(_run_history[-20:]))
+        state = dict(_scheduler_state, run_history=list(_run_history[-20:]))
+        state["active_days"] = _python_days_to_js(state.get("active_days"))
+        return state
 
 
 def update_scheduler_config(patch: Dict[str, Any]) -> Dict[str, Any]:
+    safe_patch = {key: value for key, value in (patch or {}).items() if key in {"enabled", "run_time", "active_days", "model_filter"}}
     with _scheduler_lock:
-        _scheduler_state.update(patch)
+        if "active_days" in safe_patch:
+            _scheduler_state["active_days"] = _js_days_to_python(safe_patch.pop("active_days"))
+        _scheduler_state.update(safe_patch)
         _save_config()
-        return dict(_scheduler_state)
+        payload = _schedule_payload()
+
+    # Persist on the settings write path. This replaces the old query every
+    # 30 seconds while still surviving a Docker Space restart.
+    try:
+        from api.stock_ai import _init_supabase, supabase
+        _init_supabase()
+        if supabase:
+            supabase.table("market_cache").upsert(
+                {"cache_key": "daily_job_schedule", "payload": payload},
+                on_conflict="cache_key",
+                returning="minimal",
+            ).execute()
+    except Exception as exc:
+        print(f"[DAILY-JOB-SCHEDULER] Failed to persist schedule: {exc}")
+    return get_scheduler_state()
 
 
 def _record_run(job_id: str, status: str):
@@ -120,27 +199,6 @@ def _scheduler_worker():
 
     while not _stop_event.is_set():
         try:
-            # Poll configuration from Supabase market_cache to stay in sync with frontend
-            try:
-                from api.stock_ai import _init_supabase, supabase
-                _init_supabase()
-                if supabase:
-                    res = supabase.table("market_cache").select("payload").eq("cache_key", "daily_job_schedule").maybe_single().execute()
-                    if res.data and "payload" in res.data:
-                        payload = res.data["payload"] or {}
-                        with _scheduler_lock:
-                            val_use_sched = payload.get("enabled")
-                            _scheduler_state["enabled"] = val_use_sched if val_use_sched is not None else _scheduler_state["enabled"]
-                            if payload.get("run_time"):
-                                _scheduler_state["run_time"] = payload.get("run_time")
-                            raw_days = payload.get("active_days")
-                            if isinstance(raw_days, list):
-                                # Convert JS weekdays (0=Sun, 6=Sat) to Python weekdays (0=Mon, 6=Sun)
-                                py_days = [(d - 1) % 7 for d in raw_days]
-                                _scheduler_state["active_days"] = py_days
-            except Exception as sync_err:
-                print(f"[DAILY-JOB-SCHEDULER] Config sync from Supabase failed: {sync_err}")
-
             with _scheduler_lock:
                 enabled = _scheduler_state["enabled"]
                 active_days = _scheduler_state.get("active_days", [0, 1, 2, 3, 6])
@@ -221,6 +279,7 @@ def start_daily_job_scheduler():
     global _scheduler_thread, _stop_event
     if _scheduler_thread and _scheduler_thread.is_alive():
         return
+    _hydrate_config_from_supabase()
     _stop_event.clear()
     _scheduler_thread = threading.Thread(target=_scheduler_worker, daemon=True, name="daily-job-scheduler")
     _scheduler_thread.start()

@@ -62,6 +62,17 @@ def load_symbol_prices_direct(symbol: str, limit: int = 1500) -> pd.DataFrame:
     s, e = stock_ai._infer_symbol_exchange(symbol, None)
     if e in ["CC", "CA"]:
         e = "EGX"
+
+    # During the daily job, EGX has already been read once for indicators and
+    # ML scores. Reuse that bounded in-process snapshot rather than issuing one
+    # query per symbol. Interactive calls still use the narrow query below when
+    # no daily snapshot exists.
+    cached = stock_ai.get_cached_exchange_symbol_prices(s, e, max_age_seconds=7200)
+    if not cached.empty:
+        cached = cached.tail(limit).copy()
+        cached.columns = [str(column).lower() for column in cached.columns]
+        cached.index.name = "date"
+        return cached.ffill().bfill()
         
     res = (
         client.table("stock_prices")

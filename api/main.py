@@ -340,8 +340,8 @@ async def startup_event():
 
 
     # Daily Job Scheduler — starts the daily bot job once per day at the
-    # configured time. Its schedule comes from Supabase market_cache.daily_job_schedule
-    # and it is kept separate from the always-on intraday downloader so one
+    # configured time. It loads the persisted schedule once at startup, then
+    # settings writes update the in-memory worker directly. It is kept separate from the always-on intraday downloader so one
     # worker failure does not block the other.
 
     try:

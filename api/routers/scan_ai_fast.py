@@ -754,6 +754,7 @@ def fast_scan(
     council_model: Optional[str] = None,
     validator_model: Optional[str] = None,
     return_raw_prob: bool = False,
+    bulk_cache_ttl_seconds: Optional[int] = None,
 ):
     start = time.time()
     
@@ -778,7 +779,11 @@ def fast_scan(
     for ex in exchanges:
         if not ex:
             continue
-        bulk_map[ex] = _get_exchange_bulk_data(ex, bypass_min_limit=True)
+        bulk_map[ex] = _get_exchange_bulk_data(
+            ex,
+            bypass_min_limit=True,
+            cache_ttl_seconds=bulk_cache_ttl_seconds,
+        )
         fundamentals_map_by_ex[ex] = _get_exchange_fundamentals_map(ex)
 
     if os.getenv("DEBUG_FUNDAMENTALS") == "1":

@@ -822,24 +822,25 @@ export const AIScannerProvider = ({ children }: { children: ReactNode }) => {
         setRecsLoading(true);
         setRecsError(null);
         try {
-            let query = supabase.from(isLandingPage ? "current_public_recommendations" : "scan_results").select(
-                "id, batch_id, user_id, symbol, exchange, name, model_name, country, last_close, precision, signal, status, entry_price, target_price, stop_loss, risk_adjusted_return, is_public, created_at, updated_at, exit_price, profit_loss_pct, top_reasons, adjustments, features"
-            );
-            if (isLandingPage) {
-                query = query.eq("is_public", true);
-            }
-            let { data: scanData, error: scanErr } = await query
-                .order("created_at", { ascending: false })
-                .limit(200);
+            let scanData: any[] | null = null;
+            let scanErr: any = null;
+            let sectorMap: Record<string, string> = {};
 
-            // The public view is created by the reconciliation migration. Keep
-            // older deployments usable while the migration is being applied.
-            if (scanErr && isLandingPage) {
-                const fallback = await supabase.from("scan_results").select(
-                    "id, batch_id, user_id, symbol, exchange, name, model_name, country, last_close, precision, signal, status, entry_price, target_price, stop_loss, risk_adjusted_return, is_public, created_at, updated_at, exit_price, profit_loss_pct, top_reasons, adjustments, features"
-                ).eq("is_public", true).order("created_at", { ascending: false }).limit(200);
-                scanData = fallback.data;
-                scanErr = fallback.error;
+            // The public home page must not make a browser-to-Supabase query
+            // for 200 recommendations. This API is CDN-cached and selects only
+            // fields actually rendered by the public table.
+            if (isLandingPage) {
+                const response = await fetch("/api/ai_bot/recommendations?limit=50");
+                if (!response.ok) throw new Error("Failed to load public recommendations");
+                scanData = await response.json();
+                sectorMap = Object.fromEntries((scanData || []).map((row: any) => [row.symbol, row.sector || "General"]));
+            } else {
+                let query = supabase.from("scan_results").select(
+                "id, batch_id, user_id, symbol, exchange, name, model_name, country, last_close, precision, signal, status, entry_price, target_price, stop_loss, risk_adjusted_return, is_public, created_at, updated_at, exit_price, profit_loss_pct, top_reasons, adjustments, features"
+                );
+                const result = await query.order("created_at", { ascending: false }).limit(200);
+                scanData = result.data;
+                scanErr = result.error;
             }
 
             if (scanErr) throw new Error(scanErr.message);
@@ -850,18 +851,18 @@ export const AIScannerProvider = ({ children }: { children: ReactNode }) => {
                 return;
             }
 
-            const symbols = Array.from(new Set((scanData as any[]).map((r: any) => r.symbol)));
-            const { data: fundData, error: fundErr } = await supabase
-                .from("stock_fundamentals")
-                .select("symbol, data")
-                .in("symbol", symbols);
-
-            const sectorMap: Record<string, string> = {};
-            if (!fundErr && fundData) {
-                fundData.forEach(item => {
-                    const sector = item.data?.sector || item.data?.Sector || item.data?.industry || "General";
-                    sectorMap[item.symbol] = sector;
-                });
+            if (!isLandingPage) {
+                const symbols = Array.from(new Set((scanData as any[]).map((r: any) => r.symbol)));
+                const { data: fundData, error: fundErr } = await supabase
+                    .from("stock_fundamentals")
+                    .select("symbol, data")
+                    .in("symbol", symbols);
+                if (!fundErr && fundData) {
+                    fundData.forEach(item => {
+                        const sector = item.data?.sector || item.data?.Sector || item.data?.industry || "General";
+                        sectorMap[item.symbol] = sector;
+                    });
+                }
             }
 
             const normalizeSymbolKey = (value: string | null | undefined) => (value || "").toUpperCase().split(".")[0];

@@ -939,22 +939,29 @@ def _get_exchange_bulk_data(
     exchange: str, 
     from_date: Optional[str] = None, 
     to_date: Optional[str] = None,
-    bypass_min_limit: bool = False
+    bypass_min_limit: bool = False,
+    cache_ttl_seconds: Optional[int] = None,
 ) -> Dict[str, pd.DataFrame]:
     """
     Load all price data for an exchange in a single Supabase query (paginated) and cache it.
     Returns mapping symbol -> DataFrame indexed by date.
+
+    When ``HF_HISTORY_DATASET_REPO`` is configured, a versioned historical
+    snapshot is read from the private HF Dataset and only a short recent window
+    is refreshed from Supabase.  This keeps the live database authoritative
+    without paying to transfer the full history on every scanner run.
     """
     if not exchange:
         return {}
 
     MIN_BULK_ROWS = 5000 
     now = time.time()
+    ttl_seconds = max(1, int(cache_ttl_seconds or _EXCHANGE_BULK_TTL_SECONDS))
     cache_key = f"{exchange.upper()}_{from_date or 'ALL'}_{to_date or 'NOW'}_{bypass_min_limit}"
 
     # 1. Simple cache check
     cached = _EXCHANGE_BULK_CACHE.get(cache_key)
-    if cached and (now - cached.get("ts", 0) < _EXCHANGE_BULK_TTL_SECONDS):
+    if cached and (now - cached.get("ts", 0) < ttl_seconds):
         return cached.get("data", {})
 
     with _GLOBAL_LOAD_LOCK:
@@ -965,7 +972,7 @@ def _get_exchange_bulk_data(
     with lock:
         # Re-check cache after acquiring lock
         cached = _EXCHANGE_BULK_CACHE.get(cache_key)
-        if cached and (time.time() - cached.get("ts", 0) < _EXCHANGE_BULK_TTL_SECONDS):
+        if cached and (time.time() - cached.get("ts", 0) < ttl_seconds):
             return cached.get("data", {})
 
         max_attempts = 3
@@ -979,8 +986,29 @@ def _get_exchange_bulk_data(
 
             start_time = time.time()
             try:
-                # 1. Build base query
+                # 1. Use the private HF snapshot for immutable history, then
+                # correct only the recent tail from Supabase.  A missing or
+                # unavailable snapshot deliberately falls back to the former
+                # all-Supabase behaviour.
+                history_snapshot = pd.DataFrame()
+                history_tail_start = None
+                try:
+                    from api.hf_history_cache import load_history_snapshot, tail_start_date
+                    history_snapshot = load_history_snapshot(exchange)
+                    history_tail_start = tail_start_date(
+                        history_snapshot,
+                        days=int(os.getenv("HF_HISTORY_LIVE_TAIL_DAYS", "45")),
+                    )
+                except Exception as history_err:
+                    print(f"[HF-HISTORY] Could not prepare {exchange} snapshot: {history_err}")
+
                 effective_from_date = from_date
+                using_history_snapshot = not history_snapshot.empty
+                if using_history_snapshot and history_tail_start:
+                    # A caller asking for a narrower recent range should not
+                    # widen it. All-history callers receive the correction tail.
+                    if not effective_from_date or effective_from_date < history_tail_start:
+                        effective_from_date = history_tail_start
 
                 def _build_query(fd: Optional[str]):
                     q = supabase.table("stock_prices") \
@@ -995,8 +1023,9 @@ def _get_exchange_bulk_data(
                 all_rows = res0.data or []
                 total_count = res0.count or len(all_rows)
 
-                # Expand to full history if window is too small (e.g. for SMA50/200)
-                if not bypass_min_limit and from_date and total_count < MIN_BULK_ROWS:
+                # Expand to full history only when there is no snapshot to
+                # supply the earlier bars (e.g. for SMA50/200).
+                if not using_history_snapshot and not bypass_min_limit and from_date and total_count < MIN_BULK_ROWS:
                     effective_from_date = None
                     res0 = _build_query(effective_from_date).range(0, page_size - 1).execute()
                     all_rows = res0.data or []
@@ -1033,6 +1062,13 @@ def _get_exchange_bulk_data(
                             if p_data: all_rows.extend(p_data)
 
                 df_all = pd.DataFrame(all_rows)
+                if using_history_snapshot:
+                    from api.hf_history_cache import merge_snapshot_with_live
+                    df_all = merge_snapshot_with_live(history_snapshot, all_rows)
+                    if from_date:
+                        df_all = df_all[df_all["date"] >= pd.to_datetime(from_date)]
+                    if to_date:
+                        df_all = df_all[df_all["date"] <= pd.to_datetime(to_date)]
                 if df_all.empty: return {}
 
                 df_all["date"] = pd.to_datetime(df_all["date"], errors="coerce")
@@ -1044,7 +1080,11 @@ def _get_exchange_bulk_data(
                     g = g.rename(columns={"close": "Close", "open": "Open", "high": "High", "low": "Low", "volume": "Volume"})
                     data_by_symbol[str(sym).upper()] = g
 
-                _EXCHANGE_BULK_CACHE[cache_key] = {"ts": now, "data": data_by_symbol, "rows": len(df_all)}
+                _EXCHANGE_BULK_CACHE[cache_key] = {
+                    "ts": now,
+                    "data": data_by_symbol,
+                    "rows": len(df_all),
+                }
                 print(f"DEBUG: Bulk Load Complete: {len(all_rows)} rows, {len(data_by_symbol)} symbols.")
                 return data_by_symbol
             except Exception as e:
@@ -1053,6 +1093,44 @@ def _get_exchange_bulk_data(
                 time.sleep(5 * attempt)
 
         return {}
+
+
+def clear_exchange_bulk_cache(exchange: Optional[str] = None) -> None:
+    """Invalidate price snapshots after a writer has completed a sync."""
+    with _GLOBAL_LOAD_LOCK:
+        if exchange:
+            prefix = f"{exchange.upper()}_"
+            for key in [key for key in _EXCHANGE_BULK_CACHE if key.startswith(prefix)]:
+                _EXCHANGE_BULK_CACHE.pop(key, None)
+        else:
+            _EXCHANGE_BULK_CACHE.clear()
+
+
+def get_cached_exchange_symbol_prices(
+    symbol: str,
+    exchange: str,
+    max_age_seconds: int = 7200,
+) -> pd.DataFrame:
+    """Return a recent in-process bulk-cache entry without triggering a read.
+
+    Historical-similarity scans use this after the daily job has already loaded
+    EGX once. Interactive requests still fall back to their narrow per-symbol
+    query instead of accidentally loading an entire exchange.
+    """
+    symbol = (symbol or "").upper()
+    exchange = (exchange or "").upper()
+    now = time.time()
+    with _GLOBAL_LOAD_LOCK:
+        entries = list(_EXCHANGE_BULK_CACHE.items())
+    for key, cached in reversed(entries):
+        if not key.startswith(f"{exchange}_"):
+            continue
+        if now - cached.get("ts", 0) > max(1, int(max_age_seconds)):
+            continue
+        frame = (cached.get("data") or {}).get(symbol)
+        if isinstance(frame, pd.DataFrame) and not frame.empty:
+            return frame.copy()
+    return pd.DataFrame()
 
 
 def _normalize_ts_filter(value: Optional[str]) -> Optional[str]:
@@ -2143,7 +2221,14 @@ def sync_df_to_supabase(ticker: str, df: pd.DataFrame, timeframe: str = "1d") ->
                 max_retries = 3
                 for attempt in range(max_retries):
                     try:
-                        supabase.table(table_name).upsert(chunk, on_conflict=on_conflict).execute()
+                        # The write response is never consumed.  Ask PostgREST
+                        # for no representation so hundreds of upserts do not
+                        # echo their rows back as billable database egress.
+                        supabase.table(table_name).upsert(
+                            chunk,
+                            on_conflict=on_conflict,
+                            returning="minimal",
+                        ).execute()
                         break
                     except Exception as e:
                         if attempt == max_retries - 1:

@@ -1,5 +1,6 @@
 import os
 import sys
+from typing import Optional
 
 project_root = os.path.abspath(os.path.dirname(__file__) + '/..')
 if project_root not in sys.path:
@@ -12,7 +13,7 @@ load_dotenv(os.path.join(project_root, 'web', '.env.local'), override=True)
 from api.stock_ai import _init_supabase, _get_thread_local_supabase
 from api.routers.scan_ai_fast import fast_scan
 
-def update_all_scores():
+def update_all_scores(bulk_cache_ttl_seconds: Optional[int] = None):
     print('[ML_SCORES] Starting update of raw AI scores via fast_scan pipeline (unfiltered)...')
     _init_supabase(force=True)
     sb = _get_thread_local_supabase()
@@ -25,7 +26,8 @@ def update_all_scores():
             min_precision=0.0,
             buy_threshold=0.0,
             model_name='KING.bin',
-            return_raw_prob=True
+            return_raw_prob=True,
+            bulk_cache_ttl_seconds=bulk_cache_ttl_seconds,
         )
     except Exception as e:
         print(f"Error running KING scan: {e}")
@@ -39,7 +41,8 @@ def update_all_scores():
             min_precision=0.0,
             buy_threshold=0.0,
             model_name='model_EGX.bin',
-            return_raw_prob=True
+            return_raw_prob=True,
+            bulk_cache_ttl_seconds=bulk_cache_ttl_seconds,
         )
     except Exception as e:
         print(f"Error running EGX scan: {e}")

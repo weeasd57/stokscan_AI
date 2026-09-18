@@ -114,3 +114,4 @@ web/planner_compare_report.md
 
 .vercel
 .env*
+!.env.example

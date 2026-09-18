@@ -371,10 +371,27 @@ def fetch_tradingview_prices(
     def _get_supabase_info(ticker):
         _init_supabase()
         sb = _get_thread_local_supabase()
-        sym = ticker.replace(".EGX", "").replace(".CA", "")
-        res = sb.table("stock_prices").select("date").eq("symbol", sym).order("date", desc=True).limit(1).execute()
+        sym = ticker.rsplit(".", 1)[0] if "." in ticker else ticker
+        exchange = ticker.rsplit(".", 1)[-1].upper() if "." in ticker else "EGX"
+        if exchange in {"CA", "CC"}:
+            exchange = "EGX"
+        # Count and newest date in the same tiny request.  Returning a fixed
+        # count of 100 made every existing symbol look incomplete, so the daily
+        # job re-downloaded a year of history for the entire exchange.
+        res = (
+            sb.table("stock_prices")
+            .select("date", count="exact")
+            .eq("symbol", sym)
+            .eq("exchange", exchange)
+            .order("date", desc=True)
+            .limit(1)
+            .execute()
+        )
         if res.data:
-            return {"last_date": pd.to_datetime(res.data[0]["date"]).date(), "count": 100}
+            return {
+                "last_date": pd.to_datetime(res.data[0]["date"]).date(),
+                "count": int(res.count or 0),
+            }
         return {"last_date": None, "count": 0}
 
     # Map string timeframe to tvDatafeed Interval

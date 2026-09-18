@@ -396,33 +396,48 @@ def _build_divergence_summary(rsi_div: str, macd_div: str, stoch_div: str, stren
     return f"تباعد {' و '.join(divs)} خلال {periods} فترة بقوة {strength_pct}%"
 
 
-def calculate_indicators_for_symbol(symbol: str, exchange: str = "EGX") -> List[Dict[str, Any]]:
+def calculate_indicators_for_symbol(
+    symbol: str,
+    exchange: str = "EGX",
+    price_history: Optional[pd.DataFrame] = None,
+) -> List[Dict[str, Any]]:
     """
     Calculate 20+ technical indicators for a given symbol.
     Returns a list of indicator records (for batch upsert) instead of
     upserting individually. Returns empty list on skip/error.
     """
-    # Fetch latest 300 daily bars from stock_prices (enough for 200-day SMA)
-    res = (
-        supabase.table("stock_prices")
-        .select("date,open,high,low,close,volume")
-        .eq("symbol", symbol)
-        .eq("exchange", exchange)
-        .order("date", desc=True)
-        .limit(300)
-        .execute()
-    )
-    
-    data = res.data
-    if not data or len(data) < 20:
+    # The daily runner preloads the exchange once and passes each symbol's
+    # history here.  Keep the narrow query as a fallback for direct callers.
+    if price_history is not None and not price_history.empty:
+        df = price_history.copy().tail(300)
+        df.columns = [str(column).lower() for column in df.columns]
+        if isinstance(df.index, pd.DatetimeIndex):
+            df.index.name = "date"
+        elif "date" in df.columns:
+            df["date"] = pd.to_datetime(df["date"])
+            df.set_index("date", inplace=True)
+        else:
+            return []
+    else:
+        res = (
+            supabase.table("stock_prices")
+            .select("date,open,high,low,close,volume")
+            .eq("symbol", symbol)
+            .eq("exchange", exchange)
+            .order("date", desc=True)
+            .limit(300)
+            .execute()
+        )
+        data = res.data
+        if not data or len(data) < 20:
+            return []
+        data.reverse()
+        df = pd.DataFrame(data)
+        df["date"] = pd.to_datetime(df["date"])
+        df.set_index("date", inplace=True)
+
+    if len(df) < 20:
         return []
-    
-    # Data comes in descending order from the query, reverse it
-    data.reverse()
-        
-    df = pd.DataFrame(data)
-    df["date"] = pd.to_datetime(df["date"])
-    df.set_index("date", inplace=True)
 
     # Skip delisted/suspended stocks
     last_close_val = float(df["close"].iloc[-1]) if not df["close"].empty else 0.0
@@ -2170,7 +2185,10 @@ def _build_daily_recommendations_message(
     return "\n".join(msg_lines)
 
 
-async def generate_daily_recommendations(model_name: Optional[str] = None):
+async def generate_daily_recommendations(
+    model_name: Optional[str] = None,
+    bulk_cache_ttl_seconds: Optional[int] = None,
+):
     """
     Run fast_scan ML model for Egypt, select the top 10 speculative stocks,
     generate rich detailed Arabic reports, and insert them into scan_results.
@@ -2293,7 +2311,8 @@ async def generate_daily_recommendations(model_name: Optional[str] = None):
         min_precision=0.5,
         model_name=resolved_model,
         council_model=council_model,
-        validator_model=validator_model
+        validator_model=validator_model,
+        bulk_cache_ttl_seconds=bulk_cache_ttl_seconds,
     )
     
     results = scan_resp.get("results", [])
@@ -2829,6 +2848,8 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
     active_steps = {}
     symbols_raw = []
     total_symbols = 0
+    daily_bulk_prices: Dict[str, pd.DataFrame] = {}
+    daily_bulk_cache_ttl = 2 * 60 * 60
 
     def _persist_job(status: str):
         try:
@@ -2928,6 +2949,9 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
                 print(f"[SYNC] Found {total_symbols} symbols to sync.")
                 syncer = get_smart_sync()
                 syncer.sync_exchange_prices("EGX", symbols, max_days=365)
+                # The writer has finished: discard stale scanner data before the
+                # job preloads its one shared EGX snapshot below.
+                stock_ai.clear_exchange_bulk_cache("EGX")
                 _record_step("sync_prices", True, f"Synced {total_symbols} symbols", total_symbols)
             except Exception as e:
                 _record_step("sync_prices", False, str(e)[:200], 0)
@@ -2949,10 +2973,22 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
         all_indicator_records = []
         try:
             from concurrent.futures import ThreadPoolExecutor, as_completed
+
+            # One exchange-level load replaces one Supabase request per symbol.
+            # It is also reused by both ML scans and historical similarity.
+            daily_bulk_prices = stock_ai._get_exchange_bulk_data(
+                "EGX",
+                bypass_min_limit=True,
+                cache_ttl_seconds=daily_bulk_cache_ttl,
+            )
             
             def _calc_one(sym):
                 try:
-                    return sym, calculate_indicators_for_symbol(sym, "EGX"), None
+                    return sym, calculate_indicators_for_symbol(
+                        sym,
+                        "EGX",
+                        daily_bulk_prices.get(sym.upper()),
+                    ), None
                 except Exception as e:
                     return sym, [], e
 
@@ -2982,7 +3018,7 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
         _start_step("ml_scores_update", "Calculating KING and EGX model scores for all stocks")
         try:
             from api.update_ml_scores import update_all_scores
-            update_all_scores()
+            update_all_scores(bulk_cache_ttl_seconds=daily_bulk_cache_ttl)
             _record_step("ml_scores_update", True, "Successfully updated AI ML Scores in DB", 1)
         except Exception as e:
             _record_step("ml_scores_update", False, str(e)[:200], 0)
@@ -3083,7 +3119,10 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
                 print(f"[MARKET_GATE] {msg}")
                 _record_step("generate_recommendations", True, msg[:200], 0)
             else:
-                generated_count = await generate_daily_recommendations(model_name=model_filter)
+                generated_count = await generate_daily_recommendations(
+                    model_name=model_filter,
+                    bulk_cache_ttl_seconds=daily_bulk_cache_ttl,
+                )
                 _record_step("generate_recommendations", True, f"Generated {generated_count} recommendations using {model_filter or 'default'}", int(generated_count or 0))
         except Exception as e:
             _record_step("generate_recommendations", False, str(e)[:200], 0)
@@ -3227,6 +3266,37 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
 
         # 10. Daily Digest Telegram Report (DISABLED BY USER REQUEST)
         print("\n[DAILY_DIGEST] Internal system digest sending to Telegram is permanently disabled.")
+
+        # 10.1 Rebase the immutable history archive infrequently. The scanner
+        # already combines this archive with a 45-day live Supabase tail, so a
+        # monthly Dataset commit keeps long history current without turning HF
+        # storage into another high-frequency operational database.
+        if trigger == "scheduled" and daily_bulk_prices:
+            print("\n>>> STEP 10.1: Checking private HF history snapshot rebase...")
+            _start_step("hf_history_rebase", "Checking whether the EGX history archive needs a monthly rebase")
+            try:
+                from api.hf_history_cache import (
+                    frame_from_symbol_map,
+                    publish_history_snapshot,
+                    should_rebase_snapshot,
+                )
+                rebase_days = int(os.getenv("HF_HISTORY_REBASE_DAYS", "30"))
+                if should_rebase_snapshot("EGX", days=rebase_days):
+                    snapshot_frame = frame_from_symbol_map("EGX", daily_bulk_prices)
+                    metadata = publish_history_snapshot("EGX", snapshot_frame)
+                    _record_step(
+                        "hf_history_rebase",
+                        True,
+                        f"Published {metadata.get('rows', 0)} rows through {metadata.get('last_date')}",
+                        int(metadata.get("rows", 0)),
+                    )
+                else:
+                    _record_step("hf_history_rebase", True, "Skipped - current archive is within rebase window", 0)
+            except Exception as history_err:
+                # HF is an optimization layer; a failed archive refresh must
+                # never invalidate the daily prices stored in Supabase.
+                _record_step("hf_history_rebase", False, str(history_err)[:200], 0)
+                print(f"[HF-HISTORY] Rebase failed: {history_err}")
 
         # ── STEP: Accumulation / Distribution Scan ──────────────────────────
         # يُشغَّل يومياً بعد الإغلاق لتحديث stock_scans_summary بإشارات Wyckoff

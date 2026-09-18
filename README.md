@@ -46,6 +46,17 @@ Advanced AI-driven stock analysis platform. Combining RandomForest models with m
 - **Database**: Supabase (PostgreSQL).
 - **Data Source**: EODHD API / TradingView (via custom scrapers).
 
+### Price-history archive and egress control
+
+Supabase remains the source of truth for current prices and application data.
+For the AI scanner, long-lived EGX history can be stored as a compressed,
+private Hugging Face Dataset snapshot. The backend merges that archive with a
+small recent Supabase correction window, so a scan does not download all price
+history repeatedly. Configure `HF_HISTORY_DATASET_REPO`, seed it with
+`python scripts/publish_hf_history_snapshot.py`, and keep its token in HF Space
+Secrets. The daily job rebases the archive at most once every 30 days; the
+recent live tail remains current every market day.
+
 ## 📊 Code Statistics (إحصائيات الكود)
 
 ```
