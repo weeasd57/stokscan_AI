@@ -1294,7 +1294,7 @@ export default function AIAutomationTab({
                                                         <div>
                                                             <div className="">CRYPTO</div>
                                                             <div className={`text-[10px] ${trainingExchange === "CRYPTO" ? 'text-indigo-200' : 'text-zinc-600 group-hover:text-zinc-500'}`}>
-                                                                {loadingCryptoStats ? "Loading..." : cryptoDisabled ? "No data" : `${cryptoDailyCount} Daily • ${cryptoIntraday1hCount} 1h`}
+                                                                {loadingCryptoStats ? "Loading..." : cryptoDisabled ? "No data" : `${cryptoDailyCount} Daily`}
                                                             </div>
                                                         </div>
                                                     </span>
