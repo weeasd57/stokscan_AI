@@ -24,8 +24,14 @@ if hasattr(sys.stdout, "reconfigure"):
 if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8")
 
-# ─── الإعدادات ─────────────────────────────────────────────────────────
-HF_TOKEN = os.getenv("HF_TOKEN", "")  # set via: $env:HF_TOKEN="hf_your_token_here"
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+    load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), "web", ".env.local"))
+except ImportError:
+    pass
+
+HF_TOKEN = os.getenv("HF_TOKEN", "")
 REPO_ID  = "weeasdwee/AI_BOT"
 REPO_TYPE = "space"
 BASE_DIR  = os.path.dirname(os.path.abspath(__file__))
