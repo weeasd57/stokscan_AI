@@ -1314,8 +1314,7 @@ def get_candles(symbol: str, bot_id: str = "primary", limit: int = 150, exchange
                 symbol = norm_map[clean_sym]
                 print(f"DEBUG: Resolved {clean_sym} to {symbol}")
 
-        # The bot stores crypto symbols WITH the /USD suffix in stock_bars_intraday
-        # Only split for stocks if needed, but for crypto we keep it as is (e.g. BTC/USD)
+        # Crypto symbols keep their /USD suffix in local OHLCV storage.
         db_symbol = symbol
 
         # Get the bot's timeframe config so we query the right data
@@ -1405,22 +1404,9 @@ def get_candles(symbol: str, bot_id: str = "primary", limit: int = 150, exchange
             # Reverse to chronological order
             raw_candles.reverse()
         else:
-            # Query OHLC data with centralized retry logic
-            def fetch_bars(sb):
-                return sb.table("stock_bars_intraday") \
-                    .select("ts,open,high,low,close,volume") \
-                    .eq("symbol", db_symbol) \
-                    .eq("exchange", exchange) \
-                    .eq("timeframe", timeframe) \
-                    .order("ts", desc=True) \
-                    .limit(limit) \
-                    .execute()
-
-            candles_resp = _supabase_read_with_retry(fetch_bars, table_name="stock_bars_intraday")
-            
-            raw_candles = candles_resp.data or [] if candles_resp else []
-            # Reverse to chronological order
-            raw_candles.reverse()
+            # Non-EGX intraday persistence was retired. The in-memory bot bar
+            # fallback below remains available for active virtual bots.
+            raw_candles = []
 
         # ── Fallback to in-memory chart bars if Supabase has no data ──
         # This allows charts to work even when "Save to Supabase" is disabled.
@@ -1605,34 +1591,25 @@ def get_candles(symbol: str, bot_id: str = "primary", limit: int = 150, exchange
 
 @router.get("/supabase-stats")
 def get_supabase_stats():
-    """Returns general stats about Supabase tables like stock_bars_intraday."""
+    """Returns durable daily-price stats; intraday data is local-only."""
     _init_supabase()
     if not stock_ai.supabase:
         raise HTTPException(status_code=503, detail="Supabase not configured")
     
     try:
-        # Get count of intraday bars
-        intraday_res = stock_ai.supabase.table("stock_bars_intraday").select("*", count="exact").limit(1).execute()
-        intraday_total = intraday_res.count if intraday_res else 0
-        
         # Get count of daily prices
         prices_res = stock_ai.supabase.table("stock_prices").select("*", count="exact").limit(1).execute()
         prices_total = prices_res.count if prices_res else 0
         
-        # Breakdown by timeframe for intraday
-        tf_stats = {}
-        for tf in ["1m", "1h", "1d"]:
-            res = stock_ai.supabase.table("stock_bars_intraday").select("*", count="exact").eq("timeframe", tf).limit(1).execute()
-            tf_stats[tf] = res.count if res else 0
-            
         # Last daily price date
         last_daily = stock_ai.supabase.table("stock_prices").select("date").order("date", desc=True).limit(1).execute()
         last_date = last_daily.data[0]["date"] if last_daily.data else "n/a"
 
         return {
             "stock_bars_intraday": {
-                "rows": intraday_total,
-                "by_timeframe": tf_stats
+                "rows": 0,
+                "by_timeframe": {},
+                "storage": "retired_local_crypto_only",
             },
             "stock_prices": {
                 "rows": prices_total,

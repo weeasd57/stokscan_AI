@@ -259,8 +259,7 @@ export default function AIAutomationTab({
     const [loadingCryptoStats, setLoadingCryptoStats] = useState(false);
 
     const cryptoDailyCount = cryptoStats?.stock_prices?.rows ?? 0;
-    const cryptoIntraday1hCount = cryptoStats?.stock_bars_intraday?.by_timeframe?.["1h"] ?? 0;
-    const cryptoVisibleCount = Math.max(cryptoDailyCount, cryptoIntraday1hCount);
+    const cryptoVisibleCount = cryptoDailyCount;
     const cryptoDisabled = !loadingCryptoStats && cryptoVisibleCount <= 0;
     const selectedExchangeCount = trainingExchange === "CRYPTO"
         ? cryptoVisibleCount

@@ -1843,17 +1843,6 @@ export type CryptoSupabaseStats = {
   assets_cache?: { rows: number; last_updated_at?: string | null };
 
   stock_prices?: { rows: number; last_date?: string | null };
-
-  stock_bars_intraday?: {
-
-    rows: number;
-
-    last_ts?: string | null;
-
-    by_timeframe?: Partial<Record<IntradayTimeframe, number>>;
-
-  };
-
 };
 
 

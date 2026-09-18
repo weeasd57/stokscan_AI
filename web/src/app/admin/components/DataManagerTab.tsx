@@ -1131,14 +1131,11 @@ export default function DataManagerTab({
                                             <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
                                         </div>
                                         <div className="flex items-baseline gap-1 mt-1">
-                                            <div className="text-2xl font-black text-zinc-100">{cryptoStats?.stock_bars_intraday?.rows ?? 0}</div>
-                                            <div className="text-xs text-zinc-600 font-bold">bars</div>
-                                        </div>
-                                        <div className="mt-2 text-[10px] font-mono text-zinc-500 truncate">
-                                            1m {cryptoStats?.stock_bars_intraday?.by_timeframe?.["1m"] ?? 0} | 1h {cryptoStats?.stock_bars_intraday?.by_timeframe?.["1h"] ?? 0} | 1d {cryptoStats?.stock_bars_intraday?.by_timeframe?.["1d"] ?? 0}
+                                            <div className="text-2xl font-black text-zinc-100">{cryptoStats?.stock_prices?.rows ?? 0}</div>
+                                            <div className="text-xs text-zinc-600 font-bold">rows</div>
                                         </div>
                                         <div className="mt-2 text-[10px] text-zinc-600">
-                                            Daily: {cryptoStats?.stock_prices?.rows ?? 0} | Last: {cryptoStats?.stock_prices?.last_date ?? "n/a"}
+                                            Last: {cryptoStats?.stock_prices?.last_date ?? "n/a"}
                                         </div>
                                     </div>
                                 </div>

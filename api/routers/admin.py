@@ -937,21 +937,12 @@ def get_db_inventory_endpoint():
 
 @router.get("/supabase-stats")
 def get_supabase_stats():
-    """Returns general stats about Supabase tables like stock_bars_intraday."""
+    """Returns durable daily-price stats; intraday Supabase storage is retired."""
     _init_supabase()
     if not stock_ai.supabase:
         raise HTTPException(status_code=503, detail="Supabase not configured")
 
     try:
-        # Get count of intraday bars
-        intraday_res = (
-            stock_ai.supabase.table("stock_bars_intraday")
-            .select("*", count="exact")
-            .limit(1)
-            .execute()
-        )
-        intraday_total = intraday_res.count if intraday_res else 0
-
         # Get count of daily prices
         prices_res = (
             stock_ai.supabase.table("stock_prices")
@@ -960,18 +951,6 @@ def get_supabase_stats():
             .execute()
         )
         prices_total = prices_res.count if prices_res else 0
-
-        # Breakdown by timeframe for intraday
-        tf_stats = {}
-        for tf in ["1m", "1h", "1d"]:
-            res = (
-                stock_ai.supabase.table("stock_bars_intraday")
-                .select("*", count="exact")
-                .eq("timeframe", tf)
-                .limit(1)
-                .execute()
-            )
-            tf_stats[tf] = res.count if res else 0
 
         # Last daily price date
         last_daily = (
@@ -984,7 +963,7 @@ def get_supabase_stats():
         last_date = last_daily.data[0]["date"] if last_daily.data else "n/a"
 
         return {
-            "stock_bars_intraday": {"rows": intraday_total, "by_timeframe": tf_stats},
+            "stock_bars_intraday": {"rows": 0, "by_timeframe": {}, "storage": "retired_local_crypto_only"},
             "stock_prices": {"rows": prices_total, "last_date": last_date},
         }
     except Exception as e:
@@ -1016,24 +995,10 @@ def bulk_delete_bars(symbols: List[str], timeframe: str):
         from api.local_storage import delete_crypto_bars_local, is_crypto_symbol
 
         total_deleted = 0
-        supabase_symbols = []
-
         for symbol in symbols:
             if is_crypto_symbol(symbol):
                 if delete_crypto_bars_local(symbol, timeframe):
                     total_deleted += 1
-            else:
-                supabase_symbols.append(symbol)
-
-        if supabase_symbols:
-            _init_supabase()
-            if not stock_ai.supabase:
-                raise HTTPException(status_code=503, detail="Supabase not configured")
-            for chunk in _chunks(supabase_symbols, 100):
-                stock_ai.supabase.table("stock_bars_intraday").delete().in_(
-                    "symbol", chunk
-                ).eq("timeframe", timeframe).execute()
-                total_deleted += len(chunk)
         return {"success": True, "message": f"Deleted data for {total_deleted} symbols"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -1041,7 +1006,9 @@ def bulk_delete_bars(symbols: List[str], timeframe: str):
 
 @router.get("/db-symbols/{exchange}")
 def get_db_symbols(exchange: str, mode: str = "prices"):
-    """List all symbols for a specific exchange based on mode (prices, fundamentals, or intraday)."""
+    """List all symbols for a specific exchange based on durable data."""
+    if mode == "intraday":
+        raise HTTPException(status_code=410, detail="Intraday Supabase storage is retired")
     # Map common country names to exchanges if passed incorrectly
     # Using lowercase keys for case-insensitive lookup
     country_map = {
@@ -1244,48 +1211,11 @@ def export_prices_csv(exchange: str, symbol: Optional[str] = None):
 def export_intraday_csv(
     exchange: str, symbol: Optional[str] = None, timeframe: str = "15m"
 ):
-    """Export 15m historical intraday bars for an exchange or symbol as CSV."""
-    _init_supabase()
-    if not stock_ai.supabase:
-        raise HTTPException(status_code=500, detail="Supabase not initialized")
-
-    try:
-
-        def _fetch_export(sb):
-            q = (
-                sb.table("stock_bars_intraday")
-                .select("*")
-                .eq("exchange", exchange)
-                .eq("timeframe", timeframe)
-            )
-            if symbol:
-                q = q.eq("symbol", symbol)
-            return q.order("ts", desc=True).limit(50000).execute()
-
-        res = _supabase_read_with_retry(_fetch_export, table_name="stock_bars_intraday")
-
-        if not res.data:
-            raise HTTPException(status_code=404, detail="No intraday data found")
-
-        import pandas as pd
-
-        df = pd.DataFrame(res.data)
-
-        # Clean up for CSV
-        if "id" in df.columns:
-            df = df.drop(columns=["id"])
-
-        csv_data = df.to_csv(index=False)
-        filename = f"{exchange}_{symbol or 'all'}_{timeframe}_intraday.csv"
-
-        return StreamingResponse(
-            iter([csv_data]),
-            media_type="text/csv",
-            headers={"Content-Disposition": f"attachment; filename={filename}"},
-        )
-    except Exception as e:
-        print(f"Export error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    """Intraday Supabase exports were retired with stock_bars_intraday."""
+    raise HTTPException(
+        status_code=410,
+        detail="Intraday Supabase storage is retired; export daily stock_prices or local crypto data instead",
+    )
 
 
 @router.get("/export-fundamentals/{exchange}")
@@ -1399,7 +1329,7 @@ class RecalculateTechRequest(BaseModel):
 class DeletePricesRequest(BaseModel):
     exchange: str
     symbols: List[str]
-    mode: Optional[str] = "prices"  # "prices", "fundamentals", or "intraday"
+    mode: Optional[str] = "prices"  # "prices" or "fundamentals"
 
 
 @router.post("/delete-prices")
@@ -1412,7 +1342,7 @@ def delete_prices(req: DeletePricesRequest):
     if req.mode == "fundamentals":
         table_name = "stock_fundamentals"
     elif req.mode == "intraday":
-        table_name = "stock_bars_intraday"
+        raise HTTPException(status_code=410, detail="Intraday Supabase storage is retired")
     else:
         table_name = "stock_prices"
 
@@ -1430,8 +1360,6 @@ def delete_prices(req: DeletePricesRequest):
                 .eq("exchange", req.exchange)
                 .in_("symbol", chunk)
             )
-            if req.mode == "intraday":
-                q = q.eq("timeframe", "15m")
             res = q.execute()
             if res.data:
                 deleted_total += len(res.data)
