@@ -1088,10 +1088,14 @@ def main():
         print(f"[TIME] Forcing timeframe: {timeframe} (CLI override)", flush=True)
 
     if use_intraday:
-        print(f"[INPUT] Fetching intraday bulk data for {args.exchange} ({timeframe}) (Buffer Start: {buffer_start}, Sim Start: {args.start})...",
-            flush=True,
-        )
-        data_map = _get_exchange_bulk_intraday_data(args.exchange, timeframe=timeframe, from_ts=buffer_start)
+        if args.exchange.strip().upper() == "CRYPTO":
+            print(f"[INPUT] Fetching local crypto intraday data for {args.exchange} ({timeframe}) (Buffer Start: {buffer_start}, Sim Start: {args.start})...",
+                flush=True,
+            )
+            data_map = _get_exchange_bulk_intraday_data(args.exchange, timeframe=timeframe, from_ts=buffer_start)
+        else:
+            print("[INPUT] Intraday Supabase storage is retired; using daily stock_prices.", flush=True)
+            data_map = _get_exchange_bulk_data(args.exchange, from_date=buffer_start)
     else:
         print(f"[INPUT] Fetching bulk data for {args.exchange} (Buffer Start: {buffer_start}, Sim Start: {args.start})...",
             flush=True,

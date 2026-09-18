@@ -21,7 +21,7 @@ if supabase:
         
         # Approach 1: Try to list tables
         tables_to_try = [
-            "stock_bars_intraday",
+            "stock_prices",
             "stock_daily_data",
             "stocks",
             "stock_analysis",

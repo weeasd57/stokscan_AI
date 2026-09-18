@@ -2970,8 +2970,8 @@ class LiveBot:
             return
 
         try:
-            # Crypto bars are intraday/time-series, so store them in `stock_bars_intraday`
-            # (NOT `stock_prices`, which is daily and keyed by `date date`).
+            # Crypto bars remain in local time-series storage. stock_prices is
+            # daily and must not receive several bars for the same date.
             exchange = "CRYPTO"
             timeframe = _to_intraday_timeframe(
                 getattr(self.config, "timeframe", "") or ""
@@ -3033,14 +3033,6 @@ class LiveBot:
 
                     save_crypto_bars_local(symbol, timeframe, rows)
                     self._last_save_bars_ts[symbol] = latest_ts
-                else:
-                    _supabase_upsert_with_retry(
-                        "stock_bars_intraday",
-                        rows,
-                        on_conflict="symbol,exchange,timeframe,ts",
-                    )
-                    self._last_save_bars_ts[symbol] = latest_ts
-                    # self._log(f"Saved {len(rows)} bars for {symbol} to DB.")
 
         except Exception as e:
             self._log(f"DB Save Error {symbol}: {e}")

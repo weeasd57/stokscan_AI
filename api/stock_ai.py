@@ -1158,7 +1158,11 @@ def _get_exchange_bulk_intraday_data(
     to_ts: Optional[str] = None,
 ) -> Dict[str, pd.DataFrame]:
     """
-    Load intraday bars for an exchange/timeframe from Supabase (paginated) and cache them.
+    Load intraday bars from local crypto storage only.
+
+    Intraday rows are intentionally no longer stored in Supabase. Daily market
+    analysis uses ``stock_prices``; crypto bots retain their own local OHLCV
+    storage because ``stock_prices`` has one row per trading date.
     Returns mapping symbol -> DataFrame indexed by ts.
     """
     if not exchange:
@@ -1221,112 +1225,9 @@ def _get_exchange_bulk_intraday_data(
                 print(f"DEBUG: Local CRYPTO bulk load failed: {e}")
                 return {}
 
-        max_attempts = 3
-        page_size = 1000
-        max_workers = 1
-        last_err = None
-
-        for attempt in range(1, max_attempts + 1):
-            _init_supabase()
-            if not supabase:
-                return {}
-
-            print(f"DEBUG: Starting intraday bulk load for {cache_key} (from_ts={fd})")
-            start_time = time.time()
-
-            try:
-                def _build_query():
-                    q = (
-                        supabase.table("stock_bars_intraday")
-                        .select("symbol,exchange,ts,open,high,low,close,volume", count="exact")
-                        .eq("exchange", exchange.upper())
-                        .eq("timeframe", tf)
-                    )
-                    if fd:
-                        q = q.gte("ts", fd)
-                    if td:
-                        q = q.lte("ts", td)
-                    return q.order("symbol", desc=False).order("ts", desc=False)
-
-                res0 = _build_query().range(0, page_size - 1).execute()
-                all_rows = res0.data or []
-                total_count = res0.count or len(all_rows)
-
-                if not all_rows:
-                    return {}
-
-                if total_count > page_size:
-                    offsets = range(page_size, total_count, page_size)
-
-                    def _fetch_page(off, retries=5):
-                        for r_attempt in range(retries):
-                            try:
-                                # Throttle to protect IO Budget
-                                time.sleep(0.1)
-                                r = (
-                                    supabase.table("stock_bars_intraday")
-                                    .select("symbol,exchange,ts,open,high,low,close,volume")
-                                    .eq("exchange", exchange.upper())
-                                    .eq("timeframe", tf)
-                                )
-                                if fd: r = r.gte("ts", fd)
-                                if td: r = r.lte("ts", td)
-                                r = r.order("symbol", desc=False).order("ts", desc=False)
-                                res = r.range(off, off + page_size - 1).execute()
-                                return res.data or []
-                            except Exception as e:
-                                wait = (r_attempt + 1) * 3
-                                time.sleep(wait)
-                        raise Exception(f"Failed to fetch intraday page at offset {off} after {retries} retries")
-
-                    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                        futures = {executor.submit(_fetch_page, o): o for o in offsets}
-                        for f in as_completed(futures):
-                            p_data = f.result()
-                            if p_data: all_rows.extend(p_data)
-
-                if not all_rows:
-                    return {}
-
-                df_all = pd.DataFrame(all_rows)
-                if df_all.empty:
-                    return {}
-
-                df_all["ts"] = pd.to_datetime(df_all["ts"], errors="coerce")
-                df_all = df_all.dropna(subset=["ts"]).sort_values(["symbol", "ts"])
-
-                data_by_symbol: Dict[str, pd.DataFrame] = {}
-                for sym, grp in df_all.groupby("symbol"):
-                    g = grp.set_index("ts")["open high low close volume".split()]
-                    g = g.rename(
-                        columns={
-                            "close": "Close",
-                            "open": "Open",
-                            "high": "High",
-                            "low": "Low",
-                            "volume": "Volume",
-                        }
-                    )
-                    data_by_symbol[str(sym).upper()] = g
-
-                _EXCHANGE_BULK_CACHE[cache_key] = {"ts": now, "data": data_by_symbol, "rows": len(df_all)}
-                total_duration = time.time() - start_time
-                print(
-                    f"DEBUG: Intraday bulk cached {len(df_all)} rows for {cache_key} "
-                    f"({len(data_by_symbol)} symbols) in {total_duration:.2f}s"
-                )
-                return data_by_symbol
-            except Exception as e:
-                last_err = e
-                print(
-                    f"DEBUG: Intraday bulk load failed for exchange {cache_key} (attempt {attempt}/{max_attempts}): {e}",
-                    flush=True,
-                )
-                time.sleep(3 * attempt)
-                page_size = 500
-                max_workers = 1
-
-        print(f"DEBUG: Intraday bulk load failed for exchange {cache_key}: {last_err}")
+        # Non-crypto intraday persistence was retired with
+        # stock_bars_intraday. Callers that need daily data must use
+        # _get_exchange_bulk_data instead.
         return {}
 
 
@@ -1372,16 +1273,16 @@ def get_supabase_inventory() -> List[Dict[str, Any]]:
     # 2. Get exchange-to-country mapping from fundamentals if possible (Shared)
     mapping = {}
     
-    # 1b. Check CRYPTO exchange in stock_bars_intraday specifically (User has 200+ symbols)
+    # 1b. Crypto uses local storage, not Supabase intraday rows.
     try:
         crypto_exists = any(s.get('exchange') == 'CRYPTO' and s.get('price_count', 0) > 0 for s in stats)
         if not crypto_exists:
-            # Query unique symbols from intraday table for CRYPTO
-            c_res = supabase.table("stock_bars_intraday").select("symbol", count="exact").eq("exchange", "CRYPTO").limit(1).execute()
-            if c_res.count and c_res.count > 0:
+            from api.local_storage import get_crypto_symbols_stats_local
+            crypto_stats = get_crypto_symbols_stats_local("1h") or []
+            if crypto_stats:
                 stats.append({
                     "exchange": "CRYPTO",
-                    "price_count": c_res.count,
+                    "price_count": len(crypto_stats),
                     "fund_count": 0,
                     "last_update": None
                 })
@@ -2158,10 +2059,16 @@ def sync_df_to_supabase(ticker: str, df: pd.DataFrame, timeframe: str = "1d") ->
         is_crypto_sym = sb_exchange.upper() in crypto_exchanges or "/" in sb_symbol
         if is_crypto_sym:
             sb_exchange = "CRYPTO"
-            # User requested crypto should ALWAYS save as "1h" in stock_bars_intraday
+            # Crypto intraday bars are stored locally as 1h OHLCV.
             timeframe = "1h"
 
         is_intraday = timeframe.lower() not in ["1d", "1day", "daily"]
+
+        # There is no safe way to put several intraday bars into stock_prices:
+        # it is keyed by (symbol, exchange, date). Keep daily data there and
+        # reject retired non-crypto intraday persistence explicitly.
+        if is_intraday and not is_crypto_sym:
+            return False, "Intraday Supabase storage is retired; use daily stock_prices or local crypto storage"
         
         for _, row in df.iterrows():
             # Skip zero volume records for stocks to avoid garbage/placeholder price data.
@@ -2211,8 +2118,8 @@ def sync_df_to_supabase(ticker: str, df: pd.DataFrame, timeframe: str = "1d") ->
                     print(f"Local storage save error for {sb_symbol}: {e}")
                     return False, f"Local save error: {e}"
 
-            table_name = "stock_bars_intraday" if is_intraday else "stock_prices"
-            on_conflict = "symbol,exchange,timeframe,ts" if is_intraday else "symbol,exchange,date"
+            table_name = "stock_prices"
+            on_conflict = "symbol,exchange,date"
             
             # Use chunks of 100 to avoid request size limits
             import time

@@ -1572,32 +1572,25 @@ class ModelTrainer:
             return df
 
         if use_intraday:
+            # The shared intraday Supabase table was retired. Non-crypto model
+            # training uses the durable daily stock_prices series instead.
             self._progress(
-                f"Loading intraday data for exchange {self.exchange} ({timeframe})..."
+                "Intraday Supabase storage is retired; falling back to daily stock_prices."
             )
-        else:
-            self._progress(f"Loading price data for exchange {self.exchange}...")
+            use_intraday = False
+
+        self._progress(f"Loading price data for exchange {self.exchange}...")
 
         # 1. Get total count
         rows_total = None
         try:
-            if use_intraday:
-                count_res = (
-                    self.supabase.table("stock_bars_intraday")
-                    .select("symbol", count="exact")
-                    .eq("exchange", self.exchange)
-                    .eq("timeframe", timeframe)
-                    .limit(1)
-                    .execute()
-                )
-            else:
-                count_res = (
-                    self.supabase.table("stock_prices")
-                    .select("symbol", count="exact")
-                    .eq("exchange", self.exchange)
-                    .limit(1)
-                    .execute()
-                )
+            count_res = (
+                self.supabase.table("stock_prices")
+                .select("symbol", count="exact")
+                .eq("exchange", self.exchange)
+                .limit(1)
+                .execute()
+            )
             rows_total = count_res.count
         except Exception as e:
             print(f"Warning: Failed to fetch total row count: {e}")
@@ -1606,27 +1599,15 @@ class ModelTrainer:
         def _fetch_page(off, retries=3):
             for attempt in range(retries):
                 try:
-                    if use_intraday:
-                        res = (
-                            self.supabase.table("stock_bars_intraday")
-                            .select("symbol, ts, open, high, low, close, volume")
-                            .eq("exchange", self.exchange)
-                            .eq("timeframe", timeframe)
-                            .order("symbol", desc=False)
-                            .order("ts", desc=False)
-                            .range(off, off + page_size - 1)
-                            .execute()
-                        )
-                    else:
-                        res = (
-                            self.supabase.table("stock_prices")
-                            .select("symbol, date, open, high, low, close, volume")
-                            .eq("exchange", self.exchange)
-                            .order("symbol", desc=False)
-                            .order("date", desc=False)
-                            .range(off, off + page_size - 1)
-                            .execute()
-                        )
+                    res = (
+                        self.supabase.table("stock_prices")
+                        .select("symbol, date, open, high, low, close, volume")
+                        .eq("exchange", self.exchange)
+                        .order("symbol", desc=False)
+                        .order("date", desc=False)
+                        .range(off, off + page_size - 1)
+                        .execute()
+                    )
                     return res.data or []
                 except Exception as e:
                     time.sleep((attempt + 1) * 2)
@@ -1656,27 +1637,6 @@ class ModelTrainer:
                         )
 
         df = pd.DataFrame(all_rows)
-        if use_intraday and not df.empty:
-            if "ts" in df.columns:
-                df = df.rename(columns={"ts": "date"})
-
-        if (
-            use_intraday
-            and self.exchange == "CRYPTO"
-            and not df.empty
-            and "volume" in df.columns
-        ):
-            try:
-                vol = pd.to_numeric(df["volume"], errors="coerce").fillna(0)
-                before = len(df)
-                df = df[vol > 0].copy()
-                removed = before - len(df)
-                if removed > 0:
-                    self._progress(
-                        f"Filtered {removed:,} rows with volume<=0 for CRYPTO intraday."
-                    )
-            except Exception:
-                pass
         self._progress(
             f"Loaded {len(df):,} rows for {len(df['symbol'].unique()):,} symbols."
         )
