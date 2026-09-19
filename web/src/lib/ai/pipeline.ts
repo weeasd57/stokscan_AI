@@ -212,7 +212,7 @@ const MARKET_SCOPE_PATTERN = /(?:^|[^ئ-ي])(?:السوق|البورصه|الم�
 
 // Price-action vocabulary that implies a single-stock follow-up: levels,
 // motion, breakout, direction, risk and holding behaviour.
-const STOCK_FOLLOWUP_STRONG_PATTERN = /مقاوم|دعم|تارجت|الهدف|هدفه|هدفها|اهدافه|اهدافها|يكسر|هيكسر|تكسر|كسر|يخترق|هيخترق|اختراق|يعدي|هيعدي|يتخطي|هيتخطي|يتجاوز|هيتجاوز|تجاوز|يطلع|هيطلع|تطلع|طلوع|صعود|يصعد|هيصعد|يرتفع|هيرتفع|ارتفاع|يقفز|هيقفز|ينزل|هينزل|تنزل|نزول|هبوط|يهبط|هيهبط|ينخفض|هينخفض|انخفاض|ينهار|هينهار|انهيار|يوصل|هيوصل|توصل|وصول|يرجع|هيرجع|ترجع|رجوع|يرتد|هيرتد|ارتداد|يكمل|هيكمل|يستمر|هيستمر|استمرار|هيبقى|يبقى|هيفضل|يفضل|يخسر|خساره|خسران|يستفيد|هيستفيد|(?:يقفل|يغلق|هيقفل|هيغلق)\s+(?:فوق|تحت)|(?:اشتري|ابيع|احتفظ|اخرج|اخلص|ادخل|ادخلها|ادخله)(?:\s+\S+){0,2}\s+(?:فيه|فيها|عليه|عليها|به|بها|منه|منها)|resistance|support|target|breakout|break\s+(?:out|down|up)|rebound|pullback|climb|keep\s+going|going\s+(?:up|down)|sell\s+it|buy\s+it|hold\s+it/i;
+const STOCK_FOLLOWUP_STRONG_PATTERN = /مقاوم|دعم|تارجت|الهدف|هدفه|هدفها|اهدافه|اهدافها|يكسر|هيكسر|تكسر|كسر|يخترق|هيخترق|اختراق|يعدي|هيعدي|يتخطي|هيتخطي|يتجاوز|هيتجاوز|تجاوز|يطلع|هيطلع|تطلع|طلوع|صعود|يصعد|هيصعد|يرتفع|هيرتفع|ارتفاع|يقفز|هيقفز|ينزل|هينزل|تنزل|نزول|هبوط|يهبط|هيهبط|ينخفض|هينخفض|انخفاض|ينهار|هينهار|انهيار|يوصل|هيوصل|توصل|وصول|يرجع|هيرجع|ترجع|رجوع|يرتد|هيرتد|ارتداد|يكمل|هيكمل|يستمر|هيستمر|استمرار|هيبقى|يبقى|هيفضل|يفضل|يخسر|خساره|خسارة|خساير|خسران|خسارتي|خسارتى|وقف\s*(?:ال)?خسار|اوقف\s*(?:ال)?خسار|يستفيد|هيستفيد|(?:يقفل|يغلق|هيقفل|هيغلق)\s+(?:فوق|تحت)|(?:اشتري|ابيع|احتفظ|اخرج|اخلص|ادخل|ادخلها|ادخله)(?:\s+\S+){0,2}\s+(?:فيه|فيها|عليه|عليها|به|بها|منه|منها)|(?:اشتريت|شاري|شاريه|شريت|متوسط|متوسطي|مركزي|سعري|دخولي)(?:\s+\S+){0,3}\s*(?:السهم|بسعر|\d+)|(?:السهم|فيه|فيها|معايا|معي)(?:\s+\S+){0,3}\s*(?:اشتريت|شاري|متوسط|مركزي|سعري)|(?:السهم|السهمين|الاتنين)\s+(?:ده|دا|دي|هيعمل|وضعه|اخباره|أخباره|رايك|مكمل|نازل|طالع)|resistance|support|target|breakout|break\s+(?:out|down|up)|rebound|pullback|climb|keep\s+going|going\s+(?:up|down)|sell\s+it|buy\s+it|hold\s+it/i;
 
 // Timing questions only count as stock follow-ups when combined with motion.
 const STOCK_FOLLOWUP_TIMING_PATTERN = /امتي|متي|بكره|غدا|بعد\s+كام|كام\s+(?:يوم|اسبوع|شهر|سنه)|الاسبوع\s+الجاي|الشهر\s+الجاي|when\s+will|how\s+long|how\s+many\s+(?:days|weeks|months)/i;
@@ -730,17 +730,29 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
     const followUpSymbol = explicitSymbols.length === 0
         ? (sessionState.current_symbol || (sessionState.last_symbols || [])[0] || null)
         : null;
-    // Keep direct level/action questions on the dedicated levels route. The
-    // early context route is only needed for anaphoric timing/projection
-    // questions such as "ممكن يطلع للمقاومة امتى"; later intent rules handle
-    // explicit level requests such as "لو كسر الدعم أعمل ايه".
     const isAnaphoricTimingFollowUp = /(?:امتي|متي|متى|امتى|when|how\s+long|هيوصل|هيطلع|هينزل|هيرجع|هيكمل|will\s+it|when\s+will|is\s+it|going\s+to|should\s+i)/i.test(normalized);
-    if (followUpSymbol && isImplicitStockFollowUp(message) && isAnaphoricTimingFollowUp) {
+    const isPositionOrLossFollowUp = Boolean(followUpSymbol) && (
+        /(?:اشتريت|شاري|متوسط|متوسطي|مركزي|سعري|دخولي|معايا|معي).{0,30}(?:السهم|بسعر|\d+)/i.test(normalized)
+        || /(?:السهم|فيه|فيها).{0,20}(?:اشتريت|شاري|متوسط|مركزي|سعري)/i.test(normalized)
+        || /(?:اوقف|وقف|أوقف).{0,15}(?:خسار|خساير|الخسار|الخساير)/i.test(normalized)
+        || /(?:خسران|خسارتي|خسارتى|خساير|خساره|خسارة).{0,25}(?:اعمل|أعمل|ايه|إيه|اوقف|وقف|تقل|تزيد|تاني|اكتر|أكتر|فيها|فيه)/i.test(normalized)
+        || /(?:السهم|السهمين|الاتنين).{0,25}(?:هيعمل|وضعه|اخباره|أخباره|رايك|رأيك|مكمل|نازل|طالع|هيطلع|هينزل|يصحح|يكسر|يخترق|ابيع|اشتري|احتفظ|اخرج|وقف)/i.test(normalized)
+        || /(?:ابيع|أبيع|اشتري|أشتري|احتفظ|أحتفظ|اخرج|أخرج).{0,20}(?:السهم|فيه|فيها|ولا|دلوقتي|حاليا)/i.test(normalized)
+    );
+    if (followUpSymbol && ((isImplicitStockFollowUp(message) && isAnaphoricTimingFollowUp) || isPositionOrLossFollowUp)) {
+        const wantsLossRiskTools = /(?:خسار|خساير|خسران|وقف|اوقف|يهبط|ينزل)/i.test(normalized);
         return {
-            intent: "stock_analysis",
+            intent: wantsLossRiskTools ? "risk_analysis" : "stock_analysis",
             confidence: 1,
-            entities: { symbols: [String(followUpSymbol).toUpperCase()], sector: null, wants_table: true, timeframe: "current", requested_date: null, scan_direction: null },
-            tools: ["get_stock", "get_stock_levels"],
+            entities: {
+                symbols: [String(followUpSymbol).toUpperCase()],
+                sector: null,
+                wants_table: true,
+                timeframe: "current",
+                requested_date: null,
+                scan_direction: wantsLossRiskTools ? "distribution" : null
+            },
+            tools: wantsLossRiskTools ? ["get_stock", "get_stock_levels", "get_distribution_stocks"] : ["get_stock", "get_stock_levels"],
             session_update: { current_symbol: followUpSymbol, last_symbols: sessionState.last_symbols, summary: message },
         } as any;
     }
@@ -1460,7 +1472,16 @@ export function enforceIntentFromMessage(message: string, plannerIntent: string,
     const normalized = message.toLowerCase().replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").replace(/ى/g, "ي").replace(/[٠-٩]/g, d => String("٠١٢٣٤٥٦٧٨٩".indexOf(d)));
     const hasExplicitSymbol = /\b[A-Za-z]{2,6}\b/.test(message);
     const isSingleStockRecFollowUp = Boolean(sessionState?.current_symbol) && /(?:^|[^\u0621-\u064A])(ده|دا|دي|هذا|السهم ده|السهم دا|السهم دي|هاته|هاتها|اخباره|أخباره|خبره|الاتنين|السهمين|عليه|فيه|ليه|عليها|فيها|ليها|عنه|عنها|به|بها|معاه|معاها|هو|هي)(?:$|[^\u0621-\u064A])/i.test(normalized) && /(?:توصي[اإ]?\s*ت|توصي[ةه])/i.test(normalized);
-    const hasSymbol = symbols.length > 0 || hasExplicitSymbol || isSingleStockRecFollowUp;
+    const isFollowUpToCurrentStock = Boolean(sessionState?.current_symbol) && !isMarketWideRequest(message) && (
+        isSingleStockRecFollowUp
+        || /(?:^|[^\u0621-\u064A])(السهم|السهم ده|السهم دا|السهم دي|ده|دا|دي|هذا|هذه|فيه|فيها|عليه|عليها|عنه|عنها|معاه|معاها|هو|هي)(?:$|[^\u0621-\u064A])/i.test(normalized)
+        || /(?:اشتريت|شاري|متوسط|مركزي|سعري|دخولي|خسار|خساير|خسران|كسبان|ارباح|أرباح|ابيع|أبيع|احتفظ|أحتفظ|اخرج|أخرج|اوقف|وقف)/i.test(normalized)
+    );
+    const effectiveSymbols = symbols.length > 0 ? symbols : (isFollowUpToCurrentStock && sessionState?.current_symbol ? [sessionState.current_symbol] : []);
+    const hasSymbol = effectiveSymbols.length > 0 || hasExplicitSymbol;
+    if (symbols.length === 0 && effectiveSymbols.length > 0) {
+        symbols = effectiveSymbols;
+    }
     if (message.trim().length <= 2 && !hasSymbol) {
         return { intent: "general_chat", tools: [], replaceTools: true };
     }
@@ -1574,7 +1595,7 @@ export function enforceIntentFromMessage(message: string, plannerIntent: string,
     }
     if (/(مقاوم|مقوام|دعم|support|resistance)/i.test(normalized) && hasSymbol && !/حلل.{0,30}(اخبار|أخبار)/i.test(normalized)) return { intent: "levels_analysis", tools: ["get_stock_levels"], replaceTools: true };
     if (/(سيول|السيوله)/i.test(normalized) && hasSymbol && symbols.length <= 1) return { intent: "stock_analysis", tools: ["get_stock"], replaceTools: true };
-    if (hasSymbol && /(حلل|لو\s+كسر|اعمل\s+ايه|أعمل\s+إيه)/i.test(normalized)) {
+    if (hasSymbol && /(حلل|تحليل|توقع|اتجاه|اتجاة|لو\s+كسر|اعمل\s+ايه|أعمل\s+إيه)/i.test(normalized)) {
         const compoundAnalysis = /حلل.{0,20}(هات|اخبار|أخبار)|هات.{0,20}(اخبار|أخبار)|لو\s+كسر.{0,20}(اخبار|أخبار)/i.test(normalized);
         return { intent: "stock_analysis", tools: compoundAnalysis ? ["get_stock", "get_stock_levels", "get_news"] : ["get_stock", "get_stock_levels"], replaceTools: true };
     }
@@ -2326,7 +2347,7 @@ async function* runPipelineCore(
             } as any;
         }
     }
-    if (mergedSymbols.length === 0 && sessionState.current_symbol && /(أبيع|ابيع|بيع(?!ه|ها|هم|ين)|أحتفظ|احتفظ|أخرج|اخرج|بكام|بكم|السعر)/i.test(userMessage) && !isBestBuyStockQuestion(userMessage) && !isMarketWideRequest(userMessage) && plannerResult.intent !== "technical_scan") {
+    if (mergedSymbols.length === 0 && sessionState.current_symbol && /(أبيع|ابيع|بيع(?!ه|ها|هم|ين)|أحتفظ|احتفظ|أخرج|اخرج|بكام|بكم|السعر|وقف\s*(?:ال)?خسار|اوقف\s*(?:ال)?خسار|خسار|خساير|خسران|اشتريت|شاري|متوسط)/i.test(userMessage) && !isBestBuyStockQuestion(userMessage) && !isMarketWideRequest(userMessage) && plannerResult.intent !== "technical_scan") {
         mergedSymbols.push(sessionState.current_symbol);
     }
     if (mergedSymbols.length === 0 && sessionState.current_symbol && /(اخباره|أخباره|هات\s+اخبار|هات\s+أخبار|خبره)/i.test(userMessage)) mergedSymbols.push(sessionState.current_symbol);
@@ -2335,7 +2356,7 @@ async function* runPipelineCore(
     }
     const isSingleStockRecFollowUp = Boolean(sessionState.current_symbol) && /(?:^|[^\u0621-\u064A])(ده|دا|دي|هذا|السهم ده|السهم دا|السهم دي|هاته|هاتها|اخباره|أخباره|خبره|الاتنين|السهمين|عليه|فيه|ليه|عليها|فيها|ليها|عنه|عنها|به|بها|معاه|معاها|هو|هي)(?:$|[^\u0621-\u064A])/i.test(normalizeArabicIntent(userMessage)) && /(?:توصي[اإ]?\s*ت|توصي[ةه])/i.test(normalizeArabicIntent(userMessage));
     if (mergedSymbols.length === 0 && sessionState.current_symbol && (
-        /(عليه|عليها|فيه|فيها|ليه|ليها|له|لها|عنه|عنها|به|بها|معاه|معاها|هو|هي|ده|دي|هذا|هذه|تجميع|تصريف|تحليل|مؤشر|مؤشرات|دعم|مقاومة|مقاومه|توصي)/i.test(userMessage) ||
+        /(السهم|السهمين|الاتنين|عليه|عليها|فيه|فيها|ليه|ليها|له|لها|عنه|عنها|به|بها|معاه|معاها|هو|هي|ده|دي|هذا|هذه|تجميع|تصريف|تحليل|مؤشر|مؤشرات|دعم|مقاومة|مقاومه|توصي|خسار|خساير|اشتريت|شاري|متوسط)/i.test(userMessage) ||
         userMessage.trim().split(/\s+/).length <= 3
     ) && !isMarketWideRequest(userMessage) && (!isBestBuyStockQuestion(userMessage) || isSingleStockRecFollowUp) && plannerResult.intent !== "technical_scan") {
         mergedSymbols.push(sessionState.current_symbol);
@@ -2392,7 +2413,8 @@ async function* runPipelineCore(
         mergedSymbols = portfolioAnalysisSymbols.slice();
     }
     const marketScopedTools = new Set(["get_market", "get_sector_liquidity", "get_sector_list", "get_fair_value_scan", "get_technical_scan", "get_accumulation_stocks", "get_distribution_stocks"]);
-    if (explicitSymbols.length === 0 && enforced.tools.some(tool => marketScopedTools.has(tool))) mergedSymbols = [];
+    const isExplicitStockIntent = ["stock_analysis", "risk_analysis", "levels_analysis", "stock_news"].includes(enforced.intent) || enforced.tools.includes("get_stock");
+    if (explicitSymbols.length === 0 && !isExplicitStockIntent && enforced.tools.some(tool => marketScopedTools.has(tool))) mergedSymbols = [];
     const datedDomainRequest = Boolean(extractRequestedDate(userMessage) || extractRequestedDateRange(userMessage)) && ["stock_analysis", "stock_news", "comparison", "sector_analysis", "accumulation_distribution"].includes(enforced.intent);
     const historicalRequest = needsHistoricalData(enforced.intent, userMessage);
     const effectiveIntent = historicalRequest && !datedDomainRequest ? "historical_recall" : enforced.intent;
