@@ -2572,9 +2572,8 @@ async function* runPipelineCore(
     const topMoversRequest = /(أعلى|اعلى|أقوى|اقوى).{0,25}(الأسهم|اسهم|ارتفاع|صعود|النهارده|اليوم|اخر يوم|آخر يوم|جلسه|جلسة)/i.test(userMessage);
     const deterministicLiquidityResponse = topMoversRequest
         ? buildTopMoversResponse(tools)
-        : plan.intent === "market_summary" && plan.entities.symbols.length === 0
+        : plan.entities.symbols.length === 0
         && !plan.tools.includes("get_fair_value_scan")
-        && !plan.entities.scan_direction
         ? buildMarketLiquidityResponse(tools)
         : null;
     const isAnalyticalQueryRegex = /(سبب|ليه|لماذا|ازاي|إزاي|تفسير|سر|ينزل|يهبط|يطلع|صعود|هبوط|فرص|أحسن|احسن|افضل|أفضل|توقعات|متوقع|مقارن|قارن|حالة|حالتها|رايك|رأيك|توجيه|تجميع|تصريف|تحليل|شراء|بيع|مناسب|مكمل|مستمر|جلسه|جلسة|غدا|غداً|اشترى|اشتري|اشتريت|خسران|نازل|عادله|عادلة|تقييم|قيمته|تسوى|تساوي|أهداف|اهداف|احتفاظ|خروج|دخول|بيجمع|ينطلق|مؤشر|مؤشرات|اخبار|أخبار|إيه|ايه|هل|فين|مين|مسح|شروط|\?|؟)/i;
@@ -2644,7 +2643,10 @@ async function* runPipelineCore(
                 : `لم تظهر أسهم مطابقة لمعايير ${directionAr} ضمن بيانات المسح المتاحة بتاريخ ${scanDate || "غير محدد"}. هذه نتيجة العينة والمعايير المستخدمة، وليست حكماً على السوق كله.`
         : null;
 
-    const deterministicResponse = deterministicDomainResponse;
+    // These templates are grounded directly in the returned tool rows. Keeping
+    // them ahead of the responder prevents unsupported claims about liquidity
+    // and prevents database closes from being described as live prices.
+    const deterministicResponse = deterministicDomainResponse || deterministicLiquidityResponse;
     if (deterministicResponse) {
         const response = deterministicResponse;
         const deterministicSessionUpdate = clearsStockContext(plan)

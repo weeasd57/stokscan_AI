@@ -17,7 +17,7 @@ export interface AiTelemetryEvent {
 export async function logAiInteraction(supabase: any, event: AiTelemetryEvent): Promise<void> {
     console.log(`[AI TELEMETRY] Correlation=${event.correlationId || "n/a"} Intent=${event.intent} Symbols=${event.symbols.join(",")} Latency=${event.totalLatencyMs}ms Model=${event.responseModel}`);
     try {
-        await supabase.from("ai_analytics").insert([{
+        const { error } = await supabase.from("ai_analytics").insert([{
             session_id: event.sessionId,
             user_id: event.userId || null,
             intent: event.intent,
@@ -32,8 +32,12 @@ export async function logAiInteraction(supabase: any, event: AiTelemetryEvent): 
             correlation_id: event.correlationId || null,
             error: event.error || null
         }]);
-    } catch (e) {
-        // Silently log warning so DB table missing never breaks chat response
-        console.warn("[AI TELEMETRY] Note: ai_analytics logging skipped or table missing.");
+        if (error) {
+            console.warn(`[AI TELEMETRY] Persistence failed (${error.code || "unknown"}): ${error.message || "unknown database error"}`);
+        }
+    } catch (error: any) {
+        // Telemetry must never break the chat response, but the server log must
+        // preserve enough detail to distinguish a missing table from an outage.
+        console.warn(`[AI TELEMETRY] Persistence threw: ${error?.message || String(error)}`);
     }
 }

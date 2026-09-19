@@ -322,5 +322,30 @@ describe("Conversational AI & Investor Preference Memory Evaluation", () => {
             );
             expect(stale).toContain("لم تجتز فحص الحداثة");
         });
+
+        test("answers a monthly-income allocation question without market data", () => {
+            const response = buildFastConversationalAdvisorResponse(
+                "لو هودع 40000 جنيه وعايز منهم عائد شهري أفضل توزيع أو أعمل إيه؟",
+                { intent: "general_chat", guidance_intent: null, confidence: 1, entities: { symbols: [], sector: null }, tools: [] },
+                [],
+                null
+            );
+            expect(response).toMatch(/40[,.٬]?000|٤٠[٬,]?٠٠٠/);
+            expect(response).toContain("الدخل الشهري المطلوبة");
+            expect(response).not.toContain("لا توجد بيانات حية");
+        });
+
+        test("answers a named-stock liquidity follow-up with liquidity facts", () => {
+            const response = buildFastConversationalAdvisorResponse(
+                "تحليل السيولة لـ ETEL",
+                { intent: "stock_analysis", confidence: 1, entities: { symbols: ["ETEL"], sector: null }, tools: ["get_stock"] },
+                [{ tool: "get_stock", source: "database", data_time: "2026-09-17", symbols: ["ETEL"], data_type: "live", data: { symbol: "ETEL", name: "Telecom Egypt", volume_ratio: 3.089, volume: 3000, vol_sma20: 1000 } }],
+                null
+            );
+            expect(response).toContain("تحليل سيولة ETEL");
+            expect(response).toContain("3.09x");
+            expect(response).toContain("لا توجد بيانات Wyckoff موثقة");
+            expect(response).not.toContain("الدعم");
+        });
     });
 });

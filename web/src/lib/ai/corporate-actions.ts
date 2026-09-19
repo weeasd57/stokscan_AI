@@ -150,6 +150,20 @@ export function classifyCorporateAction(title: string): CorporateActionClassific
     return null;
 }
 
+function isCredibleStoredCorporateAction(item: CorporateActionItem): boolean {
+    const title = String(item.title || "").trim();
+    if (!title) return false;
+    // Search result directory/quote pages are not issuer events. Older chat
+    // cache rows can contain them because a snippet (not the title) matched a
+    // dividend keyword.
+    if (/سعر\s+سهم.+(?:اليوم|البورص[هة])|(?:توزيعات|dividends?).+(?:investing|tradingview)/i.test(title)) {
+        return false;
+    }
+    const titleClassification = classifyCorporateAction(title);
+    if (!titleClassification) return false;
+    return titleClassification.type === item.action_type;
+}
+
 function extractCorporateActionDetails(title: string): Record<string, number | string> | null {
     const normalized = normalizeArabicText(title);
     const details: Record<string, number | string> = {};
@@ -351,13 +365,15 @@ export async function getCorporateActionsForSymbols(
             console.warn("[CA] Table query failed:", error.message || error);
         }
         if (!error && Array.isArray(data)) {
-            dbItems = (data as CorporateActionItem[]).map(item => ({
-                ...item,
-                // Legacy chat rows may have a discovery timestamp masquerading
-                // as publication time; the explicit unknown flag wins.
-                published_at: item.details?.published_at_unknown === true ? null : item.published_at,
-                action_type_ar: item.action_type_ar || CA_TYPE_AR[item.action_type] || item.action_type,
-            }));
+            dbItems = (data as CorporateActionItem[])
+                .map(item => ({
+                    ...item,
+                    // Legacy chat rows may have a discovery timestamp masquerading
+                    // as publication time; the explicit unknown flag wins.
+                    published_at: item.details?.published_at_unknown === true ? null : item.published_at,
+                    action_type_ar: item.action_type_ar || CA_TYPE_AR[item.action_type] || item.action_type,
+                }))
+                .filter(isCredibleStoredCorporateAction);
         }
     } catch (e: any) {
         throwIfCancelled(signal);
@@ -397,7 +413,10 @@ export async function getCorporateActionsForSymbols(
                 throwIfCancelled(signal);
                 const symbolItems: CorporateActionItem[] = [];
                 for (const result of webResults) {
-                    const classification = classifyCorporateAction(`${result.title} ${result.snippet || ""}`);
+                    // The visible headline itself must contain the corporate
+                    // action. Matching only a search snippet created false
+                    // dividend rows from generic quote and directory pages.
+                    const classification = classifyCorporateAction(result.title);
                     if (!classification) continue;
                     if (!isRelevantCorporateTitle(result.title, sym, displayName)) continue;
                     const published = Date.parse(result.published_at || "");

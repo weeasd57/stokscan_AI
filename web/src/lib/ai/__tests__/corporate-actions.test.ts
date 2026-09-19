@@ -106,6 +106,19 @@ describe("getCorporateActionsForSymbols", () => {
         expect(result.items).toHaveLength(0);
         expect(result.fromDatabase).toBe(0);
     });
+
+    it("filters legacy quote pages misclassified as dividends", async () => {
+        const row = {
+            symbol: "AFMC", exchange: "EGX", action_type: "dividend",
+            title: "سعر سهم مطاحن ومخابز الإسكندرية (AFMC) اليوم — البورصة المصرية",
+            action_date: null, published_at: new Date().toISOString(), url: "https://example.com/price",
+            source: "example.com", sentiment_score: null, sentiment_label: null,
+            confidence: 0.85, details: null, origin: "chat_cache"
+        };
+        const result = await getCorporateActionsForSymbols(fakeSupabase([row]), ["AFMC"], { enableWebSearch: false });
+        expect(result.items).toHaveLength(0);
+        expect(result.fromDatabase).toBe(0);
+    });
 });
 
 describe("formatCorporateActionsSummary", () => {

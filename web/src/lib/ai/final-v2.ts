@@ -465,6 +465,7 @@ export function buildV2FinalMessages(
     sections.push("- الأحداث المالية المؤثرة (أداة get_corporate_actions في === LIVE DATA ===):");
     sections.push("  1. إذا وُجدت أحداث مالية للسهم (حقوق اكتتاب، توزيعات أرباح، تجزئة، أسهم مجانية، زيادة/تخفيض رأس المال، استحواذ)، اذكرها صراحة عند تحليل السهم لأنها تؤثر مباشرة على السعر والسيولة.");
     sections.push("  2. اربط الحدث بأثره المتوقع: حقوق الاكتتاب تمتص السيولة وقد تضغط على السعر مؤقتاً، التوزيعات والأسهم المجانية تجذب السيولة قبل موعدها، التجزئة/تخفيض القيمة الاسمية يغيران السعر الاسمي دون تغيير القيمة السوقية للشركة.");
+    sections.push("  2b. amount_egp يعني مبلغاً ورد في الخبر فقط، ولا يعني قيمة الكوبون لكل سهم. لا تقل «جنيه للسهم» إلا عند وجود amount_per_share_egp صراحة.");
     sections.push("  3. الأحداث التي جاءت من البحث الحي (origin أو source يشير لموقع ويب) يجب ذكر مصدرها (اسم الموقع) عند سردها، ولا يجوز إضافة تفاصيل أو أرقام غير موجودة في البيانات.");
     sections.push("  4. إذا لم توجد أحداث مالية مسجلة للسهم، لا تفترض وجود اكتتاب أو توزيعات أو تجزئة من عندك — قل إنه لا توجد أحداث مسجلة.");
     sections.push("- عندما يسأل المستخدم عن القيمة العادلة أو التقييم لسهم معين (مثل: ما القيمة العادلة لسهم...):");
@@ -1567,6 +1568,58 @@ export function buildFastConversationalAdvisorResponse(
         return null; // Yield to LLM for customized expert explanation of post-session liquidity indicators
     }
 
+    // A named-stock liquidity follow-up must answer the requested dimension,
+    // not fall back to the generic stock-analysis paragraph used in the prior turn.
+    const isStockLiquidityAnalysis = hasSpecificSymbols
+        && /(?:تحليل|حلل|شوف|اقرا|اقرأ)?\s*(?:السيوله|السيولة|سيوله|سيولة)|(?:حجم|احجام|أحجام)\s*(?:التداول)?/i.test(normMsg);
+    if (isStockLiquidityAnalysis) {
+        const stockResult = toolResults.find(result => result.tool === "get_stock" && result.data?.symbol);
+        if (stockResult?.data) {
+            const data = stockResult.data;
+            const symbol = String(data.symbol || plan.entities.symbols[0]).toUpperCase();
+            const name = data.name && data.name !== symbol ? ` (${data.name})` : "";
+            const volume = Number(data.volume);
+            const averageVolume = Number(data.vol_sma20 ?? data.average_volume_20d);
+            const calculatedRatio = Number.isFinite(volume) && Number.isFinite(averageVolume) && averageVolume > 0
+                ? volume / averageVolume
+                : null;
+            const rawRatio = data.volume_ratio ?? data.vol_ratio ?? calculatedRatio;
+            const parsedRatio = typeof rawRatio === "string"
+                ? Number(rawRatio.trim().replace(/x$/i, ""))
+                : Number(rawRatio);
+            const ratio = rawRatio != null && Number.isFinite(parsedRatio) ? parsedRatio : null;
+            const price = Number(data.price ?? data.close);
+            const liquidityLabel = ratio == null
+                ? "غير متاحة رقمياً"
+                : ratio < 0.8
+                    ? "ضعيفة وأقل من المعتاد"
+                    : ratio > 1.5
+                        ? "مرتفعة بوضوح عن المعتاد"
+                        : "قريبة من المستوى المعتاد";
+            const dataLabel = isLiveStockResult(stockResult)
+                ? `وقت التحديث ${data.live_update_time || stockResult.data_time}`
+                : `إغلاق ${String(stockResult.data_time || "غير محدد").slice(0, 10)}`;
+            const lines = [
+                `**تحليل سيولة ${symbol}${name} — ${dataLabel}:**`,
+                Number.isFinite(price)
+                    ? `- ${isLiveStockResult(stockResult) ? "السعر اللحظي" : "آخر إغلاق مسجل"}: **${price.toFixed(2)} جنيه**.`
+                    : null,
+                ratio == null
+                    ? "- نسبة حجم التداول إلى متوسط 20 جلسة غير متاحة في البيانات الحالية."
+                    : `- نسبة الحجم: **${ratio.toFixed(2)}x** من متوسط 20 جلسة؛ السيولة ${liquidityLabel}.`,
+            ].filter((line): line is string => line !== null);
+            if (Number.isFinite(volume)) lines.push(`- حجم التداول المسجل: **${Math.round(volume).toLocaleString("en-US")} سهم**.`);
+            if (Number.isFinite(averageVolume)) lines.push(`- متوسط 20 جلسة: **${Math.round(averageVolume).toLocaleString("en-US")} سهم**.`);
+            if (data.acc_score != null || data.dist_score != null || data.wyckoff_phase) {
+                lines.push(`- وايكوف: ${data.wyckoff_phase || "غير محدد"}، التجميع ${data.acc_score ?? "غير متاح"}/100، التصريف ${data.dist_score ?? "غير متاح"}/100.`);
+            } else {
+                lines.push("- لا توجد بيانات Wyckoff موثقة لهذا السهم في النتيجة الحالية؛ لذلك لا أصف الحجم كتجميع أو تصريف.");
+            }
+            lines.push("الحجم المرتفع يؤكد أهمية الحركة، لكنه لا يحدد اتجاهها وحده؛ يجب قراءته مع السعر وبيانات التجميع/التصريف إن توفرت.");
+            return lines.join("\n");
+        }
+    }
+
     if (!hasSpecificSymbols && (guidanceIntent === "terms_explainer" || isTermsDefinitionRequest(userMessage))) {
         const wantsAccumulation = /(تجميع|التجميع)/i.test(normMsg);
         const wantsDistribution = /(تصريف|التصريف)/i.test(normMsg);
@@ -1647,19 +1700,31 @@ export function buildFastConversationalAdvisorResponse(
     }
 
     // 1. Allocation & Product Distribution Queries (e.g. "لو هوزع المبلغ ده، تنصحني بأي نسبة بين الأسهم والصناديق؟")
+    const isMonthlyIncomeAllocationQuery = !hasSpecificSymbols
+        && /(?:اودع|هودع|ايداع|وديع|معايا|استثمر|مبلغ|فلوس)/i.test(normMsg)
+        && /(?:عائد|دخل).{0,18}(?:شهري|كل\s*شهر)|(?:شهري|كل\s*شهر).{0,18}(?:عائد|دخل)/i.test(normMsg)
+        && /(?:توزيع|اوزع|أوزع|اعمل\s*اي|أعمل\s*اي|استثمر|افضل|أفضل)/i.test(normMsg);
     const isAllocationRatioQuery = !hasSpecificSymbols && (
         /(توزيع|نسبة|نسبه|اوزع|أوزع|اوزعها|قسم|تقسيم).{0,35}(أسهم|اسهم).{0,35}(صناديق|صندوق|دخل ثابت|ادخار)/i.test(normMsg)
         || /(توزيع|نسبة|نسبه).{0,30}(بين|مابين).{0,30}(أسهم|اسهم|صناديق|صندوق)/i.test(normMsg)
         || (plan.guidance_intent === "allocation" && /(نسبة|نسبه|صناديق|صندوق)/i.test(normMsg))
+        || isMonthlyIncomeAllocationQuery
     );
 
     if (isAllocationRatioQuery) {
-        const budgetStr = sessionState?.investment_budget ? ` لمبلغ ${sessionState.investment_budget.toLocaleString("ar-EG")} جنيه` : "";
+        const normalizedDigits = userMessage.replace(/[٠-٩]/g, digit => String("٠١٢٣٤٥٦٧٨٩".indexOf(digit)));
+        const budgetMatch = normalizedDigits.match(/(\d+(?:[.,]\d+)?)\s*(الف|ألف|مليون)?/i);
+        const parsedBudget = budgetMatch
+            ? Number(budgetMatch[1].replace(",", ".")) * (/مليون/i.test(budgetMatch[2] || "") ? 1_000_000 : /الف|ألف/i.test(budgetMatch[2] || "") ? 1_000 : 1)
+            : null;
+        const budget = sessionState?.investment_budget || (parsedBudget && parsedBudget >= 100 ? parsedBudget : null);
+        const budgetStr = budget ? ` لمبلغ ${budget.toLocaleString("ar-EG")} جنيه` : "";
         const risk = sessionState?.risk_tolerance;
         if (!risk) {
             return [
-                `أقدر أضع إطار توزيع${budgetStr}، لكن نسبة الأسهم لا ينبغي افتراضها قبل معرفة قدرتك على تحمل الهبوط المؤقت.`,
-                "حدّد أولاً هل مستوى المخاطرة منخفض أم متوسط أم مرتفع، وهل لديك احتياطي طوارئ منفصل؛ بعدها يمكن عرض نطاق استرشادي مناسب بدلاً من نسبة ثابتة مضللة."
+                `أقدر أرتب لك إطار توزيع${budgetStr} بهدف دخل شهري، لكن لا يصح افتراض عائد ثابت أو نسبة أسهم قبل معرفة احتياجك للمبلغ وقدرتك على تحمل الخسارة.`,
+                "قبل التوزيع: احتفظ بمصروفات الطوارئ والالتزامات القريبة خارج الاستثمار، ثم قيّم أدوات الدخل الدوري من مصدرها الرسمي حسب العائد، موعد الصرف، السيولة، الرسوم، ومخاطر رأس المال.",
+                "حدّد مدة الاستثمار، قيمة الدخل الشهري المطلوبة، وهل تقبل انخفاض أصل المبلغ، ومستوى المخاطرة (منخفض/متوسط/مرتفع)؛ بعدها أعرض نطاقاً استرشادياً بين السيولة والدخل الثابت والأسهم بدلاً من نسبة ثابتة مضللة."
             ].join("\n\n");
         }
         const riskStr = risk === "low" ? "المحافظة" : risk === "high" ? "عالية المخاطر" : "المتوازنة";
@@ -1882,6 +1947,9 @@ export function buildSingleStockAccumulationDistributionResponse(
 ): string | null {
     const normMsg = userMessage.toLowerCase().replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").replace(/ى/g, "ي");
     if (!/(?:تجميع|تصريف|وايكوف|wyckoff)/i.test(normMsg)) return null;
+    // Market-wide scan questions are rendered by the list/table builders. Do
+    // not silently collapse a plural question to the first returned stock.
+    if (!plan.entities.symbols?.length) return null;
 
     const requestedSymbol = plan.entities.symbols?.[0]?.toUpperCase();
     const singleStock = toolResults.find(result => result.tool === "get_stock" && result.data?.symbol);

@@ -27,3 +27,37 @@ it("non-stream pipeline collects the same canonical done event as stream", async
   expect(result.plan.intent).toBe(streamEvents.find((event) => event.type === "plan")?.data.intent);
   expect(result.response).toBe(streamEvents.find((event) => event.type === "done")?.data.response);
 });
+
+it("serves top movers from the deterministic grounded renderer", async () => {
+  const mockToolsResults = {
+    formattedText: "",
+    results: [{
+      tool: "get_market", source: "database", data_time: "2026-09-17", symbols: [], data_type: "live",
+      data: { top_gainers: [{ symbol: "CRST", name: "Creast Mark", change: 10.1124 }] },
+    }],
+  } as any;
+  const result = await runPipeline(
+    "أقوى الأسهم النهارده", [], state, null, [], {}, [], "", "", "", undefined,
+    { mockToolsResults, timeoutMs: 15_000 },
+  );
+  expect(result.response).toContain("CRST");
+  expect(result.response).toContain("آخر جلسة متاحة بتاريخ 2026-09-17");
+  expect(result.response).not.toContain("حركة السعر اللحظية");
+  expect(result.response).not.toContain("سيولة متوسطة إلى مرتفعة");
+});
+
+it("names stocks in a market-wide accumulation answer", async () => {
+  const mockToolsResults = {
+    formattedText: "",
+    results: [{
+      tool: "get_accumulation_stocks", source: "stock_scans_summary", data_time: "2026-09-17", symbols: ["ORAS"], data_type: "live",
+      data: { stocks: [{ symbol: "ORAS", name: "Orascom Construction", acc_score: 80, vol_ratio: 7.232, change_pct: 5.01 }] },
+    }],
+  } as any;
+  const result = await runPipeline(
+    "هل فيه أسهم في مناطق تجميع وايكوف ومؤشرات إيجابية؟", [], state, null, [], {}, [], "", "", "", undefined,
+    { mockToolsResults, timeoutMs: 15_000 },
+  );
+  expect(result.response).toContain("ORAS");
+  expect(result.response).toContain("درجة التجميع 80/100");
+});
