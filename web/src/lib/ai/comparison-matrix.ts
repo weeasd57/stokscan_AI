@@ -49,7 +49,8 @@ export interface ComparisonMatrixResult {
 
 export function calculateStockScores(stock: any): StockEvaluation {
     const sym = String(stock.symbol || stock.info?.symbol || "UNKNOWN").toUpperCase();
-    const price = stock.price != null && !isNaN(Number(stock.price)) ? Number(stock.price) : (stock.close != null && !isNaN(Number(stock.close)) ? Number(stock.close) : null);
+    const rawPrice = stock.price != null && !isNaN(Number(stock.price)) ? Number(stock.price) : (stock.close != null && !isNaN(Number(stock.close)) ? Number(stock.close) : null);
+    const price = rawPrice != null && rawPrice > 0 ? rawPrice : null;
     const change_pct = stock.change_pct != null && !isNaN(Number(stock.change_pct)) ? Number(stock.change_pct) : null;
     const rsi = stock.rsi_14 != null && !isNaN(Number(stock.rsi_14)) ? Number(stock.rsi_14) : (stock.rsi != null && !isNaN(Number(stock.rsi)) ? Number(stock.rsi) : null);
 
@@ -159,11 +160,28 @@ export function buildComparisonMatrix(toolResults: ToolResult[]): ComparisonMatr
         } else if (r.tool === "get_stock_levels" && (r.data?.symbol || r.symbols?.[0])) {
             const sym = String(r.data?.symbol || r.symbols?.[0]).toUpperCase();
             stockMap.set(sym, { ...stockMap.get(sym), ...r.data });
-        } else if (r.tool === "get_comparison" && r.data?.sym1 && r.data?.sym2) {
-            const s1 = String(r.data.sym1.info?.symbol || r.symbols?.[0] || "").toUpperCase();
-            const s2 = String(r.data.sym2.info?.symbol || r.symbols?.[1] || "").toUpperCase();
-            if (s1) stockMap.set(s1, { ...stockMap.get(s1), ...r.data.sym1.tech, price: r.data.sym1.price?.close, info: r.data.sym1.info });
-            if (s2) stockMap.set(s2, { ...stockMap.get(s2), ...r.data.sym2.tech, price: r.data.sym2.price?.close, info: r.data.sym2.info });
+        } else if (r.tool === "get_comparison" && r.data) {
+            if (r.data.sym1 && r.data.sym2) {
+                const s1 = String(r.data.sym1.info?.symbol || r.symbols?.[0] || "").toUpperCase();
+                const s2 = String(r.data.sym2.info?.symbol || r.symbols?.[1] || "").toUpperCase();
+                if (s1) stockMap.set(s1, { ...stockMap.get(s1), ...r.data.sym1.tech, price: r.data.sym1.price?.close, info: r.data.sym1.info });
+                if (s2) stockMap.set(s2, { ...stockMap.get(s2), ...r.data.sym2.tech, price: r.data.sym2.price?.close, info: r.data.sym2.info });
+            }
+            if (Array.isArray(r.data.comparisons)) {
+                r.data.comparisons.forEach((c: any) => {
+                    const sym = String(c.symbol || "").toUpperCase();
+                    if (sym) stockMap.set(sym, { ...stockMap.get(sym), ...c });
+                });
+            } else {
+                Object.keys(r.data).forEach(k => {
+                    if (k === "sym1" || k === "sym2" || k === "comparisons") return;
+                    const val = r.data[k];
+                    if (val && typeof val === "object" && (val.tech || val.price)) {
+                        const sym = k.toUpperCase();
+                        stockMap.set(sym, { ...stockMap.get(sym), ...val.tech, price: val.price?.close, info: val.info });
+                    }
+                });
+            }
         }
     });
 

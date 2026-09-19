@@ -303,7 +303,8 @@ export async function executeStructuredTools(
                     const sClose = startMap.get(p.symbol);
                     if (!sClose || sClose <= 0) return null;
                     const retPct = ((Number(p.close) - sClose) / sClose) * 100;
-                    const liquidity = Number(p.close) * Number(p.volume || 0);
+                    const hasVolume = p.volume != null && !isNaN(Number(p.volume)) && Number(p.volume) > 0;
+                    const liquidity = hasVolume && p.close != null && Number(p.close) > 0 ? Number(p.close) * Number(p.volume) : null;
                     return {
                         symbol: p.symbol,
                         name: sMap.get(p.symbol) || p.symbol,
@@ -312,7 +313,7 @@ export async function executeStructuredTools(
                         return_pct: Number(retPct.toFixed(2)),
                         ytd_return_pct: Number(retPct.toFixed(2)),
                         mtd_return_pct: Number(retPct.toFixed(2)),
-                        volume: Number(p.volume || 0),
+                        volume: hasVolume ? Number(p.volume) : null,
                         liquidity: liquidity
                     };
                 }).filter(Boolean).filter((r: any) => !NON_EQUITY_SYMBOLS.has(r.symbol));
@@ -321,9 +322,9 @@ export async function executeStructuredTools(
                     rankingList.sort((a: any, b: any) => Number(a.current_price) - Number(b.current_price));
                 } else if (wantsLiquidity) {
                     if (wantsLowest) {
-                        rankingList.sort((a: any, b: any) => a.liquidity - b.liquidity);
+                        rankingList.sort((a: any, b: any) => (a.liquidity ?? 0) - (b.liquidity ?? 0));
                     } else {
-                        rankingList.sort((a: any, b: any) => b.liquidity - a.liquidity);
+                        rankingList.sort((a: any, b: any) => (b.liquidity ?? 0) - (a.liquidity ?? 0));
                     }
                 } else {
                     if (wantsLowest) {
@@ -346,13 +347,17 @@ export async function executeStructuredTools(
                         if (wantsCheapest) {
                             metricVal = `${Number(s.current_price).toFixed(2)} ج.م`;
                         } else if (wantsLiquidity) {
-                            const liqM = Number(s.liquidity || 0);
-                            if (liqM >= 1_000_000) {
-                                metricVal = `${(liqM / 1_000_000).toFixed(2)} مليون ج.م`;
-                            } else if (liqM >= 1_000) {
-                                metricVal = `${(liqM / 1_000).toFixed(2)} ألف ج.م`;
+                            if (s.liquidity == null || !Number.isFinite(Number(s.liquidity)) || Number(s.liquidity) <= 0) {
+                                metricVal = "غير متاح";
                             } else {
-                                metricVal = `${liqM.toFixed(2)} ج.م`;
+                                const liqM = Number(s.liquidity);
+                                if (liqM >= 1_000_000) {
+                                    metricVal = `${(liqM / 1_000_000).toFixed(2)} مليون ج.م`;
+                                } else if (liqM >= 1_000) {
+                                    metricVal = `${(liqM / 1_000).toFixed(2)} ألف ج.م`;
+                                } else {
+                                    metricVal = `${liqM.toFixed(2)} ج.م`;
+                                }
                             }
                         } else {
                             const sign = Number(s.return_pct) >= 0 ? "+" : "";
@@ -1069,12 +1074,12 @@ export async function executeStructuredTools(
             const topMatches = filtered.slice(0, limitCount).map(t => ({
                 symbol: t.symbol,
                 name: namesMap.get(t.symbol) || t.symbol,
-                close: Number(t.close ?? 0).toFixed(2),
-                change_pct: Number(t.change_pct ?? 0).toFixed(2),
+                close: t.close != null && Number(t.close) > 0 ? Number(t.close).toFixed(2) : "غير متاح",
+                change_pct: t.change_pct != null ? Number(t.change_pct).toFixed(2) : "غير متاح",
                 rsi: t.rsi_14 != null ? Number(t.rsi_14).toFixed(2) : "N/A",
                 macd: t.macd != null ? Number(t.macd).toFixed(4) : "N/A",
                 macd_signal: t.macd_signal != null ? Number(t.macd_signal).toFixed(4) : "N/A",
-                r_vol: t.r_vol != null ? Number(t.r_vol).toFixed(2) : (Number(t.vol_sma20 ?? 0) > 0 ? (Number(t.volume ?? 0) / Number(t.vol_sma20)).toFixed(2) : "1.00"),
+                r_vol: t.r_vol != null ? Number(t.r_vol).toFixed(2) : (t.volume != null && t.vol_sma20 != null && Number(t.vol_sma20) > 0 ? (Number(t.volume) / Number(t.vol_sma20)).toFixed(2) : "غير متاح"),
                 ema_50: t.ema_50 != null ? Number(t.ema_50).toFixed(2) : "N/A",
                 ema_200: t.ema_200 != null ? Number(t.ema_200).toFixed(2) : "N/A",
                 divergence_summary: t.divergence_summary || null,
@@ -2455,14 +2460,48 @@ export async function executeStructuredTools(
 
                     // Build data payload for each symbol
                     const symbolData: Record<string, any> = {};
+                    const comparisonsList: any[] = [];
                     compareSymbols.forEach((s: string) => {
                         const key = s.toUpperCase();
+                        const pRow = priceMap.get(key) || null;
+                        const tRow = techMap.get(key) || null;
+                        const sInfo = { ...(sMap.get(key) || { symbol: s }), sector: sectorMap.get(key) || "N/A" };
                         symbolData[key] = {
-                            price: priceMap.get(key) || null,
-                            tech: techMap.get(key) || null,
-                            info: { ...(sMap.get(key) || { symbol: s }), sector: sectorMap.get(key) || "N/A" }
+                            price: pRow,
+                            tech: tRow,
+                            info: sInfo
                         };
+                        const rawPrice = pRow?.close ?? tRow?.close ?? null;
+                        const priceNum = rawPrice != null && Number(rawPrice) > 0 ? Number(rawPrice) : null;
+                        const vRatio = tRow?.vol_ratio != null
+                            ? Number(String(tRow.vol_ratio).replace(/x/gi, ""))
+                            : (tRow?.volume != null && tRow?.vol_sma20 != null && Number(tRow.vol_sma20) > 0
+                                ? Number((Number(tRow.volume) / Number(tRow.vol_sma20)).toFixed(2))
+                                : null);
+
+                        comparisonsList.push({
+                            symbol: key,
+                            name: sInfo.name || key,
+                            price: priceNum,
+                            change_pct: tRow?.change_pct != null ? Number(tRow.change_pct) : null,
+                            rsi_14: tRow?.rsi_14 != null ? Number(tRow.rsi_14) : null,
+                            macd: tRow?.macd != null ? Number(tRow.macd) : null,
+                            macd_signal: tRow?.macd_signal != null ? Number(tRow.macd_signal) : null,
+                            vol_ratio: vRatio,
+                            support: tRow?.support ?? null,
+                            resistance: tRow?.resistance ?? null,
+                        });
                     });
+
+                    const sym1Key = compareSymbols[0]?.toUpperCase();
+                    const sym2Key = compareSymbols[1]?.toUpperCase();
+
+                    const comparisonPayload = {
+                        ...symbolData,
+                        sym1: sym1Key ? symbolData[sym1Key] : null,
+                        sym2: sym2Key ? symbolData[sym2Key] : null,
+                        comparisons: comparisonsList
+                    };
 
                     // Determine the data date
                     const dataDate = requestedDate
@@ -2477,7 +2516,7 @@ export async function executeStructuredTools(
                         symbols: compareSymbols,
                         symbol_count: compareSymbols.length,
                         data_type: requestedDate ? "historical" : "live",
-                        data: symbolData
+                        data: comparisonPayload
                     });
                 }
             }

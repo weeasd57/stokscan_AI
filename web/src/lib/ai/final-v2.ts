@@ -1175,13 +1175,17 @@ export function buildYtdMarketRankingResponse(
     displayedStocks.forEach((s: any, idx: number) => {
         let metricVal = "";
         if (wantsLiquidity) {
-            const liqM = Number(s.liquidity || 0);
-            if (liqM >= 1_000_000) {
-                metricVal = `**${(liqM / 1_000_000).toFixed(2)} مليون ج.م**`;
-            } else if (liqM >= 1_000) {
-                metricVal = `**${(liqM / 1_000).toFixed(2)} ألف ج.م**`;
+            if (s.liquidity == null || !Number.isFinite(Number(s.liquidity)) || Number(s.liquidity) <= 0) {
+                metricVal = "**غير متاح**";
             } else {
-                metricVal = `**${liqM.toFixed(2)} ج.م**`;
+                const liqM = Number(s.liquidity);
+                if (liqM >= 1_000_000) {
+                    metricVal = `**${(liqM / 1_000_000).toFixed(2)} مليون ج.م**`;
+                } else if (liqM >= 1_000) {
+                    metricVal = `**${(liqM / 1_000).toFixed(2)} ألف ج.م**`;
+                } else {
+                    metricVal = `**${liqM.toFixed(2)} ج.م**`;
+                }
             }
         } else {
             const ret = s.return_pct ?? s.mtd_return_pct ?? s.ytd_return_pct;
@@ -1700,6 +1704,10 @@ export function buildFastConversationalAdvisorResponse(
     }
 
     // 1. Allocation & Product Distribution Queries (e.g. "لو هوزع المبلغ ده، تنصحني بأي نسبة بين الأسهم والصناديق؟")
+    const isMonthlyIncomeConceptQuery = !hasSpecificSymbols
+        && /(?:عائد|دخل).{0,18}(?:شهري|كل\s*شهر)|(?:شهري|كل\s*شهر).{0,18}(?:عائد|دخل)/i.test(normMsg)
+        && !/(?:ترتيب|قايمه|قائمة|اعلى|أعلى|افضل|أفضل|اقل|أقل|صاعد|هابط).{0,35}(?:ارباح|أرباح|ارتفاع|صعود|اداء|أداء|عائد)/i.test(normMsg);
+
     const isMonthlyIncomeAllocationQuery = !hasSpecificSymbols
         && /(?:اودع|هودع|ايداع|وديع|معايا|استثمر|مبلغ|فلوس)/i.test(normMsg)
         && /(?:عائد|دخل).{0,18}(?:شهري|كل\s*شهر)|(?:شهري|كل\s*شهر).{0,18}(?:عائد|دخل)/i.test(normMsg)
@@ -1745,6 +1753,18 @@ export function buildFastConversationalAdvisorResponse(
             "هذا توزيع تعليمي وليس نسبة مثالية للجميع؛ إذا لم يكن لديك احتياطي طوارئ منفصل، تكون الأولوية لبنائه قبل زيادة حصة الأسهم.",
             "",
             "الخطوة التالية هي تحديد مدة الاستثمار وقدرتك الفعلية على تحمل هبوط مؤقت قبل تحويل الإطار إلى نطاقات أكثر دقة."
+        ].join("\n");
+    }
+
+    if (isMonthlyIncomeConceptQuery) {
+        return [
+            "📌 **بشأن العائد والدخل الشهري من البورصة المصرية:**",
+            "",
+            "1. **طبيعة الأسهم:** الأسهم في البورصة **لا تقدم عائداً شهرياً ثابتاً أو مضموناً**؛ أرباحها تعتمد على الفروق السعرية (Capital Gains) عند الشراء بسعر مناسب وإعادة التقييم، بينما التوزيعات النقدية للشركات تكون في الغالب **سنوية أو نصف سنوية/ربع سنوية** عند إقرارها وليست شهرية.",
+            "2. **أدوات الدخل الدوري الأنسب:** إذا كان هدفك الأساسي هو الحصول على دخل شهري أو عائد دوري منتظم مع مخاطر منخفضة، فالأدوات المخصصة لذلك هي **صناديق استثمار الدخل الثابت والصناديق النقدية (Money Market Funds)** أو **أذون وسندات الخزانة** والشهادات المصرفية.",
+            "3. **استراتيجية الجمع:** يمكن للمستثمر تخصيص جزء من المحفظة لأدوات الدخل الثابت لتوليد تدفق نقدي دوري، مع استثمار جزء في أسهم قوية تشهد تجميعاً مؤسسياً لتحقيق نمو رأسمالي على المدى المتوسط.",
+            "",
+            "لو معاك مبلغ محدد وتريد إطاراً لتوزيعه بين الأسهم وأدوات الدخل الثابت والسيولة، اكتب المبلغ ومستوى المخاطرة (منخفض/متوسط/مرتفع) وسأقترح لك نطاقاً استرشادياً."
         ].join("\n");
     }
 
@@ -2546,27 +2566,58 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
     }
 
     const comparison = toolResults.find(result => result.tool === "get_comparison");
-    if (comparison?.data?.sym1 && comparison?.data?.sym2) {
-        const entries = [comparison.data.sym1, comparison.data.sym2];
-        const describe = (entry: any, fallback: string) => {
-            const symbol = entry.info?.symbol || fallback;
-            const price = entry.price?.close ?? "غير متاح";
-            const change = entry.tech?.change_pct ?? "غير متاح";
-            const rsi = entry.tech?.rsi_14 ?? "غير متاح";
-            const ratio = entry.tech?.volume && entry.tech?.vol_sma20 ? Number(entry.tech.volume) / Number(entry.tech.vol_sma20) : null;
-            return `- ${symbol}: السعر ${price} جنيه، التغير ${change}%، RSI ${rsi}${ratio != null ? `، حجم التداول ${ratio.toFixed(2)}x من المتوسط` : ""}.`;
-        };
-        const dateLabel = plan.entities.requested_date
-            ? `مقارنة مباشرة من البيانات المتاحة بتاريخ ${plan.entities.requested_date}:`
-            : "مقارنة مباشرة من أحدث بيانات متاحة:";
-        const missing = entries
-            .map((entry, index) => ({ entry, symbol: comparison.symbols[index] }))
-            .filter(({ entry }) => !entry.price && !entry.tech)
-            .map(({ symbol }) => symbol);
-        const missingNote = missing.length > 0
-            ? `لا توجد بيانات مسجلة لـ ${missing.join(" و")} في قاعدة البيانات لهذا التاريخ؛ لم أستخدم تاريخاً آخر.`
-            : "ارتفاع RSI يعكس قوة الزخم فقط ولا يكفي منفرداً لاتخاذ قرار.";
-        return [dateLabel, describe(entries[0], comparison.symbols[0]), describe(entries[1], comparison.symbols[1]), missingNote].join("\n");
+    if (comparison?.data) {
+        let entries: any[] = [];
+        let symbolsList: string[] = comparison.symbols || [];
+        if (comparison.data.sym1 && comparison.data.sym2) {
+            entries = [comparison.data.sym1, comparison.data.sym2];
+        } else if (Array.isArray(comparison.data.comparisons)) {
+            entries = comparison.data.comparisons.map((c: any) => ({
+                info: { symbol: c.symbol, name: c.name },
+                price: { close: c.price },
+                tech: { change_pct: c.change_pct, rsi_14: c.rsi_14, volume_ratio: c.vol_ratio }
+            }));
+            symbolsList = comparison.data.comparisons.map((c: any) => c.symbol);
+        } else {
+            const keys = Object.keys(comparison.data).filter(k => k !== "sym1" && k !== "sym2" && k !== "comparisons");
+            if (keys.length >= 2) {
+                entries = keys.map(k => comparison.data[k]);
+                symbolsList = keys;
+            }
+        }
+
+        if (entries.length >= 2) {
+            const isLiquidityFocus = /(?:سيول|تداول|liquidity|حجم)/i.test(normMsg);
+            const describe = (entry: any, fallback: string) => {
+                const symbol = entry.info?.symbol || fallback;
+                const rawP = entry.price?.close ?? entry.tech?.close ?? null;
+                const price = rawP != null && Number(rawP) > 0 ? `${Number(rawP).toFixed(2)} جنيه` : "غير متاح";
+                const change = entry.tech?.change_pct != null ? `${Number(entry.tech.change_pct) >= 0 ? "+" : ""}${Number(entry.tech.change_pct).toFixed(2)}%` : "غير متاح";
+                const rsi = entry.tech?.rsi_14 != null ? Number(entry.tech.rsi_14).toFixed(1) : "غير متاح";
+                const ratio = entry.tech?.volume_ratio ?? (entry.tech?.volume && entry.tech?.vol_sma20 && Number(entry.tech.vol_sma20) > 0 ? Number(entry.tech.volume) / Number(entry.tech.vol_sma20) : null);
+                const ratioStr = ratio != null && Number(ratio) > 0 ? `${Number(ratio).toFixed(2)}x من المتوسط` : "غير متاح";
+
+                if (isLiquidityFocus) {
+                    return `- **${symbol}**: نسبة السيولة وحجم التداول **${ratioStr}**، السعر ${price}، التغير ${change}، RSI ${rsi}.`;
+                }
+                return `- **${symbol}**: السعر ${price}، التغير ${change}، RSI ${rsi}، نسبة السيولة ${ratioStr}.`;
+            };
+            const dateLabel = plan.entities.requested_date
+                ? `مقارنة مباشرة من البيانات المتاحة بتاريخ ${plan.entities.requested_date}:`
+                : isLiquidityFocus
+                    ? "مقارنة السيولة وأحجام التداول المعتمدة بين السهمين:"
+                    : "مقارنة مباشرة من أحدث بيانات متاحة:";
+            const missing = entries
+                .map((entry, index) => ({ entry, symbol: symbolsList[index] || `سهم ${index + 1}` }))
+                .filter(({ entry }) => !entry.price && !entry.tech)
+                .map(({ symbol }) => symbol);
+            const missingNote = missing.length > 0
+                ? `لا توجد بيانات مسجلة لـ ${missing.join(" و")} في قاعدة البيانات لهذا التاريخ؛ لم أستخدم تاريخاً آخر.`
+                : isLiquidityFocus
+                    ? "ملاحظة: نسبة الحجم تعبر عن زخم التداول بالنسبة لمتوسط 20 جلسة، ولا تعني وحدها حتمية الصعود أو الهبوط دون قراءة مستويات الدعم والمقاومة."
+                    : "ارتفاع RSI يعكس قوة الزخم فقط ولا يكفي منفرداً لاتخاذ قرار.";
+            return [dateLabel, ...entries.slice(0, 4).map((e, idx) => describe(e, symbolsList[idx] || `سهم ${idx + 1}`)), missingNote].join("\n");
+        }
     }
 
     const sectorLiquidity = toolResults.find(result => result.tool === "get_sector_liquidity");

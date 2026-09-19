@@ -3,7 +3,7 @@ import { analyzeImage, reconcileVisionWithMarket } from "./vision";
 import { retrieveRelevantMemory, MemoryResult } from "./memory";
 import { getSyncStockMappings, getStocksList, getSyncValidSymbols, loadValidSymbols, isUnresolvedCompanyNameMention, LATIN_TICKER_ALIASES, runPlanner } from "./planner";
 import { executeStructuredTools, StructuredToolOutput } from "./tools-v2";
-import { buildDeterministicResponse, generateV2Response, generateV2Stream, getResponderCooldownMs, normalizeStockFreshnessLanguage } from "./final-v2";
+import { buildDeterministicResponse, buildBothAccumulationDistributionResponse, generateV2Response, generateV2Stream, getResponderCooldownMs, normalizeStockFreshnessLanguage } from "./final-v2";
 import { validateResponse, autoFixNumbers } from "./validator";
 import { sanitizeReply } from "./sanitizer";
 import { loadSessionState, loadSessionSummary, updateSessionSummary, updateSessionState, loadPersistentInvestorProfile } from "./session";
@@ -1021,14 +1021,18 @@ export function buildDeterministicPlannerResult(message: string, sessionState: S
     // into a market ranking — a superlative/list/count hint must also be present.
     const hasMarketListHint = /(?:اعلي|أعلى|اقوي|اقوى|افضل|أفضل|اقل|أقل|ارخص|أرخص|ادنى|أدنى|ترتيب|مرتب|قايمه|قائمه|قائمة|top)/i.test(normalized)
         || /(?:^|[\s،,])\d{1,2}\s*(?:سهم|سمهم|أسهم|اسهم)/i.test(normalized);
+    const isExplicitMtdPerformance = explicitSymbols.length === 0
+        && /(?:العائد|عائد|عوائد|أداء|اداء|ارباح|أرباح).{0,20}(?:الشهري|الشهر|خلال\s+الشهر|في\s+الشهر|الشهر\s+ده|هذا\s+الشهر)/i.test(normalized)
+        && !/(?:معايا|عندي|محفظ|ادخر|توزيع|صندوق|شهاده|وديعه|دخل)/i.test(normalized);
+
     const isPeriodRankingRequest = explicitSymbols.length === 0
-        && hasMarketListHint
-        && (isYtdMarketRequest || isMtdMarketRequest || isWtdMarketRequest || /(?:اعلي|أعلى|افضل|أفضل|اقل|أقل|ارخص|أرخص|ادنى|أدنى|بافضل|بأفضل|بافل|بأفل|بأعلى|باعلى|قايمه|قائمة|ترتيب).{0,35}(?:ارباح|أرباح|ارتفاع|صعود|اداء|أداء|عائد|سيول|تداول|حجم|ربح|أرباح).{0,35}(?:اول|أول|بداية|بدايه|خلال|منذ).{0,20}(?:السنه|السنة|الشهر|الاسبوع|يناير|ytd|mtd|wtd)/i.test(normalized));
+        && ((hasMarketListHint && (isYtdMarketRequest || isMtdMarketRequest || isWtdMarketRequest || /(?:اعلي|أعلى|افضل|أفضل|اقل|أقل|ارخص|أرخص|ادنى|أدنى|بافضل|بأفضل|بافل|بأفل|بأعلى|باعلى|قايمه|قائمة|ترتيب).{0,35}(?:ارباح|أرباح|ارتفاع|صعود|اداء|أداء|عائد|سيول|تداول|حجم|ربح|أرباح).{0,35}(?:اول|أول|بداية|بدايه|خلال|منذ).{0,20}(?:السنه|السنة|الشهر|الاسبوع|يناير|ytd|mtd|wtd)/i.test(normalized)))
+            || isExplicitMtdPerformance);
     if (isPeriodRankingRequest) {
         return {
             intent: "market_summary",
             confidence: 1,
-            entities: { symbols: [], sector: null, wants_table: true, timeframe: "historical", requested_date: isWtdMarketRequest ? "wtd" : isMtdMarketRequest ? "mtd" : null, scan_direction: null },
+            entities: { symbols: [], sector: null, wants_table: true, timeframe: "historical", requested_date: isWtdMarketRequest ? "wtd" : (isMtdMarketRequest || isExplicitMtdPerformance) ? "mtd" : null, scan_direction: null },
             tools: ["get_price_history"],
             session_update: { current_symbol: null, last_symbols: sessionState.last_symbols, summary: message }
         };
@@ -1377,11 +1381,11 @@ function formatPortfolioSnapshotResponse(data: any): string {
     lines.push(`التنويع: ${analysis.diversification || "غير متاح"}`);
     for (const position of positions) {
         const quantity = Number(position.quantity || 0);
-        const entry = Number(position.entry_price || 0);
-        const last = Number(position.last_price || 0);
-        const hasEntry = entry > 0;
-        const pnl = hasEntry && Number.isFinite(quantity * (last - entry)) ? quantity * (last - entry) : null;
-        const pnlPct = hasEntry ? ((last - entry) / entry) * 100 : null;
+        const entry = position.entry_price != null && Number(position.entry_price) > 0 ? Number(position.entry_price) : null;
+        const last = position.last_price != null && Number(position.last_price) > 0 ? Number(position.last_price) : null;
+        const hasEntry = entry != null && entry > 0;
+        const pnl = hasEntry && last != null && Number.isFinite(quantity * (last - entry)) ? quantity * (last - entry) : null;
+        const pnlPct = hasEntry && last != null ? ((last - entry) / entry) * 100 : null;
         const sourceLabel = position.price_source === "live" ? "لحظي" : position.price_source === "stock_prices" ? "آخر إغلاق" : "غير متاح";
         lines.push(`- ${position.symbol}: ${position.quantity ?? "؟"} سهم، متوسط ${hasEntry ? `${position.entry_price} ج.م` : "غير مسجل"}، آخر سعر ${position.last_price ?? "غير متاح"} ج.م (${sourceLabel})، ${pnl === null ? "الربح/الخسارة غير متاح" : `${pnl >= 0 ? "ربح" : "خسارة"} ${pnl >= 0 ? "+" : ""}${pnl.toLocaleString("en-US")} ج.م (${pnlPct!.toFixed(1)}%)`}`);
     }
@@ -1553,8 +1557,23 @@ export function enforceIntentFromMessage(message: string, plannerIntent: string,
         return { intent: "market_summary", tools: ["get_recommendations"], replaceTools: true, recommendation_filter: recFilter };
     }
     if (/(?:سبب|اسباب|لماذا|ليه\s+(?:نزل|طلع|هبط|صعد|وقع|طالع|نازل|بيخسر|بيهبط|بينزل|خسران|بيصعد)|ايه\s+سبب)/i.test(normalized) && hasSymbol) return { intent: "stock_news", tools: ["get_stock", "get_news", "get_stock_levels"], replaceTools: true };
+    const isMultiStockLiquidityComparison = /(?:سيول|تداول|liquidity)/i.test(normalized)
+        && (/(?:مقارن|قارن|compare|بين|أيهما|ايهما|مين|الاتنين|السهمين|افضل|أفضل)/i.test(normalized) || symbols.length >= 2);
+    if (isMultiStockLiquidityComparison) {
+        const compareTargetSymbols = symbols.length >= 2
+            ? symbols
+            : (sessionState?.last_symbols && sessionState.last_symbols.length >= 2 ? sessionState.last_symbols.slice(0, 2) : []);
+        if (compareTargetSymbols.length >= 2) {
+            return {
+                intent: "comparison",
+                tools: ["get_comparison"],
+                replaceTools: true,
+                entities: { symbols: compareTargetSymbols, wants_table: true }
+            } as any;
+        }
+    }
     if (/(مقاوم|مقوام|دعم|support|resistance)/i.test(normalized) && hasSymbol && !/حلل.{0,30}(اخبار|أخبار)/i.test(normalized)) return { intent: "levels_analysis", tools: ["get_stock_levels"], replaceTools: true };
-    if (/(سيول|السيوله)/i.test(normalized) && hasSymbol) return { intent: "stock_analysis", tools: ["get_stock"], replaceTools: true };
+    if (/(سيول|السيوله)/i.test(normalized) && hasSymbol && symbols.length <= 1) return { intent: "stock_analysis", tools: ["get_stock"], replaceTools: true };
     if (hasSymbol && /(حلل|لو\s+كسر|اعمل\s+ايه|أعمل\s+إيه)/i.test(normalized)) {
         const compoundAnalysis = /حلل.{0,20}(هات|اخبار|أخبار)|هات.{0,20}(اخبار|أخبار)|لو\s+كسر.{0,20}(اخبار|أخبار)/i.test(normalized);
         return { intent: "stock_analysis", tools: compoundAnalysis ? ["get_stock", "get_stock_levels", "get_news"] : ["get_stock", "get_stock_levels"], replaceTools: true };
@@ -1565,17 +1584,26 @@ export function enforceIntentFromMessage(message: string, plannerIntent: string,
         return { intent: "stock_news", tools: ["get_news", "get_corporate_actions"], replaceTools: true };
     }
     if (/(?:اخبار|أخبار|(?:^|\s)خبر(?:\s|$)|news)/i.test(normalized) && hasSymbol) return { intent: "stock_news", tools: ["get_news"], replaceTools: true };
-    if (/(مقارن|قارن|compare)/i.test(normalized) && symbols.length >= 2) return { intent: "comparison", tools: ["get_comparison"], replaceTools: true };
+
+    if (/(مقارن|قارن|compare)/i.test(normalized)) {
+        const targetSyms = symbols.length >= 2
+            ? symbols
+            : (sessionState?.last_symbols && sessionState.last_symbols.length >= 2 ? sessionState.last_symbols.slice(0, 2) : []);
+        if (targetSyms.length >= 2) {
+            return { intent: "comparison", tools: ["get_comparison"], replaceTools: true, entities: { symbols: targetSyms, wants_table: true } } as any;
+        }
+    }
     if (/(يخسر|خسار|يهبط|ينزل|يطلع|صعود|هبوط)/i.test(normalized) && hasSymbol) return { intent: "risk_analysis", tools: ["get_stock", "get_stock_levels", "get_distribution_stocks"], replaceTools: true, scan_direction: "distribution" };
     if (/(كسر|يكسر).{0,12}الدعم|الدعم.{0,12}(اتكسر|انكسر)/i.test(normalized) && hasSymbol) return { intent: "levels_analysis", tools: ["get_stock_levels"], replaceTools: true };
     if (/(ابيع|بيع|احتفظ|اخرج|اشتري|شراء)/i.test(normalized) && hasSymbol) return { intent: "stock_analysis", tools: ["get_stock", "get_stock_levels"], replaceTools: true };
     if (/(ينصح|داخل|دخول|مستهدف|يصحح|تصحيح|بكره|بكرة|اخر الاسبوع|المحفظه|مليون)/i.test(normalized) && hasSymbol) return { intent: "stock_analysis", tools: ["get_stock", "get_stock_levels"], replaceTools: true };
-    if (symbols.length >= 2 && hasSymbol && !/(اخبار|خبر|قارن|مقارن|قطاع|تجميع|تصريف)/i.test(normalized)) return { intent: "stock_analysis", tools: ["get_stock", "get_stock_levels"], replaceTools: true };
+    if (symbols.length >= 2 && hasSymbol && !/(اخبار|خبر|قارن|مقارن|قطاع|تجميع|تصريف|سيول|تداول|liquidity)/i.test(normalized)) return { intent: "stock_analysis", tools: ["get_stock", "get_stock_levels"], replaceTools: true };
     const marketListHintEnforce = /(?:اعلي|أعلى|اقوي|اقوى|افضل|أفضل|اقل|أقل|ارخص|أرخص|ادنى|أدنى|ترتيب|مرتب|قايمه|قائمه|قائمة|top)/i.test(normalized)
         || /(?:^|[\s،,])\d{1,2}\s*(?:سهم|سمهم|أسهم|اسهم)/i.test(normalized);
     const isPeriodRanking = !hasSymbol && marketListHintEnforce && (/(?:من\s+(?:اول|أول|بداية|بدايه)\s+(?:السنه|السنة|الشهر|الاسبوع|اسبوع)|من\s+يناير|خلال\s+(?:العام|الشهر|الاسبوع)|منذ\s+بداية\s+(?:العام|الشهر|الاسبوع)|ytd|mtd|wtd|الشهر\s+ده|الشهر\s+دا|الشهر\s+الحالي|هذا\s+الشهر|الاسبوع\s+ده|الاسبوع\s+دا|الاسبوع\s+الحالي|هذا\s+الاسبوع|هذا\s+العام|ف[يى]\s+(?:الاسبوع|الشهر|العام|السنه)|(?:الاسبوع|الشهر|العام|السنه)\s+(?:الماضي|الاخير|الفايت|الفائت))/i.test(normalized)
         || /(?:اعلي|أعلى|افضل|أفضل|اقل|أقل|ارخص|أرخص|ادنى|أدنى|بافضل|بأفضل|بافل|بأفل|بأعلى|باعلى|قايمه|قائمة|ترتيب).{0,35}(?:ارباح|أرباح|ارتفاع|صعود|اداء|أداء|عائد|سيول|تداول|حجم|ربح).{0,35}(?:اول|أول|بداية|بدايه|خلال|منذ).{0,20}(?:السنه|السنة|الشهر|الاسبوع|يناير|ytd|mtd|wtd)/i.test(normalized));
-    if (isPeriodRanking) {
+    const isExplicitMtdSecond = !hasSymbol && /(?:العائد|عائد|عوائد|أداء|اداء|ارباح|أرباح).{0,20}(?:الشهري|الشهر|خلال\s+الشهر|في\s+الشهر|الشهر\s+ده|هذا\s+الشهر)/i.test(normalized);
+    if (isPeriodRanking || isExplicitMtdSecond) {
         return { intent: "market_summary", tools: ["get_price_history"], replaceTools: true };
     }
     if (/(اكبر|اعلى|اقوى)\s+قطاع.{0,25}(سيول|تداول)|(?:(?:ال)?سيول(?:ه)?).{0,30}(قطاع|القطاعات)|قطاع.{0,30}(?:(?:ال)?سيول(?:ه)?|تداول)/i.test(normalized)) {
@@ -1587,7 +1615,7 @@ export function enforceIntentFromMessage(message: string, plannerIntent: string,
     if (/(?:(?:أ|ا)عل[ىي]|(?:أ|ا)قو[ىي]).{0,25}(الاسهم|الأسهم|ارتفاع|صعود|اليوم|النهارده|اخر يوم|آخر يوم)/i.test(normalized)) return { intent: "market_summary", tools: ["get_market"], replaceTools: true };
     if (/(حاله|حالة).{0,12}(السوق|البورصه|البورصة)|(?:السوق|البورصه|البورصة).{0,12}(النهارده|اليوم|عامل|حاله|حالة)/i.test(normalized)) return { intent: "market_summary", tools: ["get_market"], replaceTools: true };
     if (/(اداء|أداء|رايك|رأيك).{0,15}(المؤشر|موشر|egx30)|(?:المؤشر|موشر).{0,15}(النهارده|اليوم|عامل)/i.test(normalized)) return { intent: "market_summary", tools: ["get_market"], replaceTools: true };
-    if (/(سيول|تداول|liquidity)/i.test(normalized) && hasSymbol) return { intent: "stock_analysis", tools: ["get_stock"], replaceTools: true };
+    if (/(سيول|تداول|liquidity)/i.test(normalized) && hasSymbol && symbols.length <= 1) return { intent: "stock_analysis", tools: ["get_stock"], replaceTools: true };
     if (/(سيول|تداول|liquidity)/i.test(normalized) && !hasSymbol) {
         const referencedSector = extractSectorFromMessage(message) || sessionState?.current_sector || extractSectorFromMessage(sessionState?.summary || "");
         if (referencedSector) {
@@ -2569,11 +2597,19 @@ async function* runPipelineCore(
     await saveFactSnapshots(supabase, userId, sessionId, tools, vision, messageId);
 
     // ===== STAGE 5: Final Response =====
+    const hasAccTool = tools.results.some(r => r.tool === "get_accumulation_stocks");
+    const hasDistTool = tools.results.some(r => r.tool === "get_distribution_stocks");
+    const isBothScans = hasAccTool && hasDistTool;
+    const directionAr = isBothScans ? "تجميع وتصريف" : (plan.entities.scan_direction === "distribution" ? "تصريف" : "تجميع");
+
     const topMoversRequest = /(أعلى|اعلى|أقوى|اقوى).{0,25}(الأسهم|اسهم|ارتفاع|صعود|النهارده|اليوم|اخر يوم|آخر يوم|جلسه|جلسة)/i.test(userMessage);
     const deterministicLiquidityResponse = topMoversRequest
         ? buildTopMoversResponse(tools)
-        : plan.entities.symbols.length === 0
-        && !plan.tools.includes("get_fair_value_scan")
+        : (plan.intent === "market_summary" && plan.entities.symbols.length === 0
+            && !plan.tools.includes("get_fair_value_scan")
+            && !plan.entities.scan_direction
+            && !isBothScans
+            && !hasDistTool)
         ? buildMarketLiquidityResponse(tools)
         : null;
     const isAnalyticalQueryRegex = /(سبب|ليه|لماذا|ازاي|إزاي|تفسير|سر|ينزل|يهبط|يطلع|صعود|هبوط|فرص|أحسن|احسن|افضل|أفضل|توقعات|متوقع|مقارن|قارن|حالة|حالتها|رايك|رأيك|توجيه|تجميع|تصريف|تحليل|شراء|بيع|مناسب|مكمل|مستمر|جلسه|جلسة|غدا|غداً|اشترى|اشتري|اشتريت|خسران|نازل|عادله|عادلة|تقييم|قيمته|تسوى|تساوي|أهداف|اهداف|احتفاظ|خروج|دخول|بيجمع|ينطلق|مؤشر|مؤشرات|اخبار|أخبار|إيه|ايه|هل|فين|مين|مسح|شروط|\?|؟)/i;
@@ -2586,10 +2622,6 @@ async function* runPipelineCore(
     let emptyScanResult = false;
     let scanStale = false;
     let scanDate: string | null = null;
-    const hasAccTool = tools.results.some(r => r.tool === "get_accumulation_stocks");
-    const hasDistTool = tools.results.some(r => r.tool === "get_distribution_stocks");
-    const isBothScans = hasAccTool && hasDistTool;
-    const directionAr = isBothScans ? "تجميع وتصريف" : (plan.entities.scan_direction === "distribution" ? "تصريف" : "تجميع");
 
     if (isMarketWideScan) {
         if (isBothScans) {
@@ -2643,10 +2675,15 @@ async function* runPipelineCore(
                 : `لم تظهر أسهم مطابقة لمعايير ${directionAr} ضمن بيانات المسح المتاحة بتاريخ ${scanDate || "غير محدد"}. هذه نتيجة العينة والمعايير المستخدمة، وليست حكماً على السوق كله.`
         : null;
 
+    // Build dual scan presentation when both accumulation and distribution tools have results
+    const deterministicBothScanResponse = isBothScans && !emptyScanResult
+        ? buildBothAccumulationDistributionResponse(userMessage, plan, tools.results)
+        : null;
+
     // These templates are grounded directly in the returned tool rows. Keeping
     // them ahead of the responder prevents unsupported claims about liquidity
     // and prevents database closes from being described as live prices.
-    const deterministicResponse = deterministicDomainResponse || deterministicLiquidityResponse;
+    const deterministicResponse = deterministicDomainResponse || deterministicBothScanResponse || deterministicLiquidityResponse;
     if (deterministicResponse) {
         const response = deterministicResponse;
         const deterministicSessionUpdate = clearsStockContext(plan)
@@ -2971,10 +3008,13 @@ function hasMeaningfulData(result: ToolResult): boolean {
      
      const otcNotice = symbol && isOtcStock(symbol) ? buildOtcNotice(symbol) : null;
 
+     const hasMultiStockIntent = plan.entities.symbols.length >= 2 || plan.intent === "comparison" || toolsResults.some(r => r.tool === "get_comparison");
+     const titleLine = hasMultiStockIntent && plan.entities.symbols.length >= 2
+         ? `البيانات الفنية والتحليلية المعتمدة للأسهم (${plan.entities.symbols.join(" و")}):`
+         : (symbol ? `البيانات الفنية والتحليلية المعتمدة لسهم ${symbol}:` : "البيانات الفنية والتحليلية المعتمدة:");
+
      const lines = [
-         symbol
-             ? `البيانات الفنية والتحليلية المعتمدة لسهم ${symbol}:`
-             : "البيانات الفنية والتحليلية المعتمدة:",
+         titleLine,
          otcNotice ? `\n${otcNotice}\n` : ""
      ];
 
@@ -3018,9 +3058,11 @@ function hasMeaningfulData(result: ToolResult): boolean {
                 lines.push(`| :---: | :--- | :--- | :---: | :---: | :---: |`);
                 d.market_period_ranking.slice(0, 10).forEach((s: any, idx: number) => {
                     const metricVal = d.wants_liquidity
-                        ? (Number(s.liquidity || 0) >= 1_000_000
-                            ? `${(Number(s.liquidity) / 1_000_000).toFixed(2)} مليون ج.م`
-                            : `${Number(s.liquidity || 0).toFixed(2)} ج.م`)
+                        ? (s.liquidity == null || Number(s.liquidity) <= 0
+                            ? "غير متاح"
+                            : Number(s.liquidity) >= 1_000_000
+                                ? `${(Number(s.liquidity) / 1_000_000).toFixed(2)} مليون ج.م`
+                                : `${Number(s.liquidity).toFixed(2)} ج.م`)
                         : `${Number(s.return_pct) >= 0 ? "+" : ""}${s.return_pct}%`;
                     lines.push(`| ${idx + 1} | ${s.symbol} | ${s.name || s.symbol} | ${s.current_price} ج.م | ${s.start_price} ج.م | ${metricVal} |`);
                 });
