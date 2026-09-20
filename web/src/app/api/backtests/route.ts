@@ -6,7 +6,7 @@ import path from "node:path";
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
-const ADMIN_EMAILS = ["weeeessd57@gmail.com", "weeasd57@gmail.com"];
+const ADMIN_EMAILS = ["weeeessd57@gmail.com"];
 
 type BacktestRecord = Record<string, any>;
 

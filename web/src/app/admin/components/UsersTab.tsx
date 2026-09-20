@@ -83,6 +83,7 @@ export default function UsersTab() {
     const [pageSize] = useState(20);
     const [search, setSearch] = useState("");
     const [planFilter, setPlanFilter] = useState<string>("ALL");
+    const [planMenuOpen, setPlanMenuOpen] = useState(false);
     const [loading, setLoading] = useState(true);
     
     // Stats Dashboard State
@@ -220,6 +221,16 @@ export default function UsersTab() {
         } catch (e) {
             toast.error("Failed to delete user");
         }
+    };
+
+    const changePlan = async (userId: string, plan: "free" | "pro") => {
+        try {
+            const res = await fetch(`/api/admin/users/${userId}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ plan_id: plan }) });
+            if (!res.ok) throw new Error("Plan update failed");
+            toast.success(plan === "pro" ? "User upgraded to Pro" : "User moved to Free");
+            fetchUsers();
+            if (selectedUser?.profile?.id === userId) fetchDetail(userId);
+        } catch { toast.error("Failed to change user plan"); }
     };
 
     const filteredUsers = users.filter(u => {
@@ -425,19 +436,19 @@ export default function UsersTab() {
                         </div>
 
                         {/* Filter Pill Dropdown */}
-                        <div className="flex items-center border-4 border-black dark:border-white bg-zinc-100 dark:bg-zinc-900">
-                            <SlidersHorizontal className="w-4 h-4 ml-2 text-zinc-400" />
-                            <select
-                                value={planFilter}
-                                onChange={(e) => setPlanFilter(e.target.value)}
-                                className="h-9 px-2 bg-transparent font-black text-xs uppercase tracking-wider focus:outline-none cursor-pointer"
-                            >
-                                <option value="ALL">All Users</option>
-                                <option value="PRO">PRO Plan Only</option>
-                                <option value="FREE">Free Plan Only</option>
-                                <option value="TELEGRAM">Telegram Linked</option>
-                            </select>
-                        </div>
+                         <div className="relative flex items-center border-4 border-black dark:border-white bg-white dark:bg-zinc-900">
+                             <SlidersHorizontal className="w-4 h-4 ml-2 text-zinc-400" />
+                             <button type="button" onClick={() => setPlanMenuOpen((open) => !open)} className="h-9 min-w-[155px] px-3 flex items-center justify-between gap-3 text-left text-black dark:text-white font-black text-xs uppercase tracking-wider focus:outline-none">
+                                 <span>{{ ALL: "All Users", PRO: "PRO Plan Only", FREE: "Free Plan Only", TELEGRAM: "Telegram Linked" }[planFilter]}</span>
+                                 <span className="text-zinc-400">▾</span>
+                             </button>
+                             {planMenuOpen && <div className="absolute z-50 top-full left-0 right-0 mt-1 border-4 border-black dark:border-white bg-white dark:bg-zinc-950 shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_rgba(255,255,255,1)]">
+                                 {["ALL", "PRO", "FREE", "TELEGRAM"].map((value) => {
+                                     const labels: Record<string, string> = { ALL: "All Users", PRO: "PRO Plan Only", FREE: "Free Plan Only", TELEGRAM: "Telegram Linked" };
+                                     return <button key={value} type="button" onClick={() => { setPlanFilter(value); setPlanMenuOpen(false); }} className={`block w-full px-3 py-2 text-left text-xs font-black uppercase tracking-wider ${planFilter === value ? "bg-blue-600 text-white" : "bg-white dark:bg-zinc-950 text-black dark:text-white hover:bg-blue-100 dark:hover:bg-blue-950"}`}>{labels[value]}</button>;
+                                 })}
+                             </div>}
+                         </div>
 
                         <button
                             onClick={fetchUsers}
@@ -483,7 +494,7 @@ export default function UsersTab() {
                                         className="border-b-2 border-zinc-200 dark:border-zinc-800 hover:bg-blue-50/50 dark:hover:bg-blue-950/20 transition-colors cursor-pointer"
                                         onClick={() => fetchDetail(u.id)}
                                     >
-                                        <td className="px-3 py-2.5">
+                                     <td className="px-3 py-2.5">
                                             <div className="flex items-center gap-2.5">
                                                 {u.avatar_url ? (
                                                     <img src={u.avatar_url} alt="" className="w-7 h-7 rounded-full border-2 border-black dark:border-white object-cover" />
@@ -497,7 +508,13 @@ export default function UsersTab() {
                                                     <div className="text-[10px] text-zinc-400 truncate max-w-[120px]">{u.id.slice(0, 8)}...</div>
                                                 </div>
                                             </div>
-                                        </td>
+                                         </td>
+                                         <td className="px-3 py-2.5" onClick={(e) => e.stopPropagation()}>
+                                             <select value={u.subscription?.plan_id === "pro" && u.subscription?.status === "active" ? "pro" : "free"} onChange={(e) => changePlan(u.id, e.target.value as "free" | "pro")} className="border-2 border-black dark:border-white bg-white dark:bg-zinc-900 px-1 py-1 text-[10px] font-black">
+                                                 <option value="free">Free</option>
+                                                 <option value="pro">Pro</option>
+                                             </select>
+                                         </td>
                                         <td className="px-3 py-2.5">
                                             {u.subscription?.plan_id ? (
                                                 <span className={`inline-flex items-center gap-1 px-2 py-0.5 border-2 border-black dark:border-white font-black text-[10px] uppercase tracking-wider ${u.subscription.plan_id === "pro" ? "bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300" : "bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400"}`}>

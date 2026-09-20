@@ -13,12 +13,10 @@ export async function GET() {
   }
   return NextResponse.json({
     enabled: true,
-    mode: (process.env.KASHIER_MODE || "test") as string,
+    mode: "local",
+    provider: "vodafone_cash",
     currency: "EGP",
-    payment_methods: (process.env.KASHIER_ALLOWED_METHODS || "card,wallet")
-      .split(",")
-      .map((m: string) => m.trim())
-      .filter(Boolean),
+    payment_methods: ["wallet"],
     free: planLimits("free"),
     pro: planLimits("pro"),
   });

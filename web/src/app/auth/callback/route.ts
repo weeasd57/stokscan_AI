@@ -45,7 +45,7 @@ export async function GET(request: Request) {
       const { data: { user } } = await supabase.auth.getUser();
       const isAdmin =
         user?.app_metadata?.role === "admin" ||
-        (user?.email && ["weeeessd57@gmail.com", "weeasd57@gmail.com"].includes(user.email));
+        (user?.email && user.email.toLowerCase() === "weeeessd57@gmail.com");
       const finalDest = isAdmin ? "/admin" : next;
       return NextResponse.redirect(`${origin}${finalDest}`);
     }

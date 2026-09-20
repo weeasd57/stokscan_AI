@@ -2,7 +2,7 @@ import os
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from api.local_payments import is_local_payments_enabled, create_order, submit_order, price_egp
+from api.local_payments import is_local_payments_enabled, create_order, submit_order, get_order_status, price_egp
 
 router = APIRouter(prefix="/payment/local", tags=["local-payment"])
 
@@ -44,5 +44,17 @@ def local_payment_submit(req: LocalPaymentSubmit):
         return submit_order(req.order_id, req.user_id, req.note)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+
+
+@router.get("/status")
+def local_payment_status(order_id: str, user_id: str):
+    if not is_local_payments_enabled():
+        raise HTTPException(status_code=403, detail="Local payments are currently disabled")
+    try:
+        return get_order_status(order_id, user_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc))

@@ -792,6 +792,27 @@ def _send_telegram_adjustment(
 
         reason_ar = adjustment.get('reason_ar', adj_type)
 
+        # The free channel receives only an upgrade notice for material moves;
+        # never disclose the symbol, price, or target/stop values there.
+        try:
+            pl_pct = abs(float(adjustment.get("pl_pct")))
+        except (TypeError, ValueError):
+            pl_pct = 0.0
+        if pl_pct > 25:
+            from api.plan_limits import telegram_free_channel_target
+            free_msg = (
+                "📢 *تحديث مهم على إحدى التوصيات*\n"
+                "حدث تعديل جوهري تجاوز 25%، لكن تفاصيل السهم والأرقام متاحة لمشتركي Pro فقط.\n"
+                f"🔗 اشترك الآن: {get_web_origin()}/pricing"
+            )
+            try:
+                from api.telegram_bot import get_telegram_bot
+                bot = get_telegram_bot()
+                if bot:
+                    bot.send_notification(free_msg, chat_id=telegram_free_channel_target(), wait_for_delivery=True)
+            except Exception as exc:
+                print(f"[TELEGRAM] Free adjustment ad failed: {exc}")
+
         msg = (
             f"{emoji} *تحديث ذكي على التوصية* 🔧\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
@@ -1088,12 +1109,36 @@ def generate_weekly_performance_report(trigger: str = "manual", chat_id: Optiona
                 print(f"[WEEKLY_REPORT] Sent report on-demand to chat_id: {chat_id}")
         else:
             _notify_central_telegram(msg, "weekly_performance_report")
+            free_msg = (
+                f"📊 *ملخص أسبوعي مجاني / Weekly Summary*\n"
+                f"📅 `{start_date_str}` → `{end_date_str}`\n\n"
+                f"▪️ الصفقات المغلقة: `{total_closed}`\n"
+                f"▪️ نسبة النجاح: `{win_rate:.1f}%`\n"
+                f"▪️ متوسط العائد: `{avg_pnl:+.2f}%`\n\n"
+                f"📢 التفاصيل والتوصيات اليومية متاحة لمشتركي Pro فقط.\n"
+                f"🔗 {web_origin}/pricing"
+            )
+            _notify_free_telegram(free_msg, "weekly_performance_report_free")
             print("[WEEKLY_REPORT] Broadcasted weekly report to all stock_score subscribers.")
             
     except Exception as e:
         print(f"[WEEKLY_REPORT] Error generating report: {e}")
         import traceback
         traceback.print_exc()
+
+
+def _notify_free_telegram(message: str, service_type: str = "free_summary") -> bool:
+    """Send only approved public summaries or upgrade notices to the free channel."""
+    try:
+        from api.telegram_bot import get_telegram_bot
+        from api.plan_limits import telegram_free_channel_target
+        bot = get_telegram_bot()
+        if not bot:
+            return False
+        return bool(bot.send_notification(message, chat_id=telegram_free_channel_target(), wait_for_delivery=True))
+    except Exception as exc:
+        print(f"[TELEGRAM_FREE] Failed to deliver {service_type}: {exc}")
+        return False
 
 
 def _notify_subscribers_for_symbol(symbol: str, exchange: str, message: str):
@@ -1214,8 +1259,11 @@ def _notify_central_telegram(message: str, service_type: str = "central"):
             print(f"[CENTRAL_NOTIFY] No Telegram bot instance found for {service_type}.")
             return
 
-        from api.plan_limits import telegram_recommendations_target
-        chat_id = telegram_recommendations_target()
+        from api.plan_limits import telegram_pro_channel_target
+        chat_id = telegram_pro_channel_target()
+        if not chat_id:
+            from api.plan_limits import telegram_recommendations_target
+            chat_id = telegram_recommendations_target()
         if str(chat_id).strip() in {"", "-1003699330518"}:
             chat_id = telegram_recommendations_target()
         delivered = bot.send_notification(message, chat_id=str(chat_id), wait_for_delivery=True)
@@ -2144,6 +2192,7 @@ def _build_daily_recommendations_message(
     msg_lines = [
         f"🤖 *{title}*",
         f"📅 {current_date} | 🇪🇬 البورصة المصرية",
+        "ℹ️ القناة المجانية تستقبل الملخصات والإعلانات فقط. التوصيات والتعديلات اليومية متاحة لمشتركي Pro.",
         "━━━━━━━━━━━━━━━━━━━━\n",
     ]
 

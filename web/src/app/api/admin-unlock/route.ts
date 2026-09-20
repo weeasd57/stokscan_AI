@@ -14,7 +14,15 @@ export async function POST(req: NextRequest) {
         }
 
         if (password === secret) {
-            return NextResponse.json({ ok: true });
+            const response = NextResponse.json({ ok: true });
+            response.cookies.set("admin_unlock", secret, {
+                httpOnly: true,
+                secure: process.env.NODE_ENV === "production",
+                sameSite: "lax",
+                path: "/",
+                maxAge: 60 * 60 * 8,
+            });
+            return response;
         }
 
         return NextResponse.json({ ok: false, error: "Wrong password" }, { status: 401 });

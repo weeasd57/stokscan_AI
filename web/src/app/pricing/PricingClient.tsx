@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useAuth } from "@/contexts/AuthContext";
 import {
@@ -23,6 +24,7 @@ export default function PricingClient() {
   const { language } = useLanguage();
   const isAr = language === "ar";
   const { user } = useAuth();
+  const router = useRouter();
 
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -30,6 +32,27 @@ export default function PricingClient() {
   const [localOrder, setLocalOrder] = useState<string | null>(null);
   const [customerNote, setCustomerNote] = useState("");
   const [step, setStep] = useState<Step>("plans");
+  const [orderStatus, setOrderStatus] = useState<string>("submitted");
+  const [subscriptionEnd, setSubscriptionEnd] = useState<string | null>(null);
+  const [telegramProUrl, setTelegramProUrl] = useState("");
+  const [isPro, setIsPro] = useState(false);
+
+  useEffect(() => {
+    if (step !== "submitted" || !localOrder) return;
+    let stopped = false;
+    const check = async () => {
+      const res = await fetch(`/api/payment/local/status?order_id=${encodeURIComponent(localOrder)}`, { cache: "no-store" });
+      const data = await res.json().catch(() => ({}));
+      if (!stopped && data.status) {
+        setOrderStatus(data.status);
+        setSubscriptionEnd(data.subscription?.current_period_end || null);
+        setTelegramProUrl(data.telegram_pro_url || "");
+      }
+    };
+    check();
+    const timer = window.setInterval(check, 5000);
+    return () => { stopped = true; window.clearInterval(timer); };
+  }, [step, localOrder]);
 
   useEffect(() => {
     (async () => {
@@ -46,9 +69,20 @@ export default function PricingClient() {
     })();
   }, []);
 
+  useEffect(() => {
+    if (!user) {
+      setIsPro(false);
+      return;
+    }
+    fetch("/api/user/quota", { cache: "no-store" })
+      .then((response) => response.ok ? response.json() : null)
+      .then((data) => setIsPro(data?.plan?.is_pro === true))
+      .catch(() => setIsPro(false));
+  }, [user?.id]);
+
   const startLocalPayment = async () => {
     if (!user) {
-      toast.error(isAr ? "سجّل الدخول أولاً" : "Please sign in first");
+      router.push(`/login?redirect=${encodeURIComponent("/pricing")}`);
       return;
     }
     setBusy(true);
@@ -71,6 +105,11 @@ export default function PricingClient() {
 
   const submitLocalPayment = async () => {
     if (!localOrder) return;
+    const senderPhone = customerNote.trim().replace(/[\s-]/g, "");
+    if (!/^01[0125]\d{8}$/.test(senderPhone)) {
+      toast.error(isAr ? "اكتب رقم الهاتف المحوّل منه صحيحاً (11 رقم ويبدأ بـ 010 أو 011 أو 012 أو 015)" : "Enter a valid Egyptian sender phone number (11 digits starting with 010, 011, 012 or 015)");
+      return;
+    }
     setBusy(true);
     try {
       const res = await fetch("/api/payment/local/submit", {
@@ -126,7 +165,7 @@ export default function PricingClient() {
   const freeFeatures = [
     {
       icon: <Zap className="w-4 h-4" />,
-      text: isAr ? "تأخير الإشارات 5 أيام" : "Signals delayed 5 days",
+      text: isAr ? "تأخير الإشارات 15 يوماً" : "Signals delayed 15 days",
       included: true,
     },
     {
@@ -175,18 +214,18 @@ export default function PricingClient() {
       <div className="min-h-[70vh] flex items-center justify-center py-12 px-4">
         <div className="max-w-md w-full border-4 border-black dark:border-white bg-white dark:bg-zinc-900 shadow-[6px_6px_0px_rgba(0,0,0,1)] dark:shadow-[6px_6px_0px_rgba(255,255,255,1)] p-8 space-y-6 text-center">
           <div className="flex justify-center">
-            <div className="h-20 w-20 border-4 border-emerald-500 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-500 flex items-center justify-center">
-              <CheckCircle2 className="h-10 w-10" />
+            <div className={`h-20 w-20 border-4 ${orderStatus === "rejected" ? "border-red-500 bg-red-50 text-red-500" : "border-emerald-500 bg-emerald-50 text-emerald-500"} flex items-center justify-center`}>
+              {orderStatus === "rejected" ? <X className="h-10 w-10" /> : <CheckCircle2 className="h-10 w-10" />}
             </div>
           </div>
           <div className="space-y-2">
             <h2 className="text-2xl font-black text-black dark:text-white">
-              {isAr ? "الطلب قيد المراجعة ⏳" : "Order Under Review ⏳"}
+              {orderStatus === "rejected" ? (isAr ? "تم رفض الطلب ❌" : "Payment request rejected ❌") : orderStatus === "approved" ? (isAr ? "تم تفعيل Pro بنجاح ✅" : "Pro activated successfully ✅") : (isAr ? "الطلب قيد المراجعة ⏳" : "Order Under Review ⏳")}
             </h2>
             <p className="text-sm font-bold text-zinc-600 dark:text-zinc-300 leading-relaxed">
               {isAr
-                ? "تم إرسال طلبك بنجاح! سيتم مراجعة التحويل من قبل الإدارة وتفعيل حسابك Pro فور التحقق."
-                : "Your request was submitted! The transfer will be reviewed by admin and your Pro account will be activated upon verification."}
+                ? orderStatus === "rejected" ? "لم يتم اعتماد التحويل. يمكنك المحاولة مرة أخرى أو التواصل معنا عبر واتساب." : orderStatus === "approved" ? "تم تأكيد الدفع وتفعيل حساب Pro لمدة شهر." : "تم إرسال طلبك بنجاح! سيتم مراجعة التحويل من قبل الإدارة وتفعيل حسابك Pro فور التحقق."
+                : orderStatus === "rejected" ? "The transfer was not approved. Try again or contact us on WhatsApp." : orderStatus === "approved" ? "Your payment was approved and Pro is active for one month." : "Your request was submitted! The transfer will be reviewed by admin and your Pro account will be activated upon verification."}
             </p>
           </div>
           {localOrder && (
@@ -199,11 +238,9 @@ export default function PricingClient() {
               </p>
             </div>
           )}
-          <p className="text-xs font-bold text-zinc-400">
-            {isAr
-              ? "سنتواصل معك عبر البريد الإلكتروني بمجرد التفعيل"
-              : "You'll be notified via email once activated"}
-          </p>
+          {orderStatus === "rejected" && <div className="flex flex-col gap-2"><button onClick={startLocalPayment} disabled={busy} className="w-full h-11 border-4 border-black bg-emerald-500 text-white font-black">{isAr ? "إعادة المحاولة" : "Try again"}</button><a href="https://wa.me/201024359109" target="_blank" rel="noreferrer" className="text-sm font-black text-emerald-600 underline">{isAr ? "محتاج مساعدة؟ كلمنا على واتساب" : "Need help? Contact us on WhatsApp"}</a></div>}
+          {orderStatus === "approved" && <div className="space-y-2"><p className="font-black text-emerald-600">{subscriptionEnd ? (isAr ? `صالح حتى ${new Date(subscriptionEnd).toLocaleDateString("ar-EG")}` : `Valid until ${new Date(subscriptionEnd).toLocaleDateString()}`) : ""}</p>{telegramProUrl && <a href={telegramProUrl} target="_blank" rel="noreferrer" className="block text-sm font-black text-indigo-600 underline">{isAr ? "دخول قناة Pro على تليجرام" : "Open Pro Telegram"}</a>}</div>}
+          <a href="https://wa.me/201024359109" target="_blank" rel="noreferrer" className="block text-sm font-black text-emerald-600 underline">{isAr ? "محتاج مساعدة؟ كلمنا على واتساب" : "Need help? Contact us on WhatsApp"}</a>
         </div>
       </div>
     );
@@ -367,7 +404,7 @@ export default function PricingClient() {
                   {isAr ? "مجاني" : "Free"}
                 </h2>
                 <span className="text-xs font-black bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 px-3 py-1 border-2 border-zinc-200 dark:border-zinc-700">
-                  {isAr ? "الخطة الحالية" : "Current plan"}
+                  {isPro ? (isAr ? "متاحة" : "Available") : (isAr ? "الخطة الحالية" : "Current plan")}
                 </span>
               </div>
               <div className="flex items-end gap-1 mb-1">
@@ -422,7 +459,7 @@ export default function PricingClient() {
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-xl font-black text-black dark:text-white">Pro</h2>
                 <span className="text-xs font-black bg-emerald-500 text-white px-3 py-1 border-2 border-black dark:border-white">
-                  {isAr ? "مميّز" : "Premium"}
+                  {isPro ? (isAr ? "خطتك الحالية" : "Your current plan") : (isAr ? "مميّز" : "Premium")}
                 </span>
               </div>
               <div className="flex items-end gap-1 mb-1">
@@ -455,7 +492,7 @@ export default function PricingClient() {
 
             <button
               onClick={startLocalPayment}
-              disabled={busy}
+              disabled={busy || isPro}
               className="w-full h-12 flex items-center justify-center gap-2 border-4 border-black dark:border-white bg-emerald-500 text-white font-black uppercase tracking-widest shadow-[3px_3px_0px_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none disabled:opacity-60 transition-all"
             >
               {busy ? (
@@ -463,7 +500,7 @@ export default function PricingClient() {
               ) : (
                 <>
                   <Smartphone className="h-4 w-4" />
-                  {isAr ? "اشترك الآن" : "Subscribe Now"}
+                  {isPro ? (isAr ? "اشتراكك فعال" : "Active subscription") : !user ? (isAr ? "سجّل الدخول للاشتراك" : "Sign in to subscribe") : (isAr ? "اشترك الآن" : "Subscribe Now")}
                 </>
               )}
             </button>
@@ -478,22 +515,19 @@ export default function PricingClient() {
           <div className="flex flex-wrap items-center justify-center gap-2">
             {[
               { ar: "فودافون كاش", en: "Vodafone Cash", color: "border-red-500 bg-red-50 dark:bg-red-950/30 text-red-600 dark:text-red-400" },
-              { ar: "اورنج كاش",   en: "Orange Cash",   color: "border-orange-500 bg-orange-50 dark:bg-orange-950/30 text-orange-600 dark:text-orange-400" },
+              { ar: "أورنج كاش", en: "Orange Cash", color: "border-orange-500 bg-orange-50 dark:bg-orange-950/30 text-orange-600 dark:text-orange-400" },
               { ar: "اتصالات كاش", en: "Etisalat Cash", color: "border-emerald-500 bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400" },
-              { ar: "محفظة ذكية",  en: "Smart Wallet",  color: "border-blue-500 bg-blue-50 dark:bg-blue-950/30 text-blue-600 dark:text-blue-400" },
-            ].map((m) => (
-              <span
-                key={m.en}
-                className={`text-xs font-black border-2 px-3 py-1.5 ${m.color}`}
-              >
-                {isAr ? m.ar : m.en}
+              { ar: "وي كاش", en: "WE Pay", color: "border-blue-500 bg-blue-50 dark:bg-blue-950/30 text-blue-600 dark:text-blue-400" },
+            ].map((wallet) => (
+              <span key={wallet.en} className={`text-xs font-black border-2 px-3 py-1.5 ${wallet.color}`}>
+                {isAr ? wallet.ar : wallet.en}
               </span>
             ))}
           </div>
           <p className="text-xs font-bold text-zinc-400">
             {isAr
-              ? "الدفع عبر محافظ الكاش — آمن وسريع"
-              : "Pay via mobile wallets — safe & fast"}
+              ? "يمكنك التحويل من أي محفظة إلكترونية مصرية إلى رقم Vodafone Cash الموضح أعلاه"
+              : "Transfer from any Egyptian mobile wallet to the Vodafone Cash number shown above"}
           </p>
         </div>
       </div>

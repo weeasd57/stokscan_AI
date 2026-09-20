@@ -12,7 +12,7 @@ import TradingViewChart from "./TradingViewChartDynamic";
 import TelegramServiceToggle from "./TelegramServiceToggle";
 import RecommendationCalendar from "./RecommendationCalendar";
 import {
-    Search, Filter, AlertTriangle, RefreshCw, ChevronLeft, ChevronRight,
+    Search, Filter, AlertTriangle, RefreshCw, ChevronLeft, ChevronRight, Clock,
     TrendingUp, TrendingDown, Layers, Info, CheckCircle2, X, BarChart2,
     Target, ShieldAlert, Cpu, BookOpen, TrendingUp as Bullish, Calendar,
     Award, ArrowUpRight, ArrowDownRight, Minus, ExternalLink, ShieldCheck,
@@ -206,6 +206,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
 
     // Outdated warning retry state
     const [isOutdated, setIsOutdated] = useState(false);
+    const [hasProAccess, setHasProAccess] = useState(false);
 
     // Detail dialog state
     const [selectedRow, setSelectedRow] = useState<any>(null);
@@ -214,6 +215,21 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
     useEffect(() => {
         setMounted(true);
     }, []);
+
+    useEffect(() => {
+        let active = true;
+        if (!user) {
+            setHasProAccess(false);
+            return () => { active = false; };
+        }
+        fetch("/api/user/quota", { cache: "no-store" })
+            .then(response => response.ok ? response.json() : null)
+            .then(payload => {
+                if (active) setHasProAccess(payload?.plan?.is_pro === true);
+            })
+            .catch(() => { if (active) setHasProAccess(false); });
+        return () => { active = false; };
+    }, [user?.id]);
 
     // Interactive Filters (Scanner or Authenticated Landing Page)
     const [searchTerm, setSearchTerm] = useState("");
@@ -413,6 +429,14 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
         };
     }, [recommendations, shariaOnly]);
 
+    const isProView = Boolean(user && hasProAccess);
+    const isDelayedView = useMemo(
+        // Free authenticated users are delayed too. The banner must not rely
+        // on anonymous status because the free plan also needs this notice.
+        () => !isProView && (!user || isLandingPage || recommendations.length > 0),
+        [isLandingPage, recommendations.length, isProView, user],
+    );
+
     // Client-side filtering and sorting
     const processedRows = useMemo(() => {
         let items = [...recommendations];
@@ -540,10 +564,10 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
             activeCount: active.length,
             closedCount: closed.length,
             winRate,
-            avgReturn,
+            avgReturn: isDelayedView ? null : avgReturn,
             totalCount: processedRows.length
         };
-    }, [processedRows]);
+    }, [processedRows, isDelayedView]);
 
     const totalPages = Math.max(1, Math.ceil(processedRows.length / itemsPerPage));
 
@@ -594,6 +618,14 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
     };
 
     const getStatusBadge = (status: string, plPct: number | null) => {
+        if (isDelayedView) {
+            return (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-black bg-amber-500/10 text-amber-500 border border-amber-500/30">
+                    <Clock className="w-3 h-3" />
+                    {isAr ? "مؤجل" : "DELAYED"}
+                </span>
+            );
+        }
         const s = (status || "").toLowerCase();
         if (s === "win") {
             return (
@@ -623,6 +655,14 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
     };
 
     const renderSignalBadge = (row: any) => {
+        if (row.anonymous) {
+            return (
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 border-2 border-black font-black text-xs bg-zinc-200 text-zinc-700 shadow-[2px_2px_0px_rgba(0,0,0,1)]">
+                    <Clock className="w-3.5 h-3.5 shrink-0" />
+                    {isAr ? "متاح بعد تسجيل الدخول" : "SIGN IN TO VIEW"}
+                </span>
+            );
+        }
         const status = row.status?.toLowerCase();
         if (status === "win" || status === "loss") {
             return (
@@ -666,7 +706,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                     {displayRows.map((row, index) => {
                         const cInfo = getCountryFlag(row.country, row.exchange);
                         const rankNum = limit !== Infinity ? index + 1 : (currentPage - 1) * itemsPerPage + index + 1;
-                        const aiScoreNum = Number((row.precision * 10).toFixed(0));
+                         const aiScoreNum = Number((row.precision * 10).toFixed(0));
                         const statusLower = row.status?.toLowerCase() || "open";
                         const rowBgClass =
                             statusLower === "win"
@@ -707,12 +747,12 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                                 </span>
                                             </div>
                                         </div>
-                                        {renderCircularScore(aiScoreNum, "AI")}
+                                         {row.anonymous ? <span className="text-xs font-black text-zinc-500">—</span> : renderCircularScore(aiScoreNum, "AI")}
                                     </div>
                                     <div className="flex items-center justify-between flex-wrap gap-3">
                                         <div className="flex items-center gap-2">
                                             {renderSignalBadge(row)}
-                                            {getStatusBadge(row.status || "open", row.profit_loss_pct)}
+                            {getStatusBadge(row.status || "open", isDelayedView ? null : row.profit_loss_pct)}
                                         </div>
                                         <div className="flex items-center gap-1.5 text-xs font-black text-zinc-500 uppercase">
                                             <span className="text-lg leading-none">{cInfo.flag}</span>
@@ -741,9 +781,9 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                             </span>
                                         </div>
                                     </div>
-                                    <div className="flex justify-center">{renderCircularScore(aiScoreNum, "AI")}</div>
+                                     <div className="flex justify-center">{row.anonymous ? <span className="text-xs font-black text-zinc-500">—</span> : renderCircularScore(aiScoreNum, "AI")}</div>
                                     <div className="flex justify-center">{renderSignalBadge(row)}</div>
-                                    <div className="flex justify-center">{getStatusBadge(row.status || "open", row.profit_loss_pct)}</div>
+                                    <div className="flex justify-center">{getStatusBadge(row.status || "open", isDelayedView ? null : row.profit_loss_pct)}</div>
                                     <div className="text-xs font-black uppercase text-zinc-500 flex items-center gap-1.5">
                                         <span className="text-lg leading-none">{cInfo.flag}</span>
                                         <span className="truncate">{row.sector || "N/A"}</span>
@@ -769,7 +809,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
         const cInfo = getCountryFlag(null, row.exchange);
 
         // ── Computed values ──
-        const plPct = row.profit_loss_pct ?? null;
+        const plPct = isDelayedView ? null : (row.profit_loss_pct ?? null);
         const currentPrice = row.last_close || 0;
         const entryPrice = row.entry_price || (plPct && plPct !== -100 ? (currentPrice / (1 + plPct / 100)) : currentPrice) || 0;
 
@@ -820,10 +860,10 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
         const rrRatio = Math.min(rawRr, 8.5);
         const potReturn = currentPrice && targetPrice ? ((targetPrice - currentPrice) / currentPrice) * 100 : 0;
         const changePct = row.change_pct ?? null;
-        const lastUpdated = row.updated_at || row.created_at || null;
-        const pctChangeSinceRec = isClosed
+        const lastUpdated = isDelayedView ? row.created_at || null : (row.updated_at || row.created_at || null);
+        const pctChangeSinceRec = isDelayedView ? null : (isClosed
             ? (row.exit_price && entryPrice > 0 ? ((row.exit_price - entryPrice) / entryPrice) * 100 : (plPct ?? 0))
-            : (entryPrice > 0 ? ((currentPrice - entryPrice) / entryPrice) * 100 : 0);
+            : (entryPrice > 0 ? ((currentPrice - entryPrice) / entryPrice) * 100 : 0));
 
         const formatDate = (ts: string) => new Date(ts).toLocaleDateString(isAr ? "ar-EG" : "en-US", { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 
@@ -1293,7 +1333,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
         if (!shareRow) return null;
         const row = shareRow;
         const aiScoreNum = Math.round((row.precision || 0) * 10);
-        const plPct = row.profit_loss_pct ?? null;
+        const plPct = isDelayedView ? null : (row.profit_loss_pct ?? null);
         const currentPrice = row.last_close || 0;
         const entryPrice = row.entry_price || (plPct && plPct !== -100 ? (currentPrice / (1 + plPct / 100)) : currentPrice) || 0;
         const adjustments: any[] = row.adjustments || [];
@@ -1303,7 +1343,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
         const isBuy = (row.signal || "").toUpperCase() === "BUY";
         
         const formatDateLocal = (ts: string) => new Date(ts).toLocaleDateString(isAr ? "ar-EG" : "en-US", { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
-        const scanDate = formatDateLocal(row.updated_at || row.created_at || new Date().toISOString());
+        const scanDate = formatDateLocal(row.created_at || new Date().toISOString());
 
         const scoreBgColor = (v: number) => {
             return v >= 7 ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30" : v >= 5 ? "bg-amber-500/10 text-amber-400 border-amber-500/30" : "bg-rose-500/10 text-rose-400 border-rose-500/30";
@@ -1314,9 +1354,9 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
         const baseSym = row.symbol.split('.')[0].toLowerCase();
         
         const isClosed = row.status?.toLowerCase() === "win" || row.status?.toLowerCase() === "loss";
-        const pctChangeSinceRec = isClosed
+        const pctChangeSinceRec = isDelayedView ? null : (isClosed
             ? (row.exit_price && entryPrice > 0 ? ((row.exit_price - entryPrice) / entryPrice) * 100 : (plPct ?? 0))
-            : (entryPrice > 0 ? ((currentPrice - entryPrice) / entryPrice) * 100 : 0);
+            : (entryPrice > 0 ? ((currentPrice - entryPrice) / entryPrice) * 100 : 0));
 
         const shareText = isAr 
             ? `🚨 توصية صفقة بالذكاء الاصطناعي - EGX BOTS 🚨\n\n` +
@@ -1828,6 +1868,30 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
             </SpotlightCard>
 
             {/* Outdated Warning Panel */}
+            {isDelayedView && (
+                <div className="space-y-3" dir={isAr ? "rtl" : "ltr"}>
+                    {!user && (
+                        <div className="p-4 border-4 border-black dark:border-white bg-sky-300 text-black font-bold flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 text-xs shadow-[4px_4px_0px_rgba(0,0,0,1)]">
+                            <div className="flex items-center gap-2">
+                                <Clock className="w-4 h-4 shrink-0" />
+                                <span>{isAr ? "سجّل الدخول لرؤية نتائج التوصيات القديمة المتاحة بتأخير 15 يوماً." : "Sign in to see available historical recommendations with a 15-day delay."}</span>
+                            </div>
+                            <a href="/login?redirect=%2Fscanner%2Fbacktests%3Ftab%3Dbots" className="inline-flex shrink-0 items-center justify-center border-2 border-black bg-black px-4 py-2 font-black text-white uppercase tracking-wide hover:bg-zinc-800">
+                                {isAr ? "تسجيل الدخول" : "Sign in"}
+                            </a>
+                        </div>
+                    )}
+                    <div className="p-4 border-4 border-black dark:border-white bg-amber-300 text-black font-bold flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 text-xs shadow-[4px_4px_0px_rgba(0,0,0,1)]">
+                        <div className="flex items-center gap-2">
+                            <Clock className="w-4 h-4 shrink-0" />
+                            <span>{isAr ? "اشترك في Pro لرؤية توصيات اليوم والبيانات الفورية بدون تأخير." : "Subscribe to Pro to see today's recommendations and live data without delay."}</span>
+                        </div>
+                        <a href="/pricing" className="inline-flex shrink-0 items-center justify-center border-2 border-black bg-black px-4 py-2 font-black text-white uppercase tracking-wide hover:bg-zinc-800">
+                            {isAr ? "اشترك في Pro" : "Subscribe to Pro"}
+                        </a>
+                    </div>
+                </div>
+            )}
             {isOutdated && (
                 <div className="p-4 border-4 border-black dark:border-white neobrutal-bg-pink text-black dark:text-black font-bold flex items-center justify-between text-xs shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_rgba(255,255,255,1)]">
                     <div className="flex items-center gap-2">
@@ -1905,8 +1969,8 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                 <p className="text-[10px] sm:text-xs font-bold text-zinc-500 uppercase tracking-wider leading-none mb-1.5 truncate">
                                     {isAr ? "متوسط العائد" : "Avg Return"}
                                 </p>
-                                <p className={`text-lg sm:text-2xl font-black font-mono leading-none truncate ${stats.avgReturn >= 0 ? "text-emerald-500" : "text-rose-500"}`} dir="ltr">
-                                    {stats.avgReturn >= 0 ? "+" : ""}{stats.avgReturn.toFixed(1)}%
+                                <p className={`text-lg sm:text-2xl font-black font-mono leading-none truncate ${stats.avgReturn == null || stats.avgReturn >= 0 ? "text-emerald-500" : "text-rose-500"}`} dir="ltr">
+                                    {stats.avgReturn == null ? "—" : `${stats.avgReturn >= 0 ? "+" : ""}${stats.avgReturn.toFixed(1)}%`}
                                 </p>
                             </div>
                         </div>
@@ -1920,7 +1984,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                     {[
                         { id: "active", label: isAr ? "الصفقات النشطة (المفتوحة)" : "Active Trades (Open)", count: tabCounts.activeCount },
                         { id: "closed", label: isAr ? "أرشيف العمليات (المغلقة)" : "Closed Archive", count: tabCounts.closedCount },
-                        { id: "calendar", label: isAr ? "📅 تقويم أرباح التوصيات" : "📅 Profit Calendar", count: tabCounts.totalCount },
+                        ...(isProView ? [{ id: "calendar", label: isAr ? "📅 تقويم أرباح التوصيات" : "📅 Profit Calendar", count: tabCounts.totalCount }] : []),
                         { id: "all", label: isAr ? "جميع الصفقات" : "All Trades", count: tabCounts.totalCount }
                     ].map(tab => {
                         const isSelected = activeTab === tab.id;
@@ -1963,12 +2027,21 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
 
             {/* Calendar View Tab */}
             {activeTab === "calendar" ? (
-                <RecommendationCalendar
-                    recommendations={recommendations}
-                    loading={recsLoading}
-                    refreshToken={calendarRefreshToken}
-                    onSelectStock={handleStockClick}
-                />
+                isProView ? (
+                    <RecommendationCalendar
+                        recommendations={recommendations}
+                        loading={recsLoading}
+                        refreshToken={calendarRefreshToken}
+                        onSelectStock={handleStockClick}
+                    />
+                ) : (
+                    <div className="border-4 border-black dark:border-white bg-amber-300 text-black p-8 text-center shadow-[4px_4px_0px_rgba(0,0,0,1)]">
+                        <ShieldCheck className="mx-auto mb-3 h-10 w-10" />
+                        <h3 className="text-xl font-black">{isAr ? "التقويم والإحصائيات متاحة لمشتركي Pro فقط" : "Calendar and live statistics require Pro"}</h3>
+                        <p className="mt-2 font-bold text-sm">{isAr ? "اشترك في Pro للوصول إلى بيانات الأداء الحية والتقويم الكامل." : "Subscribe to Pro to access live performance data and the full recommendation calendar."}</p>
+                        <a href="/pricing" className="mt-5 inline-flex border-2 border-black bg-black px-5 py-2 font-black text-white">{isAr ? "الترقية إلى Pro" : "Upgrade to Pro"}</a>
+                    </div>
+                )
             ) : (
                 <>
             {/* Interactive Filters */}

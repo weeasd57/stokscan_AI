@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { isPro, planLimits } from "@/lib/ai/plan-gate";
+import { hasActiveProSubscription, planLimits } from "@/lib/ai/plan-gate";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -30,20 +30,21 @@ export async function GET() {
       console.warn("[api/user/quota] subscriptions query error:", subErr);
     }
 
-    const pro = isPro(subRows || []);
+    const pro = hasActiveProSubscription(subRows || []);
     const activeSub = subRows?.[0];
     const planName = pro ? "pro" : "free";
-    const limits = planLimits(planName);
+    const limits = { ...planLimits(planName), signal_delay_days: pro ? 0 : 15 };
 
     // 2. Chatbot messages used this month
     const monthStart = new Date();
     monthStart.setDate(1);
     monthStart.setHours(0, 0, 0, 0);
 
-    const { count: chatMessagesCount, error: chatErr } = await supabase
+    const { data: chatRows, error: chatErr } = await supabase
       .from("ai_chat_messages")
-      .select("id", { count: "exact", head: true })
+      .select("id, client_message_id")
       .eq("user_id", user.id)
+      .eq("role", "user")
       .gte("created_at", monthStart.toISOString());
 
     if (chatErr) {
@@ -67,7 +68,7 @@ export async function GET() {
     const portfolioStocksCount = uniqueSymbols.size;
 
     const chatLimit = limits.chat_messages_per_month;
-    const chatUsed = chatMessagesCount || 0;
+    const chatUsed = new Set((chatRows || []).map((row: any) => row.client_message_id || row.id)).size;
     const portfolioLimit = limits.portfolio_stocks;
 
     return NextResponse.json({

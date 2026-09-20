@@ -460,7 +460,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
 
 
 
-from api.routers import admin, bot, payment, scan_ai, scan_ai_fast, scan_tech, similarity_admin, support, chatbot, kashier, local_payment
+from api.routers import admin, bot, payment, scan_ai, scan_ai_fast, scan_tech, similarity_admin, support, chatbot, local_payment
 
 
 
@@ -478,7 +478,6 @@ app.include_router(bot.router, prefix="/bot")  # Compatibility Alias
 
 app.include_router(payment.router)
 
-app.include_router(kashier.router)
 app.include_router(local_payment.router)
 
 app.include_router(similarity_admin.router)

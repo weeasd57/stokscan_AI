@@ -8,7 +8,7 @@ export async function GET() {
   return NextResponse.json({
     enabled,
     provider: "vodafone_cash",
-    amount_egp: Number(process.env.LOCAL_PRO_PRICE_EGP || process.env.KASHIER_PRO_PRICE_EGP || "300"),
+    amount_egp: Number(process.env.LOCAL_PRO_PRICE_EGP || "300"),
     qr_url: process.env.VODAFONE_CASH_QR_URL || "",
     wallet_number: process.env.VODAFONE_CASH_NUMBER || "",
   });

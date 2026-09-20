@@ -7,6 +7,9 @@ export async function requireAdmin(request: Request): Promise<{ user: any } | Re
     const isAdmin = !error && user && (
         user.app_metadata?.role === "admin" || isChatAdminEmail(user.email)
     );
-    if (!isAdmin) return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: { "Content-Type": "application/json" } });
+    const unlockSecret = process.env.ADMIN_SECRET_PASSWORD;
+    const unlockCookie = request.headers.get("cookie")?.match(/(?:^|;\s*)admin_unlock=([^;]+)/)?.[1];
+    const unlocked = Boolean(unlockSecret && unlockCookie && decodeURIComponent(unlockCookie) === unlockSecret);
+    if (!isAdmin && !unlocked) return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: { "Content-Type": "application/json" } });
     return { user };
 }

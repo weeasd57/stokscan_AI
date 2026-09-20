@@ -372,9 +372,12 @@ export async function POST(req: NextRequest) {
         }
         
         userId = user.id;
-        const isUnlimited = isUnlimitedChatUser(user);
         const { paymentsEnabled, planLimits, isPro: gateIsPro } = await import("@/lib/ai/plan-gate");
         const billingOn = paymentsEnabled();
+        // Legacy unlimited allow-list is only valid while billing is disabled.
+        // Once plans are active, every account must have an active Pro
+        // subscription to bypass the Free quota.
+        const isUnlimited = !billingOn && isUnlimitedChatUser(user);
         let userMonthlyCap = Number.MAX_SAFE_INTEGER;
         if (billingOn) {
             try {
@@ -409,6 +412,20 @@ export async function POST(req: NextRequest) {
         }
         if (message.length > 4000) return NextResponse.json({ detail: "Message is too long" }, { status: 413 });
         const hasImages = imageList.length > 0;
+
+        // Recommendation lists are a Pro feature. Free users can still use
+        // ordinary stock questions, but must upgrade before requesting the
+        // platform's actionable recommendation feed.
+        if (billingOn && !isUnlimited && message && /(?:توصيات|توصية|إشارات|recommendations?|signals?)/i.test(message)) {
+            try {
+                const { data: planRows } = await authClient.from("subscriptions").select("plan_id,status,current_period_end").eq("user_id", userId);
+                if (!gateIsPro(planRows || [])) {
+                    return NextResponse.json({ reply: "التوصيات وإشارات المنصة متاحة ضمن خطة Pro فقط. فعّل Pro لعرض التوصيات الفورية والبيانات الكاملة." });
+                }
+            } catch {
+                return NextResponse.json({ reply: "التوصيات وإشارات المنصة متاحة ضمن خطة Pro فقط. فعّل Pro لعرض التوصيات الفورية والبيانات الكاملة." });
+            }
+        }
 
         if (!message && !hasImages) {
             return NextResponse.json({ detail: "Message or image is required" }, { status: 400 });
@@ -450,10 +467,10 @@ export async function POST(req: NextRequest) {
             monthStart.setHours(0, 0, 0, 0);
             const { data: monthRows, error: monthErr } = await supabase
                 .from("ai_chat_messages")
-                .select("id", { count: "exact", head: false })
+                .select("id, client_message_id")
                 .eq("user_id", userId)
                 .gte("created_at", monthStart.toISOString());
-            const monthCount = Array.isArray(monthRows) ? monthRows.length : 0;
+            const monthCount = new Set((monthRows || []).map((row: any) => row.client_message_id || row.id)).size;
             if (monthErr) {
                 console.warn("[ai-chat] monthly count query failed:", monthErr);
             } else if (monthCount >= userMonthlyCap) {
@@ -940,7 +957,16 @@ export async function GET(req: NextRequest) {
                 .order("updated_at", { ascending: false });
 
             const today = new Date().toISOString().split("T")[0];
-            const isUnlimited = isUnlimitedChatUser(user);
+            const { paymentsEnabled, planLimits, isPro: gateIsPro } = await import("@/lib/ai/plan-gate");
+            const billingOn = paymentsEnabled();
+            let isUnlimited = !billingOn && isUnlimitedChatUser(user);
+            let quotaLimit = AI_CONFIG.limits.dailyMessages;
+            if (billingOn) {
+                const { data: planRows } = await authClient.from("subscriptions").select("plan_id,status,current_period_end").eq("user_id", userId);
+                const pro = gateIsPro(planRows || []);
+                quotaLimit = planLimits(pro ? "pro" : "free").chat_messages_per_month;
+                isUnlimited = false;
+            }
 
             const { data: limitData } = await supabase
                 .from("ai_chatbot_limits")
@@ -951,7 +977,7 @@ export async function GET(req: NextRequest) {
 
             return NextResponse.json({
                 sessions: sessions || [],
-                remaining_quota: isUnlimited ? 999 : Math.max(0, AI_CONFIG.limits.dailyMessages - (limitData?.chat_count || 0))
+                remaining_quota: isUnlimited ? 999 : Math.max(0, quotaLimit - (limitData?.chat_count || 0))
             });
         }
 

@@ -138,6 +138,16 @@ export default function Footer() {
                   {t("footer.telegram")}
                 </a>
               </li>
+              <li>
+                <a
+                  href="https://wa.me/201024359109"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sm font-bold text-emerald-500 hover:text-emerald-400 transition-colors"
+                >
+                  {t("language") === "ar" ? "الدعم عبر واتساب" : "WhatsApp Support"}
+                </a>
+              </li>
             </ul>
           </div>
         </div>

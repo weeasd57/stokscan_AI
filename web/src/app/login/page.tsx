@@ -38,7 +38,7 @@ function LoginForm() {
       }
       const isAdmin =
         res.user?.app_metadata?.role === "admin" ||
-        (res.user?.email && ["weeeessd57@gmail.com", "weeasd57@gmail.com"].includes(res.user.email));
+        (res.user?.email && res.user.email.toLowerCase() === "weeeessd57@gmail.com");
       router.push(isAdmin ? "/admin" : targetDestination);
     } finally {
       setSubmitting(false);
@@ -63,7 +63,7 @@ function LoginForm() {
   if (!loading && user) {
     const isAdmin =
       user.app_metadata?.role === "admin" ||
-      (user.email && ["weeeessd57@gmail.com", "weeasd57@gmail.com"].includes(user.email));
+      (user.email && user.email.toLowerCase() === "weeeessd57@gmail.com");
     router.replace(isAdmin ? "/admin" : targetDestination);
     return null;
   }

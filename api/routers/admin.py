@@ -74,7 +74,7 @@ def _verify_admin_key(
                     user = user_res.user
                     role = user.app_metadata.get("role") if user.app_metadata else None
                     email = user.email
-                    if role == "admin" or email in ("weeeessd57@gmail.com", "weeasd57@gmail.com"):
+                    if role == "admin" or email == "weeeessd57@gmail.com":
                         return
         except Exception as e:
             print(f"[ADMIN_AUTH] Supabase token auth failed: {e}")
@@ -4779,7 +4779,21 @@ def list_users(page: int = 0, page_size: int = 50, search: str = ""):
             # Bulk fetch subscriptions
             subs_res = stock_ai.supabase.table("subscriptions").select("user_id, plan_id, status, current_period_end").in_("user_id", uids).execute()
             subs_data = subs_res.data or []
-            subs_map = {s.get("user_id"): s for s in subs_data if s.get("user_id")}
+            # Prefer the active, non-expired Pro record when users have
+            # historical/cancelled subscriptions as well.
+            now = datetime.now(timezone.utc)
+            def subscription_rank(row):
+                end = row.get("current_period_end")
+                try:
+                    valid = end and datetime.fromisoformat(str(end).replace("Z", "+00:00")) > now
+                except ValueError:
+                    valid = False
+                return (row.get("status") == "active" and valid, row.get("plan_id") == "pro", str(end or ""))
+            subs_map = {}
+            for subscription in subs_data:
+                uid = subscription.get("user_id")
+                if uid and (uid not in subs_map or subscription_rank(subscription) > subscription_rank(subs_map[uid])):
+                    subs_map[uid] = subscription
             
             # Bulk fetch bot subscriptions
             bots_res = stock_ai.supabase.table("bot_subscriptions").select("user_id, service_type, notifications_enabled").in_("user_id", uids).execute()
@@ -4854,6 +4868,7 @@ class UserUpdateRequest(BaseModel):
     default_target_pct: Optional[float] = None
     default_stop_pct: Optional[float] = None
     custom_ai_rules: Optional[str] = None
+    plan_id: Optional[str] = None
 
 
 @router.patch("/users/{user_id}")
@@ -4879,12 +4894,26 @@ def update_user(user_id: str, body: UserUpdateRequest):
     if body.custom_ai_rules is not None:
         updates["custom_ai_rules"] = body.custom_ai_rules
 
-    if not updates:
+    if not updates and body.plan_id is None:
         raise HTTPException(status_code=400, detail="No fields to update")
 
     updates["updated_at"] = datetime.utcnow().isoformat()
 
     try:
+        if body.plan_id is not None:
+            if body.plan_id not in {"free", "pro"}:
+                raise HTTPException(status_code=400, detail="Invalid plan")
+            if body.plan_id == "free":
+                stock_ai.supabase.table("subscriptions").update({"status": "cancelled", "updated_at": datetime.utcnow().isoformat()}).eq("user_id", user_id).eq("plan_id", "pro").eq("status", "active").execute()
+            else:
+                now = datetime.now(timezone.utc)
+                end = now + timedelta(days=30)
+                existing = stock_ai.supabase.table("subscriptions").select("id").eq("user_id", user_id).eq("plan_id", "pro").maybe_single().execute()
+                payload = {"user_id": user_id, "plan_id": "pro", "status": "active", "current_period_start": now.isoformat(), "current_period_end": end.isoformat(), "provider": "admin", "updated_at": now.isoformat()}
+                if existing.data:
+                    stock_ai.supabase.table("subscriptions").update(payload).eq("id", existing.data["id"]).execute()
+                else:
+                    stock_ai.supabase.table("subscriptions").insert(payload).execute()
         res = stock_ai.supabase.table("profiles").update(updates).eq("id", user_id).execute()
         if not res.data:
             raise HTTPException(status_code=404, detail="User not found")

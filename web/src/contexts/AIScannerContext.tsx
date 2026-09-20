@@ -6,6 +6,7 @@ import type { PredictResponse } from "@/lib/types";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { useRealtimeRefresh, useRefreshOnVisibility } from "@/hooks/useRealtimeRefresh";
 import { useAuth } from "./AuthContext";
+import { filterByDelay } from "@/lib/ai/plan-gate";
 
 type AiScannerState = {
     country: string;
@@ -139,6 +140,7 @@ export const AIScannerProvider = ({ children }: { children: ReactNode }) => {
     const [error, setError] = useState<string | null>(null);
     const [recommendations, setRecommendationsState] = useState<any[]>([]);
     const recommendationsRef = useRef<any[]>([]);
+    const recommendationsUserRef = useRef<string | null | undefined>(undefined);
     const setRecommendations = useCallback((val: any[]) => {
         recommendationsRef.current = val;
         setRecommendationsState(val);
@@ -816,7 +818,9 @@ export const AIScannerProvider = ({ children }: { children: ReactNode }) => {
     }, []);
 
     const loadRecommendations = useCallback(async (isLandingPage: boolean = false, force: boolean = false, requestedLimit?: number) => {
-        if (recommendationsRef.current.length > 0 && !force && loadedLandingRef.current === isLandingPage) {
+        const userId = user?.id ?? null;
+        const sameViewer = recommendationsUserRef.current === userId;
+        if (recommendationsRef.current.length > 0 && !force && sameViewer && loadedLandingRef.current === isLandingPage) {
             return;
         }
         setRecsLoading(true);
@@ -836,17 +840,17 @@ export const AIScannerProvider = ({ children }: { children: ReactNode }) => {
                 scanData = await response.json();
                 sectorMap = Object.fromEntries((scanData || []).map((row: any) => [row.symbol, row.sector || "General"]));
             } else {
-                let query = supabase.from("scan_results").select(
-                "id, batch_id, user_id, symbol, exchange, name, model_name, country, last_close, precision, signal, status, entry_price, target_price, stop_loss, risk_adjusted_return, is_public, created_at, updated_at, exit_price, profit_loss_pct, top_reasons, adjustments, features"
-                );
-                const result = await query.order("created_at", { ascending: false }).limit(200);
-                scanData = result.data;
-                scanErr = result.error;
+                // Use the session-aware API for the public scanner as well. A
+                // browser Supabase query bypasses the server-side delay gate.
+                const response = await fetch("/api/ai_bot/recommendations?limit=200", { cache: "no-store" });
+                if (!response.ok) throw new Error("Failed to load recommendations");
+                scanData = await response.json();
             }
 
             if (scanErr) throw new Error(scanErr.message);
             if (!scanData || scanData.length === 0) {
                 setRecommendations([]);
+                recommendationsUserRef.current = userId;
                 loadedLandingRef.current = isLandingPage;
                 setRecsLoading(false);
                 return;
@@ -976,10 +980,32 @@ export const AIScannerProvider = ({ children }: { children: ReactNode }) => {
                     latest_volume: positionMeta.latest_volume,
                     change_pct: row.change_pct != null ? Number(row.change_pct) : null,
                     updated_at: row.updated_at || row.created_at,
+                    delayed: row.delayed === true,
+                    anonymous: row.anonymous === true,
+                    snapshot_cutoff: row.snapshot_cutoff || null,
                 };
             });
 
-            setRecommendations(mapped);
+            let visibleRecommendations = mapped;
+            if (!isLandingPage) {
+                let isPro = false;
+                try {
+                    const quotaResponse = await fetch("/api/user/quota", { cache: "no-store" });
+                    const quota = quotaResponse.ok ? await quotaResponse.json() : null;
+                    isPro = quota?.plan?.is_pro === true;
+                } catch {
+                    // Unauthenticated users are treated as Free (delayed)
+                    isPro = false;
+                }
+                // Anonymous visitors remain on the delayed public view even
+                // when billing is disabled and authenticated users are treated
+                // as unlimited by the platform policy.
+                if (!user || !isPro) {
+                    visibleRecommendations = filterByDelay(mapped, 15);
+                }
+            }
+            setRecommendations(visibleRecommendations);
+            recommendationsUserRef.current = userId;
             loadedLandingRef.current = isLandingPage;
         } catch (err: any) {
             console.error("Error loading recommendations in context:", err);

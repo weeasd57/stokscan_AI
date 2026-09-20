@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseServiceClient } from "@/lib/supabase/route-data";
-import { DAILY_CACHE_TAGS, withDailyTag } from "@/lib/cache/daily";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { hasActiveProSubscription } from "@/lib/ai/plan-gate";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -10,11 +11,6 @@ const PUBLIC_EVENT_TYPES = [
   "recommendation_stale",
   "target_or_stop_adjusted",
 ];
-
-const PUBLIC_CACHE_HEADERS = withDailyTag({
-  "Cache-Control": "public, max-age=30",
-  "Vercel-CDN-Cache-Control": "public, s-maxage=60, stale-while-revalidate=300",
-}, DAILY_CACHE_TAGS.recommendations);
 
 function numeric(value: unknown): number | null {
   if (value === null || value === undefined || value === "") return null;
@@ -37,11 +33,18 @@ export async function GET(request: NextRequest) {
       .limit(limit);
 
     if (eventError) throw eventError;
-    const recommendationIds = [...new Set((events || []).map((event: any) => String(event.recommendation_id)))];
+    const auth = createSupabaseServerClient(request);
+    const { data: { user } } = await auth.auth.getUser();
+    if (!user) return NextResponse.json({ detail: "Pro subscription required" }, { status: 401 });
+    const { data: subs } = await auth.from("subscriptions").select("plan_id,status,current_period_end").eq("user_id", user.id);
+    const pro = hasActiveProSubscription(subs || []);
+    if (!pro) return NextResponse.json({ detail: "Pro subscription required" }, { status: 403 });
+    const visibleEvents = events || [];
+    const recommendationIds = [...new Set(visibleEvents.map((event: any) => String(event.recommendation_id)))];
     if (!recommendationIds.length) {
       return NextResponse.json(
         { events: [], tracked_recommendation_ids: [] },
-        { headers: PUBLIC_CACHE_HEADERS },
+        { headers: { "Cache-Control": "private, no-store" } },
       );
     }
 
@@ -57,13 +60,13 @@ export async function GET(request: NextRequest) {
     );
 
     const trackedRecommendationIds = [...new Set(
-      (events || [])
+      visibleEvents
         .filter((event: any) => event.event_type === "recommendation_closed" || event.event_type === "recommendation_stale")
         .filter((event: any) => event.telegram_status !== "historical")
         .map((event: any) => String(event.recommendation_id))
         .filter((id: string) => byId.has(id)),
     )];
-    const sanitized = (events || []).filter((event: any) => event.telegram_status === "sent").flatMap((event: any) => {
+    const sanitized = visibleEvents.filter((event: any) => event.telegram_status === "sent").flatMap((event: any) => {
       const recommendation = byId.get(String(event.recommendation_id));
       if (!recommendation) return [];
       const oldValues = event.old_values && typeof event.old_values === "object" ? event.old_values : {};
@@ -96,7 +99,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(
       { events: sanitized, tracked_recommendation_ids: trackedRecommendationIds },
-      { headers: PUBLIC_CACHE_HEADERS },
+      { headers: { "Cache-Control": "private, no-store" } },
     );
   } catch (error) {
     console.error("[RECOMMENDATION_EVENTS_API] Failed to load sent events", error);

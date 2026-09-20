@@ -547,6 +547,22 @@ export default function HomePage() {
                         ))}
                     </div>
 
+                    {!user && (
+                        <div className="max-w-5xl mx-auto mb-10 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 border-4 border-black dark:border-white bg-amber-300 p-4 text-black font-bold text-xs shadow-[4px_4px_0px_rgba(0,0,0,1)]" dir={isAr ? "rtl" : "ltr"}>
+                            <div className="flex items-center gap-2">
+                                <span className="text-lg" aria-hidden="true">⏱</span>
+                                <span>
+                                    {isAr
+                                        ? "هذه نسخة مؤجلة لمدة 15 يوماً. بعض التوصيات الحديثة غير ظاهرة. اشترك في Pro للوصول إلى جميع التوصيات والبيانات الفورية."
+                                        : "This is a 15-day delayed view. Some recent recommendations are hidden. Subscribe to Pro for all recommendations and live data."}
+                                </span>
+                            </div>
+                            <Link href="/pricing" className="inline-flex shrink-0 items-center justify-center border-2 border-black bg-black px-4 py-2 text-white font-black uppercase tracking-wide hover:bg-zinc-800">
+                                {isAr ? "اشترك في Pro" : "Subscribe to Pro"}
+                            </Link>
+                        </div>
+                    )}
+
                     {/* Embedding RecommendationsTable limited to 3 rows */}
                     <div className="mb-10">
                         <RecommendationsTable isLandingPage={true} limit={3} />

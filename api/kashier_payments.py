@@ -260,7 +260,7 @@ def create_payment_session(
 # Webhook processing (idempotent subscription activation)
 # ---------------------------------------------------------------------------
 
-def _activate_subscription(user_id: str, plan_id: str) -> None:
+def _activate_subscription(user_id: str, plan_id: str, provider: str = "kashier") -> None:
     """Idempotently activate a subscription row for a plan.
 
     No unique constraint on (user_id, plan_id) is assumed, so we first try to
@@ -284,7 +284,7 @@ def _activate_subscription(user_id: str, plan_id: str) -> None:
         "user_id": user_id,
         "plan_id": plan_id,
         "status": "active",
-        "provider": "kashier",
+        "provider": provider,
         "current_period_start": now.isoformat(),
         "current_period_end": end.isoformat(),
         "updated_at": now.isoformat(),

@@ -17,13 +17,15 @@ export interface PlanLimits {
 }
 
 export function paymentsEnabled(): boolean {
-  const v = (process.env.PAYMENTS_ENABLED || "false").trim().toLowerCase();
+  // Client bundles only receive NEXT_PUBLIC_* values. Keep the server
+  // fallback so API routes and local development use the same policy.
+  const v = (process.env.NEXT_PUBLIC_PAYMENTS_ENABLED || process.env.PAYMENTS_ENABLED || "false").trim().toLowerCase();
   return !["0", "false", "no", "off", ""].includes(v);
 }
 
 const FREE: PlanLimits = {
   name: "free",
-  signal_delay_days: Number(process.env.FREE_SIGNAL_DELAY_DAYS || "5"),
+  signal_delay_days: Number(process.env.FREE_SIGNAL_DELAY_DAYS || "15"),
   chat_messages_per_month: Number(process.env.FREE_CHAT_MESSAGES || "50"),
   portfolio_stocks: Number(process.env.FREE_PORTFOLIO_STOCKS || "5"),
   price_egp: 0,
@@ -35,7 +37,7 @@ const PRO: PlanLimits = {
   signal_delay_days: 0,
   chat_messages_per_month: Number(process.env.PRO_CHAT_MESSAGES || "350"),
   portfolio_stocks: Number(process.env.PRO_PORTFOLIO_STOCKS || "10"),
-  price_egp: Number(process.env.KASHIER_PRO_PRICE_EGP || "300"),
+  price_egp: Number(process.env.LOCAL_PRO_PRICE_EGP || "300"),
   billing: "enabled",
 };
 
@@ -73,6 +75,18 @@ export function isPro(rows: Array<{ plan_id?: unknown; status?: unknown; current
     return true;
   }
   return false;
+}
+
+/** Strict entitlement check for paid-only features, regardless of billing mode. */
+export function hasActiveProSubscription(rows: Array<{ plan_id?: unknown; status?: unknown; current_period_end?: unknown | null }>): boolean {
+  const now = Date.now();
+  return (rows || []).some((row) => {
+    if (String(row.plan_id || "").toLowerCase() !== "pro") return false;
+    if (!["active", "trialing"].includes(String(row.status || "").toLowerCase())) return false;
+    if (!row.current_period_end) return true;
+    const end = new Date(String(row.current_period_end)).getTime();
+    return Number.isFinite(end) && end > now;
+  });
 }
 
 /** Filter recommendations to those at least N days old (for free users). */

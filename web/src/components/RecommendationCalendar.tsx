@@ -51,7 +51,7 @@ export default function RecommendationCalendar({
     recommendations = [],
     loading = false,
     refreshToken = 0,
-    onSelectStock
+    onSelectStock,
 }: RecommendationCalendarProps) {
     const { language } = useLanguage();
     const isAr = language === "ar";
@@ -81,10 +81,14 @@ export default function RecommendationCalendar({
 
     const loadSentEvents = useCallback(async (signal?: AbortSignal) => {
         try {
-            const response = await fetch("/api/recommendations/events?limit=1000", {
+        const response = await fetch("/api/recommendations/events?limit=1000", {
                 signal,
                 cache: "no-store",
             });
+            if (response.status === 401 || response.status === 403) {
+                setEventsUnavailable(true);
+                return;
+            }
             if (!response.ok) throw new Error(`events endpoint returned ${response.status}`);
             const payload = await response.json();
             setSentEvents(Array.isArray(payload?.events) ? payload.events : []);

@@ -150,16 +150,11 @@ class TelegramBot:
         return bool(vip) and vip not in self.LEGACY_BAD_CHAT_IDS and vip != self.DEFAULT_CHANNEL_ID
 
     def _append_vip_mirror(self, targets: list) -> list:
-        """Copy any free-channel delivery to the VIP mirror channel.
+        """Do not mirror free-channel messages into the paid VIP channel.
 
-        The VIP target is appended last so the free channel is always served
-        first; a mirror failure must never block or fail the main delivery.
+        VIP delivery is explicit and must be authorized by the subscription
+        flow; copying the public target would bypass that entitlement.
         """
-        if not self._vip_mirror_enabled():
-            return targets
-        if any(self._channel_root(t) == self.DEFAULT_CHANNEL_ID for t in targets):
-            if self.VIP_CHANNEL_ID not in targets:
-                targets.append(self.VIP_CHANNEL_ID)
         return targets
 
     def _split_message(self, text: str) -> list[str]:

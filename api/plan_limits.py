@@ -22,7 +22,7 @@ from api.kashier_payments import is_payments_enabled
 def free_limits() -> Dict[str, Any]:
     return {
         "name": "free",
-        "signal_delay_days": int(os.getenv("FREE_SIGNAL_DELAY_DAYS", "5")),
+        "signal_delay_days": int(os.getenv("FREE_SIGNAL_DELAY_DAYS", "15")),
         "chat_messages_per_month": int(os.getenv("FREE_CHAT_MESSAGES", "50")),
         "portfolio_stocks": int(os.getenv("FREE_PORTFOLIO_STOCKS", "5")),
         "price_egp": 0,
@@ -54,7 +54,7 @@ def effective_limits(plan_id: str) -> Dict[str, Any]:
     if not is_payments_enabled():
         return {
             "name": "free",
-            "signal_delay_days": int(os.getenv("FREE_SIGNAL_DELAY_DAYS", "5")),
+            "signal_delay_days": int(os.getenv("FREE_SIGNAL_DELAY_DAYS", "15")),
             "chat_messages_per_month": 10 ** 9,  # effectively unlimited
             "portfolio_stocks": 10 ** 9,
             "price_egp": 0,
@@ -129,6 +129,16 @@ def telegram_recommendations_target() -> str:
     return "-1002083067817_153"
 
 
+def telegram_free_channel_target() -> str:
+    """Legacy public channel/topic used for delayed content and upgrade notices."""
+    return os.getenv("TELEGRAM_FREE_CHAT_ID", "-1002083067817_153").strip()
+
+
+def telegram_pro_channel_target() -> str:
+    """Private Pro channel/group used for live recommendations and updates."""
+    return os.getenv("TELEGRAM_PRO_CHAT_ID", os.getenv("TELEGRAM_RECOMMENDATIONS_CHAT_ID", "")).strip()
+
+
 def telegram_public_link() -> str:
     """Invite/link for the channel shown in chatbot footers."""
     # While free, point users at the old channel; switch to the new group only
@@ -137,3 +147,6 @@ def telegram_public_link() -> str:
         return os.getenv("TELEGRAM_PUBLIC_LINK_FREE", "https://t.me/egxbots/153").strip()
     return os.getenv("TELEGRAM_PUBLIC_LINK", "https://t.me/+oPTsNYS03FE3MDQ0").strip()
 
+
+def free_channel_notice() -> str:
+    return "ℹ️ القناة المجانية تعرض التوصيات والتعديلات بتأخير 5 أيام. التحديث اللحظي متاح لمشتركي Pro فقط."
