@@ -299,8 +299,8 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
 
     // Load recommendations from context
     useEffect(() => {
-        loadRecommendations(isLandingPage);
-    }, [loadRecommendations, isLandingPage]);
+        loadRecommendations(isLandingPage, false, limit !== Infinity ? limit : undefined);
+    }, [loadRecommendations, isLandingPage, limit]);
 
     const refreshRecommendationData = useCallback(async () => {
         await loadRecommendations(isLandingPage, true);

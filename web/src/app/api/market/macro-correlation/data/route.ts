@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
 import { getSupabaseClient } from "@/lib/supabase/route-data";
+import { DAILY_CACHE_TAGS, dailyCacheHeaders } from "@/lib/cache/daily";
 
 export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
-export const revalidate = 3600;
+export const revalidate = 86400;
+
+const PUBLIC_CACHE_HEADERS = dailyCacheHeaders(DAILY_CACHE_TAGS.market);
 
 export async function GET(req: Request) {
   const url = new URL(req.url);
@@ -30,10 +32,7 @@ export async function GET(req: Request) {
           ? JSON.parse(data.payload)
           : data.payload;
       return NextResponse.json({ ...payload, computed_at: data.computed_at }, {
-        headers: {
-          "Cache-Control": "public, max-age=300",
-          "Vercel-CDN-Cache-Control": "public, s-maxage=3600, stale-while-revalidate=86400",
-        }
+        headers: PUBLIC_CACHE_HEADERS
       });
     }
 
@@ -63,5 +62,3 @@ export async function GET(req: Request) {
     );
   }
 }
-
-

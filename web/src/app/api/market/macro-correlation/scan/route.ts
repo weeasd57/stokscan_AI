@@ -1,8 +1,11 @@
 import { NextResponse } from "next/server";
 import { getSupabaseClient } from "@/lib/supabase/route-data";
+import { DAILY_CACHE_TAGS, dailyCacheHeaders } from "@/lib/cache/daily";
 
 export const runtime = "nodejs";
-export const revalidate = 3600;
+export const revalidate = 86400;
+
+const PUBLIC_CACHE_HEADERS = dailyCacheHeaders(DAILY_CACHE_TAGS.market);
 
 export async function GET() {
   try {
@@ -25,9 +28,10 @@ export async function GET() {
         typeof data.payload === "string"
           ? JSON.parse(data.payload)
           : data.payload;
-      return NextResponse.json({ ...payload, computed_at: data.computed_at }, {
-        headers: { 'Cache-Control': 'public, s-maxage=3600, stale-while-revalidate=86400' }
-      });
+      return NextResponse.json(
+        { ...payload, computed_at: data.computed_at },
+        { headers: PUBLIC_CACHE_HEADERS }
+      );
     }
 
     // No data yet — backend will populate on next daily run

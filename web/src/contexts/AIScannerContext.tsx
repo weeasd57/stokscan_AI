@@ -89,7 +89,7 @@ interface AIScannerContextType {
     recommendations: any[];
     recsLoading: boolean;
     recsError: string | null;
-    loadRecommendations: (isLandingPage?: boolean, force?: boolean) => Promise<void>;
+    loadRecommendations: (isLandingPage?: boolean, force?: boolean, requestedLimit?: number) => Promise<void>;
 }
 
 const DEFAULT_STATE: AiScannerState = {
@@ -815,7 +815,7 @@ export const AIScannerProvider = ({ children }: { children: ReactNode }) => {
         setAiScanner(DEFAULT_STATE);
     }, []);
 
-    const loadRecommendations = useCallback(async (isLandingPage: boolean = false, force: boolean = false) => {
+    const loadRecommendations = useCallback(async (isLandingPage: boolean = false, force: boolean = false, requestedLimit?: number) => {
         if (recommendationsRef.current.length > 0 && !force && loadedLandingRef.current === isLandingPage) {
             return;
         }
@@ -830,7 +830,8 @@ export const AIScannerProvider = ({ children }: { children: ReactNode }) => {
             // for 200 recommendations. This API is CDN-cached and selects only
             // fields actually rendered by the public table.
             if (isLandingPage) {
-                const response = await fetch("/api/ai_bot/recommendations?limit=50");
+                const fetchLimit = requestedLimit ? Math.min(requestedLimit * 2, 20) : 6;
+                const response = await fetch(`/api/ai_bot/recommendations?limit=${fetchLimit}`);
                 if (!response.ok) throw new Error("Failed to load public recommendations");
                 scanData = await response.json();
                 sectorMap = Object.fromEntries((scanData || []).map((row: any) => [row.symbol, row.sector || "General"]));
@@ -874,7 +875,7 @@ export const AIScannerProvider = ({ children }: { children: ReactNode }) => {
             })));
             const openPositionMap: Record<string, any[]> = {};
 
-            if (user && positionSymbols.length > 0) {
+            if (user && !isLandingPage && positionSymbols.length > 0) {
                 const { data: positionData, error: positionErr } = await supabase
                     .from("positions")
                     .select("id,symbol,source,entry_price,entry_at,target_price,stop_price,status,status_price,metadata,updated_at,added_at")

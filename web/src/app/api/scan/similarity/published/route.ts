@@ -1,11 +1,17 @@
 import { NextResponse } from "next/server";
 import { getSupabaseClient } from "@/lib/supabase/route-data";
+import { DAILY_CACHE_TAGS, dailyCacheHeaders } from "@/lib/cache/daily";
 
 export const runtime = "nodejs";
-export const revalidate = 300;
+export const revalidate = 86400;
 
-export async function GET() {
+const PUBLIC_CACHE_HEADERS = dailyCacheHeaders(DAILY_CACHE_TAGS.market);
+
+export async function GET(req: Request) {
   try {
+    const url = new URL(req.url);
+    const requestedLimit = Number(url.searchParams.get("limit") || 0);
+
     const supabase = getSupabaseClient();
 
     // Select only needed columns — avoid pulling the full scans JSONB blob twice
@@ -27,17 +33,16 @@ export async function GET() {
     if (!data) {
       return NextResponse.json(
         { scans: [], name: "No Active Similarity Report", updated_at: null },
-        {
-          headers: {
-            // Cache empty response for 60s — don't hammer Supabase when table is empty
-            'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=120',
-          },
-        }
+        { headers: { 'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=120' } }
       );
     }
 
     // Parse scans if stored as JSON string
-    const scans = typeof data.scans === 'string' ? JSON.parse(data.scans) : (data.scans || []);
+    let scans = typeof data.scans === 'string' ? JSON.parse(data.scans) : (data.scans || []);
+
+    if (requestedLimit > 0 && Array.isArray(scans)) {
+      scans = scans.slice(0, requestedLimit);
+    }
 
     return NextResponse.json(
       {
@@ -50,13 +55,7 @@ export async function GET() {
         stop_loss: data.stop_loss,
         updated_at: data.updated_at,
       },
-      {
-        headers: {
-          // Vercel CDN caches for 5 min, serves stale for up to 10 min while revalidating
-          // Result: only 1 Supabase call per 5 minutes regardless of how many users hit this
-          'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=600',
-        },
-      }
+      { headers: PUBLIC_CACHE_HEADERS }
     );
 
   } catch (error) {

@@ -119,7 +119,7 @@ export default function HomePage() {
     }, []);
 
     useEffect(() => {
-        fetch("/api/scan/similarity/published")
+        fetch("/api/scan/similarity/published?limit=6")
             .then(res => res.json())
             .then(data => {
                 if (data?.scans && data.scans.length > 0) {

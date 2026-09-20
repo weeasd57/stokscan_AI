@@ -1,7 +1,11 @@
-export const revalidate = 3600;
-
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { DAILY_CACHE_TAGS, dailyCacheHeaders } from "@/lib/cache/daily";
+
+export const revalidate = 86400; // 24h ISR fallback
+
+const PUBLIC_CACHE_HEADERS = dailyCacheHeaders(DAILY_CACHE_TAGS.market);
+
 
 type Egx30DayRow = {
   date: string;
@@ -112,7 +116,7 @@ export async function GET() {
         ...v,
       }));
 
-    return NextResponse.json({ months });
+    return NextResponse.json({ months }, { headers: PUBLIC_CACHE_HEADERS });
   } catch (e: any) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "Failed to load EGX30 monthly candles" },

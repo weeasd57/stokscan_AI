@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import { getSupabaseClient } from "@/lib/supabase/route-data";
+import { DAILY_CACHE_TAGS, dailyCacheHeaders } from "@/lib/cache/daily";
 
 export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
+
+const PUBLIC_CACHE_HEADERS = dailyCacheHeaders(DAILY_CACHE_TAGS.symbols);
 
 export async function GET(req: Request) {
   const incomingUrl = new URL(req.url);
@@ -60,7 +62,6 @@ export async function GET(req: Request) {
     }
 
     // 2. Optionally get names from stock_fundamentals
-    const uniqueExchanges = [...new Set((priceRows || []).map((r: any) => r.exchange))];
     let fundMap: Record<string, string> = {};
     try {
       let fundQuery = supabase
@@ -95,7 +96,7 @@ export async function GET(req: Request) {
       );
     }
 
-    return NextResponse.json({ results: results.slice(0, limit) });
+    return NextResponse.json({ results: results.slice(0, limit) }, { headers: PUBLIC_CACHE_HEADERS });
   } catch (error) {
     console.error("by-date API error:", error);
     return NextResponse.json({ results: [] });

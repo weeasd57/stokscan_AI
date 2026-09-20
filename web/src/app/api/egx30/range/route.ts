@@ -1,7 +1,8 @@
-export const dynamic = "force-dynamic";
-
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { DAILY_CACHE_TAGS, dailyCacheHeaders } from "@/lib/cache/daily";
+
+const PUBLIC_CACHE_HEADERS = dailyCacheHeaders(DAILY_CACHE_TAGS.market);
 
 type Egx30Row = {
   date: string;
@@ -46,7 +47,7 @@ export async function GET(req: Request) {
     }
 
     if (period.length < 2) {
-      return NextResponse.json({ return_pct: null });
+      return NextResponse.json({ return_pct: null }, { headers: PUBLIC_CACHE_HEADERS });
     }
 
     const first = period[0];
@@ -54,11 +55,14 @@ export async function GET(req: Request) {
     const startPrice = toNum(first.open) ?? toNum(first.close);
     const endPrice = toNum(last.close);
     if (startPrice === null || endPrice === null) {
-      return NextResponse.json({ return_pct: null });
+      return NextResponse.json({ return_pct: null }, { headers: PUBLIC_CACHE_HEADERS });
     }
 
     const pct = ((endPrice - startPrice) / startPrice) * 100;
-    return NextResponse.json({ return_pct: Math.round(pct * 100) / 100 });
+    return NextResponse.json(
+      { return_pct: Math.round(pct * 100) / 100 },
+      { headers: PUBLIC_CACHE_HEADERS }
+    );
   } catch (e: any) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "Failed to compute EGX30 return" },
@@ -66,4 +70,3 @@ export async function GET(req: Request) {
     );
   }
 }
-
