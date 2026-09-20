@@ -9,6 +9,7 @@ import { useWatchlist, type SavedSymbol } from "@/contexts/WatchlistContext";
 import { Loader2, Send, Globe, Star, Trash2, Edit3, X, Check, ExternalLink, User, Wallet, CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
 import MyPortfolioSection from "./components/MyPortfolioSection";
+import PlanQuotaCard from "./components/PlanQuotaCard";
 
 export default function ProfilePage() {
   const router = useRouter();
@@ -81,6 +82,9 @@ export default function ProfilePage() {
             : "Manage your portfolio, follow our Telegram channel and keep your watchlist in one place."}
         </p>
       </header>
+
+      {/* ── Plan & Quota (الخطة والكوتا) ── */}
+      <PlanQuotaCard refreshTrigger={portfolioVersion} />
 
       {/* ── My Portfolio (محفظتى) ── */}
       <MyPortfolioSection

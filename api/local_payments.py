@@ -104,23 +104,42 @@ def handle_callback(callback: Dict[str, Any]) -> None:
     if len(parts) != 3 or parts[0] != "localpay" or parts[1] not in {"approve", "reject"}:
         return
     callback_id = callback.get("id")
-    if callback_id:
-        try:
-            _telegram("answerCallbackQuery", {"callback_query_id": callback_id})
-        except Exception as e:
-            print(f"[LOCAL_PAY] answerCallbackQuery error: {e}")
     admin_chat = _admin_chat_id()
     message_chat = ((callback.get("message") or {}).get("chat") or {}).get("id")
     if not admin_chat or str(message_chat) != str(admin_chat):
+        if callback_id:
+            try:
+                _telegram("answerCallbackQuery", {"callback_query_id": callback_id, "text": "⛔ غير مصرح لك بتنفيذ هذا الإجراء", "show_alert": True})
+            except Exception:
+                pass
         return
     order_id = parts[2]
     _init_supabase()
     if not supabase:
+        if callback_id:
+            try:
+                _telegram("answerCallbackQuery", {"callback_query_id": callback_id, "text": "خطأ: تعذر الاتصال بقاعدة البيانات", "show_alert": True})
+            except Exception:
+                pass
         return
     result = supabase.table("local_payment_orders").select("*").eq("id", order_id).maybe_single().execute()
     order = result.data if result else None
-    if not order or order.get("status") not in {"pending", "submitted"}:
+    if not order:
+        if callback_id:
+            try:
+                _telegram("answerCallbackQuery", {"callback_query_id": callback_id, "text": "❌ لم يتم العثور على هذا الطلب", "show_alert": True})
+            except Exception:
+                pass
         return
+    if order.get("status") not in {"pending", "submitted"}:
+        curr_status = "مقبول ومفعّل" if order.get("status") == "approved" else "مرفوض" if order.get("status") == "rejected" else order.get("status")
+        if callback_id:
+            try:
+                _telegram("answerCallbackQuery", {"callback_query_id": callback_id, "text": f"⚠️ هذا الطلب تمت مراجعته بالفعل ({curr_status})", "show_alert": True})
+            except Exception:
+                pass
+        return
+
     now = datetime.now(timezone.utc).isoformat()
     status = "approved" if parts[1] == "approve" else "rejected"
     if status == "approved":
@@ -128,11 +147,31 @@ def handle_callback(callback: Dict[str, Any]) -> None:
     supabase.table("local_payment_orders").update({
         "status": status, "reviewed_by": str(message_chat), "reviewed_at": now, "updated_at": now,
     }).eq("id", order_id).execute()
+
+    if callback_id:
+        try:
+            alert_msg = "✅ تم تفعيل اشتراك Pro بنجاح!" if status == "approved" else "❌ تم رفض طلب الدفع"
+            _telegram("answerCallbackQuery", {"callback_query_id": callback_id, "text": alert_msg, "show_alert": False})
+        except Exception as e:
+            print(f"[LOCAL_PAY] answerCallbackQuery error: {e}")
+
     message_id = (callback.get("message") or {}).get("message_id")
     if message_id:
         try:
-            _telegram("editMessageText", {"chat_id": admin_chat, "message_id": message_id,
-                "text": f"{'✅ تم تفعيل Pro' if status == 'approved' else '❌ تم رفض طلب الدفع'}\nOrder: <code>{html.escape(order_id)}</code>",
-                "parse_mode": "HTML"})
+            order_text = (
+                f"{'✅ <b>تم تفعيل Pro بنجاح</b>' if status == 'approved' else '❌ <b>تم رفض طلب الدفع</b>'}\n\n"
+                f"<b>Order:</b> <code>{html.escape(order_id)}</code>\n"
+                f"<b>User:</b> <code>{html.escape(str(order.get('user_id', '')))}</code>\n"
+                f"<b>Plan:</b> {html.escape(str(order.get('plan_id', 'pro')).upper())}\n"
+                f"<b>Amount:</b> {order.get('amount_egp', 300)} EGP\n"
+                f"<b>Date:</b> {now[:19].replace('T', ' ')}"
+            )
+            _telegram("editMessageText", {
+                "chat_id": admin_chat,
+                "message_id": message_id,
+                "text": order_text,
+                "parse_mode": "HTML"
+            })
         except Exception as e:
             print(f"[LOCAL_PAY] editMessageText error: {e}")
+
