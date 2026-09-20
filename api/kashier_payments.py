@@ -299,9 +299,10 @@ def _activate_subscription(user_id: str, plan_id: str) -> None:
         .maybe_single()
         .execute()
     )
-    if existing.data:
+    existing_data = existing.data if existing else None
+    if existing_data:
         # Setting created_at on the first activation; preserve original if present.
-        supabase.table("subscriptions").update(fields).eq("id", existing.data["id"]).execute()
+        supabase.table("subscriptions").update(fields).eq("id", existing_data["id"]).execute()
     else:
         fields["created_at"] = now.isoformat()
         supabase.table("subscriptions").insert(fields).execute()
@@ -315,7 +316,8 @@ def _activate_subscription(user_id: str, plan_id: str) -> None:
         .neq("plan_id", plan_id)
         .execute()
     )
-    for stale in other.data or []:
+    other_data = other.data if other else []
+    for stale in other_data or []:
         supabase.table("subscriptions").update(
             {"status": "cancelled", "updated_at": now.isoformat()}
         ).eq("id", stale["id"]).execute()
@@ -334,7 +336,8 @@ def _cancel_subscription(user_id: str) -> None:
             .eq("status", "active")
             .execute()
         )
-        for row in res.data or []:
+        res_data = res.data if res else []
+        for row in res_data or []:
             supabase.table("subscriptions").update(
                 {"status": "cancelled", "updated_at": now.isoformat()}
             ).eq("id", row["id"]).execute()

@@ -20,6 +20,9 @@ CHAT_ID_FILE = os.path.join(os.path.dirname(__file__), "support_admin_chat_id.tx
 TELEGRAM_RELAY_URL = os.getenv("TELEGRAM_RELAY_URL", "https://api.telegram.org").rstrip("/")
 
 def load_admin_chat_id() -> Optional[int]:
+    env_chat = os.getenv("SUPPORT_ADMIN_CHAT_ID") or os.getenv("ADMIN_CHAT_ID")
+    if env_chat and env_chat.strip().lstrip("-").isdigit():
+        return int(env_chat.strip())
     if os.path.exists(CHAT_ID_FILE):
         try:
             with open(CHAT_ID_FILE, "r") as f:
@@ -86,6 +89,10 @@ def handle_customer_message(session_id: str, content: str, user_name: Optional[s
     return saved_msg
 
 def handle_telegram_update(data: dict):
+    if data.get("callback_query"):
+        from api.local_payments import handle_callback
+        handle_callback(data["callback_query"])
+        return
     message = data.get("message", {})
     if not message:
         return
@@ -125,5 +132,4 @@ def handle_telegram_update(data: dict):
                     print(f"[SUPPORT_CHAT] Saved admin reply for session {session_id}")
                 except Exception as e:
                     print(f"[SUPPORT_CHAT] Error saving admin reply: {e}")
-
 

@@ -3,65 +3,58 @@
 import { useEffect, useState } from "react";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useAuth } from "@/contexts/AuthContext";
-import { Loader2, Check, Rocket, Lock, Wifi } from "lucide-react";
+import { Loader2, Rocket } from "lucide-react";
 import { toast } from "sonner";
-
-type Config = {
-  mode: "enabled" | "disabled";
-  enabled: boolean;
-  currency?: string;
-  payment_methods?: string[];
-  free?: any;
-  pro?: any;
-};
 
 export default function PricingClient() {
   const { language } = useLanguage();
   const isAr = language === "ar";
-  const { user, loading: authLoading } = useAuth();
-  const [config, setConfig] = useState<Config | null>(null);
+  const { user } = useAuth();
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [localConfig, setLocalConfig] = useState<any>(null);
+  const [localOrder, setLocalOrder] = useState<string | null>(null);
+  const [customerNote, setCustomerNote] = useState("");
+  const [submitted, setSubmitted] = useState(false);
 
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch("/api/payment/config", { cache: "no-store" });
-        const data = await res.json();
-        setConfig(data);
+        const local = await fetch("/api/payment/local/config", { cache: "no-store" }).then((r) => r.json());
+        setLocalConfig(local);
       } catch {
-        setConfig(null);
+        setLocalConfig(null);
       } finally {
         setLoading(false);
       }
     })();
   }, []);
 
-  const startCheckout = async (planId: string) => {
-    if (!user) {
-      toast.error(isAr ? "سجّل الدخول أولاً لتتمكن من الاشتراك" : "Please sign in to subscribe");
-      return;
-    }
+  const startLocalPayment = async () => {
+    if (!user) { toast.error(isAr ? "سجّل الدخول أولاً" : "Please sign in first"); return; }
     setBusy(true);
     try {
-      const res = await fetch("/api/payment/kashier/create", {
+      const res = await fetch("/api/payment/local/create", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "تعذر إنشاء طلب الدفع");
+      setLocalOrder(data.order_id);
+    } catch (e: any) { toast.error(e.message); } finally { setBusy(false); }
+  };
+
+  const submitLocalPayment = async () => {
+    if (!localOrder) return;
+    setBusy(true);
+    try {
+      const res = await fetch("/api/payment/local/submit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ user_id: user.id, plan_id: planId, email: user.email || "" }),
+        body: JSON.stringify({ order_id: localOrder, note: customerNote })
       });
       const data = await res.json();
-      if (!res.ok || !data.url) {
-        toast.error(data?.detail || data?.message || "فشل إنشاء جلسة الدفع");
-        return;
-      }
-      // Persist the order_ref for polling after redirect.
-      sessionStorage.setItem("kashier_order_ref", data.order_ref || "");
-      window.location.href = data.url;
-    } catch (e: any) {
-      toast.error(e?.message || "Connection failed");
-    } finally {
-      setBusy(false);
-    }
+      if (!res.ok) throw new Error(data.detail || "تعذر إرسال الطلب");
+      setSubmitted(true);
+      toast.success(isAr ? "تم إرسال الطلب للمراجعة" : "Payment sent for review");
+    } catch (e: any) { toast.error(e.message); } finally { setBusy(false); }
   };
 
   if (loading) {
@@ -72,7 +65,7 @@ export default function PricingClient() {
     );
   }
 
-  if (!config || !config.enabled) {
+  if (!localConfig?.enabled) {
     return (
       <div className="min-h-[70vh] flex items-center justify-center p-6">
         <div className="max-w-xl w-full neobrutal-card p-8 text-center space-y-4 border-4 border-black dark:border-white bg-white dark:bg-zinc-900">
@@ -94,102 +87,70 @@ export default function PricingClient() {
     );
   }
 
-  const proPrice = config.pro?.price_egp ?? 300;
-  const freeFeatures = isAr
-    ? ["تأخير الإشارات الجديدة 5 أيام", "50 رسالة للشات بوت شهريًا", "حتى 5 أسهم في المحفظة"]
-    : ["New signals delayed 5 days", "50 chatbot messages / month", "Up to 5 portfolio stocks"];
-  const proFeatures = isAr
-    ? ["إشارات يومية فورية", "350 رسالة للشات بوت شهريًا", "حتى 10 أسهم في المحفظة"]
-    : ["Daily instant signals", "350 chatbot messages / month", "Up to 10 portfolio stocks"];
+  if (localConfig?.enabled) {
+    return (
+      <div className="min-h-[70vh] py-12 px-4">
+        <div className="max-w-xl mx-auto neobrutal-card p-8 space-y-5 border-4 border-black dark:border-white bg-white dark:bg-zinc-900 shadow-[6px_6px_0px_rgba(0,0,0,1)] dark:shadow-[6px_6px_0px_rgba(255,255,255,1)]">
+          <h1 className="text-3xl font-black text-black dark:text-white">{isAr ? "الاشتراك في Pro" : "Subscribe to Pro"}</h1>
+          <p className="font-bold text-zinc-600 dark:text-zinc-300">{isAr ? `السعر: ${localConfig.amount_egp} جنيه شهريًا` : `Price: EGP ${localConfig.amount_egp} / month`}</p>
+          <p className="font-bold">{isAr ? "حوّل المبلغ عبر Vodafone Cash إلى:" : "Transfer via Vodafone Cash to:"}</p>
+          <p className="text-2xl font-black text-emerald-600 dark:text-emerald-400">{localConfig.wallet_number || "رقم المحفظة غير مضبوط"}</p>
+          {localConfig.qr_url && (
+            <img
+              src={`https://quickchart.io/qr?size=280&text=${encodeURIComponent(localConfig.qr_url)}`}
+              alt="Vodafone Cash QR"
+              className="mx-auto max-w-64 border-2 border-black dark:border-white bg-white p-2"
+            />
+          )}
 
-  return (
-    <div className="min-h-[70vh] py-12 px-4">
-      <div className="max-w-5xl mx-auto space-y-10">
-        <div className="text-center space-y-3">
-          <h1 className="text-4xl font-black text-black dark:text-white">
-            {isAr ? "اختر خطتك" : "Choose your plan"}
-          </h1>
-          <p className="text-zinc-500 font-bold">
-            {isAr ? "مزايا واضحة تناسب طريقة تداولك" : "Clear features that fit your trading style"}
-          </p>
-        </div>
-
-        <div className="grid md:grid-cols-2 gap-6">
-          {/* Free */}
-          <div className="neobrutal-card p-6 space-y-5 border-4 border-black dark:border-white bg-white dark:bg-zinc-900 shadow-[6px_6px_0px_rgba(0,0,0,1)] dark:shadow-[6px_6px_0px_rgba(255,255,255,1)]">
-            <div className="flex items-center justify-between">
-              <h2 className="text-xl font-black text-black dark:text-white">{isAr ? "مجاني" : "Free"}</h2>
-              <span className="text-xs font-black bg-zinc-100 dark:bg-zinc-800 px-2 py-1 rounded">{isAr ? "التخطيط" : "Current"}</span>
+          {submitted ? (
+            <div className="p-5 bg-emerald-50 dark:bg-emerald-950/40 border-2 border-emerald-500 rounded text-center space-y-2">
+              <p className="font-black text-emerald-700 dark:text-emerald-400 text-lg">
+                {isAr ? "⏳ الطلب قيد المراجعة" : "⏳ Order Under Review"}
+              </p>
+              <p className="text-sm font-bold text-zinc-700 dark:text-zinc-300">
+                {isAr
+                  ? "تم إرسال طلبك بنجاح وهو قيد المراجعة حاليًا من قبل الإدارة. سيتم تفعيل حسابك Pro فور التحقق من التحويل."
+                  : "Your payment request was submitted and is being reviewed by the admin. Pro will be activated upon verification."}
+              </p>
+              {localOrder && <p className="text-xs font-mono font-bold text-zinc-500">Order ID: {localOrder}</p>}
             </div>
-            <div className="text-4xl font-black text-black dark:text-white">EGP 0</div>
-            <ul className="space-y-3">
-              {freeFeatures.map((f, i) => (
-                <li key={i} className="flex items-start gap-2 text-sm font-bold text-zinc-700 dark:text-zinc-300">
-                  <Check className="w-5 h-5 text-emerald-500 shrink-0" /> {f}
-                </li>
-              ))}
-            </ul>
-            <button disabled className="w-full h-12 border-4 border-black dark:border-white bg-zinc-200 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 font-black uppercase tracking-widest disabled:opacity-60">
-              {isAr ? "خطتك الحالية" : "Current Plan"}
-            </button>
-          </div>
-
-          {/* Pro */}
-          <div className="neobrutal-card p-6 space-y-5 border-4 border-black dark:border-white bg-emerald-50 dark:bg-emerald-950/20 shadow-[6px_6px_0px_rgba(0,0,0,1)] dark:shadow-[6px_6px_0px_rgba(255,255,255,1)]">
-            <div className="flex items-center justify-between">
-              <h2 className="text-xl font-black text-black dark:text-white">Pro</h2>
-              <span className="text-xs font-black bg-emerald-500 text-white px-2 py-1 rounded">{isAr ? "الأكثر شيوعًا" : "Popular"}</span>
-            </div>
-            <div className="text-4xl font-black text-black dark:text-white">
-              EGP {proPrice}
-              <span className="text-sm font-bold text-zinc-500">/{isAr ? "شهر" : "month"}</span>
-            </div>
-            <ul className="space-y-3">
-              {proFeatures.map((f, i) => (
-                <li key={i} className="flex items-start gap-2 text-sm font-bold text-zinc-700 dark:text-zinc-300">
-                  <Check className="w-5 h-5 text-emerald-500 shrink-0" /> {f}
-                </li>
-              ))}
-            </ul>
+          ) : !localOrder ? (
             <button
-              onClick={() => startCheckout("pro")}
-              disabled={busy || authLoading}
-              className="w-full h-12 flex items-center justify-center gap-2 border-4 border-black dark:border-white bg-emerald-500 text-white font-black uppercase tracking-widest shadow-[3px_3px_0px_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none disabled:opacity-60"
+              onClick={startLocalPayment}
+              disabled={busy}
+              className="w-full h-12 border-4 border-black dark:border-white bg-emerald-500 text-white font-black hover:bg-emerald-600 transition-colors disabled:opacity-60"
             >
-              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Lock className="h-4 w-4" />}
-              {isAr ? "اشترك الآن" : "Subscribe Now"}
+              {busy ? <Loader2 className="w-5 h-5 animate-spin mx-auto" /> : (isAr ? "إنشاء طلب دفع" : "Create payment order")}
             </button>
-          </div>
-        </div>
-
-        <p className="text-center text-xs text-zinc-500 font-bold flex items-center justify-center gap-1.5">
-          <Wifi className="w-4 h-4" />
-          {isAr ? "الدفع عبر Kashier بشكل آمن" : "Pay securely via Kashier"}
-        </p>
-
-        <div className="text-center space-y-2">
-          <p className="text-xs font-black text-zinc-600 dark:text-zinc-300 uppercase tracking-widest">
-            {isAr ? "طرق الدفع المدعومة" : "Supported payment methods"}
-          </p>
-          <div className="flex flex-wrap items-center justify-center gap-2">
-            <span className="text-xs font-black border-2 border-black dark:border-white px-3 py-1.5 rounded bg-white dark:bg-zinc-900 text-zinc-700 dark:text-zinc-200">VISA</span>
-            <span className="text-xs font-black border-2 border-black dark:border-white px-3 py-1.5 rounded bg-white dark:bg-zinc-900 text-zinc-700 dark:text-zinc-200">Mastercard</span>
-            <span className="text-xs font-black border-2 border-black dark:border-white px-3 py-1.5 rounded bg-white dark:bg-zinc-900 text-zinc-700 dark:text-zinc-200">Meeza</span>
-            <span className="text-xs font-black border-2 border-emerald-500 px-3 py-1.5 rounded bg-emerald-50 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400">
-              {isAr ? "فودافون كاش" : "Vodafone Cash"}
-            </span>
-            <span className="text-xs font-black border-2 border-emerald-500 px-3 py-1.5 rounded bg-emerald-50 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400">
-              {isAr ? "أورنج كاش" : "Orange Cash"}
-            </span>
-            <span className="text-xs font-black border-2 border-emerald-500 px-3 py-1.5 rounded bg-emerald-50 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400">
-              {isAr ? "اتصالات كاش" : "Etisalat Cash"}
-            </span>
-            <span className="text-xs font-black border-2 border-emerald-500 px-3 py-1.5 rounded bg-emerald-50 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400">
-              {isAr ? "محفظة ذكية" : "Smart Wallet"}
-            </span>
-          </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="space-y-1">
+                <label className="text-xs font-black text-zinc-700 dark:text-zinc-300">
+                  {isAr ? "رقم الهاتف المحول منه أو ملاحظة (اختياري):" : "Sender phone number or note (optional):"}
+                </label>
+                <input
+                  type="text"
+                  value={customerNote}
+                  onChange={(e) => setCustomerNote(e.target.value)}
+                  placeholder={isAr ? "مثال: 01012345678" : "e.g. 01012345678"}
+                  className="w-full p-2.5 border-2 border-black dark:border-white bg-zinc-50 dark:bg-zinc-800 text-sm font-bold"
+                />
+              </div>
+              <button
+                onClick={submitLocalPayment}
+                disabled={busy}
+                className="w-full h-12 border-4 border-black dark:border-white bg-emerald-500 text-white font-black hover:bg-emerald-600 transition-colors disabled:opacity-60"
+              >
+                {busy ? <Loader2 className="w-5 h-5 animate-spin mx-auto" /> : (isAr ? "لقد قمت بالتحويل" : "I have transferred")}
+              </button>
+              <p className="text-xs font-bold text-zinc-500 text-center break-all">Order: {localOrder}</p>
+            </div>
+          )}
         </div>
       </div>
-    </div>
-  );
+    );
+  }
+
+  return null;
 }
