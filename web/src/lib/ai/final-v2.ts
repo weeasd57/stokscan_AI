@@ -2164,6 +2164,28 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
     const levelResults = toolResults.filter(result => result.tool === "get_stock_levels");
     const stockResults = toolResults.filter(result => result.tool === "get_stock" && result.data?.symbol);
     const compoundNews = toolResults.find(result => result.tool === "get_news");
+    // Do not spend 30-50 seconds on the responder when a single-stock
+    // analysis already has all verified facts needed for a concise answer.
+    // This also avoids a second model attempt after a provider timeout.
+    if (stockResults.length === 1 && !compoundNews && !/\n|(?:كسر|لو|اخبار|أخبار|خبر)/i.test(userMessage) && /(?:تحليل|حلل|مؤشرات|بيانات)/i.test(userMessage)) {
+        const stock = stockResults[0].data;
+        const level = levelResults.find(item =>
+            String(item.data?.symbol || item.symbols?.[0] || "").toUpperCase() === String(stock.symbol).toUpperCase()
+        )?.data;
+        const rsi = Number(stock.rsi_14);
+        const momentum = Number.isFinite(rsi)
+            ? rsi >= 70 ? "تشبع شرائي" : rsi >= 50 ? "زخم إيجابي" : rsi <= 30 ? "تشبع بيعي" : "زخم محايد"
+            : "الزخم غير متاح";
+        const lines = [
+            `${stock.symbol}: السعر ${stock.price ?? "غير متاح"} جنيه، والتغير ${stock.change_pct ?? "غير متاح"}.`,
+            `RSI ${stock.rsi_14 ?? "غير متاح"} (${momentum})، الحجم ${stock.vol_ratio ?? "غير متاح"} من المتوسط، وMACD ${stock.macd_signal ?? "غير متاح"}.`,
+            level?.support != null && level?.resistance != null
+                ? `النطاق الفني: دعم ${Number(level.support).toFixed(2)} ومقاومة ${Number(level.resistance).toFixed(2)} جنيه.`
+                : "مستويات الدعم والمقاومة غير متاحة حالياً.",
+            "الأرقام وصفية ومبنية على آخر بيانات متاحة وليست توصية شراء أو بيع."
+        ];
+        return lines.join("\n");
+    }
     const asksForNews = /(?:اخبار|أخبار|خبر(?!ة)|عناوين|news)/i.test(userMessage);
     if (asksForNews && !compoundNews) {
         return "لا توجد نتيجة أخبار موثقة لهذا الطلب في البيانات الحالية، لذلك لن أفترض أن السيولة ارتفعت بسبب أرباح أو عقود أو خبر معين. أستطيع عرض الأخبار فقط عند توفر سجلات أخبار مرتبطة بالقطاع أو الأسهم المطلوبة.";
