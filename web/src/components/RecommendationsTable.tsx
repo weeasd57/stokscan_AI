@@ -430,6 +430,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
     }, [recommendations, shariaOnly]);
 
     const isProView = Boolean(user && hasProAccess);
+    const isAnonymousView = !user;
     const isDelayedView = useMemo(
         // Free authenticated users are delayed too. The banner must not rely
         // on anonymous status because the free plan also needs this notice.
@@ -564,7 +565,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
             activeCount: active.length,
             closedCount: closed.length,
             winRate,
-            avgReturn: isDelayedView ? null : avgReturn,
+            avgReturn: isAnonymousView ? null : avgReturn,
             totalCount: processedRows.length
         };
     }, [processedRows, isDelayedView]);
@@ -618,7 +619,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
     };
 
     const getStatusBadge = (status: string, plPct: number | null) => {
-        if (isDelayedView) {
+        if (isAnonymousView) {
             return (
                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-black bg-amber-500/10 text-amber-500 border border-amber-500/30">
                     <Clock className="w-3 h-3" />
@@ -752,7 +753,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                     <div className="flex items-center justify-between flex-wrap gap-3">
                                         <div className="flex items-center gap-2">
                                             {renderSignalBadge(row)}
-                            {getStatusBadge(row.status || "open", isDelayedView ? null : row.profit_loss_pct)}
+                            {getStatusBadge(row.status || "open", isAnonymousView ? null : row.profit_loss_pct)}
                                         </div>
                                         <div className="flex items-center gap-1.5 text-xs font-black text-zinc-500 uppercase">
                                             <span className="text-lg leading-none">{cInfo.flag}</span>
@@ -783,7 +784,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                     </div>
                                      <div className="flex justify-center">{row.anonymous ? <span className="text-xs font-black text-zinc-500">—</span> : renderCircularScore(aiScoreNum, "AI")}</div>
                                     <div className="flex justify-center">{renderSignalBadge(row)}</div>
-                                    <div className="flex justify-center">{getStatusBadge(row.status || "open", isDelayedView ? null : row.profit_loss_pct)}</div>
+                                    <div className="flex justify-center">{getStatusBadge(row.status || "open", isAnonymousView ? null : row.profit_loss_pct)}</div>
                                     <div className="text-xs font-black uppercase text-zinc-500 flex items-center gap-1.5">
                                         <span className="text-lg leading-none">{cInfo.flag}</span>
                                         <span className="truncate">{row.sector || "N/A"}</span>
@@ -809,7 +810,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
         const cInfo = getCountryFlag(null, row.exchange);
 
         // ── Computed values ──
-        const plPct = isDelayedView ? null : (row.profit_loss_pct ?? null);
+        const plPct = isAnonymousView ? null : (row.profit_loss_pct ?? null);
         const currentPrice = row.last_close || 0;
         const entryPrice = row.entry_price || (plPct && plPct !== -100 ? (currentPrice / (1 + plPct / 100)) : currentPrice) || 0;
 
@@ -860,8 +861,8 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
         const rrRatio = Math.min(rawRr, 8.5);
         const potReturn = currentPrice && targetPrice ? ((targetPrice - currentPrice) / currentPrice) * 100 : 0;
         const changePct = row.change_pct ?? null;
-        const lastUpdated = isDelayedView ? row.created_at || null : (row.updated_at || row.created_at || null);
-        const pctChangeSinceRec = isDelayedView ? null : (isClosed
+        const lastUpdated = isAnonymousView ? row.created_at || null : (row.updated_at || row.created_at || null);
+        const pctChangeSinceRec = isAnonymousView ? null : (isClosed
             ? (row.exit_price && entryPrice > 0 ? ((row.exit_price - entryPrice) / entryPrice) * 100 : (plPct ?? 0))
             : (entryPrice > 0 ? ((currentPrice - entryPrice) / entryPrice) * 100 : 0));
 
@@ -903,7 +904,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                         <TrendingDown className="w-3 h-3" /> {translate("sell")}
                                     </span>
                                 )}
-                                {getStatusBadge(row.status, row.profit_loss_pct)}
+                                {getStatusBadge(row.status, isAnonymousView ? null : row.profit_loss_pct)}
                             </div>
                             <p className={`text-xs sm:text-sm ${d("text-zinc-400", "text-zinc-600")} font-medium truncate mt-0.5`}>{row.name}</p>
                         </div>
@@ -970,7 +971,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                                             <TrendingDown className="w-3 h-3" /> {translate("sell")}
                                         </span>
                                     )}
-                                    {getStatusBadge(row.status, row.profit_loss_pct)}
+                                    {getStatusBadge(row.status, isAnonymousView ? null : row.profit_loss_pct)}
                                 </div>
                                 <p className={`text-sm sm:text-base ${d("text-zinc-300", "text-zinc-700")} font-bold mt-1`}>{row.name}</p>
                             </div>
@@ -1333,7 +1334,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
         if (!shareRow) return null;
         const row = shareRow;
         const aiScoreNum = Math.round((row.precision || 0) * 10);
-        const plPct = isDelayedView ? null : (row.profit_loss_pct ?? null);
+        const plPct = isAnonymousView ? null : (row.profit_loss_pct ?? null);
         const currentPrice = row.last_close || 0;
         const entryPrice = row.entry_price || (plPct && plPct !== -100 ? (currentPrice / (1 + plPct / 100)) : currentPrice) || 0;
         const adjustments: any[] = row.adjustments || [];
@@ -1354,7 +1355,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
         const baseSym = row.symbol.split('.')[0].toLowerCase();
         
         const isClosed = row.status?.toLowerCase() === "win" || row.status?.toLowerCase() === "loss";
-        const pctChangeSinceRec = isDelayedView ? null : (isClosed
+        const pctChangeSinceRec = isAnonymousView ? null : (isClosed
             ? (row.exit_price && entryPrice > 0 ? ((row.exit_price - entryPrice) / entryPrice) * 100 : (plPct ?? 0))
             : (entryPrice > 0 ? ((currentPrice - entryPrice) / entryPrice) * 100 : 0));
 

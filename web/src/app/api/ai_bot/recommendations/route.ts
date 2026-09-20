@@ -32,9 +32,12 @@ export async function GET(req: NextRequest) {
 
     const delayedVisibility = !authenticated || (paymentsEnabled() && !pro);
     const cutoff = new Date(Date.now() - 15 * 24 * 60 * 60 * 1000).toISOString();
-    const applyVisibility = (query: any) => delayedVisibility
-      ? query.lt("created_at", cutoff)
-      : query;
+    const applyVisibility = (query: any) => {
+      if (!authenticated) {
+        return query.eq("status", "open").lt("created_at", cutoff);
+      }
+      return delayedVisibility ? query.lt("created_at", cutoff) : query;
+    };
 
     let recommendationsQuery = supabase
       .from("current_public_recommendations")
@@ -95,8 +98,8 @@ export async function GET(req: NextRequest) {
       // The client must not present live-looking values for delayed rows.
       delayed: delayedVisibility,
       snapshot_cutoff: delayedVisibility ? cutoff : null,
-      precision: toNumber(row.precision, 0),
-      last_close: toNumber(row.last_close, 0),
+      precision: authenticated ? toNumber(row.precision, 0) : null,
+      last_close: authenticated ? toNumber(row.last_close, 0) : null,
     }));
 
     return NextResponse.json(results, {
