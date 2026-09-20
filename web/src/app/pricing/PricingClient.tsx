@@ -9,9 +9,7 @@ import {
   Check,
   X,
   Smartphone,
-  QrCode,
   CheckCircle2,
-  ChevronDown,
   ShieldCheck,
   Zap,
   MessageSquare,
@@ -32,7 +30,6 @@ export default function PricingClient() {
   const [localOrder, setLocalOrder] = useState<string | null>(null);
   const [customerNote, setCustomerNote] = useState("");
   const [step, setStep] = useState<Step>("plans");
-  const [showQr, setShowQr] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -65,7 +62,6 @@ export default function PricingClient() {
       if (!res.ok) throw new Error(data.detail || "تعذر إنشاء طلب الدفع");
       setLocalOrder(data.order_id);
       setStep("payment");
-      setShowQr(true);
     } catch (e: any) {
       toast.error(e.message);
     } finally {
@@ -253,32 +249,45 @@ export default function PricingClient() {
               </div>
             </div>
 
-            {/* QR toggle */}
+            {/* Professional Vodafone QR */}
             {localConfig.qr_url && (
-              <div className="space-y-3">
-                <button
-                  onClick={() => setShowQr((v) => !v)}
-                  className="flex items-center gap-2 text-sm font-black text-emerald-600 dark:text-emerald-400 hover:underline"
-                >
-                  <QrCode className="w-4 h-4" />
-                  {showQr
-                    ? isAr ? "إخفاء رمز QR" : "Hide QR code"
-                    : isAr ? "عرض رمز QR للتحويل" : "Show QR code"}
-                  <ChevronDown
-                    className={`w-4 h-4 transition-transform ${showQr ? "rotate-180" : ""}`}
-                  />
-                </button>
-                {showQr && (
-                  <div className="flex justify-center">
+              <div className="space-y-2">
+                <p className="text-xs font-black text-zinc-500 uppercase tracking-widest text-center">
+                  {isAr ? "أو امسح رمز QR" : "Or scan QR code"}
+                </p>
+                <div className="flex justify-center">
+                  <div className="relative inline-block p-3 bg-white border-4 border-red-600 shadow-[4px_4px_0px_#be0000]">
+                    {/* QR image — red Vodafone style, high error correction to allow logo */}
                     <img
-                      src={`https://quickchart.io/qr?size=220&text=${encodeURIComponent(
+                      src={`https://quickchart.io/qr?size=240&text=${encodeURIComponent(
                         localConfig.qr_url
-                      )}`}
+                      )}&dark=BE0000&light=FFFFFF&ecLevel=H&margin=1`}
                       alt="Vodafone Cash QR"
-                      className="border-4 border-black dark:border-white bg-white p-2"
+                      className="block w-[200px] h-[200px]"
                     />
+                    {/* Vodafone logo overlay centered */}
+                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                      <div className="w-10 h-10 rounded-full bg-white flex items-center justify-center border-2 border-red-600 shadow-sm">
+                        {/* Vodafone "V" SVG */}
+                        <svg viewBox="0 0 24 24" className="w-6 h-6" fill="none">
+                          <circle cx="12" cy="12" r="12" fill="#BE0000" />
+                          <path
+                            d="M8 7c0 0 1.5 4.5 4 8c2.5-3.5 4-8 4-8"
+                            stroke="white"
+                            strokeWidth="2.2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            fill="none"
+                          />
+                        </svg>
+                      </div>
+                    </div>
+                    {/* Top label */}
+                    <p className="text-center text-[10px] font-black text-red-700 mt-1.5 tracking-widest uppercase">
+                      Vodafone Cash
+                    </p>
                   </div>
-                )}
+                </div>
               </div>
             )}
 
@@ -467,27 +476,24 @@ export default function PricingClient() {
             {isAr ? "طرق الدفع المدعومة" : "Supported payment methods"}
           </p>
           <div className="flex flex-wrap items-center justify-center gap-2">
-            {["فودافون كاش", "اورنج كاش", "اتصالات كاش", "محفظة ذكية"].map((m) => (
+            {[
+              { ar: "فودافون كاش", en: "Vodafone Cash", color: "border-red-500 bg-red-50 dark:bg-red-950/30 text-red-600 dark:text-red-400" },
+              { ar: "اورنج كاش",   en: "Orange Cash",   color: "border-orange-500 bg-orange-50 dark:bg-orange-950/30 text-orange-600 dark:text-orange-400" },
+              { ar: "اتصالات كاش", en: "Etisalat Cash", color: "border-emerald-500 bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400" },
+              { ar: "محفظة ذكية",  en: "Smart Wallet",  color: "border-blue-500 bg-blue-50 dark:bg-blue-950/30 text-blue-600 dark:text-blue-400" },
+            ].map((m) => (
               <span
-                key={m}
-                className="text-xs font-black border-2 border-emerald-500 px-3 py-1.5 bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400"
+                key={m.en}
+                className={`text-xs font-black border-2 px-3 py-1.5 ${m.color}`}
               >
-                {m}
-              </span>
-            ))}
-            {["VISA", "Mastercard", "Meeza"].map((m) => (
-              <span
-                key={m}
-                className="text-xs font-black border-2 border-zinc-300 dark:border-zinc-600 px-3 py-1.5 bg-white dark:bg-zinc-900 text-zinc-600 dark:text-zinc-300"
-              >
-                {m}
+                {isAr ? m.ar : m.en}
               </span>
             ))}
           </div>
           <p className="text-xs font-bold text-zinc-400">
             {isAr
-              ? "الدفع عبر Vodafone Cash — آمن وسريع"
-              : "Pay via Vodafone Cash — safe & fast"}
+              ? "الدفع عبر محافظ الكاش — آمن وسريع"
+              : "Pay via mobile wallets — safe & fast"}
           </p>
         </div>
       </div>
