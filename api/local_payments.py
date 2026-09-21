@@ -5,10 +5,9 @@ import requests
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 from uuid import uuid4
-from datetime import timedelta
-
 from api.stock_ai import _init_supabase, supabase
 from api.kashier_payments import _activate_subscription
+from api.telegram_pro_invites import ensure_pro_invite, revoke_expired_pro_members
 
 
 def is_local_payments_enabled() -> bool:
@@ -45,61 +44,6 @@ def _telegram(method: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     if not data.get("ok"):
         raise RuntimeError(f"Telegram {method} failed: {data.get('description', 'unknown error')}")
     return data
-
-
-def _create_pro_invite(order_id: str, user_id: str, subscription_end: str | None = None) -> str:
-    chat_id = os.getenv("TELEGRAM_PRO_CHAT_ID", "").strip()
-    if not chat_id:
-        return ""
-    if subscription_end:
-        try:
-            expires_at = datetime.fromisoformat(subscription_end.replace("Z", "+00:00"))
-        except (ValueError, TypeError):
-            expires_at = datetime.now(timezone.utc) + timedelta(days=30)
-    else:
-        expires_at = datetime.now(timezone.utc) + timedelta(days=30)
-    result = _telegram("createChatInviteLink", {
-        "chat_id": chat_id,
-        "name": f"Pro {user_id[:8]}",
-        "expire_date": int(expires_at.timestamp()),
-        "member_limit": 10,
-    })
-    return str((result.get("result") or {}).get("invite_link") or "")
-
-
-def revoke_expired_pro_members() -> int:
-    """Remove linked users whose Pro entitlement has expired from the VIP chat."""
-    chat_id = os.getenv("TELEGRAM_PRO_CHAT_ID", "").strip()
-    if not chat_id:
-        return 0
-    _init_supabase()
-    if not supabase:
-        return 0
-    now = datetime.now(timezone.utc).isoformat()
-    expired = supabase.table("subscriptions").select("user_id").eq("plan_id", "pro").neq("status", "active").execute().data or []
-    expired_ids = {str(row.get("user_id")) for row in expired if row.get("user_id")}
-    active = supabase.table("subscriptions").select("user_id,current_period_end").eq("plan_id", "pro").eq("status", "active").execute().data or []
-    for row in active:
-        try:
-            if not row.get("current_period_end") or datetime.fromisoformat(str(row["current_period_end"]).replace("Z", "+00:00")) <= datetime.now(timezone.utc):
-                expired_ids.add(str(row.get("user_id")))
-        except (TypeError, ValueError):
-            expired_ids.add(str(row.get("user_id")))
-    if not expired_ids:
-        return 0
-    profiles = supabase.table("profiles").select("id,telegram_chat_id").in_("id", list(expired_ids)).execute().data or []
-    removed = 0
-    for profile in profiles:
-        member_id = str(profile.get("telegram_chat_id") or "").strip()
-        if not member_id:
-            continue
-        try:
-            _telegram("banChatMember", {"chat_id": chat_id, "user_id": int(member_id), "until_date": int(datetime.now(timezone.utc).timestamp()) + 60})
-            _telegram("unbanChatMember", {"chat_id": chat_id, "user_id": int(member_id), "only_if_banned": True})
-            removed += 1
-        except Exception as exc:
-            print(f"[LOCAL_PAY] failed to revoke VIP access for {profile.get('id')}: {exc}")
-    return removed
 
 
 def create_order(user_id: str, plan_id: str = "pro") -> Dict[str, Any]:
@@ -158,20 +102,21 @@ def get_order_status(order_id: str, user_id: str) -> Dict[str, Any]:
     _init_supabase()
     if not supabase:
         raise RuntimeError("Supabase is not initialized")
-    result = supabase.table("local_payment_orders").select("id,plan_id,amount_egp,status,reviewed_at").eq("id", order_id).eq("user_id", user_id).maybe_single().execute()
+    result = supabase.table("local_payment_orders").select(
+        "id,plan_id,amount_egp,status,reviewed_at,telegram_invite_link,telegram_invite_expires_at"
+    ).eq("id", order_id).eq("user_id", user_id).maybe_single().execute()
     if not result.data:
         raise ValueError("Payment order not found")
     order = result.data
     if order.get("status") == "approved":
-        if not order.get("telegram_invite_link"):
+        sub = supabase.table("subscriptions").select("status,current_period_end").eq("user_id", user_id).eq("plan_id", "pro").eq("status", "active").order("current_period_end", desc=True).limit(1).maybe_single().execute()
+        sub_end = (sub.data or {}).get("current_period_end") if sub and sub.data else None
+        if sub_end and not order.get("telegram_invite_link"):
             try:
-                sub = supabase.table("subscriptions").select("status,current_period_end").eq("user_id", user_id).eq("plan_id", "pro").eq("status", "active").order("current_period_end", desc=True).limit(1).maybe_single().execute()
-                invite = _create_pro_invite(order_id, user_id, sub.data.get("current_period_end") if sub.data else None)
-                if invite:
-                    expires = sub.data.get("current_period_end") if sub.data else (datetime.now(timezone.utc) + timedelta(days=30)).isoformat()
-                    supabase.table("local_payment_orders").update({"telegram_invite_link": invite, "telegram_invite_expires_at": expires}).eq("id", order_id).execute()
-                    order["telegram_invite_link"] = invite
-                    order["telegram_invite_expires_at"] = expires
+                invite_row = ensure_pro_invite(user_id, str(sub_end))
+                if invite_row.get("invite_link"):
+                    order["telegram_invite_link"] = invite_row["invite_link"]
+                    order["telegram_invite_expires_at"] = invite_row.get("invite_expires_at")
             except Exception as exc:
                 print(f"[LOCAL_PAY] invite creation failed: {exc}")
         sub = supabase.table("subscriptions").select("status,current_period_end").eq("user_id", user_id).eq("plan_id", "pro").eq("status", "active").order("current_period_end", desc=True).limit(1).maybe_single().execute()
@@ -233,11 +178,12 @@ def handle_callback(callback: Dict[str, Any]) -> None:
         _activate_subscription(order["user_id"], order.get("plan_id", "pro"), provider="vodafone_cash")
         try:
             sub = supabase.table("subscriptions").select("status,current_period_end").eq("user_id", order["user_id"]).eq("plan_id", "pro").eq("status", "active").order("current_period_end", desc=True).limit(1).maybe_single().execute()
-            invite = _create_pro_invite(order_id, order["user_id"], sub.data.get("current_period_end") if sub.data else None)
-            if invite:
-                expires = sub.data.get("current_period_end") if sub.data else (datetime.now(timezone.utc) + timedelta(days=30)).isoformat()
-                order["telegram_invite_link"] = invite
-                order["telegram_invite_expires_at"] = expires
+            sub_end = (sub.data or {}).get("current_period_end") if sub and sub.data else None
+            if sub_end:
+                invite_row = ensure_pro_invite(order["user_id"], str(sub_end))
+                if invite_row.get("invite_link"):
+                    order["telegram_invite_link"] = invite_row["invite_link"]
+                    order["telegram_invite_expires_at"] = invite_row.get("invite_expires_at")
         except Exception as exc:
             print(f"[LOCAL_PAY] invite creation failed: {exc}")
     supabase.table("local_payment_orders").update({

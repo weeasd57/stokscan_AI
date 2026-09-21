@@ -295,7 +295,10 @@ async def startup_event():
 
                     f"{telegram_relay}/bot{SUPPORT_BOT_TOKEN}/setWebhook",
 
-                    json={"url": support_hook},
+                    json={
+                        "url": support_hook,
+                        "allowed_updates": ["message", "callback_query", "chat_member", "my_chat_member"],
+                    },
 
                     timeout=10
 
@@ -663,7 +666,10 @@ async def tg_set_webhook_from_local(request: Request):
 
             f"{telegram_relay}/bot{support_token}/setWebhook",
 
-            json={"url": support_hook},
+            json={
+                "url": support_hook,
+                "allowed_updates": ["message", "callback_query", "chat_member", "my_chat_member"],
+            },
 
             timeout=30,
 

@@ -13,20 +13,15 @@ class TelegramDeliveryTests(unittest.TestCase):
     def test_channel_queue_isolated_from_subscriber_queue(self):
         self.assertTrue(self.bot.send_notification("subscriber", chat_id="12345"))
         self.assertTrue(self.bot.send_notification("channel", chat_id="-1002083067817_153"))
-        # Subscriber sends are never mirrored.
         self.assertEqual(len(self.bot._queue), 1)
-        # Channel sends mirror to the VIP channel: free channel + VIP copy.
-        self.assertEqual(len(self.bot._channel_queue), 2)
+        self.assertEqual(len(self.bot._channel_queue), 1)
         self.assertEqual(self.bot._channel_queue[0]["chat_id"], -1002083067817)
-        self.assertEqual(self.bot._channel_queue[1]["chat_id"], -1003906516349)
 
-    def test_free_channel_messages_are_mirrored_to_vip_channel(self):
+    def test_free_channel_messages_are_not_mirrored_to_vip_channel(self):
         self.assertTrue(self.bot.send_notification("mirror me", chat_id="-1002083067817_153"))
         mirrored = [p for p in self.bot._channel_queue if p.get("chat_id") == -1003906516349]
-        self.assertEqual(len(mirrored), 1)
-        self.assertEqual(mirrored[0]["text"], "mirror me")
-        # The VIP mirror must not inherit the free channel's forum topic.
-        self.assertNotIn("message_thread_id", mirrored[0])
+        self.assertEqual(len(mirrored), 0)
+        self.assertEqual(self.bot._channel_queue[0]["text"], "mirror me")
 
     def test_direct_vip_sends_are_not_duplicated(self):
         self.assertTrue(self.bot.send_notification("direct", chat_id="-1003906516349"))
@@ -38,20 +33,8 @@ class TelegramDeliveryTests(unittest.TestCase):
         self.assertEqual(len(self.bot._channel_queue), 1)
         self.assertEqual(self.bot._channel_queue[0]["chat_id"], -1002083067817)
 
-    def test_vip_mirror_failure_does_not_fail_main_delivery(self):
-        responses = [
-            {"ok": True},   # free channel chunk
-            {"ok": False, "description": "Forbidden: bot is not a member of the channel chat"},  # VIP mirror
-        ]
-        with patch.object(self.bot, "_call_api", side_effect=responses):
-            delivered = self.bot.send_notification("still fine", chat_id="-1002083067817_153", wait_for_delivery=True)
-        self.assertTrue(delivered)
-
-    def test_sync_delivery_records_free_and_vip_message_receipts(self):
-        responses = [
-            {"ok": True, "result": {"message_id": 101}},
-            {"ok": True, "result": {"message_id": 202}},
-        ]
+    def test_sync_delivery_records_free_channel_receipt(self):
+        responses = [{"ok": True, "result": {"message_id": 101}}]
         with patch.object(self.bot, "_call_api", side_effect=responses):
             delivered = self.bot.send_notification(
                 "tracked", chat_id="-1002083067817_153", wait_for_delivery=True
@@ -59,10 +42,7 @@ class TelegramDeliveryTests(unittest.TestCase):
         self.assertTrue(delivered)
         self.assertEqual(
             self.bot.get_last_delivery_receipts(),
-            [
-                {"chat_id": -1002083067817, "message_id": 101, "message_thread_id": 153},
-                {"chat_id": -1003906516349, "message_id": 202},
-            ],
+            [{"chat_id": -1002083067817, "message_id": 101, "message_thread_id": 153}],
         )
 
     def test_sync_delivery_retries_invalid_markdown_as_plain_text(self):

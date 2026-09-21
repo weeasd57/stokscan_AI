@@ -93,6 +93,10 @@ def handle_telegram_update(data: dict):
         from api.local_payments import handle_callback
         handle_callback(data["callback_query"])
         return
+    if data.get("chat_member") or data.get("my_chat_member"):
+        from api.telegram_pro_invites import handle_chat_member_update
+        handle_chat_member_update(data)
+        return
     message = data.get("message", {})
     if not message:
         return

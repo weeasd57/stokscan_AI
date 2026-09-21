@@ -22,11 +22,9 @@ export default function ProfilePage() {
   const [username, setUsername] = useState<string | null>(null);
   const [telegramLinked, setTelegramLinked] = useState(false);
   const [proInvite, setProInvite] = useState<{ is_pro: boolean; invite_link?: string; invite_expires_at?: string | null }>({ is_pro: false });
-  // Telegram Web cannot reliably resolve a private invite hash from a
-  // hand-built fragment. The VIP channel has a public username, so use its
-  // canonical Web URL for the browser button; keep the one-use invite for the
-  // native-app button.
-  const vipWebUrl = "https://web.telegram.org/a/#@egxbots_vip";
+  const proInviteUrl = proInvite.is_pro && proInvite.invite_link ? proInvite.invite_link : "";
+  const freeTelegramUrl = "https://t.me/egxbots/153";
+  const freeTelegramWebUrl = "https://web.telegram.org/a/#@egxbots";
   const [editingSymbolId, setEditingSymbolId] = useState<string | null>(null);
   const [watchlistDraft, setWatchlistDraft] = useState({ name: "" });
   const [portfolioVersion, setPortfolioVersion] = useState(0);
@@ -176,22 +174,22 @@ export default function ProfilePage() {
            )}
            <div className="flex flex-col sm:flex-row gap-3 pt-1">
             <a
-              href={proInvite.is_pro && proInvite.invite_link ? proInvite.invite_link : "https://t.me/egxbots/153"}
+              href={proInviteUrl || freeTelegramUrl}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex h-12 flex-1 items-center justify-center gap-2 border-4 border-black dark:border-white bg-amber-300 dark:bg-amber-400 text-black font-black text-xs uppercase tracking-[0.1em] shadow-[3px_3px_0px_rgba(0,0,0,1)] hover:-translate-x-0.5 hover:-translate-y-0.5 hover:shadow-[4px_4px_0px_rgba(0,0,0,1)] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none transition-all"
             >
               <Send className="w-4 h-4 shrink-0" />
-              {proInvite.is_pro && proInvite.invite_link ? (isAr ? "دخول قناة Pro" : "Join Pro Telegram") : (isAr ? "القناة المجانية" : "Free Channel")}
+              {proInviteUrl ? (isAr ? "دخول قناة Pro" : "Join Pro Telegram") : (isAr ? "القناة المجانية" : "Free Channel")}
             </a>
             <a
-              href={proInvite.is_pro && proInvite.invite_link ? vipWebUrl : "https://web.telegram.org/a/#@egxbots"}
+              href={proInviteUrl || freeTelegramWebUrl}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex h-12 flex-1 items-center justify-center gap-2 border-4 border-black dark:border-white bg-white dark:bg-zinc-800 text-black dark:text-white font-black text-xs uppercase tracking-[0.1em] shadow-[2px_2px_0px_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all"
             >
               <Globe className="w-4 h-4 shrink-0" />
-              {proInvite.is_pro && proInvite.invite_link ? (isAr ? "فتح دعوة Pro" : "Open Pro Invite") : (isAr ? "افتح القناة المجانية" : "Open Free Channel")}
+              {proInviteUrl ? (isAr ? "فتح دعوة Pro" : "Open Pro Invite") : (isAr ? "افتح القناة المجانية" : "Open Free Channel")}
             </a>
           </div>
         </section>

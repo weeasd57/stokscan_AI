@@ -21,7 +21,10 @@ export async function GET(req: NextRequest) {
     const res = await fetch(tgUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url: webhookUrl }),
+      body: JSON.stringify({
+        url: webhookUrl,
+        allowed_updates: ["message", "callback_query", "chat_member", "my_chat_member"],
+      }),
       signal: AbortSignal.timeout(10000)
     });
 
