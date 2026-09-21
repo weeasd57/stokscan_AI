@@ -290,6 +290,7 @@ class TelegramBot:
         synchronous mode, or when all message chunks were queued successfully.
         """
         self._delivery_context.receipts = []
+        self._delivery_context.last_error = None
         targets = []
         if chat_id:
             primary = str(chat_id).strip()
@@ -350,6 +351,7 @@ class TelegramBot:
                                 )
                                 result = self._call_api("sendMessage", plain_payload)
                         if not result.get("ok"):
+                            self._delivery_context.last_error = dict(result) if isinstance(result, dict) else {"description": str(result)}
                             desc = str(result.get("description", "")).lower()
                             if is_mirror:
                                 # A VIP mirror failure must never fail the main
@@ -403,6 +405,11 @@ class TelegramBot:
             dict(receipt)
             for receipt in getattr(self._delivery_context, "receipts", [])
         ]
+
+    def get_last_delivery_error(self) -> Optional[dict]:
+        """Return the last Telegram API error from a synchronous send attempt."""
+        err = getattr(self._delivery_context, "last_error", None)
+        return dict(err) if isinstance(err, dict) else None
 
     def send_message_with_keyboard(
         self,

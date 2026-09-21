@@ -936,7 +936,7 @@ def _send_telegram_exit(
             f"🔗 رابط سجل الصفقات: {web_origin}/scanner/backtests?tab=bots"
         )
 
-        return _notify_central_telegram(msg, "recommendation_exit")
+        return _notify_free_telegram(msg, "recommendation_exit")
 
     except Exception as e:
         print(f"[SMART_EVAL] Telegram exit notification failed for {symbol}: {e}")
@@ -1108,7 +1108,7 @@ def generate_weekly_performance_report(trigger: str = "manual", chat_id: Optiona
                 bot.send_notification(msg, chat_id=chat_id)
                 print(f"[WEEKLY_REPORT] Sent report on-demand to chat_id: {chat_id}")
         else:
-            _notify_central_telegram(msg, "weekly_performance_report")
+            _notify_vip_telegram(msg, "weekly_performance_report")
             free_msg = (
                 f"📊 *ملخص أسبوعي مجاني / Weekly Summary*\n"
                 f"📅 `{start_date_str}` → `{end_date_str}`\n\n"
@@ -1127,18 +1127,152 @@ def generate_weekly_performance_report(trigger: str = "manual", chat_id: Optiona
         traceback.print_exc()
 
 
-def _notify_free_telegram(message: str, service_type: str = "free_summary") -> bool:
-    """Send only approved public summaries or upgrade notices to the free channel."""
+class TelegramNotificationOutcome:
+    """Boolean-compatible delivery result with Telegram post receipts."""
+
+    def __init__(self, delivered: bool, receipts: Optional[List[dict]] = None):
+        self.delivered = bool(delivered)
+        self.receipts = receipts or []
+
+    def __bool__(self) -> bool:
+        return self.delivered
+
+
+_VIP_TELEGRAM_SERVICE_TYPES = frozenset({
+    "daily_recommendations",
+    "daily_recommendations_manual",
+    "recommendation_adjustment",
+    "weekly_performance_report",
+    "daily_digest",
+})
+
+_FREE_TELEGRAM_SERVICE_TYPES = frozenset({
+    "recommendation_exit",
+    "weekly_performance_report_free",
+    "free_summary",
+})
+
+
+def _resolve_vip_chat_target() -> str:
+    from api.plan_limits import telegram_pro_channel_target, telegram_recommendations_target
+
+    chat_id = telegram_pro_channel_target()
+    if not chat_id or str(chat_id).strip() in {"", "-1003699330518"}:
+        chat_id = telegram_recommendations_target()
+    return str(chat_id or "").strip()
+
+
+def _format_telegram_delivery_error(bot: Any) -> str:
+    err = bot.get_last_delivery_error() if bot else None
+    if not err:
+        return "no Telegram API response captured"
+    code = err.get("error_code")
+    desc = err.get("description") or err
+    return f"error_code={code} description={desc}"
+
+
+def _deliver_telegram_message(message: str, chat_id: str, service_type: str, channel_label: str) -> TelegramNotificationOutcome:
+    if not chat_id:
+        print(f"[{channel_label}] Missing chat target for {service_type}.")
+        return TelegramNotificationOutcome(False)
     try:
         from api.telegram_bot import get_telegram_bot
-        from api.plan_limits import telegram_free_channel_target
+
         bot = get_telegram_bot()
         if not bot:
-            return False
-        return bool(bot.send_notification(message, chat_id=telegram_free_channel_target(), wait_for_delivery=True))
+            print(f"[{channel_label}] No Telegram bot instance found for {service_type}.")
+            return TelegramNotificationOutcome(False)
+
+        delivered = bot.send_notification(message, chat_id=str(chat_id), wait_for_delivery=True)
+        receipts = bot.get_last_delivery_receipts() if delivered else []
+        if delivered:
+            print(f"[{channel_label}] Delivered {service_type} to {chat_id} receipts={receipts}")
+        else:
+            print(
+                f"[{channel_label}] Failed {service_type} to {chat_id}: "
+                f"{_format_telegram_delivery_error(bot)}"
+            )
+        return TelegramNotificationOutcome(delivered, receipts)
     except Exception as exc:
-        print(f"[TELEGRAM_FREE] Failed to deliver {service_type}: {exc}")
-        return False
+        print(f"[{channel_label}] {service_type} notification error: {exc}")
+        return TelegramNotificationOutcome(False)
+
+
+def _notify_free_telegram(message: str, service_type: str = "free_summary") -> bool:
+    """Send closures, teasers, and upgrade notices to the free Telegram channel."""
+    from api.plan_limits import telegram_free_channel_target
+
+    outcome = _deliver_telegram_message(
+        message,
+        telegram_free_channel_target(),
+        service_type,
+        "TELEGRAM_FREE",
+    )
+    return bool(outcome)
+
+
+def _notify_vip_telegram(message: str, service_type: str = "vip") -> TelegramNotificationOutcome:
+    """Send live recommendations, adjustments, and digests to the Pro VIP channel."""
+    return _deliver_telegram_message(
+        message,
+        _resolve_vip_chat_target(),
+        service_type,
+        "VIP_NOTIFY",
+    )
+
+
+def _build_daily_digest_message(
+    steps_log: List[Dict[str, Any]],
+    *,
+    job_start_time: str,
+    total_symbols: int,
+    trigger: str,
+) -> str:
+    status_icon = {
+        "success": "✅",
+        "failed": "❌",
+        "skipped": "⏭️",
+        "started": "🔄",
+    }
+    started_at = None
+    try:
+        started_at = dt.datetime.fromisoformat(str(job_start_time).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        started_at = None
+    duration_line = ""
+    if started_at is not None:
+        elapsed = dt.datetime.now(dt.timezone.utc) - started_at.astimezone(dt.timezone.utc)
+        duration_line = f"⏱️ *المدة:* `{int(elapsed.total_seconds() // 60)}` دقيقة\n"
+
+    lines = [
+        "📋 *ملخص التشغيل اليومي / Daily Run Digest*",
+        f"📅 `{dt.datetime.now().strftime('%Y-%m-%d %H:%M')}` | trigger=`{trigger}`",
+        duration_line.rstrip(),
+        f"📦 *الرموز المعالجة:* `{total_symbols}`",
+        "━━━━━━━━━━━━━━━━━━━━",
+    ]
+
+    for step in steps_log:
+        if step.get("status") == "started":
+            continue
+        icon = status_icon.get(str(step.get("status")), "•")
+        name = step.get("step", "step")
+        details = str(step.get("details") or "")[:120]
+        count = step.get("count")
+        suffix = f" (`{count}`)" if count else ""
+        lines.append(f"{icon} *{name}*{suffix}: {details}")
+
+    failed = [step for step in steps_log if step.get("status") == "failed"]
+    if failed:
+        lines.append("\n⚠️ *أخطاء:*")
+        for step in failed:
+            lines.append(f"• `{step.get('step')}`: {str(step.get('details') or '')[:160]}")
+
+    rec_step = next((step for step in reversed(steps_log) if step.get("step") == "generate_recommendations"), None)
+    if rec_step is not None:
+        lines.append(f"\n🎯 *توصيات جديدة:* `{rec_step.get('count', 0)}`")
+
+    return "\n".join(line for line in lines if line)
 
 
 def _notify_subscribers_for_symbol(symbol: str, exchange: str, message: str):
@@ -1231,47 +1365,25 @@ def _dispatch_similarity_notifications(results: List[Dict[str, Any]]):
         print(f"[SIMILARITY_NOTIFY] Error: {e}")
 
 
-class TelegramNotificationOutcome:
-    """Boolean-compatible delivery result with Telegram post receipts."""
-
-    def __init__(self, delivered: bool, receipts: Optional[List[dict]] = None):
-        self.delivered = bool(delivered)
-        self.receipts = receipts or []
-
-    def __bool__(self) -> bool:
-        return self.delivered
-
-
 def _notify_central_telegram(message: str, service_type: str = "central"):
-    """Send a service-level message to the configured public Telegram topic."""
-    if not _telegram_recommendation_writes_enabled() and service_type not in {"system_digest", "central", "system_log"}:
+    """Route Telegram notifications to VIP or free channels by service type."""
+    digest_types = {"daily_digest", "system_digest"}
+    if not _telegram_recommendation_writes_enabled() and service_type not in digest_types:
         print(f"[CENTRAL_NOTIFY] Blocked {service_type} while recommendation delivery is read-only.")
         return False
-    # Permanently block internal system execution digests/logs and step status reports from Telegram
-    if service_type in {"system_digest", "central", "system_log"} or service_type.startswith("step_failure") or "حالة خطوات التشغيل" in message or "ملخص التشغيل اليومي" in message:
-        print(f"[CENTRAL_NOTIFY] Blocked internal system digest message ({service_type}) from Telegram by user request.")
+
+    if service_type.startswith("step_failure") or service_type in {"central", "system_log"}:
+        print(f"[CENTRAL_NOTIFY] Blocked internal ops message ({service_type}).")
         return False
 
-    try:
-        from api.telegram_bot import get_telegram_bot
-        bot = get_telegram_bot()
-        if not bot:
-            print(f"[CENTRAL_NOTIFY] No Telegram bot instance found for {service_type}.")
-            return
+    if service_type in _FREE_TELEGRAM_SERVICE_TYPES:
+        return _notify_free_telegram(message, service_type)
 
-        from api.plan_limits import telegram_pro_channel_target
-        chat_id = telegram_pro_channel_target()
-        if not chat_id:
-            from api.plan_limits import telegram_recommendations_target
-            chat_id = telegram_recommendations_target()
-        if str(chat_id).strip() in {"", "-1003699330518"}:
-            chat_id = telegram_recommendations_target()
-        delivered = bot.send_notification(message, chat_id=str(chat_id), wait_for_delivery=True)
-        print(f"[CENTRAL_NOTIFY] {'Delivered' if delivered else 'Failed'} {service_type} message to {chat_id}")
-        receipts = bot.get_last_delivery_receipts() if delivered else []
-        return TelegramNotificationOutcome(delivered, receipts)
-    except Exception as e:
-        print(f"[CENTRAL_NOTIFY] {service_type} notification error: {e}")
+    if service_type in _VIP_TELEGRAM_SERVICE_TYPES:
+        return _notify_vip_telegram(message, service_type)
+
+    # Legacy callers without an explicit route default to VIP for recommendation content.
+    return _notify_vip_telegram(message, service_type)
 
 
 
@@ -3313,8 +3425,26 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
                 _record_step("weekly_adaptive_retraining", False, str(e)[:200], 0)
                 print(f"[ADAPTIVE] Weekly retraining failed with error: {e}")
 
-        # 10. Daily Digest Telegram Report (DISABLED BY USER REQUEST)
-        print("\n[DAILY_DIGEST] Internal system digest sending to Telegram is permanently disabled.")
+        # 10. Daily Digest Telegram Report (VIP channel)
+        print("\n>>> STEP 10: Sending Daily Digest to Pro VIP channel...")
+        _start_step("daily_digest", "Sending daily run digest to Pro VIP Telegram channel")
+        try:
+            digest_message = _build_daily_digest_message(
+                steps_log,
+                job_start_time=job_start_time,
+                total_symbols=total_symbols,
+                trigger=trigger,
+            )
+            digest_outcome = _notify_vip_telegram(digest_message, "daily_digest")
+            _record_step(
+                "daily_digest",
+                bool(digest_outcome),
+                "Daily digest delivered to VIP" if digest_outcome else "Daily digest delivery failed",
+                0,
+            )
+        except Exception as digest_err:
+            _record_step("daily_digest", False, str(digest_err)[:200], 0)
+            print(f"[DAILY_DIGEST] Error: {digest_err}")
 
         # 10.1 Rebase the immutable history archive infrequently. The scanner
         # already combines this archive with a 45-day live Supabase tail, so a
