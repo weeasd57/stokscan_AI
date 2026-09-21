@@ -25,6 +25,7 @@ import {
     List,
     Award,
     Activity
+    ,Lock
 } from "lucide-react";
 import StockLogo from "./StockLogo";
 import { isShariaCompliant } from "@/lib/shariaStocks";
@@ -37,6 +38,7 @@ interface RecommendationCalendarProps {
     loading?: boolean;
     refreshToken?: number;
     onSelectStock?: (stock: any) => void;
+    isPro?: boolean;
 }
 
 interface RecommendationEvent {
@@ -52,11 +54,23 @@ export default function RecommendationCalendar({
     loading = false,
     refreshToken = 0,
     onSelectStock,
+    isPro = true,
 }: RecommendationCalendarProps) {
     const { language } = useLanguage();
     const isAr = language === "ar";
     const { theme } = useTheme();
     const isDark = theme === "dark";
+    const delayedCutoff = useMemo(() => {
+        const cutoff = new Date();
+        cutoff.setDate(cutoff.getDate() - 15);
+        return cutoff;
+    }, []);
+
+    const isDelayedForPlan = useCallback((value: unknown) => {
+        if (isPro || !value) return false;
+        const date = new Date(String(value));
+        return !Number.isNaN(date.getTime()) && date > delayedCutoff;
+    }, [delayedCutoff, isPro]);
 
     // Mounted state for createPortal
     const [mounted, setMounted] = useState(false);
@@ -203,7 +217,9 @@ export default function RecommendationCalendar({
     }, [recommendations, shariaOnly]);
 
     const filteredSentEvents = useMemo(
-        () => shariaOnly ? sentEvents.filter(event => isShariaCompliant(event.symbol)) : sentEvents,
+        () => {
+            return shariaOnly ? sentEvents.filter(event => isShariaCompliant(event.symbol)) : sentEvents;
+        },
         [sentEvents, shariaOnly],
     );
 
@@ -443,6 +459,7 @@ export default function RecommendationCalendar({
     const selectedDayData = useMemo(() => {
         if (!selectedDayDateStr) return null;
         const data = dayMap.get(selectedDayDateStr) || { created: [], closed: [], adjusted: [], wins: [], losses: [], netProfitPct: 0 };
+        const delayed = isDelayedForPlan(selectedDayDateStr);
         
         // Merge created & closed for day view (deduplicated by id)
         const allMap = new Map<string, any>();
@@ -456,6 +473,7 @@ export default function RecommendationCalendar({
 
         // Filter list by tab
         let filteredList = allList;
+        if (delayed) filteredList = [];
         if (dayModalFilter === "created") {
             filteredList = allList.filter(item => item._isCreatedToday);
         } else if (dayModalFilter === "closed") {
@@ -463,23 +481,25 @@ export default function RecommendationCalendar({
         } else if (dayModalFilter === "adjusted") {
             filteredList = allList.filter(item => item._isAdjustedToday);
         }
+        if (delayed) filteredList = [];
 
-        const closedCount = data.closed.length;
-        const winCount = data.wins.length;
-        const lossCount = data.losses.length;
+        const closedCount = delayed ? 0 : data.closed.length;
+        const winCount = delayed ? 0 : data.wins.length;
+        const lossCount = delayed ? 0 : data.losses.length;
         const dayWinRate = closedCount > 0 ? (winCount / closedCount) * 100 : 0;
 
         return {
             dateStr: selectedDayDateStr,
-            data,
+            data: delayed ? { ...data, created: [], closed: [], adjusted: [], wins: [], losses: [], netProfitPct: 0 } : data,
             allList,
             filteredList,
             closedCount,
             winCount,
             lossCount,
             dayWinRate
+            ,delayed
         };
-    }, [selectedDayDateStr, dayMap, dayModalFilter]);
+    }, [selectedDayDateStr, dayMap, dayModalFilter, isDelayedForPlan]);
 
     // Navigation Controls
     const prevMonth = () => {
@@ -780,6 +800,7 @@ export default function RecommendationCalendar({
                             const hasAdjusted = dayInfo && dayInfo.adjusted.length > 0;
                             const isToday = cell.dateStr === todayDateStr;
                             const isSelected = cell.dateStr === selectedDayDateStr;
+                            const isDelayed = isDelayedForPlan(cell.dateStr);
 
                             // Net return formatting for day cell
                             const netPl = dayInfo ? dayInfo.netProfitPct : 0;
@@ -838,18 +859,25 @@ export default function RecommendationCalendar({
                                     </div>
 
                                     {/* Middle/Bottom: Net Daily Return */}
-                                    {cell.isCurrentMonth && hasClosed && (
-                                        <div className="my-auto flex flex-col items-center justify-center leading-tight">
-                                            <span className={`text-[10px] sm:text-xs md:text-sm font-black font-mono tracking-tight ${
-                                                isPositive ? "text-emerald-600 dark:text-emerald-400" : isNegative ? "text-rose-600 dark:text-rose-400" : "text-zinc-600 dark:text-zinc-400"
-                                            }`}>
-                                                {isPositive ? "+" : ""}{netPl.toFixed(1)}%
-                                            </span>
-                                            <span className="text-[7px] sm:text-[8px] text-zinc-500 dark:text-zinc-400 font-bold hidden sm:inline">
-                                                {dayInfo.wins.length}W / {dayInfo.losses.length}L
-                                            </span>
-                                        </div>
-                                    )}
+                            {cell.isCurrentMonth && hasClosed && (
+                                <div className="my-auto flex flex-col items-center justify-center leading-tight">
+                                    <span className={`text-[10px] sm:text-xs md:text-sm font-black font-mono tracking-tight ${
+                                        isPositive ? "text-emerald-600 dark:text-emerald-400" : isNegative ? "text-rose-600 dark:text-rose-400" : "text-zinc-600 dark:text-zinc-400"
+                                    }`}>
+                                        {isPositive ? "+" : ""}{netPl.toFixed(1)}%
+                                    </span>
+                                    <span className="text-[7px] sm:text-[8px] text-zinc-500 dark:text-zinc-400 font-bold hidden sm:inline">
+                                        {isDelayed && <span className="text-amber-600 dark:text-amber-400">{isAr ? "مؤجل" : "Delayed"} · </span>}
+                                        {dayInfo.wins.length}W / {dayInfo.losses.length}L
+                                    </span>
+                                </div>
+                            )}
+
+                            {cell.isCurrentMonth && isDelayed && (hasCreated || hasClosed || hasAdjusted) && (
+                                <div className="absolute top-1 right-1 text-amber-600 dark:text-amber-400" title={isAr ? "بيانات هذا اليوم مؤجلة 15 يوماً" : "This day's statistics are delayed by 15 days"}>
+                                    <Lock className="w-3 h-3" />
+                                </div>
+                            )}
 
                                     {/* Empty indicator for days without closed trades but with created trades */}
                                     {cell.isCurrentMonth && hasCreated && !hasClosed && (
@@ -985,6 +1013,12 @@ export default function RecommendationCalendar({
 
                         {/* Modal Day Summary Bar */}
                         <div className="p-2.5 sm:p-4 bg-zinc-100/50 dark:bg-zinc-900/40 border-b border-zinc-200 dark:border-zinc-800/80 grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 text-center">
+                            {selectedDayData.delayed ? (
+                                <div className="col-span-2 sm:col-span-4 p-4 border-2 border-amber-500/40 bg-amber-50 dark:bg-amber-500/10 text-amber-800 dark:text-amber-300 font-black text-xs sm:text-sm flex items-center justify-center gap-2">
+                                    <Lock className="w-4 h-4 shrink-0" />
+                                    {isAr ? "إحصائيات هذا اليوم مشفرة ومؤجلة 15 يوماً لمستخدمي الخطة المجانية." : "This day's statistics are locked and delayed by 15 days on the Free plan."}
+                                </div>
+                            ) : <>
                             <div className="p-2 sm:p-2.5 rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800/80 shadow-sm dark:shadow-none">
                                 <span className="text-[9px] sm:text-[10px] text-zinc-500 dark:text-zinc-400 font-bold block">{isAr ? "المنشأة" : "Created"}</span>
                                 <span className="text-sm sm:text-base font-black text-amber-600 dark:text-amber-400 font-mono mt-0.5 block">
@@ -1017,6 +1051,7 @@ export default function RecommendationCalendar({
                                     {selectedDayData.data.netProfitPct.toFixed(1)}%
                                 </span>
                             </div>
+                            </>}
                         </div>
 
                         {/* Modal Tabs Filter */}

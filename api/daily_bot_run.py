@@ -1228,6 +1228,7 @@ def _build_daily_digest_message(
     total_symbols: int,
     trigger: str,
 ) -> str:
+    excluded_steps = {"weekly_adaptive_retraining"}
     status_icon = {
         "success": "✅",
         "failed": "❌",
@@ -1253,6 +1254,8 @@ def _build_daily_digest_message(
     ]
 
     for step in steps_log:
+        if step.get("step") in excluded_steps:
+            continue
         if step.get("status") == "started":
             continue
         icon = status_icon.get(str(step.get("status")), "•")
@@ -1262,7 +1265,10 @@ def _build_daily_digest_message(
         suffix = f" (`{count}`)" if count else ""
         lines.append(f"{icon} *{name}*{suffix}: {details}")
 
-    failed = [step for step in steps_log if step.get("status") == "failed"]
+    failed = [
+        step for step in steps_log
+        if step.get("status") == "failed" and step.get("step") not in excluded_steps
+    ]
     if failed:
         lines.append("\n⚠️ *أخطاء:*")
         for step in failed:
@@ -3352,81 +3358,8 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
             _record_step("refresh_market_status", False, str(e)[:200], 0)
             print(f"[MARKET_STATUS] Error: {e}")
 
-        # 9. Run Weekly Adaptive Retraining (on Sunday)
-        if _should_run_weekly_inventory(trigger):
-            print("\n>>> STEP 9: Running Weekly Adaptive Retraining...")
-            _start_step("weekly_adaptive_retraining", "Running adaptive retraining on recent EGX mistakes")
-            try:
-                from api.adaptive_learning import ActiveLearner, ManualRetrainer, update_actuals
-                print("[ADAPTIVE] Updating actual outcomes for EGX...")
-                update_actuals(exchange="EGX", look_forward_days=20)
-                
-                print("[ADAPTIVE] Initializing adaptive retraining for EGX model...")
-                learner = ActiveLearner("EGX")
-                if learner.model:
-                    retrainer = ManualRetrainer("EGX")
-                    mistakes = retrainer.fetch_mistakes(lookback_days=90)
-                    if mistakes:
-                        new_booster = retrainer.retrain_on_mistakes(learner, mistakes)
-                        if new_booster:
-                            import joblib
-                            api_dir = os.path.dirname(os.path.abspath(__file__))
-                            base_dir = os.path.dirname(api_dir)
-                            # Save back to the exact artifact the learner loaded (.bin or .pkl)
-                            model_path = getattr(learner, "model_path", None)
-                            if not model_path or not os.path.exists(model_path):
-                                model_path = os.path.join(api_dir, "models", "model_EGX.bin")
-                            if not os.path.exists(model_path):
-                                model_path = os.path.join(base_dir, "models", "model_EGX.bin")
-                            if not os.path.exists(model_path):
-                                model_path = os.path.join(api_dir, "models", "model_EGX.pkl")
-                            if not os.path.exists(model_path):
-                                model_path = os.path.join(base_dir, "models", "model_EGX.pkl")
-                            try:
-                                # Ensure parent directories exist
-                                os.makedirs(os.path.dirname(model_path), exist_ok=True)
-                                new_model_str = new_booster.model_to_string()
-                                if os.path.exists(model_path):
-                                    from api.model_utils import is_git_lfs_pointer
-                                    if is_git_lfs_pointer(model_path):
-                                        raise ValueError(
-                                            f"Existing model at {model_path} is an unresolved git-lfs pointer. "
-                                            "Upload the real artifact before retraining."
-                                        )
-                                    data = joblib.load(model_path)
-                                    if isinstance(data, dict) and data.get("kind") == "meta_labeling_system":
-                                        primary_art = data.get("primary_model") or {}
-                                        primary_art["kind"] = "lgbm_booster"
-                                        primary_art["model_str"] = new_model_str
-                                        data["primary_model"] = primary_art
-                                        joblib.dump(data, model_path)
-                                    elif isinstance(data, dict) and data.get("kind") == "lgbm_booster":
-                                        data["model_str"] = new_model_str
-                                        joblib.dump(data, model_path)
-                                    else:
-                                        joblib.dump(new_booster, model_path)
-                                else:
-                                    joblib.dump(new_booster, model_path)
-                                print(f"[ADAPTIVE] Weekly retraining completed successfully with {len(mistakes)} mistakes (saved to {model_path}).")
-                                _record_step("weekly_adaptive_retraining", True, f"Retrained on {len(mistakes)} mistakes (saved {os.path.basename(model_path)})", len(mistakes))
-                            except Exception as save_err:
-                                print(f"[ADAPTIVE] Failed to save retrained model: {save_err}")
-                                _record_step("weekly_adaptive_retraining", False, f"Failed to save: {save_err}", 0)
-                        else:
-                            print("[ADAPTIVE] Retraining failed to produce a new booster.")
-                            _record_step("weekly_adaptive_retraining", False, "Retraining failed", 0)
-                    else:
-                        print("[ADAPTIVE] No recent mistakes found for retraining.")
-                        _record_step("weekly_adaptive_retraining", True, "Skipped - no mistakes found", 0)
-                else:
-                    print("[ADAPTIVE] EGX model not found for retraining.")
-                    _record_step("weekly_adaptive_retraining", False, "Model not found", 0)
-            except Exception as e:
-                _record_step("weekly_adaptive_retraining", False, str(e)[:200], 0)
-                print(f"[ADAPTIVE] Weekly retraining failed with error: {e}")
-
-        # 10. Daily Digest Telegram Report (VIP channel)
-        print("\n>>> STEP 10: Sending Daily Digest to Pro VIP channel...")
+        # 9. Daily Digest Telegram Report (VIP channel)
+        print("\n>>> STEP 9: Sending Daily Digest to Pro VIP channel...")
         _start_step("daily_digest", "Sending daily run digest to Pro VIP Telegram channel")
         try:
             digest_message = _build_daily_digest_message(

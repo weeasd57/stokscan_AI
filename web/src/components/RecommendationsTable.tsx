@@ -1885,7 +1885,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                     <div className="p-4 border-4 border-black dark:border-white bg-amber-300 text-black font-bold flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 text-xs shadow-[4px_4px_0px_rgba(0,0,0,1)]">
                         <div className="flex items-center gap-2">
                             <Clock className="w-4 h-4 shrink-0" />
-                            <span>{isAr ? "اشترك في Pro لرؤية توصيات اليوم والبيانات الفورية بدون تأخير." : "Subscribe to Pro to see today's recommendations and live data without delay."}</span>
+                            <span>{isAr ? "اشترك في Pro لرؤية توصيات اليوم والبيانات الفورية بدون تأخير. الخطة المجانية متأخرة 15 يوماً." : "Subscribe to Pro to see today's recommendations and live data without delay. The Free plan is delayed by 15 days."}</span>
                         </div>
                         <a href="/pricing" className="inline-flex shrink-0 items-center justify-center border-2 border-black bg-black px-4 py-2 font-black text-white uppercase tracking-wide hover:bg-zinc-800">
                             {isAr ? "اشترك في Pro" : "Subscribe to Pro"}
@@ -1985,7 +1985,7 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
                     {[
                         { id: "active", label: isAr ? "الصفقات النشطة (المفتوحة)" : "Active Trades (Open)", count: tabCounts.activeCount },
                         { id: "closed", label: isAr ? "أرشيف العمليات (المغلقة)" : "Closed Archive", count: tabCounts.closedCount },
-                        ...(isProView ? [{ id: "calendar", label: isAr ? "📅 تقويم أرباح التوصيات" : "📅 Profit Calendar", count: tabCounts.totalCount }] : []),
+                        ...(user ? [{ id: "calendar", label: isAr ? "📅 تقويم أرباح التوصيات" : "📅 Profit Calendar", count: tabCounts.totalCount }] : []),
                         { id: "all", label: isAr ? "جميع الصفقات" : "All Trades", count: tabCounts.totalCount }
                     ].map(tab => {
                         const isSelected = activeTab === tab.id;
@@ -2028,12 +2028,13 @@ export default function RecommendationsTable({ isLandingPage = false, limit = In
 
             {/* Calendar View Tab */}
             {activeTab === "calendar" ? (
-                isProView ? (
+                user ? (
                     <RecommendationCalendar
                         recommendations={recommendations}
                         loading={recsLoading}
                         refreshToken={calendarRefreshToken}
                         onSelectStock={handleStockClick}
+                        isPro={isProView}
                     />
                 ) : (
                     <div className="border-4 border-black dark:border-white bg-amber-300 text-black p-8 text-center shadow-[4px_4px_0px_rgba(0,0,0,1)]">

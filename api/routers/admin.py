@@ -63,6 +63,10 @@ def _verify_admin_key(
     if secret and x_admin_key == secret:
         return
 
+    cron_secret = os.getenv("CRON_SECRET", "").strip()
+    if cron_secret and authorization == f"Bearer {cron_secret}":
+        return
+
     # 2. Check Supabase Authorization token
     if authorization and authorization.startswith("Bearer "):
         token = authorization.split(" ")[1]
@@ -4094,9 +4098,15 @@ def get_daily_job_status():
 @router.post("/daily-jobs/trigger")
 async def trigger_daily_job(
     background_tasks: BackgroundTasks,
-    skip_sync: bool = Query(False, description="تخطي مزامنة الأسعار")
+    skip_sync: bool = Query(False, description="تخطي مزامنة الأسعار"),
+    authorization: Optional[str] = Header(default=None),
 ):
     try:
+        cron_secret = os.getenv("CRON_SECRET", "").strip()
+        if authorization and cron_secret:
+            provided = authorization.removeprefix("Bearer ").strip()
+            if provided != cron_secret:
+                raise HTTPException(status_code=401, detail="Invalid cron secret")
         from api.daily_bot_run import run_daily_job
         import uuid
         job_id = str(uuid.uuid4())

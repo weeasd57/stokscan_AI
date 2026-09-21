@@ -6,6 +6,7 @@ import { filterByDelay, hasActiveProSubscription, paymentsEnabled } from "@/lib/
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const revalidate = 86400;
 
 export async function GET(req: NextRequest) {
   const url = new URL(req.url);
@@ -106,7 +107,9 @@ export async function GET(req: NextRequest) {
       headers: {
         // Visibility depends on the request's Supabase session. Never let a
         // CDN-shared response cross between anonymous and authenticated users.
-        "Cache-Control": "private, no-store",
+        // Keep plan-specific responses private, but allow the same browser
+        // tab to reuse the daily snapshot while navigating between tabs.
+        "Cache-Control": "private, max-age=300, stale-while-revalidate=300",
         "Vercel-Cache-Tag": DAILY_CACHE_TAGS.recommendations,
       },
     });

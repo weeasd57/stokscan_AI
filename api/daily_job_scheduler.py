@@ -6,7 +6,7 @@ import os
 import json
 import threading
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, List
 
 
@@ -59,6 +59,79 @@ def _save_config():
 
 
 _load_config()
+
+
+def _now_cairo() -> datetime:
+    try:
+        from zoneinfo import ZoneInfo
+        return datetime.now(ZoneInfo("Africa/Cairo"))
+    except Exception:
+        return datetime.utcnow() + timedelta(hours=3)
+
+
+def _daily_job_ran_today(today: str) -> bool:
+    """Use the durable job ledger so restarts cannot lose today's run state."""
+    try:
+        from api.stock_ai import _init_supabase, supabase
+        _init_supabase()
+        if not supabase:
+            return False
+        local_start = datetime.fromisoformat(today).replace(tzinfo=_now_cairo().tzinfo)
+        utc_start = local_start.astimezone(timezone.utc)
+        utc_end = (local_start + timedelta(days=1)).astimezone(timezone.utc)
+        result = (
+            supabase.table("daily_job_runs")
+            .select("status")
+            .eq("job_type", "daily_bot")
+            .gte("started_at", utc_start.isoformat())
+            .lt("started_at", utc_end.isoformat())
+            .in_("status", ["running", "completed"])
+            .limit(1)
+            .execute()
+        )
+        return bool(result.data)
+    except Exception as exc:
+        print(f"[DAILY-JOB-SCHEDULER] Durable run check failed: {exc}")
+        return False
+
+
+def run_startup_catchup() -> bool:
+    """Run a missed active-day job once after a late server restart."""
+    with _scheduler_lock:
+        if not _scheduler_state.get("enabled"):
+            return False
+        run_time = str(_scheduler_state.get("run_time", "16:00"))
+        active_days = list(_scheduler_state.get("active_days", [0, 1, 2, 3, 6]))
+        model_filter = _scheduler_state.get("model_filter", "adaptive")
+    now = _now_cairo()
+    try:
+        hour, minute = map(int, run_time.split(":", 1))
+    except Exception:
+        hour, minute = 16, 0
+    if now.weekday() not in active_days or (now.hour, now.minute) < (hour, minute):
+        return False
+    today = now.date().isoformat()
+    if _daily_job_ran_today(today):
+        print(f"[DAILY-JOB-SCHEDULER] Startup catch-up skipped; {today} already ran.")
+        return False
+
+    def _run():
+        import asyncio
+        from api.daily_bot_run import run_daily_job
+        try:
+            asyncio.run(run_daily_job(trigger="startup_catchup", model_filter=model_filter))
+            _record_run("startup_catchup", "completed")
+        except Exception as exc:
+            print(f"[DAILY-JOB-SCHEDULER] Startup catch-up failed: {exc}")
+            _record_run("startup_catchup", "failed")
+
+    with _scheduler_lock:
+        if _scheduler_state.get("status") == "running":
+            return False
+        _scheduler_state["status"] = "running"
+    threading.Thread(target=_run, daemon=True, name="daily-job-startup-catchup").start()
+    print(f"[DAILY-JOB-SCHEDULER] Startup catch-up started for {today}.")
+    return True
 
 
 def _js_days_to_python(days: Any) -> List[int]:
@@ -282,6 +355,7 @@ def start_daily_job_scheduler():
     if _scheduler_thread and _scheduler_thread.is_alive():
         return
     _hydrate_config_from_supabase()
+    run_startup_catchup()
     _stop_event.clear()
     _scheduler_thread = threading.Thread(target=_scheduler_worker, daemon=True, name="daily-job-scheduler")
     _scheduler_thread.start()

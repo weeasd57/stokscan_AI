@@ -70,11 +70,16 @@ export function useRealtimeRefresh(
 export function useRefreshOnVisibility(onRefresh: () => void | Promise<void>, enabled = true) {
   const refreshRef = useRef(onRefresh);
   refreshRef.current = onRefresh;
+  const lastRefreshAtRef = useRef(0);
 
   useEffect(() => {
     if (!enabled) return;
     const refresh = () => {
-      if (!document.hidden) void refreshRef.current();
+      const now = Date.now();
+      if (!document.hidden && now - lastRefreshAtRef.current >= 5 * 60 * 1000) {
+        lastRefreshAtRef.current = now;
+        void refreshRef.current();
+      }
     };
     document.addEventListener("visibilitychange", refresh);
     window.addEventListener("focus", refresh);

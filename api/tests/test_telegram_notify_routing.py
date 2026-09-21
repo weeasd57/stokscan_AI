@@ -42,6 +42,7 @@ class TelegramNotifyRoutingTests(unittest.TestCase):
                 {"step": "sync_prices", "status": "success", "details": "Synced 200 symbols", "count": 200},
                 {"step": "generate_recommendations", "status": "success", "details": "Generated 3", "count": 3},
                 {"step": "news_sentiment", "status": "failed", "details": "timeout", "count": 0},
+                {"step": "weekly_adaptive_retraining", "status": "failed", "details": "Model not found", "count": 0},
             ],
             job_start_time="2026-09-21T14:00:00+00:00",
             total_symbols=200,
@@ -50,6 +51,8 @@ class TelegramNotifyRoutingTests(unittest.TestCase):
         self.assertIn("ملخص التشغيل اليومي", message)
         self.assertIn("news_sentiment", message)
         self.assertIn("توصيات جديدة", message)
+        self.assertNotIn("weekly_adaptive_retraining", message)
+        self.assertNotIn("Model not found", message)
 
 
 if __name__ == "__main__":

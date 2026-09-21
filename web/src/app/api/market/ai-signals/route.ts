@@ -20,7 +20,7 @@ export async function GET(req: NextRequest) {
     const supabase = getSupabaseClient();
     const billingEnabled = paymentsEnabledSafe();
     const responseHeaders: Record<string, string> = billingEnabled
-      ? { "Cache-Control": "private, no-store" }
+      ? { "Cache-Control": "private, max-age=300, stale-while-revalidate=300" }
       : {
           "Cache-Control": "public, max-age=30",
           "Vercel-CDN-Cache-Control": "public, s-maxage=120, stale-while-revalidate=300",

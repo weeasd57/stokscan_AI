@@ -4,7 +4,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 import { scanAiFastWithParams, evaluateScan, getAdminConfig, type ScanAiParams, type ScanResult } from "@/lib/api";
 import type { PredictResponse } from "@/lib/types";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
-import { useRealtimeRefresh, useRefreshOnVisibility } from "@/hooks/useRealtimeRefresh";
+import { useRefreshOnVisibility } from "@/hooks/useRealtimeRefresh";
 import { useAuth } from "./AuthContext";
 import { filterByDelay } from "@/lib/ai/plan-gate";
 
@@ -146,6 +146,10 @@ export const AIScannerProvider = ({ children }: { children: ReactNode }) => {
         setRecommendationsState(val);
     }, []);
     const loadedLandingRef = useRef<boolean | null>(null);
+    const recommendationsLoadedAtRef = useRef(0);
+    // The daily worker is the source of truth. Keep the browser snapshot for
+    // one day and only refresh explicitly or after the next daily cycle.
+    const RECOMMENDATIONS_FRESH_MS = 24 * 60 * 60 * 1000;
     const [recsLoading, setRecsLoading] = useState(false);
     const [recsError, setRecsError] = useState<string | null>(null);
     const abortRef = useRef<AbortController | null>(null);
@@ -849,25 +853,12 @@ export const AIScannerProvider = ({ children }: { children: ReactNode }) => {
 
             if (scanErr) throw new Error(scanErr.message);
             if (!scanData || scanData.length === 0) {
-                setRecommendations([]);
-                recommendationsUserRef.current = userId;
-                loadedLandingRef.current = isLandingPage;
+            setRecommendations([]);
+            recommendationsUserRef.current = userId;
+            loadedLandingRef.current = isLandingPage;
+            recommendationsLoadedAtRef.current = Date.now();
                 setRecsLoading(false);
                 return;
-            }
-
-            if (!isLandingPage) {
-                const symbols = Array.from(new Set((scanData as any[]).map((r: any) => r.symbol)));
-                const { data: fundData, error: fundErr } = await supabase
-                    .from("stock_fundamentals")
-                    .select("symbol, data")
-                    .in("symbol", symbols);
-                if (!fundErr && fundData) {
-                    fundData.forEach(item => {
-                        const sector = item.data?.sector || item.data?.Sector || item.data?.industry || "General";
-                        sectorMap[item.symbol] = sector;
-                    });
-                }
             }
 
             const normalizeSymbolKey = (value: string | null | undefined) => (value || "").toUpperCase().split(".")[0];
@@ -1007,6 +998,7 @@ export const AIScannerProvider = ({ children }: { children: ReactNode }) => {
             setRecommendations(visibleRecommendations);
             recommendationsUserRef.current = userId;
             loadedLandingRef.current = isLandingPage;
+            recommendationsLoadedAtRef.current = Date.now();
         } catch (err: any) {
             console.error("Error loading recommendations in context:", err);
             setRecsError(err.message || "Failed to fetch data");
@@ -1015,15 +1007,17 @@ export const AIScannerProvider = ({ children }: { children: ReactNode }) => {
         }
     }, [supabase, user]);
 
-    useRealtimeRefresh(
-        [{ table: "scan_results", filter: "is_public=eq.true" }],
-        () => {
-            if (loadedLandingRef.current !== null) return loadRecommendations(loadedLandingRef.current, true);
-        },
-        { enabled: Boolean(user) },
-    );
+    // Recommendations are produced by the daily job and served through the
+    // API cache. Do not keep a Supabase Realtime subscription here: every scan
+    // result event would trigger a full recommendations query and increase
+    // egress without changing the daily snapshot.
     useRefreshOnVisibility(() => {
-        if (loadedLandingRef.current !== null) return loadRecommendations(loadedLandingRef.current, true);
+        if (
+            loadedLandingRef.current !== null &&
+            Date.now() - recommendationsLoadedAtRef.current >= RECOMMENDATIONS_FRESH_MS
+        ) {
+            return loadRecommendations(loadedLandingRef.current, true);
+        }
     }, Boolean(user));
 
     const value = useMemo(() => ({
