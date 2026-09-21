@@ -25,6 +25,14 @@ export default function ProfilePage() {
   const proInviteUrl = proInvite.is_pro && proInvite.invite_link ? proInvite.invite_link : "";
   const freeTelegramUrl = "https://t.me/egxbots/153";
   const freeTelegramWebUrl = "https://web.telegram.org/a/#@egxbots";
+  const telegramWebUrl = (() => {
+    const url = proInviteUrl || freeTelegramWebUrl;
+    if (!proInviteUrl) return url;
+    const match = url.match(/^https?:\/\/(?:www\.)?t\.me\/(?:\+|joinchat\/)([^/?#]+)/i);
+    return match
+      ? `https://web.telegram.org/k/#?tgaddr=${encodeURIComponent(`tg://join?invite=${match[1]}`)}`
+      : url;
+  })();
   const [editingSymbolId, setEditingSymbolId] = useState<string | null>(null);
   const [watchlistDraft, setWatchlistDraft] = useState({ name: "" });
   const [portfolioVersion, setPortfolioVersion] = useState(0);
@@ -51,6 +59,15 @@ export default function ProfilePage() {
   useEffect(() => {
     if (!user) return;
     void reloadProfile();
+  }, [reloadProfile, user]);
+
+  useEffect(() => {
+    if (!user) return;
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") void reloadProfile();
+    };
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    return () => document.removeEventListener("visibilitychange", refreshWhenVisible);
   }, [reloadProfile, user]);
 
   function beginEditWatchlistItem(item: SavedSymbol) {
@@ -183,7 +200,7 @@ export default function ProfilePage() {
               {proInviteUrl ? (isAr ? "دخول قناة Pro" : "Join Pro Telegram") : (isAr ? "القناة المجانية" : "Free Channel")}
             </a>
             <a
-              href={proInviteUrl || freeTelegramWebUrl}
+              href={telegramWebUrl}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex h-12 flex-1 items-center justify-center gap-2 border-4 border-black dark:border-white bg-white dark:bg-zinc-800 text-black dark:text-white font-black text-xs uppercase tracking-[0.1em] shadow-[2px_2px_0px_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all"

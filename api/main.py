@@ -323,22 +323,21 @@ async def startup_event():
 
 
 
-    # Start Intraday Downloader
+    # Stock intraday Supabase storage was retired with stock_bars_intraday.
+    # Keep the legacy workers opt-in so a normal deployment does not query the
+    # removed table or repeatedly fetch data that cannot be persisted.
+    if os.getenv("ENABLE_STOCK_INTRADAY_SYNC", "false").strip().lower() in {"1", "true", "yes", "on"}:
+        try:
+            from api.intraday_downloader import start_intraday_downloader
+            from api.intraday_scheduler import start_intraday_scheduler
 
-    try:
-
-        from api.intraday_downloader import start_intraday_downloader
-
-
-
-        start_intraday_downloader()
-        from api.intraday_scheduler import start_intraday_scheduler
-        start_intraday_scheduler()
-        print("DEBUG: Intraday Downloader started successfully.")
-
-    except Exception as e:
-
-        print(f"DEBUG ERROR: Failed to start Intraday Downloader: {e}")
+            start_intraday_downloader()
+            start_intraday_scheduler()
+            print("DEBUG: Intraday Downloader started successfully.")
+        except Exception as e:
+            print(f"DEBUG ERROR: Failed to start Intraday Downloader: {e}")
+    else:
+        print("DEBUG: Stock intraday sync disabled; stock_bars_intraday storage is retired.")
 
 
 

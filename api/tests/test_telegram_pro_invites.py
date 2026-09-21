@@ -14,6 +14,18 @@ class TelegramProInviteTests(unittest.TestCase):
         self.assertEqual(row["invite_link"], "https://t.me/+abc")
         create_link.assert_not_called()
 
+    def test_repeated_profile_loads_keep_the_same_valid_invite(self):
+        future = (datetime.now(timezone.utc) + timedelta(days=30)).isoformat()
+        saved = {"invite_link": "https://t.me/+vip-month", "invite_expires_at": future}
+        with patch.object(invites, "_load_invite_row", return_value=saved), \
+             patch.object(invites, "create_invite_link") as create_link:
+            first = invites.ensure_pro_invite("user-1", future)
+            second = invites.ensure_pro_invite("user-1", future)
+
+        self.assertEqual(first["invite_link"], second["invite_link"])
+        self.assertEqual(first["invite_expires_at"], second["invite_expires_at"])
+        create_link.assert_not_called()
+
     def test_ensure_pro_invite_creates_when_missing(self):
         future = (datetime.now(timezone.utc) + timedelta(days=10)).isoformat()
         with patch.object(invites, "_load_invite_row", return_value=None), \
