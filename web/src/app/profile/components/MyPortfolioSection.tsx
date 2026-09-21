@@ -5,7 +5,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
 import {
     Loader2, RefreshCw, Plus, Trash2, Pencil, Check, X, Wallet,
-    TrendingUp, TrendingDown, Coins, Save, BadgeDollarSign,
+    TrendingUp, TrendingDown, Coins, Save, BadgeDollarSign, MessageSquare,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -139,7 +139,7 @@ export default function MyPortfolioSection({ onPortfolioUpdated }: { onPortfolio
             return;
         }
         if (snapshot?.portfolio_limit !== null && snapshot?.portfolio_limit !== undefined && !positions.some((p) => p.symbol === exactMatch.symbol) && positions.length >= snapshot.portfolio_limit) {
-            toast.error(isAr ? `الخطة المجانية تسمح بحد أقصى ${snapshot.portfolio_limit} أسهم مختلفة.` : `The free plan allows up to ${snapshot.portfolio_limit} different stocks.`);
+            toast.error(isAr ? `لقد وصلت للحد الأقصى في خطتك: ${snapshot.portfolio_limit} أسهم مختلفة. اشترك في Pro للوصول إلى 10 أسهم.` : `You reached your plan limit of ${snapshot.portfolio_limit} different stocks. Upgrade to Pro for up to 10 stocks.`);
             return;
         }
         const price = addPrice.trim() ? parseFloat(addPrice) : null;
@@ -234,6 +234,16 @@ export default function MyPortfolioSection({ onPortfolioUpdated }: { onPortfolio
                     >
                         <Plus className="h-4 w-4" />
                         {isAr ? "إضافة سهم" : "Add Stock"}
+                    </button>
+                    <button
+                        onClick={() => {
+                            window.dispatchEvent(new CustomEvent("open-chat-with-message", { detail: "حلل محفظتي" }));
+                        }}
+                        disabled={positions.length === 0}
+                        className="h-10 px-4 flex items-center justify-center gap-2 border-4 border-black dark:border-white bg-sky-300 text-black font-black text-xs uppercase tracking-widest shadow-[2px_2px_0px_rgba(0,0,0,1)] disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                        <MessageSquare className="h-4 w-4" />
+                        {isAr ? "حلل محفظتي" : "Analyze Portfolio"}
                     </button>
                 </div>
             </div>

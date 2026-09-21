@@ -2025,12 +2025,13 @@ async function* runPipelineCore(
                 await updateSessionSummary(supabase, sessionId, userId, { portfolio_add_awaiting: null });
             }
         }
-        const portfolioAnalysis = directPortfolioOperation === "view" && (
+        const portfolioDecisionRequest = /(?:ابيع|أبيع|بيع).*?(?:احتفظ|أحتفظ)|(?:احتفظ|أحتفظ).*?(?:ابيع|أبيع|بيع)/i.test(normalizeArabicIntent(userMessage));
+        const portfolioAnalysis = (directPortfolioOperation === "view" || portfolioDecisionRequest) && (
             isPortfolioAnalysisRequest(userMessage)
             // Keep these common Arabic variants on the full portfolio-analysis
             // path even when the planner normalizes the wording differently.
             || /(?:حلل|حلّل|تحليل|راجع|قيّم).*محفظ/i.test(normalizeArabicIntent(userMessage))
-            || /(?:ابيع|أبيع).*?(?:احتفظ|أحتفظ)|(?:احتفظ|أحتفظ).*?(?:ابيع|أبيع)/i.test(normalizeArabicIntent(userMessage))
+            || portfolioDecisionRequest
         );
         if (portfolioAnalysis) {
             // "حلل محفظتي" must use the same stock-analysis path the user gets
@@ -2262,7 +2263,7 @@ async function* runPipelineCore(
                 scan_direction: null,
                 portfolio_operation: "view",
             },
-            tools: ["manage_portfolio", "get_stock", "get_stock_levels"],
+            tools: ["get_stock", "get_stock_levels"],
             session_update: { current_symbol: sessionState.current_symbol, last_symbols: portfolioAnalysisSymbols, summary: userMessage },
         } as any;
     }
@@ -2414,7 +2415,7 @@ async function* runPipelineCore(
     if (portfolioAnalysisSymbols.length > 0) {
         // Never let the portfolio fast-path override a full analysis request.
         enforced.intent = "stock_analysis";
-        enforced.tools = ["manage_portfolio", "get_stock", "get_stock_levels"];
+        enforced.tools = ["get_stock", "get_stock_levels"];
         enforced.replaceTools = true;
         mergedSymbols = portfolioAnalysisSymbols.slice();
     }

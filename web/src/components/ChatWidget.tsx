@@ -110,6 +110,20 @@ export default function ChatWidget() {
         };
     }, [isLoading]);
 
+    useEffect(() => {
+        const handlePortfolioAnalysis = (event: Event) => {
+            const message = (event as CustomEvent<string>).detail || "حلل محفظتي";
+            setIsOpen(true);
+            setInput(message);
+            window.setTimeout(() => {
+                void sendMessage(message);
+                setInput("");
+            }, 0);
+        };
+        window.addEventListener("open-chat-with-message", handlePortfolioAnalysis);
+        return () => window.removeEventListener("open-chat-with-message", handlePortfolioAnalysis);
+    }, [sendMessage, setIsOpen]);
+
     // Automatically open ChatWidget modal if URL contains chat=open parameter
     useEffect(() => {
         if (typeof window !== "undefined") {

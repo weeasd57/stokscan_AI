@@ -13,8 +13,8 @@ export async function GET() {
         const { getPortfolioSnapshot } = await import("@/lib/ai/portfolio-tools");
         const snapshot = await getPortfolioSnapshot(supabase, user.id);
         const { data: planRows } = await supabase.from("subscriptions").select("plan_id,status,current_period_end").eq("user_id", user.id).limit(10);
-        const { isPro, planLimits } = await import("@/lib/ai/plan-gate");
-        const pro = isPro(planRows || []);
+        const { hasActiveProSubscription, planLimits } = await import("@/lib/ai/plan-gate");
+        const pro = hasActiveProSubscription(planRows || []);
         const portfolioLimit = planLimits(pro ? "pro" : "free").portfolio_stocks;
 
         // Real EGX symbols for the profile-page autocomplete selector

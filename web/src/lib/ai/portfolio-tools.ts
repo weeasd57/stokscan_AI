@@ -63,6 +63,7 @@ export interface PortfolioSnapshot {
 }
 
 const FREE_PORTFOLIO_LIMIT = 5;
+const PRO_PORTFOLIO_LIMIT = 10;
 
 async function hasActiveProPlan(supabase: any, userId: string): Promise<boolean> {
     if (!paymentsEnabled()) return true; // site free until PAYMENTS_ENABLED=true
@@ -75,7 +76,12 @@ async function hasActiveProPlan(supabase: any, userId: string): Promise<boolean>
 }
 
 async function canAddPortfolioPositions(supabase: any, userId: string, additional: number): Promise<{ ok: boolean; message?: string }> {
-    if (await hasActiveProPlan(supabase, userId)) return { ok: true };
+    if (await hasActiveProPlan(supabase, userId)) {
+        const { data } = await supabase.from("positions").select("symbol").eq("user_id", userId).eq("status", "open");
+        const current = new Set((data || []).map((row: any) => String(row.symbol || "").toUpperCase())).size;
+        if (current + additional > PRO_PORTFOLIO_LIMIT) return { ok: false, message: `خطة Pro تسمح بحد أقصى ${PRO_PORTFOLIO_LIMIT} أسهم مختلفة في المحفظة.` };
+        return { ok: true };
+    }
     const { data, error } = await supabase.from("positions").select("symbol,quantity,source").eq("user_id", userId).eq("status", "open");
     if (error) return { ok: false, message: "تعذر التحقق من حد الخطة المجانية. حاول مرة أخرى." };
     const current = new Set(
