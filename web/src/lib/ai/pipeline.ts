@@ -2025,7 +2025,13 @@ async function* runPipelineCore(
                 await updateSessionSummary(supabase, sessionId, userId, { portfolio_add_awaiting: null });
             }
         }
-        const portfolioAnalysis = directPortfolioOperation === "view" && isPortfolioAnalysisRequest(userMessage);
+        const portfolioAnalysis = directPortfolioOperation === "view" && (
+            isPortfolioAnalysisRequest(userMessage)
+            // Keep these common Arabic variants on the full portfolio-analysis
+            // path even when the planner normalizes the wording differently.
+            || /(?:حلل|حلّل|تحليل|راجع|قيّم).*محفظ/i.test(normalizeArabicIntent(userMessage))
+            || /(?:ابيع|أبيع).*?(?:احتفظ|أحتفظ)|(?:احتفظ|أحتفظ).*?(?:ابيع|أبيع)/i.test(normalizeArabicIntent(userMessage))
+        );
         if (portfolioAnalysis) {
             // "حلل محفظتي" must use the same stock-analysis path the user gets
             // for typing a ticker, once per held symbol, in a single reply.
