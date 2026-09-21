@@ -22,6 +22,11 @@ export default function ProfilePage() {
   const [username, setUsername] = useState<string | null>(null);
   const [telegramLinked, setTelegramLinked] = useState(false);
   const [proInvite, setProInvite] = useState<{ is_pro: boolean; invite_link?: string; invite_expires_at?: string | null }>({ is_pro: false });
+  // Telegram Web cannot reliably resolve a private invite hash from a
+  // hand-built fragment. The VIP channel has a public username, so use its
+  // canonical Web URL for the browser button; keep the one-use invite for the
+  // native-app button.
+  const vipWebUrl = "https://web.telegram.org/a/#@egxbots_vip";
   const [editingSymbolId, setEditingSymbolId] = useState<string | null>(null);
   const [watchlistDraft, setWatchlistDraft] = useState({ name: "" });
   const [portfolioVersion, setPortfolioVersion] = useState(0);
@@ -162,7 +167,14 @@ export default function ProfilePage() {
                 : (isAr ? "القناة المجانية تعرض التوصيات القديمة والتعديلات بتأخير 15 يوماً. التحديث اللحظي متاح في Pro." : "The free channel shows older recommendations and updates with a 15-day delay. Live updates are available in Pro.")}
           </p>
 
-          <div className="flex flex-col sm:flex-row gap-3 pt-1">
+           {proInvite.is_pro && proInvite.invite_link && (
+             <div className="border-4 border-indigo-600 bg-indigo-50 dark:bg-indigo-950/30 p-4 space-y-2" dir={isAr ? "rtl" : "ltr"}>
+               <p className="text-sm font-black text-indigo-700 dark:text-indigo-300">{isAr ? "رابط قناة VIP الخاص بك" : "Your VIP channel invite"}</p>
+               <a href={proInvite.invite_link} target="_blank" rel="noopener noreferrer" className="block break-all text-xs font-mono font-bold text-indigo-700 dark:text-indigo-300 underline">{proInvite.invite_link}</a>
+               <p className="text-[11px] font-bold text-zinc-600 dark:text-zinc-400">{isAr ? `الرابط صالح حتى ${proInvite.invite_expires_at ? new Date(proInvite.invite_expires_at).toLocaleDateString("ar-EG") : "نهاية اشتراكك"}.` : `Valid until ${proInvite.invite_expires_at ? new Date(proInvite.invite_expires_at).toLocaleDateString() : "your subscription ends"}.`}</p>
+             </div>
+           )}
+           <div className="flex flex-col sm:flex-row gap-3 pt-1">
             <a
               href={proInvite.is_pro && proInvite.invite_link ? proInvite.invite_link : "https://t.me/egxbots/153"}
               target="_blank"
@@ -173,7 +185,7 @@ export default function ProfilePage() {
               {proInvite.is_pro && proInvite.invite_link ? (isAr ? "دخول قناة Pro" : "Join Pro Telegram") : (isAr ? "القناة المجانية" : "Free Channel")}
             </a>
             <a
-              href={proInvite.is_pro && proInvite.invite_link ? proInvite.invite_link : "https://t.me/egxbots/153"}
+              href={proInvite.is_pro && proInvite.invite_link ? vipWebUrl : "https://web.telegram.org/a/#@egxbots"}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex h-12 flex-1 items-center justify-center gap-2 border-4 border-black dark:border-white bg-white dark:bg-zinc-800 text-black dark:text-white font-black text-xs uppercase tracking-[0.1em] shadow-[2px_2px_0px_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none transition-all"

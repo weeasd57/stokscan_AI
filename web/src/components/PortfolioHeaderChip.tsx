@@ -1,22 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { Wallet, TrendingUp, TrendingDown } from "lucide-react";
-import { useRealtimeRefresh } from "@/hooks/useRealtimeRefresh";
-
-type Snapshot = {
-  ok?: boolean;
-  cash_balance: number;
-  totals?: {
-    equity: number;
-    profit_value: number;
-    profit_pct: number;
-  };
-  positions?: unknown[];
-};
+import { usePortfolio } from "@/contexts/PortfolioContext";
 
 const compact = (value: number | undefined | null): string => {
   if (value === undefined || value === null || !Number.isFinite(value)) return "0";
@@ -33,44 +21,7 @@ const compact = (value: number | undefined | null): string => {
 export default function PortfolioHeaderChip() {
   const { user } = useAuth();
   const { language } = useLanguage();
-  const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
-
-  useEffect(() => {
-    if (!user) {
-      setSnapshot(null);
-      return;
-    }
-    let cancelled = false;
-    const load = async () => {
-      try {
-        const res = await fetch("/api/portfolio", { cache: "no-store" });
-        if (res.ok) {
-          const data = await res.json();
-          if (!cancelled) setSnapshot(data);
-        }
-      } catch {
-        // ignore — chip is non-critical
-      }
-    };
-    void load();
-    const handlePortfolioUpdated = () => { void load(); };
-    window.addEventListener("portfolio-updated", handlePortfolioUpdated);
-    return () => {
-      cancelled = true;
-      window.removeEventListener("portfolio-updated", handlePortfolioUpdated);
-    };
-  }, [user]);
-
-  useRealtimeRefresh(
-    user ? [{ table: "positions", filter: `user_id=eq.${user.id}` }] : [],
-    async () => {
-      if (user) {
-        const res = await fetch("/api/portfolio", { cache: "no-store" });
-        if (res.ok) setSnapshot(await res.json());
-      }
-    },
-    { enabled: Boolean(user) },
-  );
+  const { snapshot } = usePortfolio();
 
   if (!user) return null;
 

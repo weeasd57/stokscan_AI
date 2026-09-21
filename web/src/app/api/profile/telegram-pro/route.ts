@@ -15,7 +15,7 @@ async function createVipInvite(userId: string, expiresAt: string): Promise<strin
       chat_id: chatId,
       name: `Pro ${userId.slice(0, 8)}`,
       expire_date: Math.floor(new Date(expiresAt).getTime() / 1000),
-      member_limit: 1,
+      member_limit: 10,
     }),
     cache: "no-store",
   });
@@ -46,10 +46,22 @@ export async function GET() {
     .select("id,telegram_invite_link,telegram_invite_expires_at")
     .eq("user_id", user.id)
     .eq("status", "approved")
-    .not("telegram_invite_link", "is", null)
     .order("telegram_invite_expires_at", { ascending: false })
     .limit(1);
   let order = orders?.[0] || null;
+  // A renewed subscription can have several approved orders. Prefer any
+  // still-valid saved invite before attempting to create another one.
+  if (!order?.telegram_invite_link) {
+    const { data: savedInvites } = await service
+      .from("local_payment_orders")
+      .select("id,telegram_invite_link,telegram_invite_expires_at")
+      .eq("user_id", user.id)
+      .eq("status", "approved")
+      .not("telegram_invite_link", "is", null)
+      .order("telegram_invite_expires_at", { ascending: false })
+      .limit(1);
+    order = savedInvites?.[0] || order;
+  }
   const subscriptionEnd = String(subscription.current_period_end);
   const inviteEnd = order?.telegram_invite_expires_at ? new Date(order.telegram_invite_expires_at).getTime() : 0;
   if (!order?.telegram_invite_link || !Number.isFinite(inviteEnd) || inviteEnd <= Date.now()) {

@@ -10,6 +10,7 @@ import { TechnicalScannerProvider } from "@/contexts/TechnicalScannerContext";
 import { ThemeProvider } from "@/contexts/ThemeContext";
 import { NotificationProvider } from "@/contexts/NotificationContext";
 import { ChatProvider } from "@/contexts/ChatContext";
+import { PortfolioProvider } from "@/contexts/PortfolioContext";
 
 if (typeof window !== "undefined") {
   const originalFetch = window.fetch;
@@ -54,7 +55,8 @@ export default function Providers({ children }: { children: ReactNode }) {
       <AuthProvider>
           <LanguageProvider>
             <NotificationProvider>
-              <WatchlistProvider>
+              <PortfolioProvider>
+               <WatchlistProvider>
                 <AppStateProvider>
                   <AIScannerProvider>
                     <TechnicalScannerProvider>
@@ -64,7 +66,8 @@ export default function Providers({ children }: { children: ReactNode }) {
                     </TechnicalScannerProvider>
                   </AIScannerProvider>
                 </AppStateProvider>
-              </WatchlistProvider>
+               </WatchlistProvider>
+              </PortfolioProvider>
             </NotificationProvider>
           </LanguageProvider>
       </AuthProvider>

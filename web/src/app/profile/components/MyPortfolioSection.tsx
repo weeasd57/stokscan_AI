@@ -8,36 +8,8 @@ import {
     TrendingUp, TrendingDown, Coins, Save, BadgeDollarSign, MessageSquare,
 } from "lucide-react";
 import { toast } from "sonner";
+import { usePortfolio, type PortfolioRow, type PortfolioSnapshot } from "@/contexts/PortfolioContext";
 
-type PortfolioRow = {
-    id: string;
-    symbol: string;
-    name: string | null;
-    quantity: number | null;
-    entry_price: number | null;
-    last_price: number | null;
-    market_value: number | null;
-    cost_basis: number | null;
-    profit_pct: number | null;
-    profit_value: number | null;
-};
-
-type Snapshot = {
-    ok: boolean;
-    positions: PortfolioRow[];
-    cash_balance: number;
-    totals: {
-        positions_count: number;
-        cost_basis: number;
-        market_value: number;
-        profit_value: number;
-        profit_pct: number;
-        equity: number;
-    };
-    market_symbols?: Array<{ symbol: string; name: string | null }>;
-    portfolio_limit?: number | null;
-    is_pro?: boolean;
-};
 
 const money = (v: number | null | undefined, digits = 2) => {
     if (v === null || v === undefined || !Number.isFinite(v)) return "—";
@@ -59,8 +31,7 @@ export default function MyPortfolioSection({ onPortfolioUpdated }: { onPortfolio
     const { language } = useLanguage();
     const isAr = language === "ar";
 
-    const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
-    const [loading, setLoading] = useState(true);
+    const { snapshot, loading, refresh: load } = usePortfolio();
     const [busy, setBusy] = useState(false);
 
     // add form
@@ -79,26 +50,7 @@ export default function MyPortfolioSection({ onPortfolioUpdated }: { onPortfolio
     const [cashDraft, setCashDraft] = useState("");
     const [editingCash, setEditingCash] = useState(false);
 
-    const load = useCallback(async () => {
-        if (!user) return;
-        setLoading(true);
-        try {
-            const res = await fetch("/api/portfolio", { cache: "no-store" });
-            if (res.ok) {
-                const data = await res.json();
-                setSnapshot(data);
-                setCashDraft(data.cash_balance ? String(Math.round(data.cash_balance)) : "0");
-            }
-        } catch (e) {
-            console.error("Failed to load portfolio:", e);
-        } finally {
-            setLoading(false);
-        }
-    }, [user]);
-
-    useEffect(() => {
-        void load();
-    }, [load]);
+    useEffect(() => { if (snapshot) setCashDraft(snapshot.cash_balance ? String(Math.round(snapshot.cash_balance)) : "0"); }, [snapshot]);
 
     const api = useCallback(async (body: Record<string, unknown>) => {
         setBusy(true);

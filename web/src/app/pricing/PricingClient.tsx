@@ -43,11 +43,18 @@ export default function PricingClient() {
     const check = async () => {
       const res = await fetch(`/api/payment/local/status?order_id=${encodeURIComponent(localOrder)}`, { cache: "no-store" });
       const data = await res.json().catch(() => ({}));
-      if (!stopped && data.status) {
-        setOrderStatus(data.status);
-        setSubscriptionEnd(data.subscription?.current_period_end || null);
-        setTelegramProUrl(data.telegram_pro_url || "");
-      }
+        if (!stopped && data.status) {
+          setOrderStatus(data.status);
+          setSubscriptionEnd(data.subscription?.current_period_end || null);
+          setTelegramProUrl(data.telegram_pro_url || "");
+          if (data.status === "approved" && !data.telegram_pro_url) {
+            const vip = await fetch("/api/profile/telegram-pro", { cache: "no-store" }).then((response) => response.ok ? response.json() : null).catch(() => null);
+            if (!stopped && vip?.invite_link) {
+              setTelegramProUrl(vip.invite_link);
+              setSubscriptionEnd(vip.current_period_end || data.subscription?.current_period_end || null);
+            }
+          }
+        }
     };
     check();
     const timer = window.setInterval(check, 5000);
@@ -239,7 +246,7 @@ export default function PricingClient() {
             </div>
           )}
           {orderStatus === "rejected" && <div className="flex flex-col gap-2"><button onClick={startLocalPayment} disabled={busy} className="w-full h-11 border-4 border-black bg-emerald-500 text-white font-black">{isAr ? "إعادة المحاولة" : "Try again"}</button><a href="https://wa.me/201024359109" target="_blank" rel="noreferrer" className="text-sm font-black text-emerald-600 underline">{isAr ? "محتاج مساعدة؟ كلمنا على واتساب" : "Need help? Contact us on WhatsApp"}</a></div>}
-          {orderStatus === "approved" && <div className="space-y-2"><p className="font-black text-emerald-600">{subscriptionEnd ? (isAr ? `صالح حتى ${new Date(subscriptionEnd).toLocaleDateString("ar-EG")}` : `Valid until ${new Date(subscriptionEnd).toLocaleDateString()}`) : ""}</p>{telegramProUrl && <a href={telegramProUrl} target="_blank" rel="noreferrer" className="block text-sm font-black text-indigo-600 underline">{isAr ? "دخول قناة Pro على تليجرام" : "Open Pro Telegram"}</a>}</div>}
+          {orderStatus === "approved" && <div className="space-y-3"><p className="font-black text-emerald-600">{subscriptionEnd ? (isAr ? `صالح حتى ${new Date(subscriptionEnd).toLocaleDateString("ar-EG")}` : `Valid until ${new Date(subscriptionEnd).toLocaleDateString()}`) : ""}</p>{telegramProUrl ? <a href={telegramProUrl} target="_blank" rel="noreferrer" className="block border-4 border-black bg-indigo-600 px-4 py-3 text-sm font-black text-white shadow-[3px_3px_0px_rgba(0,0,0,1)]">{isAr ? "انضم إلى قناة VIP على تليجرام" : "Join VIP Telegram Channel"}<span className="block text-[10px] font-bold mt-1 opacity-80">{isAr ? "الرابط صالح لمدة 30 يوماً" : "Invite expires in 30 days"}</span></a> : <p className="text-xs font-bold text-amber-600">{isAr ? "جاري إنشاء رابط دعوة قناة VIP... حدّث الصفحة بعد لحظات." : "Creating your VIP invite link... refresh in a moment."}</p>}</div>}
           <a href="https://wa.me/201024359109" target="_blank" rel="noreferrer" className="block text-sm font-black text-emerald-600 underline">{isAr ? "محتاج مساعدة؟ كلمنا على واتساب" : "Need help? Contact us on WhatsApp"}</a>
         </div>
       </div>

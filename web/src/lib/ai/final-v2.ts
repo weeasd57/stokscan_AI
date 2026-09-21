@@ -480,6 +480,9 @@ export function buildV2FinalMessages(
     sections.push("  1. أجب مباشرة وبموجز شديد (3-4 أسطر فقط) محدداً السهم الأفضل فنياً مقارنة بالآخرين بناءً على المؤشرات الفعلية المتوفرة.");
     sections.push("  2. يمنع منعاً باتاً كتابة عناوين أو أقسام فرعية مثل 'إدارة المخاطر' أو 'سيناريو الارتداد' أو نصائح عامة عن السيولة.");
     sections.push("  3. قارن فقط بين الأسعار الحالية ومستويات الدعم والمقاومة، ووضح السهم الأقرب للدعم أو ذو الزخم الإيجابي الأقوى مباشرة.");
+    sections.push("  4. عند سؤال 'أبيع إيه وأحتفظ بإيه' مع عدة أسهم، أنشئ مصفوفة قرار تشمل كل الأسهم الموجودة في البيانات. صنّف كل سهم إلى 'احتفاظ ومراقبة' أو 'احتفاظ مشروط' أو 'مراجعة البيع' مع سبب فني مختصر، ولا تكتفِ بعرض المؤشرات.");
+    sections.push("  5. التوصية ACTIVE_OPEN هي توصية تاريخية منفصلة وليست إشارة دخول حالية. اذكرها فقط بعنوان 'توصية سابقة على المنصة' ولا تستخدم عبارة 'إشارة شراء نشطة' أو 'دخول' لوصف القرار الحالي.");
+    sections.push("  6. لا تذكر الدعم أو المقاومة إلا من حقول get_stock_levels المطابقة لنفس رمز السهم. لا تستخدم السعر الحالي أو entry_price كدعم أو مقاومة، وإذا لم يتوفر المستوى اكتب 'غير متاح'.");
     sections.push("  • مؤشر التجميع (acc_score / Accumulation): يجب ترجمته بـ 'تجميع' أو 'درجة تجميع' ويُمنع تماماً استخدام كلمة 'توزيع' أو 'تصريف' لوصفه.");
     sections.push("  • مؤشر التصريف (dist_score / Distribution): يجب ترجمته بـ 'تصريف' أو 'درجة تصريف' ويُمنع تماماً استخدام كلمة 'توزيع' أو 'تجميع' لوصفه.");
     sections.push("  • 🚫 قاعدة صارمة لمنع خلط acc_score مع dist_score: عند ذكر درجة التجميع والتصريف، يجب دائماً ذكر القيمتين معاً بوضوح: 'درجة التجميع (acc_score): X' و'درجة التصريف (dist_score): Y'. يمنع تماماً كتابة 'تجميع بدرجة X' إذا كان X هو قيمة dist_score وليس acc_score. مثال: إذا كان acc_score=80.3 و dist_score=0، يجب الكتابة: 'درجة التجميع 80.3 ودرجة التصريف 0' وليس 'تجميع بدرجة 0'.");
@@ -2534,7 +2537,8 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
         ].join("\n");
     }
     if (decision && stockData.length > 0) {
-        const levelData = levels?.data;
+        const levelResults = toolResults.filter(result => result.tool === "get_stock_levels" && result.data?.symbol);
+        const levelBySymbol = new Map(levelResults.map(result => [String(result.data.symbol).toUpperCase(), result.data]));
         const compoundScan = toolResults.find(result => result.tool === "get_accumulation_stocks" || result.tool === "get_distribution_stocks");
         const compoundScanStocks = Array.isArray(compoundScan?.data?.stocks) ? compoundScan.data.stocks.slice(0, 8) : [];
         const scanDirection = compoundScan?.tool === "get_distribution_stocks" ? "التصريف" : "التجميع";
@@ -2542,13 +2546,31 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
             const data = result.data;
             return `- ${data.symbol}: ${stockPriceLabel(result)}، التغير ${data.change_pct}، RSI ${data.rsi_14}، MACD ${data.macd_signal}، نسبة الحجم ${data.vol_ratio}.`;
         });
-        const levelSymbol = levelData?.symbol || levels?.symbols?.[0] || stockData[0]?.data?.symbol;
+        const portfolioDecisionRows = stockData.map(result => {
+            const data = result.data || {};
+            const symbol = String(data.symbol || "").toUpperCase();
+            const level = levelBySymbol.get(symbol) || {};
+            const rsi = Number(data.rsi_14);
+            const volume = Number(data.vol_ratio);
+            const king = Number(data.king_ai_score ?? data.king_score);
+            const egx = Number(data.egx_ai_score ?? data.egx_score);
+            const modelAverage = [king, egx].filter(Number.isFinite);
+            const average = modelAverage.length ? modelAverage.reduce((sum, value) => sum + value, 0) / modelAverage.length : null;
+            const weak = (Number.isFinite(rsi) && rsi < 40) || (Number.isFinite(volume) && volume < 0.5) || (average !== null && average < 45);
+            const strong = (Number.isFinite(rsi) && rsi >= 50) && (Number.isFinite(volume) && volume >= 0.8) && (average === null || average >= 52);
+            const decisionLabel = strong ? "احتفاظ ومراقبة" : weak ? "مراجعة البيع" : "احتفاظ مشروط";
+            const reason = weak
+                ? "زخم أو سيولة ضعيفة"
+                : strong
+                    ? "زخم وسيولة أفضل نسبياً"
+                    : "إشارة مختلطة وتحتاج تأكيداً";
+            return `| ${symbol} | ${decisionLabel} | ${reason} | ${level.support != null ? Number(level.support).toFixed(2) : "—"} | ${level.resistance != null ? Number(level.resistance).toFixed(2) : "—"} |`;
+        });
         return [
             "لا أستطيع اتخاذ قرار البيع بدلاً منك، لكن يمكن ربط القرار بالمستويات السعرية الفعلية.",
+            "\n**مصفوفة قرار المحفظة (قراءة فنية استرشادية):**\n| السهم | القراءة | السبب المختصر | الدعم | المقاومة |\n|---|---|---|---:|---:|\n" + portfolioDecisionRows.join("\n"),
             ...lines,
-            levelData?.support != null && levelData?.resistance != null
-                ? `الدعم الحسابي (لسهم ${levelSymbol}) ${Number(levelData.support).toFixed(2)} جنيه، والمقاومة الحسابية ${Number(levelData.resistance).toFixed(2)} جنيه، محسوبان من آخر ${levelData.lookback_sessions} جلسة حتى ${levels?.data_time}. كسر الدعم قد يزيد المخاطر، والاقتراب من المقاومة قد يستدعي مراجعة خطتك أو جني جزء من الربح حسب تحملك للمخاطر.`
-                : "لا توجد بيانات سعرية كافية لحساب دعم ومقاومة يمكن الاستناد إليها، لذلك لن أحدد سعراً للبيع.",
+            "مراجعة البيع لا تعني تنفيذ بيع تلقائي؛ راجع متوسط التكلفة، السيولة، والدعم لكل مركز قبل اتخاذ قرارك.",
             "هذه قراءة فنية وليست توصية بيع أو شراء.",
             compoundScanStocks.length ? "" : null,
             compoundScanStocks.length ? `أبرز أسهم ${scanDirection} حسب المسح المؤرخ ${compoundScan?.data_time}:` : null,
