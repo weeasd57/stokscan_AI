@@ -18,26 +18,46 @@ def _bot_token() -> str:
     return os.getenv("SUPPORT_BOT_TOKEN", "").strip()
 
 
+def _telegram_bases() -> list[str]:
+    """Return the relay and official API once each, in preference order."""
+    bases: list[str] = []
+    for raw in (os.getenv("TELEGRAM_RELAY_URL", "https://api.telegram.org"), "https://api.telegram.org"):
+        base = raw.rstrip("/")
+        if base and base not in bases:
+            bases.append(base)
+    return bases
+
+
 def telegram_api(method: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     token = _bot_token()
     if not token:
         raise RuntimeError("SUPPORT_BOT_TOKEN is not configured")
-    relay = os.getenv("TELEGRAM_RELAY_URL", "https://api.telegram.org").rstrip("/")
-    for base in (relay, "https://api.telegram.org"):
-        try:
-            response = requests.post(f"{base}/bot{token}/{method}", json=payload, timeout=10)
-            data = response.json()
-            if data.get("ok"):
-                return data
-            if base == relay:
-                continue
-            raise RuntimeError(f"Telegram {method} failed: {data.get('description', 'unknown error')}")
-        except RuntimeError:
-            raise
-        except Exception:
-            if base != relay:
-                raise
-    raise RuntimeError(f"Telegram {method} failed")
+    try:
+        attempts = max(1, min(int(os.getenv("TELEGRAM_INVITE_HTTP_ATTEMPTS", "2")), 3))
+    except ValueError:
+        attempts = 2
+    try:
+        connect_timeout = max(1.0, float(os.getenv("TELEGRAM_CONNECT_TIMEOUT_SECONDS", "3")))
+        read_timeout = max(1.0, float(os.getenv("TELEGRAM_READ_TIMEOUT_SECONDS", "12")))
+    except ValueError:
+        connect_timeout, read_timeout = 3.0, 12.0
+
+    last_error: Exception | None = None
+    for _ in range(attempts):
+        for base in _telegram_bases():
+            try:
+                response = requests.post(
+                    f"{base}/bot{token}/{method}",
+                    json=payload,
+                    timeout=(connect_timeout, read_timeout),
+                )
+                data = response.json()
+                if data.get("ok"):
+                    return data
+                last_error = RuntimeError(f"Telegram {method} failed: {data.get('description', 'unknown error')}")
+            except Exception as exc:
+                last_error = exc
+    raise RuntimeError(f"Telegram {method} failed after {attempts} attempt(s): {last_error}") from last_error
 
 
 def _parse_dt(value: Any) -> Optional[datetime]:
@@ -56,12 +76,17 @@ def _is_postgrest_no_content(error: Exception) -> bool:
     return code == "204" or ("missing response" in text and "204" in text)
 
 
+def _is_missing_invites_table(error: Exception) -> bool:
+    """Support a safe transition while the optional invite migration is pending."""
+    return str(getattr(error, "code", "")).strip() == "PGRST205" or "pro_telegram_invites" in str(error)
+
+
 def _execute_write(query: Any) -> Any:
     """Execute a write while accepting HTTP 204 as a successful empty response."""
     try:
         return query.execute()
     except Exception as error:
-        if _is_postgrest_no_content(error):
+        if _is_postgrest_no_content(error) or _is_missing_invites_table(error):
             return None
         raise
 
@@ -138,9 +163,16 @@ def save_invite(user_id: str, invite_link: str, invite_expires_at: str) -> Dict[
         "invite_expires_at": invite_expires_at,
         "updated_at": now,
     }
-    _execute_write(
-        supabase.table("pro_telegram_invites").upsert(row, on_conflict="user_id")
-    )
+    try:
+        _execute_write(
+            supabase.table("pro_telegram_invites").upsert(row, on_conflict="user_id")
+        )
+    except Exception as error:
+        # local_payment_orders is the durable compatibility store created by
+        # the earlier payment migration. Keep issuing a valid user-scoped link
+        # until the optional dedicated invite table is applied to production.
+        if not _is_missing_invites_table(error):
+            raise
     _sync_order_invite(user_id, invite_link, invite_expires_at)
     return row
 

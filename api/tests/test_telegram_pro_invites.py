@@ -1,11 +1,24 @@
 import unittest
 from datetime import datetime, timedelta, timezone
-from unittest.mock import patch
+from unittest.mock import Mock, patch
+
+import requests
 
 from api import telegram_pro_invites as invites
 
 
 class TelegramProInviteTests(unittest.TestCase):
+    def test_telegram_api_retries_after_transient_timeouts(self):
+        failed = requests.Timeout("timed out")
+        successful = Mock()
+        successful.json.return_value = {"ok": True, "result": {"invite_link": "https://t.me/+new"}}
+        with patch.dict("os.environ", {"SUPPORT_BOT_TOKEN": "test-token", "TELEGRAM_RELAY_URL": "https://relay.example.test"}, clear=False), \
+             patch.object(invites.requests, "post", side_effect=[failed, failed, successful]) as post:
+            response = invites.telegram_api("createChatInviteLink", {"chat_id": "-1001"})
+        self.assertTrue(response["ok"])
+        self.assertEqual(post.call_count, 3)
+        self.assertEqual(post.call_args.kwargs["timeout"], (3.0, 12.0))
+
     def test_missing_invite_row_accepts_postgrest_204(self):
         class NoContentQuery:
             def select(self, *args, **kwargs): return self
@@ -41,6 +54,25 @@ class TelegramProInviteTests(unittest.TestCase):
         with patch.object(invites, "_init_supabase"), patch.object(invites, "supabase", FakeSupabase()):
             row = invites.save_invite("user-1", "https://t.me/+new", future)
         self.assertEqual(row["invite_link"], "https://t.me/+new")
+
+    def test_save_invite_uses_payment_order_when_invites_table_is_pending(self):
+        class Query:
+            def upsert(self, *args, **kwargs): return self
+            def execute(self):
+                error = RuntimeError("Could not find the table 'public.pro_telegram_invites' in the schema cache")
+                error.code = "PGRST205"
+                raise error
+
+        class FakeSupabase:
+            def table(self, name): return Query()
+
+        future = (datetime.now(timezone.utc) + timedelta(days=10)).isoformat()
+        with patch.object(invites, "_init_supabase"), \
+             patch.object(invites, "supabase", FakeSupabase()), \
+             patch.object(invites, "_sync_order_invite") as sync_order:
+            row = invites.save_invite("user-1", "https://t.me/+new", future)
+        self.assertEqual(row["invite_link"], "https://t.me/+new")
+        sync_order.assert_called_once_with("user-1", "https://t.me/+new", future)
 
     def test_ensure_pro_invite_reuses_valid_saved_link(self):
         future = (datetime.now(timezone.utc) + timedelta(days=10)).isoformat()

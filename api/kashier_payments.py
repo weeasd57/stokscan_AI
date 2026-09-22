@@ -87,11 +87,11 @@ def get_secret_key() -> str:
 
 
 def plan_amount_egp(plan_id: str) -> float:
-    """Amount in EGP for a plan. Single 300 EGP Pro plan by default."""
+    """Amount in EGP for a plan. Single 200 EGP Pro plan by default."""
     plan = (plan_id or "").strip().lower()
     if plan == "pro":
-        return float(os.getenv("KASHIER_PRO_PRICE_EGP", "300"))
-    return float(os.getenv("KASHIER_PRO_PRICE_EGP", "300"))
+        return float(os.getenv("PRO_PRICE_EGP", os.getenv("KASHIER_PRO_PRICE_EGP", "200")))
+    return float(os.getenv("PRO_PRICE_EGP", os.getenv("KASHIER_PRO_PRICE_EGP", "200")))
 
 
 def subscription_days(plan_id: str) -> int:

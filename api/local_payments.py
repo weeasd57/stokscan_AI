@@ -15,7 +15,7 @@ def is_local_payments_enabled() -> bool:
 
 
 def price_egp(plan_id: str) -> int:
-    return int(float(os.getenv("LOCAL_PRO_PRICE_EGP", os.getenv("KASHIER_PRO_PRICE_EGP", "300"))))
+    return int(float(os.getenv("PRO_PRICE_EGP", os.getenv("LOCAL_PRO_PRICE_EGP", os.getenv("KASHIER_PRO_PRICE_EGP", "200")))))
 
 
 def _admin_chat_id() -> Optional[int]:
@@ -111,7 +111,7 @@ def get_order_status(order_id: str, user_id: str) -> Dict[str, Any]:
     if order.get("status") == "approved":
         sub = supabase.table("subscriptions").select("status,current_period_end").eq("user_id", user_id).eq("plan_id", "pro").eq("status", "active").order("current_period_end", desc=True).limit(1).maybe_single().execute()
         sub_end = (sub.data or {}).get("current_period_end") if sub and sub.data else None
-        if sub_end and not order.get("telegram_invite_link"):
+        if sub_end:
             try:
                 invite_row = ensure_pro_invite(user_id, str(sub_end))
                 if invite_row.get("invite_link"):

@@ -167,7 +167,7 @@ export default function PricingClient() {
     );
   }
 
-  const proPrice = localConfig.amount_egp ?? 300;
+  const proPrice = localConfig.amount_egp ?? 200;
 
   const freeFeatures = [
     {

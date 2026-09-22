@@ -16,6 +16,11 @@ from api.web_origin import get_web_origin
 router = APIRouter(prefix="/payment", tags=["payment"])
 
 
+def pro_price_egp() -> int:
+    """Read the single Pro price used by every enabled payment provider."""
+    return int(float(os.getenv("PRO_PRICE_EGP", os.getenv("PAYMOB_PRO_PRICE_EGP", "200"))))
+
+
 class CheckoutRequest(BaseModel):
     plan_id: str
     user_id: str
@@ -41,7 +46,7 @@ def paymob_checkout(req: CheckoutRequest):
     # 2. Determine price in EGP cents
     plan_clean = req.plan_id.strip().lower()
     if plan_clean == "pro":
-        amount_egp = 1450
+        amount_egp = pro_price_egp()
     elif plan_clean == "enterprise":
         amount_egp = 4950
     elif plan_clean.startswith("donate_"):
@@ -51,8 +56,8 @@ def paymob_checkout(req: CheckoutRequest):
         except ValueError:
             amount_egp = 100
     else:
-        # Fallback/dynamic pricing lookup if needed, otherwise default to Pro price
-        amount_egp = 1450
+        # Fallback/dynamic pricing lookup if needed, otherwise use Pro price.
+        amount_egp = pro_price_egp()
 
     amount_cents = int(amount_egp * 100)
 
@@ -277,8 +282,7 @@ async def paymob_webhook(request: Request):
                     _init_supabase()
                     if supabase:
                         # 1. Upsert pricing plan if not exists (to satisfy FK constraint)
-                        # Pro plan price is 29 USD, Enterprise is 99 USD
-                        plan_cents = 2900 if plan_id.lower() == "pro" else 9900
+                        plan_cents = pro_price_egp() * 100 if plan_id.lower() == "pro" else 9900
                         supabase.table("pricing_plans").upsert(
                             {
                                 "id": plan_id,
