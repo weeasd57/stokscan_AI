@@ -90,7 +90,7 @@ def test_claimed_adjustment_is_formatted_without_network(mock_notify, _mock_proj
 
 
 @patch("api.daily_bot_run._telegram_delivery_project_allowed", return_value=True)
-@patch("api.daily_bot_run._notify_central_telegram", return_value=True)
+@patch("api.daily_bot_run._notify_free_telegram", return_value=True)
 def test_claimed_exit_is_formatted_without_network(mock_notify, _mock_project):
     delivered = _send_telegram_exit(
         "TEST", "EGX", 10.0, 13.5, 35.0, "win",

@@ -155,7 +155,10 @@ def fetch_eod_data_free(symbol: str, period: str = "6mo") -> List[Dict[str, Any]
         yf_symbol = symbol_map.get(symbol, symbol)
         
         # Try with retries and shorter timeout
-        max_retries = 2
+        # Yahoo's EGP=X endpoint is unreliable from hosted runners and emits
+        # noisy errors inside yfinance. Try the configured proxy once, then
+        # retain the existing Supabase USD/EGP history if it is unavailable.
+        max_retries = 1 if yf_symbol == "EGP=X" else 2
         for attempt in range(max_retries):
             try:
                 # First try Cloudflare Proxy if configured (more reliable for Hugging Face)
@@ -205,7 +208,7 @@ def fetch_eod_data_free(symbol: str, period: str = "6mo") -> List[Dict[str, Any]
                                 hist = hist.dropna(subset=["Close", "Open", "High", "Low"], how="any")
                 
                 # If CF proxy failed or is not configured, fallback to standard yfinance
-                if hist.empty:
+                if hist.empty and yf_symbol != "EGP=X":
                     ticker = yf.Ticker(yf_symbol)
                     hist = ticker.history(period=period)
                 
@@ -514,9 +517,9 @@ def get_market_status_free(from_date: str = None, period: str = "1y") -> Dict[st
         logger.warning(f"EGX100 merge failed: {e}")
 
     try:
+        # USDEGP.FOREX already maps to EGP=X inside fetch_eod_data_free;
+        # calling EGP=X again only duplicated the same failed network request.
         fresh_usd = fetch_eod_data_free("USDEGP.FOREX", period=period)
-        if not fresh_usd:
-            fresh_usd = fetch_eod_data_free("EGP=X", period=period)
         if fresh_usd:
             merged = {r["date"]: r for r in usd_egp_data}
             for r in fresh_usd:

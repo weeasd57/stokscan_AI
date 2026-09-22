@@ -1360,21 +1360,10 @@ def get_supabase_inventory() -> List[Dict[str, Any]]:
         print(f"Warning: stock_prices direct fallback failed: {e}")
 
     try:
-        # 3c. Fetch 15m intraday count per exchange
+        # Supabase intraday persistence was retired. Equity inventory is based
+        # on stock_prices; CRYPTO intraday inventory is enriched from local
+        # storage below without calling the removed database RPC/table.
         intraday_counts = {}
-        try:
-            exchanges_to_check = set(expected_map.keys()) | {s.get("exchange") for s in stats if s.get("exchange")}
-            for ex in exchanges_to_check:
-                if not ex: continue
-                def _fetch_intraday_stats(sb, exchange=ex):
-                    return sb.rpc("get_intraday_symbol_stats", {"p_exchange": exchange, "p_timeframe": "15m"}).execute()
-                res_intra = _supabase_read_with_retry(_fetch_intraday_stats, table_name=f"intraday_stats_{ex}")
-                if res_intra.data:
-                    intraday_counts[ex] = len(res_intra.data)
-                else:
-                    intraday_counts[ex] = 0
-        except Exception as e:
-            print(f"Warning: Failed to fetch intraday counts: {e}")
 
         # 4. Join and group (Shared Logic)
         out = []
@@ -1430,6 +1419,7 @@ def get_supabase_inventory() -> List[Dict[str, Any]]:
         # Override CRYPTO stats with local data
         from api.local_storage import get_local_crypto_symbols_count
         local_crypto_count = get_local_crypto_symbols_count()
+        intraday_counts["CRYPTO"] = local_crypto_count
         crypto_found = False
         for row in out:
             if row.get("exchange") == "CRYPTO":

@@ -4403,7 +4403,7 @@ def send_telegram_dispatch(payload: dict):
             raise HTTPException(status_code=400, detail="Message content cannot be empty")
             
         chat_id = payload.get("chat_id") or os.getenv("TELEGRAM_CHAT_ID") or getattr(bot, "chat_id", None)
-        if str(chat_id or "").strip() in {"", "-1003699330518"}:
+        if not str(chat_id or "").strip():
             chat_id = "-1002083067817_153"
 
         parse_mode = payload.get("parse_mode", "Markdown")

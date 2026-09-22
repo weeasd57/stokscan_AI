@@ -1154,12 +1154,12 @@ _FREE_TELEGRAM_SERVICE_TYPES = frozenset({
 
 
 def _resolve_vip_chat_target() -> str:
-    from api.plan_limits import telegram_pro_channel_target, telegram_recommendations_target
+    from api.plan_limits import telegram_pro_channel_target
 
-    chat_id = telegram_pro_channel_target()
-    if not chat_id or str(chat_id).strip() in {"", "-1003699330518"}:
-        chat_id = telegram_recommendations_target()
-    return str(chat_id or "").strip()
+    # VIP traffic must never fall back to a public/recommendations target.
+    # A missing destination is safer as an explicit failed delivery than a
+    # successful post to the free channel.
+    return str(telegram_pro_channel_target() or "").strip()
 
 
 def _format_telegram_delivery_error(bot: Any) -> str:

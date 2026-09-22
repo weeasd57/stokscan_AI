@@ -49,6 +49,23 @@ def _parse_dt(value: Any) -> Optional[datetime]:
         return None
 
 
+def _is_postgrest_no_content(error: Exception) -> bool:
+    """Recognize successful/no-row PostgREST responses rejected by old clients."""
+    text = str(error).lower()
+    code = str(getattr(error, "code", "")).strip()
+    return code == "204" or ("missing response" in text and "204" in text)
+
+
+def _execute_write(query: Any) -> Any:
+    """Execute a write while accepting HTTP 204 as a successful empty response."""
+    try:
+        return query.execute()
+    except Exception as error:
+        if _is_postgrest_no_content(error):
+            return None
+        raise
+
+
 def create_invite_link(user_id: str, subscription_end: str) -> str:
     chat_id = pro_chat_id()
     if not chat_id:
@@ -70,13 +87,20 @@ def _load_invite_row(user_id: str) -> Optional[Dict[str, Any]]:
     _init_supabase()
     if not supabase:
         return None
-    res = (
-        supabase.table("pro_telegram_invites")
-        .select("user_id,invite_link,invite_expires_at,vip_telegram_user_id")
-        .eq("user_id", user_id)
-        .maybe_single()
-        .execute()
-    )
+    try:
+        res = (
+            supabase.table("pro_telegram_invites")
+            .select("user_id,invite_link,invite_expires_at,vip_telegram_user_id")
+            .eq("user_id", user_id)
+            .maybe_single()
+            .execute()
+        )
+    except Exception as error:
+        # Some deployed postgrest-py versions raise on a legitimate 204 when
+        # maybe_single() finds no row. Treat that as "missing", not an outage.
+        if _is_postgrest_no_content(error):
+            return None
+        raise
     return res.data if res else None
 
 
@@ -96,9 +120,11 @@ def _sync_order_invite(user_id: str, invite_link: str, invite_expires_at: str) -
     )
     if not orders:
         return
-    supabase.table("local_payment_orders").update(
-        {"telegram_invite_link": invite_link, "telegram_invite_expires_at": invite_expires_at}
-    ).eq("id", orders[0]["id"]).execute()
+    _execute_write(
+        supabase.table("local_payment_orders").update(
+            {"telegram_invite_link": invite_link, "telegram_invite_expires_at": invite_expires_at}
+        ).eq("id", orders[0]["id"])
+    )
 
 
 def save_invite(user_id: str, invite_link: str, invite_expires_at: str) -> Dict[str, Any]:
@@ -112,7 +138,9 @@ def save_invite(user_id: str, invite_link: str, invite_expires_at: str) -> Dict[
         "invite_expires_at": invite_expires_at,
         "updated_at": now,
     }
-    supabase.table("pro_telegram_invites").upsert(row, on_conflict="user_id").execute()
+    _execute_write(
+        supabase.table("pro_telegram_invites").upsert(row, on_conflict="user_id")
+    )
     _sync_order_invite(user_id, invite_link, invite_expires_at)
     return row
 

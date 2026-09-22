@@ -31,11 +31,10 @@ class TelegramBot:
     _DIRECT_API = "https://api.telegram.org"
     DEFAULT_CHANNEL_ID = "-1002083067817"
     DEFAULT_THREAD_ID = 153
-    # VIP mirror channel (https://t.me/egxbots_vip): every message delivered to
-    # the free channel is copied here as well. Override with the
-    # TELEGRAM_VIP_CHANNEL_ID env var; set it to an empty value to disable.
+    # Optional historical VIP target used only for explicit direct sends.
+    # Public messages are not mirrored into it.
     VIP_CHANNEL_ID = (os.getenv("TELEGRAM_VIP_CHANNEL_ID") or "-1003906516349").strip()
-    LEGACY_BAD_CHAT_IDS = {"-1003699330518", "8805346788"}
+    LEGACY_BAD_CHAT_IDS = {"8805346788"}
     MAX_MESSAGE_LENGTH = 3900
 
     @property

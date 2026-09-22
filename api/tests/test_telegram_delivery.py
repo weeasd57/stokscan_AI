@@ -27,6 +27,16 @@ class TelegramDeliveryTests(unittest.TestCase):
         self.assertTrue(self.bot.send_notification("direct", chat_id="-1003906516349"))
         self.assertEqual(len(self.bot._channel_queue), 1)
 
+    def test_configured_pro_channel_is_not_rewritten_to_free(self):
+        responses = [{"ok": True, "result": {"message_id": 404}}]
+        with patch.object(self.bot, "_call_api", side_effect=responses) as call_api:
+            delivered = self.bot.send_notification(
+                "vip only", chat_id="-1003699330518", wait_for_delivery=True
+            )
+        self.assertTrue(delivered)
+        self.assertEqual(call_api.call_args.args[1]["chat_id"], -1003699330518)
+        self.assertNotIn("message_thread_id", call_api.call_args.args[1])
+
     def test_vip_mirror_can_be_disabled_via_env(self):
         with patch.object(TelegramBot, "VIP_CHANNEL_ID", ""):
             self.assertTrue(self.bot.send_notification("no mirror", chat_id="-1002083067817_153"))

@@ -1,10 +1,11 @@
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from api.daily_bot_run import (
     TelegramNotificationOutcome,
     _build_daily_digest_message,
     _notify_central_telegram,
+    _notify_vip_telegram,
     _resolve_vip_chat_target,
 )
 
@@ -15,10 +16,29 @@ class TelegramNotifyRoutingTests(unittest.TestCase):
              patch("api.plan_limits.telegram_recommendations_target", return_value="-100111"):
             self.assertEqual(_resolve_vip_chat_target(), "-100999")
 
-    def test_resolve_vip_chat_target_falls_back_when_pro_missing(self):
+    def test_resolve_vip_chat_target_never_falls_back_when_pro_missing(self):
         with patch("api.plan_limits.telegram_pro_channel_target", return_value=""), \
              patch("api.plan_limits.telegram_recommendations_target", return_value="-100111"):
-            self.assertEqual(_resolve_vip_chat_target(), "-100111")
+            self.assertEqual(_resolve_vip_chat_target(), "")
+
+    def test_configured_legacy_vip_id_is_still_a_valid_vip_target(self):
+        with patch("api.plan_limits.telegram_pro_channel_target", return_value="-1003699330518"):
+            self.assertEqual(_resolve_vip_chat_target(), "-1003699330518")
+
+    def test_vip_delivery_uses_configured_pro_channel_end_to_end(self):
+        bot = Mock()
+        bot.send_notification.return_value = True
+        bot.get_last_delivery_receipts.return_value = [
+            {"chat_id": -1003699330518, "message_id": 404}
+        ]
+        with patch("api.plan_limits.telegram_pro_channel_target", return_value="-1003699330518"), \
+             patch("api.telegram_bot.get_telegram_bot", return_value=bot):
+            result = _notify_vip_telegram("vip only", "daily_digest")
+
+        self.assertTrue(result)
+        bot.send_notification.assert_called_once_with(
+            "vip only", chat_id="-1003699330518", wait_for_delivery=True
+        )
 
     def test_central_notify_routes_exits_to_free_channel(self):
         with patch("api.daily_bot_run._notify_free_telegram", return_value=True) as free_send, \

@@ -6,6 +6,42 @@ from api import telegram_pro_invites as invites
 
 
 class TelegramProInviteTests(unittest.TestCase):
+    def test_missing_invite_row_accepts_postgrest_204(self):
+        class NoContentQuery:
+            def select(self, *args, **kwargs): return self
+            def eq(self, *args, **kwargs): return self
+            def maybe_single(self): return self
+            def execute(self):
+                raise RuntimeError("{'message': 'Missing response', 'code': '204'}")
+
+        class FakeSupabase:
+            def table(self, name): return NoContentQuery()
+
+        with patch.object(invites, "_init_supabase"), patch.object(invites, "supabase", FakeSupabase()):
+            self.assertIsNone(invites._load_invite_row("user-1"))
+
+    def test_save_invite_accepts_empty_204_write_response(self):
+        class Query:
+            def __init__(self, table): self.table = table
+            def upsert(self, *args, **kwargs): return self
+            def select(self, *args, **kwargs): return self
+            def update(self, *args, **kwargs): return self
+            def eq(self, *args, **kwargs): return self
+            def order(self, *args, **kwargs): return self
+            def limit(self, *args, **kwargs): return self
+            def execute(self):
+                if self.table == "pro_telegram_invites":
+                    raise RuntimeError("{'message': 'Missing response', 'code': '204'}")
+                return type("Response", (), {"data": []})()
+
+        class FakeSupabase:
+            def table(self, name): return Query(name)
+
+        future = (datetime.now(timezone.utc) + timedelta(days=10)).isoformat()
+        with patch.object(invites, "_init_supabase"), patch.object(invites, "supabase", FakeSupabase()):
+            row = invites.save_invite("user-1", "https://t.me/+new", future)
+        self.assertEqual(row["invite_link"], "https://t.me/+new")
+
     def test_ensure_pro_invite_reuses_valid_saved_link(self):
         future = (datetime.now(timezone.utc) + timedelta(days=10)).isoformat()
         with patch.object(invites, "_load_invite_row", return_value={"invite_link": "https://t.me/+abc", "invite_expires_at": future}), \

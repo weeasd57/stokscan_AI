@@ -124,7 +124,7 @@ def telegram_recommendations_target() -> str:
     if target:
         return target
     target = os.getenv("TELEGRAM_CHAT_ID", "").strip()
-    if target and str(target).strip() not in {"-1003699330518"}:
+    if target:
         return target
     return "-1002083067817_153"
 
