@@ -22,6 +22,8 @@ export default function ProfilePage() {
   const [username, setUsername] = useState<string | null>(null);
   const [telegramLinked, setTelegramLinked] = useState(false);
   const [proInvite, setProInvite] = useState<{ is_pro: boolean; invite_link?: string; invite_expires_at?: string | null }>({ is_pro: false });
+  const [inviteLoading, setInviteLoading] = useState(true);
+  const [inviteError, setInviteError] = useState(false);
   const proInviteUrl = proInvite.is_pro && proInvite.invite_link ? proInvite.invite_link : "";
   const freeTelegramUrl = "https://t.me/egxbots/153";
   const freeTelegramWebUrl = "https://web.telegram.org/a/#@egxbots";
@@ -52,8 +54,18 @@ export default function ProfilePage() {
       setUsername((profileRow as any).username || (profileRow as any).display_name || null);
       setTelegramLinked(Boolean((profileRow as any).telegram_chat_id));
     }
-    const inviteRes = await fetch("/api/profile/telegram-pro", { cache: "no-store" });
-    if (inviteRes.ok) setProInvite(await inviteRes.json());
+    setInviteLoading(true);
+    try {
+      const inviteRes = await fetch("/api/profile/telegram-pro", { cache: "no-store" });
+      if (!inviteRes.ok) throw new Error("Invite request failed");
+      const nextInvite = await inviteRes.json();
+      setProInvite(nextInvite);
+      setInviteError(Boolean(nextInvite.is_pro && !nextInvite.invite_link));
+    } catch {
+      setInviteError(true);
+    } finally {
+      setInviteLoading(false);
+    }
   }, [supabase, user]);
 
   useEffect(() => {
@@ -177,9 +189,13 @@ export default function ProfilePage() {
           </div>
 
           <p className="text-sm font-bold text-zinc-700 dark:text-zinc-300 leading-relaxed">
-             {proInvite.is_pro && proInvite.invite_link
-               ? (isAr ? "أنت مشترك Pro. استخدم رابط الدعوة الخاص بك للوصول إلى قناة Pro لمدة شهر." : "You are a Pro member. Use your private one-month invite to join the Pro Telegram channel.")
-                : (isAr ? "القناة المجانية تعرض التوصيات القديمة والتعديلات بتأخير 15 يوماً. التحديث اللحظي متاح في Pro." : "The free channel shows older recommendations and updates with a 15-day delay. Live updates are available in Pro.")}
+             {inviteLoading
+               ? (isAr ? "جاري التحقق من رابط قناة التليجرام..." : "Checking your Telegram channel invite...")
+               : inviteError
+                 ? (isAr ? "تعذر تجهيز دعوة VIP حالياً. أعد المحاولة، وإذا استمرت المشكلة تواصل مع الدعم من الموقع." : "We couldn't prepare the VIP invite. Retry, or contact support if the problem continues.")
+                 : proInvite.is_pro
+                   ? (isAr ? "أنت مشترك Pro. استخدم رابط الدعوة الخاص بك للوصول إلى قناة Pro." : "You are a Pro member. Use your private invite to join the Pro Telegram channel.")
+                   : (isAr ? "القناة المجانية تعرض التوصيات القديمة والتعديلات بتأخير 15 يوماً. التحديث اللحظي متاح في Pro." : "The free channel shows older recommendations and updates with a 15-day delay. Live updates are available in Pro.")}
           </p>
 
            {proInvite.is_pro && proInvite.invite_link && (
@@ -189,7 +205,14 @@ export default function ProfilePage() {
                <p className="text-[11px] font-bold text-zinc-600 dark:text-zinc-400">{isAr ? `الرابط صالح حتى ${proInvite.invite_expires_at ? new Date(proInvite.invite_expires_at).toLocaleDateString("ar-EG") : "نهاية اشتراكك"}.` : `Valid until ${proInvite.invite_expires_at ? new Date(proInvite.invite_expires_at).toLocaleDateString() : "your subscription ends"}.`}</p>
              </div>
            )}
+           {(inviteError || inviteLoading) && (
+             <div className="flex items-center gap-3 text-xs font-bold text-amber-700 dark:text-amber-300">
+               <span>{inviteLoading ? (isAr ? "جاري تجهيز دعوة VIP..." : "Preparing your VIP invite...") : (isAr ? "تعذر تحميل دعوة VIP. لن يظهر رابط القناة المجانية كبديل لاشتراكك." : "VIP invite unavailable. The free channel is not a substitute for your subscription.")}</span>
+               {!inviteLoading && <button type="button" onClick={() => void reloadProfile()} className="underline" aria-label={isAr ? "إعادة محاولة دعوة VIP" : "Retry VIP invite"}>{isAr ? "إعادة المحاولة" : "Retry"}</button>}
+             </div>
+           )}
            <div className="flex flex-col sm:flex-row gap-3 pt-1">
+            {(proInviteUrl || (!proInvite.is_pro && !inviteError && !inviteLoading)) && <>
             <a
               href={proInviteUrl || freeTelegramUrl}
               target="_blank"
@@ -208,6 +231,7 @@ export default function ProfilePage() {
               <Globe className="w-4 h-4 shrink-0" />
               {proInviteUrl ? (isAr ? "فتح دعوة Pro" : "Open Pro Invite") : (isAr ? "افتح القناة المجانية" : "Open Free Channel")}
             </a>
+            </>}
           </div>
         </section>
       </div>
