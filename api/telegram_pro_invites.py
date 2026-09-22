@@ -55,7 +55,14 @@ def telegram_api(method: str, payload: Dict[str, Any]) -> Dict[str, Any]:
                 if data.get("ok"):
                     return data
                 last_error = RuntimeError(f"Telegram {method} failed: {data.get('description', 'unknown error')}")
+                # A Telegram 4xx is a deterministic configuration/permission
+                # error (for example, the bot is not in the VIP channel).
+                # Retrying it through another endpoint only delays the user.
+                if 400 <= int(data.get("error_code") or 0) < 500:
+                    raise last_error
             except Exception as exc:
+                if isinstance(exc, RuntimeError) and "Telegram " in str(exc):
+                    raise
                 last_error = exc
     raise RuntimeError(f"Telegram {method} failed after {attempts} attempt(s): {last_error}") from last_error
 

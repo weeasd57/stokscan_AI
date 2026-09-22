@@ -12,8 +12,7 @@ def get_token() -> str:
 def __getattr__(name: str):
     if name == "SUPPORT_BOT_TOKEN":
         token = get_token()
-        preview = f"{token[:4]}...{token[-4:]}" if len(token) > 8 else "empty/too_short"
-        print(f"[SUPPORT_CHAT] Dynamic lookup of SUPPORT_BOT_TOKEN: length={len(token)}, preview={preview}")
+        print("[SUPPORT_CHAT] SUPPORT_BOT_TOKEN is configured")
         return token
     raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
 CHAT_ID_FILE = os.path.join(os.path.dirname(__file__), "support_admin_chat_id.txt")
@@ -136,4 +135,3 @@ def handle_telegram_update(data: dict):
                     print(f"[SUPPORT_CHAT] Saved admin reply for session {session_id}")
                 except Exception as e:
                     print(f"[SUPPORT_CHAT] Error saving admin reply: {e}")
-

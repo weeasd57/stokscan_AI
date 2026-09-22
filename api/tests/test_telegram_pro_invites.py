@@ -19,6 +19,15 @@ class TelegramProInviteTests(unittest.TestCase):
         self.assertEqual(post.call_count, 3)
         self.assertEqual(post.call_args.kwargs["timeout"], (3.0, 12.0))
 
+    def test_telegram_api_does_not_retry_a_channel_permission_error(self):
+        rejected = Mock()
+        rejected.json.return_value = {"ok": False, "error_code": 400, "description": "Bad Request: chat not found"}
+        with patch.dict("os.environ", {"SUPPORT_BOT_TOKEN": "test-token", "TELEGRAM_RELAY_URL": "https://relay.example.test"}, clear=False), \
+             patch.object(invites.requests, "post", return_value=rejected) as post:
+            with self.assertRaisesRegex(RuntimeError, "chat not found"):
+                invites.telegram_api("createChatInviteLink", {"chat_id": "-1001"})
+        self.assertEqual(post.call_count, 1)
+
     def test_missing_invite_row_accepts_postgrest_204(self):
         class NoContentQuery:
             def select(self, *args, **kwargs): return self
