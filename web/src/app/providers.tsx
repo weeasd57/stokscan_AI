@@ -11,6 +11,7 @@ import { ThemeProvider } from "@/contexts/ThemeContext";
 import { NotificationProvider } from "@/contexts/NotificationContext";
 import { ChatProvider } from "@/contexts/ChatContext";
 import { PortfolioProvider } from "@/contexts/PortfolioContext";
+import { TelegramProProvider } from "@/contexts/TelegramProContext";
 
 if (typeof window !== "undefined") {
   const originalFetch = window.fetch;
@@ -53,6 +54,7 @@ export default function Providers({ children }: { children: ReactNode }) {
   return (
     <ThemeProvider>
       <AuthProvider>
+        <TelegramProProvider>
           <LanguageProvider>
             <NotificationProvider>
               <PortfolioProvider>
@@ -70,6 +72,7 @@ export default function Providers({ children }: { children: ReactNode }) {
               </PortfolioProvider>
             </NotificationProvider>
           </LanguageProvider>
+        </TelegramProProvider>
       </AuthProvider>
     </ThemeProvider>
   );

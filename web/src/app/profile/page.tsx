@@ -6,6 +6,7 @@ import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useWatchlist, type SavedSymbol } from "@/contexts/WatchlistContext";
+import { useTelegramPro } from "@/contexts/TelegramProContext";
 import { Loader2, Send, Globe, Star, Trash2, Edit3, X, Check, ExternalLink, User, Wallet, CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
 import MyPortfolioSection from "./components/MyPortfolioSection";
@@ -16,14 +17,12 @@ export default function ProfilePage() {
   const { user, loading } = useAuth();
   const { t, language } = useLanguage();
   const { watchlist, updateSymbol, removeSymbol } = useWatchlist();
+  const { invite: proInvite, loading: inviteLoading, error: inviteError, refresh: refreshProInvite } = useTelegramPro();
   const isAr = language === "ar";
   const supabase = useMemo(() => createSupabaseBrowserClient(), []);
 
   const [username, setUsername] = useState<string | null>(null);
   const [telegramLinked, setTelegramLinked] = useState(false);
-  const [proInvite, setProInvite] = useState<{ is_pro: boolean; invite_link?: string; invite_expires_at?: string | null }>({ is_pro: false });
-  const [inviteLoading, setInviteLoading] = useState(true);
-  const [inviteError, setInviteError] = useState(false);
   const proInviteUrl = proInvite.is_pro && proInvite.invite_link ? proInvite.invite_link : "";
   const freeTelegramUrl = "https://t.me/egxbots/153";
   const freeTelegramWebUrl = "https://web.telegram.org/a/#@egxbots";
@@ -53,18 +52,6 @@ export default function ProfilePage() {
     if (profileRow) {
       setUsername((profileRow as any).username || (profileRow as any).display_name || null);
       setTelegramLinked(Boolean((profileRow as any).telegram_chat_id));
-    }
-    setInviteLoading(true);
-    try {
-      const inviteRes = await fetch("/api/profile/telegram-pro", { cache: "no-store" });
-      if (!inviteRes.ok) throw new Error("Invite request failed");
-      const nextInvite = await inviteRes.json();
-      setProInvite(nextInvite);
-      setInviteError(Boolean(nextInvite.is_pro && !nextInvite.invite_link));
-    } catch {
-      setInviteError(true);
-    } finally {
-      setInviteLoading(false);
     }
   }, [supabase, user]);
 
@@ -208,7 +195,7 @@ export default function ProfilePage() {
            {(inviteError || inviteLoading) && (
              <div className="flex items-center gap-3 text-xs font-bold text-amber-700 dark:text-amber-300">
                <span>{inviteLoading ? (isAr ? "جاري تجهيز دعوة VIP..." : "Preparing your VIP invite...") : (isAr ? "تعذر تحميل دعوة VIP. لن يظهر رابط القناة المجانية كبديل لاشتراكك." : "VIP invite unavailable. The free channel is not a substitute for your subscription.")}</span>
-               {!inviteLoading && <button type="button" onClick={() => void reloadProfile()} className="underline" aria-label={isAr ? "إعادة محاولة دعوة VIP" : "Retry VIP invite"}>{isAr ? "إعادة المحاولة" : "Retry"}</button>}
+               {!inviteLoading && <button type="button" onClick={() => void refreshProInvite()} className="underline" aria-label={isAr ? "إعادة محاولة دعوة VIP" : "Retry VIP invite"}>{isAr ? "إعادة المحاولة" : "Retry"}</button>}
              </div>
            )}
            <div className="flex flex-col sm:flex-row gap-3 pt-1">
