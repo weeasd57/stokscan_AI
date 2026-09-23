@@ -21,8 +21,6 @@ import ScheduleTab from "./components/ScheduleTab";
 import HistoricalSimilarityTab from "./components/HistoricalSimilarityTab";
 import DailyJobsTab from "./components/DailyJobsTab";
 import UsersTab from "./components/UsersTab";
-import ArticlesTab from "./components/ArticlesTab";
-import SupportTab from "./components/SupportTab";
 import AIChatbotTab from "./components/AIChatbotTab";
 
 const SESSION_KEY = "admin_unlocked_v1";
@@ -50,7 +48,7 @@ export default function AdminPage() {
     const [symbolsQuery, setSymbolsQuery] = useState("");
     const [currentPage, setCurrentPage] = useState(1);
     const [pageSize, setPageSize] = useState(100);
-    const [activeMainTab, setActiveMainTab] = useState<"data" | "ai" | "backtest" | "bot" | "schedule" | "similarity" | "jobs" | "users" | "articles" | "support">("data");
+    const [activeMainTab, setActiveMainTab] = useState<"data" | "ai" | "backtest" | "bot" | "schedule" | "similarity" | "jobs" | "users" | "support">("data");
     const [dataSourcesTab, setDataSourcesTab] = useState<"prices" | "funds">("prices");
     const [selectedSymbols, setSelectedSymbols] = useState<Set<string>>(new Set());
     const [processing, setProcessing] = useState(false);
@@ -578,8 +576,6 @@ export default function AdminPage() {
                     <HistoricalSimilarityTab dbInventory={dbInventory} />
                 ) : activeMainTab === "users" ? (
                     <UsersTab />
-                ) : activeMainTab === "articles" ? (
-                    <ArticlesTab />
                 ) : activeMainTab === "support" ? (
                     <AIChatbotTab />
                 ) : (

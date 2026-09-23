@@ -87,15 +87,21 @@ def get_secret_key() -> str:
 
 
 def plan_amount_egp(plan_id: str) -> float:
-    """Amount in EGP for a plan. Single 200 EGP Pro plan by default."""
+    """Return the configured amount for a supported Pro billing period."""
     plan = (plan_id or "").strip().lower()
-    if plan == "pro":
-        return float(os.getenv("PRO_PRICE_EGP", os.getenv("KASHIER_PRO_PRICE_EGP", "200")))
+    if plan == "pro_6m":
+        return float(os.getenv("PRO_6M_PRICE_EGP", "1000"))
+    if plan == "pro_1y":
+        return float(os.getenv("PRO_1Y_PRICE_EGP", "1800"))
     return float(os.getenv("PRO_PRICE_EGP", os.getenv("KASHIER_PRO_PRICE_EGP", "200")))
 
 
 def subscription_days(plan_id: str) -> int:
     plan = (plan_id or "").strip().lower()
+    if plan == "pro_6m":
+        return 180
+    if plan == "pro_1y":
+        return 365
     return int(os.getenv("KASHIER_SUBSCRIPTION_DAYS", "30"))
 
 
@@ -269,12 +275,14 @@ def _activate_subscription(user_id: str, plan_id: str, provider: str = "kashier"
     """
     now = datetime.now(timezone.utc)
     end = now + timedelta(days=subscription_days(plan_id))
+    requested_plan = (plan_id or "pro").strip().lower()
+    stored_plan = "pro" if requested_plan in {"pro", "pro_6m", "pro_1y"} else requested_plan
     # Ensure plan catalog row exists to satisfy the FK.
     supabase.table("pricing_plans").upsert(
         {
-            "id": plan_id,
-            "name": "Pro" if plan_id == "pro" else plan_id,
-            "price_monthly_cents": int(round(float(plan_amount_egp(plan_id)) * 100)),
+            "id": stored_plan,
+            "name": "Pro" if stored_plan == "pro" else stored_plan,
+            "price_monthly_cents": int(round(float(plan_amount_egp(requested_plan)) * 100)),
             "is_active": True,
         },
         on_conflict="id",
@@ -282,7 +290,7 @@ def _activate_subscription(user_id: str, plan_id: str, provider: str = "kashier"
 
     fields = {
         "user_id": user_id,
-        "plan_id": plan_id,
+        "plan_id": stored_plan,
         "status": "active",
         "provider": provider,
         "current_period_start": now.isoformat(),
@@ -294,7 +302,7 @@ def _activate_subscription(user_id: str, plan_id: str, provider: str = "kashier"
         supabase.table("subscriptions")
         .select("id, plan_id, status")
         .eq("user_id", user_id)
-        .eq("plan_id", plan_id)
+        .eq("plan_id", stored_plan)
         .limit(1)
         .maybe_single()
         .execute()
@@ -313,7 +321,7 @@ def _activate_subscription(user_id: str, plan_id: str, provider: str = "kashier"
         .select("id, plan_id")
         .eq("user_id", user_id)
         .eq("status", "active")
-        .neq("plan_id", plan_id)
+        .neq("plan_id", stored_plan)
         .execute()
     )
     other_data = other.data if other else []
@@ -322,7 +330,7 @@ def _activate_subscription(user_id: str, plan_id: str, provider: str = "kashier"
             {"status": "cancelled", "updated_at": now.isoformat()}
         ).eq("id", stale["id"]).execute()
 
-    print(f"[KASHIER] Activated subscription user={user_id} plan={plan_id} until {end.isoformat()}")
+    print(f"[KASHIER] Activated subscription user={user_id} plan={stored_plan} ({requested_plan}) until {end.isoformat()}")
 
 
 def _cancel_subscription(user_id: str) -> None:

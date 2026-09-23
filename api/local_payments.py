@@ -15,6 +15,11 @@ def is_local_payments_enabled() -> bool:
 
 
 def price_egp(plan_id: str) -> int:
+    plan = (plan_id or "pro").strip().lower()
+    if plan == "pro_6m":
+        return int(float(os.getenv("PRO_6M_PRICE_EGP", "1000")))
+    if plan == "pro_1y":
+        return int(float(os.getenv("PRO_1Y_PRICE_EGP", "1800")))
     return int(float(os.getenv("PRO_PRICE_EGP", os.getenv("LOCAL_PRO_PRICE_EGP", os.getenv("KASHIER_PRO_PRICE_EGP", "200")))))
 
 
@@ -47,8 +52,9 @@ def _telegram(method: str, payload: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def create_order(user_id: str, plan_id: str = "pro") -> Dict[str, Any]:
-    if plan_id.lower() != "pro":
-        raise ValueError("Only the Pro plan is available")
+    plan_id = (plan_id or "pro").strip().lower()
+    if plan_id not in {"pro", "pro_6m", "pro_1y"}:
+        raise ValueError("Unsupported Pro plan")
     _init_supabase()
     if not supabase:
         raise RuntimeError("Supabase is not initialized")
@@ -56,14 +62,14 @@ def create_order(user_id: str, plan_id: str = "pro") -> Dict[str, Any]:
     row = {
         "id": order_id,
         "user_id": user_id,
-        "plan_id": "pro",
-        "amount_egp": price_egp("pro"),
+        "plan_id": plan_id,
+        "amount_egp": price_egp(plan_id),
         "status": "pending",
     }
     result = supabase.table("local_payment_orders").insert(row).execute()
     if not result.data:
         raise RuntimeError("Could not create payment order")
-    return {"order_id": order_id, "plan_id": "pro", "amount_egp": row["amount_egp"], "status": "pending"}
+    return {"order_id": order_id, "plan_id": plan_id, "amount_egp": row["amount_egp"], "status": "pending"}
 
 
 def submit_order(order_id: str, user_id: str, note: str = "") -> Dict[str, Any]:
@@ -85,7 +91,7 @@ def submit_order(order_id: str, user_id: str, note: str = "") -> Dict[str, Any]:
         "💰 <b>طلب دفع Vodafone Cash</b>\n"
         f"<b>Order:</b> <code>{html.escape(order_id)}</code>\n"
         f"<b>User:</b> <code>{html.escape(user_id)}</code>\n"
-        f"<b>Plan:</b> Pro | <b>Amount:</b> {order['amount_egp']} EGP\n"
+        f"<b>Plan:</b> {html.escape(str(order.get('plan_id', 'pro')).upper())} | <b>Amount:</b> {order['amount_egp']} EGP\n"
         f"<b>Note:</b> {html.escape(note[:500] or 'لا توجد ملاحظة')}\n\n"
         "راجع التحويل في Vodafone Cash ثم اختر القرار:"
     )

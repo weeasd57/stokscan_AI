@@ -2,6 +2,7 @@
 
 import { useMemo, useState, Suspense, type FormEvent } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -70,7 +71,22 @@ function LoginForm() {
 
   return (
     <div className="min-h-[75vh] flex flex-col items-center justify-center px-4 py-16 relative overflow-hidden neobrutal-grid-bg">
-      <div className="w-full max-w-md neobrutal-card p-8 relative z-10">
+      <div className="w-full max-w-5xl grid gap-6 lg:grid-cols-[1.05fr_0.95fr] items-stretch relative z-10">
+        <div className="hidden lg:block relative min-h-[620px] overflow-hidden border-4 border-black dark:border-white bg-[#f6eddb] shadow-[6px_6px_0px_rgba(0,0,0,1)] dark:shadow-[6px_6px_0px_rgba(255,255,255,1)]">
+          <Image
+            src="/egxbots-login-hero.png"
+            alt="EGX BOTS — Egyptian market intelligence"
+            fill
+            priority
+            sizes="(max-width: 1024px) 0px, 52vw"
+            className="object-cover"
+          />
+          <div className="absolute inset-x-0 bottom-0 bg-black/75 px-6 py-5 text-white">
+            <p className="text-xs font-black uppercase tracking-[0.22em] text-emerald-300">EGX BOTS</p>
+            <p className="mt-1 text-lg font-black">بيانات أوضح. قرارات أذكى.</p>
+          </div>
+        </div>
+        <div className="w-full max-w-md justify-self-center lg:max-w-none neobrutal-card p-8 relative z-10">
         <div className="space-y-1">
           <h1 className="text-3xl font-black text-black dark:text-white tracking-tight">
             {t("auth.login.title")}
@@ -170,6 +186,7 @@ function LoginForm() {
           <Link href="/signup" className="text-indigo-600 dark:text-indigo-400 hover:underline">
             {t("auth.login.create_one")}
           </Link>
+        </div>
         </div>
       </div>
     </div>

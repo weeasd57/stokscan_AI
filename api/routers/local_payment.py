@@ -21,6 +21,11 @@ class LocalPaymentSubmit(BaseModel):
 @router.get("/config")
 def local_payment_config():
     return {"enabled": is_local_payments_enabled(), "provider": "vodafone_cash", "amount_egp": price_egp("pro"),
+            "plans": [
+                {"id": "pro", "name_ar": "شهري", "name_en": "Monthly", "amount_egp": price_egp("pro"), "days": 30},
+                {"id": "pro_6m", "name_ar": "6 شهور", "name_en": "6 Months", "amount_egp": price_egp("pro_6m"), "days": 180},
+                {"id": "pro_1y", "name_ar": "سنة", "name_en": "1 Year", "amount_egp": price_egp("pro_1y"), "days": 365},
+            ],
             "qr_url": os.getenv("VODAFONE_CASH_QR_URL", ""), "wallet_number": os.getenv("VODAFONE_CASH_NUMBER", "")}
 
 

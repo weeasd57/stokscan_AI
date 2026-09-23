@@ -8,6 +8,7 @@ export async function POST(req: NextRequest) {
   const { data: { user } } = await auth.auth.getUser();
   if (!user) return NextResponse.json({ detail: "Unauthorized" }, { status: 401 });
   const body = await req.json().catch(() => ({}));
-  const res = await fetch(`${BACKEND_URL}/payment/local/create`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ user_id: user.id, plan_id: "pro" }), cache: "no-store" });
+  const planId = typeof body?.plan_id === "string" ? body.plan_id : "pro";
+  const res = await fetch(`${BACKEND_URL}/payment/local/create`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ user_id: user.id, plan_id: planId }), cache: "no-store" });
   return NextResponse.json(await res.json().catch(() => ({})), { status: res.status });
 }

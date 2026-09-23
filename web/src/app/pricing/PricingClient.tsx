@@ -36,6 +36,7 @@ export default function PricingClient() {
   const [subscriptionEnd, setSubscriptionEnd] = useState<string | null>(null);
   const [telegramProUrl, setTelegramProUrl] = useState("");
   const [isPro, setIsPro] = useState(false);
+  const [selectedPlan, setSelectedPlan] = useState("pro_6m");
 
   useEffect(() => {
     if (step !== "submitted" || !localOrder) return;
@@ -87,7 +88,7 @@ export default function PricingClient() {
       .catch(() => setIsPro(false));
   }, [user?.id]);
 
-  const startLocalPayment = async () => {
+  const startLocalPayment = async (planId = selectedPlan) => {
     if (!user) {
       router.push(`/login?redirect=${encodeURIComponent("/pricing")}`);
       return;
@@ -97,7 +98,7 @@ export default function PricingClient() {
       const res = await fetch("/api/payment/local/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: "{}",
+        body: JSON.stringify({ plan_id: planId }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || "تعذر إنشاء طلب الدفع");
@@ -167,7 +168,13 @@ export default function PricingClient() {
     );
   }
 
-  const proPrice = localConfig.amount_egp ?? 200;
+  const paidPlans = localConfig?.plans || [
+    { id: "pro", name_ar: "شهري", name_en: "Monthly", amount_egp: localConfig?.amount_egp ?? 300, days: 30 },
+    { id: "pro_6m", name_ar: "6 شهور", name_en: "6 Months", amount_egp: 1000, days: 180 },
+    { id: "pro_1y", name_ar: "سنة", name_en: "1 Year", amount_egp: 1800, days: 365 },
+  ];
+  const selectedPlanDetails = paidPlans.find((plan: any) => plan.id === selectedPlan) || paidPlans[0];
+  const proPrice = selectedPlanDetails?.amount_egp ?? 200;
 
   const freeFeatures = [
     {
@@ -231,8 +238,8 @@ export default function PricingClient() {
             </h2>
             <p className="text-sm font-bold text-zinc-600 dark:text-zinc-300 leading-relaxed">
               {isAr
-                ? orderStatus === "rejected" ? "لم يتم اعتماد التحويل. يمكنك المحاولة مرة أخرى أو التواصل معنا عبر واتساب." : orderStatus === "approved" ? "تم تأكيد الدفع وتفعيل حساب Pro لمدة شهر." : "تم إرسال طلبك بنجاح! سيتم مراجعة التحويل من قبل الإدارة وتفعيل حسابك Pro فور التحقق."
-                : orderStatus === "rejected" ? "The transfer was not approved. Try again or contact us on WhatsApp." : orderStatus === "approved" ? "Your payment was approved and Pro is active for one month." : "Your request was submitted! The transfer will be reviewed by admin and your Pro account will be activated upon verification."}
+                ? orderStatus === "rejected" ? "لم يتم اعتماد التحويل. يمكنك المحاولة مرة أخرى أو التواصل معنا عبر واتساب." : orderStatus === "approved" ? `تم تأكيد الدفع وتفعيل حساب Pro لمدة ${selectedPlanDetails?.days || 30} يومًا.` : "تم إرسال طلبك بنجاح! سيتم مراجعة التحويل من قبل الإدارة وتفعيل حسابك Pro فور التحقق."
+                : orderStatus === "rejected" ? "The transfer was not approved. Try again or contact us on WhatsApp." : orderStatus === "approved" ? `Your Pro plan is active for ${selectedPlanDetails?.days || 30} days.` : "Your request was submitted! The transfer will be reviewed by admin and your Pro account will be activated upon verification."}
             </p>
           </div>
           {localOrder && (
@@ -245,7 +252,7 @@ export default function PricingClient() {
               </p>
             </div>
           )}
-          {orderStatus === "rejected" && <div className="flex flex-col gap-2"><button onClick={startLocalPayment} disabled={busy} className="w-full h-11 border-4 border-black bg-emerald-500 text-white font-black">{isAr ? "إعادة المحاولة" : "Try again"}</button><a href="https://wa.me/201024359109" target="_blank" rel="noreferrer" className="text-sm font-black text-emerald-600 underline">{isAr ? "محتاج مساعدة؟ كلمنا على واتساب" : "Need help? Contact us on WhatsApp"}</a></div>}
+          {orderStatus === "rejected" && <div className="flex flex-col gap-2"><button onClick={() => startLocalPayment()} disabled={busy} className="w-full h-11 border-4 border-black bg-emerald-500 text-white font-black">{isAr ? "إعادة المحاولة" : "Try again"}</button><a href="https://wa.me/201024359109" target="_blank" rel="noreferrer" className="text-sm font-black text-emerald-600 underline">{isAr ? "محتاج مساعدة؟ كلمنا على واتساب" : "Need help? Contact us on WhatsApp"}</a></div>}
           {orderStatus === "approved" && <div className="space-y-3"><p className="font-black text-emerald-600">{subscriptionEnd ? (isAr ? `صالح حتى ${new Date(subscriptionEnd).toLocaleDateString("ar-EG")}` : `Valid until ${new Date(subscriptionEnd).toLocaleDateString()}`) : ""}</p>{telegramProUrl ? <a href={telegramProUrl} target="_blank" rel="noreferrer" className="block border-4 border-black bg-indigo-600 px-4 py-3 text-sm font-black text-white shadow-[3px_3px_0px_rgba(0,0,0,1)]">{isAr ? "انضم إلى قناة VIP على تليجرام" : "Join VIP Telegram Channel"}<span className="block text-[10px] font-bold mt-1 opacity-80">{isAr ? "الرابط صالح لمدة 30 يوماً" : "Invite expires in 30 days"}</span></a> : <p className="text-xs font-bold text-amber-600">{isAr ? "جاري إنشاء رابط دعوة قناة VIP... حدّث الصفحة بعد لحظات." : "Creating your VIP invite link... refresh in a moment."}</p>}</div>}
           <a href="https://wa.me/201024359109" target="_blank" rel="noreferrer" className="block text-sm font-black text-emerald-600 underline">{isAr ? "محتاج مساعدة؟ كلمنا على واتساب" : "Need help? Contact us on WhatsApp"}</a>
         </div>
@@ -402,7 +409,7 @@ export default function PricingClient() {
         </div>
 
         {/* Plans grid */}
-        <div className="grid md:grid-cols-2 gap-6">
+        <div className="grid md:grid-cols-2 xl:grid-cols-4 gap-6">
           {/* ── Free ── */}
           <div className="border-4 border-black dark:border-white bg-white dark:bg-zinc-900 shadow-[6px_6px_0px_rgba(0,0,0,1)] dark:shadow-[6px_6px_0px_rgba(255,255,255,1)] p-6 space-y-6 flex flex-col">
             <div>
@@ -453,65 +460,29 @@ export default function PricingClient() {
             </button>
           </div>
 
-          {/* ── Pro ── */}
-          <div className="border-4 border-black dark:border-white bg-emerald-50 dark:bg-emerald-950/20 shadow-[6px_6px_0px_rgba(0,0,0,1)] dark:shadow-[6px_6px_0px_rgba(255,255,255,1)] p-6 space-y-6 flex flex-col relative">
-            {/* Popular badge */}
-            <div className="absolute -top-4 left-1/2 -translate-x-1/2">
-              <span className="bg-emerald-500 text-white text-xs font-black px-4 py-1 border-2 border-black dark:border-white uppercase tracking-widest">
-                {isAr ? "الأكثر شيوعًا" : "Most Popular"}
-              </span>
-            </div>
-
-            <div className="pt-2">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-xl font-black text-black dark:text-white">Pro</h2>
-                <span className="text-xs font-black bg-emerald-500 text-white px-3 py-1 border-2 border-black dark:border-white">
-                  {isPro ? (isAr ? "خطتك الحالية" : "Your current plan") : (isAr ? "مميّز" : "Premium")}
-                </span>
+          {paidPlans.map((plan: any) => {
+            const isSelected = selectedPlan === plan.id;
+            const planName = isAr ? plan.name_ar : plan.name_en;
+            return (
+              <div key={plan.id} className={`border-4 border-black dark:border-white ${isSelected ? "bg-emerald-50 dark:bg-emerald-950/30 ring-4 ring-emerald-400" : "bg-white dark:bg-zinc-900"} shadow-[6px_6px_0px_rgba(0,0,0,1)] dark:shadow-[6px_6px_0px_rgba(255,255,255,1)] p-6 space-y-5 flex flex-col relative`}>
+                {plan.id === "pro_6m" && <div className="absolute -top-4 left-1/2 -translate-x-1/2"><span className="bg-emerald-500 text-white text-xs font-black px-4 py-1 border-2 border-black dark:border-white uppercase tracking-widest">{isAr ? "الأكثر طلبًا" : "Best value"}</span></div>}
+                <button type="button" onClick={() => setSelectedPlan(plan.id)} className="text-left pt-1">
+                  <div className="flex items-center justify-between mb-4 gap-2">
+                    <h2 className="text-xl font-black text-black dark:text-white">Pro · {planName}</h2>
+                    <span className="text-[10px] font-black bg-emerald-500 text-white px-2 py-1 border-2 border-black dark:border-white">{isPro ? (isAr ? "فعالة" : "Active") : "PRO"}</span>
+                  </div>
+                  <div className="flex items-end gap-1 mb-1"><span className="text-3xl font-black text-black dark:text-white">EGP {plan.amount_egp}</span><span className="text-xs font-bold text-zinc-500 mb-1">/{plan.days} {isAr ? "يوم" : "days"}</span></div>
+                  <p className="text-xs font-bold text-zinc-500">{isAr ? "وصول فوري لكل مزايا Pro" : "Full Pro access"}</p>
+                </button>
+                <ul className="space-y-3 flex-1">
+                  {proFeatures.map((f, i) => <li key={i} className="flex items-center gap-3 text-sm font-bold text-zinc-700 dark:text-zinc-200"><Check className="w-4 h-4 text-emerald-500 shrink-0" /><span className="flex items-center gap-1.5">{f.icon}{f.text}</span></li>)}
+                </ul>
+                <button onClick={() => startLocalPayment(plan.id)} disabled={busy || isPro} className="w-full h-12 flex items-center justify-center gap-2 border-4 border-black dark:border-white bg-emerald-500 text-white font-black uppercase tracking-widest shadow-[3px_3px_0px_rgba(0,0,0,1)] disabled:opacity-60 transition-all">
+                  {busy && isSelected ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Smartphone className="h-4 w-4" />{isPro ? (isAr ? "اشتراكك فعال" : "Active subscription") : !user ? (isAr ? "سجّل الدخول للاشتراك" : "Sign in to subscribe") : (isAr ? "اشترك الآن" : "Subscribe Now")}</>}
+                </button>
               </div>
-              <div className="flex items-end gap-1 mb-1">
-                <span className="text-4xl font-black text-black dark:text-white">
-                  EGP {proPrice}
-                </span>
-                <span className="text-sm font-bold text-zinc-500 mb-1">
-                  /{isAr ? "شهر" : "month"}
-                </span>
-              </div>
-              <p className="text-xs font-bold text-zinc-500">
-                {isAr ? "اشتراك شهري قابل للتجديد" : "Monthly renewable subscription"}
-              </p>
-            </div>
-
-            <ul className="space-y-3 flex-1">
-              {proFeatures.map((f, i) => (
-                <li
-                  key={i}
-                  className="flex items-center gap-3 text-sm font-bold text-zinc-700 dark:text-zinc-200"
-                >
-                  <Check className="w-4 h-4 text-emerald-500 shrink-0" />
-                  <span className="flex items-center gap-1.5">
-                    {f.icon}
-                    {f.text}
-                  </span>
-                </li>
-              ))}
-            </ul>
-
-            <button
-              onClick={startLocalPayment}
-              disabled={busy || isPro}
-              className="w-full h-12 flex items-center justify-center gap-2 border-4 border-black dark:border-white bg-emerald-500 text-white font-black uppercase tracking-widest shadow-[3px_3px_0px_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none disabled:opacity-60 transition-all"
-            >
-              {busy ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <>
-                  <Smartphone className="h-4 w-4" />
-                  {isPro ? (isAr ? "اشتراكك فعال" : "Active subscription") : !user ? (isAr ? "سجّل الدخول للاشتراك" : "Sign in to subscribe") : (isAr ? "اشترك الآن" : "Subscribe Now")}
-                </>
-              )}
-            </button>
-          </div>
+            );
+          })}
         </div>
 
         {/* Payment methods */}
