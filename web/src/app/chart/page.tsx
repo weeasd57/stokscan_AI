@@ -5,7 +5,7 @@ import { Suspense, useEffect, useState } from "react";
 import TradingViewChart from "@/components/TradingViewChartDynamic";
 import { getAdaptiveRecommendation, getStockFundamentals, searchSymbols } from "@/lib/api";
 import { 
-  Loader2, MousePointer, TrendingUp, Minus, Type,
+  Loader2, MousePointer, TrendingUp, Minus, Type, CalendarDays, BrainCircuit,
   Trash2, Compass, Landmark, Activity, Sparkles,
   ChevronRight, ChevronLeft, Search, Star,
   ExternalLink, ArrowRightLeft, Plus
@@ -18,7 +18,8 @@ import { useWatchlist } from "@/contexts/WatchlistContext";
 function ChartContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
+  const isAr = language === "ar";
   const { theme } = useTheme();
 
   const symbol = searchParams.get("symbol") || "COMI";
@@ -375,6 +376,25 @@ function ChartContent() {
                     >
                       <Star className={`w-4 h-4 ${isSaved(symbol) ? "fill-indigo-400 text-indigo-400" : ""}`} />
                     </button>
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-cyan-200/70 bg-gradient-to-br from-cyan-50 to-white p-4 dark:border-cyan-400/15 dark:from-cyan-950/25 dark:to-zinc-950/40">
+                  <div className="flex items-center gap-2 text-xs font-bold text-cyan-800 dark:text-cyan-200">
+                    <CalendarDays className="h-4 w-4 shrink-0" />
+                    <span>{isAr ? "تحديث بيانات التحليل" : "Analysis data updates"}</span>
+                    <span className="ms-auto rounded-full bg-cyan-600/10 px-2 py-1 text-[10px]">{isAr ? "يوميًا" : "Daily"}</span>
+                  </div>
+                  <p className="mt-2 text-[11px] leading-relaxed text-zinc-600 dark:text-zinc-400">
+                    {isAr
+                      ? "مؤشرات وتحليلات المنصة تعتمد على بيانات السوق المتاحة وتُحدّث ضمن دورة التحديث اليومية؛ لذلك قد تختلف عن حركة السعر اللحظية الظاهرة في الرسم."
+                      : "The platform’s indicators and analysis use available market data refreshed in the daily update cycle, so they may differ from the live price movement shown on this chart."}
+                  </p>
+                  <div className="mt-3 flex items-start gap-2 border-t border-cyan-200/70 pt-3 text-[11px] leading-relaxed text-zinc-600 dark:border-cyan-400/10 dark:text-zinc-400">
+                    <BrainCircuit className="mt-0.5 h-4 w-4 shrink-0 text-indigo-500" />
+                    <span>{isAr
+                      ? "قراءة السهم تجمع نماذج كمية وتكيّفية مع المؤشرات الفنية وسياق السوق؛ وليست مؤشرًا تقليديًا منفردًا أو ضمانًا للنتائج."
+                      : "Stock analysis combines quantitative and adaptive models with technical indicators and market context; it is not a single conventional indicator or a guarantee of results."}</span>
                   </div>
                 </div>
 

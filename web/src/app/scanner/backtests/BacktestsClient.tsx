@@ -383,6 +383,9 @@ export default function AIScannerPage() {
     const [publishedReport, setPublishedReport] = useState<any | null>(null);
     const [similarityLoading, setSimilarityLoading] = useState(false);
     const [selectedSimilarityScan, setSelectedSimilarityScan] = useState<any | null>(null);
+    const [focusedMatchKey, setFocusedMatchKey] = useState<string | null>(null);
+    const focusedMatch = selectedSimilarityScan?.matches?.find((match: any) => `${match.symbol}:${match.date}` === focusedMatchKey)
+        ?? selectedSimilarityScan?.matches?.[0] ?? null;
 
     // States for custom interactive similarity charts
     const [candlesData, setCandlesData] = useState<any[]>([]);
@@ -837,14 +840,17 @@ export default function AIScannerPage() {
     const similarityDashboard = useMemo(() => {
         const scans = publishedReport?.scans || [];
         const selectedMatches = selectedSimilarityScan?.matches || [];
-        const rankedSetups = scans
+        // Do not promote a one-off historical match as a ranked setup.
+        const eligibleScans = scans.filter((scan: any) => Number(scan.stats?.total_matches || 0) >= 5);
+        const rankedSetups = eligibleScans
             .map((scan: any) => ({
                 symbol: scan.symbol,
                 winRate: (scan.stats?.win_rate || 0) * 100,
                 avgReturn: (scan.stats?.average_return || 0) * 100,
                 expectedEdge: (scan.stats?.expected_value || 0) * 100,
-                profitFactor: scan.stats?.profit_factor || 0,
-                matches: scan.stats?.total_matches || scan.matches?.length || 0,
+                profitFactor: scan.stats?.profit_factor ?? null,
+                profitFactorUnbounded: scan.stats?.profit_factor_unbounded ?? false,
+                matches: scan.stats?.total_matches ?? 0,
             }))
             .sort((a: any, b: any) => b.expectedEdge - a.expectedEdge)
             .slice(0, 8);
@@ -858,17 +864,17 @@ export default function AIScannerPage() {
             name: `${idx + 1}`,
             date: match.date,
             similarity: (match.similarity || 0) * 100,
-            finalReturn: (match.final_return || 0) * 100,
+            finalReturn: match.final_return == null ? null : match.final_return * 100,
             mfe: (match.mfe || 0) * 100,
             mae: (match.mae || 0) * 100,
         }));
 
         const strongestSetup = rankedSetups[0];
-        const avgWinRate = scans.length
-            ? scans.reduce((sum: number, scan: any) => sum + ((scan.stats?.win_rate || 0) * 100), 0) / scans.length
+        const avgWinRate = eligibleScans.length
+            ? eligibleScans.reduce((sum: number, scan: any) => sum + ((scan.stats?.win_rate || 0) * 100), 0) / eligibleScans.length
             : 0;
-        const avgExpectedEdge = scans.length
-            ? scans.reduce((sum: number, scan: any) => sum + ((scan.stats?.expected_value || 0) * 100), 0) / scans.length
+        const avgExpectedEdge = eligibleScans.length
+            ? eligibleScans.reduce((sum: number, scan: any) => sum + ((scan.stats?.expected_value || 0) * 100), 0) / eligibleScans.length
             : 0;
 
         return { rankedSetups, outcomeData, matchQuality, strongestSetup, avgWinRate, avgExpectedEdge };
@@ -1309,17 +1315,22 @@ export default function AIScannerPage() {
                                             <div className="border-4 border-black dark:border-white bg-zinc-950 p-5 shadow-[4px_4px_0px_0px_rgba(255,255,255,0.1)]">
                                                 <p className="text-[9px] font-black tracking-widest text-zinc-500 uppercase">Win Rate</p>
                                                 <p className="text-3xl font-black font-mono mt-2 text-emerald-500">
-                                                    {(selectedSimilarityScan.stats.win_rate * 100).toFixed(1)}%
+                                                    {selectedSimilarityScan.stats.total_matches ? `${(selectedSimilarityScan.stats.win_rate * 100).toFixed(1)}%` : "—"}
                                                 </p>
                                                 <p className="text-[10px] text-zinc-500 font-mono mt-1">
                                                     {selectedSimilarityScan.stats.wins} Wins / {selectedSimilarityScan.stats.losses} Losses
+                                                </p>
+                                                <p className="text-[9px] text-zinc-600 font-mono mt-1">
+                                                    {language === "ar"
+                                                        ? `${selectedSimilarityScan.stats.total_matches} مكتملة من ${selectedSimilarityScan.stats.observed_matches ?? selectedSimilarityScan.matches.length} حالة مرصودة؛ الرابحة بلغت الهدف أو أغلقت بعائد موجب.`
+                                                        : `${selectedSimilarityScan.stats.total_matches} complete of ${selectedSimilarityScan.stats.observed_matches ?? selectedSimilarityScan.matches.length} observed; wins hit target or ended positive.`}
                                                 </p>
                                             </div>
 
                                             <div className="border-4 border-black dark:border-white bg-zinc-950 p-5 shadow-[4px_4px_0px_0px_rgba(255,255,255,0.1)]">
                                                 <p className="text-[9px] font-black tracking-widest text-zinc-500 uppercase">Avg Return</p>
                                                 <p className={`text-3xl font-black font-mono mt-2 ${selectedSimilarityScan.stats.average_return >= 0 ? "text-emerald-500" : "text-red-500"}`}>
-                                                    {(selectedSimilarityScan.stats.average_return * 100).toFixed(2)}%
+                                                    {selectedSimilarityScan.stats.total_matches ? `${(selectedSimilarityScan.stats.average_return * 100).toFixed(2)}%` : "—"}
                                                 </p>
                                                 <p className="text-[10px] text-zinc-500 font-mono mt-1">
                                                     Across {selectedSimilarityScan.stats.total_matches} matches
@@ -1329,7 +1340,9 @@ export default function AIScannerPage() {
                                             <div className="border-4 border-black dark:border-white bg-zinc-950 p-5 shadow-[4px_4px_0px_0px_rgba(255,255,255,0.1)]">
                                                 <p className="text-[9px] font-black tracking-widest text-zinc-500 uppercase">Profit Factor</p>
                                                 <p className="text-3xl font-black font-mono mt-2 text-indigo-400">
-                                                    {selectedSimilarityScan.stats.profit_factor.toFixed(2)}
+                                                    {!selectedSimilarityScan.stats.total_matches ? "—" : selectedSimilarityScan.stats.profit_factor == null
+                                                        ? (selectedSimilarityScan.stats.profit_factor_unbounded ? "∞" : "—")
+                                                        : selectedSimilarityScan.stats.profit_factor.toFixed(2)}
                                                 </p>
                                                 <p className="text-[10px] text-zinc-500 font-mono mt-1">
                                                     Gross gain/loss ratio
@@ -1337,13 +1350,46 @@ export default function AIScannerPage() {
                                             </div>
 
                                             <div className="border-4 border-black dark:border-white bg-zinc-950 p-5 shadow-[4px_4px_0px_0px_rgba(255,255,255,0.1)]">
-                                                <p className="text-[9px] font-black tracking-widest text-zinc-500 uppercase">Expected Edge</p>
+                                                <p className="text-[9px] font-black tracking-widest text-zinc-500 uppercase">Observed Expectancy</p>
                                                 <p className={`text-3xl font-black font-mono mt-2 ${selectedSimilarityScan.stats.expected_value >= 0 ? "text-emerald-500" : "text-red-500"}`}>
-                                                    {(selectedSimilarityScan.stats.expected_value * 100).toFixed(2)}%
+                                                    {selectedSimilarityScan.stats.total_matches ? `${(selectedSimilarityScan.stats.expected_value * 100).toFixed(2)}%` : "—"}
                                                 </p>
                                                 <p className="text-[10px] text-zinc-500 font-mono mt-1">
-                                                    Expected yield per trade
+                                                    Mean return on completed matches
                                                 </p>
+                                            </div>
+                                        </div>
+
+                                        <div className="border border-zinc-800 bg-zinc-950 p-4">
+                                            <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                                                <h3 className="text-xs font-black tracking-widest text-zinc-200 uppercase">
+                                                    {language === "ar" ? "نتائج المسارات المكتملة" : "Completed Forward Outcomes"}
+                                                </h3>
+                                                <span className="text-[10px] text-zinc-500">
+                                                    {language === "ar" ? "عائد إغلاق بعد الفترة المحددة دون تطبيق الهدف أو الوقف؛ الإيجابية ليست احتمال بلوغ الهدف." : "Close-to-close return at each horizon without applying target or stop; positive is not a target-hit probability."}
+                                                </span>
+                                            </div>
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                                {["5", "10", "20"].map((horizon) => {
+                                                    const stats = selectedSimilarityScan.stats.horizon_stats?.[horizon];
+                                                    if (!stats) return null;
+                                                    return (
+                                                        <div key={horizon} className="border border-zinc-800 bg-zinc-900/60 p-3">
+                                                            <div className="flex justify-between items-baseline gap-2">
+                                                                <span className="text-xs font-bold text-zinc-300">{horizon} {language === "ar" ? "جلسات" : "sessions"}</span>
+                                                                <span className="text-[10px] text-zinc-500">n={stats.sample_size}</span>
+                                                            </div>
+                                                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-3 text-[10px]">
+                                                                <div><span className="block text-zinc-500">{language === "ar" ? "عائد موجب" : "Positive"}</span><b className="text-emerald-400">{stats.sample_size ? `${(stats.positive_rate * 100).toFixed(1)}%` : "—"}</b></div>
+                                                                <div><span className="block text-zinc-500">{language === "ar" ? "عائد سالب" : "Negative"}</span><b className="text-rose-400">{stats.sample_size && stats.negative_rate != null ? `${(stats.negative_rate * 100).toFixed(1)}%` : "—"}</b></div>
+                                                                <div><span className="block text-zinc-500">{language === "ar" ? "الوسيط" : "Median"}</span><b className="text-zinc-100">{stats.sample_size ? `${(stats.median_return * 100).toFixed(2)}%` : "—"}</b></div>
+                                                                <div><span className="block text-zinc-500">{language === "ar" ? "المتوسط" : "Mean"}</span><b className="text-zinc-100">{stats.sample_size ? `${(stats.average_return * 100).toFixed(2)}%` : "—"}</b></div>
+                                                                <div><span className="block text-zinc-500">{language === "ar" ? "أفضل" : "Best"}</span><b className="text-emerald-400">{stats.sample_size ? `${(stats.best_return * 100).toFixed(2)}%` : "—"}</b></div>
+                                                                <div><span className="block text-zinc-500">{language === "ar" ? "أسوأ" : "Worst"}</span><b className="text-rose-400">{stats.sample_size ? `${(stats.worst_return * 100).toFixed(2)}%` : "—"}</b></div>
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
                                             </div>
                                         </div>
 
@@ -1566,7 +1612,7 @@ export default function AIScannerPage() {
                                                             </ResponsiveContainer>
                                                             <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
                                                                 <span className="text-lg font-black text-white font-mono leading-none">
-                                                                    {(selectedSimilarityScan.stats.win_rate * 100).toFixed(0)}%
+                                                                    {selectedSimilarityScan.stats.total_matches ? `${(selectedSimilarityScan.stats.win_rate * 100).toFixed(0)}%` : "—"}
                                                                 </span>
                                                                 <span className="text-[8px] text-zinc-500 font-mono uppercase tracking-widest mt-1">
                                                                     {language === "ar" ? "نجاح" : "Win Rate"}
@@ -1579,7 +1625,7 @@ export default function AIScannerPage() {
                                                 <div className="border-4 border-black dark:border-white bg-zinc-950 p-5 shadow-[4px_4px_0px_0px_rgba(255,255,255,0.15)] rounded-none">
                                                     <h3 className="text-xs font-black tracking-widest text-zinc-300 uppercase flex items-center gap-2 mb-3 font-mono">
                                                         <Sparkles className="w-4 h-4 text-indigo-400" />
-                                                        {language === "ar" ? "أقوى فرصة الآن" : "Strongest Setup Now"}
+                                                        {language === "ar" ? "أعلى عائد مرصود في العينة" : "Highest Observed Sample Return"}
                                                     </h3>
                                                     <div className="grid grid-cols-2 gap-3 font-mono">
                                                         <div className="col-span-2 border border-emerald-500/20 bg-emerald-500/5 p-3">
@@ -1588,11 +1634,11 @@ export default function AIScannerPage() {
                                                         </div>
                                                         <div className="border border-zinc-800 bg-zinc-900 p-3">
                                                             <p className="text-[8px] text-zinc-500 uppercase">Win Rate</p>
-                                                            <p className="text-lg font-black text-emerald-400">{(similarityDashboard.strongestSetup?.winRate || 0).toFixed(1)}%</p>
+                                                            <p className="text-lg font-black text-emerald-400">{similarityDashboard.strongestSetup ? `${similarityDashboard.strongestSetup.winRate.toFixed(1)}%` : "—"}</p>
                                                         </div>
                                                         <div className="border border-zinc-800 bg-zinc-900 p-3">
                                                             <p className="text-[8px] text-zinc-500 uppercase">Profit Factor</p>
-                                                            <p className="text-lg font-black text-indigo-400">{(similarityDashboard.strongestSetup?.profitFactor || 0).toFixed(2)}</p>
+                                                            <p className="text-lg font-black text-indigo-400">{!similarityDashboard.strongestSetup ? "—" : similarityDashboard.strongestSetup.profitFactor == null ? (similarityDashboard.strongestSetup.profitFactorUnbounded ? "∞" : "—") : similarityDashboard.strongestSetup.profitFactor.toFixed(2)}</p>
                                                         </div>
                                                     </div>
                                                 </div>
@@ -1746,7 +1792,7 @@ export default function AIScannerPage() {
                                                             contentStyle={{ backgroundColor: "#09090b", borderColor: "#27272a" }}
                                                             labelStyle={{ color: "#fff", fontWeight: "bold", fontFamily: "monospace", fontSize: 11 }}
                                                             itemStyle={{ fontSize: 10, fontFamily: "monospace" }}
-                                                            formatter={(value: any, name: any) => [`${parseFloat(value).toFixed(2)}%`, name]}
+                                                            formatter={(value: any, name: any) => [value == null || !Number.isFinite(Number(value)) ? "—" : `${Number(value).toFixed(2)}%`, name]}
                                                             labelFormatter={(label: any) => {
                                                                 const row = similarityDashboard.matchQuality.find((item: any) => item.name === label);
                                                                 return row?.date ? `Match ${label} - ${row.date}` : `Match ${label}`;
@@ -1791,17 +1837,17 @@ export default function AIScannerPage() {
                                                     <tbody className="divide-y divide-zinc-900">
                                                         {selectedSimilarityScan.matches.map((m: any, idx: number) => (
                                                             <tr key={idx} className="hover:bg-zinc-900/40 transition-colors">
-                                                                <td className="py-3.5 px-2 font-bold text-zinc-200">{m.date}</td>
+                                                                <td className="py-3.5 px-2 font-bold text-zinc-200"><button type="button" onClick={() => setFocusedMatchKey(`${m.symbol}:${m.date}`)} className="text-left underline decoration-dotted hover:text-amber-300" aria-label={`${language === "ar" ? "عرض الحالة التاريخية" : "Show historical match"} ${m.date}`}>{m.date}</button></td>
                                                                 <td className="py-3.5 px-2 font-bold text-amber-400">{m.symbol}</td>
                                                                 <td className="py-3.5 px-2 text-white">{(m.similarity * 100).toFixed(1)}%</td>
                                                                 <td className="py-3.5 px-2 text-emerald-500 font-bold">+{(m.mfe * 100).toFixed(1)}%</td>
                                                                 <td className="py-3.5 px-2 text-red-500 font-bold">{(m.mae * 100).toFixed(1)}%</td>
-                                                                <td className={`py-3.5 px-2 font-black ${m.final_return >= 0 ? "text-emerald-500" : "text-red-500"}`}>
-                                                                    {(m.final_return * 100).toFixed(1)}%
+                                                                <td className={`py-3.5 px-2 font-black ${m.final_return == null ? "text-zinc-500" : m.final_return >= 0 ? "text-emerald-500" : "text-red-500"}`}>
+                                                                    {m.final_return == null ? "—" : `${(m.final_return * 100).toFixed(1)}%`}
                                                                 </td>
                                                                 <td className="py-3.5 px-2 text-right">
-                                                                    <span className={`px-2 py-0.5 text-[9px] font-black uppercase tracking-wider ${m.outcome === "win" ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" : "bg-red-500/10 text-red-400 border border-red-500/20"}`}>
-                                                                        {m.outcome}
+                                                                    <span className={`px-2 py-0.5 text-[9px] font-black uppercase tracking-wider ${m.outcome === "win" ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" : m.outcome === "loss" ? "bg-red-500/10 text-red-400 border border-red-500/20" : "bg-zinc-800 text-zinc-400 border border-zinc-700"}`}>
+                                                                        {m.outcome === "incomplete" ? (language === "ar" ? "غير مكتملة" : "Incomplete") : m.outcome}
                                                                     </span>
                                                                 </td>
                                                             </tr>
@@ -1809,6 +1855,31 @@ export default function AIScannerPage() {
                                                     </tbody>
                                                 </table>
                                             </div>
+                                            {focusedMatch && <div className="mt-5 border-t border-zinc-800 pt-4">
+                                                <h4 className="text-xs font-bold text-amber-300">{language === "ar" ? `مقارنة الحالة ${focusedMatch.symbol} — ${focusedMatch.date} بالسهم الحالي` : `Historical match ${focusedMatch.symbol} — ${focusedMatch.date} vs current pattern`}</h4>
+                                                <p className="mt-1 text-[10px] text-zinc-500">{language === "ar" ? "آخر 10 جلسات قبل كل نقطة مقارنة، معادلة إلى 0% عند يوم المطابقة. اضغط على تاريخ أي حالة لتبديل الرسم." : "Last 10 sessions before each comparison point, normalized to 0% at the match date. Select a date above to change the chart."}</p>
+                                                <div className="mt-3 grid grid-cols-1 lg:grid-cols-2 gap-3">
+                                                    {[
+                                                        { label: language === "ar" ? "النمط الحالي" : "Current pattern", path: selectedSimilarityScan.target_path || [], color: "#f8fafc" },
+                                                        { label: language === "ar" ? "الحالة التاريخية" : "Historical case", path: focusedMatch.before_path || [], color: "#fbbf24" },
+                                                    ].map((series) => <div key={series.label} className="border border-zinc-800 bg-zinc-900/50 p-3">
+                                                        <p className="mb-2 text-[10px] font-bold text-zinc-300">{series.label}</p>
+                                                        <div className="h-44">
+                                                            <ResponsiveContainer width="100%" height="100%">
+                                                                <RechartsLineChart data={series.path.map((point: any, index: number) => ({ session: index - series.path.length + 1, change: Number(point.rel_change) * 100, date: point.date }))}>
+                                                                    <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
+                                                                    <XAxis dataKey="session" stroke="#a1a1aa" style={{ fontSize: 10 }} />
+                                                                    <YAxis stroke="#a1a1aa" style={{ fontSize: 10 }} tickFormatter={(value) => `${Number(value).toFixed(0)}%`} />
+                                                                    <ChartTooltip formatter={(value: any) => [`${Number(value).toFixed(2)}%`]} labelFormatter={(session: any) => `T${session}`} />
+                                                                    <ReferenceLine y={0} stroke="#71717a" />
+                                                                    <Line type="monotone" dataKey="change" stroke={series.color} strokeWidth={2} dot={false} />
+                                                                </RechartsLineChart>
+                                                            </ResponsiveContainer>
+                                                        </div>
+                                                    </div>)}
+                                                </div>
+                                                <p className="mt-2 text-[10px] text-zinc-500">{language === "ar" ? "المسار التالي للحالة التاريخية ظاهر في رسم المسارات بالأعلى؛ الأداء السابق لا يضمن نتيجة مستقبلية." : "The historical case's subsequent path appears in the trajectory chart above; past outcomes do not guarantee future results."}</p>
+                                            </div>}
                                         </div>
                                     </>
                                 )}

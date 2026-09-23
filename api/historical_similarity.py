@@ -381,6 +381,8 @@ def run_historical_similarity(
         
     combined_feats = pd.concat([item[2] for item in search_data_list])
     combined_feats_clean = combined_feats.dropna(subset=comparison_cols)
+    # A historical target may only search information available as of its date.
+    combined_feats_clean = combined_feats_clean[combined_feats_clean.index <= target_ts]
     
     # 5. Extract target feature vector
     target_rows = combined_feats_clean[
@@ -395,6 +397,13 @@ def run_historical_similarity(
         nearest_valid_idx = target_source_feats.index.get_indexer([target_ts], method='nearest')[0]
         target_ts = target_source_feats.index[nearest_valid_idx]
         target_rows = target_source_feats.loc[[target_ts]]
+
+    # Keep the displayed target metadata aligned with the date actually matched.
+    target_close = float(df_target_ind.loc[target_ts, "Close"])
+    target_rsi = float(df_target_ind.loc[target_ts, "RSI"]) if "RSI" in df_target_ind.columns else 50.0
+    target_sma50 = float(df_target_ind.loc[target_ts, "SMA_50"]) if "SMA_50" in df_target_ind.columns else target_close
+    target_sma200 = float(df_target_ind.loc[target_ts, "SMA_200"]) if "SMA_200" in df_target_ind.columns else target_close
+    target_volume = float(df_target_ind.loc[target_ts, "Volume"])
         
     target_vector = target_rows.iloc[0][comparison_cols].values.astype(float)
     
@@ -440,8 +449,11 @@ def run_historical_similarity(
                 "win_rate": 0.0,
                 "average_return": 0.0,
                 "profit_factor": 0.0,
+                "profit_factor_unbounded": False,
                 "expected_value": 0.0,
                 "total_matches": 0,
+                "observed_matches": 0,
+                "horizon_stats": {},
                 "wins": 0,
                 "losses": 0
             }
@@ -495,6 +507,7 @@ def run_historical_similarity(
     matches = []
     wins = 0
     losses = 0
+    completed_matches = 0
     total_return = 0.0
     gross_gains = 0.0
     gross_losses = 0.0
@@ -533,7 +546,7 @@ def run_historical_similarity(
                 })
                 
         # Forward path
-        match_after_df = match_price_df[match_price_df.index > match_ts].head(forward_days)
+        match_after_df = match_price_df[(match_price_df.index > match_ts) & (match_price_df.index <= target_ts)].head(forward_days)
         
         forward_path = []
         outcome = "open"
@@ -577,28 +590,33 @@ def run_historical_similarity(
                         exit_day_index = idx_after + 1
                         final_ret = target_return
                         
-            if outcome == "open" and forward_path:
-                final_ret = forward_path[-1]["return"]
+            if outcome == "open" and len(forward_path) >= forward_days:
+                final_ret = forward_path[forward_days - 1]["return"]
                 outcome = "win" if final_ret >= 0 else "loss"
-                exit_date = forward_path[-1]["date"]
-                exit_day_index = len(forward_path)
-        
+                exit_date = forward_path[forward_days - 1]["date"]
+                exit_day_index = forward_days
+
+        is_completed = outcome in {"win", "loss"}
+        if is_completed:
+            completed_matches += 1
+
         if outcome == "win":
             wins += 1
             gross_gains += max(0.0, final_ret)
-        else:
+        elif outcome == "loss":
             losses += 1
             gross_losses += abs(min(0.0, final_ret))
-            
-        total_return += final_ret
+
+        if is_completed:
+            total_return += final_ret
         
         matches.append({
             "date": match_ts.strftime("%Y-%m-%d"),
             "symbol": match_symbol,
             "similarity": similarity_score,
             "entry_price": float(match_before_df.iloc[-1]["close"]) if not match_before_df.empty else 0.0,
-            "outcome": outcome,
-            "final_return": float(final_ret),
+            "outcome": outcome if is_completed else "incomplete",
+            "final_return": float(final_ret) if is_completed else None,
             "mfe": float(mfe),
             "mae": float(mae),
             "exit_date": exit_date,
@@ -607,12 +625,41 @@ def run_historical_similarity(
             "forward_path": forward_path
         })
         
-    total_matches = len(matches)
+    observed_matches = len(matches)
+    total_matches = completed_matches
     win_rate = (wins / total_matches) if total_matches > 0 else 0.0
     average_return = (total_return / total_matches) if total_matches > 0 else 0.0
-    profit_factor = (gross_gains / gross_losses) if gross_losses > 0 else (gross_gains if gross_gains > 0 else 1.0)
-    avg_win_return = (total_return / wins) if wins > 0 else target_return
-    expected_value = (win_rate * avg_win_return) + ((1 - win_rate) * stop_loss)
+    profit_factor = (gross_gains / gross_losses) if gross_losses > 0 else None
+    profit_factor_unbounded = gross_losses == 0 and gross_gains > 0
+    # Observed mean return on completed cases is the sample expectancy.
+    expected_value = average_return
+
+    horizon_stats = {}
+    for horizon in (h for h in (5, 10, 20) if h <= forward_days):
+        if horizon <= 0:
+            continue
+        horizon_returns = [
+            float(match["forward_path"][horizon - 1]["return"])
+            for match in matches
+            if len(match.get("forward_path") or []) >= horizon
+        ]
+        sorted_returns = sorted(horizon_returns)
+        count = len(sorted_returns)
+        median_return = (
+            sorted_returns[count // 2]
+            if count % 2
+            else (sorted_returns[count // 2 - 1] + sorted_returns[count // 2]) / 2
+        ) if count else 0.0
+        horizon_stats[str(horizon)] = {
+            "sessions": horizon,
+            "sample_size": count,
+            "positive_rate": sum(1 for value in sorted_returns if value > 0) / count if count else 0.0,
+            "negative_rate": sum(1 for value in sorted_returns if value < 0) / count if count else 0.0,
+            "average_return": sum(sorted_returns) / count if count else 0.0,
+            "median_return": median_return,
+            "best_return": max(sorted_returns) if count else 0.0,
+            "worst_return": min(sorted_returns) if count else 0.0,
+        }
     
     res = {
         "symbol": symbol,
@@ -629,9 +676,12 @@ def run_historical_similarity(
         "stats": {
             "win_rate": float(win_rate),
             "average_return": float(average_return),
-            "profit_factor": float(profit_factor),
+            "profit_factor": float(profit_factor) if profit_factor is not None else None,
+            "profit_factor_unbounded": profit_factor_unbounded,
             "expected_value": float(expected_value),
             "total_matches": int(total_matches),
+            "observed_matches": int(observed_matches),
+            "horizon_stats": horizon_stats,
             "wins": int(wins),
             "losses": int(losses)
         }

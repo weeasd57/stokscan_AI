@@ -1157,7 +1157,6 @@ _FREE_TELEGRAM_SERVICE_TYPES = frozenset({
     "free_summary",
 })
 
-
 def _resolve_vip_chat_target() -> str:
     from api.plan_limits import telegram_pro_channel_target
 
@@ -1253,7 +1252,8 @@ def _notify_central_telegram(message: str, service_type: str = "central"):
         print(f"[CENTRAL_NOTIFY] Blocked {service_type} while recommendation delivery is read-only.")
         return False
 
-    if service_type.startswith("step_failure") or service_type in {"central", "system_log"}:
+    is_internal_report = service_type.endswith(("_digest", "_job_report", "_run_report", "similarity_report"))
+    if service_type.startswith("step_failure") or service_type in {"central", "system_log"} or is_internal_report:
         print(f"[CENTRAL_NOTIFY] Blocked internal ops message ({service_type}).")
         return False
 
@@ -3182,7 +3182,7 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
             from api.historical_similarity import run_market_wide_similarity_scan, publish_similarity_report
             results = run_market_wide_similarity_scan(
                 k=10,
-                forward_days=10,
+                forward_days=20,
                 target_return=0.05,
                 stop_loss=-0.03,
                 search_scope="same_symbol",
@@ -3201,7 +3201,7 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
                     "name": f"Daily Similarity Scan - {dt.datetime.now().strftime('%Y-%m-%d %H:%M')}",
                     "scans": results,
                     "k": 10,
-                    "forward_days": 10,
+                    "forward_days": 20,
                     "target_return": 0.05,
                     "stop_loss": -0.03
                 })

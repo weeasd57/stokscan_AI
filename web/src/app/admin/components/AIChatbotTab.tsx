@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { Loader2, Sparkles, MessageSquare, Link as LinkIcon, User, RefreshCw, Search, Clock, ChevronRight, Trash2, Maximize, Minimize, Database, Zap } from "lucide-react";
+import { Loader2, Sparkles, MessageSquare, Link as LinkIcon, User, RefreshCw, Search, Clock, ChevronRight, Trash2, Maximize, Minimize, Database, Zap, Crown } from "lucide-react";
 import { toast } from "sonner";
 import SupportTab from "./SupportTab";
 import { FormattedChatMessage } from "@/components/chat/FormattedChatMessage";
@@ -17,6 +17,7 @@ export default function AIChatbotTab() {
     const [searchUserQuery, setSearchUserQuery] = useState("");
     const [viewMode, setViewMode] = useState<"ai_config" | "support_chats">("ai_config");
     const [readTimestamps, setReadTimestamps] = useState<Record<string, number>>({});
+    const [proOnly, setProOnly] = useState(false);
 
     useEffect(() => {
         try {
@@ -112,9 +113,11 @@ export default function AIChatbotTab() {
             telegram_chat_id: string | null;
             last_date: string;
             logs: any[];
+            is_pro: boolean;
         }> = {};
 
-        logs.forEach((log) => {
+        const visibleLogs = proOnly ? logs.filter((log) => log.is_pro === true) : logs;
+        visibleLogs.forEach((log) => {
             const id = log.user_id || log.user_name || "Guest";
             if (!map[id]) {
                 map[id] = {
@@ -122,9 +125,11 @@ export default function AIChatbotTab() {
                     user_name: log.user_name || "Guest User",
                     telegram_chat_id: log.telegram_chat_id || null,
                     last_date: log.created_at,
-                    logs: []
+                    logs: [],
+                    is_pro: log.is_pro === true,
                 };
             }
+            map[id].is_pro = map[id].is_pro || log.is_pro === true;
             map[id].logs.push(log);
         });
 
@@ -134,7 +139,7 @@ export default function AIChatbotTab() {
             logs: g.logs.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()),
             last_date: g.logs[g.logs.length - 1]?.created_at || g.last_date
         })).sort((a, b) => new Date(b.last_date).getTime() - new Date(a.last_date).getTime());
-    }, [logs]);
+    }, [logs, proOnly]);
 
     const [dateFilter, setDateFilter] = useState<"all" | "today" | "week">("all");
 
@@ -252,6 +257,14 @@ export default function AIChatbotTab() {
                                 </div>
                                 <div className="flex items-center gap-2">
                                     <button
+                                        onClick={() => setProOnly((value) => !value)}
+                                        className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-bold transition-colors ${proOnly ? "border-amber-500 bg-amber-500 text-black" : "border-zinc-300 text-zinc-500 hover:bg-zinc-200 dark:border-zinc-700 dark:hover:bg-zinc-800"}`}
+                                        title="تصفية المحادثات للمستخدمين المشتركين في Pro"
+                                    >
+                                        <Crown className="w-3.5 h-3.5" />
+                                        {proOnly ? "PRO فقط" : "كل المستخدمين"}
+                                    </button>
+                                    <button
                                         onClick={() => setIsFullscreen(!isFullscreen)}
                                         className="p-2 hover:bg-zinc-200 dark:hover:bg-zinc-800 rounded-lg transition-colors text-zinc-500"
                                         title={isFullscreen ? "تصغير الواجهة" : "تكبير الواجهة"}
@@ -354,6 +367,7 @@ export default function AIChatbotTab() {
                                                             <div className="min-w-0 flex-1">
                                                                 <div className="font-bold text-xs text-black dark:text-white truncate flex items-center gap-1.5">
                                                                     <span>{group.user_name}</span>
+                                                                    {group.is_pro && <span title="مستخدم Pro" aria-label="Pro user"><Crown className="w-3.5 h-3.5 shrink-0 text-amber-500" /></span>}
                                                                     {isUnread && (
                                                                         <span className="text-[9px] bg-blue-500 text-white px-1.5 py-0.2 rounded-full font-bold">
                                                                             غير مقروء
@@ -394,6 +408,7 @@ export default function AIChatbotTab() {
                                                         <div>
                                                             <div className="font-bold text-sm text-black dark:text-white flex items-center gap-2">
                                                                 {selectedGroup.user_name}
+                                                                {selectedGroup.is_pro && <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-bold text-amber-600 dark:text-amber-400"><Crown className="w-3 h-3" /> PRO</span>}
                                                                 {selectedGroup.telegram_chat_id && (
                                                                     <span className="text-[10px] bg-blue-500/10 text-blue-500 border border-blue-500/20 px-2 py-0.5 rounded-full font-normal flex items-center gap-1">
                                                                         <LinkIcon className="w-3 h-3" /> Telegram Linked

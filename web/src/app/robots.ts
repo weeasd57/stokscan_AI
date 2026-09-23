@@ -5,7 +5,7 @@ export default function robots(): MetadataRoute.Robots {
     rules: {
       userAgent: '*',
       allow: '/',
-      disallow: ['/admin/', '/api/', '/profile/'],
+      disallow: ['/admin', '/api', '/profile'],
     },
     sitemap: 'https://egxbots.com/sitemap.xml',
   }

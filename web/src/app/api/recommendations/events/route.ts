@@ -23,6 +23,12 @@ export async function GET(request: NextRequest) {
   const limit = Math.min(Math.max(Number.isFinite(requestedLimit) ? requestedLimit : 500, 1), 1000);
 
   try {
+    const auth = createSupabaseServerClient(request);
+    const { data: { user } } = await auth.auth.getUser();
+    if (!user) return NextResponse.json({ detail: "Pro subscription required" }, { status: 401 });
+    const { data: subs } = await auth.from("subscriptions").select("plan_id,status,current_period_end").eq("user_id", user.id);
+    const pro = hasActiveProSubscription(subs || []);
+    if (!pro) return NextResponse.json({ detail: "Pro subscription required" }, { status: 403 });
     const supabase = getSupabaseServiceClient();
     const { data: events, error: eventError } = await supabase
       .from("recommendation_events")
@@ -33,12 +39,6 @@ export async function GET(request: NextRequest) {
       .limit(limit);
 
     if (eventError) throw eventError;
-    const auth = createSupabaseServerClient(request);
-    const { data: { user } } = await auth.auth.getUser();
-    if (!user) return NextResponse.json({ detail: "Pro subscription required" }, { status: 401 });
-    const { data: subs } = await auth.from("subscriptions").select("plan_id,status,current_period_end").eq("user_id", user.id);
-    const pro = hasActiveProSubscription(subs || []);
-    if (!pro) return NextResponse.json({ detail: "Pro subscription required" }, { status: 403 });
     const visibleEvents = events || [];
     const recommendationIds = [...new Set(visibleEvents.map((event: any) => String(event.recommendation_id)))];
     if (!recommendationIds.length) {
@@ -50,7 +50,7 @@ export async function GET(request: NextRequest) {
 
     const { data: recommendations, error: recommendationError } = await supabase
       .from("scan_results")
-      .select("id,symbol,exchange,name,signal,status,is_public,entry_price,target_price,stop_loss,exit_price,profit_loss_pct,logo_url")
+      .select("id,symbol,exchange,name,signal,status,is_public,entry_price,target_price,stop_loss,exit_price,profit_loss_pct,logo_url,created_at")
       .in("id", recommendationIds)
       .eq("is_public", true);
 
@@ -83,6 +83,7 @@ export async function GET(request: NextRequest) {
         name: recommendation.name,
         signal: recommendation.signal,
         logo_url: recommendation.logo_url,
+        created_at: recommendation.created_at,
         status: newValues.status || recommendation.status,
         entry_price: numeric(oldValues.entry_price ?? recommendation.entry_price),
         exit_price: numeric(newValues.exit_price ?? recommendation.exit_price ?? event.price_at_event),

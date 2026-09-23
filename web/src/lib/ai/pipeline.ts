@@ -2871,7 +2871,12 @@ while (attempts < maxAttempts) {
             requestedModel,
             sessionState,
             correctionPrompt,
-            responderMeta
+            responderMeta,
+            portfolioAnalysisSymbols.length >= AI_CONFIG.limits.portfolioResponseTokens.largePortfolioMinSymbols
+                ? AI_CONFIG.limits.portfolioResponseTokens.large
+                : portfolioAnalysisSymbols.length > 4
+                    ? AI_CONFIG.limits.portfolioResponseTokens.medium
+                    : undefined
         );
 
         for await (const chunk of stream) {

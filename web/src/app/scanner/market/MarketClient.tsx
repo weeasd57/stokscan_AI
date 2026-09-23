@@ -1544,28 +1544,31 @@ export default function MarketClient() {
             dir={isAr ? "rtl" : "ltr"}
         >
             {/* Hero Banner */}
-            <div className="relative overflow-hidden rounded-none border-4 border-black dark:border-white bg-[#FFE600] dark:bg-[#FFE600] text-black dark:text-white p-6 sm:p-8 md:p-12 mb-8 shadow-[6px_6px_0px_0px_#000000] dark:shadow-[6px_6px_0px_0px_#ffffff]">
-                <div className="relative z-10 max-w-2xl space-y-4">
-                    <div className="inline-flex items-center gap-2 px-3 py-1 border-2 border-black dark:border-black bg-black dark:bg-black text-[#FFE600] dark:text-[#FFE600] text-xs font-black uppercase tracking-wider">
+            <div className="relative mb-8 overflow-hidden rounded-3xl border border-indigo-200/70 bg-gradient-to-br from-indigo-50 via-white to-cyan-50 p-6 shadow-sm dark:border-white/10 dark:from-indigo-950/50 dark:via-zinc-950 dark:to-cyan-950/30 sm:p-8 md:p-10">
+                <div className="pointer-events-none absolute -right-12 -top-20 h-64 w-64 rounded-full bg-indigo-400/10 blur-3xl" />
+                <div className="pointer-events-none absolute -bottom-28 left-1/3 h-56 w-56 rounded-full bg-cyan-400/10 blur-3xl" />
+                <div className="relative z-10 max-w-3xl space-y-4">
+                    <div className="inline-flex items-center gap-2 rounded-full border border-indigo-200 bg-white/75 px-3 py-1.5 text-xs font-bold text-indigo-700 shadow-sm dark:border-indigo-400/20 dark:bg-zinc-900/70 dark:text-indigo-200">
                         <Activity className="w-3.5 h-3.5" />
                         {isAr ? "تحليل السوق" : "MARKET ANALYSIS"}
                     </div>
-                    <h1 className="text-2xl sm:text-3xl md:text-5xl font-black text-black dark:text-white tracking-tight leading-tight uppercase">
+                    <h1 className="text-2xl font-extrabold tracking-tight leading-tight text-zinc-950 dark:text-white sm:text-3xl md:text-4xl">
                         {t("market.title")}
                     </h1>
-                    <p className="text-black/80 dark:text-white/80 font-mono text-xs md:text-sm leading-relaxed font-semibold">
+                    <p className="max-w-2xl text-sm leading-7 text-zinc-600 dark:text-zinc-300 md:text-base">
                         {t("market.subtitle")}
                     </p>
-                    <div className="flex items-center gap-3">
-                        <span className="text-[10px] font-mono text-black/60 dark:text-white/60 font-bold">
+                    <div className="flex flex-wrap items-center gap-3 pt-1">
+                        <span className="text-xs font-medium text-zinc-500">
                             {t("market.last_updated")} {new Date(data.updated_at).toLocaleTimeString(isAr ? "ar-EG" : "en-US")}
                         </span>
                         <button
                             onClick={() => void fetchMarketStatus()}
-                            className="w-9 h-9 border-2 border-black dark:border-black bg-black dark:bg-black hover:bg-zinc-800 text-[#FFE600] flex items-center justify-center cursor-pointer active:translate-x-[1px] active:translate-y-[1px] transition-all shadow-[2px_2px_0px_rgba(0,0,0,0.3)]"
+                            className="inline-flex h-9 items-center justify-center gap-2 rounded-xl border border-zinc-200 bg-white/80 px-3 text-xs font-semibold text-zinc-700 shadow-sm transition hover:border-indigo-300 hover:text-indigo-700 disabled:opacity-50 dark:border-white/10 dark:bg-zinc-900/70 dark:text-zinc-200 dark:hover:border-indigo-400/40 dark:hover:text-indigo-200"
                             title={isAr ? "تحديث" : "Refresh"}
                         >
                             <RefreshCw className="w-4 h-4" />
+                            <span>{isAr ? "تحديث البيانات" : "Refresh data"}</span>
                         </button>
                     </div>
                 </div>
@@ -1599,8 +1602,8 @@ export default function MarketClient() {
                 {/* EGX 30 Card */}
                 <div
                     onClick={() => setActiveTab("egx30")}
-                    className={`border-4 border-black dark:border-white bg-white dark:bg-zinc-950 p-6 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_0px_rgba(255,255,255,0.15)] cursor-pointer transition-all relative overflow-hidden flex flex-col justify-between ${
-                        activeTab === "egx30" ? "!border-indigo-500 !shadow-[6px_6px_0px_0px_rgba(99,102,241,0.4)]" : "hover:border-zinc-400 dark:hover:border-zinc-500"
+                    className={`relative flex cursor-pointer flex-col justify-between overflow-hidden rounded-2xl border bg-white p-5 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md dark:bg-zinc-950/70 sm:p-6 ${
+                        activeTab === "egx30" ? "border-indigo-400 ring-2 ring-indigo-500/10 dark:border-indigo-400/60" : "border-zinc-200 hover:border-indigo-200 dark:border-white/10 dark:hover:border-white/20"
                     }`}
                 >
                     <div className={`flex items-center justify-between ${isAr ? "flex-row-reverse" : "flex-row"} mb-3`}>
@@ -1627,8 +1630,8 @@ export default function MarketClient() {
                 {/* EGX 100 Card */}
                 <div
                     onClick={() => setActiveTab("egx100")}
-                    className={`border-4 border-black dark:border-white bg-white dark:bg-zinc-950 p-6 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_0px_rgba(255,255,255,0.15)] cursor-pointer transition-all relative overflow-hidden flex flex-col justify-between ${
-                        activeTab === "egx100" ? "!border-blue-500 !shadow-[6px_6px_0px_0px_rgba(59,130,246,0.4)]" : "hover:border-zinc-400 dark:hover:border-zinc-500"
+                    className={`relative flex cursor-pointer flex-col justify-between overflow-hidden rounded-2xl border bg-white p-5 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md dark:bg-zinc-950/70 sm:p-6 ${
+                        activeTab === "egx100" ? "border-blue-400 ring-2 ring-blue-500/10 dark:border-blue-400/60" : "border-zinc-200 hover:border-blue-200 dark:border-white/10 dark:hover:border-white/20"
                     }`}
                 >
                     <div className={`flex items-center justify-between ${isAr ? "flex-row-reverse" : "flex-row"} mb-3`}>
@@ -1655,8 +1658,8 @@ export default function MarketClient() {
                 {/* USD/EGP Forex Card */}
                 <div
                     onClick={() => void setActiveTab("usdegp")}
-                    className={`border-4 border-black dark:border-white bg-white dark:bg-zinc-950 p-6 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_0px_rgba(255,255,255,0.15)] cursor-pointer transition-all relative overflow-hidden flex flex-col justify-between ${
-                        activeTab === "usdegp" ? "!border-purple-500 !shadow-[6px_6px_0px_0px_rgba(168,85,247,0.4)]" : "hover:border-zinc-400 dark:hover:border-zinc-500"
+                    className={`relative flex cursor-pointer flex-col justify-between overflow-hidden rounded-2xl border bg-white p-5 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md dark:bg-zinc-950/70 sm:p-6 ${
+                        activeTab === "usdegp" ? "border-purple-400 ring-2 ring-purple-500/10 dark:border-purple-400/60" : "border-zinc-200 hover:border-purple-200 dark:border-white/10 dark:hover:border-white/20"
                     }`}
                 >
                     <div className={`flex items-center justify-between ${isAr ? "flex-row-reverse" : "flex-row"} mb-3`}>
@@ -1797,8 +1800,8 @@ export default function MarketClient() {
             </div>
 
             {/* Smart Money Heatmap Section */}
-            <div className="border-4 border-black dark:border-white bg-white dark:bg-zinc-950 p-6 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_0px_rgba(255,255,255,0.15)] mb-10 rounded-none">
-                <div className={`flex flex-col md:flex-row md:items-center justify-between gap-4 mb-5 border-b-4 border-black dark:border-zinc-800 pb-4 ${isAr ? "md:flex-row-reverse" : "md:flex-row"}`}>
+            <div className="mb-10 rounded-3xl border border-zinc-200 bg-white/80 p-5 shadow-sm dark:border-white/10 dark:bg-zinc-950/55 sm:p-7">
+                <div className={`mb-5 flex flex-col justify-between gap-4 border-b border-zinc-200 pb-4 md:flex-row md:items-center dark:border-white/10 ${isAr ? "md:flex-row-reverse" : "md:flex-row"}`}>
                     <div className={isAr ? "text-right" : "text-left"}>
                         <h3 className="text-xl font-black uppercase tracking-tight flex items-center gap-2 text-zinc-950 dark:text-white">
                             <span className="flex items-center justify-center w-8 h-8 bg-[#FFDC58] text-black border-2 border-black">
@@ -1991,7 +1994,7 @@ export default function MarketClient() {
             />
 
             {/* Macro-Correlation Engine Section */}
-            <div id="macro-correlation-engine" className="border-4 border-black dark:border-white bg-white dark:bg-zinc-950 p-6 sm:p-8 shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] dark:shadow-[6px_6px_0px_0px_rgba(255,255,255,0.15)] mb-10 rounded-none font-sans scroll-mt-24">
+            <div id="macro-correlation-engine" className="mb-10 scroll-mt-24 rounded-3xl border border-zinc-200 bg-white/80 p-5 shadow-sm dark:border-white/10 dark:bg-zinc-950/55 sm:p-7">
                     <div className={`flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6 border-b-4 border-black dark:border-zinc-800 pb-4 ${isAr ? "flex-row-reverse" : "flex-row"}`}>
                         <div className={isAr ? "text-right" : "text-left"}>
                             <h3 className="text-xl sm:text-2xl font-black text-zinc-950 dark:text-white uppercase tracking-tight flex items-center gap-2">

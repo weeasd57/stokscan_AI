@@ -1076,3 +1076,54 @@ body.antigrafity-theme #main-content {
 .animate-pulse-glow {
   animation: pulse-glow 2s ease-in-out infinite;
 }
+
+/* Subtle landing-page motion: purposeful, inexpensive, and accessible. */
+@keyframes landing-fade-up {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes landing-status-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.45); }
+  50% { box-shadow: 0 0 0 5px rgba(16, 185, 129, 0); }
+}
+
+.landing-fade-up {
+  animation: landing-fade-up 560ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.landing-delay-1 { animation-delay: 80ms; }
+.landing-delay-2 { animation-delay: 150ms; }
+.landing-delay-3 { animation-delay: 220ms; }
+.landing-delay-4 { animation-delay: 290ms; }
+
+.landing-trust-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  border: 2px solid currentColor;
+  background: color-mix(in srgb, white 82%, transparent);
+  padding: 0.48rem 0.75rem;
+  box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.85);
+}
+
+html.dark .landing-trust-chip {
+  background: rgba(9, 15, 29, 0.9);
+  color: #f8fafc;
+  box-shadow: 2px 2px 0 rgba(255, 255, 255, 0.7);
+}
+
+.landing-status-dot {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 999px;
+  background: #10b981;
+  animation: landing-status-pulse 2.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing-fade-up,
+  .landing-status-dot {
+    animation: none !important;
+  }
+}

@@ -10,19 +10,20 @@ type InviteRow = {
   invite_expires_at: string | null;
 };
 
-function isInviteValid(row: InviteRow | null | undefined): row is InviteRow {
+function isInviteValid(row: InviteRow | null | undefined, minimumExpiresAt?: string): row is InviteRow {
   if (!row?.invite_link?.trim()) return false;
   const end = row.invite_expires_at ? new Date(row.invite_expires_at).getTime() : 0;
-  return Number.isFinite(end) && end > Date.now();
+  const minimum = minimumExpiresAt ? new Date(minimumExpiresAt).getTime() - 60_000 : 0;
+  return Number.isFinite(end) && end > Date.now() && (!minimum || (Number.isFinite(minimum) && end >= minimum));
 }
 
-async function loadSavedInvite(service: ReturnType<typeof getSupabaseServiceClient>, userId: string): Promise<InviteRow | null> {
+async function loadSavedInvite(service: ReturnType<typeof getSupabaseServiceClient>, userId: string, subscriptionEnd: string): Promise<InviteRow | null> {
   const { data: primary } = await service
     .from("pro_telegram_invites")
     .select("invite_link,invite_expires_at")
     .eq("user_id", userId)
     .maybeSingle();
-  if (isInviteValid(primary)) return primary;
+  if (isInviteValid(primary, subscriptionEnd)) return primary;
 
   const { data: orders } = await service
     .from("local_payment_orders")
@@ -38,7 +39,7 @@ async function loadSavedInvite(service: ReturnType<typeof getSupabaseServiceClie
     invite_link: order.telegram_invite_link,
     invite_expires_at: order.telegram_invite_expires_at,
   };
-  return isInviteValid(legacy) ? legacy : primary;
+  return isInviteValid(legacy, subscriptionEnd) ? legacy : primary;
 }
 
 async function persistInvite(
@@ -139,7 +140,7 @@ export async function GET() {
   }
 
   const subscriptionEnd = String(subscription.current_period_end);
-  let saved = await loadSavedInvite(service, user.id);
+  let saved = await loadSavedInvite(service, user.id, subscriptionEnd);
 
   if (!isInviteValid(saved)) {
     // The payment service owns the persisted invite and has the same Telegram
@@ -156,7 +157,7 @@ export async function GET() {
     }
   }
 
-  const validInvite = isInviteValid(saved) ? saved : null;
+  const validInvite = isInviteValid(saved, subscriptionEnd) ? saved : null;
   return NextResponse.json({
     is_pro: true,
     current_period_end: subscriptionEnd,

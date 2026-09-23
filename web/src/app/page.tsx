@@ -228,7 +228,7 @@ export default function HomePage() {
             icon: Activity,
             title: isAr ? "الماسح الفني" : "Technical Scanner",
             desc: isAr
-                ? "فلاتر فنية متقدمة وإشارات RSI وMACD وحجم التداول على كل الأسهم لحظياً."
+                ? "فلاتر فنية متقدمة وإشارات RSI وMACD وحجم التداول وفق أحدث تحديث بيانات متاح."
                 : "Technical filters including RSI, MACD, and volume on EGX stocks.",
             badge: "POPULAR",
             colorClass: "neobrutal-bg-yellow",
@@ -240,8 +240,8 @@ export default function HomePage() {
             n: 1,
             title: isAr ? "الذكاء الاصطناعي يحلل الأسهم" : "AI Analyzes Stocks",
             desc: isAr
-                ? "تحلل نماذج الذكاء الاصطناعي (Random Forest و LightGBM) أسهم البورصة المصرية لحظياً وتمنح كل سهم تقييماً من 1 إلى 10."
-                : "AI models (Random Forest & LightGBM) analyze EGX stocks in real time and assign each a 1-to-10 AI score.",
+                ? "تحلل نماذج الذكاء الاصطناعي (Random Forest و LightGBM) أسهم البورصة المصرية مع كل تحديث يومي وتمنح كل سهم تقييماً من 1 إلى 10."
+                : "AI models (Random Forest & LightGBM) analyze EGX stocks with each daily data refresh and assign a 1-to-10 AI score.",
             colorClass: "neobrutal-bg-yellow",
         },
         {
@@ -299,62 +299,18 @@ export default function HomePage() {
 
     return (
         <div className="neobrutal-layout min-h-screen -mx-3 sm:-mx-6 md:-mx-8 overflow-hidden pb-16">
-            <script
-                type="application/ld+json"
-                dangerouslySetInnerHTML={{
-                    __html: JSON.stringify({
-                        "@context": "https://schema.org",
-                        "@graph": [
-                            {
-                                "@type": "FinancialService",
-                                "@id": "https://egxbots.com/#financial-service",
-                                "name": "EGX BOTS",
-                                "url": "https://egxbots.com",
-                                "logo": "https://egxbots.com/favicon_io/android-chrome-512x512.png",
-                                "image": "https://egxbots.com/dashboard_preview.png",
-                                "description": "منصة EGX BOTS (egxbots) هي منصة متقدمة لتحليل الأسهم المصرية باستخدام الذكاء الاصطناعي، الماسح الفني، والمحاكاة التاريخية وإشارات السوق.",
-                                "sameAs": [
-                                    "https://t.me/egxbots"
-                                ],
-                                "address": {
-                                    "@type": "PostalAddress",
-                                    "addressCountry": "EG"
-                                }
-                            },
-                            {
-                                "@type": "WebSite",
-                                "@id": "https://egxbots.com/#website",
-                                "url": "https://egxbots.com",
-                                "name": "EGX BOTS",
-                                "description": "تحليل البورصة المصرية بالذكاء الاصطناعي",
-                                "publisher": {
-                                    "@id": "https://egxbots.com/#financial-service"
-                                },
-                                "potentialAction": {
-                                    "@type": "SearchAction",
-                                    "target": {
-                                        "@type": "EntryPoint",
-                                        "urlTemplate": "https://egxbots.com/scanner/market?search={search_term_string}"
-                                    },
-                                    "query-input": "required name=search_term_string"
-                                }
-                            }
-                        ]
-                    })
-                }}
-            />
             {/* Top Marquee Ribbon */}
             <div className="w-full border-y-4 border-black dark:border-white bg-black dark:bg-zinc-950 text-white overflow-hidden py-3 font-mono font-black text-xs sm:text-sm uppercase tracking-widest flex select-none">
                 <div className={isAr ? "animate-marquee-neobrutal-rtl flex gap-12 shrink-0 min-w-full justify-around" : "animate-marquee-neobrutal flex gap-12 shrink-0 min-w-full justify-around"}>
-                    <span>🚀 EGX BOTS • AI SCANNERS • REALTIME DATA • SMART ALERTS</span>
+                    <span>🚀 EGX BOTS • AI SCANNERS • DAILY MARKET DATA • SMART ALERTS</span>
                     <span>🔥 تداول بذكاء • إشارات شراء وبيع • البورصة المصرية بالذكاء الاصطناعي</span>
-                    <span>⚡ 100% AUTOMATED BOTS • LIVE ALERTS</span>
+                    <span>⚡ AUTOMATED SCANS • TELEGRAM ALERTS</span>
                     <span>🤖 RANDOM FOREST & LIGHTGBM MODELS • DIRECT TELEGRAM DELIVERY</span>
                 </div>
                 <div aria-hidden="true" className={isAr ? "animate-marquee-neobrutal-rtl flex gap-12 shrink-0 min-w-full justify-around" : "animate-marquee-neobrutal flex gap-12 shrink-0 min-w-full justify-around"}>
-                    <span>🚀 EGX BOTS • AI SCANNERS • REALTIME DATA • SMART ALERTS</span>
+                    <span>🚀 EGX BOTS • AI SCANNERS • DAILY MARKET DATA • SMART ALERTS</span>
                     <span>🔥 تداول بذكاء • إشارات شراء وبيع • البورصة المصرية بالذكاء الاصطناعي</span>
-                    <span>⚡ 100% AUTOMATED BOTS • LIVE ALERTS</span>
+                    <span>⚡ AUTOMATED SCANS • TELEGRAM ALERTS</span>
                     <span>🤖 RANDOM FOREST & LIGHTGBM MODELS • DIRECT TELEGRAM DELIVERY</span>
                 </div>
             </div>
@@ -371,7 +327,7 @@ export default function HomePage() {
 
                 <div className="max-w-6xl mx-auto text-center relative z-10">
                     {/* Header Sticker Badge */}
-                    <div className="inline-block border-4 border-black dark:border-white px-4 py-2.5 neobrutal-bg-yellow font-black text-xs sm:text-sm uppercase tracking-widest mb-8 rotate-[-1.5deg] shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_rgba(255,255,255,1)] hover:rotate-[0deg] hover:scale-110 transition-all duration-200 cursor-pointer animate-[bounceIn_0.8s_ease-out]">
+                    <div className="landing-fade-up inline-block border-4 border-black dark:border-white px-4 py-2.5 neobrutal-bg-yellow font-black text-xs sm:text-sm uppercase tracking-widest mb-8 rotate-[-1.5deg] shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_rgba(255,255,255,1)] hover:rotate-[0deg] hover:scale-105 transition-all duration-200 cursor-pointer">
                         <span className="flex items-center gap-2 text-black dark:text-black">
                             <Sparkles className="w-4 h-4 text-black dark:text-black animate-spin" style={{ animationDuration: '3s' }} />
                             {isAr ? "منصة تحليل البورصة المصرية بالذكاء الاصطناعي" : "EGX Stock Analysis Powered by AI"}
@@ -379,7 +335,7 @@ export default function HomePage() {
                     </div>
 
                     {/* Logo & Platform Name */}
-                    <div className="flex items-center justify-center gap-4 mb-6 animate-[fadeInUp_0.8s_ease-out]">
+                    <div className="landing-fade-up landing-delay-1 flex items-center justify-center gap-4 mb-6">
                                                     <div className="border-4 border-black dark:border-white bg-white p-3 rotate-[2deg] shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_rgba(255,255,255,1)] hover:rotate-0 hover:scale-110 transition-transform duration-300">
                             <Image
                                 src="/favicon_io/apple-touch-icon.png"
@@ -390,13 +346,13 @@ export default function HomePage() {
                                 priority
                             />
                         </div>
-                        <h1 className="text-4xl sm:text-6xl md:text-8xl font-black tracking-tighter text-black dark:text-white uppercase drop-shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:drop-shadow-[4px_4px_0px_rgba(255,255,255,0.15)] animate-[slideInRight_0.8s_ease-out]">
+                        <h1 className="text-4xl sm:text-6xl md:text-8xl font-black tracking-tighter text-black dark:text-white uppercase drop-shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:drop-shadow-[4px_4px_0px_rgba(255,255,255,0.15)]">
                             EGX BOTS
                         </h1>
                     </div>
 
                     {/* Large Slogan */}
-                    <h2 className="text-3xl sm:text-5xl md:text-7xl font-black mb-8 leading-tight tracking-tight text-black dark:text-white">
+                    <h2 className="landing-fade-up landing-delay-2 text-3xl sm:text-5xl md:text-7xl font-black mb-8 leading-tight tracking-tight text-black dark:text-white">
                         {isAr ? (
                             <>
                                 الاستثمار الذكي أصبح سهلاً <br />
@@ -415,11 +371,17 @@ export default function HomePage() {
                     </h2>
 
                     {/* Intro Description */}
-                    <p className="text-base sm:text-lg md:text-xl text-zinc-800 dark:text-zinc-200 max-w-3xl mx-auto mb-12 leading-relaxed px-4 font-bold">
+                    <p className="landing-fade-up landing-delay-3 text-base sm:text-lg md:text-xl text-zinc-800 dark:text-zinc-200 max-w-3xl mx-auto mb-7 leading-relaxed px-4 font-bold">
                         {isAr
-                            ? "يقوم الذكاء الاصطناعي الخاص بنا بالعمل الشاق، حيث يحلل مئات المؤشرات يومياً لكل سهم لتصنيف احتمالية تغلب الأسهم على السوق باستخدام تقييم AI Score."
-                            : "Our AI does the hard work, analyzing hundreds of metrics per day per stock and rating their probability of beating the market with the AI Score."}
+                            ? "منصة واحدة لفهم السوق المصري: تقييم يومي للفرص، ماسح فني قابل للتخصيص، ونتائج تاريخية تساعدك على اتخاذ قرار واعٍ."
+                            : "One place to understand the Egyptian market: daily opportunity rankings, a configurable technical scanner, and historical results for more informed decisions."}
                     </p>
+
+                    <div className="landing-fade-up landing-delay-4 mb-12 flex flex-wrap items-center justify-center gap-2.5 px-4 text-xs sm:text-sm font-black text-black">
+                        <span className="landing-trust-chip"><span className="landing-status-dot" />{isAr ? "تحديث بيانات يومي" : "Daily data refresh"}</span>
+                        <span className="landing-trust-chip">{isAr ? "نتائج واختبارات تاريخية" : "Historical tests & results"}</span>
+                        <span className="landing-trust-chip">{isAr ? "أداة تعليمية وليست توصية شخصية" : "Educational tool, not personal advice"}</span>
+                    </div>
 
                     {/* Interactive AI Chatbot Spotlight Feature Banner */}
                     <div className="max-w-4xl mx-auto mb-14 p-6 sm:p-8 border-4 border-black dark:border-white neobrutal-bg-cyan text-black shadow-[8px_8px_0px_rgba(0,0,0,1)] dark:shadow-[8px_8px_0px_rgba(255,255,255,1)] rotate-[-0.5deg] hover:rotate-0 transition-transform duration-300 relative overflow-hidden text-right">

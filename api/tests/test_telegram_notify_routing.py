@@ -57,8 +57,13 @@ class TelegramNotifyRoutingTests(unittest.TestCase):
         self.assertTrue(result)
         vip_send.assert_called_once()
 
-    def test_daily_digest_is_removed_from_vip_delivery_policy(self):
-        self.assertNotIn("daily_digest", _VIP_TELEGRAM_SERVICE_TYPES)
+    def test_operational_reports_are_never_routed_to_a_channel(self):
+        with patch("api.daily_bot_run._notify_vip_telegram") as vip_send, \
+             patch("api.daily_bot_run._notify_free_telegram") as free_send, \
+             patch("api.daily_bot_run._telegram_recommendation_writes_enabled", return_value=True):
+            self.assertFalse(_notify_central_telegram("internal", "daily_job_report"))
+        vip_send.assert_not_called()
+        free_send.assert_not_called()
 
     def test_free_messages_end_with_the_vip_ad_footer(self):
         with patch("api.daily_bot_run._deliver_telegram_message", return_value=TelegramNotificationOutcome(True)) as deliver:

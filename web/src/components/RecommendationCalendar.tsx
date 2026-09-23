@@ -32,6 +32,8 @@ import { isShariaCompliant } from "@/lib/shariaStocks";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useRealtimeRefresh } from "@/hooks/useRealtimeRefresh";
+import { fetchRecommendationBenchmarks, type RecommendationBenchmarkAsset } from "@/lib/api";
+import { pairTradeReturns } from "@/lib/recommendationBenchmark";
 
 interface RecommendationCalendarProps {
     recommendations: any[];
@@ -92,6 +94,12 @@ export default function RecommendationCalendar({
     const [sentEvents, setSentEvents] = useState<RecommendationEvent[]>([]);
     const [trackedRecommendationIds, setTrackedRecommendationIds] = useState<string[]>([]);
     const [eventsUnavailable, setEventsUnavailable] = useState(false);
+    const [benchmarkAssets, setBenchmarkAssets] = useState<RecommendationBenchmarkAsset[]>([]);
+    const [benchmarkLoading, setBenchmarkLoading] = useState(false);
+    const [benchmarkError, setBenchmarkError] = useState(false);
+    const [riskCapital, setRiskCapital] = useState("10000");
+    const [riskPercent, setRiskPercent] = useState("1");
+    const [riskSymbol, setRiskSymbol] = useState("");
 
     const loadSentEvents = useCallback(async (signal?: AbortSignal) => {
         try {
@@ -246,6 +254,140 @@ export default function RecommendationCalendar({
         return [...fromEvents, ...legacy];
     }, [filteredBaseRecs, filteredSentEvents, trackedRecommendationIds]);
 
+    // Shared boundaries for the summary and trade-aligned benchmark comparison.
+    const dateRangeBoundaries = useMemo(() => {
+        const now = new Date();
+        if (filterPreset === "this_month") return { start: new Date(now.getFullYear(), now.getMonth(), 1), end: new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59) };
+        if (filterPreset === "last_month") return { start: new Date(now.getFullYear(), now.getMonth() - 1, 1), end: new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59) };
+        if (filterPreset === "30days") {
+            const start = new Date(now);
+            start.setDate(start.getDate() - 30);
+            return { start, end: now };
+        }
+        if (filterPreset === "custom" && customFrom && customTo) {
+            const end = new Date(customTo);
+            end.setHours(23, 59, 59);
+            return { start: new Date(customFrom), end };
+        }
+        return null;
+    }, [filterPreset, customFrom, customTo]);
+
+    const comparisonTrades = useMemo(() => {
+        const inRange = (value: unknown) => {
+            if (!dateRangeBoundaries) return true;
+            if (!value) return false;
+            const date = new Date(String(value));
+            return !Number.isNaN(date.getTime()) && date >= dateRangeBoundaries.start && date <= dateRangeBoundaries.end;
+        };
+        const latestByRecommendation = new Map<string, any>();
+        closureTimeline.forEach((trade) => {
+            const status = String(trade.status || "").toLowerCase();
+            const closeAt = trade._calendarEventAt;
+            if (!(["win", "loss"].includes(status)) || !inRange(closeAt) || trade.profit_loss_pct == null) return;
+            const startAt = trade.created_at || trade.entry_date;
+            const returnPct = Number(trade.profit_loss_pct);
+            if (!startAt || !Number.isFinite(returnPct)) return;
+            const id = String(trade.recommendation_id || trade.id || trade._timelineKey);
+            const current = latestByRecommendation.get(id);
+            if (!current || new Date(closeAt).getTime() > new Date(current._calendarEventAt).getTime()) {
+                latestByRecommendation.set(id, { ...trade, _benchmarkStart: String(startAt).slice(0, 10), _benchmarkEnd: String(closeAt).slice(0, 10), _returnPct: returnPct });
+            }
+        });
+        return [...latestByRecommendation.values()].filter((trade) => trade._benchmarkStart <= trade._benchmarkEnd);
+    }, [closureTimeline, dateRangeBoundaries]);
+
+    const benchmarkRange = useMemo(() => {
+        if (!comparisonTrades.length) return null;
+        return {
+            from: comparisonTrades.reduce((min, trade) => trade._benchmarkStart < min ? trade._benchmarkStart : min, comparisonTrades[0]._benchmarkStart),
+            to: comparisonTrades.reduce((max, trade) => trade._benchmarkEnd > max ? trade._benchmarkEnd : max, comparisonTrades[0]._benchmarkEnd),
+        };
+    }, [comparisonTrades]);
+
+    useEffect(() => {
+        if (!isPro || !benchmarkRange) {
+            setBenchmarkAssets([]);
+            setBenchmarkLoading(false);
+            setBenchmarkError(false);
+            return;
+        }
+        const controller = new AbortController();
+        setBenchmarkLoading(true);
+        setBenchmarkError(false);
+        fetchRecommendationBenchmarks(benchmarkRange.from, benchmarkRange.to, controller.signal)
+            .then(setBenchmarkAssets)
+            .catch((error) => {
+                if (error?.name !== "AbortError") {
+                    setBenchmarkAssets([]);
+                    setBenchmarkError(true);
+                }
+            })
+            .finally(() => {
+                if (!controller.signal.aborted) setBenchmarkLoading(false);
+            });
+        return () => controller.abort();
+    }, [benchmarkRange, isPro]);
+
+    const benchmarkResults = useMemo(() => {
+        return benchmarkAssets.map((asset) => {
+            const paired = pairTradeReturns(comparisonTrades.map((trade) => ({
+                startDate: trade._benchmarkStart,
+                endDate: trade._benchmarkEnd,
+                returnPct: trade._returnPct,
+            })), asset.prices);
+            const mean = (key: "strategy" | "benchmark") => paired.length
+                ? paired.reduce((sum, row) => sum + row[key], 0) / paired.length
+                : null;
+            const median = (key: "strategy" | "benchmark") => {
+                const values = paired.map((row) => row[key]).sort((a, b) => a - b);
+                if (!values.length) return null;
+                const middle = Math.floor(values.length / 2);
+                return values.length % 2 ? values[middle] : (values[middle - 1] + values[middle]) / 2;
+            };
+            const benchmarkMean = mean("benchmark");
+            const strategyMean = mean("strategy");
+            return {
+                ...asset,
+                sampleSize: paired.length,
+                strategyReturn: strategyMean,
+                strategyMedian: median("strategy"),
+                benchmarkReturn: benchmarkMean,
+                benchmarkMedian: median("benchmark"),
+                alpha: strategyMean == null || benchmarkMean == null ? null : strategyMean - benchmarkMean,
+            };
+        });
+    }, [benchmarkAssets, comparisonTrades]);
+
+    const activeRiskCandidates = useMemo(() => filteredBaseRecs.filter((trade) => {
+        const status = String(trade.status || "").toLowerCase();
+        return !["win", "loss", "closed", "stale"].includes(status)
+            && Number(trade.entry_price) > 0
+            && Number(trade.stop_loss) > 0
+            && Number(trade.entry_price) > Number(trade.stop_loss);
+    }), [filteredBaseRecs]);
+
+    useEffect(() => {
+        if (!activeRiskCandidates.some((trade) => String(trade.id) === riskSymbol)) {
+            setRiskSymbol(String(activeRiskCandidates[0]?.id || ""));
+        }
+    }, [activeRiskCandidates, riskSymbol]);
+
+    const positionRisk = useMemo(() => {
+        const trade = activeRiskCandidates.find((item) => String(item.id) === riskSymbol);
+        const capital = Number(riskCapital);
+        const riskPct = Number(riskPercent);
+        if (!trade || !Number.isFinite(capital) || capital <= 0 || !Number.isFinite(riskPct) || riskPct <= 0 || riskPct > 100) return null;
+        const entry = Number(trade.entry_price);
+        const stop = Number(trade.stop_loss);
+        const riskPerShare = entry - stop;
+        if (riskPerShare <= 0) return null;
+        const units = Math.min(
+            Math.floor((capital * riskPct / 100) / riskPerShare),
+            Math.floor(capital / entry),
+        );
+        return { trade, units, value: units * entry, maxLoss: units * riskPerShare };
+    }, [activeRiskCandidates, riskCapital, riskPercent, riskSymbol]);
+
     const adjustmentTimeline = useMemo(
         () => filteredSentEvents
             .filter(event => event.event_type === "target_or_stop_adjusted")
@@ -268,35 +410,6 @@ export default function RecommendationCalendar({
             return !Number.isNaN(createdAt.getTime()) && createdAt >= start && createdAt < end;
         }).length;
     }, [filteredBaseRecs, year, month]);
-
-    // Compute Date Range Boundaries for Global Statistics Filter
-    const dateRangeBoundaries = useMemo(() => {
-        const now = new Date();
-        if (filterPreset === "this_month") {
-            const start = new Date(now.getFullYear(), now.getMonth(), 1);
-            const end = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
-            return { start, end };
-        }
-        if (filterPreset === "last_month") {
-            const start = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-            const end = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59);
-            return { start, end };
-        }
-        if (filterPreset === "30days") {
-            const end = new Date();
-            const start = new Date();
-            start.setDate(end.getDate() - 30);
-            return { start, end };
-        }
-        if (filterPreset === "custom" && customFrom && customTo) {
-            const start = new Date(customFrom);
-            const end = new Date(customTo);
-            end.setHours(23, 59, 59);
-            return { start, end };
-        }
-        // Preset 'all' or fallback
-        return null;
-    }, [filterPreset, customFrom, customTo]);
 
     // General Dynamic Statistics matching selected date filter
     const globalStats = useMemo(() => {
@@ -676,14 +789,14 @@ export default function RecommendationCalendar({
                         </div>
                     </div>
 
-                    {/* Card 4: Cumulative Net Return */}
+                    {/* Card 4: Unweighted Sum of Trade Returns */}
                     <div className={`p-2.5 sm:p-3.5 rounded-xl border flex flex-col justify-between transition-all shadow-sm dark:shadow-none ${
                         globalStats.netProfitPct >= 0
                             ? "bg-emerald-50 dark:bg-emerald-500/5 border-emerald-300 dark:border-emerald-500/30"
                             : "bg-rose-50 dark:bg-rose-500/5 border-rose-300 dark:border-rose-500/30"
                     }`}>
                         <div className="flex items-center justify-between text-zinc-500 dark:text-zinc-400 text-[11px] sm:text-xs font-bold">
-                            <span>{isAr ? "صافي الربح" : "Net Profit"}</span>
+                            <span>{isAr ? "مجموع عوائد الصفقات" : "Sum of Trade Returns"}</span>
                             {globalStats.netProfitPct >= 0 ? (
                                 <TrendingUp className="w-3.5 h-3.5 text-emerald-500 dark:text-emerald-400" />
                             ) : (
@@ -696,7 +809,7 @@ export default function RecommendationCalendar({
                             }`}>
                                 {globalStats.netProfitPct >= 0 ? "+" : ""}{globalStats.netProfitPct.toFixed(1)}%
                             </span>
-                            <span className="text-[9px] sm:text-[10px] text-zinc-400 dark:text-zinc-500 font-medium">{isAr ? "تراكمي" : "net"}</span>
+                            <span className="text-[9px] sm:text-[10px] text-zinc-400 dark:text-zinc-500 font-medium">{isAr ? "غير مركب" : "uncompounded"}</span>
                         </div>
                     </div>
 
@@ -737,6 +850,91 @@ export default function RecommendationCalendar({
                             )}
                         </div>
                     </div>
+                </div>
+
+                <div className="grid grid-cols-1 xl:grid-cols-3 gap-3 sm:gap-4">
+                    <section className="xl:col-span-2 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/80 dark:bg-zinc-900/50 p-3 sm:p-4">
+                        <div className="flex flex-wrap items-start justify-between gap-2 mb-3">
+                            <div>
+                                <h3 className="text-sm font-black text-zinc-900 dark:text-white">{isAr ? "أداء النظام مقابل السوق والصناديق المدرجة" : "System vs Market and Listed Funds"}</h3>
+                                <p className="text-[10px] text-zinc-500 mt-1">
+                                    {isAr ? "متوسط عائد التوصيات المغلقة مقابل تغير الأصل في نفس تواريخ الدخول والخروج؛ كل صفقة لها وزن متساوٍ." : "Average closed-trade return versus each asset over the same entry and exit dates; trades are equally weighted."}
+                                </p>
+                            </div>
+                            <span className="text-[10px] font-bold text-zinc-500">{comparisonTrades.length} {isAr ? "صفقة قابلة للمقارنة" : "comparable trades"}</span>
+                        </div>
+                        {!isPro ? (
+                            <div className="py-7 text-center text-xs text-zinc-500">{isAr ? "مقارنة الأداء التفصيلية متاحة لمشتركي Pro." : "Detailed performance comparison is available to Pro subscribers."}</div>
+                        ) : benchmarkLoading ? (
+                            <div className="py-7 text-center text-xs text-zinc-500">{isAr ? "جاري تحميل بيانات المقارنة…" : "Loading benchmark history…"}</div>
+                        ) : benchmarkError ? (
+                            <div className="py-7 text-center text-xs text-amber-600 dark:text-amber-400">{isAr ? "تعذر تحميل بيانات المؤشر والصناديق الآن." : "Benchmark data is temporarily unavailable."}</div>
+                        ) : !comparisonTrades.length ? (
+                            <div className="py-7 text-center text-xs text-zinc-500">{isAr ? "لا توجد توصيات مغلقة في الفترة المختارة لها تاريخ دخول وعائد موثق." : "No closed recommendations with verified entry dates and returns in this period."}</div>
+                        ) : (
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                                {benchmarkResults.map((item) => (
+                                    <div key={`${item.exchange}:${item.symbol}`} className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-3">
+                                        <div className="flex items-center justify-between gap-2">
+                                            <span className="text-xs font-black text-zinc-900 dark:text-white">{isAr ? item.nameAr : item.nameEn}</span>
+                                            <span className="text-[9px] font-mono text-zinc-500">{item.symbol}</span>
+                                        </div>
+                                        {item.sampleSize > 0 ? <>
+                                            <div className="grid grid-cols-2 gap-2 mt-3 text-[10px]">
+                                                <div>
+                                                    <span className="block text-zinc-500">{isAr ? "النظام، متوسط الصفقة" : "System avg. trade"}</span>
+                                                    <b className={item.strategyReturn! >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}>{item.strategyReturn! >= 0 ? "+" : ""}{item.strategyReturn!.toFixed(2)}%</b>
+                                                </div>
+                                                <div>
+                                                    <span className="block text-zinc-500">{isAr ? "الأصل، نفس الفترات" : "Asset, same periods"}</span>
+                                                    <b className={item.benchmarkReturn! >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}>{item.benchmarkReturn! >= 0 ? "+" : ""}{item.benchmarkReturn!.toFixed(2)}%</b>
+                                                </div>
+                                            </div>
+                                            <div className="mt-2 pt-2 border-t border-zinc-100 dark:border-zinc-800 flex items-center justify-between text-[10px]">
+                                                <span className="text-zinc-500">{isAr ? "التفوق بمتوسط العائد" : "Average return difference"}</span>
+                                                <b className={item.alpha! >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}>{item.alpha! >= 0 ? "+" : ""}{item.alpha!.toFixed(2)}%</b>
+                                            </div>
+                                            <p className="mt-1 text-[9px] text-zinc-500">
+                                                {isAr ? "الوسيط — النظام / الأصل: " : "Median — system / asset: "}
+                                                {item.strategyMedian! >= 0 ? "+" : ""}{item.strategyMedian!.toFixed(2)}% / {item.benchmarkMedian! >= 0 ? "+" : ""}{item.benchmarkMedian!.toFixed(2)}%
+                                            </p>
+                                            <p className="mt-2 text-[9px] text-zinc-500">n={item.sampleSize} {isAr ? "من" : "of"} {comparisonTrades.length}</p>
+                                            <p className="mt-1 text-[9px] text-zinc-500">{isAr ? "آخر سعر محفوظ: " : "Latest stored close: "}{item.asOf || "—"}</p>
+                                        </> : <p className="mt-3 text-[10px] text-zinc-500">{isAr ? "لا توجد أسعار قريبة بما يكفي من تواريخ الصفقات (خلال 7 أيام)." : "No stored prices within seven days of the trade dates."}</p>}
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                        <p className="mt-3 text-[9px] leading-relaxed text-zinc-500">
+                            {isAr ? "مقارنة سعرية غير مركبة، ولا تشمل توزيعات الأرباح أو الرسوم. لا تُقارن الصفقة إذا كان أقرب سعر محفوظ أقدم من 7 أيام. الصناديق المعروضة شهادات مدرجة متاحة في قاعدة الأسعار، وليست كل صناديق الاستثمار المفتوحة." : "Uncompounded price-return comparison; excludes distributions and fees. Trades are omitted if the nearest stored close is over seven days old. Fund entries are listed certificates in the price database, not all open-ended mutual funds."}
+                        </p>
+                    </section>
+
+                    <section className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/80 dark:bg-zinc-900/50 p-3 sm:p-4">
+                        <h3 className="text-sm font-black text-zinc-900 dark:text-white">{isAr ? "حاسبة حجم المركز" : "Position Size Calculator"}</h3>
+                        <p className="text-[10px] text-zinc-500 mt-1">{isAr ? "تحسب عدد الأسهم من سعر الدخول والوقف المسجلين للتوصية." : "Uses the recommendation's recorded entry and stop prices."}</p>
+                        <div className="grid grid-cols-2 gap-2 mt-3">
+                            <label className="text-[10px] text-zinc-500">{isAr ? "رأس المال (ج.م)" : "Capital (EGP)"}
+                                <input type="number" min="1" value={riskCapital} onChange={(event) => setRiskCapital(event.target.value)} className="mt-1 w-full rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-2.5 py-2 text-xs text-zinc-900 dark:text-white" />
+                            </label>
+                            <label className="text-[10px] text-zinc-500">{isAr ? "مخاطرة رأس المال %" : "Capital risk %"}
+                                <input type="number" min="0.01" max="100" step="0.1" value={riskPercent} onChange={(event) => setRiskPercent(event.target.value)} className="mt-1 w-full rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-2.5 py-2 text-xs text-zinc-900 dark:text-white" />
+                            </label>
+                        </div>
+                        <label className="block mt-2 text-[10px] text-zinc-500">{isAr ? "التوصية المفتوحة" : "Open recommendation"}
+                            <select value={riskSymbol} onChange={(event) => setRiskSymbol(event.target.value)} disabled={!activeRiskCandidates.length} className="mt-1 w-full rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-2.5 py-2 text-xs text-zinc-900 dark:text-white disabled:opacity-50">
+                                {activeRiskCandidates.map((trade) => <option key={trade.id} value={String(trade.id)}>{trade.symbol} · {Number(trade.entry_price).toFixed(2)} / {Number(trade.stop_loss).toFixed(2)}</option>)}
+                            </select>
+                        </label>
+                        {positionRisk ? (
+                            <div className="mt-3 rounded-lg border border-amber-500/20 bg-amber-500/5 p-3 grid grid-cols-2 gap-2 text-[10px]">
+                                <div><span className="block text-zinc-500">{isAr ? "الكمية القصوى" : "Max shares"}</span><b className="text-zinc-900 dark:text-white">{positionRisk.units.toLocaleString()}</b></div>
+                                <div><span className="block text-zinc-500">{isAr ? "قيمة المركز" : "Position value"}</span><b className="text-zinc-900 dark:text-white">{positionRisk.value.toLocaleString(undefined, { maximumFractionDigits: 2 })} {isAr ? "ج.م" : "EGP"}</b></div>
+                                <div className="col-span-2"><span className="block text-zinc-500">{isAr ? "الخسارة عند الوقف حسب هذه الكمية" : "Loss at stop for this size"}</span><b className="text-rose-600 dark:text-rose-400">{positionRisk.maxLoss.toLocaleString(undefined, { maximumFractionDigits: 2 })} {isAr ? "ج.م" : "EGP"}</b></div>
+                            </div>
+                        ) : <p className="mt-3 text-[10px] text-zinc-500">{isAr ? "لا توجد توصية مفتوحة بوقف صالح للحساب." : "No open recommendation has valid entry and stop prices."}</p>}
+                        <p className="mt-2 text-[9px] text-zinc-500">{isAr ? "حساب تعليمي قبل العمولات والانزلاق السعري، وليس توصية استثمار." : "Educational estimate before fees and slippage; not investment advice."}</p>
+                    </section>
                 </div>
             </div>
 
@@ -964,7 +1162,7 @@ export default function RecommendationCalendar({
                                                 }`}>
                                                     {isPos ? "+" : ""}{netPl.toFixed(1)}%
                                                 </span>
-                                                <span className="text-[9px] sm:text-[10px] text-zinc-500 dark:text-zinc-500 block">{isAr ? "صافي اليوم" : "Day Net"}</span>
+                                                <span className="text-[9px] sm:text-[10px] text-zinc-500 dark:text-zinc-500 block">{isAr ? "مجموع عوائد الصفقات" : "Sum of Trade Returns"}</span>
                                             </div>
                                         </div>
                                     </div>
@@ -1045,7 +1243,7 @@ export default function RecommendationCalendar({
                                     ? "bg-emerald-50 dark:bg-emerald-500/10 border-emerald-300 dark:border-emerald-500/30 text-emerald-600 dark:text-emerald-400"
                                     : "bg-rose-50 dark:bg-rose-500/10 border-rose-300 dark:border-rose-500/30 text-rose-600 dark:text-rose-400"
                             }`}>
-                                <span className="text-[9px] sm:text-[10px] text-zinc-500 dark:text-zinc-400 font-bold block">{isAr ? "صافي اليوم" : "Day Net"}</span>
+                                <span className="text-[9px] sm:text-[10px] text-zinc-500 dark:text-zinc-400 font-bold block">{isAr ? "مجموع عوائد الصفقات" : "Sum of Trade Returns"}</span>
                                 <span className="text-sm sm:text-base font-black font-mono mt-0.5 block">
                                     {selectedDayData.data.netProfitPct >= 0 ? "+" : ""}
                                     {selectedDayData.data.netProfitPct.toFixed(1)}%

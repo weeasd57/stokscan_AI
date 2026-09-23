@@ -70,9 +70,11 @@ function LoginForm() {
   }
 
   return (
-    <div className="min-h-[75vh] flex flex-col items-center justify-center px-4 py-16 relative overflow-hidden neobrutal-grid-bg">
+    <div className="min-h-[75vh] flex flex-col items-center justify-center px-4 py-12 sm:py-16 relative overflow-hidden neobrutal-grid-bg">
+      <div className="pointer-events-none absolute -top-24 -right-24 h-72 w-72 rounded-full bg-emerald-400/15 blur-3xl motion-safe:animate-pulse" />
+      <div className="pointer-events-none absolute -bottom-32 -left-24 h-80 w-80 rounded-full bg-yellow-300/10 blur-3xl motion-safe:animate-pulse" />
       <div className="w-full max-w-5xl grid gap-6 lg:grid-cols-[1.05fr_0.95fr] items-stretch relative z-10">
-        <div className="hidden lg:block relative min-h-[620px] overflow-hidden border-4 border-black dark:border-white bg-[#f6eddb] shadow-[6px_6px_0px_rgba(0,0,0,1)] dark:shadow-[6px_6px_0px_rgba(255,255,255,1)]">
+        <div className="hidden lg:block relative min-h-[620px] overflow-hidden border-4 border-black dark:border-white bg-[#f6eddb] shadow-[6px_6px_0px_rgba(0,0,0,1)] dark:shadow-[6px_6px_0px_rgba(255,255,255,1)] animate-in fade-in zoom-in-95 duration-700">
           <Image
             src="/egxbots-login-hero.png"
             alt="EGX BOTS — Egyptian market intelligence"
@@ -86,7 +88,7 @@ function LoginForm() {
             <p className="mt-1 text-lg font-black">بيانات أوضح. قرارات أذكى.</p>
           </div>
         </div>
-        <div className="w-full max-w-md justify-self-center lg:max-w-none neobrutal-card p-8 relative z-10">
+        <div className="w-full max-w-md justify-self-center lg:max-w-none neobrutal-card p-6 sm:p-8 relative z-10 animate-in fade-in slide-in-from-bottom-4 duration-700">
         <div className="space-y-1">
           <h1 className="text-3xl font-black text-black dark:text-white tracking-tight">
             {t("auth.login.title")}

@@ -5,8 +5,9 @@ import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import ChatWidget from "@/components/ChatWidget";
 import { Analytics } from "@vercel/analytics/react";
+import type { Metadata } from "next";
 
-export const metadata = {
+export const metadata: Metadata = {
   metadataBase: new URL('https://egxbots.com'),
   alternates: {
     canonical: 'https://egxbots.com',
@@ -15,7 +16,7 @@ export const metadata = {
     default: "EGX BOTS | محلل الأسهم المصرية بالذكاء الاصطناعي | EGX AI Stock Analyzer",
     template: "%s | EGX BOTS"
   },
-  description: "منصة EGX BOTS (egxbots) - أقوى محلل للأسهم المصرية بالذكاء الاصطناعي (EGX AI Analyzer). نوفر ماسحاً فنياً متقدماً، وتقييماً يومياً للأسهم، ومحاكاة تاريخية، وشات بوت تفاعلي مباشر للبورصة المصرية.",
+  description: "EGX BOTS منصة لتحليل أسهم البورصة المصرية: تقييمات ذكاء اصطناعي يومية، ماسح فني، نتائج تاريخية، ومساعد تفاعلي عربي وإنجليزي.",
   keywords: [
     "EGX BOTS",
     "egxbots",
@@ -106,17 +107,18 @@ export default function RootLayout({
                   "url": "https://egxbots.com",
                   "name": "EGX BOTS",
                   "alternateName": ["EGX AI Analyzer", "egxbots", "محلل الأسهم المصرية بالذكاء الاصطناعي"],
-                  "description": "منصة تحليل الأسهم المصرية بالذكاء الاصطناعي والماسح الفني التفاعلي",
-                  "inLanguage": "ar-EG"
+                  "description": "منصة تحليل الأسهم المصرية بتقييمات يومية، ماسح فني، ونتائج تاريخية.",
+                  "inLanguage": "ar-EG",
+                  "publisher": { "@id": "https://egxbots.com/#organization" }
                 },
                 {
-                  "@type": "FinancialService",
-                  "@id": "https://egxbots.com/#financial-service",
+                  "@type": "Organization",
+                  "@id": "https://egxbots.com/#organization",
                   "name": "EGX BOTS",
                   "url": "https://egxbots.com",
                   "logo": "https://egxbots.com/favicon_io/android-chrome-512x512.png",
                   "image": "https://egxbots.com/dashboard_preview.png",
-                  "description": "منصة EGX BOTS (egxbots) هي منصة متقدمة لتحليل الأسهم المصرية بالذكاء الاصطناعي والماسح الفني والمحاكاة التاريخية وإشارات السوق اليومية.",
+                  "description": "منصة لتحليل بيانات البورصة المصرية باستخدام نماذج كمية وماسح فني ونتائج تاريخية.",
                   "sameAs": [
                     "https://t.me/egxbots"
                   ],
@@ -138,10 +140,7 @@ export default function RootLayout({
                     "price": "0",
                     "priceCurrency": "EGP"
                   },
-                  "author": {
-                    "@type": "Organization",
-                    "name": "EGX BOTS"
-                  }
+                  "provider": { "@id": "https://egxbots.com/#organization" }
                 }
               ]
             })

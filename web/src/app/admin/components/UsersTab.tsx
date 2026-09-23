@@ -46,6 +46,7 @@ interface UserRow {
     created_at: string;
     updated_at: string | null;
     subscription: { plan_id: string; status: string; current_period_end: string | null } | null;
+    payment_review_status?: "pending_review" | "reviewed" | "rejected" | null;
     bot_subscriptions: { service_type: string; notifications_enabled: boolean }[];
     bot_count: number;
 }
@@ -131,6 +132,7 @@ export default function UsersTab() {
     // Modal States
     const [selectedUser, setSelectedUser] = useState<UserDetail | null>(null);
     const [detailLoading, setDetailLoading] = useState(false);
+    const [subscriptionActionLoading, setSubscriptionActionLoading] = useState(false);
     const [editingId, setEditingId] = useState<string | null>(null);
     const [editForm, setEditForm] = useState<{
         display_name: string;
@@ -265,14 +267,18 @@ export default function UsersTab() {
         }
     };
 
-    const changePlan = async (userId: string, plan: "free" | "pro") => {
+    const runSubscriptionAction = async (userId: string, action: "mark_payment_reviewed" | "cancel_subscription") => {
+        if (action === "cancel_subscription" && !confirm("إلغاء اشتراك Pro وسحب رابط وعضوية قناة VIP لهذا المستخدم؟")) return;
+        setSubscriptionActionLoading(true);
         try {
-            const res = await fetch(`/api/admin/users/${userId}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ plan_id: plan }) });
-            if (!res.ok) throw new Error("Plan update failed");
-            toast.success(plan === "pro" ? "User upgraded to Pro" : "User moved to Free");
+            const res = await fetch(`/api/admin/users/${userId}/subscription`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action }) });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data.detail || "Subscription update failed");
+            toast.success(action === "mark_payment_reviewed" ? "تمت مراجعة الدفع" : "تم إلغاء Pro وسحب رابط VIP");
             fetchUsers();
             if (selectedUser?.profile?.id === userId) fetchDetail(userId);
-        } catch { toast.error("Failed to change user plan"); }
+        } catch (error: any) { toast.error(error.message || "فشل تحديث الاشتراك"); }
+        finally { setSubscriptionActionLoading(false); }
     };
 
     // Cohort filters are applied by the API so pagination and totals stay correct.
@@ -605,10 +611,9 @@ export default function UsersTab() {
                                             </div>
                                          </td>
                                          <td className="px-3 py-2.5" onClick={(e) => e.stopPropagation()}>
-                                             <select value={u.subscription?.plan_id === "pro" && u.subscription?.status === "active" ? "pro" : "free"} onChange={(e) => changePlan(u.id, e.target.value as "free" | "pro")} className="border-2 border-black dark:border-white bg-white dark:bg-zinc-900 px-1 py-1 text-[10px] font-black">
-                                                 <option value="free">Free</option>
-                                                 <option value="pro">Pro</option>
-                                             </select>
+                                             {u.subscription?.plan_id === "pro" && u.subscription?.status === "active" ? (
+                                                 <button onClick={() => runSubscriptionAction(u.id, "cancel_subscription")} disabled={subscriptionActionLoading} className="border-2 border-red-500 bg-red-50 px-2 py-1 text-[10px] font-black text-red-700 hover:bg-red-500 hover:text-white disabled:opacity-50 dark:bg-red-950/30 dark:text-red-300">إلغاء Pro</button>
+                                             ) : <span className="text-zinc-400 font-bold">Free</span>}
                                          </td>
                                         <td className="px-3 py-2.5">
                                             {u.subscription?.plan_id ? (
@@ -619,6 +624,7 @@ export default function UsersTab() {
                                             ) : (
                                                 <span className="text-zinc-400 font-bold">Free</span>
                                             )}
+                                            {u.payment_review_status === "pending_review" && <span className="ml-1 inline-flex items-center gap-1 border border-amber-500 bg-amber-50 px-1.5 py-0.5 text-[9px] font-black text-amber-700 dark:bg-amber-950/30 dark:text-amber-300"><AlertCircle className="w-3 h-3" /> مراجعة</span>}
                                         </td>
                                         <td className="px-3 py-2.5">
                                             <div className="flex items-center gap-1.5">
@@ -848,14 +854,20 @@ export default function UsersTab() {
                                         <Crown className="w-3 h-3 text-indigo-500" /> SUBSCRIPTION PLAN
                                     </h3>
                                     {selectedUser.subscription ? (
-                                        <div className="grid grid-cols-2 gap-2 text-xs font-mono">
+                                        <>
+                                            <div className="grid grid-cols-2 gap-2 text-xs font-mono">
                                             {Object.entries(selectedUser.subscription).map(([k, v]) => (
                                                 <div key={k} className="p-1.5 border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950">
                                                     <span className="font-black text-zinc-500 uppercase text-[10px]">{k}: </span>
                                                     <span className="font-bold">{String(v ?? "—")}</span>
                                                 </div>
                                             ))}
-                                        </div>
+                                            </div>
+                                            <div className="mt-3 flex flex-wrap gap-2">
+                                                {(selectedUser.payments?.recent || []).some((payment: any) => payment.payment_review_status === "pending_review") && <button onClick={() => runSubscriptionAction(selectedUser.profile.id, "mark_payment_reviewed")} disabled={subscriptionActionLoading} className="inline-flex items-center gap-1 border-2 border-emerald-600 bg-emerald-50 px-2 py-1 text-[10px] font-black text-emerald-700 hover:bg-emerald-600 hover:text-white disabled:opacity-50 dark:bg-emerald-950/30 dark:text-emerald-300"><CheckCircle2 className="w-3 h-3" /> تمّت مراجعة الدفع</button>}
+                                                {selectedUser.subscription.status === "active" && <button onClick={() => runSubscriptionAction(selectedUser.profile.id, "cancel_subscription")} disabled={subscriptionActionLoading} className="inline-flex items-center gap-1 border-2 border-red-500 bg-red-50 px-2 py-1 text-[10px] font-black text-red-700 hover:bg-red-500 hover:text-white disabled:opacity-50 dark:bg-red-950/30 dark:text-red-300"><X className="w-3 h-3" /> إلغاء Pro وسحب VIP</button>}
+                                            </div>
+                                        </>
                                     ) : (
                                         <div className="text-xs text-zinc-400 font-bold p-2 bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800">
                                             No active subscription found (Free Tier Account)

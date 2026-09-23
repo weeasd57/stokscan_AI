@@ -7,7 +7,7 @@ import json
 import threading
 import time
 from datetime import datetime, timedelta, timezone
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 
 
 _scheduler_state: Dict[str, Any] = {
@@ -31,6 +31,7 @@ _scheduler_lock = threading.RLock()
 _scheduler_thread = None
 _stop_event = threading.Event()
 _last_recommendation_retry_at = 0.0
+_DEFAULT_STALE_RUN_MINUTES = 90
 
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), "..", "daily_job_config.json")
 
@@ -69,8 +70,49 @@ def _now_cairo() -> datetime:
         return datetime.utcnow() + timedelta(hours=3)
 
 
+def _parse_run_timestamp(value: Any) -> Optional[datetime]:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+    except (TypeError, ValueError):
+        return None
+
+
+def _run_last_activity_at(row: Dict[str, Any]) -> Optional[datetime]:
+    """Use the newest persisted step heartbeat, with ``started_at`` as fallback."""
+    timestamps = [_parse_run_timestamp(row.get("started_at"))]
+    steps = row.get("steps") or []
+    if isinstance(steps, str):
+        try:
+            steps = json.loads(steps)
+        except (TypeError, ValueError):
+            steps = []
+    if isinstance(steps, list):
+        timestamps.extend(
+            _parse_run_timestamp(step.get("timestamp"))
+            for step in steps
+            if isinstance(step, dict)
+        )
+    valid = [timestamp for timestamp in timestamps if timestamp is not None]
+    return max(valid) if valid else None
+
+
+def _stale_run_after_minutes() -> int:
+    try:
+        return max(30, int(os.getenv("DAILY_JOB_STALE_RUN_MINUTES", str(_DEFAULT_STALE_RUN_MINUTES))))
+    except (TypeError, ValueError):
+        return _DEFAULT_STALE_RUN_MINUTES
+
+
 def _daily_job_ran_today(today: str) -> bool:
-    """Use the durable job ledger so restarts cannot lose today's run state."""
+    """Check the durable ledger and recover runs that stopped heartbeating.
+
+    A process crash can leave a row in ``running`` forever.  Only a run with a
+    recent persisted step heartbeat blocks another scheduled/catch-up attempt;
+    stale rows are retained for audit but marked failed.
+    """
     try:
         from api.stock_ai import _init_supabase, supabase
         _init_supabase()
@@ -81,15 +123,44 @@ def _daily_job_ran_today(today: str) -> bool:
         utc_end = (local_start + timedelta(days=1)).astimezone(timezone.utc)
         result = (
             supabase.table("daily_job_runs")
-            .select("status")
+            .select("id,status,started_at,steps")
             .eq("job_type", "daily_bot")
             .gte("started_at", utc_start.isoformat())
             .lt("started_at", utc_end.isoformat())
             .in_("status", ["running", "completed"])
-            .limit(1)
+            .order("started_at", desc=True)
+            .limit(10)
             .execute()
         )
-        return bool(result.data)
+        now_utc = datetime.now(timezone.utc)
+        stale_after = timedelta(minutes=_stale_run_after_minutes())
+        has_completed_run = False
+        has_active_run = False
+        for row in result.data or []:
+            if row.get("status") == "completed":
+                has_completed_run = True
+                continue
+            if row.get("status") != "running":
+                continue
+            last_activity = _run_last_activity_at(row)
+            if last_activity and now_utc - last_activity < stale_after:
+                has_active_run = True
+                continue
+
+            run_id = row.get("id")
+            if run_id:
+                stale_minutes = int((now_utc - (last_activity or now_utc)).total_seconds() // 60)
+                stale_reason = f"Scheduler recovery: no job heartbeat for {stale_minutes} minutes."
+                try:
+                    supabase.table("daily_job_runs").update({
+                        "status": "failed",
+                        "completed_at": now_utc.isoformat(),
+                        "error": stale_reason,
+                    }).eq("id", run_id).eq("status", "running").execute()
+                    print(f"[DAILY-JOB-SCHEDULER] Marked stale run {run_id} as failed.")
+                except Exception as cleanup_error:
+                    print(f"[DAILY-JOB-SCHEDULER] Could not mark stale run {run_id} failed: {cleanup_error}")
+        return has_completed_run or has_active_run
     except Exception as exc:
         print(f"[DAILY-JOB-SCHEDULER] Durable run check failed: {exc}")
         return False
@@ -319,8 +390,21 @@ def _scheduler_worker():
 
             if is_active_day and run_minutes <= current_minutes < run_minutes + 5:
                 with _scheduler_lock:
-                    _scheduler_state["status"] = "running"
-                    model_filter = _scheduler_state.get("model_filter", "adaptive")
+                    # Startup catch-up and the timed worker share one process
+                    # lock so a restart inside the run window cannot launch two
+                    # independent daily jobs.
+                    already_running = _scheduler_state.get("status") == "running"
+                if already_running or _daily_job_ran_today(now_cairo.date().isoformat()):
+                    time.sleep(30)
+                    continue
+                with _scheduler_lock:
+                    start_scheduled_run = _scheduler_state.get("status") != "running"
+                    if start_scheduled_run:
+                        _scheduler_state["status"] = "running"
+                        model_filter = _scheduler_state.get("model_filter", "adaptive")
+                if not start_scheduled_run:
+                    time.sleep(30)
+                    continue
 
                 print(f"[DAILY-JOB-SCHEDULER] Triggering daily job at {now_cairo} with model: {model_filter}")
                 try:

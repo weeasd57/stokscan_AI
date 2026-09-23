@@ -1,6 +1,7 @@
 """Manual Vodafone Cash checkout reviewed through the support Telegram bot."""
 import html
 import os
+import re
 import requests
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
@@ -8,6 +9,9 @@ from uuid import uuid4
 from api.stock_ai import _init_supabase, supabase
 from api.kashier_payments import _activate_subscription
 from api.telegram_pro_invites import ensure_pro_invite, revoke_expired_pro_members
+
+
+_EGYPTIAN_MOBILE_PATTERN = re.compile(r"^01[0125]\d{8}$")
 
 
 def is_local_payments_enabled() -> bool:
@@ -19,7 +23,7 @@ def price_egp(plan_id: str) -> int:
     if plan == "pro_6m":
         return int(float(os.getenv("PRO_6M_PRICE_EGP", "1000")))
     if plan == "pro_1y":
-        return int(float(os.getenv("PRO_1Y_PRICE_EGP", "1950")))
+        return int(float(os.getenv("PRO_1Y_PRICE_EGP", "1800")))
     return int(float(os.getenv("PRO_PRICE_EGP", os.getenv("LOCAL_PRO_PRICE_EGP", os.getenv("KASHIER_PRO_PRICE_EGP", "200")))))
 
 
@@ -51,6 +55,18 @@ def _telegram(method: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     return data
 
 
+def normalize_sender_phone(value: str) -> str:
+    """Accept only a valid Egyptian mobile number, independent of the UI."""
+    normalized = re.sub(r"[\s-]+", "", str(value or ""))
+    if normalized.startswith("+20"):
+        normalized = "0" + normalized[3:]
+    elif normalized.startswith("0020"):
+        normalized = "0" + normalized[4:]
+    if not _EGYPTIAN_MOBILE_PATTERN.fullmatch(normalized):
+        raise ValueError("Enter a valid Egyptian mobile number for any network (010, 011, 012 or 015)")
+    return normalized
+
+
 def create_order(user_id: str, plan_id: str = "pro") -> Dict[str, Any]:
     plan_id = (plan_id or "pro").strip().lower()
     if plan_id not in {"pro", "pro_6m", "pro_1y"}:
@@ -80,28 +96,58 @@ def submit_order(order_id: str, user_id: str, note: str = "") -> Dict[str, Any]:
     order = result.data if result else None
     if not order or order.get("status") not in {"pending", "submitted"}:
         raise ValueError("Payment order is not available")
-    updated = supabase.table("local_payment_orders").update({
-        "status": "submitted", "customer_note": note[:500], "updated_at": datetime.now(timezone.utc).isoformat(),
-    }).eq("id", order_id).eq("user_id", user_id).execute()
-    order = (updated.data or [order])[0]
+    sender_phone = normalize_sender_phone(note)
+    now = datetime.now(timezone.utc).isoformat()
+
+    # The number is syntactically validated here, server-side. Vodafone Cash
+    # does not expose a transaction-verification API for this flow, so the
+    # entitlement is activated immediately but remains visibly pending review.
+    _activate_subscription(user_id, order.get("plan_id", "pro"), provider="vodafone_cash_auto")
+    invite_link = ""
+    invite_expires_at = None
+    try:
+        sub = supabase.table("subscriptions").select("status,current_period_end").eq("user_id", user_id).eq("plan_id", "pro").eq("status", "active").order("current_period_end", desc=True).limit(1).maybe_single().execute()
+        sub_end = (sub.data or {}).get("current_period_end") if sub and sub.data else None
+        if sub_end:
+            invite = ensure_pro_invite(user_id, str(sub_end))
+            invite_link = str(invite.get("invite_link") or "")
+            invite_expires_at = invite.get("invite_expires_at")
+    except Exception as exc:
+        # A Telegram outage must not undo a valid immediate subscription.
+        print(f"[LOCAL_PAY] invite creation failed after auto-activation: {exc}")
+
+    update_fields = {
+        "status": "approved",
+        "customer_note": sender_phone,
+        "payment_review_status": "pending_review",
+        "auto_activated_at": now,
+        "updated_at": now,
+    }
+    if invite_link:
+        update_fields["telegram_invite_link"] = invite_link
+        update_fields["telegram_invite_expires_at"] = invite_expires_at
+    updated = supabase.table("local_payment_orders").update(update_fields).eq("id", order_id).eq("user_id", user_id).execute()
+    order = (updated.data or [{**order, **update_fields}])[0]
     admin_chat = _admin_chat_id()
-    if not admin_chat:
-        raise RuntimeError("Support admin chat is not configured")
     text = (
-        "💰 <b>طلب دفع Vodafone Cash</b>\n"
+        "🟡 <b>تفعيل Pro تلقائي — يحتاج مراجعة دفع</b>\n"
         f"<b>Order:</b> <code>{html.escape(order_id)}</code>\n"
         f"<b>User:</b> <code>{html.escape(user_id)}</code>\n"
         f"<b>Plan:</b> {html.escape(str(order.get('plan_id', 'pro')).upper())} | <b>Amount:</b> {order['amount_egp']} EGP\n"
-        f"<b>Note:</b> {html.escape(note[:500] or 'لا توجد ملاحظة')}\n\n"
-        "راجع التحويل في Vodafone Cash ثم اختر القرار:"
+        f"<b>Sender:</b> <code>{html.escape(sender_phone)}</code>\n\n"
+        "تم منح الوصول فورًا بعد التحقق من صيغة الرقم. راجع التحويل لاحقًا من تب المستخدمين."
     )
-    _telegram("sendMessage", {"chat_id": admin_chat, "text": text, "parse_mode": "HTML", "reply_markup": {
-        "inline_keyboard": [[
-            {"text": "✅ تأكيد وتفعيل Pro", "callback_data": f"localpay:approve:{order_id}"},
-            {"text": "❌ رفض", "callback_data": f"localpay:reject:{order_id}"},
-        ]]
-    }})
-    return {"order_id": order_id, "status": "submitted"}
+    if admin_chat:
+        try:
+            _telegram("sendMessage", {"chat_id": admin_chat, "text": text, "parse_mode": "HTML"})
+        except Exception as exc:
+            print(f"[LOCAL_PAY] admin notification failed after auto-activation: {exc}")
+    return {
+        "order_id": order_id,
+        "status": "approved",
+        "payment_review_status": "pending_review",
+        "telegram_pro_url": invite_link,
+    }
 
 
 def get_order_status(order_id: str, user_id: str) -> Dict[str, Any]:
@@ -109,7 +155,7 @@ def get_order_status(order_id: str, user_id: str) -> Dict[str, Any]:
     if not supabase:
         raise RuntimeError("Supabase is not initialized")
     result = supabase.table("local_payment_orders").select(
-        "id,plan_id,amount_egp,status,reviewed_at,telegram_invite_link,telegram_invite_expires_at"
+        "id,plan_id,amount_egp,status,payment_review_status,payment_reviewed_at,reviewed_at,telegram_invite_link,telegram_invite_expires_at"
     ).eq("id", order_id).eq("user_id", user_id).maybe_single().execute()
     if not result.data:
         raise ValueError("Payment order not found")
@@ -193,7 +239,13 @@ def handle_callback(callback: Dict[str, Any]) -> None:
         except Exception as exc:
             print(f"[LOCAL_PAY] invite creation failed: {exc}")
     supabase.table("local_payment_orders").update({
-        "status": status, "reviewed_by": str(message_chat), "reviewed_at": now, "updated_at": now,
+        "status": status,
+        "reviewed_by": str(message_chat),
+        "reviewed_at": now,
+        "payment_review_status": "reviewed" if status == "approved" else "rejected",
+        "payment_reviewed_by": str(message_chat),
+        "payment_reviewed_at": now,
+        "updated_at": now,
     }).eq("id", order_id).execute()
     if status == "approved" and order.get("telegram_invite_link"):
         supabase.table("local_payment_orders").update({

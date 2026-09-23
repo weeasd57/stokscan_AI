@@ -15,7 +15,7 @@ export async function GET(req: NextRequest) {
         const limit = Math.min(5000, Math.max(100, Number.isFinite(requestedLimit) ? Math.floor(requestedLimit) : 1000));
 
         // Run data fetching in parallel for maximum speed
-        const [authRes, profilesRes, legacyLogsRes, chatMsgsRes] = await Promise.allSettled([
+        const [authRes, profilesRes, legacyLogsRes, chatMsgsRes, subscriptionsRes] = await Promise.allSettled([
             // 1. Fetch user emails from auth.admin API
             supabase.auth.admin.listUsers({ page: 1, perPage: 1000 }).catch((e: any) => {
                 console.warn("Could not list auth users:", e);
@@ -29,7 +29,13 @@ export async function GET(req: NextRequest) {
             supabase.from("ai_chat_messages")
                 .select("id, session_id, user_id, role, content, latency_ms, image_url, metadata, created_at")
                 .order("created_at", { ascending: false })
-                .limit(limit)
+                .limit(limit),
+            // 5. Resolve the Pro badge once for the whole response instead of
+            // issuing a subscription query for every chat row/user.
+            supabase.from("subscriptions")
+                .select("user_id, plan_id, status, current_period_end")
+                .eq("plan_id", "pro")
+                .eq("status", "active")
         ]);
 
         // Build User Email Map
@@ -56,6 +62,20 @@ export async function GET(req: NextRequest) {
             if (defaultName && defaultName !== "Guest User" && !defaultName.includes("-")) return defaultName;
             return userId;
         };
+
+        const activeProUserIds = new Set<string>();
+        if (subscriptionsRes.status === "fulfilled" && (subscriptionsRes.value as any)?.data) {
+            const now = Date.now();
+            (subscriptionsRes.value as any).data.forEach((subscription: any) => {
+                if (!subscription.user_id) return;
+                if (subscription.current_period_end) {
+                    const end = new Date(subscription.current_period_end).getTime();
+                    if (Number.isFinite(end) && end <= now) return;
+                }
+                activeProUserIds.add(String(subscription.user_id));
+            });
+        }
+        const isProUser = (userId?: string | null) => Boolean(userId && activeProUserIds.has(String(userId)));
 
         const logsMap = new Map<string, any>();
 
@@ -87,6 +107,7 @@ export async function GET(req: NextRequest) {
                     reply: cleanReply,
                     created_at: log.created_at,
                     data_source: dataSource,
+                    is_pro: isProUser(log.user_id),
                 });
             });
         }
@@ -178,6 +199,7 @@ export async function GET(req: NextRequest) {
                             data_source: dataSource,
                             data_date: dataDate,
                             tables,
+                            is_pro: isProUser(msg.user_id),
                         });
                     }
                 }
@@ -204,6 +226,7 @@ export async function GET(req: NextRequest) {
                             data_source: meta?.data_source || null,
                             data_date: meta?.data_date || null,
                             tables: Array.isArray(meta?.tables) ? meta.tables : [],
+                            is_pro: isProUser(msg.user_id),
                         });
                     }
                 }

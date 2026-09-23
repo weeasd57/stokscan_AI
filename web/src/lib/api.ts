@@ -1,5 +1,49 @@
 import type { PredictResponse } from "@/lib/types";
 
+export interface UnusualActivityRow {
+  symbol: string;
+  relativeVolume: number;
+  close: number | null;
+  changePct: number | null;
+  rsi: number | null;
+  aiScore: number | null;
+  resistance: number | null;
+  distanceToResistancePct: number | null;
+}
+
+export interface UnusualActivitySnapshot {
+  asOf: string | null;
+  coverage: number;
+  totalMatches: number;
+  threshold: number;
+  rows: UnusualActivityRow[];
+}
+
+export async function fetchUnusualActivity(signal?: AbortSignal): Promise<UnusualActivitySnapshot> {
+  const response = await fetch("/api/scan/unusual-activity", { signal });
+  if (!response.ok) throw new Error(`Unusual activity request failed: ${response.status}`);
+  return response.json();
+}
+
+export interface RecommendationBenchmarkAsset {
+  symbol: string;
+  exchange: string;
+  kind: "index" | "fund";
+  nameAr: string;
+  nameEn: string;
+  prices: Array<{ date: string; close: number }>;
+  asOf: string | null;
+  truncated: boolean;
+}
+
+export async function fetchRecommendationBenchmarks(from: string, to: string, signal?: AbortSignal): Promise<RecommendationBenchmarkAsset[]> {
+  const params = new URLSearchParams({ from, to });
+  const response = await fetch(`/api/recommendations/benchmark?${params.toString()}`, { signal });
+  if (!response.ok) throw new Error(`Benchmark request failed: ${response.status}`);
+  const payload = await response.json();
+  return Array.isArray(payload?.assets) ? payload.assets : [];
+}
+
 
 
 

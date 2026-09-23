@@ -24,6 +24,7 @@ export const AI_CONFIG = {
     responseTimeoutMs: 30_000,
     requestDeadlineMs: 52_000,
     responseMaxTokens: 1800,
+    portfolioResponseTokens: { medium: 3000, large: 4200, largePortfolioMinSymbols: 8 },
     responseTimeoutFallbackMs: 20_000,
     cacheTtlMs: 24 * 60 * 60 * 1000,
   },

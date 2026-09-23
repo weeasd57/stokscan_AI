@@ -1,0 +1,208 @@
+{
+  "results": [
+    {
+      "symbol": "1010",
+      "name_ar": "الرياض",
+      "name_en": "RIBL",
+      "market": "TASI",
+      "status": "active",
+      "security_type": "Equity",
+      "market_segment": "TASI",
+      "is_etf": false
+    },
+    {
+      "symbol": "1020",
+      "name_ar": "الجزيرة",
+      "name_en": "BJAZ",
+      "market": "TASI",
+      "status": "active",
+      "security_type": "Equity",
+      "market_segment": "TASI",
+      "is_etf": false
+    },
+    {
+      "symbol": "1030",
+      "name_ar": "الإستثمار",
+      "name_en": "SAIB",
+      "market": "TASI",
+      "status": "active",
+      "security_type": "Equity",
+      "market_segment": "TASI",
+      "is_etf": false
+    },
+    {
+      "symbol": "1050",
+      "name_ar": "بي اس اف",
+      "name_en": "BSF",
+      "market": "TASI",
+      "status": "active",
+      "security_type": "Equity",
+      "market_segment": "TASI",
+      "is_etf": false
+    },
+    {
+      "symbol": "1060",
+      "name_ar": "الأول",
+      "name_en": "SAB",
+      "market": "TASI",
+      "status": "active",
+      "security_type": "Equity",
+      "market_segment": "TASI",
+      "is_etf": false
+    },
+    {
+      "symbol": "1080",
+      "name_ar": "العربي",
+      "name_en": "ANB",
+      "market": "TASI",
+      "status": "active",
+      "security_type": "Equity",
+      "market_segment": "TASI",
+      "is_etf": false
+    },
+    {
+      "symbol": "1111",
+      "name_ar": "مجموعة تداول",
+      "name_en": "TADAWUL GROUP",
+      "market": "TASI",
+      "status": "active",
+      "security_type": "Equity",
+      "market_segment": "TASI",
+      "is_etf": false
+    },
+    {
+      "symbol": "1120",
+      "name_ar": "الراجحي",
+      "name_en": "ALRAJHI",
+      "market": "TASI",
+      "status": "active",
+      "security_type": "Equity",
+      "market_segment": "TASI",
+      "is_etf": false
+    },
+    {
+      "symbol": "1140",
+      "name_ar": "البلاد",
+      "name_en": "ALBILAD",
+      "market": "TASI",
+      "status": "active",
+      "security_type": "Equity",
+      "market_segment": "TASI",
+      "is_etf": false
+    },
+    {
+      "symbol": "1150",
+      "name_ar": "الإنماء",
+      "name_en": "ALINMA",
+      "market": "TASI",
+      "status": "active",
+      "security_type": "Equity",
+      "market_segment": "TASI",
+      "is_etf": false
+    },
+    {
+      "symbol": "1180",
+      "name_ar": "الأهلي",
+      "name_en": "SNB",
+      "market": "TASI",
+      "status": "active",
+      "security_type": "Equity",
+      "market_segment": "TASI",
+      "is_etf": false
+    },
+    {
+      "symbol": "1182",
+      "name_ar": "أملاك",
+      "name_en": "AMLAK",
+      "market": "TASI",
+      "status": "active",
+      "security_type": "Equity",
+      "market_segment": "TASI",
+      "is_etf": false
+    },
+    {
+      "symbol": "1183",
+      "name_ar": "سهل",
+      "name_en": "SHL",
+      "market": "TASI",
+      "status": "active",
+      "security_type": "Equity",
+      "market_segment": "TASI",
+      "is_etf": false
+    },
+    {
+      "symbol": "1201",
+      "name_ar": "تكوين",
+      "name_en": "TAKWEEN",
+      "market": "TASI",
+      "status": "active",
+      "security_type": "Equity",
+      "market_segment": "TASI",
+      "is_etf": false
+    },
+    {
+      "symbol": "1202",
+      "name_ar": "مبكو",
+      "name_en": "MEPCO",
+      "market": "TASI",
+      "status": "active",
+      "security_type": "Equity",
+      "market_segment": "TASI",
+      "is_etf": false
+    },
+    {
+      "symbol": "1210",
+      "name_ar": "بي سي آي",
+      "name_en": "BCI",
+      "market": "TASI",
+      "status": "active",
+      "security_type": "Equity",
+      "market_segment": "TASI",
+      "is_etf": false
+    },
+    {
+      "symbol": "1211",
+      "name_ar": "معادن",
+      "name_en": "MAADEN",
+      "market": "TASI",
+      "status": "active",
+      "security_type": "Equity",
+      "market_segment": "TASI",
+      "is_etf": false
+    },
+    {
+      "symbol": "1212",
+      "name_ar": "أسترا الصناعية",
+      "name_en": "ASTRA INDUSTRIAL",
+      "market": "TASI",
+      "status": "active",
+      "security_type": "Equity",
+      "market_segment": "TASI",
+      "is_etf": false
+    },
+    {
+      "symbol": "1213",
+      "name_ar": "نسيج",
+      "name_en": "NASEEJ",
+      "market": "TASI",
+      "status": "active",
+      "security_type": "Equity",
+      "market_segment": "TASI",
+      "is_etf": false
+    },
+    {
+      "symbol": "1214",
+      "name_ar": "شاكر",
+      "name_en": "SHAKER",
+      "market": "TASI",
+      "status": "active",
+      "security_type": "Equity",
+      "market_segment": "TASI",
+      "is_etf": false
+    }
+  ],
+  "count": 20,
+  "total": 290,
+  "limit": 20,
+  "offset": 0
+}

@@ -38,6 +38,9 @@ export default function PricingClient() {
   const [isPro, setIsPro] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState("pro_6m");
 
+  const normalizedSenderPhone = customerNote.trim().replace(/[\s-]/g, "").replace(/^\+20/, "0").replace(/^0020/, "0");
+  const isSenderPhoneValid = /^01[0125]\d{8}$/.test(normalizedSenderPhone);
+
   useEffect(() => {
     if (step !== "submitted" || !localOrder) return;
     let stopped = false;
@@ -113,9 +116,8 @@ export default function PricingClient() {
 
   const submitLocalPayment = async () => {
     if (!localOrder) return;
-    const senderPhone = customerNote.trim().replace(/[\s-]/g, "");
-    if (!/^01[0125]\d{8}$/.test(senderPhone)) {
-      toast.error(isAr ? "اكتب رقم الهاتف المحوّل منه صحيحاً (11 رقم ويبدأ بـ 010 أو 011 أو 012 أو 015)" : "Enter a valid Egyptian sender phone number (11 digits starting with 010, 011, 012 or 015)");
+    if (!isSenderPhoneValid) {
+      toast.error(isAr ? "اكتب رقم موبايل مصري صحيح من أي شبكة (010 أو 011 أو 012 أو 015)" : "Enter a valid Egyptian mobile number from any network");
       return;
     }
     setBusy(true);
@@ -168,10 +170,13 @@ export default function PricingClient() {
     );
   }
 
-  const paidPlans = localConfig?.plans || [
-    { id: "pro", name_ar: "شهري", name_en: "Monthly", amount_egp: localConfig?.amount_egp ?? 200, days: 30 },
-    { id: "pro_6m", name_ar: "6 شهور", name_en: "6 Months", amount_egp: 1000, days: 180 },
-    { id: "pro_1y", name_ar: "سنة", name_en: "1 Year", amount_egp: 1950, days: 365 },
+  // Keep the public offer consistent across the cards, checkout selection and
+  // the payment API. The backend still validates the plan id before creating
+  // an order; these are the currently approved displayed prices.
+  const paidPlans = [
+    { id: "pro", name_ar: "30 يومًا", name_en: "30 days", amount_egp: 200, days: 30, monthlyEquivalent: 200, savingsPct: 0 },
+    { id: "pro_6m", name_ar: "180 يومًا", name_en: "180 days", amount_egp: 1000, days: 180, monthlyEquivalent: 167, savingsPct: 17 },
+    { id: "pro_1y", name_ar: "365 يومًا", name_en: "365 days", amount_egp: 1800, days: 365, monthlyEquivalent: 150, savingsPct: 25 },
   ];
   const selectedPlanDetails = paidPlans.find((plan: any) => plan.id === selectedPlan) || paidPlans[0];
   const proPrice = selectedPlanDetails?.amount_egp ?? 200;
@@ -346,22 +351,29 @@ export default function PricingClient() {
             <div className="space-y-1.5">
               <label className="text-xs font-black text-zinc-600 dark:text-zinc-300 uppercase tracking-widest">
                 {isAr
-                  ? "رقم الهاتف المحوّل منه (اختياري)"
-                  : "Sender phone number (optional)"}
+                  ? "رقم الموبايل المُحوَّل منه (مطلوب)"
+                  : "Sender mobile number (required)"}
               </label>
               <input
                 type="text"
                 value={customerNote}
                 onChange={(e) => setCustomerNote(e.target.value)}
                 placeholder={isAr ? "مثال: 01012345678" : "e.g. 01012345678"}
-                className="w-full p-3 border-2 border-black dark:border-white bg-zinc-50 dark:bg-zinc-800 text-sm font-bold placeholder:text-zinc-400 focus:outline-none focus:border-emerald-500"
+                inputMode="tel"
+                aria-invalid={customerNote.length > 0 && !isSenderPhoneValid}
+                className={`w-full p-3 border-2 bg-zinc-50 dark:bg-zinc-800 text-sm font-bold placeholder:text-zinc-400 focus:outline-none ${customerNote.length > 0 && !isSenderPhoneValid ? "border-red-500" : isSenderPhoneValid ? "border-emerald-500" : "border-black dark:border-white"}`}
               />
+              <p className={`text-[11px] font-bold ${isSenderPhoneValid ? "text-emerald-600 dark:text-emerald-400" : "text-zinc-500"}`}>
+                {isSenderPhoneValid
+                  ? (isAr ? "✓ رقم موبايل مصري صالح" : "✓ Valid Egyptian mobile number")
+                  : (isAr ? "نقبل أرقام كل الشبكات المصرية: 010، 011، 012، 015" : "All Egyptian networks are accepted: 010, 011, 012, 015")}
+              </p>
             </div>
 
             {/* Submit */}
             <button
               onClick={submitLocalPayment}
-              disabled={busy}
+              disabled={busy || !isSenderPhoneValid}
               className="w-full h-13 flex items-center justify-center gap-2 border-4 border-black dark:border-white bg-emerald-500 text-white font-black text-base uppercase tracking-widest shadow-[3px_3px_0px_rgba(0,0,0,1)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none disabled:opacity-60 transition-all py-3"
             >
               {busy ? (
@@ -394,11 +406,13 @@ export default function PricingClient() {
 
   // ── Plans page (default) ─────────────────────────────────────────────────
   return (
-    <div className="min-h-[70vh] py-12 px-4">
-      <div className="max-w-5xl mx-auto space-y-10">
+    <div className="min-h-[70vh] py-10 sm:py-14 px-4 relative overflow-hidden">
+      <div className="pointer-events-none absolute -top-24 left-1/2 h-72 w-72 -translate-x-1/2 rounded-full bg-emerald-400/10 blur-3xl motion-safe:animate-pulse" />
+      <div className="max-w-6xl mx-auto space-y-10 relative">
         {/* Title */}
-        <div className="text-center space-y-3">
-          <h1 className="text-4xl font-black text-black dark:text-white">
+        <div className="text-center space-y-3 animate-in fade-in slide-in-from-top-3 duration-700">
+          <p className="text-xs font-black uppercase tracking-[0.28em] text-emerald-600 dark:text-emerald-400">EGX BOTS PRO</p>
+          <h1 className="text-3xl sm:text-4xl font-black text-black dark:text-white">
             {isAr ? "اختر خطتك" : "Choose your plan"}
           </h1>
           <p className="text-zinc-500 font-bold">
@@ -411,7 +425,7 @@ export default function PricingClient() {
         {/* Plans grid */}
         <div className="grid md:grid-cols-2 xl:grid-cols-4 gap-6">
           {/* ── Free ── */}
-          <div className="border-4 border-black dark:border-white bg-white dark:bg-zinc-900 shadow-[6px_6px_0px_rgba(0,0,0,1)] dark:shadow-[6px_6px_0px_rgba(255,255,255,1)] p-6 space-y-6 flex flex-col">
+          <div className="border-4 border-black dark:border-white bg-white dark:bg-zinc-900 shadow-[6px_6px_0px_rgba(0,0,0,1)] dark:shadow-[6px_6px_0px_rgba(255,255,255,1)] p-6 space-y-6 flex flex-col animate-in fade-in slide-in-from-bottom-4 duration-700">
             <div>
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-xl font-black text-black dark:text-white">
@@ -460,11 +474,11 @@ export default function PricingClient() {
             </button>
           </div>
 
-          {paidPlans.map((plan: any) => {
+          {paidPlans.map((plan: any, planIndex) => {
             const isSelected = selectedPlan === plan.id;
             const planName = isAr ? plan.name_ar : plan.name_en;
             return (
-              <div key={plan.id} className={`border-4 border-black dark:border-white ${isSelected ? "bg-emerald-50 dark:bg-emerald-950/30 ring-4 ring-emerald-400" : "bg-white dark:bg-zinc-900"} shadow-[6px_6px_0px_rgba(0,0,0,1)] dark:shadow-[6px_6px_0px_rgba(255,255,255,1)] p-6 space-y-5 flex flex-col relative`}>
+              <div key={plan.id} style={{ animationDelay: `${(planIndex + 1) * 100}ms` }} className={`border-4 border-black dark:border-white ${isSelected ? "bg-emerald-50 dark:bg-emerald-950/30 ring-4 ring-emerald-400" : "bg-white dark:bg-zinc-900"} shadow-[6px_6px_0px_rgba(0,0,0,1)] dark:shadow-[6px_6px_0px_rgba(255,255,255,1)] p-6 space-y-5 flex flex-col relative animate-in fade-in slide-in-from-bottom-4 duration-700`}>
                 {plan.id === "pro_6m" && <div className="absolute -top-4 left-1/2 -translate-x-1/2"><span className="bg-emerald-500 text-white text-xs font-black px-4 py-1 border-2 border-black dark:border-white uppercase tracking-widest">{isAr ? "الأكثر طلبًا" : "Best value"}</span></div>}
                 <button type="button" onClick={() => setSelectedPlan(plan.id)} className="text-left pt-1">
                   <div className="flex items-center justify-between mb-4 gap-2">
@@ -472,7 +486,10 @@ export default function PricingClient() {
                     <span className="text-[10px] font-black bg-emerald-500 text-white px-2 py-1 border-2 border-black dark:border-white">{isPro ? (isAr ? "فعالة" : "Active") : "PRO"}</span>
                   </div>
                   <div className="flex items-end gap-1 mb-1"><span className="text-3xl font-black text-black dark:text-white">EGP {plan.amount_egp}</span><span className="text-xs font-bold text-zinc-500 mb-1">/{plan.days} {isAr ? "يوم" : "days"}</span></div>
-                  <p className="text-xs font-bold text-zinc-500">{isAr ? "وصول فوري لكل مزايا Pro" : "Full Pro access"}</p>
+                  <div className="mt-2 flex flex-wrap items-center gap-2 text-xs font-bold text-zinc-500">
+                    <span>{isAr ? `ما يعادله ${plan.monthlyEquivalent} ج.م شهريًا` : `EGP ${plan.monthlyEquivalent}/month equivalent`}</span>
+                    {plan.savingsPct > 0 && <span className="rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-emerald-600 dark:text-emerald-400">{isAr ? `توفير ${plan.savingsPct}%` : `${plan.savingsPct}% saved`}</span>}
+                  </div>
                 </button>
                 <ul className="space-y-3 flex-1">
                   {proFeatures.map((f, i) => <li key={i} className="flex items-center gap-3 text-sm font-bold text-zinc-700 dark:text-zinc-200"><Check className="w-4 h-4 text-emerald-500 shrink-0" /><span className="flex items-center gap-1.5">{f.icon}{f.text}</span></li>)}

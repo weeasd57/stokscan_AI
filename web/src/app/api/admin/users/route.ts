@@ -78,9 +78,10 @@ export async function GET(req: NextRequest) {
     const pageProfiles = matchingProfiles.slice(page * pageSize, page * pageSize + pageSize);
     const pageIds = pageProfiles.map((profile: any) => String(profile.id));
 
-    const [{ data: subscriptionRows }, { data: botRows }] = await Promise.all([
+    const [{ data: subscriptionRows }, { data: botRows }, { data: localPaymentRows }] = await Promise.all([
       pageIds.length ? supabase.from("subscriptions").select("user_id,plan_id,status,current_period_end,created_at").in("user_id", pageIds) : Promise.resolve({ data: [] }),
       pageIds.length ? supabase.from("bot_subscriptions").select("user_id,service_type,notifications_enabled").in("user_id", pageIds) : Promise.resolve({ data: [] }),
+      pageIds.length ? supabase.from("local_payment_orders").select("user_id,status,payment_review_status,created_at").in("user_id", pageIds).eq("status", "approved").order("created_at", { ascending: false }) : Promise.resolve({ data: [] }),
     ]);
     const subscriptionsByUser = new Map<string, any[]>();
     for (const row of subscriptionRows || []) {
@@ -92,6 +93,11 @@ export async function GET(req: NextRequest) {
       const id = String(row.user_id);
       botsByUser.set(id, [...(botsByUser.get(id) || []), row]);
     }
+    const paymentReviewByUser = new Map<string, string>();
+    for (const row of localPaymentRows || []) {
+      const id = String(row.user_id);
+      if (!paymentReviewByUser.has(id)) paymentReviewByUser.set(id, String(row.payment_review_status || "pending_review"));
+    }
 
     const formattedUsers = pageProfiles.map((profile: any) => {
       const bots = botsByUser.get(String(profile.id)) || [];
@@ -101,6 +107,7 @@ export async function GET(req: NextRequest) {
         subscription: preferredSubscription(subscriptionsByUser.get(String(profile.id)) || []),
         bot_subscriptions: bots,
         bot_count: bots.filter((bot: any) => bot.notifications_enabled).length,
+        payment_review_status: paymentReviewByUser.get(String(profile.id)) || null,
       };
     });
     return NextResponse.json({ users: formattedUsers, total });

@@ -767,13 +767,14 @@ async function callDeepSeekApi(
     modelName: string,
     messages: { role: string; content: any }[],
     apiKey: string,
-    stream: boolean = false
+    stream: boolean = false,
+    responseMaxTokens?: number
 ): Promise<{ response: string | null; streamGen?: AsyncGenerator<string> }> {
     const controller = new AbortController();
-    const timeoutMs = modelName === "deepseek-reasoner" ? 45000 : 30000;
+    const timeoutMs = modelName === "deepseek-reasoner" ? 45000 : responseMaxTokens ? 45000 : 30000;
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
     try {
-        const maxTokens = modelName === "deepseek-reasoner" ? 4000 : AI_CONFIG.limits.responseMaxTokens;
+        const maxTokens = modelName === "deepseek-reasoner" ? Math.max(4000, responseMaxTokens || 0) : responseMaxTokens || AI_CONFIG.limits.responseMaxTokens;
         const res = await executionFetch(AI_CONFIG.api.deepseekBaseUrl, {
             method: "POST",
             headers: {
@@ -847,7 +848,8 @@ async function callResponderLlm(
     messages: { role: string; content: any }[],
     apiKeys: string[],
     stream: boolean = false,
-    requestedModel?: string
+    requestedModel?: string,
+    responseMaxTokens?: number
 ): Promise<{ response: string | null; streamGen?: AsyncGenerator<string>; provider: "deepseek" | "nvidia" | "none" }> {
     
     const visionModels = new Set(AI_CONFIG.models.response.vision);
@@ -863,14 +865,14 @@ async function callResponderLlm(
         ]));
 
         const tuning = NVIDIA_MODEL_TUNING[targetModel];
-        const n = await callNvidiaApi(targetModel, messages, nvidiaKeys, stream, tuning?.maxTokens, tuning?.timeoutMs, tuning?.reasoningEffort);
+        const n = await callNvidiaApi(targetModel, messages, nvidiaKeys, stream, responseMaxTokens || tuning?.maxTokens, responseMaxTokens ? 45000 : tuning?.timeoutMs, tuning?.reasoningEffort);
         if (n.response || n.streamGen) return { ...n, provider: "nvidia" };
     } else {
         // text request - route to DeepSeek (chat/reasoner)
         const targetModel = requestedModel === "deepseek-reasoner" ? "deepseek-reasoner" : "deepseek-chat";
         const deepseekKey = getDeepSeekApiKey();
         if (deepseekKey) {
-            const ds = await callDeepSeekApi(targetModel, messages, deepseekKey, stream);
+            const ds = await callDeepSeekApi(targetModel, messages, deepseekKey, stream, responseMaxTokens);
             if (ds.response || ds.streamGen) return { ...ds, provider: "deepseek" };
         } else {
             // No DeepSeek credentials (production): fall back to the legacy
@@ -882,7 +884,7 @@ async function callResponderLlm(
             ]));
             for (const model of NVIDIA_TEXT_FALLBACK_MODELS) {
                 const tuning = NVIDIA_MODEL_TUNING[model];
-                const n = await callNvidiaApi(model, messages, nvidiaKeys, stream, tuning?.maxTokens, tuning?.timeoutMs);
+                const n = await callNvidiaApi(model, messages, nvidiaKeys, stream, responseMaxTokens || tuning?.maxTokens, responseMaxTokens ? 45000 : tuning?.timeoutMs);
                 if (n.response || n.streamGen) return { ...n, provider: "nvidia" };
                 if (n.aborted) break;
             }
@@ -1288,7 +1290,8 @@ export async function generateV2Response(
     requestedModel?: string,
     sessionState?: SessionState | null,
     correctionPrompt?: string,
-    meta?: ResponderMeta
+    meta?: ResponderMeta,
+    maxOutputTokens?: number
 ): Promise<string> {
     if (visionContext && visionContext.symbols.length === 0 && toolResults.length === 0) {
         if (meta) meta.source = "deterministic";
@@ -1352,7 +1355,7 @@ export async function generateV2Response(
         correctionPrompt
     );
 
-    const result = await callResponderLlm(messages, apiKeys, false, requestedModel);
+    const result = await callResponderLlm(messages, apiKeys, false, requestedModel, maxOutputTokens);
     if (result.response) {
         if (meta) meta.source = "llm";
         let reply = sanitizeReply(appendVerifiedWebSources(result.response, toolResults, plan));
@@ -1438,7 +1441,8 @@ export async function* generateV2Stream(
     requestedModel?: string,
     sessionState?: SessionState | null,
     correctionPrompt?: string,
-    meta?: ResponderMeta
+    meta?: ResponderMeta,
+    maxOutputTokens?: number
 ): AsyncGenerator<string, void, unknown> {
     const forcedDeterministic = plan.service_degraded_message
         ? buildDeterministicResponse(userMessage, plan, toolResults, sessionState)
@@ -1516,7 +1520,7 @@ export async function* generateV2Stream(
     );
 
 
-    const result = await callResponderLlm(messages, apiKeys, true, requestedModel);
+    const result = await callResponderLlm(messages, apiKeys, true, requestedModel, maxOutputTokens);
     if (result.streamGen) {
         try {
             let completeResponse = "";

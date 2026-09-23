@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional, Set
 
 import requests
@@ -187,14 +187,18 @@ def save_invite(user_id: str, invite_link: str, invite_expires_at: str) -> Dict[
 def ensure_pro_invite(user_id: str, subscription_end: str) -> Dict[str, Any]:
     """Return a valid invite for an active Pro user, creating one if needed."""
     end_dt = _parse_dt(subscription_end)
-    if not end_dt or end_dt <= datetime.now(timezone.utc):
+    now = datetime.now(timezone.utc)
+    if not end_dt or end_dt <= now:
         return {"invite_link": "", "invite_expires_at": None}
 
     existing = _load_invite_row(user_id)
     if existing:
         invite_end = _parse_dt(existing.get("invite_expires_at"))
         link = str(existing.get("invite_link") or "").strip()
-        if link and invite_end and invite_end > datetime.now(timezone.utc):
+        # A link can still be technically valid while belonging to a shorter
+        # plan (for example, a 30-day link left after a 180-day renewal).
+        # Reuse it only when it covers the complete current subscription.
+        if link and invite_end and invite_end > now and invite_end >= end_dt - timedelta(seconds=60):
             return {
                 "invite_link": link,
                 "invite_expires_at": existing.get("invite_expires_at"),

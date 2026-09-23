@@ -101,8 +101,7 @@ export default function TelegramDispatchTab() {
                 <div>
                     <h2 className="text-base font-black uppercase tracking-wider">Telegram Manual Dispatch Control</h2>
                     <p className="text-xs font-bold mt-1 leading-relaxed">
-                        Use this tab to manually send recommendations or daily digest run reports to the public Telegram channel. 
-                        This is a fallback mechanism in case the automatic daily job failed to send them. You can edit the text in real-time before broadcasting.
+                        Manually preview and send recommendation or weekly-performance messages only. Operational daily-job data remains in the admin run history and is never broadcast to either Telegram channel.
                     </p>
                 </div>
             </div>

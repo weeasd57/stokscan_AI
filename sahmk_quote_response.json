@@ -1,0 +1,30 @@
+{
+  "symbol": "2222",
+  "name": "أرامكو السعودية",
+  "name_en": "SAUDI ARAMCO",
+  "price": 25.64,
+  "change": -0.04,
+  "change_percent": -0.16,
+  "open": 25.66,
+  "high": 25.74,
+  "low": 25.58,
+  "previous_close": 25.68,
+  "volume": 9028405,
+  "value": 231679994.26,
+  "trade_count": 9987,
+  "bid": 25.62,
+  "ask": 25.64,
+  "bid_size": 46865,
+  "ask_size": 604003,
+  "liquidity": {
+    "inflow_value": 102601857.7,
+    "inflow_volume": 3998602,
+    "inflow_trades": 4043,
+    "outflow_value": 87324135.22,
+    "outflow_volume": 3404803,
+    "outflow_trades": 5941,
+    "net_value": 15277722.480000004
+  },
+  "updated_at": "2026-09-22T12:20:00+00:00",
+  "is_delayed": true
+}
