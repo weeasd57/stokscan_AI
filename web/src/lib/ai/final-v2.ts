@@ -2566,10 +2566,28 @@ export function buildDeterministicResponse(userMessage: string, plan: IntentPlan
                     : "إشارة مختلطة وتحتاج تأكيداً";
             return `| ${symbol} | ${decisionLabel} | ${reason} | ${level.support != null ? Number(level.support).toFixed(2) : "—"} | ${level.resistance != null ? Number(level.resistance).toFixed(2) : "—"} |`;
         });
+        const levelGuidance = stockData.flatMap(result => {
+            const data = result.data || {};
+            const symbol = String(data.symbol || "").toUpperCase();
+            const level = levelBySymbol.get(symbol) || {};
+            if (level.support == null && level.resistance == null) {
+                return [`${symbol}: لا تتوفر مستويات دعم أو مقاومة حسابية موثقة حالياً.`];
+            }
+            const guidance: string[] = [];
+            if (level.support != null) {
+                guidance.push(`كسر الدعم عند ${Number(level.support).toFixed(2)} جنيه يزيد المخاطر الفنية ويحتاج تأكيد إغلاق وحجم.`);
+            }
+            if (level.resistance != null) {
+                guidance.push(`الاقتراب من المقاومة عند ${Number(level.resistance).toFixed(2)} جنيه قد يحد من الصعود ويستدعي مراقبة الزخم.`);
+            }
+            return [`الدعم الحسابي (لسهم ${symbol}) ${level.support != null ? Number(level.support).toFixed(2) : "غير متاح"} جنيه؛ ${guidance.join(" ")}`];
+        });
         return [
             "لا أستطيع اتخاذ قرار البيع بدلاً منك، لكن يمكن ربط القرار بالمستويات السعرية الفعلية.",
             "\n**مصفوفة قرار المحفظة (قراءة فنية استرشادية):**\n| السهم | القراءة | السبب المختصر | الدعم | المقاومة |\n|---|---|---|---:|---:|\n" + portfolioDecisionRows.join("\n"),
             ...lines,
+            ...levelGuidance,
+            "لن أحدد سعراً للبيع تلقائياً؛ السعر المناسب يعتمد على متوسط التكلفة، حجم المركز، والسيولة وخطة المخاطر الخاصة بك.",
             "مراجعة البيع لا تعني تنفيذ بيع تلقائي؛ راجع متوسط التكلفة، السيولة، والدعم لكل مركز قبل اتخاذ قرارك.",
             "هذه قراءة فنية وليست توصية بيع أو شراء.",
             compoundScanStocks.length ? "" : null,

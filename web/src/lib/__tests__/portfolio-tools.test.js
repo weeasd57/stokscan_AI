@@ -303,7 +303,8 @@ describe("Portfolio intent detection (detectPortfolioIntent)", () => {
 });
 
 describe("Portfolio image conversation helpers", () => {
-    const { parsePortfolioAnswer, portfolioMissingQuestion } = require("../ai/pipeline");
+    const { parsePortfolioAnswer, parsePortfolioSelectionCount, portfolioMissingQuestion } = require("../ai/pipeline");
+    const { isPortfolioRankingRequest } = require("../ai/intent-policy");
 
     it("asks for missing quantity and average purchase price instead of saving incomplete image data", () => {
         const item = { symbol: "COMI", quantity: null, price: null };
@@ -340,6 +341,18 @@ describe("Portfolio image conversation helpers", () => {
     it("accepts one bare number when only the average price is missing", () => {
         const item = { symbol: "AMER", quantity: 200, price: null };
         expect(parsePortfolioAnswer("5.75", item)).toMatchObject({ quantity: 200, price: 5.75 });
+    });
+
+    it("understands selecting the first N holdings from the previous image", () => {
+        expect(parsePortfolioSelectionCount("اول ٥ أسهم")).toBe(5);
+        expect(parsePortfolioSelectionCount("أول خمسة أسهم")).toBe(5);
+        expect(parsePortfolioSelectionCount("هات كل الأسهم")).toBeNull();
+    });
+
+    it("keeps ranking questions about owned holdings on the portfolio path", () => {
+        expect(isPortfolioRankingRequest("افضل سهم فيهم")).toBe(true);
+        expect(isPortfolioRankingRequest("افضل سهم في محفظتي")).toBe(true);
+        expect(isPortfolioRankingRequest("افضل سهم النهارده")).toBe(false);
     });
 });
 

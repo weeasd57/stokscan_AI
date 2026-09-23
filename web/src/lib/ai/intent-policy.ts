@@ -99,6 +99,14 @@ export function isPortfolioAnalysisRequest(message: string): boolean {
     return /(?:حلل|حلّل|تحليل|راجع|مراجعه|مراجعة|قيّم|تقييم)/i.test(v);
 }
 
+/** Keep ranking questions about owned positions on the portfolio path. */
+export function isPortfolioRankingRequest(message: string): boolean {
+    const v = normalizeArabicIntent(message);
+    const asksForRanking = /(?:افضل|احسن|اقوى|اكبر\s+(?:ربح|مكسب|خساره|خسارة)|اعلى\s+(?:ربح|عائد)|اسوا|اسوء|الخاسر|اضعف|أضعف)/i.test(v);
+    const refersToHoldings = /(?:محفظ|فيهم|منهم|المراكز|الاسهم\s+(?:دي|دى|دول)|الاسهم\s+(?:اللي|اللى)\s+معايا|حيازات)/i.test(v);
+    return asksForRanking && refersToHoldings;
+}
+
 /**
  * Confirmation of a pending portfolio-image import.
  * Matches short affirmative/negative replies to the bot's "هل دي محفظتك؟"

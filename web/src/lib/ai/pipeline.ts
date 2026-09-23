@@ -9,7 +9,7 @@ import { sanitizeReply } from "./sanitizer";
 import { loadSessionState, loadSessionSummary, updateSessionSummary, updateSessionState, loadPersistentInvestorProfile } from "./session";
 import { buildExcelTables, ExcelTable } from "./excel-tables";
 import { AI_CONFIG } from "./config";
-import { normalizeArabicIntent, extractInvestorPreferences, getFairValueFilters, isFairValueScanRequest, getInvestorGuidanceIntent as classifyInvestorGuidance, isDailyPriceLimitQuestion, isEarningsDataRequest, isTermsDefinitionRequest, isUsageLimitQuestion, isBestBuyStockQuestion, detectPortfolioIntent, detectPortfolioConfirmation, isPortfolioAnalysisRequest } from "./intent-policy";
+import { normalizeArabicIntent, extractInvestorPreferences, getFairValueFilters, isFairValueScanRequest, getInvestorGuidanceIntent as classifyInvestorGuidance, isDailyPriceLimitQuestion, isEarningsDataRequest, isTermsDefinitionRequest, isUsageLimitQuestion, isBestBuyStockQuestion, detectPortfolioIntent, detectPortfolioConfirmation, isPortfolioAnalysisRequest, isPortfolioRankingRequest } from "./intent-policy";
 import { extractExcludedSectorNames, extractMentionedSectorNames } from "./sector-taxonomy";
 import { isOtcStock, buildOtcNotice } from "./otc-stocks";
 import { isEgxSessionOpen } from "./live-stock-updater";
@@ -1341,6 +1341,19 @@ export function parsePortfolioAnswer(message: string, item: { symbol: string; qu
     return { ...item, quantity, price };
 }
 
+/** Parse a follow-up such as "أول ٥ أسهم" after an oversized image import. */
+export function parsePortfolioSelectionCount(message: string): number | null {
+    const normalized = normalizeArabicIntent(message);
+    const words: Record<string, number> = {
+        واحد: 1, واحده: 1, اتنين: 2, اثنين: 2, تلاته: 3, ثلاثه: 3,
+        اربعه: 4, خمسه: 5, سته: 6, سبعه: 7, تمانيه: 8, تسعه: 9, عشره: 10,
+    };
+    const match = normalized.match(/(?:اول|الأول|first)\s*(\d{1,2}|واحده?|اتنين|اثنين|تلاته|ثلاثه|اربعه|خمسه|سته|سبعه|تمانيه|تسعه|عشره)\s*(?:اسهم|سهم|مراكز|مركز)/i);
+    if (!match) return null;
+    const count = /^\d+$/.test(match[1]) ? Number(match[1]) : words[match[1]];
+    return Number.isFinite(count) && count > 0 && count <= 10 ? count : null;
+}
+
 export function portfolioMissingQuestion(item: { symbol: string; quantity: number | null; price: number | null }): string {
     const missing = [item.quantity === null ? "الكمية" : "", item.price === null ? "متوسط سعر الشراء" : ""].filter(Boolean).join(" و");
     return `عشان أسجل ${item.symbol} صح في محفظتك، محتاج ${missing}. اكتب مثلاً: «200 سهم بمتوسط 45.65 جنيه». متوسط السعر هو متوسط تكلفة الشراء، مش السعر الحالي.`;
@@ -1411,6 +1424,32 @@ function formatPortfolioSnapshotResponse(data: any): string {
         lines.push("عايز أضيفها لمحفظتك؟ اكتب: «ضيف <الرمز> <الكمية> بمتوسط <السعر>» أو «حلل <الرمز>» لتحليلها أولاً.");
     }
     lines.push("\nأقدر أكمل معاك في واحد من دول: أشرح أكبر خسارة، أقترح تنويع، أو أراجع سهم معين داخل المحفظة. تحب نبدأ بإيه؟");
+    return lines.join("\n");
+}
+
+function formatPortfolioRankingResponse(data: any, userMessage: string): string {
+    const positions = (Array.isArray(data?.positions) ? data.positions : [])
+        .filter((position: any) => Number.isFinite(Number(position?.profit_pct)));
+    if (positions.length === 0) {
+        return "لا أقدر أحدد أفضل سهم حالياً لأن متوسط شراء مركز أو أكثر غير مؤكد. ثبّت متوسط الشراء لكل مركز أولاً، ولن أخمّن ترتيباً من بيانات ناقصة.";
+    }
+    const asksWorst = /(?:اسوا|اسوء|اكبر\s+(?:خساره|خسارة)|الخاسر|اضعف)/i.test(normalizeArabicIntent(userMessage));
+    const ranked = [...positions].sort((a: any, b: any) => asksWorst
+        ? Number(a.profit_pct) - Number(b.profit_pct)
+        : Number(b.profit_pct) - Number(a.profit_pct));
+    const selected = ranked[0];
+    const label = asksWorst ? "أكبر خسارة غير محققة" : "أفضل أداء غير محقق";
+    const lines = [
+        `${label} في محفظتك حالياً: ${selected.symbol} (${Number(selected.profit_pct).toFixed(1)}%)، على أساس متوسط الشراء المسجل وآخر سعر متاح.`,
+        `- ${selected.symbol}: ${selected.quantity ?? "غير متاح"} سهم، متوسط ${selected.entry_price ?? "غير متاح"} ج.م، آخر سعر ${selected.last_price ?? "غير متاح"} ج.م.`,
+    ];
+    if (ranked.length > 1) {
+        lines.push("\nالترتيب المختصر:");
+        ranked.slice(0, 5).forEach((position: any, index: number) => {
+            lines.push(`${index + 1}. ${position.symbol}: ${Number(position.profit_pct).toFixed(1)}%`);
+        });
+    }
+    lines.push("\nالأرقام وصفية وليست توصية شراء أو بيع.");
     return lines.join("\n");
 }
 
@@ -1836,8 +1875,29 @@ async function* runPipelineCore(
             return;
         }
         const index = Math.min(Math.max(pendingImport.current_index || 0, 0), pendingImport.items.length - 1);
-        const updatedItem = parsePortfolioAnswer(userMessage, pendingImport.items[index]);
-        const items = pendingImport.items.map((item, itemIndex) => itemIndex === index ? updatedItem : item);
+        // If the user includes a ticker, apply the answer to that ticker—not
+        // blindly to the item the conversation happened to ask about. This
+        // prevents values for LUTS/KWIN (or any two adjacent holdings) from
+        // being shifted between positions.
+        const answerSymbols = extractExplicitSymbols(userMessage).map(symbol => String(symbol).toUpperCase());
+        const matchingIndexes = answerSymbols
+            .map(symbol => pendingImport.items.findIndex(item => String(item.symbol).toUpperCase() === symbol))
+            .filter(itemIndex => itemIndex >= 0);
+        if (answerSymbols.length > 0 && matchingIndexes.length !== 1) {
+            const expected = pendingImport.items[index].symbol;
+            const response = matchingIndexes.length > 1
+                ? "اكتب بيانات سهم واحد فقط في كل رسالة عشان ما يحصلش خلط بين الكميات والمتوسطات."
+                : `الرمز المكتوب مش ضمن الأسهم المنتظرة في الصورة. أنا منتظر بيانات ${expected}: اكتب مثلاً «${expected} 200 سهم بمتوسط 45.65».`;
+            yield { type: "done", data: {
+                response,
+                session_update: { current_symbol: expected, last_symbols: pendingImport.items.map(item => item.symbol), summary: response },
+                tables: [],
+            } };
+            return;
+        }
+        const answerIndex = matchingIndexes.length === 1 ? matchingIndexes[0] : index;
+        const updatedItem = parsePortfolioAnswer(userMessage, pendingImport.items[answerIndex]);
+        const items = pendingImport.items.map((item, itemIndex) => itemIndex === answerIndex ? updatedItem : item);
         const nextMissingIndex = items.findIndex(item =>
             item.quantity == null || item.quantity <= 0 || item.price == null || item.price <= 0
         );
@@ -1891,10 +1951,14 @@ async function* runPipelineCore(
     // symbols must also start the import — day-14 live chat showed the user
     // confirming a table-classified screenshot and getting "محفظتك فاضية".
     const visionContextSymbols = sessionSummary?.last_vision_context?.symbols || [];
+    const portfolioSelectionCount = parsePortfolioSelectionCount(userMessage);
+    const selectedPortfolioImport = visionContextSymbols.length > 0
+        && portfolioSelectionCount !== null
+        && sessionSummary?.last_topic === "portfolio";
     const explicitPortfolioConfirmation = visionContextSymbols.length > 0
         && /(محفظ|بتاعتي)/i.test(normalizeArabicIntent(userMessage));
-    if (!hasImages && (sessionSummary?.last_topic === "portfolio" || explicitPortfolioConfirmation)) {
-        const confirmation = detectPortfolioConfirmation(userMessage);
+    if (!hasImages && (sessionSummary?.last_topic === "portfolio" || explicitPortfolioConfirmation || selectedPortfolioImport)) {
+        const confirmation = selectedPortfolioImport ? true : detectPortfolioConfirmation(userMessage);
         if (confirmation === false) {
             // "لأ مش بتاعتي" — clear the stale image context so a later bare
             // "ايوه" cannot resurrect an import the user rejected.
@@ -1905,7 +1969,9 @@ async function* runPipelineCore(
             });
         }
         if (confirmation === true) {
-            const visionItems = visionContextSymbols;
+            const visionItems = selectedPortfolioImport
+                ? visionContextSymbols.slice(0, portfolioSelectionCount as number)
+                : visionContextSymbols;
             const items = visionItems.map(item => ({
                 symbol: item.symbol,
                 name: item.name,
@@ -2025,8 +2091,12 @@ async function* runPipelineCore(
                 await updateSessionSummary(supabase, sessionId, userId, { portfolio_add_awaiting: null });
             }
         }
+        const hasPortfolioContext = /محفظ|البورتفوليو|portfolio/i.test(normalizeArabicIntent(userMessage))
+            || ["portfolio", "portfolio_imported", "portfolio_import_pending"].includes(String(sessionSummary?.last_topic || ""));
+        const portfolioRankingRequest = hasPortfolioContext && isPortfolioRankingRequest(userMessage);
+        if (portfolioRankingRequest) directPortfolioOperation = "view";
         const portfolioDecisionRequest = /(?:ابيع|أبيع|بيع).*?(?:احتفظ|أحتفظ)|(?:احتفظ|أحتفظ).*?(?:ابيع|أبيع|بيع)/i.test(normalizeArabicIntent(userMessage));
-        const portfolioAnalysis = (directPortfolioOperation === "view" || portfolioDecisionRequest) && (
+        const portfolioAnalysis = !portfolioRankingRequest && (directPortfolioOperation === "view" || portfolioDecisionRequest) && (
             isPortfolioAnalysisRequest(userMessage)
             // Keep these common Arabic variants on the full portfolio-analysis
             // path even when the planner normalizes the wording differently.
@@ -2096,9 +2166,11 @@ async function* runPipelineCore(
             const portfolioResult = directTools.results.find(result => result.tool === "manage_portfolio");
             if (portfolioResult) {
                 const data = portfolioResult.data || {};
-                const response = directPortfolioOperation === "view"
-                    ? formatPortfolioSnapshotResponse(data)
-                    : String(data.message || "تم تنفيذ عملية المحفظة بنجاح.");
+                const response = portfolioRankingRequest
+                    ? formatPortfolioRankingResponse(data, userMessage)
+                    : directPortfolioOperation === "view"
+                        ? formatPortfolioSnapshotResponse(data)
+                        : String(data.message || "تم تنفيذ عملية المحفظة بنجاح.");
                 await persistPipelineSession(sessionState, sessionSummary, directPlan, null, null, sessionId, userId, supabase, false);
                 await persistPortfolioAwaitingState(supabase, sessionId, userId, directPortfolioOperation, data);
                 yield { type: "plan", data: directPlan };
