@@ -12,6 +12,7 @@ import { NotificationProvider } from "@/contexts/NotificationContext";
 import { ChatProvider } from "@/contexts/ChatContext";
 import { PortfolioProvider } from "@/contexts/PortfolioContext";
 import { TelegramProProvider } from "@/contexts/TelegramProContext";
+import UserActivityTracker from "@/components/UserActivityTracker";
 
 if (typeof window !== "undefined") {
   const originalFetch = window.fetch;
@@ -54,6 +55,7 @@ export default function Providers({ children }: { children: ReactNode }) {
   return (
     <ThemeProvider>
       <AuthProvider>
+        <UserActivityTracker />
         <TelegramProProvider>
           <LanguageProvider>
             <NotificationProvider>

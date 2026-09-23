@@ -33,6 +33,7 @@ import { toast } from "sonner";
 
 interface UserRow {
     id: string;
+    email: string | null;
     username: string | null;
     display_name: string | null;
     avatar_url: string | null;
@@ -55,6 +56,23 @@ interface UserDetail {
     bot_subscriptions: Record<string, any>[];
     open_positions: Record<string, any>[];
     recent_scans: Record<string, any>[];
+    usage?: {
+        pageViews: number;
+        uniquePages: number;
+        topPages: { path: string; views: number; users: number }[];
+        chatMessages: number;
+        chatSessions: number;
+        aiRequests: number;
+        topIntents: { intent: string; count: number }[];
+        lastActiveAt: string | null;
+    };
+    payments?: {
+        attempts: number;
+        successful: number;
+        totalPaid: number;
+        currency: string;
+        recent: Record<string, any>[];
+    };
 }
 
 interface UserStats {
@@ -67,6 +85,24 @@ interface UserStats {
     plans: Record<string, number>;
     botServices: Record<string, number>;
     signupGrowth: { date: string; count: number }[];
+    activeProUsers: number;
+    activeUsers30Days: number;
+    activeUsers7Days: number;
+    chatUsers30Days: number;
+    pageUsers30Days: number;
+    proActiveUsers30Days: number;
+    proChatUsers: number;
+    proPageUsers: number;
+    proChatOnlyUsers: number;
+    proPageOnlyUsers: number;
+    proChatRate: number;
+    proPageRate: number;
+    paidConversionRate: number;
+    chatMessages: number;
+    chatSessions: number;
+    topPages: { path: string; views: number; users: number }[];
+    proTopPages: { path: string; views: number; users: number }[];
+    activityTelemetryAvailable: boolean;
 }
 
 const SERVICE_LABELS: Record<string, string> = {
@@ -115,7 +151,7 @@ export default function UsersTab() {
     const fetchUsers = useCallback(async () => {
         setLoading(true);
         try {
-            const res = await fetch(`/api/admin/users?page=${page}&page_size=${pageSize}&search=${encodeURIComponent(search)}`);
+            const res = await fetch(`/api/admin/users?page=${page}&page_size=${pageSize}&plan=${planFilter}&search=${encodeURIComponent(search)}`);
             const data = await res.json();
             setUsers(data.users || []);
             setTotal(data.total || 0);
@@ -124,7 +160,7 @@ export default function UsersTab() {
         } finally {
             setLoading(false);
         }
-    }, [page, pageSize, search]);
+    }, [page, pageSize, search, planFilter]);
 
     const fetchStats = useCallback(async () => {
         setStatsLoading(true);
@@ -233,12 +269,8 @@ export default function UsersTab() {
         } catch { toast.error("Failed to change user plan"); }
     };
 
-    const filteredUsers = users.filter(u => {
-        if (planFilter === "PRO") return u.subscription?.plan_id === "pro";
-        if (planFilter === "FREE") return !u.subscription?.plan_id || u.subscription?.plan_id === "free";
-        if (planFilter === "TELEGRAM") return !!u.telegram_chat_id;
-        return true;
-    });
+    // Cohort filters are applied by the API so pagination and totals stay correct.
+    const filteredUsers = users;
 
     const totalPages = Math.ceil(total / pageSize);
 
@@ -414,6 +446,56 @@ export default function UsersTab() {
                 </div>
             </div>
 
+            {/* ─── PRO COHORT & PRODUCT USAGE ─── */}
+            <div className="border-4 border-black dark:border-white bg-white dark:bg-zinc-950 p-6 shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] dark:shadow-[6px_6px_0px_0px_rgba(255,255,255,1)]">
+                <div className="flex items-center justify-between gap-3 mb-4">
+                    <div>
+                        <h2 className="text-xl font-black uppercase tracking-widest flex items-center gap-3">
+                            <Crown className="w-6 h-6 text-indigo-500" /> PRO COHORT & PRODUCT USAGE
+                        </h2>
+                        <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mt-1">Which paying users use the chatbot versus the platform pages</p>
+                    </div>
+                    {stats && !stats.activityTelemetryAvailable && <span className="text-[10px] font-black text-amber-600 border-2 border-amber-500 px-2 py-1">PAGE TRACKING STARTS AFTER MIGRATION</span>}
+                </div>
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
+                    {[
+                        ["Active Pro", stats?.activeProUsers || 0, "users"],
+                        ["Pro using chat", `${stats?.proChatUsers || 0} (${stats?.proChatRate || 0}%)`, "of active Pro"],
+                        ["Pro using pages", `${stats?.proPageUsers || 0} (${stats?.proPageRate || 0}%)`, "tracked users"],
+                        ["Paid conversion", `${stats?.paidConversionRate || 0}%`, "registered → Pro"],
+                    ].map(([label, value, hint]) => (
+                        <div key={String(label)} className="border-4 border-black dark:border-white bg-indigo-50 dark:bg-indigo-950/30 p-3">
+                            <div className="text-[10px] font-black uppercase tracking-widest text-zinc-500">{label}</div>
+                            <div className="text-2xl font-black font-mono mt-1">{statsLoading ? "..." : value}</div>
+                            <div className="text-[10px] font-bold text-indigo-600 dark:text-indigo-300 mt-1">{hint}</div>
+                        </div>
+                    ))}
+                </div>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                    <div className="border-4 border-black dark:border-white bg-zinc-50 dark:bg-zinc-900 p-4">
+                        <div className="flex items-center justify-between mb-3">
+                            <h3 className="font-black text-xs uppercase tracking-widest flex items-center gap-2"><Globe className="w-4 h-4 text-cyan-500" /> TOP PAGES — ALL USERS</h3>
+                            <span className="text-[10px] font-bold text-zinc-500">30d users: {stats?.pageUsers30Days || 0}</span>
+                        </div>
+                        <div className="space-y-1.5">
+                            {(stats?.topPages || []).map((row) => <div key={row.path} className="flex items-center justify-between gap-2 text-xs font-mono border-b border-zinc-200 dark:border-zinc-800 pb-1"><span className="font-bold truncate">{row.path}</span><span className="text-zinc-500 shrink-0">{row.users} users · {row.views} views</span></div>)}
+                            {!stats?.topPages?.length && <div className="text-xs font-bold text-zinc-400">No page events yet.</div>}
+                        </div>
+                    </div>
+                    <div className="border-4 border-black dark:border-white bg-zinc-50 dark:bg-zinc-900 p-4">
+                        <div className="flex items-center justify-between mb-3">
+                            <h3 className="font-black text-xs uppercase tracking-widest flex items-center gap-2"><Crown className="w-4 h-4 text-indigo-500" /> TOP PAGES — PRO ONLY</h3>
+                            <span className="text-[10px] font-bold text-zinc-500">Chat-only: {stats?.proChatOnlyUsers || 0}</span>
+                        </div>
+                        <div className="space-y-1.5">
+                            {(stats?.proTopPages || []).map((row) => <div key={row.path} className="flex items-center justify-between gap-2 text-xs font-mono border-b border-zinc-200 dark:border-zinc-800 pb-1"><span className="font-bold truncate">{row.path}</span><span className="text-zinc-500 shrink-0">{row.users} users · {row.views} views</span></div>)}
+                            {!stats?.proTopPages?.length && <div className="text-xs font-bold text-zinc-400">No Pro page events yet.</div>}
+                        </div>
+                    </div>
+                </div>
+                <div className="mt-4 text-[10px] font-bold text-zinc-500 uppercase tracking-wider">30d active users: {stats?.activeUsers30Days || 0} · Chat users: {stats?.chatUsers30Days || 0} · Page users: {stats?.pageUsers30Days || 0} · Total chat messages: {stats?.chatMessages || 0}</div>
+            </div>
+
             {/* ─── USER MANAGEMENT TABLE ─── */}
             <div className="border-4 border-black dark:border-white bg-white dark:bg-zinc-950 p-6 shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] dark:shadow-[6px_6px_0px_0px_rgba(255,255,255,1)]">
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
@@ -445,7 +527,7 @@ export default function UsersTab() {
                              {planMenuOpen && <div className="absolute z-50 top-full left-0 right-0 mt-1 border-4 border-black dark:border-white bg-white dark:bg-zinc-950 shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_rgba(255,255,255,1)]">
                                  {["ALL", "PRO", "FREE", "TELEGRAM"].map((value) => {
                                      const labels: Record<string, string> = { ALL: "All Users", PRO: "PRO Plan Only", FREE: "Free Plan Only", TELEGRAM: "Telegram Linked" };
-                                     return <button key={value} type="button" onClick={() => { setPlanFilter(value); setPlanMenuOpen(false); }} className={`block w-full px-3 py-2 text-left text-xs font-black uppercase tracking-wider ${planFilter === value ? "bg-blue-600 text-white" : "bg-white dark:bg-zinc-950 text-black dark:text-white hover:bg-blue-100 dark:hover:bg-blue-950"}`}>{labels[value]}</button>;
+                                     return <button key={value} type="button" onClick={() => { setPlanFilter(value); setPage(0); setPlanMenuOpen(false); }} className={`block w-full px-3 py-2 text-left text-xs font-black uppercase tracking-wider ${planFilter === value ? "bg-blue-600 text-white" : "bg-white dark:bg-zinc-950 text-black dark:text-white hover:bg-blue-100 dark:hover:bg-blue-950"}`}>{labels[value]}</button>;
                                  })}
                              </div>}
                          </div>
@@ -505,6 +587,7 @@ export default function UsersTab() {
                                                 )}
                                                 <div>
                                                     <div className="font-bold text-black dark:text-white text-xs">{u.display_name || u.username || "—"}</div>
+                                                    <div className="text-[10px] text-blue-600 dark:text-blue-400 truncate max-w-[180px]">{u.email || u.username || "—"}</div>
                                                     <div className="text-[10px] text-zinc-400 truncate max-w-[120px]">{u.id.slice(0, 8)}...</div>
                                                 </div>
                                             </div>
@@ -787,6 +870,26 @@ export default function UsersTab() {
                                     ) : (
                                         <span className="text-xs text-zinc-400 font-bold">No bot notifications subscribed</span>
                                     )}
+                                </div>
+
+                                {/* Product Usage & Revenue */}
+                                <div className="border-4 border-black dark:border-white bg-indigo-50 dark:bg-indigo-950/30 p-4">
+                                    <h3 className="font-black text-[10px] uppercase tracking-widest text-indigo-700 dark:text-indigo-300 mb-3 flex items-center gap-2">
+                                        <Activity className="w-3 h-3" /> PRODUCT USAGE & PAYMENT
+                                    </h3>
+                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs font-mono mb-3">
+                                        {[
+                                            ["Page views", selectedUser.usage?.pageViews || 0],
+                                            ["Chat messages", selectedUser.usage?.chatMessages || 0],
+                                            ["AI requests", selectedUser.usage?.aiRequests || 0],
+                                            ["Paid total", `${Number(selectedUser.payments?.totalPaid || 0).toFixed(2)} ${selectedUser.payments?.currency || "EGP"}`],
+                                        ].map(([label, value]) => <div key={String(label)} className="border-2 border-black dark:border-white bg-white dark:bg-zinc-950 p-2"><div className="text-[9px] font-black text-zinc-500 uppercase">{label}</div><div className="font-black mt-1">{value}</div></div>)}
+                                    </div>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs font-mono">
+                                        <div><div className="text-[10px] font-black text-zinc-500 uppercase mb-1">Most used pages</div>{(selectedUser.usage?.topPages || []).slice(0, 5).map((row) => <div key={row.path} className="flex justify-between border-b border-indigo-200 dark:border-indigo-800 py-1"><span className="truncate mr-2">{row.path}</span><span>{row.views}×</span></div>)}{!selectedUser.usage?.topPages?.length && <span className="text-zinc-400">No page data yet</span>}</div>
+                                        <div><div className="text-[10px] font-black text-zinc-500 uppercase mb-1">Chat intents</div>{(selectedUser.usage?.topIntents || []).slice(0, 5).map((row) => <div key={row.intent} className="flex justify-between border-b border-indigo-200 dark:border-indigo-800 py-1"><span className="truncate mr-2">{row.intent}</span><span>{row.count}×</span></div>)}{!selectedUser.usage?.topIntents?.length && <span className="text-zinc-400">No AI telemetry yet</span>}</div>
+                                    </div>
+                                    <div className="text-[10px] font-bold text-indigo-700 dark:text-indigo-300 mt-3">Last active: {selectedUser.usage?.lastActiveAt ? new Date(selectedUser.usage.lastActiveAt).toLocaleString() : "—"} · Payment attempts: {selectedUser.payments?.attempts || 0} · Successful: {selectedUser.payments?.successful || 0}</div>
                                 </div>
 
                                 {/* Open Positions */}
