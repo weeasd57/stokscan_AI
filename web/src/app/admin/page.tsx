@@ -48,7 +48,10 @@ export default function AdminPage() {
     const [symbolsQuery, setSymbolsQuery] = useState("");
     const [currentPage, setCurrentPage] = useState(1);
     const [pageSize, setPageSize] = useState(100);
-    const [activeMainTab, setActiveMainTab] = useState<"data" | "ai" | "backtest" | "bot" | "schedule" | "similarity" | "jobs" | "users" | "support">("data");
+    // Opening Admin is normally for Chatbot/User review. Keep the large data
+    // manager dormant until an administrator explicitly requests it.
+    const [activeMainTab, setActiveMainTab] = useState<"data" | "ai" | "backtest" | "bot" | "schedule" | "similarity" | "jobs" | "users" | "support">("support");
+    const [dataLoaded, setDataLoaded] = useState(false);
     const [dataSourcesTab, setDataSourcesTab] = useState<"prices" | "funds">("prices");
     const [selectedSymbols, setSelectedSymbols] = useState<Set<string>>(new Set());
     const [processing, setProcessing] = useState(false);
@@ -108,10 +111,10 @@ export default function AdminPage() {
 
     // Load countries
     useEffect(() => {
-        if (!unlocked) return;
+        if (!unlocked || !dataLoaded) return;
         setCountriesLoading(true);
         getCountries("local").then(setCountries).finally(() => setCountriesLoading(false));
-    }, [unlocked]);
+    }, [unlocked, dataLoaded]);
 
     // Country guard (case-insensitive: backend/caches store canonical casing,
     // but some sources return lowercase names which break case-sensitive lookups)
@@ -127,7 +130,7 @@ export default function AdminPage() {
 
     // Initial data fetches (only when unlocked)
     useEffect(() => {
-        if (!unlocked) return;
+        if (!unlocked || !dataLoaded) return;
         // Sync history
         fetch("/api/admin/sync-history")
             .then(async (res) => res.ok ? res.json().catch(() => []) : [])
@@ -167,7 +170,7 @@ export default function AdminPage() {
                 setConfig({ priceSource, fundSource, maxWorkers });
             })
             .catch(console.error);
-    }, [unlocked]);
+    }, [unlocked, dataLoaded]);
 
     // Sync updateFundamentals with tab
     useEffect(() => {
@@ -179,7 +182,7 @@ export default function AdminPage() {
     // country must never overwrite the results of the current one.
     const symbolsFetchId = useRef(0);
     useEffect(() => {
-        if (!selectedCountry || !unlocked) return;
+        if (!selectedCountry || !unlocked || !dataLoaded) return;
         const fetchId = ++symbolsFetchId.current;
         setLoadingSymbols(true);
         searchSymbols("", selectedCountry, 100000, undefined, "local")
@@ -194,7 +197,7 @@ export default function AdminPage() {
             .finally(() => {
                 if (fetchId === symbolsFetchId.current) setLoadingSymbols(false);
             });
-    }, [selectedCountry, unlocked]);
+    }, [selectedCountry, unlocked, dataLoaded]);
 
     // Reset page on search or country change
     useEffect(() => { setCurrentPage(1); }, [selectedCountry, symbolsQuery, pageSize]);
@@ -502,7 +505,20 @@ export default function AdminPage() {
 
             <main className="flex-1 w-full overflow-y-auto relative">
                 {activeMainTab === "data" ? (
-                    <DataManagerTab
+                    !dataLoaded ? (
+                        <section className="mx-auto mt-12 max-w-2xl border-4 border-white bg-zinc-950 p-8 text-center shadow-[8px_8px_0px_rgba(255,255,255,1)]">
+                            <h2 className="text-xl font-black uppercase tracking-wide text-white">Data Manager on demand</h2>
+                            <p className="mt-3 text-sm leading-6 text-zinc-400">
+                                Database inventory, symbol lists, sync history, and model data are not loaded until you request them.
+                            </p>
+                            <button
+                                onClick={() => setDataLoaded(true)}
+                                className="mt-6 border-4 border-black bg-amber-400 px-5 py-3 text-sm font-black uppercase text-black shadow-[4px_4px_0px_rgba(255,255,255,1)] hover:bg-amber-300"
+                            >
+                                Load data manager
+                            </button>
+                        </section>
+                    ) : <DataManagerTab
                         selectedCountry={selectedCountry}
                         setCountryDialogOpen={setCountryDialogOpen}
                         processing={processing}

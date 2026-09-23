@@ -29,7 +29,7 @@ export type PortfolioSnapshot = {
 type PortfolioContextValue = {
   snapshot: PortfolioSnapshot | null;
   loading: boolean;
-  refresh: () => Promise<void>;
+  refresh: (force?: boolean) => Promise<void>;
 };
 
 const PortfolioContext = createContext<PortfolioContextValue | null>(null);
@@ -39,11 +39,11 @@ export function PortfolioProvider({ children }: { children: ReactNode }) {
   const [snapshot, setSnapshot] = useState<PortfolioSnapshot | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (force = false) => {
     if (!user) { setSnapshot(null); return; }
     setLoading(true);
     try {
-      const response = await fetch("/api/portfolio", { cache: "no-store" });
+      const response = await fetch("/api/portfolio", { cache: force ? "no-store" : "default" });
       if (response.ok) setSnapshot(await response.json());
     } finally {
       setLoading(false);
@@ -53,7 +53,7 @@ export function PortfolioProvider({ children }: { children: ReactNode }) {
   useEffect(() => { void refresh(); }, [refresh]);
 
   useEffect(() => {
-    const handleUpdated = () => { void refresh(); };
+    const handleUpdated = () => { void refresh(true); };
     window.addEventListener("portfolio-updated", handleUpdated);
     return () => window.removeEventListener("portfolio-updated", handleUpdated);
   }, [refresh]);

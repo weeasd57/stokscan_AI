@@ -6,6 +6,7 @@ import type { PredictResponse } from "@/lib/types";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { useRefreshOnVisibility } from "@/hooks/useRealtimeRefresh";
 import { useAuth } from "./AuthContext";
+import { usePathname } from "next/navigation";
 import { filterByDelay } from "@/lib/ai/plan-gate";
 
 type AiScannerState = {
@@ -134,6 +135,8 @@ const AIScannerContext = createContext<AIScannerContextType | undefined>(undefin
 export const AIScannerProvider = ({ children }: { children: ReactNode }) => {
 
     const { user } = useAuth();
+    const pathname = usePathname();
+    const isAiScannerPage = pathname.startsWith("/scanner/ai");
     const supabase = useMemo(() => createSupabaseBrowserClient(), []);
     const [state, setAiScanner] = useState<AiScannerState>(DEFAULT_STATE);
     const [loading, setLoading] = useState(false);
@@ -355,7 +358,8 @@ export const AIScannerProvider = ({ children }: { children: ReactNode }) => {
         let query = supabase
             .from("scan_results")
             .select("batch_id, created_at, model_name, country, from_date, to_date, scanned_count, duration_ms, is_public")
-            .order("created_at", { ascending: false });
+            .order("created_at", { ascending: false })
+            .limit(1000);
 
         if (filters?.country) query = query.eq("country", filters.country);
         if (filters?.model) query = query.eq("model_name", filters.model);
@@ -630,16 +634,17 @@ export const AIScannerProvider = ({ children }: { children: ReactNode }) => {
 
     // Sync scanDays from AdminConfig on mount
     useEffect(() => {
+        if (!isAiScannerPage) return;
         getAdminConfig().then(cfg => {
             if (cfg.scanDays) {
                 setAiScanner(prev => ({ ...prev, scanDays: cfg.scanDays! }));
             }
         }).catch(err => console.error("Failed to sync initial scanDays:", err));
-    }, []);
+    }, [isAiScannerPage]);
 
     // Load History from Supabase on mount (Trade data should be cloud-only)
     useEffect(() => {
-        if (!user) return;
+        if (!user || !isAiScannerPage) return;
 
         async function loadHistory() {
             setLoading(true);
@@ -656,7 +661,7 @@ export const AIScannerProvider = ({ children }: { children: ReactNode }) => {
         }
 
         void loadHistory();
-    }, [user, fetchScanHistory]);
+    }, [user, fetchScanHistory, isAiScannerPage]);
 
     // Save History to Supabase whenever it changes (Individual results already saved in runAiScan)
     // Here we ensure the summary history list is consistent

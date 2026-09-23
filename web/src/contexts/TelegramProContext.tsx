@@ -11,6 +11,7 @@ import {
   type ReactNode,
 } from "react";
 import { useAuth } from "@/contexts/AuthContext";
+import { usePathname } from "next/navigation";
 
 export type TelegramProInvite = {
   is_pro: boolean;
@@ -38,6 +39,10 @@ const TelegramProContext = createContext<TelegramProContextValue | null>(null);
 
 export function TelegramProProvider({ children }: { children: ReactNode }) {
   const { user, loading: authLoading } = useAuth();
+  const pathname = usePathname();
+  // `usePathname` can be null while the router is not ready (and in isolated
+  // tests); defer to the existing invite behavior for that transient state.
+  const needsProInvite = pathname === null || pathname.startsWith("/profile");
   const userId = user?.id ?? null;
   const activeUserIdRef = useRef<string | null>(userId);
   const cacheRef = useRef<CachedInvite | null>(null);
@@ -96,7 +101,7 @@ export function TelegramProProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     activeUserIdRef.current = userId;
     if (authLoading) return;
-    if (!userId) {
+    if (!userId || !needsProInvite) {
       cacheRef.current = null;
       inFlightRef.current = null;
       setInvite(EMPTY_INVITE);
@@ -105,7 +110,7 @@ export function TelegramProProvider({ children }: { children: ReactNode }) {
       return;
     }
     void loadInvite(false);
-  }, [authLoading, loadInvite, userId]);
+  }, [authLoading, loadInvite, needsProInvite, userId]);
 
   const value = useMemo<TelegramProContextValue>(() => ({
     invite,

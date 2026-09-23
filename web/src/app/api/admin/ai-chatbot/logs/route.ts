@@ -6,11 +6,13 @@ import { requireAdmin } from "@/lib/admin-auth";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET(_req: NextRequest) {
+export async function GET(req: NextRequest) {
     try {
-        const auth = await requireAdmin(_req);
+        const auth = await requireAdmin(req);
         if (auth instanceof Response) return auth;
         const supabase = getSupabaseClient();
+        const requestedLimit = Number(req.nextUrl.searchParams.get("limit") || "1000");
+        const limit = Math.min(5000, Math.max(100, Number.isFinite(requestedLimit) ? Math.floor(requestedLimit) : 1000));
 
         // Run data fetching in parallel for maximum speed
         const [authRes, profilesRes, legacyLogsRes, chatMsgsRes] = await Promise.allSettled([
@@ -22,12 +24,12 @@ export async function GET(_req: NextRequest) {
             // 2. Fetch profiles for display names
             supabase.from("profiles").select("id, display_name, username").limit(2000),
             // 3. Fetch legacy logs from ai_chatbot_logs
-            supabase.from("ai_chatbot_logs").select("*").order("created_at", { ascending: false }).limit(1000),
+            supabase.from("ai_chatbot_logs").select("*").order("created_at", { ascending: false }).limit(limit),
             // 4. Fetch latest structured chat messages ordered descending (newest first)
             supabase.from("ai_chat_messages")
                 .select("id, session_id, user_id, role, content, latency_ms, image_url, metadata, created_at")
                 .order("created_at", { ascending: false })
-                .limit(5000)
+                .limit(limit)
         ]);
 
         // Build User Email Map
@@ -99,7 +101,7 @@ export async function GET(_req: NextRequest) {
                     .from("ai_chat_messages")
                     .select("id, session_id, user_id, role, content, image_url, created_at")
                     .order("created_at", { ascending: false })
-                    .limit(5000);
+                    .limit(limit);
                 if (fallback.data) chatMsgs = fallback.data;
             } else if (val.data) {
                 chatMsgs = val.data;
@@ -212,7 +214,9 @@ export async function GET(_req: NextRequest) {
             (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
         );
 
-        return NextResponse.json(formattedLogs);
+        return NextResponse.json(formattedLogs, {
+            headers: { "Cache-Control": "private, max-age=60, stale-while-revalidate=300" },
+        });
     } catch (e) {
         console.error("Error in admin ai-chatbot logs GET:", e);
         return NextResponse.json({ detail: "Internal error" }, { status: 500 });

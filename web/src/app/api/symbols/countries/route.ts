@@ -1,15 +1,11 @@
 import { NextResponse } from "next/server";
 import { getSupabaseClient } from "@/lib/supabase/route-data";
-import { DAILY_CACHE_TAGS } from "@/lib/cache/daily";
+import { DAILY_CACHE_TAGS, dailyCacheHeaders } from "@/lib/cache/daily";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const PUBLIC_CACHE_HEADERS = {
-  "Cache-Control": "public, max-age=300",
-  "Vercel-CDN-Cache-Control": "public, s-maxage=3600, stale-while-revalidate=86400",
-  "Vercel-Cache-Tag": DAILY_CACHE_TAGS.symbols,
-};
+const PUBLIC_CACHE_HEADERS = dailyCacheHeaders(DAILY_CACHE_TAGS.symbols);
 
 function getBackendBaseUrl() {
   return (

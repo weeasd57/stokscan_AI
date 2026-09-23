@@ -99,6 +99,10 @@ export async function GET() {
           is_instant: limits.signal_delay_days === 0,
         },
       },
+    }, {
+      // Quotas are private to the signed-in user, but they do not need a
+      // database round trip on every mounted component within the same minute.
+      headers: { "Cache-Control": "private, max-age=60, stale-while-revalidate=120" },
     });
   } catch (err: any) {
     console.error("[api/user/quota] GET error:", err);

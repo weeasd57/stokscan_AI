@@ -26,11 +26,10 @@ export async function GET(
     if (profileErr) return NextResponse.json({ detail: profileErr.message }, { status: 404 });
 
     // Query related tables safely
-    const [subRes, botSubRes, posRes, scanRes, activityRes, chatMessagesRes, chatSessionsRes, aiAnalyticsRes, kashierRes, localPaymentsRes] = await Promise.all([
+    const [subRes, botSubRes, posRes, activityRes, chatMessagesRes, chatSessionsRes, aiAnalyticsRes, kashierRes, localPaymentsRes] = await Promise.all([
       supabase.from("subscriptions").select("*").eq("user_id", userId).maybeSingle().catch(() => ({ data: null })),
       supabase.from("bot_subscriptions").select("*").eq("user_id", userId).catch(() => ({ data: [] })),
       supabase.from("positions").select("*").eq("user_id", userId).catch(() => ({ data: [] })),
-      supabase.from("scan_results").select("*").limit(10).catch(() => ({ data: [] })),
       supabase.from("user_activity_events").select("user_id,event_name,path,created_at").eq("user_id", userId).order("created_at", { ascending: false }).limit(5000).catch(() => ({ data: [], error: new Error("Activity telemetry unavailable") })),
       supabase.from("ai_chat_messages").select("user_id,role,created_at").eq("user_id", userId).order("created_at", { ascending: false }).limit(5000).catch(() => ({ data: [] })),
       supabase.from("ai_chat_sessions").select("id,user_id,created_at,updated_at").eq("user_id", userId).order("updated_at", { ascending: false }).limit(500).catch(() => ({ data: [] })),
@@ -59,7 +58,9 @@ export async function GET(
       subscription: subRes?.data || null,
       bot_subscriptions: botSubRes?.data || [],
       open_positions: posRes?.data || [],
-      recent_scans: scanRes?.data || [],
+      // Scan results are market-wide and were not used by this user detail UI.
+      // Avoid pulling unrelated records whenever an administrator opens a user.
+      recent_scans: [],
       usage,
       payments: {
         attempts: payments.length,

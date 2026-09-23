@@ -125,7 +125,8 @@ export default function UsersTab() {
     
     // Stats Dashboard State
     const [stats, setStats] = useState<UserStats | null>(null);
-    const [statsLoading, setStatsLoading] = useState(true);
+    const [statsLoading, setStatsLoading] = useState(false);
+    const [analyticsLoaded, setAnalyticsLoaded] = useState(false);
 
     // Modal States
     const [selectedUser, setSelectedUser] = useState<UserDetail | null>(null);
@@ -179,9 +180,13 @@ export default function UsersTab() {
     }, []);
 
     useEffect(() => { 
-        fetchUsers(); 
-        fetchStats();
-    }, [fetchUsers, fetchStats]);
+        fetchUsers();
+    }, [fetchUsers]);
+
+    const loadAnalytics = useCallback(async () => {
+        setAnalyticsLoaded(true);
+        await fetchStats();
+    }, [fetchStats]);
 
     const fetchDetail = async (userId: string) => {
         setDetailLoading(true);
@@ -254,7 +259,7 @@ export default function UsersTab() {
             toast.success("User deleted");
             setSelectedUser(null);
             fetchUsers();
-            fetchStats();
+            if (analyticsLoaded) fetchStats();
         } catch (e) {
             toast.error("Failed to delete user");
         }
@@ -287,14 +292,19 @@ export default function UsersTab() {
                         USER ANALYTICS & INSIGHTS
                     </h2>
                     <button
-                        onClick={() => { fetchStats(); fetchUsers(); }}
+                        onClick={() => { loadAnalytics(); fetchUsers(); }}
                         className="h-9 px-3 border-4 border-black dark:border-white bg-zinc-100 dark:bg-zinc-800 font-black text-xs uppercase tracking-wider hover:bg-zinc-200 dark:hover:bg-zinc-700 flex items-center gap-2 shadow-[2px_2px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_rgba(255,255,255,1)]"
                     >
                         <RefreshCw className={`w-3.5 h-3.5 ${statsLoading ? "animate-spin" : ""}`} />
-                        REFRESH ANALYTICS
+                        {analyticsLoaded ? "REFRESH ANALYTICS" : "LOAD ANALYTICS"}
                     </button>
                 </div>
 
+                {!analyticsLoaded ? (
+                    <div className="mb-6 border-2 border-dashed border-zinc-400 p-4 text-sm text-zinc-500">
+                        Advanced analytics is loaded only when requested to avoid large user, chat, and activity queries on every Admin visit.
+                    </div>
+                ) : <>
                 {/* KPI Cards Grid */}
                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
                     <div className="border-4 border-black dark:border-white bg-blue-50 dark:bg-blue-950/40 p-4 shadow-[4px_4px_0px_rgba(0,0,0,1)] dark:shadow-[4px_4px_0px_rgba(255,255,255,1)]">
@@ -445,10 +455,11 @@ export default function UsersTab() {
                         </div>
                     </div>
                 </div>
+                </>}
             </div>
 
             {/* ─── PRO COHORT & PRODUCT USAGE ─── */}
-            <div className="border-4 border-black dark:border-white bg-white dark:bg-zinc-950 p-6 shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] dark:shadow-[6px_6px_0px_0px_rgba(255,255,255,1)]">
+            <div hidden={!analyticsLoaded} className="border-4 border-black dark:border-white bg-white dark:bg-zinc-950 p-6 shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] dark:shadow-[6px_6px_0px_0px_rgba(255,255,255,1)]">
                 <div className="flex items-center justify-between gap-3 mb-4">
                     <div>
                         <h2 className="text-xl font-black uppercase tracking-widest flex items-center gap-3">

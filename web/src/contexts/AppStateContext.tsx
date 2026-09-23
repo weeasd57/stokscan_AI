@@ -563,6 +563,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   const hasSettingsInitializedRef = useRef(false);
   const lastSettingsFetchedAtRef = useRef<number>(0);
   const lastSettingsUserIdRef = useRef<string | null>(null);
+  const lastPersistedSettingsRef = useRef<string | null>(null);
   const SETTINGS_STALE_TIME_MS = 60 * 1000; // 1 minute
 
   useEffect(() => {
@@ -603,13 +604,6 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
 
       const hasRemote = remote && typeof remote === "object" && Object.keys(remote as any).length > 0;
 
-      if (local) {
-        await supabase
-          .from("user_settings")
-          .upsert({ user_id: user.id, app_state: local }, { onConflict: "user_id" });
-        // We Keep local storage as a sync mirror
-      }
-
       // Merge strategy: Remote > Local > Default
       // If we have remote, use it. If not, use local.
       let nextState = hasRemote ? mergeDefaults(remote as PersistedAppState) : local ? mergeDefaults(local) : DEFAULT_STATE;
@@ -621,6 +615,13 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
 
       if (cancelled) return;
       setState(nextState);
+
+      // Do not write the same preferences back to Supabase merely because the
+      // global provider mounted. A local-only state will be persisted once by
+      // the debounced state effect below.
+      lastPersistedSettingsRef.current = hasRemote
+        ? JSON.stringify(toPersistedState(nextState))
+        : null;
 
       // Mark as initialized
       hasSettingsInitializedRef.current = true;
@@ -660,7 +661,10 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(localFiltered));
 
     // 2. Save FULL state (including history) to Supabase
-    if (user) {
+    if (user && hasSettingsInitializedRef.current) {
+      const serialized = JSON.stringify(fullPersisted);
+      if (lastPersistedSettingsRef.current === serialized) return;
+      lastPersistedSettingsRef.current = serialized;
       const timeoutId = window.setTimeout(() => {
         void supabase.from("user_settings").upsert({
           user_id: user.id,

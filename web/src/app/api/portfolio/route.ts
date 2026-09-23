@@ -30,7 +30,10 @@ export async function GET() {
             console.warn("[api/portfolio] symbols list unavailable:", e);
         }
 
-        return NextResponse.json({ ...snapshot, market_symbols: marketSymbols, portfolio_limit: pro ? null : portfolioLimit, is_pro: pro });
+        return NextResponse.json(
+            { ...snapshot, market_symbols: marketSymbols, portfolio_limit: pro ? null : portfolioLimit, is_pro: pro },
+            { headers: { "Cache-Control": "private, max-age=60, stale-while-revalidate=120" } },
+        );
     } catch (e: any) {
         console.error("[api/portfolio] GET error:", e);
         return NextResponse.json({ ok: false, message: e?.message || "Internal error" }, { status: 500 });

@@ -5,6 +5,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { toast } from "sonner";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { usePathname } from "next/navigation";
 
 export type ServiceType = "stock_score" | "technical_scanner" | "ai_bot";
 
@@ -25,6 +26,8 @@ const NotificationContext = createContext<NotificationContextType | undefined>(u
 
 export function NotificationProvider({ children }: { children: ReactNode }) {
     const { user } = useAuth();
+    const pathname = usePathname();
+    const needsNotificationData = pathname.startsWith("/scanner/backtests");
     const { language } = useLanguage();
     const isAr = language === "ar";
     const supabase = useMemo(() => createSupabaseBrowserClient(), []);
@@ -39,6 +42,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
 
     // Fetch bot username
     useEffect(() => {
+        if (!needsNotificationData) return;
         fetch("/api/ai_bot/telegram/bot_username")
             .then((res) => res.json())
             .then((data) => {
@@ -47,11 +51,11 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
                 }
             })
             .catch((err) => console.error("Error fetching bot username:", err));
-    }, []);
+    }, [needsNotificationData]);
 
     // Load initial states
     const reloadAll = useCallback(async () => {
-        if (!user) {
+        if (!user || !needsNotificationData) {
             setLoading(false);
             setTelegramLinked(false);
             setTelegramChatId(null);
@@ -93,11 +97,11 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
         } finally {
             setLoading(false);
         }
-    }, [supabase, user]);
+    }, [needsNotificationData, supabase, user]);
 
     // Initial load and Real-time listener
     useEffect(() => {
-        if (!user) {
+        if (!user || !needsNotificationData) {
             setLoading(false);
             setTelegramLinked(false);
             setTelegramChatId(null);
@@ -160,7 +164,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
         return () => {
             supabase.removeChannel(channel);
         };
-    }, [reloadAll, supabase, user]);
+    }, [needsNotificationData, reloadAll, supabase, user]);
 
     // Toggle service subscription
     const toggleSubscription = useCallback(async (serviceType: ServiceType, botId: string = "primary") => {

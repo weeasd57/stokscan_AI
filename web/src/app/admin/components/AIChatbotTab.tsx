@@ -12,6 +12,7 @@ export default function AIChatbotTab() {
     const [isFullscreen, setIsFullscreen] = useState(false);
 
     const [logs, setLogs] = useState<any[]>([]);
+    const [loadedLimit, setLoadedLimit] = useState(1000);
     const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
     const [searchUserQuery, setSearchUserQuery] = useState("");
     const [viewMode, setViewMode] = useState<"ai_config" | "support_chats">("ai_config");
@@ -25,15 +26,16 @@ export default function AIChatbotTab() {
     }, []);
 
     useEffect(() => {
-        fetchLogs();
+        fetchLogs(1000);
     }, []);
 
-    const fetchLogs = async () => {
+    const fetchLogs = async (limit = loadedLimit) => {
         setLogsLoading(true);
         try {
-            const res = await fetch("/api/admin/ai-chatbot/logs");
+            const res = await fetch(`/api/admin/ai-chatbot/logs?limit=${limit}`);
             if (res.ok) {
                 const data = await res.json();
+                setLoadedLimit(limit);
                 // Extract data source info: prefer persisted metadata (pipeline provenance),
                 // fall back to parsing the reply text (legacy rows / backend chatbot)
                 const enrichedData = data.map((log: any) => {
@@ -257,13 +259,23 @@ export default function AIChatbotTab() {
                                         {isFullscreen ? <Minimize className="w-5 h-5" /> : <Maximize className="w-5 h-5" />}
                                     </button>
                                     <button
-                                        onClick={fetchLogs}
+                                        onClick={() => fetchLogs()}
                                         disabled={logsLoading}
                                         className="p-2 hover:bg-zinc-200 dark:hover:bg-zinc-800 rounded-lg transition-colors text-zinc-500"
                                         title="Refresh interactions"
                                     >
                                         <RefreshCw className={`w-5 h-5 ${logsLoading ? "animate-spin" : ""}`} />
                                     </button>
+                                    {loadedLimit < 5000 && (
+                                        <button
+                                            onClick={() => fetchLogs(5000)}
+                                            disabled={logsLoading}
+                                            className="rounded-lg border border-zinc-300 px-2 py-1 text-[10px] font-bold text-zinc-500 hover:bg-zinc-200 dark:border-zinc-700 dark:hover:bg-zinc-800"
+                                            title="تحميل السجل الموسع حتى 5000 رسالة"
+                                        >
+                                            LOAD 5000
+                                        </button>
+                                    )}
                                 </div>
                             </div>
 

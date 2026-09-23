@@ -1055,7 +1055,7 @@ def _get_heatmap_date_range(symbol_pairs, company_names, start_date: str, end_da
             try:
                 query = (
                     stock_ai.supabase.table("stock_technical_indicators")
-                    .select("symbol,exchange,date,close,volume,change_pct,cmf_20,rsi_14")
+                    .select("symbol,exchange,date,close,volume,change_pct,rsi_14")
                     .in_("symbol", chunk)
                     .eq("exchange", exchange)
                     .gte("date", start_date)
@@ -1106,7 +1106,7 @@ def _get_heatmap_single_date(symbol_pairs, company_names, date: str):
             try:
                 query = (
                     stock_ai.supabase.table("stock_technical_indicators")
-                    .select("symbol,exchange,date,close,volume,change_pct,cmf_20,rsi_14")
+                    .select("symbol,exchange,date,close,volume,change_pct,rsi_14")
                     .in_("symbol", chunk)
                     .eq("exchange", exchange)
                     .eq("date", date)
@@ -1353,7 +1353,8 @@ def get_sectors_timeline(country: str = "Egypt", months: int = 6, force_refresh:
         today = datetime.utcnow()
         window_start = (today.replace(day=1) - timedelta(days=months * 31 - 1)).strftime("%Y-%m-%d")
 
-        # Fetch technical indicators within window (date, close, volume, change_pct, cmf_20)
+        # Fetch technical indicators within the window. CMF is optional and is
+        # read only when the underlying data source provides it.
         by_exchange: Dict[str, List[str]] = {}
         for symbol, exchange in symbol_pairs:
             by_exchange.setdefault(exchange, []).append(symbol)
