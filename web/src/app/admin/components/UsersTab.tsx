@@ -57,6 +57,7 @@ interface UserDetail {
     open_positions: Record<string, any>[];
     recent_scans: Record<string, any>[];
     usage?: {
+        pageTrackingAvailable?: boolean;
         pageViews: number;
         uniquePages: number;
         topPages: { path: string; views: number; users: number }[];
@@ -886,7 +887,7 @@ export default function UsersTab() {
                                         ].map(([label, value]) => <div key={String(label)} className="border-2 border-black dark:border-white bg-white dark:bg-zinc-950 p-2"><div className="text-[9px] font-black text-zinc-500 uppercase">{label}</div><div className="font-black mt-1">{value}</div></div>)}
                                     </div>
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs font-mono">
-                                        <div><div className="text-[10px] font-black text-zinc-500 uppercase mb-1">Most used pages</div>{(selectedUser.usage?.topPages || []).slice(0, 5).map((row) => <div key={row.path} className="flex justify-between border-b border-indigo-200 dark:border-indigo-800 py-1"><span className="truncate mr-2">{row.path}</span><span>{row.views}×</span></div>)}{!selectedUser.usage?.topPages?.length && <span className="text-zinc-400">No page data yet</span>}</div>
+                                        <div><div className="text-[10px] font-black text-zinc-500 uppercase mb-1">Most used pages</div>{(selectedUser.usage?.topPages || []).slice(0, 5).map((row) => <div key={row.path} className="flex justify-between border-b border-indigo-200 dark:border-indigo-800 py-1"><span className="truncate mr-2">{row.path}</span><span>{row.views}×</span></div>)}{!selectedUser.usage?.topPages?.length && <span className="text-zinc-400">{selectedUser.usage?.pageTrackingAvailable === false ? "Page tracking is not available yet" : "No page data yet"}</span>}</div>
                                         <div><div className="text-[10px] font-black text-zinc-500 uppercase mb-1">Chat intents</div>{(selectedUser.usage?.topIntents || []).slice(0, 5).map((row) => <div key={row.intent} className="flex justify-between border-b border-indigo-200 dark:border-indigo-800 py-1"><span className="truncate mr-2">{row.intent}</span><span>{row.count}×</span></div>)}{!selectedUser.usage?.topIntents?.length && <span className="text-zinc-400">No AI telemetry yet</span>}</div>
                                     </div>
                                     <div className="text-[10px] font-bold text-indigo-700 dark:text-indigo-300 mt-3">Last active: {selectedUser.usage?.lastActiveAt ? new Date(selectedUser.usage.lastActiveAt).toLocaleString() : "—"} · Payment attempts: {selectedUser.payments?.attempts || 0} · Successful: {selectedUser.payments?.successful || 0}</div>

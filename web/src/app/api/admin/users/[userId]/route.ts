@@ -31,7 +31,7 @@ export async function GET(
       supabase.from("bot_subscriptions").select("*").eq("user_id", userId).catch(() => ({ data: [] })),
       supabase.from("positions").select("*").eq("user_id", userId).catch(() => ({ data: [] })),
       supabase.from("scan_results").select("*").limit(10).catch(() => ({ data: [] })),
-      supabase.from("user_activity_events").select("user_id,event_name,path,created_at").eq("user_id", userId).order("created_at", { ascending: false }).limit(5000).catch(() => ({ data: [] })),
+      supabase.from("user_activity_events").select("user_id,event_name,path,created_at").eq("user_id", userId).order("created_at", { ascending: false }).limit(5000).catch(() => ({ data: [], error: new Error("Activity telemetry unavailable") })),
       supabase.from("ai_chat_messages").select("user_id,role,created_at").eq("user_id", userId).order("created_at", { ascending: false }).limit(5000).catch(() => ({ data: [] })),
       supabase.from("ai_chat_sessions").select("id,user_id,created_at,updated_at").eq("user_id", userId).order("updated_at", { ascending: false }).limit(500).catch(() => ({ data: [] })),
       supabase.from("ai_analytics").select("intent,total_latency_ms,created_at").eq("user_id", userId).order("created_at", { ascending: false }).limit(5000).catch(() => ({ data: [] })),
@@ -39,12 +39,15 @@ export async function GET(
       supabase.from("local_payment_orders").select("amount_egp,status,provider,created_at,reviewed_at").eq("user_id", userId).order("created_at", { ascending: false }).limit(100).catch(() => ({ data: [] })),
     ]);
 
-    const usage = buildUserUsage({
+    const usage = {
+      ...buildUserUsage({
       events: activityRes?.data || [],
       chatMessages: chatMessagesRes?.data || [],
       chatSessions: chatSessionsRes?.data || [],
       analytics: aiAnalyticsRes?.data || [],
-    });
+      }),
+      pageTrackingAvailable: !activityRes?.error,
+    };
     const payments = [
       ...(kashierRes?.data || []).map((row: any) => ({ ...row, amount: row.amount_paid, source: "kashier" })),
       ...(localPaymentsRes?.data || []).map((row: any) => ({ ...row, amount: row.amount_egp, source: "local" })),

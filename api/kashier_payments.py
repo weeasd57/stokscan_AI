@@ -92,7 +92,7 @@ def plan_amount_egp(plan_id: str) -> float:
     if plan == "pro_6m":
         return float(os.getenv("PRO_6M_PRICE_EGP", "1000"))
     if plan == "pro_1y":
-        return float(os.getenv("PRO_1Y_PRICE_EGP", "1800"))
+        return float(os.getenv("PRO_1Y_PRICE_EGP", "1950"))
     return float(os.getenv("PRO_PRICE_EGP", os.getenv("KASHIER_PRO_PRICE_EGP", "200")))
 
 

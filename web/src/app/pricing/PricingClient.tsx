@@ -169,9 +169,9 @@ export default function PricingClient() {
   }
 
   const paidPlans = localConfig?.plans || [
-    { id: "pro", name_ar: "شهري", name_en: "Monthly", amount_egp: localConfig?.amount_egp ?? 300, days: 30 },
+    { id: "pro", name_ar: "شهري", name_en: "Monthly", amount_egp: localConfig?.amount_egp ?? 200, days: 30 },
     { id: "pro_6m", name_ar: "6 شهور", name_en: "6 Months", amount_egp: 1000, days: 180 },
-    { id: "pro_1y", name_ar: "سنة", name_en: "1 Year", amount_egp: 1800, days: 365 },
+    { id: "pro_1y", name_ar: "سنة", name_en: "1 Year", amount_egp: 1950, days: 365 },
   ];
   const selectedPlanDetails = paidPlans.find((plan: any) => plan.id === selectedPlan) || paidPlans[0];
   const proPrice = selectedPlanDetails?.amount_egp ?? 200;
