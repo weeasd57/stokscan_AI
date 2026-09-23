@@ -3,8 +3,9 @@ from unittest.mock import Mock, patch
 
 from api.daily_bot_run import (
     TelegramNotificationOutcome,
-    _build_daily_digest_message,
+    _VIP_TELEGRAM_SERVICE_TYPES,
     _notify_central_telegram,
+    _notify_free_telegram,
     _notify_vip_telegram,
     _resolve_vip_chat_target,
 )
@@ -33,21 +34,21 @@ class TelegramNotifyRoutingTests(unittest.TestCase):
         ]
         with patch("api.plan_limits.telegram_pro_channel_target", return_value="-1003699330518"), \
              patch("api.telegram_bot.get_telegram_bot", return_value=bot):
-            result = _notify_vip_telegram("vip only", "daily_digest")
+            result = _notify_vip_telegram("vip only", "weekly_performance_report")
 
         self.assertTrue(result)
         bot.send_notification.assert_called_once_with(
             "vip only", chat_id="-1003699330518", wait_for_delivery=True
         )
 
-    def test_central_notify_routes_exits_to_free_channel(self):
+    def test_central_notify_routes_exits_to_both_channels(self):
         with patch("api.daily_bot_run._notify_free_telegram", return_value=True) as free_send, \
-             patch("api.daily_bot_run._notify_vip_telegram") as vip_send, \
+             patch("api.daily_bot_run._notify_vip_telegram", return_value=TelegramNotificationOutcome(True)) as vip_send, \
              patch("api.daily_bot_run._telegram_recommendation_writes_enabled", return_value=True):
             result = _notify_central_telegram("exit", "recommendation_exit")
         self.assertTrue(result)
         free_send.assert_called_once()
-        vip_send.assert_not_called()
+        vip_send.assert_called_once()
 
     def test_central_notify_routes_recommendations_to_vip_without_scoping_error(self):
         with patch("api.daily_bot_run._notify_vip_telegram", return_value=TelegramNotificationOutcome(True)) as vip_send, \
@@ -56,23 +57,15 @@ class TelegramNotifyRoutingTests(unittest.TestCase):
         self.assertTrue(result)
         vip_send.assert_called_once()
 
-    def test_build_daily_digest_message_includes_failed_steps(self):
-        message = _build_daily_digest_message(
-            [
-                {"step": "sync_prices", "status": "success", "details": "Synced 200 symbols", "count": 200},
-                {"step": "generate_recommendations", "status": "success", "details": "Generated 3", "count": 3},
-                {"step": "news_sentiment", "status": "failed", "details": "timeout", "count": 0},
-                {"step": "weekly_adaptive_retraining", "status": "failed", "details": "Model not found", "count": 0},
-            ],
-            job_start_time="2026-09-21T14:00:00+00:00",
-            total_symbols=200,
-            trigger="scheduled",
-        )
-        self.assertIn("ملخص التشغيل اليومي", message)
-        self.assertIn("news_sentiment", message)
-        self.assertIn("توصيات جديدة", message)
-        self.assertNotIn("weekly_adaptive_retraining", message)
-        self.assertNotIn("Model not found", message)
+    def test_daily_digest_is_removed_from_vip_delivery_policy(self):
+        self.assertNotIn("daily_digest", _VIP_TELEGRAM_SERVICE_TYPES)
+
+    def test_free_messages_end_with_the_vip_ad_footer(self):
+        with patch("api.daily_bot_run._deliver_telegram_message", return_value=TelegramNotificationOutcome(True)) as deliver:
+            self.assertTrue(_notify_free_telegram("weekly summary", "weekly_performance_report_free"))
+        message = deliver.call_args.args[0]
+        self.assertTrue(message.rstrip().endswith("/pricing"))
+        self.assertIn("كل التوصيات وتعديلاتها والتفاصيل الكاملة تصل فوراً إلى قناة VIP", message)
 
 
 if __name__ == "__main__":

@@ -7,7 +7,7 @@ the production send helpers directly and published fixture data to the channel.
 from datetime import datetime, timezone
 from unittest.mock import patch
 
-from api.daily_bot_run import _send_telegram_adjustment, _send_telegram_exit
+from api.daily_bot_run import _adjustment_change_pct, _send_telegram_adjustment, _send_telegram_exit
 
 
 class _Response:
@@ -69,7 +69,8 @@ def _adjustment():
 
 @patch("api.daily_bot_run._telegram_delivery_project_allowed", return_value=True)
 @patch("api.daily_bot_run._notify_central_telegram")
-def test_direct_fixture_calls_cannot_publish(mock_notify, _mock_project):
+@patch("api.daily_bot_run._notify_free_telegram")
+def test_direct_fixture_calls_cannot_publish(_mock_free, mock_notify, _mock_project):
     assert not _send_telegram_adjustment("TYCN", "EGX", _adjustment())
     assert not _send_telegram_exit("EASB", "EGX", 10.0, 9.0, -10.0, "loss")
     mock_notify.assert_not_called()
@@ -77,7 +78,8 @@ def test_direct_fixture_calls_cannot_publish(mock_notify, _mock_project):
 
 @patch("api.daily_bot_run._telegram_delivery_project_allowed", return_value=True)
 @patch("api.daily_bot_run._notify_central_telegram", return_value=True)
-def test_claimed_adjustment_is_formatted_without_network(mock_notify, _mock_project):
+@patch("api.daily_bot_run._notify_free_telegram", return_value=True)
+def test_claimed_adjustment_is_formatted_without_network(_mock_free, mock_notify, _mock_project):
     delivered = _send_telegram_adjustment(
         "TEST", "EGX", _adjustment(),
         event_id="event-1", claim_token="claim-1",
@@ -87,17 +89,25 @@ def test_claimed_adjustment_is_formatted_without_network(mock_notify, _mock_proj
     message = mock_notify.call_args.args[0]
     assert "TEST.EGX" in message
     assert "12.50" in message and "17.50" in message
+    assert _mock_free.call_args.args[1] == "material_adjustment_teaser"
+
+
+def test_material_adjustment_threshold_uses_target_change_not_unrealised_return():
+    adjustment = _adjustment()
+    assert _adjustment_change_pct(adjustment) == 40.0
 
 
 @patch("api.daily_bot_run._telegram_delivery_project_allowed", return_value=True)
 @patch("api.daily_bot_run._notify_free_telegram", return_value=True)
-def test_claimed_exit_is_formatted_without_network(mock_notify, _mock_project):
+@patch("api.daily_bot_run._notify_vip_telegram", return_value=True)
+def test_claimed_exit_is_formatted_without_network(mock_vip, mock_free, _mock_project):
     delivered = _send_telegram_exit(
         "TEST", "EGX", 10.0, 13.5, 35.0, "win",
         event_id="event-1", claim_token="claim-1",
         event_client=_ClaimedEventClient("recommendation_closed"),
     )
     assert delivered
-    message = mock_notify.call_args.args[0]
+    message = mock_vip.call_args.args[0]
     assert "TEST.EGX" in message
     assert "+35.00%" in message
+    assert mock_free.call_args.args[0] == message

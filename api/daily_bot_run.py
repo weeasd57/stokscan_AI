@@ -762,6 +762,20 @@ def _has_valid_telegram_event_claim(event_client: Any, event_id: Optional[str], 
     return valid
 
 
+def _adjustment_change_pct(adjustment: Dict[str, Any]) -> float:
+    """Return the largest absolute target/stop change represented by an adjustment."""
+    changes: List[float] = []
+    for old_key, new_key in (("old_target", "new_target"), ("old_stop", "new_stop")):
+        try:
+            old_value = float(adjustment.get(old_key))
+            new_value = float(adjustment.get(new_key))
+        except (TypeError, ValueError):
+            continue
+        if old_value:
+            changes.append(abs((new_value - old_value) / old_value) * 100.0)
+    return max(changes, default=0.0)
+
+
 def _send_telegram_adjustment(
     symbol: str,
     exchange: str,
@@ -771,7 +785,7 @@ def _send_telegram_adjustment(
     claim_token: Optional[str] = None,
     event_client: Any = None,
 ):
-    """Send adjustment notification via Telegram to public channel topic."""
+    """Send the complete adjustment to VIP and a masked material teaser to Free."""
     if not _telegram_recommendation_writes_enabled():
         return False
     if not _has_valid_telegram_event_claim(event_client, event_id, claim_token, {"target_or_stop_adjusted"}):
@@ -793,25 +807,18 @@ def _send_telegram_adjustment(
         reason_ar = adjustment.get('reason_ar', adj_type)
 
         # The free channel receives only an upgrade notice for material moves;
-        # never disclose the symbol, price, or target/stop values there.
-        try:
-            pl_pct = abs(float(adjustment.get("pl_pct")))
-        except (TypeError, ValueError):
-            pl_pct = 0.0
-        if pl_pct > 25:
-            from api.plan_limits import telegram_free_channel_target
+        # never disclose the symbol, price, or target/stop values there. The
+        # threshold is based on the actual target/stop change, not the stock's
+        # current unrealised return.
+        material_change_pct = _adjustment_change_pct(adjustment)
+        if material_change_pct > 25:
             free_msg = (
-                "📢 *تحديث مهم على إحدى التوصيات*\n"
-                "حدث تعديل جوهري تجاوز 25%، لكن تفاصيل السهم والأرقام متاحة لمشتركي Pro فقط.\n"
+                "📢 *إعلان: تحديث جوهري على إحدى التوصيات*\n"
+                f"تم تعديل مستوى التوصية بنسبة تتجاوز `{material_change_pct:.1f}%`، "
+                "والتفاصيل الكاملة متاحة حصرياً في قناة VIP.\n"
                 f"🔗 اشترك الآن: {get_web_origin()}/pricing"
             )
-            try:
-                from api.telegram_bot import get_telegram_bot
-                bot = get_telegram_bot()
-                if bot:
-                    bot.send_notification(free_msg, chat_id=telegram_free_channel_target(), wait_for_delivery=True)
-            except Exception as exc:
-                print(f"[TELEGRAM] Free adjustment ad failed: {exc}")
+            _notify_free_telegram(free_msg, "material_adjustment_teaser")
 
         msg = (
             f"{emoji} *تحديث ذكي على التوصية* 🔧\n"
@@ -899,7 +906,7 @@ def _send_telegram_exit(
     claim_token: Optional[str] = None,
     event_client: Any = None,
 ):
-    """Send exit notification via Telegram to public channel topic."""
+    """Send recommendation closures to both VIP and the Free channel."""
     if not _telegram_recommendation_writes_enabled():
         return False
     if not _has_valid_telegram_event_claim(event_client, event_id, claim_token, {"recommendation_closed", "recommendation_stale"}):
@@ -936,7 +943,7 @@ def _send_telegram_exit(
             f"🔗 رابط سجل الصفقات: {web_origin}/scanner/backtests?tab=bots"
         )
 
-        return _notify_free_telegram(msg, "recommendation_exit")
+        return _notify_central_telegram(msg, "recommendation_exit")
 
     except Exception as e:
         print(f"[SMART_EVAL] Telegram exit notification failed for {symbol}: {e}")
@@ -1114,9 +1121,7 @@ def generate_weekly_performance_report(trigger: str = "manual", chat_id: Optiona
                 f"📅 `{start_date_str}` → `{end_date_str}`\n\n"
                 f"▪️ الصفقات المغلقة: `{total_closed}`\n"
                 f"▪️ نسبة النجاح: `{win_rate:.1f}%`\n"
-                f"▪️ متوسط العائد: `{avg_pnl:+.2f}%`\n\n"
-                f"📢 التفاصيل والتوصيات اليومية متاحة لمشتركي Pro فقط.\n"
-                f"🔗 {web_origin}/pricing"
+                f"▪️ متوسط العائد: `{avg_pnl:+.2f}%`"
             )
             _notify_free_telegram(free_msg, "weekly_performance_report_free")
             print("[WEEKLY_REPORT] Broadcasted weekly report to all stock_score subscribers.")
@@ -1142,8 +1147,8 @@ _VIP_TELEGRAM_SERVICE_TYPES = frozenset({
     "daily_recommendations",
     "daily_recommendations_manual",
     "recommendation_adjustment",
+    "recommendation_exit_vip",
     "weekly_performance_report",
-    "daily_digest",
 })
 
 _FREE_TELEGRAM_SERVICE_TYPES = frozenset({
@@ -1199,11 +1204,22 @@ def _deliver_telegram_message(message: str, chat_id: str, service_type: str, cha
 
 
 def _notify_free_telegram(message: str, service_type: str = "free_summary") -> bool:
-    """Send closures, teasers, and upgrade notices to the free Telegram channel."""
+    """Send the allowed free-channel content with the VIP upgrade footer."""
     from api.plan_limits import telegram_free_channel_target
 
+    web_origin = get_web_origin()
+    free_footer = (
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "📢 *إعلان Pro:* كل التوصيات وتعديلاتها والتفاصيل الكاملة تصل فوراً إلى قناة VIP.\n"
+        "القناة المجانية تعرض الإغلاقات والملخص الأسبوعي والإعلانات المهمة فقط.\n"
+        f"🔗 التفاصيل والاشتراك: {web_origin}/pricing"
+    )
+    message_with_footer = message.rstrip()
+    if "كل التوصيات وتعديلاتها والتفاصيل الكاملة تصل" not in message_with_footer:
+        message_with_footer = f"{message_with_footer}\n\n{free_footer}"
+
     outcome = _deliver_telegram_message(
-        message,
+        message_with_footer,
         telegram_free_channel_target(),
         service_type,
         "TELEGRAM_FREE",
@@ -1212,7 +1228,7 @@ def _notify_free_telegram(message: str, service_type: str = "free_summary") -> b
 
 
 def _notify_vip_telegram(message: str, service_type: str = "vip") -> TelegramNotificationOutcome:
-    """Send live recommendations, adjustments, and digests to the Pro VIP channel."""
+    """Send complete recommendations, updates, closures, and reports to VIP."""
     return _deliver_telegram_message(
         message,
         _resolve_vip_chat_target(),
@@ -1221,166 +1237,30 @@ def _notify_vip_telegram(message: str, service_type: str = "vip") -> TelegramNot
     )
 
 
-def _build_daily_digest_message(
-    steps_log: List[Dict[str, Any]],
-    *,
-    job_start_time: str,
-    total_symbols: int,
-    trigger: str,
-) -> str:
-    excluded_steps = {"weekly_adaptive_retraining"}
-    status_icon = {
-        "success": "✅",
-        "failed": "❌",
-        "skipped": "⏭️",
-        "started": "🔄",
-    }
-    started_at = None
-    try:
-        started_at = dt.datetime.fromisoformat(str(job_start_time).replace("Z", "+00:00"))
-    except (TypeError, ValueError):
-        started_at = None
-    duration_line = ""
-    if started_at is not None:
-        elapsed = dt.datetime.now(dt.timezone.utc) - started_at.astimezone(dt.timezone.utc)
-        duration_line = f"⏱️ *المدة:* `{int(elapsed.total_seconds() // 60)}` دقيقة\n"
-
-    lines = [
-        "📋 *ملخص التشغيل اليومي / Daily Run Digest*",
-        f"📅 `{dt.datetime.now().strftime('%Y-%m-%d %H:%M')}` | trigger=`{trigger}`",
-        duration_line.rstrip(),
-        f"📦 *الرموز المعالجة:* `{total_symbols}`",
-        "━━━━━━━━━━━━━━━━━━━━",
-    ]
-
-    for step in steps_log:
-        if step.get("step") in excluded_steps:
-            continue
-        if step.get("status") == "started":
-            continue
-        icon = status_icon.get(str(step.get("status")), "•")
-        name = step.get("step", "step")
-        details = str(step.get("details") or "")[:120]
-        count = step.get("count")
-        suffix = f" (`{count}`)" if count else ""
-        lines.append(f"{icon} *{name}*{suffix}: {details}")
-
-    failed = [
-        step for step in steps_log
-        if step.get("status") == "failed" and step.get("step") not in excluded_steps
-    ]
-    if failed:
-        lines.append("\n⚠️ *أخطاء:*")
-        for step in failed:
-            lines.append(f"• `{step.get('step')}`: {str(step.get('details') or '')[:160]}")
-
-    rec_step = next((step for step in reversed(steps_log) if step.get("step") == "generate_recommendations"), None)
-    if rec_step is not None:
-        lines.append(f"\n🎯 *توصيات جديدة:* `{rec_step.get('count', 0)}`")
-
-    return "\n".join(line for line in lines if line)
-
-
 def _notify_subscribers_for_symbol(symbol: str, exchange: str, message: str):
     """Send notification to all users subscribed to bots that track this symbol."""
-    pass # Disabled by user request: Recommendations and adjustments should only appear in public channel
+    pass # Disabled: channel publication is handled by the central VIP/Free policy.
 
 
 def _notify_service_subscribers(service_type: str, message: str):
-    """Route all service/recommendation notifications to the public channel only.
-    
-    Per user requirement: ALL stock updates, recommendations, buy/sell signals
-    must go ONLY to the public channel (-1002083067817_153). Individual subscriber
-    DMs for these events are disabled.
-    """
+    """Route service/recommendation notifications through the channel policy."""
     _notify_central_telegram(message, service_type)
-
-
-def _dispatch_similarity_notifications(results: List[Dict[str, Any]]):
-    """Format and send daily similarity scan report to the public Telegram channel topic."""
-    try:
-        if not _telegram_recommendation_writes_enabled():
-            print("[SIMILARITY_NOTIFY] Telegram recommendation delivery is read-only/disabled.")
-            return
-        from api.telegram_bot import get_telegram_bot
-        bot = get_telegram_bot()
-        if not bot:
-            print("[SIMILARITY_NOTIFY] Telegram bot is unavailable.")
-            return
-
-        # Find the best matches: win_rate >= 60% (0.6) and total_cases >= 3
-        best_scans = []
-        for r in results:
-            stats = r.get("stats") or {}
-            win_rate = stats.get("win_rate", 0.0)
-            total_cases = stats.get("total_cases", 0)
-            if win_rate >= 0.6 and total_cases >= 3:
-                best_scans.append(r)
-                
-        # Limit to top 5
-        top_scans = best_scans[:5]
-        if not top_scans:
-            print("[SIMILARITY_NOTIFY] No similarity matches passed the notification threshold.")
-            return
-
-        # Format message
-        current_date = dt.datetime.now().strftime("%Y-%m-%d")
-        web_origin = get_web_origin()
-        
-        msg_lines = [
-            f"🔎 *تقرير تشابه الأنماط التاريخية / Daily Historical Similarity* 🔎",
-            f"📅 *التاريخ:* `{current_date}`",
-            f"━━━━━━━━━━━━━━━━━━━━\n"
-        ]
-        
-        for idx, scan in enumerate(top_scans):
-            sym = scan.get("symbol", "").split(".")[0]
-            stats = scan.get("stats") or {}
-            win_rate = stats.get("win_rate", 0.0) * 100
-            avg_return = stats.get("average_return", 0.0) * 100
-            cases = stats.get("total_cases", 0)
-            
-            # Find max similarity percentage from matches
-            max_sim = max([m.get("similarity", 0.0) for m in scan.get("matches", [])], default=0.0) * 100
-            
-            msg_lines.append(
-                f"📈 *#{idx+1} {sym}* | EGX\n"
-                f"▪️ *نسبة النجاح التاريخية (Win Rate):* `{win_rate:.1f}%` 🔥\n"
-                f"▪️ *متوسط العائد التاريخي:* `{avg_return:+.1f}%`\n"
-                f"▪️ *عدد الحالات المشابهة:* `{cases}` حالات\n"
-                f"▪️ *نسبة التطابق الأقصى:* `{max_sim:.1f}%`\n"
-                f"━━━━━━━━━━━━━━━━━━━━"
-            )
-            
-        msg_lines.append(
-            f"🔗 *لفتح صفحة التشابه التاريخي ومقارنة الرسوم البيانية:*\n"
-            f"👉 [اضغط هنا لفتح المنصة]({web_origin}/scanner/technical?tab=similarity)"
-        )
-        
-        message = "\n".join(msg_lines)
-        
-        # Send to the public Telegram channel topic for Historical Similarity (Topic 151)
-        SIMILARITY_TOPIC_CHAT_ID = "-1002083067817_151"
-        try:
-            bot.send_notification(message, chat_id=SIMILARITY_TOPIC_CHAT_ID)
-            print(f"[SIMILARITY_NOTIFY] Sent report to public channel topic 151.")
-        except Exception as e:
-            print(f"[SIMILARITY_NOTIFY] Failed to send to public channel topic: {e}")
-            
-    except Exception as e:
-        print(f"[SIMILARITY_NOTIFY] Error: {e}")
 
 
 def _notify_central_telegram(message: str, service_type: str = "central"):
     """Route Telegram notifications to VIP or free channels by service type."""
-    digest_types = {"daily_digest", "system_digest"}
-    if not _telegram_recommendation_writes_enabled() and service_type not in digest_types:
+    if not _telegram_recommendation_writes_enabled():
         print(f"[CENTRAL_NOTIFY] Blocked {service_type} while recommendation delivery is read-only.")
         return False
 
     if service_type.startswith("step_failure") or service_type in {"central", "system_log"}:
         print(f"[CENTRAL_NOTIFY] Blocked internal ops message ({service_type}).")
         return False
+
+    if service_type == "recommendation_exit":
+        vip_outcome = _notify_vip_telegram(message, "recommendation_exit_vip")
+        free_delivered = _notify_free_telegram(message, service_type)
+        return bool(vip_outcome) and free_delivered
 
     if service_type in _FREE_TELEGRAM_SERVICE_TYPES:
         return _notify_free_telegram(message, service_type)
@@ -2310,7 +2190,7 @@ def _build_daily_recommendations_message(
     msg_lines = [
         f"🤖 *{title}*",
         f"📅 {current_date} | 🇪🇬 البورصة المصرية",
-        "ℹ️ القناة المجانية تستقبل الملخصات والإعلانات فقط. التوصيات والتعديلات اليومية متاحة لمشتركي Pro.",
+        "🔐 *محتوى Pro كامل* — التوصيات والتعديلات والتفاصيل الفنية لمشتركي VIP.",
         "━━━━━━━━━━━━━━━━━━━━\n",
     ]
 
@@ -3325,11 +3205,6 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
                     "target_return": 0.05,
                     "stop_loss": -0.03
                 })
-                # Send telegram notifications to similarity subscribers
-                try:
-                    _dispatch_similarity_notifications(results)
-                except Exception as notify_err:
-                    print(f"[SIMILARITY] Failed to send subscriber notifications: {notify_err}")
             _record_step("historical_similarity", True, f"{len(results)} symbols scanned", len(results))
         except Exception as e:
             _record_step("historical_similarity", False, str(e)[:200], 0)
@@ -3358,33 +3233,12 @@ async def run_daily_job(dry_run: bool = False, model_filter: str = None, skip_sy
             _record_step("refresh_market_status", False, str(e)[:200], 0)
             print(f"[MARKET_STATUS] Error: {e}")
 
-        # 9. Daily Digest Telegram Report (VIP channel)
-        print("\n>>> STEP 9: Sending Daily Digest to Pro VIP channel...")
-        _start_step("daily_digest", "Sending daily run digest to Pro VIP Telegram channel")
-        try:
-            digest_message = _build_daily_digest_message(
-                steps_log,
-                job_start_time=job_start_time,
-                total_symbols=total_symbols,
-                trigger=trigger,
-            )
-            digest_outcome = _notify_vip_telegram(digest_message, "daily_digest")
-            _record_step(
-                "daily_digest",
-                bool(digest_outcome),
-                "Daily digest delivered to VIP" if digest_outcome else "Daily digest delivery failed",
-                0,
-            )
-        except Exception as digest_err:
-            _record_step("daily_digest", False, str(digest_err)[:200], 0)
-            print(f"[DAILY_DIGEST] Error: {digest_err}")
-
-        # 10.1 Rebase the immutable history archive infrequently. The scanner
+        # 9.1 Rebase the immutable history archive infrequently. The scanner
         # already combines this archive with a 45-day live Supabase tail, so a
         # monthly Dataset commit keeps long history current without turning HF
         # storage into another high-frequency operational database.
         if trigger == "scheduled" and daily_bulk_prices:
-            print("\n>>> STEP 10.1: Checking private HF history snapshot rebase...")
+            print("\n>>> STEP 9.1: Checking private HF history snapshot rebase...")
             _start_step("hf_history_rebase", "Checking whether the EGX history archive needs a monthly rebase")
             try:
                 from api.hf_history_cache import (
