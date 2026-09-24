@@ -1,0 +1,13 @@
+{
+  "model": "vhagar.pkl",
+  "status": "artifact_ready_for_decision_integration",
+  "artifact_sha256": "b4f0bc6b9b3edda758b25da8bead51ee868bf3ee0b9e652a4d1439511fd7e342",
+  "artifact_bytes": 190327,
+  "source_commit": "f528027",
+  "test_start": "2023-05-23",
+  "test_end": "2026-08-26",
+  "mean_net_return_pct_per_trade": 3.2114094314138475,
+  "mean_net_return_pct_excluding_extreme_price_changes": 3.171133082309067,
+  "round_trip_cost_bps": 40
+}
+
