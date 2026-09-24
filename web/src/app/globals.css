@@ -1080,10 +1080,23 @@ body.antigrafity-theme #main-content {
 /* Keep the profile surface aligned with the pricing page in dark mode. */
 .profile-page-shell {
   background-color: #ffffff;
+  background-image: linear-gradient(rgba(15, 23, 42, 0.08) 1px, transparent 1px), linear-gradient(90deg, rgba(15, 23, 42, 0.08) 1px, transparent 1px);
+  background-size: 36px 36px;
 }
 
 html.dark .profile-page-shell {
-  background-color: #050505;
+  background-color: #030303;
+  background-image: linear-gradient(rgba(255, 255, 255, 0.055) 1px, transparent 1px), linear-gradient(90deg, rgba(255, 255, 255, 0.055) 1px, transparent 1px);
+  background-size: 36px 36px;
+}
+
+/* Profile panels use the same near-black surface as the pricing page. */
+html.dark .profile-page-shell .dark\:bg-zinc-900 {
+  background-color: #090909 !important;
+}
+
+html.dark .profile-page-shell .dark\:bg-zinc-800 {
+  background-color: #050505 !important;
 }
 
 /* Subtle landing-page motion: purposeful, inexpensive, and accessible. */
